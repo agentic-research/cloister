@@ -120,8 +120,22 @@ export default {
       return new Response("method not allowed", { status: 405 });
     }
 
+    // Identity proxy → notme-bot (service binding in workerd, both local and prod).
+    // Agents and clients hit /identity/* for JWT issuance, passkeys, cert exchange.
+    if (url.pathname.startsWith("/identity/")) {
+      return proxyToNotme(request, env);
+    }
+
     if (url.pathname === "/health") {
-      return Response.json({ status: "ok", service: "cloister" });
+      return Response.json({
+        status: "ok",
+        service: "cloister",
+        backends: {
+          notme:  "service-binding",
+          rosary: env.ROSARY_MCP_URL || "not configured",
+          signet: env.SIGNET_URL     || "not configured",
+        },
+      });
     }
 
     return new Response("not found", { status: 404 });
@@ -263,4 +277,25 @@ async function handleToolCall(req: JsonRpcRequest, env: Env): Promise<JsonRpcRes
 function beadStoreFor(repoPath: string, env: Env): DurableObjectStub {
   const id = env.BEAD_STORE.idFromName(repoPath);
   return env.BEAD_STORE.get(id);
+}
+
+/**
+ * Proxy /identity/* to notme-bot via service binding.
+ *
+ * Strips the /identity prefix so notme sees its own root paths.
+ * Local dev: wrangler dev in ../notme/worker/ must be running.
+ * Prod: service binding routes automatically to the deployed Worker.
+ *
+ * notme provides: JWT issuance (Ed25519), passkey auth, agent identity certs,
+ * federated identity linking, DPoP proof validation.
+ *
+ * signet (Go, not workerd) provides key exchange at a lower layer — accessed
+ * separately via SIGNET_URL when configured.
+ */
+function proxyToNotme(request: Request, env: Env): Promise<Response> {
+  const url      = new URL(request.url);
+  const stripped = url.pathname.replace(/^\/identity/, "") || "/";
+  const upstream = new URL(stripped + url.search, "https://notme-bot/");
+  const proxied  = new Request(upstream.toString(), request);
+  return env.NOTME.fetch(proxied);
 }

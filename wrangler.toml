@@ -3,6 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# ── Durable Objects ───────────────────────────────────────────────────────
 [durable_objects]
 bindings = [
   { name = "BEAD_STORE", class_name = "BeadStore" }
@@ -12,5 +13,23 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["BeadStore"]
 
-# Local dev: wrangler dev runs workerd locally, DOs use native SQLite
-# Prod: wrangler deploy — same code, Cloudflare-managed DOs
+# ── Service bindings (workerd Workers) ────────────────────────────────────
+# notme-bot: agent identity authority — Ed25519 certs, JWT minting, passkeys
+# Local dev: run `wrangler dev` in ../notme/worker/ first (port 8788)
+# Prod: automatically routes to deployed notme-bot Worker
+[[services]]
+binding = "NOTME"
+service = "notme-bot"
+
+# ── Non-workerd services (HTTP proxy, local dev only) ─────────────────────
+# signet  (Go)             — key exchange / identity layer, port TBD
+# ley-line-open (Rust)     — data plane primitives, FUSE mount — library not service
+# rosary  (Rust)           — orchestrator MCP server, stdio or port 8383
+# mache   (Go)             — code intelligence FUSE, port TBD
+# crumb   (Go)             — knowledge capture, port TBD
+#
+# These run as local processes and are proxied via PROXY_* vars in [vars].
+
+[vars]
+ROSARY_MCP_URL  = "http://localhost:8383/mcp"
+SIGNET_URL      = ""   # not yet deployed, TBD

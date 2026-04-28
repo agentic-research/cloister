@@ -52,5 +52,13 @@ export interface Bead {
 
 // Env bindings — matches wrangler.toml
 export interface Env {
+  // Durable Objects
   BEAD_STORE: DurableObjectNamespace;
+
+  // Service bindings (workerd-native)
+  NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs
+
+  // Vars (local dev: process addresses for non-workerd backends)
+  ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
+  SIGNET_URL:     string;  // signet key exchange (empty until deployed)
 }
