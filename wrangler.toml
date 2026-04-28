@@ -1,0 +1,16 @@
+name = "cloister"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "BEAD_STORE", class_name = "BeadStore" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BeadStore"]
+
+# Local dev: wrangler dev runs workerd locally, DOs use native SQLite
+# Prod: wrangler deploy — same code, Cloudflare-managed DOs

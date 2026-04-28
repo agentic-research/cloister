@@ -1,0 +1,17 @@
+{
+  "name": "cloister",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable MCP gateway — isolates rosary/mache/crumb tools in workerd Durable Objects",
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.101.0"
+  }
+}
