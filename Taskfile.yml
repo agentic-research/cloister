@@ -1,0 +1,50 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Bundle Worker for Cloudflare / wrangler dev
+    cmds:
+      - pnpm exec wrangler build
+    sources:
+      - src/**/*.ts
+      - tsconfig.json
+    generates:
+      - .wrangler/tmp/build-*/index.js
+
+  build:local:
+    desc: Bundle Worker for local workerd (embeds into dist/)
+    cmds:
+      - pnpm exec wrangler build --outdir dist
+    sources:
+      - src/**/*.ts
+    generates:
+      - dist/index.js
+
+  test:
+    desc: Run tests inside workerd (real DOs, real SQLite)
+    cmds:
+      - pnpm exec vitest run
+
+  test:watch:
+    desc: Watch mode
+    cmds:
+      - pnpm exec vitest
+
+  type-check:
+    desc: TypeScript type check (no emit)
+    cmds:
+      - pnpm exec tsc --noEmit
+
+  dev:
+    desc: Start local dev server on :8787
+    cmds:
+      - pnpm exec wrangler dev
+
+  serve:local:
+    desc: Run via workerd directly (requires build:local first)
+    cmds:
+      - npx workerd serve config.capnp --experimental
+
+  lint:
+    desc: Type-check + test
+    deps: [type-check, test]
