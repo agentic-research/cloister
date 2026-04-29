@@ -1,3 +1,6 @@
 node_modules/
 .wrangler/
 dist/
+
+# CRUMB - personal memory (not tracked)
+.crumb/

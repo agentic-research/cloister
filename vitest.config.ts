@@ -18,7 +18,9 @@ const workerConfig = {
 export default defineConfig({
   plugins: [cloudflareTest(workerConfig)],
   test: {
-    // @ts-expect-error cloudflarePool not in vitest's pool type union
     pool: cloudflarePool(workerConfig),
+    // The CC plugin lives at hooks/ and is tested via node --test (not vitest)
+    // because workerd has no `node:test`. Keep its tests off vitest's path.
+    exclude: ["**/node_modules/**", "**/dist/**", "hooks/**"],
   },
 });
