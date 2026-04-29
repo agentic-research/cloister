@@ -108,13 +108,28 @@ npx workerd serve config.capnp --experimental
 ## Tasks
 
 ```bash
-task lint           # tsc + 68 worker tests + 11 plugin tests
-task test           # 68 vitest tests in real workerd (real DOs, real SQLite)
-task test:plugin    # 11 node --test tests for the CC plugin script
+task lint           # tsc + worker tests + plugin tests
+task test           # vitest in real workerd (real DOs, real SQLite)
+task test:plugin    # node --test for the CC plugin script
 task build:local    # bundle for workerd
 task dev            # wrangler dev hot-reload
 task serve:local    # workerd serve config.capnp
+task smoke          # spins up leyline + cloister, exercises full chain
+task apk            # build APK via melange (signed)
+task image          # compose distroless OCI image via apko (→ cloister.tar)
+task image:check    # validate melange.yaml + apko.yaml without a real build
 ```
+
+## Hardening knobs
+
+- **`ALLOWED_ORIGINS`** (env var, comma-separated) — CORS allowlist. Default
+  is wildcard echo for dev convenience. Set to e.g.
+  `http://localhost:*,https://app.example.com` for prod. Supports a single
+  trailing `:*` port wildcard per entry; no general globs. Disallowed
+  origins get the `null` sentinel back, which browsers refuse.
+- **Container** — `task image` produces a distroless OCI image
+  (`cloister.tar`), workerd + bundle only, no shell/pkgmgr, runs as
+  uid `65532`. Mount `/data` for DO SQLite persistence.
 
 ## Claude Code plugin
 

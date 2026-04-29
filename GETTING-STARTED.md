@@ -171,7 +171,21 @@ See [hooks/README.md](hooks/README.md) for the full plugin contract.
 
 ## 7. Verify the full chain
 
-With `leyline daemon --mcp-port 8384` and cloister both running:
+The fast path: `task smoke` spins up leyline + cloister on private ports,
+exercises the full chain, and tears everything down. Use this in CI or
+whenever you want a single-command "is the chain wired?" check.
+
+```sh
+task smoke
+```
+
+The script (`scripts/e2e-smoke.sh`) is dev-mode — it talks to leyline
+directly rather than going through `notme-proxy`, since notme-proxy
+requires a real bridge cert pair. From cloister's perspective the
+behavior is identical; only the transport differs.
+
+If you'd rather drive it manually with `leyline daemon --mcp-port 8384`
+and cloister running:
 
 ```sh
 # 1. Edit a file (any way you like)
@@ -193,15 +207,44 @@ curl -s -X POST http://localhost:8787/mcp \
 If the second call returns `fn main()` info, the chain
 `CC → cloister → LLO` is wired correctly.
 
-## 8. Where to next
+## 8. Ship it as a container
+
+```sh
+task apk:keygen   # one-time — generate the melange signing key
+task image        # melange build → apko compose → cloister.tar
+docker load < cloister.tar
+docker run -p 8787:8787 -v $(pwd)/data:/data cloister:latest
+```
+
+`task image:check` parses `melange.yaml` + `apko.yaml` end-to-end without
+running a real build — handy in CI. The output image is distroless: workerd
++ the cloister bundle, runs as uid `65532`, no shell, no pkgmgr. See
+[docs/ARCHITECTURE.md#packaging-melange--apko](docs/ARCHITECTURE.md#packaging-melange--apko)
+for the layout.
+
+## 9. Hardening for prod
+
+When you move past local dev, set:
+
+```sh
+# Comma-separated; supports a single :* port glob per entry. Disallowed
+# origins get the "null" sentinel back, which browsers refuse.
+ALLOWED_ORIGINS="https://app.example.com,http://localhost:*"
+```
+
+Other prod knobs (still ADR-0001 work items):
+- notme JWT middleware on `POST /mcp`
+- mTLS via notme-proxy in front of `LLO_MCP_URL`
+- mount `/data` as a persistent volume for the BeadStore DO SQLite files
+
+## 10. Where to next
 
 - **Want to add a new MCP tool family?** Implement `ToolBackend` in `src/backends/`,
   register it in `src/index.ts`'s `McpEdgeRoute([...])`. See `LspToolBackend`
   and `LeylineLifecycleBackend` as templates.
 - **Want a new HTTP route (not MCP)?** Implement `EdgeRoute` in `src/routes/`,
   append to `ROUTES` in `src/index.ts`. See `HealthRoute`.
-- **Want to ship as a container?** ADR-0001 covers the apko/melange story
-  ([docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md)).
 - **Want the architecture rationale?** [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md)
   explains why cloister is an edge router rather than an MCP gateway, and
   why workerd's service-binding model replaces Istio-style mTLS.
+- **Want the packaging rationale?** [ADR-0001](docs/adr/0001-workerd-mcp-gateway.md).

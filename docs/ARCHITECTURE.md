@@ -242,30 +242,33 @@ shared state.
 Bindings live in two files that must stay in sync — one source of truth for
 each launcher:
 
-| Binding          | Type                        | Where                                       | Used by                                        |
-| ---------------- | --------------------------- | ------------------------------------------- | ---------------------------------------------- |
-| `BEAD_STORE`     | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | `BeadToolBackend`                              |
-| `NOTME`          | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | `NotmeIdentityRoute`                           |
-| `LLO_MCP_URL`    | text var                    | `wrangler.toml`, `config.capnp`             | `LspToolBackend`, `LeylineLifecycleBackend`    |
-| `ROSARY_MCP_URL` | text var                    | `wrangler.toml`, `config.capnp`             | (future) rosary passthrough                    |
-| `SIGNET_URL`     | text var                    | `wrangler.toml`, `config.capnp`             | (future) signet binding                        |
+| Binding            | Type                        | Where                                       | Used by                                        |
+| ------------------ | --------------------------- | ------------------------------------------- | ---------------------------------------------- |
+| `BEAD_STORE`       | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | `BeadToolBackend`                              |
+| `NOTME`            | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | `NotmeIdentityRoute`                           |
+| `LLO_MCP_URL`      | text var                    | `wrangler.toml`, `config.capnp`             | `LspToolBackend`, `LeylineLifecycleBackend`    |
+| `ROSARY_MCP_URL`   | text var                    | `wrangler.toml`, `config.capnp`             | (future) rosary passthrough                    |
+| `SIGNET_URL`       | text var                    | `wrangler.toml`, `config.capnp`             | (future) signet binding                        |
+| `ALLOWED_ORIGINS`  | text var (optional)         | env-only (unset in wrangler/capnp defaults) | `pickAllowedOrigin` in `src/cors.ts`           |
 
 ## Packaging (melange + apko)
 
-cloister and rosary have different security profiles and are packaged
-separately:
+cloister ships as a **distroless OCI image** built by `task image`. The
+recipe lives in `melange.yaml` (APK build) + `apko.yaml` (image compose).
 
 ```mermaid
 graph TB
-    subgraph cloister_pkg ["cloister apko image (minimal)"]
-        WD["workerd binary"]
-        JS["dist/index.js\n(wrangler build output)"]
-        CFG["config.capnp"]
+    subgraph cloister_pkg ["cloister.tar — apko output"]
+        WD["/usr/bin/workerd"]
+        JS["/usr/share/cloister/index.js\n(wrangler build output)"]
+        CFG["/usr/share/cloister/config.capnp"]
+        DATA["/data (volume mount\nfor DO SQLite)"]
         WD --- JS
         WD --- CFG
+        WD -.->|reads/writes| DATA
     end
 
-    subgraph rosary_pkg ["rosary apko image (permissive)"]
+    subgraph rosary_pkg ["rosary apko image (permissive — separate)"]
         RB["rosary binary"]
         GIT["git"]
         DOLT["dolt"]
@@ -276,9 +279,22 @@ graph TB
     end
 ```
 
-cloister: no shell, no subprocesses, non-root, read-only FS — fully
-hardenable. rosary: needs subprocess caps (git, dolt, claude-cli),
-writable volumes — separate profile.
+What `task image` produces:
+
+- workerd binary + the wrangler-built JS bundle + `config.capnp`
+- no shell, no package manager, no subprocesses
+- runs as `uid 65532` (non-root)
+- entrypoint `workerd serve --experimental /usr/share/cloister/config.capnp`
+- two architectures: `x86_64` + `aarch64`
+- per-origin layering — same upstream packages share a layer, so updates
+  pull only the changed layer (~70% smaller deltas)
+
+cloister's security profile is fully hardenable. rosary lives in its own
+image because it needs subprocess caps (git, dolt, claude-cli) and writable
+volumes.
+
+`task image:check` parses `melange.yaml` + `apko.yaml` end-to-end without
+running a real build — useful in CI before bumping versions.
 
 ## Security surface
 
@@ -289,8 +305,9 @@ writable volumes — separate profile.
 | notme proxy      | SSRF?                               | `NOTME` is a service binding (not a user-controlled URL)  |
 | LLO HTTP         | SSRF                                | `LLO_MCP_URL` is an env var, not a request param          |
 | rosary proxy     | SSRF                                | `ROSARY_MCP_URL` is an env var                            |
-| CORS             | `*` in local dev                    | Tighten to specific origins before prod                   |
+| CORS             | `*` in local dev                    | `ALLOWED_ORIGINS` env var enables a literal+`:*`-port allowlist; disallowed origins receive `null` sentinel — see `src/cors.ts` |
 | notme vault      | Side channel                        | Vault has no network — only reachable via service binding |
+| Container surface| Shell, pkgmgr, root                 | Distroless apko image; no shell, no pkgmgr, runs as uid 65532 |
 
 ## Where to next
 

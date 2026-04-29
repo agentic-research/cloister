@@ -81,13 +81,18 @@ tools to rosary is obsolete — tool routing is now explicit per backend, not fa
 
 - [x] Wire `lsp_*` and lifecycle ops to ley-line-open via `LLO_MCP_URL` (ADR-0002)
 - [x] Ship the `cloister-stale-sync` Claude Code plugin (ADR-0002, hooks/)
+- [x] Tighten CORS from `*` — env-driven `ALLOWED_ORIGINS` allowlist with port-`:*`
+      glob support, falls back to wildcard for dev (commit `3b4f5e6`, `src/cors.ts`)
+- [x] Write `melange.yaml` for cloister package and `apko.yaml` composing the
+      distroless OCI image (commit `5843027`, `task apk` / `task image`).
+      Note: shipped as a *cloister-only* image, not "cloister + rosary"; the
+      composition story lives at deploy time (pod / compose), not in apko.
+- [x] End-to-end smoke harness (`scripts/e2e-smoke.sh`, `task smoke`) exercises
+      `curl → cloister → leyline` in dev mode (no notme-proxy hop)
 - [ ] Add notme JWT auth middleware to `POST /mcp` for production hardening
-- [ ] Write melange.yaml for cloister package (workerd binary + dist/index.js + config.capnp)
-- [ ] Write apko.yaml composing cloister + rosary images
 - [ ] Add `mache_*` tool family as a new `ToolBackend` (proxy to mache HTTP endpoint)
 - [ ] Add rosary passthrough as a `ToolBackend` (`rsry_*` → `ROSARY_MCP_URL`)
 - [ ] Add signet binding when signet gains an HTTP MCP surface
-- [ ] Tighten CORS from `*` to specific origins before prod deploy
 - [ ] Add DoltLite evaluation — if DoltLite WASM ships stable, replace BeadStore SQLite with
       version-controlled prolly-tree storage for branch-per-agent bead isolation
 
