@@ -66,3 +66,11 @@ hooks/hooks.json             PostToolUse matcher + command
 hooks/sync.mjs               the script — reads stdin, POSTs reparse
 hooks/test/sync.test.mjs     node --test suite (no extra deps)
 ```
+
+## See also
+
+- [../README.md](../README.md) — cloister overview
+- [../GETTING-STARTED.md](../GETTING-STARTED.md) — install + wire upstreams + verify
+- [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) — request routing diagrams
+- [../docs/adr/0002-edge-router-protocol-agnostic-backends.md](../docs/adr/0002-edge-router-protocol-agnostic-backends.md)
+  — why `LeylineLifecycleBackend` is a sibling of `LspToolBackend`

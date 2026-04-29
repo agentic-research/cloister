@@ -131,9 +131,22 @@ of service bindings is preserved end-to-end.
 
 ## Work items
 
-- [x] Land the `Router` + `EdgeRoute` + `ToolBackend` scaffold in `src/`
+- [x] Land the `Router` + `EdgeRoute` + `ToolBackend` scaffold in `src/` (commit `c176e4e`)
 - [x] Migrate existing `bead_*` and `/identity/*` paths through the new abstraction
 - [x] Add contract tests: route matching, tools/list aggregation, backend isolation,
       duplicate-tool detection
-- [ ] (cloister-ac8bcf) Implement `UdsHttpToolBackend` exposing `lsp_*`, register it
-- [ ] (cloister-acbf27) Land CC plugin as MCP client; no cloister-side changes expected
+- [x] (cloister-ac8bcf) Implement `LspToolBackend` exposing `lsp_*` over HTTP to
+      `LLO_MCP_URL`, register it (commit `45cc5cb`). Note: shipped as HTTP rather than
+      UDS — UDS is fronted by `notme-proxy` in prod, so cloister stays HTTP-only.
+- [x] (cloister-acbf27) Add `LeylineLifecycleBackend` (`reparse | enrich | status`) and
+      ship the `cloister-stale-sync` Claude Code plugin in this repo (commit `c46a8f5`).
+      Plugin auto-fires `reparse` on every Edit to keep `lsp_*` results fresh.
+- [x] Add `LLO_MCP_URL` to both `wrangler.toml` and `config.capnp` (commit `4f970f6`)
+
+## See also
+
+- [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice and packaging story
+- [../../README.md](../../README.md) — what each tenant does
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + sequence diagrams
+- [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup
+- [../../hooks/README.md](../../hooks/README.md) — `cloister-stale-sync` plugin contract

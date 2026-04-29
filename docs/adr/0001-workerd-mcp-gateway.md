@@ -69,14 +69,31 @@ rosary image is a separate package with its own security profile (needs git, dol
   not service bindings, which adds latency
 - `config.capnp` must be kept in sync with `wrangler.toml` manually — two sources of truth for bindings
 
+## Status update (2026-04-28)
+
+The original "MCP gateway" framing has been superseded by [ADR-0002](0002-edge-router-protocol-agnostic-backends.md),
+which reframes cloister as an SSE/HTTP edge router with protocol-agnostic backends.
+The packaging and runtime decisions in this ADR remain in force; only the conceptual
+shape of "what cloister is" has been generalized. The bullet about routing unknown
+tools to rosary is obsolete — tool routing is now explicit per backend, not fall-through.
+
 ## Work items
 
-- [ ] Wire rosary passthrough in `handleToolCall` — forward unknown tools to `ROSARY_MCP_URL`
+- [x] Wire `lsp_*` and lifecycle ops to ley-line-open via `LLO_MCP_URL` (ADR-0002)
+- [x] Ship the `cloister-stale-sync` Claude Code plugin (ADR-0002, hooks/)
 - [ ] Add notme JWT auth middleware to `POST /mcp` for production hardening
 - [ ] Write melange.yaml for cloister package (workerd binary + dist/index.js + config.capnp)
 - [ ] Write apko.yaml composing cloister + rosary images
-- [ ] Add mache tool routing (code intelligence tools proxied to mache HTTP endpoint)
+- [ ] Add `mache_*` tool family as a new `ToolBackend` (proxy to mache HTTP endpoint)
+- [ ] Add rosary passthrough as a `ToolBackend` (`rsry_*` → `ROSARY_MCP_URL`)
 - [ ] Add signet binding when signet gains an HTTP MCP surface
 - [ ] Tighten CORS from `*` to specific origins before prod deploy
 - [ ] Add DoltLite evaluation — if DoltLite WASM ships stable, replace BeadStore SQLite with
       version-controlled prolly-tree storage for branch-per-agent bead isolation
+
+## See also
+
+- [ADR-0002](0002-edge-router-protocol-agnostic-backends.md) — current architecture
+- [../../README.md](../../README.md) — what cloister exposes today
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + diagrams
+- [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup

@@ -1,46 +1,76 @@
 # cloister
 
-Portable MCP gateway. Runs identically on your laptop via `workerd` and on Cloudflare Workers in production. One HTTP port, routes everywhere.
+SSE/HTTP edge router for the ART constellation. Same TypeScript bundle runs
+locally on `workerd` and on Cloudflare Workers in production. One HTTP port,
+one routing table, protocol-agnostic backends.
 
 ```mermaid
 graph LR
     Client["MCP client\n(Claude Code, curl, any SSE reader)"]
 
     subgraph cloister ["cloister :8787 (workerd)"]
-        GW["Worker\nGateway"]
-        DO["BeadStore DO\nSQLite per repo"]
-        GW -->|bead_*| DO
+        direction TB
+        ROUTER["Router\nEdgeRoute table"]
+        MCP["McpEdgeRoute\n/mcp"]
+        BEADS["BeadToolBackend\nbead_*"]
+        LSP["LspToolBackend\nlsp_*"]
+        LIFE["LeylineLifecycleBackend\nreparse / enrich / status"]
+        ID["NotmeIdentityRoute\n/identity/*"]
+        HLT["HealthRoute\n/health"]
+
+        ROUTER --> HLT
+        ROUTER --> ID
+        ROUTER --> MCP
+        MCP --> BEADS
+        MCP --> LSP
+        MCP --> LIFE
     end
 
-    subgraph backends ["backends"]
-        NOTME["notme\nidentity :8788"]
-        ROSARY["rosary MCP\norchestration :8383"]
-    end
+    DO["BeadStore DO\nSQLite per repo"]
+    NOTME["notme worker\nidentity (no-net vault)"]
+    LLO["ley-line-open daemon\n(via notme-proxy in prod)"]
 
-    Client -->|POST /mcp\nJSON-RPC| GW
-    Client -->|GET /mcp\nSSE stream| GW
-    GW -->|/identity/*\nservice binding| NOTME
-    GW -->|unknown tools\nHTTP proxy| ROSARY
+    Client -->|POST /mcp\nJSON-RPC| ROUTER
+    Client -->|GET /mcp\nSSE| ROUTER
+    BEADS --> DO
+    ID -->|service binding| NOTME
+    LSP -->|HTTP\nLLO_MCP_URL| LLO
+    LIFE -->|HTTP\nLLO_MCP_URL| LLO
 ```
+
+The architecture: ADR-0002 reframes cloister as an SSE/HTTP edge router with
+protocol-agnostic backends. MCP is one tenant of the pipe; identity is
+another; future tenants (gRPC, WebSocket) plug into the same `EdgeRoute`
+table. Read the rationale: [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md).
 
 ## What it does
 
-- **Bead CRUD** — creates, searches, and tracks work items in per-repo Durable Objects (native SQLite, no Dolt required at the gateway layer)
-- **Identity proxy** — forwards `/identity/*` to [notme](https://github.com/agentic-research/notme) via workerd service binding (no network hop in prod)
-- **Orchestration proxy** — forwards rosary tools (decompose, dispatch, workspace) to rosary's MCP HTTP endpoint
-- **SSE streaming** — standard `text/event-stream` (`data: {...}\n\n`) — any language's EventSource reads it
+- **Bead CRUD** — `bead_create | update | search | list | close | comment` against
+  per-repo Durable Objects (native SQLite, one DB instance per repo path).
+- **LSP forwarding** — `lsp_hover | defs | refs | symbols | diagnostics` proxied
+  to `ley-line-open` over HTTP, via `notme-proxy` UDS in prod.
+- **Daemon lifecycle** — `reparse | enrich | status` forwarded to the same
+  `ley-line-open` daemon. The Claude Code plugin auto-fires `reparse` on every
+  edit so LSP results stay fresh.
+- **Identity proxy** — `/identity/*` forwards to [notme](https://github.com/agentic-research/notme)
+  over a workerd service binding (the notme vault has no network — cloister
+  is the only thing on the network in front of it).
+- **SSE streaming** — `GET /mcp` returns standard `text/event-stream`; any
+  language's EventSource reads it without MCP-specific libraries.
+- **Claude Code plugin** — `cloister-stale-sync` ships in this repo; closes the
+  stale-rust-analyzer gap inside long CC sessions. See [hooks/README.md](hooks/README.md).
 
 ## Quickstart
 
 ```bash
-# Terminal 1 — rosary (orchestration)
-rsry serve --transport http --port 8383
+# Terminal 1 — ley-line-open daemon (for lsp_* + reparse/enrich/status)
+leyline daemon --mcp-port 8384
 
-# Terminal 2 — notme (identity, optional)
+# Terminal 2 — cloister
+pnpm install && task dev    # → http://localhost:8787
+
+# Terminal 3 — notme (optional, for /identity/*)
 cd ../notme/worker && wrangler dev --port 8788
-
-# Terminal 3 — cloister
-pnpm dev   # → http://localhost:8787
 ```
 
 Wire Claude Code:
@@ -58,35 +88,66 @@ Smoke test:
 ```bash
 curl -s -X POST http://localhost:8787/mcp \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' | jq .result.tools[].name
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
+  | jq '.result.tools[].name'
 ```
+
+For step-by-step setup including upstream wiring and end-to-end verification,
+see [GETTING-STARTED.md](GETTING-STARTED.md).
 
 ## Run via workerd directly (no Cloudflare account)
 
 ```bash
-pnpm run build:local          # bundle → dist/index.js
+pnpm run build:local                           # bundle → dist/index.js
 npx workerd serve config.capnp --experimental
 ```
+
+`config.capnp` and `wrangler.toml` are kept in sync: same bindings (`BEAD_STORE`,
+`NOTME`, `ROSARY_MCP_URL`, `LLO_MCP_URL`, `SIGNET_URL`) on both paths.
 
 ## Tasks
 
 ```bash
-task test          # 22 tests in real workerd (real DOs, real SQLite)
-task build:local   # bundle for workerd
-task dev           # wrangler dev hot-reload
-task serve:local   # workerd serve config.capnp
+task lint           # tsc + 68 worker tests + 11 plugin tests
+task test           # 68 vitest tests in real workerd (real DOs, real SQLite)
+task test:plugin    # 11 node --test tests for the CC plugin script
+task build:local    # bundle for workerd
+task dev            # wrangler dev hot-reload
+task serve:local    # workerd serve config.capnp
 ```
+
+## Claude Code plugin
+
+The repo doubles as a Claude Code plugin. The plugin root is the repo root
+(`.claude-plugin/plugin.json`) — the worker code and the plugin ship together.
+
+```sh
+# Install:
+claude plugin add ~/path/to/cloister
+```
+
+It registers a `PostToolUse` hook (`Edit | Write | MultiEdit | NotebookEdit`)
+that fires `reparse` against cloister so `lsp_*` tools stay accurate inside
+long sessions. Config + tests: [hooks/README.md](hooks/README.md).
 
 ## Ecosystem
 
-| Service | Runtime | Role |
-|---------|---------|------|
-| cloister | workerd / CF Workers | MCP gateway (this repo) |
-| [notme](https://github.com/agentic-research/notme) | workerd / CF Workers | Agent identity, Ed25519 certs |
-| rosary | Rust binary | Orchestration, bead tracking, dispatch |
-| mache | Go binary | Code intelligence FUSE |
-| signet | Go binary | Key exchange |
-| ley-line-open | Rust library | Data plane primitives |
+| Service                                                      | Runtime              | Role                                          |
+| ------------------------------------------------------------ | -------------------- | --------------------------------------------- |
+| cloister                                                     | workerd / CF Workers | Edge router (this repo)                       |
+| [notme](https://github.com/agentic-research/notme)           | workerd / CF Workers | Identity authority + UDS-front for daemons    |
+| [ley-line-open](https://github.com/agentic-research/ley-line-open) | Rust daemon    | Tree-sitter parse + LSP enrichment + MCP HTTP |
+| rosary                                                       | Rust binary          | Orchestration, bead tracking, dispatch        |
+| mache                                                        | Go binary            | Code intelligence FUSE                        |
+| signet                                                       | Go binary            | Key exchange                                  |
+
+## Documentation map
+
+- [GETTING-STARTED.md](GETTING-STARTED.md) — install, run, smoke-test, wire upstreams, install the plugin
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime model, request routing, component map, packaging
+- [docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
+- [docs/adr/0002-edge-router-protocol-agnostic-backends.md](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why edge router, not MCP gateway
+- [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
 
 ## License
 
