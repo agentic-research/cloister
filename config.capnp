@@ -19,7 +19,8 @@ const config :Workerd.Config = (
       worker = .cloisterWorker,
     ),
 
-    # Internet access — for proxying to rosary (ROSARY_MCP_URL) and signet
+    # Internet access — for proxying to rosary (ROSARY_MCP_URL), ley-line-open
+    # (LLO_MCP_URL — usually via notme-proxy in prod), and signet.
     ( name = "internet",
       network = (
         allow = ["public"],
@@ -77,6 +78,12 @@ const cloisterWorker :Workerd.Worker = (
     # Non-workerd backends — HTTP URL vars
     ( name = "ROSARY_MCP_URL",
       text = "http://localhost:8383/mcp",
+    ),
+    # ley-line-open daemon HTTP MCP port — see ADR-0002. In prod this points
+    # at notme-proxy which forwards over UDS to the daemon; in dev it's the
+    # daemon directly. Empty disables LspToolBackend + LeylineLifecycleBackend.
+    ( name = "LLO_MCP_URL",
+      text = "http://localhost:8384/mcp",
     ),
     ( name = "SIGNET_URL",
       text = "",
