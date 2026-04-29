@@ -11,7 +11,9 @@ today. The decisions behind it are in the ADRs:
 - [ADR-0002](adr/0002-edge-router-protocol-agnostic-backends.md) — why edge
   router with protocol-agnostic backends, not "an MCP gateway"
 - [ADR-0003](adr/0003-content-addressed-bead-store.md) — substrate-free bead
-  storage as content-addressed DAG + CAS refs (planned, not yet implemented)
+  storage as content-addressed DAG + CAS refs (Phase 1 landed; Phase 2 planned)
+- [ADR-0004](adr/0004-capnp-manifest.md) — Cap'n Proto manifest replacing the
+  TS registration site (planned, not yet implemented)
 
 If you're trying to *run* cloister rather than understand its shape, start
 at [../GETTING-STARTED.md](../GETTING-STARTED.md).

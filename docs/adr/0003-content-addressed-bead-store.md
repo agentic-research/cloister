@@ -220,6 +220,8 @@ evaluation" to this ADR's structural work). Sliced as:
   retires its DoltLite WASM work item
 - [ADR-0002](0002-edge-router-protocol-agnostic-backends.md) — the edge
   router seam this storage layer plugs under
+- [ADR-0004](0004-capnp-manifest.md) — declarative manifest for routes +
+  backends (orthogonal to this ADR; storage and registration are independent)
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup
 - Math-friend analysis (theoretical-foundations-analyst, 2026-04-29):
