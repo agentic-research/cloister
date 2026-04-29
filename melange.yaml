@@ -1,0 +1,99 @@
+# melange.yaml — build cloister as an APK
+#
+# cloister is a workerd Worker, not a native binary. The package bundles:
+#   /usr/share/cloister/index.js   — wrangler-built worker bundle
+#   /usr/share/cloister/config.capnp — workerd runtime config
+#   /usr/bin/workerd               — the Cloudflare Workers runtime
+#
+# Usage:
+#   melange build melange.yaml --signing-key melange.rsa \
+#     --arch x86_64,aarch64 --out-dir ./packages
+#
+# The workerd binary is fetched from the @cloudflare/workerd-linux-* npm
+# tarballs because Wolfi doesn't ship a workerd APK. Pinned to match what
+# the source tree uses at build time.
+
+package:
+  name: cloister
+  version: 0.1.0
+  epoch: 0
+  description: "cloister — SSE/HTTP edge router for the ART constellation"
+  copyright:
+    - license: AGPL-3.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - libgcc
+
+environment:
+  contents:
+    packages:
+      - build-base
+      - ca-certificates-bundle
+      - nodejs
+      - npm
+      - tar
+      - gzip
+
+# Pin workerd to the version the cloister tree builds against. Bump in
+# lockstep with the @cloudflare/workerd-* dep in package.json.
+var-transforms:
+  - from: ${{package.version}}
+    match: .*
+    replace: $0
+    to: cloister-version
+
+vars:
+  workerd-version: "1.20250718.0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/agentic-research/cloister
+      tag: v${{package.version}}
+
+  - name: Install pnpm
+    runs: |
+      npm install -g pnpm@10
+
+  - name: Install + bundle the worker
+    runs: |
+      pnpm install --frozen-lockfile
+      pnpm exec wrangler build --outdir dist
+      test -f dist/index.js
+
+  - name: Stage worker artifacts
+    runs: |
+      install -Dm644 dist/index.js \
+        "${{targets.destdir}}/usr/share/cloister/dist/index.js"
+      install -Dm644 config.capnp \
+        "${{targets.destdir}}/usr/share/cloister/config.capnp"
+
+  - name: Fetch workerd binary for this arch
+    runs: |
+      ARCH=$(uname -m)
+      case "$ARCH" in
+        x86_64)  NPM_PKG="@cloudflare/workerd-linux-64" ;;
+        aarch64) NPM_PKG="@cloudflare/workerd-linux-arm64" ;;
+        *) echo "unsupported arch: $ARCH"; exit 1 ;;
+      esac
+      WORKERD_VER="${{vars.workerd-version}}"
+      npm pack --silent "${NPM_PKG}@${WORKERD_VER}"
+      # npm pack writes a tarball named after the scope/package.
+      TARBALL=$(ls cloudflare-workerd-linux-*.tgz | head -1)
+      tar -xzf "$TARBALL"
+      install -Dm755 package/bin/workerd \
+        "${{targets.destdir}}/usr/bin/workerd"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/workerd --version
+        test -f /usr/share/cloister/dist/index.js
+        test -f /usr/share/cloister/config.capnp
+
+update:
+  enabled: true
+  github:
+    identifier: agentic-research/cloister
+    strip-prefix: v

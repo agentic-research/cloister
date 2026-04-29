@@ -58,3 +58,46 @@ tasks:
     desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain
     cmds:
       - bash scripts/e2e-smoke.sh
+
+  # ── OCI packaging (melange + apko) ───────────────────────────────────────
+  #
+  # `task apk:keygen` once, then `task image` whenever you want to rebuild.
+  # Output: cloister.tar — an OCI image you can `docker load` or push.
+
+  apk:keygen:
+    desc: Generate the melange signing key (one-time setup)
+    cmds:
+      - melange keygen melange.rsa
+    status:
+      - test -f melange.rsa
+      - test -f melange.rsa.pub
+
+  apk:
+    desc: Build cloister APK via melange (release-style, signed)
+    deps: [apk:keygen]
+    cmds:
+      - mkdir -p ./packages
+      - |
+        melange build melange.yaml \
+          --signing-key melange.rsa \
+          --arch "$(uname -m | sed 's/aarch64/aarch64/;s/x86_64/x86_64/')" \
+          --out-dir ./packages
+
+  image:
+    desc: Compose the cloister OCI image via apko (depends on `task apk`)
+    deps: [apk]
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - "apko build apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
+      - 'echo "Built cloister.tar — load with: docker load < cloister.tar"'
+
+  image:check:
+    desc: Validate melange.yaml + apko.yaml syntax without running a real build
+    deps: [apk:keygen]
+    cmds:
+      # melange has no `lint` for YAML — `compile` parses the recipe end-to-end
+      # and emits the resolved build script (--arch is required).
+      - melange compile melange.yaml --arch "$(uname -m)" >/dev/null
+      # apko equivalent: show-config resolves all packages + paths.
+      - apko show-config apko.yaml >/dev/null

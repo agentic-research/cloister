@@ -4,3 +4,10 @@ dist/
 
 # CRUMB - personal memory (not tracked)
 .crumb/
+
+# melange/apko build artifacts (local-only — keys must not be committed)
+melange.rsa
+melange.rsa.pub
+packages/
+cloister*.tar
+sbom-*.spdx.json
