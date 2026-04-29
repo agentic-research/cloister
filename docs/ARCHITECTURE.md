@@ -10,6 +10,8 @@ today. The decisions behind it are in the ADRs:
 - [ADR-0001](adr/0001-workerd-mcp-gateway.md) — why workerd
 - [ADR-0002](adr/0002-edge-router-protocol-agnostic-backends.md) — why edge
   router with protocol-agnostic backends, not "an MCP gateway"
+- [ADR-0003](adr/0003-content-addressed-bead-store.md) — substrate-free bead
+  storage as content-addressed DAG + CAS refs (planned, not yet implemented)
 
 If you're trying to *run* cloister rather than understand its shape, start
 at [../GETTING-STARTED.md](../GETTING-STARTED.md).

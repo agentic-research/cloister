@@ -93,12 +93,14 @@ tools to rosary is obsolete — tool routing is now explicit per backend, not fa
 - [ ] Add `mache_*` tool family as a new `ToolBackend` (proxy to mache HTTP endpoint)
 - [ ] Add rosary passthrough as a `ToolBackend` (`rsry_*` → `ROSARY_MCP_URL`)
 - [ ] Add signet binding when signet gains an HTTP MCP surface
-- [ ] Add DoltLite evaluation — if DoltLite WASM ships stable, replace BeadStore SQLite with
-      version-controlled prolly-tree storage for branch-per-agent bead isolation
+- ~~Add DoltLite evaluation~~ — superseded by [ADR-0003](0003-content-addressed-bead-store.md):
+  the structural answer is a content-addressed DAG + CAS refs, not an embedded DB engine.
+  WASM in workerd cannot reach DO native SQLite, so the original premise was unworkable.
 
 ## See also
 
 - [ADR-0002](0002-edge-router-protocol-agnostic-backends.md) — current architecture
+- [ADR-0003](0003-content-addressed-bead-store.md) — substrate-free bead storage
 - [../../README.md](../../README.md) — what cloister exposes today
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + diagrams
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup

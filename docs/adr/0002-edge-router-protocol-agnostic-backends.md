@@ -146,6 +146,7 @@ of service bindings is preserved end-to-end.
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice and packaging story
+- [ADR-0003](0003-content-addressed-bead-store.md) — substrate-free bead storage that plugs under `BeadToolBackend`
 - [../../README.md](../../README.md) — what each tenant does
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + sequence diagrams
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup
