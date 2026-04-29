@@ -61,4 +61,5 @@ export interface Env {
   // Vars (local dev: process addresses for non-workerd backends)
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
   SIGNET_URL:     string;  // signet key exchange (empty until deployed)
+  LLO_MCP_URL:    string;  // ley-line-open MCP HTTP endpoint (`leyline daemon --mcp-port`)
 }

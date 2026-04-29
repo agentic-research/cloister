@@ -10,7 +10,10 @@
  *   /health      → HealthRoute            (liveness + backend snapshot)
  *   /identity/*  → NotmeIdentityRoute     (vault, no-net; via service binding)
  *   /mcp         → McpEdgeRoute           (JSON-RPC over POST + SSE over GET)
- *                    └─ BeadToolBackend   (bead_* → BEAD_STORE Durable Object)
+ *                    ├─ BeadToolBackend   (bead_* → BEAD_STORE Durable Object)
+ *                    └─ LspToolBackend    (lsp_*  → LLO_MCP_URL; reaches the
+ *                                          leyline daemon's HTTP MCP port,
+ *                                          via notme-proxy in prod)
  *
  * Adding a tenant: implement EdgeRoute, append to ROUTES.
  * Adding an MCP tool family: implement ToolBackend, append to McpEdgeRoute backends.
@@ -22,13 +25,14 @@ import { HealthRoute } from "./routes/health.js";
 import { NotmeIdentityRoute } from "./routes/notme-identity.js";
 import { McpEdgeRoute } from "./routes/mcp.js";
 import { BeadToolBackend } from "./backends/bead.js";
+import { LspToolBackend } from "./backends/lsp.js";
 
 export { BeadStore } from "./beads.js";
 
 const ROUTES: readonly EdgeRoute[] = [
   new HealthRoute(),
   new NotmeIdentityRoute(),
-  new McpEdgeRoute([new BeadToolBackend()]),
+  new McpEdgeRoute([new BeadToolBackend(), new LspToolBackend()]),
 ];
 
 const router = new Router(ROUTES);

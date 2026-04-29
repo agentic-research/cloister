@@ -22,14 +22,17 @@ binding = "NOTME"
 service = "notme-bot"
 
 # ── Non-workerd services (HTTP proxy, local dev only) ─────────────────────
-# signet  (Go)             — key exchange / identity layer, port TBD
-# ley-line-open (Rust)     — data plane primitives, FUSE mount — library not service
-# rosary  (Rust)           — orchestrator MCP server, stdio or port 8383
-# mache   (Go)             — code intelligence FUSE, port TBD
-# crumb   (Go)             — knowledge capture, port TBD
+# signet         (Go)   — key exchange / identity layer, port TBD
+# ley-line-open  (Rust) — daemon serves MCP on `--mcp-port`, default 8384
+# rosary         (Rust) — orchestrator MCP server, stdio or port 8383
+# mache          (Go)   — code intelligence FUSE, port TBD
+# crumb          (Go)   — knowledge capture, port TBD
 #
-# These run as local processes and are proxied via PROXY_* vars in [vars].
+# These run as local processes and are proxied via *_URL vars in [vars].
+# In production, point them at notme-proxy's UDS-backed HTTP endpoint so
+# traffic carries an attested bridge cert.
 
 [vars]
 ROSARY_MCP_URL  = "http://localhost:8383/mcp"
+LLO_MCP_URL     = "http://localhost:8384/mcp"   # `leyline daemon --mcp-port 8384`
 SIGNET_URL      = ""   # not yet deployed, TBD
