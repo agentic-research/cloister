@@ -16,6 +16,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env, JsonRpcRequest, JsonRpcResponse, McpTool } from "../types.js";
 import { okResponse, errResponse } from "../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../backends.js";
+import { pickAllowedOrigin } from "../cors.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
@@ -31,21 +32,25 @@ export class McpEdgeRoute implements EdgeRoute {
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
-    if (request.method === "GET")  return handleSse();
+    if (request.method === "GET")  return handleSse(request, env);
     if (request.method === "POST") return this.handlePost(request, env);
     return new Response("method not allowed", { status: 405 });
   }
 
   private async handlePost(request: Request, env: Env): Promise<Response> {
+    const allowOrigin = pickAllowedOrigin(request, env.ALLOWED_ORIGINS);
     let req: JsonRpcRequest;
     try {
       req = await request.json<JsonRpcRequest>();
     } catch {
-      return Response.json(errResponse(0, -32700, "parse error"), { status: 400 });
+      return Response.json(errResponse(0, -32700, "parse error"), {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": allowOrigin },
+      });
     }
     const out = await this.dispatch(req, env);
     return Response.json(out, {
-      headers: { "Access-Control-Allow-Origin": "*" },
+      headers: { "Access-Control-Allow-Origin": allowOrigin },
     });
   }
 
@@ -92,7 +97,8 @@ export class McpEdgeRoute implements EdgeRoute {
 
 // ── SSE handler ────────────────────────────────────────────────────────────
 
-function handleSse(): Response {
+function handleSse(request: Request, env: Env): Response {
+  const allowOrigin = pickAllowedOrigin(request, env.ALLOWED_ORIGINS);
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -113,7 +119,7 @@ function handleSse(): Response {
       "Content-Type":  "text/event-stream",
       "Cache-Control": "no-cache",
       "Connection":    "keep-alive",
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": allowOrigin,
     },
   });
 }

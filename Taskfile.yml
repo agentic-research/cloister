@@ -53,3 +53,8 @@ tasks:
   lint:
     desc: Type-check + worker tests + plugin tests
     deps: [type-check, test, test:plugin]
+
+  smoke:
+    desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain
+    cmds:
+      - bash scripts/e2e-smoke.sh
