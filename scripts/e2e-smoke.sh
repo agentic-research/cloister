@@ -21,8 +21,10 @@ set -euo pipefail
 
 LLO_PORT="${LLO_PORT:-18384}"
 CLST_PORT="${CLST_PORT:-18787}"
+MACHE_PORT="${MACHE_PORT:-17532}"
 WORK="${WORK:-/tmp/cloister-e2e}"
 LEYLINE="${LEYLINE:-${HOME}/remotes/art/ley-line-open/rs/target/debug/leyline}"
+MACHE="${MACHE:-$(command -v mache 2>/dev/null || echo "${HOME}/.local/bin/mache")}"
 CLOISTER_DIR="${CLOISTER_DIR:-${HOME}/remotes/art/cloister}"
 
 # ── Setup ─────────────────────────────────────────────────────────────────
@@ -31,6 +33,7 @@ CLOISTER_DIR="${CLOISTER_DIR:-${HOME}/remotes/art/cloister}"
 # separate workerd subprocess that can outlive its parent, holding the port.
 pkill -f "wrangler dev --port $CLST_PORT" 2>/dev/null || true
 pkill -f "workerd serve.*$CLST_PORT" 2>/dev/null || true
+pkill -f "mache serve --http localhost:$MACHE_PORT" 2>/dev/null || true
 sleep 1
 
 rm -rf "$WORK"
@@ -39,6 +42,12 @@ mkdir -p "$WORK"
 if [[ ! -x "$LEYLINE" ]]; then
   echo "FAIL: leyline binary not found at $LEYLINE" >&2
   echo "  build with: cd ~/remotes/art/ley-line-open && task build" >&2
+  exit 1
+fi
+
+if [[ ! -x "$MACHE" ]]; then
+  echo "FAIL: mache binary not found at $MACHE" >&2
+  echo "  install with: cd ~/remotes/art/mache && go install ./cmd" >&2
   exit 1
 fi
 
@@ -58,6 +67,22 @@ echo "→ starting leyline daemon on :$LLO_PORT"
   > "$WORK/llo.log" 2>&1 &
 LLO_PID=$!
 
+# Tiny synthetic project for mache to ingest. Source files give the graph
+# something to find and the test something concrete to assert against.
+echo "→ preparing mache test corpus at $WORK/mache-src"
+mkdir -p "$WORK/mache-src"
+cat > "$WORK/mache-src/main.go" <<'GO'
+package main
+
+func main() { greet() }
+func greet() { print("hi") }
+GO
+
+echo "→ starting mache MCP server on localhost:$MACHE_PORT"
+"$MACHE" serve --http "localhost:$MACHE_PORT" "$WORK/mache-src" \
+  > "$WORK/mache.log" 2>&1 &
+MACHE_PID=$!
+
 echo "→ starting cloister wrangler dev on :$CLST_PORT"
 (
   cd "$CLOISTER_DIR"
@@ -67,26 +92,37 @@ echo "→ starting cloister wrangler dev on :$CLST_PORT"
     --port "$CLST_PORT" \
     --local \
     --var "LLO_MCP_URL:http://127.0.0.1:$LLO_PORT/mcp" \
+    --var "MACHE_MCP_URL:http://127.0.0.1:$MACHE_PORT/mcp" \
     > "$WORK/clst.log" 2>&1
 ) &
 CLST_PID=$!
 
 cleanup() {
-  kill "$CLST_PID" "$LLO_PID" 2>/dev/null || true
+  kill "$CLST_PID" "$LLO_PID" "$MACHE_PID" 2>/dev/null || true
   # workerd subprocess can outlive `pnpm exec wrangler dev` if SIGTERM races.
   pkill -f "workerd serve.*$CLST_PORT" 2>/dev/null || true
   pkill -f "wrangler dev --port $CLST_PORT" 2>/dev/null || true
+  pkill -f "mache serve --http localhost:$MACHE_PORT" 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# Wait up to 30s for both endpoints.
+# Wait up to 30s for all three endpoints. mache uses Streamable HTTP and
+# requires an MCP `initialize` to mint a session-id before any other method
+# (including `ping`) is accepted; checking that any HTTP response comes back
+# is enough as the readiness signal.
 echo -n "→ waiting for backends "
 for i in $(seq 1 30); do
   if curl -sS --max-time 1 "http://127.0.0.1:$CLST_PORT/health" >/dev/null 2>&1 \
      && curl -sS --max-time 1 -X POST "http://127.0.0.1:$LLO_PORT/mcp" \
         -H 'Content-Type: application/json' \
-        -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' >/dev/null 2>&1; then
+        -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' >/dev/null 2>&1 \
+     && curl -sS --max-time 1 -o /dev/null -w '%{http_code}' \
+        -X POST "http://127.0.0.1:$MACHE_PORT/mcp" \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -d '{"jsonrpc":"2.0","id":0,"method":"ping"}' 2>/dev/null \
+        | grep -qE '^[0-9]'; then
     echo " ready ($i s)"
     break
   fi
@@ -95,7 +131,7 @@ for i in $(seq 1 30); do
   if [[ $i -eq 30 ]]; then
     echo
     echo "FAIL: backends did not become ready in 30s" >&2
-    tail -30 "$WORK/llo.log" "$WORK/clst.log" >&2 || true
+    tail -30 "$WORK/llo.log" "$WORK/clst.log" "$WORK/mache.log" >&2 || true
     exit 1
   fi
 done
@@ -108,22 +144,23 @@ fail() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 pass() { echo "  ✓ $1"; PASS=$((PASS+1)); }
 
 post_mcp() {
-  local port="$1" body="$2"
-  curl -sS --max-time 5 -X POST "http://127.0.0.1:$port/mcp" \
+  local port="$1" body="$2" timeout="${3:-5}"
+  curl -sS --max-time "$timeout" -X POST "http://127.0.0.1:$port/mcp" \
     -H 'Content-Type: application/json' \
     -d "$body"
 }
 
 echo
-echo "── tools/list aggregates bead_* + lsp_* + lifecycle ─────────────────"
+echo "── tools/list aggregates bead_* + lsp_* + lifecycle + mache_* ───────"
 LIST=$(post_mcp "$CLST_PORT" '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
 COUNT=$(echo "$LIST" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['result']['tools']))")
 NAMES=$(echo "$LIST" | python3 -c "import json,sys; print(' '.join(t['name'] for t in json.load(sys.stdin)['result']['tools']))")
 
-[[ "$COUNT" -ge 13 ]] && pass "tools/list returned $COUNT tools" \
-                      || fail "tools/list returned $COUNT (want >= 13)"
+# 14 prior (bead+lsp+lifecycle) + ~17 mache_* tools through dynamic discovery.
+[[ "$COUNT" -ge 25 ]] && pass "tools/list returned $COUNT tools" \
+                      || fail "tools/list returned $COUNT (want >= 25)"
 
-for required in bead_create lsp_hover lsp_diagnostics reparse status; do
+for required in bead_create lsp_hover lsp_diagnostics reparse status mache_get_overview mache_find_callers mache_search; do
   if echo " $NAMES " | grep -q " $required "; then
     pass "tools/list includes $required"
   else
@@ -212,6 +249,32 @@ except Exception:
                        || fail "single-file reparse parsed=$PARSED (raw: $REPARSE)"
 
 echo
+echo "── tools/call mache_list_directory through dynamic backend ──────────"
+# Drives the full chain ADR-0006 commits to: cloister sees mache_list_directory
+# (Derived from upstream tools/list), strips the "mache_" prefix, and forwards
+# list_directory with the captured Mcp-Session-Id. mache attempts a server→
+# client `roots/list` callback on first contact; cloister doesn't implement
+# the back-channel, so mache waits ~5s before falling back to default path.
+# Subsequent calls are fast (cache warm). Bump curl timeout to 30s for this
+# one-time cost.
+MACHE_OUT=$(post_mcp "$CLST_PORT" \
+  '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"mache_list_directory","arguments":{"path":"/"}}}' \
+  30)
+MACHE_OK=$(echo "$MACHE_OUT" | python3 -c "
+import json, sys
+r = json.load(sys.stdin)
+if 'error' in r:
+    print('ERROR:' + json.dumps(r['error']))
+elif 'result' in r and r['result'].get('content'):
+    text = r['result']['content'][0].get('text', '')
+    print('OK' if text else 'EMPTY')
+else:
+    print('NO_RESULT')
+")
+[[ "$MACHE_OK" == "OK" ]] && pass "mache_list_directory round-trips through cloister with stripPrefix + session-id" \
+                          || fail "mache_list_directory failed: $MACHE_OK (raw: $MACHE_OUT)"
+
+echo
 echo "── unknown tool returns -32601 ──────────────────────────────────────"
 UNK=$(post_mcp "$CLST_PORT" \
   '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"does_not_exist","arguments":{}}}')
@@ -230,6 +293,9 @@ if [[ "$FAIL" -gt 0 ]]; then
   echo
   echo "Last 20 lines of LLO log:"
   tail -20 "$WORK/llo.log" 2>/dev/null || true
+  echo
+  echo "Last 20 lines of mache log:"
+  tail -20 "$WORK/mache.log" 2>/dev/null || true
   echo
   echo "Last 20 lines of cloister log:"
   tail -20 "$WORK/clst.log" 2>/dev/null || true
