@@ -1,7 +1,7 @@
 /**
  * Generic HTTP-forwarding ToolBackend, parameterized by spec.
  *
- * Generalizes LspToolBackend and LeylineLifecycleBackend (src/backends/{lsp,leyline}.ts):
+ * Spec fields (from manifest/cloister.capnp):
  *   - `urlBinding` — name of the text-var binding holding the upstream URL
  *   - `tools`      — full McpTool list this backend advertises
  *
@@ -9,9 +9,8 @@
  * unwraps `content[0].text` as JSON when possible, falling back to raw text
  * for upstreams that emit prose. isError responses surface as -32000.
  *
- * Same fetch-injection pattern as the concrete backends — tests pass a stub
- * fetcher; production uses the global fetch wrapped to preserve `this`
- * binding under workerd.
+ * Fetch-injection pattern: tests pass a stub fetcher; production uses the
+ * global `fetch` wrapped to preserve `this` binding under workerd.
  */
 
 import type { Env, JsonRpcResponse, McpTool } from "../../types.js";

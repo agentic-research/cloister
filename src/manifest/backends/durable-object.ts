@@ -1,17 +1,17 @@
 /**
  * Generic Durable-Object-backed ToolBackend, parameterized by spec.
  *
- * Generalizes BeadToolBackend (src/backends/bead.ts):
+ * Spec fields (from manifest/cloister.capnp):
  *   - `binding`  — name of the DurableObjectNamespace binding
  *   - `keyArg`   — name of the tool argument used to derive the DO instance
  *                  (e.g. "repo", "session_id")
  *   - `tools`    — full McpTool list this backend advertises
  *
- * Dispatch is the same as BeadToolBackend's: forward the JSON-RPC inner
- * call to the DO; unwrap result, convert errors to JsonRpcInvocationError.
+ * Dispatch: forward the JSON-RPC inner call to the DO; unwrap result;
+ * convert errors to JsonRpcInvocationError.
  *
  * Tool prefix matching uses the manifest's `handlesPrefix` (set at
- * construction by the runtime registry), not a hard-coded "bead_".
+ * construction by the runtime registry).
  */
 
 import type { Env, JsonRpcRequest, JsonRpcResponse, McpTool } from "../../types.js";
