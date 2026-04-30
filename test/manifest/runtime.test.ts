@@ -245,9 +245,14 @@ describe("UdsForwardToolBackend (placeholder)", () => {
   });
 });
 
-// ── LeylineNetToolBackend reservation (ADR-0005 Phase 2D-skel) ─────────────
+// ── LeylineNetToolBackend manifest-runtime integration ─────────────────────
+//
+// The deep behavioral coverage (success paths, error paths, wire fidelity)
+// lives in test/manifest/leyline-net-backend.test.ts. These tests verify
+// that the backend slots into the manifest runtime correctly and that
+// invocation without COMPANION_URL fails with the expected diagnostic.
 
-describe("LeylineNetToolBackend (placeholder)", () => {
+describe("LeylineNetToolBackend (manifest integration)", () => {
   it("advertises tools and matches handlesPrefix", async () => {
     const { LeylineNetToolBackend } = await import("../../src/manifest/backends/leyline-net.js");
     const b = new LeylineNetToolBackend(
@@ -263,7 +268,7 @@ describe("LeylineNetToolBackend (placeholder)", () => {
     expect(b.handles("bead_create")).toBe(false);
   });
 
-  it("throws JsonRpcInvocationError(-32603) on invoke pointing at cloister-5183bc", async () => {
+  it("throws JsonRpcInvocationError(-32603) when companion URL is unset", async () => {
     const { LeylineNetToolBackend } = await import("../../src/manifest/backends/leyline-net.js");
     const b = new LeylineNetToolBackend(
       {
@@ -276,7 +281,7 @@ describe("LeylineNetToolBackend (placeholder)", () => {
     await expect(b.invoke("rsry_status", {}, {} as never)).rejects.toMatchObject({
       name: "JsonRpcInvocationError",
       code: -32603,
-      message: expect.stringContaining("cloister-5183bc"),
+      message: expect.stringContaining("COMPANION_URL"),
     });
   });
 
