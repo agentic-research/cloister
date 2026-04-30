@@ -3,6 +3,7 @@ version: "3"
 tasks:
   build:
     desc: Bundle Worker for Cloudflare / wrangler dev
+    deps: [manifest]
     cmds:
       - pnpm exec wrangler build
     sources:
@@ -34,11 +35,13 @@ tasks:
 
   test:
     desc: Run tests inside workerd (real DOs, real SQLite)
+    deps: [manifest]
     cmds:
       - pnpm exec vitest run
 
   test:watch:
     desc: Watch mode
+    deps: [manifest]
     cmds:
       - pnpm exec vitest
 
@@ -49,6 +52,7 @@ tasks:
 
   type-check:
     desc: TypeScript type check (no emit)
+    deps: [manifest]
     cmds:
       - pnpm exec tsc --noEmit
 

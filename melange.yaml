@@ -34,6 +34,16 @@ environment:
       - npm
       - tar
       - gzip
+      # Cap'n Proto compiler — needed because `task manifest` runs
+      # `capnp eval` to compile cloister.capnp → JSON. Without this, the
+      # build would fail at the manifest-generation step.
+      - capnproto
+      # go-task — Taskfile is the golden path (ADR-0001). melange's build
+      # pipeline calls `task build:local` rather than re-implementing the
+      # bundle steps inline, so the local-dev path and the OCI-image path
+      # share the same logic. If `task` changes, melange picks it up
+      # automatically; no two-source-of-truth drift.
+      - go-task
 
 # Pin workerd to the version the cloister tree builds against. Bump in
 # lockstep with the @cloudflare/workerd-* dep in package.json.
@@ -56,10 +66,14 @@ pipeline:
     runs: |
       npm install -g pnpm@10
 
-  - name: Install + bundle the worker
+  - name: Install + bundle the worker (via Taskfile — golden path)
     runs: |
+      # Mirror the local-dev golden path so build logic lives in one place
+      # (Taskfile.yml). `task build:local` is `manifest` (capnp → typed TS)
+      # then `wrangler build --outdir dist`. If either step changes, melange
+      # picks it up without edits to this file.
       pnpm install --frozen-lockfile
-      pnpm exec wrangler build --outdir dist
+      task build:local
       test -f dist/index.js
 
   - name: Stage worker artifacts
