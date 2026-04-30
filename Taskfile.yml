@@ -56,6 +56,17 @@ tasks:
       - scripts/stub-companion.mjs
       - tsconfig.verify.json
 
+  smoke:leyline-stub:
+    desc: End-to-end wire smoke — production codec → real HTTP → stub-companion → real HTTP → production codec. Spawns + tears down the stub on an ephemeral port (default :18385).
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - node scripts/smoke-leyline-stub.mjs
+    sources:
+      - src/wire/**/*.ts
+      - scripts/stub-companion.mjs
+      - scripts/smoke-leyline-stub.mjs
+      - tsconfig.verify.json
+
   build:local:
     desc: Bundle Worker for local workerd (embeds into dist/)
     deps: [manifest]
