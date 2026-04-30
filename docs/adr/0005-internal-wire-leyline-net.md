@@ -277,6 +277,105 @@ A new bead tracks Phase 1 + 2 (the substrate). Sliced as:
       `leylineNet` once a rosary leyline-net adapter exists (separate bead
       in the rosary repo).
 
+## Amendment 2026-04-30 — cloister↔companion is IPC, not network wire
+
+After the Phase 2D-codec work shipped (commits `1cf7a73` through `4394a71`,
+bead `cloister-5183bc`), the wire wiring (Phase 2D-wire) ran into a real
+question that this ADR's original framing hadn't addressed: **what are the
+threat-model requirements at the cloister↔companion seam specifically?**
+
+Re-reading the original framing: "cloister-companion runs on the same host
+(apko image, supervised process); the HTTP 'hop' is loopback." The trust
+boundary is the apko image — anyone with access to that loopback already
+has access to the image's process memory, file system, and binaries. AEAD
+on a loopback hop within a trust boundary is ceremony, not security.
+
+The real leyline-net wire — with replay defense, identity authentication,
+integrity, encryption — belongs at **companion↔backend**, where bytes
+actually traverse a network. Cloister↔companion is **IPC**. Treating it
+as full leyline-net was over-engineering driven by symmetric-frame
+aesthetic, not threat model.
+
+### Workerd capability survey (2026-04-30)
+
+The trigger was a survey of workerd's `crypto.subtle` algorithms:
+
+- **Ed25519** ✓ supported (sign / verify with `name: "Ed25519"`)
+- **X25519** ✓ supported (ECDH key agreement)
+- **ChaCha20-Poly1305** ✗ NOT supported (only AES-GCM, AES-CBC, AES-CTR)
+
+leyline-net commits to ChaCha20-Poly1305 specifically. To match the wire on
+the cloister side we'd need either pure-TS ChaCha (substantial security-
+audit surface for what amounts to loopback ceremony) or a wire-format
+divergence (AES-GCM instead of ChaCha20-Poly1305 — breaking interop with
+leyline-net's actual deployments). Both options are bad answers to a
+question we shouldn't be asking.
+
+### Revised wire layers
+
+```
+                   ┌──────────── public face (MCP-shaped) ─────────────┐
+[CC client]  ──MCP / JSON-RPC over HTTP/SSE──▶  cloister  (workerd)
+                                                  │
+                   ├──────────── IPC seam (capnp over loopback HTTP) ─┤
+                                                  │
+                                                  ▼  HTTP body = capnp ToolCall/ToolResult
+                                              cloister-companion (Rust binary)
+                                                  │
+                   ├──────────── full leyline-net wire ────────────────┤
+                                                  │
+                                                  ▼  Manifest + AEAD + handshake (signed capnp + ChaCha20-Poly1305 + X25519)
+                                              backend (rsry / mache / notme / llo)
+                   └───────────────────────────────────────────────────┘
+```
+
+What changes vs the original three-layer wire:
+
+| Layer | Original ADR-0005 | This amendment |
+|---|---|---|
+| Public face | MCP/JSON-RPC | unchanged |
+| Cloister↔companion | leyline-net frames inside HTTP (signed Manifest + AEAD + capnp payload) | **plain capnp ToolCall / ToolResult as the HTTP body**. No Manifest envelope, no AEAD, no signature. |
+| Companion↔backend | per-backend transport choice | unchanged — still uses full leyline-net (Manifest + AEAD + handshake) where the network bytes warrant it |
+
+What stays in the codec:
+
+- The capnp Manifest struct (`wire/cloister.capnp`) and its codec
+  (`src/wire/manifest.ts`) remain in this repo as **a publicly-shared
+  schema** — the leyline-net wire definition that `cloister-companion`
+  emits on its backend face needs the same struct.
+  Cloister-side code IMPORTS the schema for tooling consistency but does
+  not USE the codec on the IPC face. Removing it from the schema would
+  fragment the leyline-wire spec across two locations.
+- ToolCall and ToolResult codecs ARE used on the cloister↔companion IPC
+  face — they're the HTTP body. No security layer wraps them; the
+  loopback transport is the trust boundary.
+
+Phase 2D-wire's implementation (next iteration) is correspondingly
+simpler: encode ToolCall, POST to companion, decode ToolResult. No key
+management, no signatures, no AEAD on the cloister side.
+
+### What was wrong in the original framing
+
+The honest reading of the original ADR-0005's three-layer wire diagram is
+that I conflated two distinct concerns:
+1. **The wire format** (capnp, signed manifests, AEAD) — a leyline-net
+   property.
+2. **Where leyline-net wire is actually deployed** (which hops carry
+   network traffic, not loopback IPC) — a deployment-shape property.
+
+The original ADR took (1) and applied it uniformly across all internal
+hops. The amendment recognizes that the security guarantees only matter
+where they're load-bearing — across networks, between trust domains —
+and that "every internal hop must speak full leyline-net wire" was
+yak-shaving.
+
+### Out of scope (still)
+
+- Authentication at the public face (notme JWT — ADR-0001 work item)
+- Cross-host cloister deployments (TLS at cloister-companion's external
+  face)
+- The Rust companion implementation (Phase 2B)
+
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice + apko packaging
