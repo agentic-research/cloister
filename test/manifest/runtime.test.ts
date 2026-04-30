@@ -244,3 +244,55 @@ describe("UdsForwardToolBackend (placeholder)", () => {
     });
   });
 });
+
+// ── LeylineNetToolBackend reservation (ADR-0005 Phase 2D-skel) ─────────────
+
+describe("LeylineNetToolBackend (placeholder)", () => {
+  it("advertises tools and matches handlesPrefix", async () => {
+    const { LeylineNetToolBackend } = await import("../../src/manifest/backends/leyline-net.js");
+    const b = new LeylineNetToolBackend(
+      {
+        companionUrlBinding: "COMPANION_URL",
+        upstreamId:          "rosary",
+        tools: [{ name: "rsry_status", description: "rosary status", inputSchemaJson: '{"type":"object"}' }],
+      },
+      "rsry_",
+    );
+    expect(b.tools().map(t => t.name)).toEqual(["rsry_status"]);
+    expect(b.handles("rsry_status")).toBe(true);
+    expect(b.handles("bead_create")).toBe(false);
+  });
+
+  it("throws JsonRpcInvocationError(-32603) on invoke pointing at cloister-5183bc", async () => {
+    const { LeylineNetToolBackend } = await import("../../src/manifest/backends/leyline-net.js");
+    const b = new LeylineNetToolBackend(
+      {
+        companionUrlBinding: "COMPANION_URL",
+        upstreamId:          "rosary",
+        tools: [{ name: "rsry_status", description: "", inputSchemaJson: '{"type":"object"}' }],
+      },
+      "rsry_",
+    );
+    await expect(b.invoke("rsry_status", {}, {} as never)).rejects.toMatchObject({
+      name: "JsonRpcInvocationError",
+      code: -32603,
+      message: expect.stringContaining("cloister-5183bc"),
+    });
+  });
+
+  it("instantiates via the manifest runtime alongside other kinds", () => {
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/mcp", kind: { mcp: { backends: [
+          { name: "rosary", handlesPrefix: "rsry_", kind: { leylineNet: {
+            companionUrlBinding: "COMPANION_URL",
+            upstreamId:          "rosary",
+            tools: [mkTool("rsry_status")],
+          } } },
+        ]}}},
+      ],
+    };
+    expect(() => instantiate(m)).not.toThrow();
+  });
+});

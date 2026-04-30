@@ -32,6 +32,7 @@ import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
 import { UdsForwardToolBackend } from "./backends/uds-forward.js";
+import { LeylineNetToolBackend } from "./backends/leyline-net.js";
 
 // ── Public API ────────────────────────────────────────────────────────────
 
@@ -107,6 +108,7 @@ function toToolBackend(b: Backend): ToolBackend {
   if ("httpForward" in k)    return new HttpForwardToolBackend(k.httpForward, b.handlesPrefix);
   if ("serviceBinding" in k) return new ServiceBindingToolBackend(k.serviceBinding, b.handlesPrefix);
   if ("udsForward" in k)     return new UdsForwardToolBackend(k.udsForward, b.handlesPrefix);
+  if ("leylineNet" in k)     return new LeylineNetToolBackend(k.leylineNet, b.handlesPrefix);
   const _exhaustive: never = k;
   void _exhaustive;
   throw new TypeError(`manifest: unknown backend kind on backend "${b.name}"`);
@@ -181,7 +183,8 @@ function validate(g: Gateway): void {
           ("durableObject"  in b.kind) ? b.kind.durableObject  :
           ("httpForward"    in b.kind) ? b.kind.httpForward    :
           ("serviceBinding" in b.kind) ? b.kind.serviceBinding :
-          ("udsForward"     in b.kind) ? b.kind.udsForward     : null;
+          ("udsForward"     in b.kind) ? b.kind.udsForward     :
+          ("leylineNet"     in b.kind) ? b.kind.leylineNet     : null;
         if (!inner) {
           throw new TypeError(`manifest: backend "${b.name}" has no kind`);
         }

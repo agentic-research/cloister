@@ -55,7 +55,8 @@ export type BackendKind =
   | { durableObject:  DoBackend }
   | { httpForward:    HttpForwardBackend }
   | { serviceBinding: ServiceBindingBackend }
-  | { udsForward:     UdsForwardBackend };
+  | { udsForward:     UdsForwardBackend }
+  | { leylineNet:     LeylineNetBackend };
 
 // ── Backend kinds ─────────────────────────────────────────────────────────
 
@@ -78,6 +79,18 @@ export interface ServiceBindingBackend {
 export interface UdsForwardBackend {
   socketPath: string;
   tools:      readonly McpToolSpec[];
+}
+
+/**
+ * leyline-net backend (ADR-0005). cloister sends signed-capnp wire frames
+ * over loopback HTTP to cloister-companion at `companionUrlBinding`;
+ * companion routes by `upstreamId` to the actual backend transport
+ * (UDS/TCP/capnp-RPC). The wire schema lives at `wire/cloister.capnp`.
+ */
+export interface LeylineNetBackend {
+  companionUrlBinding: string;
+  upstreamId:          string;
+  tools:               readonly McpToolSpec[];
 }
 
 // ── Non-MCP route kinds ───────────────────────────────────────────────────

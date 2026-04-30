@@ -12,6 +12,9 @@ src/generated/
 # so up-to-date detection works without re-running steps unnecessarily)
 .task/
 
+# Claude Code session state — cron locks, scheduled-task store, etc.
+.claude/
+
 # melange/apko build artifacts (local-only — keys must not be committed)
 melange.rsa
 melange.rsa.pub

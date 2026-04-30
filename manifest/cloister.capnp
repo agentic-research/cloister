@@ -93,6 +93,13 @@ struct Backend {
 
     # Unix-domain-socket forward — placeholder; reserves the kind.
     udsForward     @5 :UdsForwardBackend;
+
+    # leyline-net wire to cloister-companion (ADR-0005). cloister sends
+    # signed-capnp frames over loopback HTTP; companion decodes, forwards
+    # to the upstream by `upstreamId`, and returns a capnp ToolResult.
+    # Backend kind is reserved here; runtime impl currently throws
+    # "not yet implemented" (Phase 2D-skel) — see cloister-5183bc.
+    leylineNet     @6 :LeylineNetBackend;
   }
 }
 
@@ -132,6 +139,22 @@ struct UdsForwardBackend {
   socketPath @0 :Text;
 
   tools      @1 :List(McpTool);
+}
+
+# leyline-net backend (ADR-0005). cloister-companion endpoint named by
+# `companionUrlBinding`; the companion routes by `upstreamId` to the
+# actual backend (rsry/mache/notme/llo). Wire schema lives at
+# wire/cloister.capnp; runtime is Phase 2D-codec / 2D-wire (cloister-5183bc).
+struct LeylineNetBackend {
+  # Name of the text-var binding holding cloister-companion's HTTP URL
+  # (e.g. "COMPANION_URL", typically loopback like "http://127.0.0.1:9091").
+  companionUrlBinding @0 :Text;
+
+  # Logical id the companion uses to route to the actual upstream.
+  # Companion-side configuration maps this to a transport (UDS / TCP / capnp-RPC).
+  upstreamId          @1 :Text;
+
+  tools               @2 :List(McpTool);
 }
 
 # ── Non-MCP routes ────────────────────────────────────────────────────────
