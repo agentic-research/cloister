@@ -1,23 +1,27 @@
-// JSON-RPC 2.0 wire types
+// JSON-RPC 2.0 wire types — `id` is string | number | null per spec §4.
+// `null` is required for parse-error responses (where the server can't read
+// the request's id) and SHOULD be rejected as a request id.
+export type JsonRpcId = string | number | null;
+
 export interface JsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
   params?: unknown;
-  id: string | number;
+  id: JsonRpcId;
 }
 
 export interface JsonRpcResponse {
   jsonrpc: "2.0";
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
-  id: string | number;
+  id: JsonRpcId;
 }
 
-export function okResponse(id: string | number, result: unknown): JsonRpcResponse {
+export function okResponse(id: JsonRpcId, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-export function errResponse(id: string | number, code: number, message: string): JsonRpcResponse {
+export function errResponse(id: JsonRpcId, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 

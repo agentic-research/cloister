@@ -83,6 +83,20 @@ describe("WorkerdBlobStore", () => {
     });
   });
 
+  it("Digest from WorkerdBlobStore.put matches digestBytes computed outside the DO", async () => {
+    // Substrate-equivalence: the DO must not mutate bytes (e.g. via the
+    // ArrayBuffer copy in asBlob). Digest is a content-addressed contract;
+    // if these diverge, sync between substrates would break.
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "se");
+      const bytes = enc("substrate-equivalence");
+      const inside  = await blobs.put(bytes);
+      const outside = await digestBytes(bytes);
+      expect(inside).toBe(outside);
+    });
+  });
+
   it("rejects unsafe prefixes at construction", async () => {
     const stub = freshStub();
     await runInDurableObject(stub, async (_inst, state) => {

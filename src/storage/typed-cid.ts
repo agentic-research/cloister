@@ -144,6 +144,11 @@ export function decodeCidHex(hex: string): Cid {
   if (hex.length !== CID_HEX_CHARS) {
     throw new Error(`invalid CID hex length ${hex.length}, expected ${CID_HEX_CHARS}`);
   }
+  // parseInt("zz", 16) silently returns NaN; without explicit alphabet check
+  // a malformed CID would silently coerce to a different valid-looking Cid.
+  if (!/^[0-9a-f]+$/i.test(hex)) {
+    throw new Error(`invalid CID hex: contains non-hex characters`);
+  }
   return {
     codec:           parseInt(hex.slice(0, 2), 16),
     typeFingerprint: hexToBytes(hex.slice(2, 2 + FINGERPRINT_BYTES * 2)),

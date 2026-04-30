@@ -110,13 +110,43 @@ function validate(g) {
     const variants = Object.keys(r.kind);
     if (variants.length !== 1) fail(`route.kind must be exactly one variant on ${r.path}; got ${variants.length}`);
 
+    // Path constraints — kept in sync with src/manifest/runtime.ts.
+    // Catching these at build time prevents a "compiled manifest crashes
+    // worker on boot" failure mode.
+    if (r.kind.health && r.path !== "/health") {
+      fail(`health route must have path "/health"; got "${r.path}"`);
+    }
+    if (r.kind.mcp && r.path !== "/mcp") {
+      fail(`mcp route must have path "/mcp"; got "${r.path}"`);
+    }
+    if (r.kind.serviceBindingProxy) {
+      const sbp = r.kind.serviceBindingProxy;
+      if (r.path !== "/identity") {
+        fail(`serviceBindingProxy currently only supports path "/identity"; got "${r.path}"`);
+      }
+      if (sbp.binding !== "NOTME") {
+        fail(`serviceBindingProxy currently only supports binding "NOTME"; got "${sbp.binding}"`);
+      }
+      if (sbp.upstreamHost !== "notme-bot") {
+        fail(`serviceBindingProxy upstreamHost must be "notme-bot"; got "${sbp.upstreamHost}"`);
+      }
+    }
+
     if (r.kind.mcp) {
       const backends = r.kind.mcp.backends ?? [];
       for (const b of backends) {
         if (typeof b.name !== "string")          fail(`backend.name missing on route ${r.path}`);
         if (typeof b.handlesPrefix !== "string") fail(`backend.handlesPrefix missing on ${b.name}`);
-        if (seenPrefixes.has(b.handlesPrefix))   fail(`duplicate backend prefix: ${b.handlesPrefix}`);
-        seenPrefixes.add(b.handlesPrefix);
+
+        // Empty prefix = exact-match-against-tool-list mode. Multiple
+        // empty-prefix backends can coexist; the duplicate-prefix check
+        // applies only to non-empty prefixes.
+        if (b.handlesPrefix !== "") {
+          if (seenPrefixes.has(b.handlesPrefix)) {
+            fail(`duplicate backend prefix: ${b.handlesPrefix}`);
+          }
+          seenPrefixes.add(b.handlesPrefix);
+        }
 
         const kindVariants = Object.keys(b.kind ?? {});
         if (kindVariants.length !== 1) fail(`backend.kind must be one variant on ${b.name}; got ${kindVariants.length}`);
@@ -124,6 +154,11 @@ function validate(g) {
         const tools = inner?.tools ?? [];
         for (const t of tools) {
           if (typeof t.name !== "string") fail(`tool.name missing on backend ${b.name}`);
+          // Tool name must start with backend prefix when prefix is non-empty.
+          // Mirrors runtime.ts; build-time catches keep boot-time failures away.
+          if (b.handlesPrefix !== "" && !t.name.startsWith(b.handlesPrefix)) {
+            fail(`tool "${t.name}" does not start with backend prefix "${b.handlesPrefix}"`);
+          }
           if (seenToolNames.has(t.name))  fail(`duplicate tool name across backends: ${t.name}`);
           seenToolNames.add(t.name);
           if (typeof t.inputSchemaJson !== "string") {

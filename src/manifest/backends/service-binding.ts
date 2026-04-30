@@ -69,7 +69,12 @@ export class ServiceBindingToolBackend implements ToolBackend {
     });
 
     if (!res.ok) {
-      throw new JsonRpcInvocationError(-32603, `upstream returned HTTP ${res.status}`);
+      const body = await res.text().catch(() => "");
+      const snippet = body.length > 200 ? body.slice(0, 200) + "…" : body;
+      throw new JsonRpcInvocationError(
+        -32603,
+        snippet ? `upstream returned HTTP ${res.status}: ${snippet}` : `upstream returned HTTP ${res.status}`,
+      );
     }
 
     let body: JsonRpcResponse;

@@ -163,12 +163,19 @@ function validate(g: Gateway): void {
 
     if ("mcp" in r.kind) {
       for (const b of r.kind.mcp.backends) {
-        if (seenPrefixes.has(b.handlesPrefix)) {
-          throw new TypeError(
-            `manifest: duplicate backend prefix "${b.handlesPrefix}" (backend "${b.name}")`,
-          );
+        // Empty prefix = exact-match-against-tool-list mode. Multiple
+        // empty-prefix backends can coexist; tool-name uniqueness (below)
+        // is the right invariant. The duplicate-prefix check applies only
+        // to non-empty prefixes (where two backends both claiming "x_"
+        // would silently first-wins shadow each other).
+        if (b.handlesPrefix !== "") {
+          if (seenPrefixes.has(b.handlesPrefix)) {
+            throw new TypeError(
+              `manifest: duplicate backend prefix "${b.handlesPrefix}" (backend "${b.name}")`,
+            );
+          }
+          seenPrefixes.add(b.handlesPrefix);
         }
-        seenPrefixes.add(b.handlesPrefix);
 
         const inner =
           ("durableObject"  in b.kind) ? b.kind.durableObject  :
@@ -179,7 +186,7 @@ function validate(g: Gateway): void {
           throw new TypeError(`manifest: backend "${b.name}" has no kind`);
         }
         for (const t of inner.tools) {
-          if (!t.name.startsWith(b.handlesPrefix)) {
+          if (b.handlesPrefix !== "" && !t.name.startsWith(b.handlesPrefix)) {
             throw new TypeError(
               `manifest: tool "${t.name}" does not start with backend prefix "${b.handlesPrefix}"`,
             );

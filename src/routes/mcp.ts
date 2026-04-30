@@ -43,7 +43,8 @@ export class McpEdgeRoute implements EdgeRoute {
     try {
       req = await request.json<JsonRpcRequest>();
     } catch {
-      return Response.json(errResponse(0, -32700, "parse error"), {
+      // JSON-RPC 2.0 §5: when the request can't be parsed, id MUST be null.
+      return Response.json(errResponse(null, -32700, "parse error"), {
         status: 400,
         headers: { "Access-Control-Allow-Origin": allowOrigin },
       });

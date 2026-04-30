@@ -170,4 +170,24 @@ describe("McpEdgeRoute HTTP methods", () => {
     expect(text).toContain("protocolVersion");
     reader.cancel();
   });
+
+  it("GET /mcp echoes the request Origin in Access-Control-Allow-Origin (default)", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await route.handle(
+      new Request("http://x/mcp", { headers: { Origin: "https://app.example.com" } }),
+      fakeEnv(),
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://app.example.com");
+    res.body?.cancel();
+  });
+
+  it("GET /mcp returns 'null' ACAO for an Origin not in ALLOWED_ORIGINS", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await route.handle(
+      new Request("http://x/mcp", { headers: { Origin: "https://evil.example" } }),
+      { ALLOWED_ORIGINS: "https://app.example.com" } as unknown as Env,
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("null");
+    res.body?.cancel();
+  });
 });

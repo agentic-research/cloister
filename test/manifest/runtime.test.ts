@@ -136,6 +136,38 @@ describe("manifest runtime: instantiation", () => {
     expect(routes).toHaveLength(3);
   });
 
+  it("allows MULTIPLE empty-prefix backends in the same mcp route (exact-match mode)", () => {
+    // Two backends with handlesPrefix="" must coexist; tool-name uniqueness
+    // is the right invariant in exact-match mode, not prefix uniqueness.
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/mcp", kind: { mcp: { backends: [
+          { name: "lifecycle", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [
+            mkTool("reparse"), mkTool("status"),
+          ] } } },
+          { name: "ops", handlesPrefix: "", kind: { httpForward: { urlBinding: "V", tools: [
+            mkTool("snapshot"),
+          ] } } },
+        ]}}},
+      ],
+    };
+    expect(() => instantiate(m)).not.toThrow();
+  });
+
+  it("still rejects duplicate tool names across two empty-prefix backends", () => {
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/mcp", kind: { mcp: { backends: [
+          { name: "a", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [mkTool("dup")] } } },
+          { name: "b", handlesPrefix: "", kind: { httpForward: { urlBinding: "V", tools: [mkTool("dup")] } } },
+        ]}}},
+      ],
+    };
+    expect(() => instantiate(m)).toThrow(/duplicate tool name/);
+  });
+
   it("supports all four backend kinds in a single mcp route", () => {
     const m: Gateway = {
       metadata: { name: "t", version: "0.0.0" },
@@ -157,5 +189,58 @@ describe("manifest runtime: instantiation", () => {
       ],
     };
     expect(() => instantiate(m)).not.toThrow();
+  });
+});
+
+// ── httpProxy route kind ───────────────────────────────────────────────────
+
+describe("manifest runtime: httpProxy route kind", () => {
+  it("matches its declared path and the path/* prefix; not other paths", () => {
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/proxy", kind: { httpProxy: {
+          urlBinding: "ROSARY_MCP_URL", stripPrefix: "/proxy",
+        }}},
+      ],
+    };
+    const [route] = instantiate(m);
+    expect(route.match(new Request("http://x/proxy"))).toBe(true);
+    expect(route.match(new Request("http://x/proxy/something"))).toBe(true);
+    expect(route.match(new Request("http://x/proxyx"))).toBe(false); // not a prefix
+    expect(route.match(new Request("http://x/other"))).toBe(false);
+  });
+
+  it("returns 503 when the urlBinding is empty", async () => {
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/proxy", kind: { httpProxy: { urlBinding: "ROSARY_MCP_URL", stripPrefix: "/proxy" } } },
+      ],
+    };
+    const [route] = instantiate(m);
+    const res = await route.handle(
+      new Request("http://x/proxy/anything"),
+      { ROSARY_MCP_URL: "" } as unknown as Parameters<typeof route.handle>[1],
+    );
+    expect(res.status).toBe(503);
+  });
+});
+
+// ── UdsForwardToolBackend reservation ──────────────────────────────────────
+
+describe("UdsForwardToolBackend (placeholder)", () => {
+  it("throws JsonRpcInvocationError(-32603) on invoke (reserved kind)", async () => {
+    const { UdsForwardToolBackend } = await import("../../src/manifest/backends/uds-forward.js");
+    const b = new UdsForwardToolBackend(
+      { socketPath: "/tmp/x.sock", tools: [{ name: "x", description: "", inputSchemaJson: '{"type":"object"}' }] },
+      "x",
+    );
+    expect(b.handles("x")).toBe(true);
+    await expect(b.invoke("x", {}, {} as never)).rejects.toMatchObject({
+      name: "JsonRpcInvocationError",
+      code: -32603,
+      message: expect.stringContaining("not yet implemented"),
+    });
   });
 });

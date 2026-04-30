@@ -29,10 +29,16 @@ export function pickAllowedOrigin(
   }
 
   if (!origin) {
-    // No Origin header on the request — don't expose CORS at all by echoing.
-    // Returning the first configured entry is fine; browsers without an
-    // Origin won't enforce CORS anyway.
-    return list.split(",")[0]!.trim();
+    // No Origin header on the request — browsers without an Origin won't
+    // enforce CORS anyway. Pick the first allowlist entry that's a literal
+    // origin (not a `:*` glob) so the emitted ACAO header is well-formed.
+    // If all entries contain `*`, fall back to "*" (safe for non-credentialed
+    // requests, which is our entire surface).
+    for (const raw of list.split(",")) {
+      const entry = raw.trim();
+      if (entry !== "" && !entry.includes("*")) return entry;
+    }
+    return "*";
   }
 
   // Match against the configured allowlist.
