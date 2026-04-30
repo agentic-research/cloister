@@ -66,6 +66,9 @@ export interface Env {
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
   SIGNET_URL:     string;  // signet key exchange (empty until deployed)
   LLO_MCP_URL:    string;  // ley-line-open MCP HTTP endpoint (`leyline daemon --mcp-port`)
+  /// mache MCP HTTP endpoint (`mache serve --http :7532`). Used by the
+  /// `mache_*` backend with dynamicTools=true (ADR-0006). Empty disables it.
+  MACHE_MCP_URL?: string;
   /// cloister-companion endpoint (ADR-0005). Empty disables LeylineNet
   /// backends; `task companion:stub` provides a local-dev listener.
   COMPANION_URL?: string;

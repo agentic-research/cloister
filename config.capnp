@@ -93,6 +93,11 @@ const cloisterWorker :Workerd.Worker = (
     ( name = "COMPANION_URL",
       text = "http://localhost:8385/mcp",
     ),
+    # mache MCP HTTP endpoint (`mache serve --http :7532`). Used by the
+    # mache_* backend with dynamicTools=true (ADR-0006). Empty disables it.
+    ( name = "MACHE_MCP_URL",
+      text = "http://localhost:7532/mcp",
+    ),
   ],
 
   durableObjectNamespaces = [

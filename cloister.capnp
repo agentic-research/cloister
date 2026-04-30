@@ -124,6 +124,22 @@ const gateway :Cloister.Gateway = (
           ),
 
 
+          # mache_*  → MACHE_MCP_URL with dynamicTools=true. mache exposes
+          # ~17 MCP tools (get_overview, find_callers, search, …) on a
+          # Streamable HTTP server. Cloister advertises them as `mache_*`
+          # and strips the prefix on tools/call. Tools list is Derived
+          # (ADR-0006) so mache evolving its catalog flows through without
+          # manifest edits. Tracked in cloister-827d62.
+          ( name          = "mache",
+            handlesPrefix = "mache_",
+            kind = (httpForward = (
+              urlBinding   = "MACHE_MCP_URL",
+              tools        = [],
+              dynamicTools = true,
+              stripPrefix  = "mache_",
+            )),
+          ),
+
           # rsry_*  → ROSARY_MCP_URL — intentionally not exposed in this manifest.
           # See ADR-0005 (docs/adr/0005-internal-wire-leyline-net.md). The rosary
           # backend will land as `kind = (leylineNet = (...))` once
