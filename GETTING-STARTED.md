@@ -251,8 +251,16 @@ the repo root; per ADR-0004, this is the source of truth. To add a service
 1. Decide the *kind*. Four real options:
    - **`durableObject`** — local DO-backed, like `bead_*`
    - **`httpForward`** — HTTP MCP server reachable via a URL env var (how
-     `lsp_*` and `reparse|enrich|status` work today). Speaks JSON-RPC over
-     HTTP. Stateless; doesn't handle MCP session-id transports like rsry's.
+     `lsp_*`, `reparse|enrich|status`, and `mache_*` work today). Speaks
+     JSON-RPC over HTTP. Two flavors via spec flags:
+     - `dynamicTools = true` (ADR-0006) auto-derives the catalog from the
+       upstream's `tools/list` and caches it for 60s. Used by `mache_*` —
+       no hand-written schemas. Pair with `stripPrefix` to namespace bare
+       upstream names (e.g. `get_overview` → `mache_get_overview`).
+     - `requiresSession = true` performs the MCP Streamable HTTP
+       `initialize` handshake and propagates `Mcp-Session-Id` on every
+       request. Required for `mark3labs/mcp-go` upstreams (mache, rsry).
+       Leave false for genuinely stateless upstreams (LLO daemon).
    - **`serviceBinding`** — another workerd Worker exposed as a `Fetcher`
    - **`leylineNet`** — capnp ToolCall/ToolResult over loopback HTTP to
      `cloister-companion`; companion handles the network hop with full
@@ -262,16 +270,28 @@ the repo root; per ADR-0004, this is the source of truth. To add a service
 2. Add a backend entry inside the `/mcp` route's `mcp.backends` list:
 
    ```capnp
-   # httpForward — for stateless HTTP MCP upstreams
-   ( name          = "rosary",
-     handlesPrefix = "rsry_",
+   # httpForward — Asserted catalog, stateless upstream (LLO shape)
+   ( name          = "lsp",
+     handlesPrefix = "lsp_",
      kind = (httpForward = (
-       urlBinding = "ROSARY_MCP_URL",
+       urlBinding = "LLO_MCP_URL",
        tools = [
-         (name = "rsry_decompose",
+         (name = "lsp_hover",
           description = "...",
           inputSchemaJson = "{\"type\":\"object\",\"properties\":...}"),
        ],
+     )),
+   ),
+
+   # httpForward — Derived catalog with session-id (mache shape, ADR-0006)
+   ( name          = "mache",
+     handlesPrefix = "mache_",
+     kind = (httpForward = (
+       urlBinding      = "MACHE_MCP_URL",
+       tools           = [],         # empty ⇒ fully Derived from upstream
+       dynamicTools    = true,
+       stripPrefix     = "mache_",   # bare names on wire, prefixed on advertise
+       requiresSession = true,       # mark3labs/mcp-go session-id handshake
      )),
    ),
 
