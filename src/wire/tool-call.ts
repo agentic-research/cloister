@@ -94,26 +94,34 @@ export function decodeToolCall(bytes: Uint8Array): ToolCall {
   // sender is a future version that added data fields — skip past them.
   const ptrSection = root.target + root.dataWords * WORD;
 
-  const idPtr   = r.readListPointer(ptrSection + 0 * WORD);
-  const namePtr = r.readListPointer(ptrSection + 1 * WORD);
-  const argsPtr = r.readListPointer(ptrSection + 2 * WORD);
-
-  // All three are byte lists.
-  for (const [name, p] of [
-    ["upstreamId",    idPtr],
-    ["toolName",      namePtr],
-    ["argumentsJson", argsPtr],
-  ] as const) {
-    if (p.elementSize !== ELEM_BYTE) {
-      throw new Error(`ToolCall.${name}: elementSize=${p.elementSize}, expected ${ELEM_BYTE}`);
-    }
-  }
+  // Capnp encodes default-valued pointer fields as null pointers (8 zero
+  // bytes). For Text/Data fields, null = empty. Detect the null case
+  // BEFORE strict-kind-checking the pointer.
+  const idAt   = ptrSection + 0 * WORD;
+  const nameAt = ptrSection + 1 * WORD;
+  const argsAt = ptrSection + 2 * WORD;
 
   return {
-    upstreamId:    decodeTextWithNul("upstreamId", r.readBytes(idPtr.target,   idPtr.count)),
-    toolName:      decodeTextWithNul("toolName",   r.readBytes(namePtr.target, namePtr.count)),
-    argumentsJson: r.readBytes(argsPtr.target, argsPtr.count),
+    upstreamId:    r.isNullPointer(idAt)   ? "" : readText("upstreamId", r, idAt),
+    toolName:      r.isNullPointer(nameAt) ? "" : readText("toolName",   r, nameAt),
+    argumentsJson: r.isNullPointer(argsAt) ? new Uint8Array(0) : readData("argumentsJson", r, argsAt),
   };
+}
+
+function readText(field: string, r: WireReader, at: number): string {
+  const ptr = r.readListPointer(at);
+  if (ptr.elementSize !== ELEM_BYTE) {
+    throw new Error(`ToolCall.${field}: elementSize=${ptr.elementSize}, expected ${ELEM_BYTE}`);
+  }
+  return decodeTextWithNul(field, r.readBytes(ptr.target, ptr.count));
+}
+
+function readData(field: string, r: WireReader, at: number): Uint8Array {
+  const ptr = r.readListPointer(at);
+  if (ptr.elementSize !== ELEM_BYTE) {
+    throw new Error(`ToolCall.${field}: elementSize=${ptr.elementSize}, expected ${ELEM_BYTE}`);
+  }
+  return r.readBytes(ptr.target, ptr.count);
 }
 
 function decodeTextWithNul(field: string, bytes: Uint8Array): string {

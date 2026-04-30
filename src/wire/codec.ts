@@ -224,6 +224,17 @@ export class WireReader {
     return (raw & 0x20000000) ? raw | ~0x3FFFFFFF : raw;
   }
 
+  /**
+   * True iff the 8 bytes at `at` are all zero (a "null pointer" in capnp).
+   * Capnp encodes default-valued pointer fields as null pointers — empty
+   * Data, empty Text, absent struct. Callers must decide what null means
+   * for their schema's field type (typically: empty list / empty string /
+   * absent struct).
+   */
+  isNullPointer(at: number): boolean {
+    return this.dv.getBigUint64(at, LE) === 0n;
+  }
+
   readStructPointer(at: number): StructPtr {
     const lo = this.readU32(at);
     const kind = lo & 3;

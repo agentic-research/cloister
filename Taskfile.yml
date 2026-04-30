@@ -23,6 +23,17 @@ tasks:
     generates:
       - src/generated/manifest.ts
 
+  wire:fixtures:
+    desc: Regenerate substrate-equivalence fixtures from wire/cross-check-fixtures.capnp (ADR-0005, cloister-5183bc 2D-codec.D)
+    cmds:
+      - node scripts/gen-wire-fixtures.mjs
+    sources:
+      - wire/cloister.capnp
+      - wire/cross-check-fixtures.capnp
+      - scripts/gen-wire-fixtures.mjs
+    generates:
+      - test/wire/fixtures/canonical.ts
+
   build:local:
     desc: Bundle Worker for local workerd (embeds into dist/)
     deps: [manifest]
