@@ -29,6 +29,39 @@
 # capnp-encoded ToolCall/ToolResult); receivers verify it after decryption
 # as a defense-in-depth check.
 #
+# ── Encoding implementation (workerd side) ───────────────────────────────
+#
+# Decision (2026-04-29, cloister-5183bc Phase 2D-codec): hand-rolled
+# encoder/decoder in TypeScript. Reasons:
+#
+#   - capnp-ts (npm) is unmaintained — last release 2021, 9 dependents,
+#     workerd compatibility unverified.
+#   - capnp-es / 8thwall forks are single-maintainer; outsourcing wire-
+#     format correctness for cross-host RPC is too much surface to delegate.
+#   - Our schema is bounded: 5 structs, no nested lists, no inline structs
+#     in lists, no parameterized generics. ~600 LOC of careful TS for
+#     encode + decode on this surface.
+#   - Hand-rolled = zero deps, no bundling surprises in workerd, exact
+#     byte control, audit-friendly for security review.
+#
+# Format flags:
+#
+#   - **Single segment** per message. (Capnp allows multi-segment messages
+#     with far-pointer hops; we don't need it for these struct shapes and
+#     it complicates the encoder substantially.)
+#   - **Unpacked** binary encoding. The "packed" format that elides zero
+#     bytes is only worth it on slow/expensive transports; cloister-companion
+#     runs on loopback HTTP where bandwidth is free.
+#   - **Stream framing** is OUR responsibility, not capnp's. The outer wire
+#     frame (manifest-length / manifest-bytes / nonce / ciphertext) lives
+#     above the capnp encoder; the encoder produces a single contiguous
+#     byte slice per message.
+#
+# Cross-side equivalence: cloister-companion (Rust, when 2B lands) uses
+# the official `capnp` crate which produces the same wire bytes. The
+# correctness contract is: same schema + same logical message → same bytes
+# on both sides. Substrate-equivalence test (Phase 2E) locks this in.
+
 # ── Schema-evolution discipline ──────────────────────────────────────────
 #
 # Cap'n Proto wire-compat rules apply here too:
