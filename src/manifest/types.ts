@@ -67,8 +67,21 @@ export interface DoBackend {
 }
 
 export interface HttpForwardBackend {
-  urlBinding: string;
-  tools:      readonly McpToolSpec[];
+  urlBinding:    string;
+  tools:         readonly McpToolSpec[];
+  /**
+   * When true, `tools/list` is fetched from `urlBinding` at request time and
+   * cached with a TTL. See ADR-0006. The `tools` field becomes an override
+   * set: names present pin to the Asserted schema even when upstream emits
+   * the same name; an empty list means "fully Derived from upstream."
+   */
+  dynamicTools?: boolean;
+  /**
+   * Prefix removed from tool names before forwarding `tools/call`. Empty or
+   * absent ⇒ no stripping (matches today's behavior where upstream and
+   * advertised names share a prefix, e.g. `lsp_*`).
+   */
+  stripPrefix?:  string;
 }
 
 export interface ServiceBindingBackend {

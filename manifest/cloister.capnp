@@ -122,7 +122,24 @@ struct HttpForwardBackend {
   # Name of the text-var binding holding the URL (e.g. "LLO_MCP_URL").
   urlBinding @0 :Text;
 
+  # Asserted catalog. With `dynamicTools = false` (default) this is the full
+  # tools/list cloister advertises for this backend. With `dynamicTools = true`
+  # this is an *override* set: any name present here pins to the Asserted
+  # schema even when the upstream Derived catalog includes the same name.
+  # Empty list + dynamicTools=true means "fully Derived from upstream."
   tools      @1 :List(McpTool);
+
+  # When true, cloister fetches `tools/list` from `urlBinding` at request
+  # time and caches the result with a TTL (default 60s). Each upstream tool
+  # is advertised as `${handlesPrefix}${upstream_name}`. See ADR-0006.
+  dynamicTools @2 :Bool;
+
+  # Prefix to remove from tool names before forwarding `tools/call`. For an
+  # upstream that uses bare names (mache: `get_overview`) and is being
+  # namespaced behind cloister (advertised as `mache_get_overview`), set
+  # this to the namespace prefix (`"mache_"`). For an upstream that already
+  # prefixes its tools (LLO: `lsp_hover`), leave empty — no stripping.
+  stripPrefix @3 :Text;
 }
 
 struct ServiceBindingBackend {
