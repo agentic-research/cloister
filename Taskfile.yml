@@ -112,8 +112,12 @@ tasks:
       - npx workerd serve config.capnp --experimental
 
   lint:
-    desc: Type-check + worker tests + plugin tests
+    desc: Fast gate — tsc + worker tests + plugin tests. Runs ≤2s. Use this in inner-loop dev.
     deps: [type-check, test, test:plugin]
+
+  verify:
+    desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub]
 
   smoke:
     desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain

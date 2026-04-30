@@ -38,15 +38,20 @@ pnpm install
 Run the test suite once to confirm everything compiles:
 
 ```sh
-task lint            # tsc + 68 worker tests + 11 plugin tests
+task lint            # tsc + worker tests + plugin tests (fast — ≤2s)
+task verify          # lint + external-process harnesses (slower, CI gate)
 ```
+
+`lint` is the inner-loop gate; `verify` adds:
+- `wire:verify-roundtrip` — substrate equivalence vs the capnp CLI (requires `capnp` on PATH)
+- `smoke:leyline-stub` — production codec ↔ real HTTP socket ↔ stub-companion (spawns Node)
 
 If you don't have `task`:
 
 ```sh
 pnpm exec tsc --noEmit
-pnpm exec vitest run                    # 68 tests in real workerd
-node --test hooks/test/*.test.mjs       # 11 plugin tests
+pnpm exec vitest run                    # workerd integration tests
+node --test hooks/test/*.test.mjs       # CC plugin tests
 ```
 
 ## 3. Run cloister locally
