@@ -140,6 +140,13 @@ struct HttpForwardBackend {
   # this to the namespace prefix (`"mache_"`). For an upstream that already
   # prefixes its tools (LLO: `lsp_hover`), leave empty — no stripping.
   stripPrefix @3 :Text;
+
+  # When true, cloister speaks MCP Streamable HTTP per spec: POST `initialize`
+  # first, capture the `Mcp-Session-Id` response header, send it on every
+  # subsequent `tools/list` and `tools/call`. Required for mark3labs/mcp-go
+  # servers (mache, rsry) which reject requests without a well-formed session
+  # ID. Leave false for genuinely stateless upstreams (LLO daemon).
+  requiresSession @4 :Bool;
 }
 
 struct ServiceBindingBackend {

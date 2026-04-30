@@ -133,10 +133,11 @@ const gateway :Cloister.Gateway = (
           ( name          = "mache",
             handlesPrefix = "mache_",
             kind = (httpForward = (
-              urlBinding   = "MACHE_MCP_URL",
-              tools        = [],
-              dynamicTools = true,
-              stripPrefix  = "mache_",
+              urlBinding      = "MACHE_MCP_URL",
+              tools           = [],
+              dynamicTools    = true,
+              stripPrefix     = "mache_",
+              requiresSession = true,
             )),
           ),
 

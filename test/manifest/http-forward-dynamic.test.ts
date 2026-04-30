@@ -228,6 +228,163 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
   });
 });
 
+// ── MCP Streamable HTTP session-id handshake ─────────────────────────────
+
+describe("HttpForwardToolBackend — requiresSession", () => {
+  function sessionResponseWithId(id: string, body: unknown): Response {
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 0, result: body }), {
+      status:  200,
+      headers: {
+        "Content-Type":   "application/json",
+        "Mcp-Session-Id": id,
+      },
+    });
+  }
+
+  it("performs initialize handshake on first contact and sends Mcp-Session-Id afterward", async () => {
+    const SID = "mcp-session-test-abc";
+    const calls: Array<{ method: string; sessionHeader: string | null }> = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      const sessionHeader = (init?.headers as Record<string, string> | undefined)?.["Mcp-Session-Id"] ?? null;
+      const method = body?.method ?? "?";
+      calls.push({ method, sessionHeader });
+
+      if (method === "initialize") {
+        return sessionResponseWithId(SID, { protocolVersion: "2024-11-05", capabilities: {} });
+      }
+      if (method === "tools/list") return jsonResponse(TOOLS_LIST_RESULT);
+      return jsonResponse({ content: [{ type: "text", text: "{}" }] });
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: true,
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+
+    await b.refreshTools(envWith("http://stub/mcp"));
+
+    // initialize first (no session header), then tools/list (with session header).
+    const initCall = calls.find(c => c.method === "initialize");
+    const listCall = calls.find(c => c.method === "tools/list");
+    expect(initCall?.sessionHeader).toBeNull();
+    expect(listCall?.sessionHeader).toBe(SID);
+
+    // Subsequent invoke should reuse the same session, no second initialize.
+    const beforeCount = calls.filter(c => c.method === "initialize").length;
+    await b.invoke("mache_get_overview", { repo: "x" }, envWith("http://stub/mcp"));
+    const afterCount = calls.filter(c => c.method === "initialize").length;
+    expect(afterCount).toBe(beforeCount);
+
+    const callCall = calls.find(c => c.method === "tools/call");
+    expect(callCall?.sessionHeader).toBe(SID);
+  });
+
+  it("resets session and retries once on 4xx invalid-session response", async () => {
+    let initializeCount = 0;
+    let toolsCallCount  = 0;
+    const SID_OLD = "mcp-session-old";
+    const SID_NEW = "mcp-session-new";
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      const method = body?.method ?? "?";
+      const sessionHeader = (init?.headers as Record<string, string> | undefined)?.["Mcp-Session-Id"] ?? null;
+
+      if (method === "initialize") {
+        initializeCount++;
+        return sessionResponseWithId(initializeCount === 1 ? SID_OLD : SID_NEW, {});
+      }
+      if (method === "tools/call") {
+        toolsCallCount++;
+        // First call (with old session) ⇒ 400 invalid; second (with new) ⇒ ok.
+        if (sessionHeader === SID_OLD) {
+          return new Response("invalid session", { status: 400 });
+        }
+        return jsonResponse({ content: [{ type: "text", text: '{"ok":true}' }] });
+      }
+      return jsonResponse({});
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    false,
+      stripPrefix:     "",
+      requiresSession: true,
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+
+    const result = await b.invoke("mache_x", {}, envWith("http://stub/mcp"));
+    expect(result).toEqual({ ok: true });
+    expect(initializeCount).toBe(2);  // old session + reset → new session
+    expect(toolsCallCount).toBe(2);   // failed call + retry
+  });
+
+  it("requiresSession=false performs no initialize and sends no session header", async () => {
+    const calls: Array<{ method: string; hasSessionHeader: boolean }> = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      const headers = (init?.headers as Record<string, string> | undefined) ?? {};
+      calls.push({
+        method:           body?.method ?? "?",
+        hasSessionHeader: "Mcp-Session-Id" in headers,
+      });
+      return jsonResponse(TOOLS_LIST_RESULT);
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: false,
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+
+    await b.refreshTools(envWith("http://stub/mcp"));
+    expect(calls.find(c => c.method === "initialize")).toBeUndefined();
+    expect(calls.every(c => !c.hasSessionHeader)).toBe(true);
+  });
+
+  it("concurrent first-calls share one initialize round-trip", async () => {
+    const SID = "mcp-session-shared";
+    let initializeCount = 0;
+    let resolveInit: ((r: Response) => void) | null = null;
+    const initPromise = new Promise<Response>(r => { resolveInit = r; });
+
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      const method = body?.method ?? "?";
+      if (method === "initialize") {
+        initializeCount++;
+        return await initPromise;
+      }
+      return jsonResponse(TOOLS_LIST_RESULT);
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: true,
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+
+    const r1 = b.refreshTools(envWith("http://stub/mcp"));
+    const r2 = b.refreshTools(envWith("http://stub/mcp"));
+
+    resolveInit!(sessionResponseWithId(SID, {}));
+    await Promise.all([r1, r2]);
+
+    expect(initializeCount).toBe(1);
+  });
+});
+
 // ── Runtime validation ────────────────────────────────────────────────────
 
 describe("manifest runtime: dynamicTools validation", () => {

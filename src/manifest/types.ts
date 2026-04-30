@@ -82,6 +82,13 @@ export interface HttpForwardBackend {
    * advertised names share a prefix, e.g. `lsp_*`).
    */
   stripPrefix?:  string;
+  /**
+   * When true, cloister performs the MCP Streamable HTTP `initialize`
+   * handshake on first contact and sends the captured `Mcp-Session-Id` on
+   * every subsequent request. Required for mark3labs/mcp-go upstreams.
+   * Leave false for LLO-style genuinely-stateless servers.
+   */
+  requiresSession?: boolean;
 }
 
 export interface ServiceBindingBackend {
