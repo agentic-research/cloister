@@ -4,42 +4,23 @@
  * cloister is *not* an MCP gateway. It is an edge router that delivers bytes
  * over SSE/HTTP to a table of EdgeRoutes; MCP is one tenant of that pipe.
  *
- * Architecture: ADR-0001 (workerd choice), ADR-0002 (router + backends seam).
+ * Architecture: ADR-0001 (workerd choice), ADR-0002 (router + backends seam),
+ *               ADR-0004 (Cap'n Proto manifest as the registration format).
  *
- * Today's tenants:
- *   /health      → HealthRoute                  (liveness + backend snapshot)
- *   /identity/*  → NotmeIdentityRoute           (vault, no-net; via service binding)
- *   /mcp         → McpEdgeRoute                 (JSON-RPC over POST + SSE over GET)
- *                    ├─ BeadToolBackend         (bead_*                → BEAD_STORE DO)
- *                    ├─ LspToolBackend          (lsp_*                 → LLO_MCP_URL)
- *                    └─ LeylineLifecycleBackend (reparse|enrich|status → LLO_MCP_URL)
- *
- * Adding a tenant: implement EdgeRoute, append to ROUTES.
- * Adding an MCP tool family: implement ToolBackend, append to McpEdgeRoute backends.
+ * The route table is no longer hand-coded here — it is compiled from
+ * `cloister.capnp` at build time (via `task manifest` → `src/generated/manifest.ts`)
+ * and instantiated by `manifest/runtime.ts`. To add a tenant, edit
+ * `cloister.capnp` and re-run `task manifest`.
  */
 
 import type { Env } from "./types.js";
-import { Router, type EdgeRoute } from "./router.js";
-import { HealthRoute } from "./routes/health.js";
-import { NotmeIdentityRoute } from "./routes/notme-identity.js";
-import { McpEdgeRoute } from "./routes/mcp.js";
-import { BeadToolBackend } from "./backends/bead.js";
-import { LspToolBackend } from "./backends/lsp.js";
-import { LeylineLifecycleBackend } from "./backends/leyline.js";
+import { Router } from "./router.js";
+import { instantiate } from "./manifest/runtime.js";
+import { manifest } from "./generated/manifest.js";
 
 export { BeadStore } from "./beads.js";
 
-const ROUTES: readonly EdgeRoute[] = [
-  new HealthRoute(),
-  new NotmeIdentityRoute(),
-  new McpEdgeRoute([
-    new BeadToolBackend(),
-    new LspToolBackend(),
-    new LeylineLifecycleBackend(),
-  ]),
-];
-
-const router = new Router(ROUTES);
+const router = new Router(instantiate(manifest));
 
 export default {
   fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {

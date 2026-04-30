@@ -11,8 +11,20 @@ tasks:
     generates:
       - .wrangler/tmp/build-*/index.js
 
+  manifest:
+    desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004)
+    cmds:
+      - node scripts/build-manifest.mjs
+    sources:
+      - cloister.capnp
+      - manifest/cloister.capnp
+      - scripts/build-manifest.mjs
+    generates:
+      - src/generated/manifest.ts
+
   build:local:
     desc: Bundle Worker for local workerd (embeds into dist/)
+    deps: [manifest]
     cmds:
       - pnpm exec wrangler build --outdir dist
     sources:
@@ -42,6 +54,7 @@ tasks:
 
   dev:
     desc: Start local dev server on :8787
+    deps: [manifest]
     cmds:
       - pnpm exec wrangler dev
 

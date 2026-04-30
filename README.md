@@ -43,6 +43,11 @@ protocol-agnostic backends. MCP is one tenant of the pipe; identity is
 another; future tenants (gRPC, WebSocket) plug into the same `EdgeRoute`
 table. Read the rationale: [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md).
 
+The route table is **declared, not coded** — `cloister.capnp` at the repo
+root is the source of truth, compiled by `task manifest` to a typed TS
+module that `src/index.ts` imports. To add an MCP-fronted service, edit
+`cloister.capnp`. See [ADR-0004](docs/adr/0004-capnp-manifest.md).
+
 ## What it does
 
 - **Bead CRUD** — `bead_create | update | search | list | close | comment` against
@@ -111,8 +116,9 @@ npx workerd serve config.capnp --experimental
 task lint           # tsc + worker tests + plugin tests
 task test           # vitest in real workerd (real DOs, real SQLite)
 task test:plugin    # node --test for the CC plugin script
-task build:local    # bundle for workerd
-task dev            # wrangler dev hot-reload
+task manifest       # cloister.capnp → src/generated/manifest.ts (ADR-0004)
+task build:local    # bundle for workerd (depends on `manifest`)
+task dev            # wrangler dev hot-reload (depends on `manifest`)
 task serve:local    # workerd serve config.capnp
 task smoke          # spins up leyline + cloister, exercises full chain
 task apk            # build APK via melange (signed)

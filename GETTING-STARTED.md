@@ -237,14 +237,63 @@ Other prod knobs (still ADR-0001 work items):
 - mTLS via notme-proxy in front of `LLO_MCP_URL`
 - mount `/data` as a persistent volume for the BeadStore DO SQLite files
 
-## 10. Where to next
+## 10. Adding a new MCP-fronted service
 
-- **Want to add a new MCP tool family?** Implement `ToolBackend` in `src/backends/`,
-  register it in `src/index.ts`'s `McpEdgeRoute([...])`. See `LspToolBackend`
-  and `LeylineLifecycleBackend` as templates.
-- **Want a new HTTP route (not MCP)?** Implement `EdgeRoute` in `src/routes/`,
-  append to `ROUTES` in `src/index.ts`. See `HealthRoute`.
-- **Want the architecture rationale?** [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md)
-  explains why cloister is an edge router rather than an MCP gateway, and
-  why workerd's service-binding model replaces Istio-style mTLS.
-- **Want the packaging rationale?** [ADR-0001](docs/adr/0001-workerd-mcp-gateway.md).
+Cloister's route table is declared in [`cloister.capnp`](cloister.capnp) at
+the repo root; per ADR-0004, this is the source of truth. To add a service
+(`rsry_*`, `mache_*`, `crumb_*`, …):
+
+1. Decide the *kind*. Three real options:
+   - **`durableObject`** — local DO-backed, like `bead_*`
+   - **`httpForward`** — HTTP MCP server reachable via a URL env var (most
+     common; how `lsp_*` and `reparse|enrich|status` work today)
+   - **`serviceBinding`** — another workerd Worker exposed as a `Fetcher`
+2. Add a backend entry inside the `/mcp` route's `mcp.backends` list:
+   ```capnp
+   ( name          = "rosary",
+     handlesPrefix = "rsry_",
+     kind = (httpForward = (
+       urlBinding = "ROSARY_MCP_URL",
+       tools = [
+         (name = "rsry_decompose",
+          description = "...",
+          inputSchemaJson = "{\"type\":\"object\",\"properties\":...}"),
+       ],
+     )),
+   ),
+   ```
+3. If the new binding (`ROSARY_MCP_URL` here) isn't already in
+   `wrangler.toml` + `config.capnp` + `src/types.ts`, add it.
+4. Run `task manifest` (or just `task lint` — it depends on `manifest`).
+   Build-time validators catch:
+   - duplicate route paths
+   - duplicate backend prefixes
+   - duplicate tool names across backends
+   - tools whose names don't start with their backend's prefix
+   - malformed `inputSchemaJson`
+5. Tests: the integration suite in `test/mcp.test.ts` already exercises the
+   `tools/list` aggregation, so a new backend appears automatically. Add
+   per-backend tests in `test/manifest/` if the wire-shape needs explicit
+   coverage.
+
+Empty `handlesPrefix` is allowed and means "exact-match against the
+advertised tool names" — used today for `reparse | enrich | status` which
+have no shared prefix on the upstream LLO daemon.
+
+## 11. Adding a new HTTP route (not MCP)
+
+Implement `EdgeRoute` in `src/routes/`, register it in
+`src/manifest/runtime.ts` if you want it manifest-driven, or for a
+one-off path tweak just declare it in `cloister.capnp` under one of the
+existing route kinds (`health`, `httpProxy`, `serviceBindingProxy`).
+
+## 12. Further reading
+
+- [ADR-0001](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
+- [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why
+  edge router rather than MCP gateway, and why workerd's service bindings
+  replace Istio-style mTLS
+- [ADR-0003](docs/adr/0003-content-addressed-bead-store.md) — bead storage
+  as Merkle DAG + CAS refs (Phase 1 shipped)
+- [ADR-0004](docs/adr/0004-capnp-manifest.md) — Cap'n Proto manifest as the
+  registration format (just shipped)
