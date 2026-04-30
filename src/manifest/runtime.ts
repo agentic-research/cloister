@@ -188,6 +188,17 @@ function validate(g: Gateway): void {
         if (!inner) {
           throw new TypeError(`manifest: backend "${b.name}" has no kind`);
         }
+
+        // ADR-0006: dynamicTools requires a non-empty prefix so handles()
+        // can dispatch upstream tools before the cache populates. An empty
+        // prefix would leave handles() returning false until refreshTools()
+        // runs, which races with the first tools/call from the client.
+        if ("httpForward" in b.kind && b.kind.httpForward.dynamicTools && b.handlesPrefix === "") {
+          throw new TypeError(
+            `manifest: backend "${b.name}" has dynamicTools=true but empty handlesPrefix; dynamic tools require a non-empty prefix (see ADR-0006)`,
+          );
+        }
+
         for (const t of inner.tools) {
           if (b.handlesPrefix !== "" && !t.name.startsWith(b.handlesPrefix)) {
             throw new TypeError(

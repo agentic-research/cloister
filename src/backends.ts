@@ -20,6 +20,14 @@ export interface ToolBackend {
   tools(): McpTool[];
   handles(toolName: string): boolean;
   invoke(toolName: string, args: Record<string, unknown>, env: Env): Promise<unknown>;
+  /**
+   * Optional pre-`tools/list` hook for backends with Derived schemas
+   * (ADR-0006). The MCP edge calls this on every backend before
+   * aggregating `tools/list`; static backends omit it. Should be cheap on
+   * the hot path: implementations cache with a TTL and dedupe concurrent
+   * calls. Errors are swallowed — Asserted catalog stays as fallback.
+   */
+  refreshTools?(env: Env): Promise<void>;
 }
 
 export class JsonRpcInvocationError extends Error {

@@ -64,6 +64,7 @@ export class McpEdgeRoute implements EdgeRoute {
           serverInfo: SERVER_INFO,
         });
       case "tools/list":
+        await Promise.all(this.backends.map(b => b.refreshTools?.(env)));
         return okResponse(req.id, { tools: this.allTools() });
       case "tools/call":
         return this.callTool(req, env);
@@ -74,8 +75,22 @@ export class McpEdgeRoute implements EdgeRoute {
     }
   }
 
+  /**
+   * Aggregate tools across backends. First-registered wins on name collision,
+   * which lets Derived (dynamic) tools coexist with Asserted ones (ADR-0006):
+   * the manifest order pins the precedence.
+   */
   private allTools(): McpTool[] {
-    return this.backends.flatMap(b => b.tools());
+    const seen = new Set<string>();
+    const out: McpTool[] = [];
+    for (const b of this.backends) {
+      for (const t of b.tools()) {
+        if (seen.has(t.name)) continue;
+        seen.add(t.name);
+        out.push(t);
+      }
+    }
+    return out;
   }
 
   private async callTool(req: JsonRpcRequest, env: Env): Promise<JsonRpcResponse> {
