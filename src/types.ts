@@ -66,6 +66,9 @@ export interface Env {
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
   SIGNET_URL:     string;  // signet key exchange (empty until deployed)
   LLO_MCP_URL:    string;  // ley-line-open MCP HTTP endpoint (`leyline daemon --mcp-port`)
+  /// cloister-companion endpoint (ADR-0005). Empty disables LeylineNet
+  /// backends; `task companion:stub` provides a local-dev listener.
+  COMPANION_URL?: string;
   /// Comma-separated list of allowed CORS origins. "*" (default) is wildcard
   /// — fine for local dev, tighten before prod. Example: "https://notme.bot,http://localhost:*"
   ALLOWED_ORIGINS?: string;

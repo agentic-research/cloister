@@ -45,6 +45,17 @@ tasks:
       - scripts/verify-wire-roundtrip.mjs
       - tsconfig.verify.json
 
+  companion:stub:
+    desc: Run a local stub of cloister-companion (ADR-0005). HTTP listener on :8385 that decodes capnp ToolCall and returns canned ToolResult — lets `task dev` exercise leylineNet backends without a real Rust companion.
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - 'echo "[task] stub-companion starting on :8385 (PORT=N to override, STUB_COMPANION_VERBOSE=1 for per-request logs)"'
+      - node scripts/stub-companion.mjs
+    sources:
+      - src/wire/**/*.ts
+      - scripts/stub-companion.mjs
+      - tsconfig.verify.json
+
   build:local:
     desc: Bundle Worker for local workerd (embeds into dist/)
     deps: [manifest]

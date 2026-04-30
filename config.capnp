@@ -88,6 +88,11 @@ const cloisterWorker :Workerd.Worker = (
     ( name = "SIGNET_URL",
       text = "",
     ),
+    # cloister-companion endpoint (ADR-0005). Empty disables LeylineNet
+    # backends; for local dev `task companion:stub` listens on :8385.
+    ( name = "COMPANION_URL",
+      text = "http://localhost:8385/mcp",
+    ),
   ],
 
   durableObjectNamespaces = [

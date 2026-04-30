@@ -36,3 +36,7 @@ service = "notme-bot"
 ROSARY_MCP_URL  = "http://localhost:8383/mcp"
 LLO_MCP_URL     = "http://localhost:8384/mcp"   # `leyline daemon --mcp-port 8384`
 SIGNET_URL      = ""   # not yet deployed, TBD
+# cloister-companion (ADR-0005). Empty disables LeylineNetToolBackend.
+# For local dev: `task companion:stub` starts a stub on :8385 that mimics
+# the wire contract (capnp ToolCall in, capnp ToolResult out).
+COMPANION_URL   = "http://localhost:8385/mcp"
