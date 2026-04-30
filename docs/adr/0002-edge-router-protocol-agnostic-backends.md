@@ -148,6 +148,7 @@ of service bindings is preserved end-to-end.
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice and packaging story
 - [ADR-0003](0003-content-addressed-bead-store.md) — substrate-free bead storage that plugs under `BeadToolBackend`
 - [ADR-0004](0004-capnp-manifest.md) — Cap'n Proto manifest replacing the TS registration site this ADR introduced
+- [ADR-0005](0005-internal-wire-leyline-net.md) — adds a `leylineNet` ToolBackend kind under the seam this ADR defines
 - [../../README.md](../../README.md) — what each tenant does
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + sequence diagrams
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup

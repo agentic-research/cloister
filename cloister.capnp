@@ -123,6 +123,14 @@ const gateway :Cloister.Gateway = (
             )),
           ),
 
+
+          # rsry_*  → ROSARY_MCP_URL — intentionally not exposed in this manifest.
+          # See ADR-0005 (docs/adr/0005-internal-wire-leyline-net.md). The rosary
+          # backend will land as `kind = (leylineNet = (...))` once
+          # cloister-companion + the leylineNet kind ship; until then rsry tools
+          # are reachable directly at ROSARY_MCP_URL, not through cloister.
+          # Tracked in cloister-824849 (blocked-by ADR-0005).
+
         ],
       )),
     ),

@@ -320,5 +320,8 @@ A new bead will track this. Sliced as:
 - [ADR-0003](0003-content-addressed-bead-store.md) — substrate-free storage;
   orthogonal to this ADR (the manifest expresses backend wiring, not the
   storage layer underneath)
+- [ADR-0005](0005-internal-wire-leyline-net.md) — adds a `leylineNet` backend
+  kind to the kind union defined here; introduces a third capnp file
+  (`wire/cloister.capnp`) for the cloister↔companion seam
 - [../../config.capnp](../../config.capnp) — runtime config (the *other*
   capnp file in this repo); this ADR's manifest is a sibling to it

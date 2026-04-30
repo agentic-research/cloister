@@ -102,6 +102,7 @@ tools to rosary is obsolete — tool routing is now explicit per backend, not fa
 - [ADR-0002](0002-edge-router-protocol-agnostic-backends.md) — current architecture
 - [ADR-0003](0003-content-addressed-bead-store.md) — substrate-free bead storage
 - [ADR-0004](0004-capnp-manifest.md) — Cap'n Proto manifest for declarative routes + backends
+- [ADR-0005](0005-internal-wire-leyline-net.md) — internal wire = leyline-net (signed capnp); MCP only at the public face
 - [../../README.md](../../README.md) — what cloister exposes today
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + diagrams
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup

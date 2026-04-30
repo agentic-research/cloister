@@ -76,7 +76,13 @@ export class HttpForwardToolBackend implements ToolBackend {
     try {
       res = await this.fetchImpl(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // MCP Streamable HTTP servers (e.g. rsry's axum impl) require
+          // both formats in Accept; servers that don't care (leyline) just
+          // ignore it. Sending both is always correct.
+          "Accept":       "application/json, text/event-stream",
+        },
         body: JSON.stringify(innerReq),
       });
     } catch (e) {

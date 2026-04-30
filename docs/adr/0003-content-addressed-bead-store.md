@@ -222,8 +222,13 @@ evaluation" to this ADR's structural work). Sliced as:
   router seam this storage layer plugs under
 - [ADR-0004](0004-capnp-manifest.md) — declarative manifest for routes +
   backends (orthogonal to this ADR; storage and registration are independent)
+- [ADR-0005](0005-internal-wire-leyline-net.md) — internal wire format;
+  shares the digest shape this ADR defines (manifest contentHash = same SHA-256)
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup
 - Math-friend analysis (theoretical-foundations-analyst, 2026-04-29):
   `_agent_log/theoretical-foundations-analyst_2026-04-28_agent_log.md`
 - Bead `cloister-82a851` — implementation tracking
+- Bead `ley-line-3278b4` — sibling substrate ADR in ley-line (Merkle DAG +
+  typed ports + (code-root, state-root) pair); this ADR is its bead-store
+  application at smaller scale

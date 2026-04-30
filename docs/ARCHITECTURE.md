@@ -16,6 +16,10 @@ today. The decisions behind it are in the ADRs:
   TS registration site. **Shipped**: `cloister.capnp` at the repo root is the
   source of truth for routes; `task manifest` compiles it to
   `src/generated/manifest.ts`; `src/index.ts` instantiates from there.
+- [ADR-0005](adr/0005-internal-wire-leyline-net.md) — internal wire = leyline-net
+  (signed capnp) at the cloister↔companion seam; MCP only at the public face.
+  Open subset of leyline-net extracted into `ley-line-open` as `leyline-wire`;
+  raptorq + sqlite-blast stay closed in `ley-line` proper. (planned)
 
 If you're trying to *run* cloister rather than understand its shape, start
 at [../GETTING-STARTED.md](../GETTING-STARTED.md).
