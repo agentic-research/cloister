@@ -1,0 +1,21 @@
+{
+  // Standalone tsconfig for the substrate-equivalence verify script
+  // (Phase 2D-codec.E, cloister-5183bc). Compiles src/wire/*.ts to
+  // dist-verify/wire/*.js so the verify script (which uses Node's
+  // shell-out to capnp CLI) can import the codec without needing
+  // node-strip-types' .ts↔.js resolution gymnastics.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "outDir": "dist-verify",
+    "rootDir": ".",
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/wire/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", "dist-verify"]
+}

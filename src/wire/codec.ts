@@ -178,8 +178,14 @@ export interface StructPtr { target: number; dataWords: number; ptrWords: number
 export interface ListPtr   { target: number; elementSize: number; count: number; }
 
 export class WireReader {
-  private dv: DataView;
-  constructor(public readonly bytes: Uint8Array) {
+  // Field declarations rather than parameter properties — keeps the codec
+  // compatible with `node --experimental-strip-types` so the verify-
+  // roundtrip script (Phase 2D-codec.E) can import these modules without
+  // a tsc precompile step.
+  public readonly bytes: Uint8Array;
+  private readonly dv: DataView;
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
     this.dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   }
 

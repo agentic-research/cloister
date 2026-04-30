@@ -34,6 +34,17 @@ tasks:
     generates:
       - test/wire/fixtures/canonical.ts
 
+  wire:verify-roundtrip:
+    desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - node scripts/verify-wire-roundtrip.mjs
+    sources:
+      - src/wire/**/*.ts
+      - wire/cloister.capnp
+      - scripts/verify-wire-roundtrip.mjs
+      - tsconfig.verify.json
+
   build:local:
     desc: Bundle Worker for local workerd (embeds into dist/)
     deps: [manifest]
