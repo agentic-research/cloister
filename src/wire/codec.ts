@@ -73,12 +73,27 @@ export class WireBuilder {
     return off;
   }
 
+  writeU8(off: number, v: number): void {
+    this.dv.setUint8(off, v & 0xFF);
+  }
+
+  writeU16(off: number, v: number): void {
+    this.dv.setUint16(off, v & 0xFFFF, LE);
+  }
+
   writeU32(off: number, v: number): void {
     this.dv.setUint32(off, v >>> 0, LE);
   }
 
   writeU64(off: number, v: bigint): void {
     this.dv.setBigUint64(off, v, LE);
+  }
+
+  /** Write bit `bitIdx` (0..7) of byte at `off` to value (0|1). */
+  writeBit(off: number, bitIdx: number, value: 0 | 1): void {
+    const cur = this.dv.getUint8(off);
+    const mask = 1 << (bitIdx & 7);
+    this.dv.setUint8(off, value ? cur | mask : cur & ~mask);
   }
 
   /**
@@ -101,6 +116,10 @@ export class WireBuilder {
   /**
    * Write a list pointer at `at` pointing to `target` with given element
    * size code + element count.
+   *
+   * For COMPOSITE lists (elementSize=7), `count` is the total WORD count of
+   * all elements (NOT including the tag word) per capnp spec. For all
+   * other list types, `count` is the element count.
    */
   writeListPointer(at: number, target: number, elementSize: number, count: number): void {
     const offsetWords = (target - (at + WORD)) / WORD;
@@ -112,6 +131,31 @@ export class WireBuilder {
     // High 32 bits: elementSize (3) | count (29)
     const hi = (elementSize & 7) | ((count & 0x1FFFFFFF) << 3);
     this.writeU32(at + 4, hi);
+  }
+
+  /**
+   * Reserve a composite list of `count` struct elements, each of shape
+   * (dataWords, ptrWords). Returns the byte offset of the TAG WORD, which
+   * the list pointer should target. Element bodies are at:
+   *   tagOff + 8 + i * (dataWords + ptrWords) * 8
+   *
+   * Always writes a tag word, including for count=0 — readers use the tag
+   * to learn element shape regardless of element count.
+   */
+  reserveCompositeList(count: number, dataWords: number, ptrWords: number): number {
+    const elemSize = dataWords + ptrWords;
+    const totalBytes = (1 + count * elemSize) * WORD;  // tag + elements
+    this.grow(totalBytes);
+    const tagOff = this.len;
+    this.len += totalBytes;
+
+    // Tag word: shaped like a struct pointer, but offset field carries the
+    // element COUNT (not a pointer offset).
+    const lo = ((count & 0x3FFFFFFF) << 2) | KIND_STRUCT;
+    this.writeU32(tagOff, lo);
+    const hi = (dataWords & 0xFFFF) | ((ptrWords & 0xFFFF) << 16);
+    this.writeU32(tagOff + 4, hi);
+    return tagOff;
   }
 
   /** Finalize: prepend 8-byte segment header and return the full message bytes. */
@@ -154,12 +198,25 @@ export class WireReader {
     return 8;
   }
 
+  readU8(off: number): number {
+    return this.dv.getUint8(off);
+  }
+
+  readU16(off: number): number {
+    return this.dv.getUint16(off, LE);
+  }
+
   readU32(off: number): number {
     return this.dv.getUint32(off, LE);
   }
 
   readU64(off: number): bigint {
     return this.dv.getBigUint64(off, LE);
+  }
+
+  /** Read bit `bitIdx` (0..7) of byte at `off`. */
+  readBit(off: number, bitIdx: number): 0 | 1 {
+    return ((this.dv.getUint8(off) >> (bitIdx & 7)) & 1) as 0 | 1;
   }
 
   /** Sign-extend a 30-bit field stored in the low 30 of a u32. */
@@ -203,5 +260,26 @@ export class WireReader {
       throw new Error(`read past end: ${start}+${length} > ${this.bytes.length}`);
     }
     return this.bytes.slice(start, start + length);
+  }
+
+  /**
+   * Read the composite-list tag word at `at`. Returns the element count
+   * and per-element shape. The tag word's "offset" field is the element
+   * count (not a pointer offset).
+   */
+  readCompositeListTag(at: number): { count: number; dataWords: number; ptrWords: number } {
+    const lo = this.readU32(at);
+    if ((lo & 3) !== KIND_STRUCT) {
+      throw new Error(`composite list tag at ${at} has wrong kind=${lo & 3} (expected struct/0)`);
+    }
+    // sign-extend 30-bit count field (capnp spec keeps it signed; for our
+    // composite-list tag it's always non-negative)
+    const count = (lo & 0x20000000) ? ((lo >>> 2) | ~0x3FFFFFFF) : (lo >>> 2);
+    const hi = this.readU32(at + 4);
+    return {
+      count,
+      dataWords: hi & 0xFFFF,
+      ptrWords:  (hi >>> 16) & 0xFFFF,
+    };
   }
 }
