@@ -243,13 +243,21 @@ Cloister's route table is declared in [`cloister.capnp`](cloister.capnp) at
 the repo root; per ADR-0004, this is the source of truth. To add a service
 (`rsry_*`, `mache_*`, `crumb_*`, …):
 
-1. Decide the *kind*. Three real options:
+1. Decide the *kind*. Four real options:
    - **`durableObject`** — local DO-backed, like `bead_*`
-   - **`httpForward`** — HTTP MCP server reachable via a URL env var (most
-     common; how `lsp_*` and `reparse|enrich|status` work today)
+   - **`httpForward`** — HTTP MCP server reachable via a URL env var (how
+     `lsp_*` and `reparse|enrich|status` work today). Speaks JSON-RPC over
+     HTTP. Stateless; doesn't handle MCP session-id transports like rsry's.
    - **`serviceBinding`** — another workerd Worker exposed as a `Fetcher`
+   - **`leylineNet`** — capnp ToolCall/ToolResult over loopback HTTP to
+     `cloister-companion`; companion handles the network hop with full
+     leyline-net wire (signed Manifest + AEAD + handshake). Use when the
+     upstream is on a different host or wants stateful authenticated
+     sessions. Requires a running cloister-companion. See ADR-0005.
 2. Add a backend entry inside the `/mcp` route's `mcp.backends` list:
+
    ```capnp
+   # httpForward — for stateless HTTP MCP upstreams
    ( name          = "rosary",
      handlesPrefix = "rsry_",
      kind = (httpForward = (
@@ -261,8 +269,19 @@ the repo root; per ADR-0004, this is the source of truth. To add a service
        ],
      )),
    ),
+
+   # leylineNet — for backends fronted by cloister-companion
+   ( name          = "rosary",
+     handlesPrefix = "rsry_",
+     kind = (leylineNet = (
+       companionUrlBinding = "COMPANION_URL",
+       upstreamId          = "rosary",
+       tools = [...],
+     )),
+   ),
    ```
-3. If the new binding (`ROSARY_MCP_URL` here) isn't already in
+
+3. If the binding (`ROSARY_MCP_URL` or `COMPANION_URL`) isn't already in
    `wrangler.toml` + `config.capnp` + `src/types.ts`, add it.
 4. Run `task manifest` (or just `task lint` — it depends on `manifest`).
    Build-time validators catch:

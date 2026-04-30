@@ -63,9 +63,10 @@ graph TB
     I["NotmeIdentityRoute\n/identity/*"]
     M["McpEdgeRoute\nGET|POST /mcp"]
 
-    B["BeadToolBackend\nbead_*\n→ env.BEAD_STORE DO"]
-    L["LspToolBackend\nlsp_*\n→ env.LLO_MCP_URL"]
-    F["LeylineLifecycleBackend\nreparse | enrich | status\n→ env.LLO_MCP_URL"]
+    B["DurableObjectToolBackend\nbead_*\n→ env.BEAD_STORE DO"]
+    L["HttpForwardToolBackend\nlsp_*\n→ env.LLO_MCP_URL"]
+    F["HttpForwardToolBackend\nreparse | enrich | status\n→ env.LLO_MCP_URL"]
+    LN["LeylineNetToolBackend\n(spec-declared)\n→ env.COMPANION_URL\n→ cloister-companion → backend"]
 
     REQ --> R
     R -->|first match wins| H
@@ -101,7 +102,7 @@ sequenceDiagram
     participant C as MCP Client
     participant R as Router
     participant ME as McpEdgeRoute
-    participant BB as BeadToolBackend
+    participant BB as DurableObjectToolBackend
     participant DO as BeadStore DO
 
     C->>R: POST /mcp tools/call bead_create
@@ -119,16 +120,44 @@ sequenceDiagram
 sequenceDiagram
     participant C as MCP Client
     participant ME as McpEdgeRoute
-    participant LB as LspToolBackend
+    participant LB as HttpForwardToolBackend
     participant LLO as ley-line-open daemon
 
     C->>ME: POST /mcp tools/call lsp_hover {file,line,col}
     ME->>LB: handles("lsp_hover") → true
-    LB->>LLO: POST env.LLO_MCP_URL — tools/call lsp_hover
+    LB->>LLO: POST env.LLO_MCP_URL — tools/call lsp_hover (Accept: application/json, text/event-stream)
     LLO-->>LB: {content:[{type:"text", text:"<json>"}]}
     LB-->>ME: parsed JSON (or raw text fallback)
     ME-->>C: re-wrapped as MCP content
 ```
+
+### rsry_status — leylineNet via cloister-companion (ADR-0005)
+
+```mermaid
+sequenceDiagram
+    participant C as MCP Client
+    participant ME as McpEdgeRoute
+    participant LN as LeylineNetToolBackend
+    participant CO as cloister-companion (Rust sidecar, same host)
+    participant BE as upstream (rsry / mache / etc.)
+
+    C->>ME: POST /mcp tools/call rsry_status {}
+    ME->>LN: handles("rsry_status") → true (prefix "rsry_")
+    Note over LN: encode capnp ToolCall { upstreamId, toolName, argumentsJson }
+    LN->>CO: POST env.COMPANION_URL — body = capnp bytes (loopback HTTP, no AEAD)
+    Note over CO,BE: full leyline-net wire (signed Manifest + AEAD + handshake)
+    CO->>BE: forward via UDS / TCP / capnp-RPC per upstream
+    BE-->>CO: response
+    CO-->>LN: capnp ToolResult bytes
+    Note over LN: decode ToolResult → MCP-shaped result
+    LN-->>ME: parsed JSON or content array
+    ME-->>C: re-wrapped as MCP content
+```
+
+The cloister↔companion hop is **IPC** (loopback HTTP, no AEAD) per
+ADR-0005's 2026-04-30 amendment. The full leyline-net wire — signed
+capnp manifests, ChaCha20-Poly1305 AEAD, X25519 handshake — lives at
+the companion↔backend hop where bytes traverse a real network.
 
 ### reparse — fired by the CC plugin
 
@@ -142,7 +171,7 @@ sequenceDiagram
     CC->>CC: Edit /x/foo.rs
     CC->>H: stdin = {tool_name, tool_input:{file_path}}
     H->>CL: POST /mcp tools/call reparse {source:"/x/foo.rs"}
-    CL->>LLO: forward (LeylineLifecycleBackend → LLO_MCP_URL)
+    CL->>LLO: forward (HttpForwardToolBackend → LLO_MCP_URL, exact-match prefix)
     LLO-->>CL: {ok:true, files_reparsed:1}
     CL-->>H: 2xx (silently ignored on failure)
     Note over CC,LLO: subsequent lsp_* calls now see fresh data
@@ -206,9 +235,11 @@ graph TD
 
     subgraph backends ["MCP backends"]
         BI["backends.ts\nToolBackend interface\nJsonRpcInvocationError"]
-        BB["backends/bead.ts\nBeadToolBackend"]
-        BL["backends/lsp.ts\nLspToolBackend"]
-        BF["backends/leyline.ts\nLeylineLifecycleBackend"]
+        BB["manifest/backends/durable-object.ts\nDurableObjectToolBackend"]
+        BL["manifest/backends/http-forward.ts\nHttpForwardToolBackend"]
+        BS["manifest/backends/service-binding.ts\nServiceBindingToolBackend"]
+        BU["manifest/backends/uds-forward.ts\nUdsForwardToolBackend (placeholder)"]
+        BLN["manifest/backends/leyline-net.ts\nLeylineNetToolBackend (ADR-0005)"]
     end
 
     subgraph durable ["Durable layer"]
@@ -221,10 +252,12 @@ graph TD
     IDX --> M
     M --> BB
     M --> BL
-    M --> BF
+    M --> BS
+    M --> BU
+    M --> BLN
     BB --> BDO
     BL -.->|HTTP| LLO[(LLO_MCP_URL)]
-    BF -.->|HTTP| LLO
+    BLN -.->|loopback HTTP\ncapnp ToolCall/Result| CO[(COMPANION_URL)]
 ```
 
 `router.ts`, `backends.ts`, and the four route/backend modules are the
@@ -238,7 +271,7 @@ Each repo gets its own Durable Object instance, keyed by repo path:
 
 ```mermaid
 graph LR
-    GW["BeadToolBackend"]
+    GW["DurableObjectToolBackend (bead_*)"]
     GW -->|idFromName('/repos/rosary')| R["BeadStore\n/repos/rosary\nSQLite: beads, comments"]
     GW -->|idFromName('/repos/mache')| M["BeadStore\n/repos/mache\nSQLite: beads, comments"]
     GW -->|idFromName('/repos/crumb')| C["BeadStore\n/repos/crumb\nSQLite: beads, comments"]

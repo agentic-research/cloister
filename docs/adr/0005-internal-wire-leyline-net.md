@@ -395,3 +395,50 @@ yak-shaving.
   `httpForward` to `leylineNet` under this ADR
 - Bead `cloister-aedbfb` (closed) — capnp manifest implementation that
   this ADR extends with a new backend kind
+
+## Implementation status (2026-04-30)
+
+Cloister-side stack shipped over 11 disciplined iterations under
+bead `cloister-5183bc`. Cumulative diff: ~700 LOC of codec, ~330 LOC
+of backends, 100+ tests, full bidirectional substrate-equivalence
+proof against the official capnp implementation.
+
+| Phase                     | Commit       | What                                                    |
+| ------------------------- | ------------ | ------------------------------------------------------- |
+| 2A wire schema            | `573bf2f`    | `wire/cloister.capnp` — Manifest, ToolCall, ToolResult, Content union |
+| 2D-skel kind reservation  | `3d1472e`    | Schema add: `Backend.kind.leylineNet @6`; stub TS class |
+| 2D-codec strategy         | `aba3c83`    | Decision: hand-rolled, single-segment, unpacked         |
+| 2D-codec.A Manifest       | `1cf7a73`    | `src/wire/codec.ts` + `src/wire/manifest.ts`            |
+| 2D-codec.B ToolCall       | `8044eda`    | `src/wire/tool-call.ts` (Text NUL-terminated, Data raw) |
+| 2D-codec.C ToolResult     | `a05e931`    | `src/wire/tool-result.ts` (composite list + union)      |
+| 2D-codec.D Direction 1    | `be542cc`    | capnp CLI → our decoder; null-pointer-as-default fix    |
+| 2D-codec.E Direction 2    | `4394a71`    | our encoder → capnp ↔ ours; bidirectional proof         |
+| Architectural amendment   | `65de540`    | This ADR's amendment — IPC reframe                      |
+| 2D-wire implementation    | `dd8a235`    | `LeylineNetToolBackend.invoke` real, no crypto          |
+| End-to-end integration    | `05b3de5`    | McpEdgeRoute → leylineNet → companion stub round-trip   |
+
+Still pending (out-of-scope for this ADR):
+- **Phase 2B** — cloister-companion Rust binary; depends on
+  `ley-line-3278b4` extracting the open-subset `leyline-wire` crate
+  to `ley-line-open`.
+- **Phase 2F** — migrate the rosary backend declaration in
+  `cloister.capnp` from `httpForward` (currently commented out) to
+  `leylineNet` once companion exists.
+
+Adding a `leylineNet` backend today is a manifest edit:
+
+```capnp
+( name          = "rosary",
+  handlesPrefix = "rsry_",
+  kind = (leylineNet = (
+    companionUrlBinding = "COMPANION_URL",
+    upstreamId          = "rosary",
+    tools               = [...],
+  )),
+),
+```
+
+The `COMPANION_URL` binding must point at a running cloister-companion
+instance speaking the contract documented at the top of
+`src/manifest/backends/leyline-net.ts`. Without companion, the backend
+returns `-32603 "companion unreachable"` for every tools/call.
