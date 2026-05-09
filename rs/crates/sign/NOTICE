@@ -1,0 +1,45 @@
+cloister/rs/crates/sign/
+========================
+
+This crate (`leyline-sign`) provides CMS/PKCS#7 + X.509 + Ed25519
+signing primitives. It was originally developed in the `ley-line`
+project (https://github.com/agentic-research/ley-line, licensed under
+Apache License 2.0) and lifted into cloister on 2026-05-09 per
+cloister ADR-0007 + the cloister-side decision summarized in
+ADR-0010 (vault precedent for cross-repo lifts).
+
+Per Apache License 2.0 §4(c), this NOTICE preserves attribution of
+the work's origin. The Apache 2.0 license permitted this lift; the
+original copy in ley-line remains under Apache 2.0 and is unaffected.
+The cloister copy is governed by the AGPL-3.0-or-later license in
+the cloister repo's LICENSE file. The two copies may diverge over
+time; the lift is not a fork-and-abandon — see ADR-0007 for the
+forward plan.
+
+The proprietary parts of leyline-net that ley-line retains —
+specifically the raptorq FEC layer and sqlite-blast — are NOT part
+of this lift. cloister doesn't need them (per ADR-0005's amendment
+section); the lifted scope is the open-spec crypto only.
+
+Original source files (Apache 2.0, copyright (c) the same author):
+  ley-line/rs/crates/sign/src/cert.rs
+  ley-line/rs/crates/sign/src/cms.rs
+  ley-line/rs/crates/sign/src/error.rs
+  ley-line/rs/crates/sign/src/ffi.rs
+  ley-line/rs/crates/sign/src/lib.rs
+  ley-line/rs/crates/sign/src/oid.rs
+  ley-line/rs/crates/sign/Cargo.toml
+  ley-line/rs/crates/sign/cbindgen.toml
+  ley-line/rs/crates/sign/README.md
+
+Each Rust source file in this directory carries an SPDX header
+documenting the AGPL-3.0-or-later license under which the cloister
+copy is distributed.
+
+Cloister-side modifications since the lift:
+  - signingTime attribute omitted from CMS SignedAttributes per
+    cloister ADR-0007 amendment 2026-05-08 (originally tracked as
+    ley-line-e25413 before the lift). Reason: the wasm32 emit needs
+    a per-host time source; a frozen placeholder shipping across
+    hosts would silently collapse temporal binding. See `sign_data`
+    doc-comment in src/cms.rs.

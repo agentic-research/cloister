@@ -1,0 +1,17 @@
+# Rust workspace for cloister.
+#
+# Today this hosts only `leyline-sign` — a CMS/PKCS#7 + Ed25519 signer
+# lifted from ley-line on 2026-05-09 under the AGPL-3.0-or-later license
+# that governs cloister as a whole. The original ley-line copy
+# (Apache-2.0) remains unchanged; see rs/crates/sign/NOTICE for the
+# attribution required by Apache 2.0 §4(c).
+#
+# Future rust additions (cloister-companion when it ships, the
+# wasm32 emit per cloister-bd5241) live here as additional workspace
+# members.
+
+[workspace]
+members = [
+  "crates/sign",
+]
+resolver = "2"

@@ -1,0 +1,23 @@
+[package]
+name = "leyline-sign"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+cms = { version = "0.2", default-features = false }
+der = { version = "0.7", features = ["derive", "oid", "alloc"] }
+x509-cert = { version = "0.2", default-features = false }
+spki = { version = "0.7", features = ["alloc"] }
+const-oid = { version = "0.9", features = ["db"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+sha2 = "0.10"
+thiserror = "1.0"
+log = "0.4"
+libc = "0.2"
+
+[dev-dependencies]
+rand = "0.8"
+hex = "0.4"

@@ -38,3 +38,8 @@ sbom-*.spdx.json
 # debugging artifact; not source. Preventive ignore so accidentally
 # `git add` doesn't ship them.
 _agent_log/
+
+# Rust build artifacts (rs/crates/sign + future rs/ workspace members).
+# rs/Cargo.lock is intentionally tracked — cloister's a deployable thing,
+# we want reproducible builds. Only the build output dir is ignored.
+rs/target/
