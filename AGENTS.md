@@ -72,7 +72,7 @@ Conventions in this repo:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `task manifest` fails: `Import failed: /cloister/manifest/cloister.capnp` | Worktree dir not named `cloister/`; capnp import path can't resolve | Set `CLOISTER_SCHEMA_ROOT=/Users/jamesgardner/remotes/art` to use main repo's schema, or symlink the worktree to a `cloister/`-named path |
+| `task manifest` fails: `Import failed: /cloister/manifest/cloister.capnp` | Worktree dir not named `cloister/`; capnp import path can't resolve | Set `CLOISTER_SCHEMA_ROOT="$(realpath path/to/your/main/cloister/checkout/..)"` (the parent of a `cloister/`-named directory — same default `scripts/build-manifest.mjs` derives), or symlink the worktree to a `cloister/`-named path |
 | `task lint` fails: `Cannot find type definition file for '@cloudflare/workers-types'` | Worktree's `node_modules/` not populated | `pnpm install` in the worktree |
 | Commit rejected: "commit message must start with [bead-id]" | `.rsry-bead-id` missing or message hand-typed without the prefix | `echo <bead-id> > .rsry-bead-id` then re-commit, or include `[<bead-id>]` in message |
 | `cargo test` fails on `axum` / `leyline-cli-lib` | ley-line ↔ ley-line-open Cargo.toml drift (open bead `ley-line-9e6b97`) | Don't `--no-verify`; wait for that bead to land |

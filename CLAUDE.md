@@ -126,9 +126,10 @@ Two gotchas to know:
 2. **`task manifest` needs `CLOISTER_SCHEMA_ROOT`** in worktrees because
    the capnp `import "/cloister/manifest/cloister.capnp"` expects a
    literal `cloister/`-named directory at the schema root. Workaround:
-   either set `CLOISTER_SCHEMA_ROOT=/Users/jamesgardner/remotes/art`
-   (uses main repo's schema, fine if the bead doesn't change schema)
-   or symlink the worktree dir so a parent named `cloister/` exists.
+   either set `CLOISTER_SCHEMA_ROOT` to the parent of a `cloister/`-named
+   checkout (e.g. point it at the main repo's parent dir if the bead
+   doesn't change schema), or symlink the worktree directory so a
+   parent named `cloister/` exists alongside it.
 
 Tracking bead for both: file one when these bite a real piece of
 work.
