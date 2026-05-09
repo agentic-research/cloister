@@ -3,6 +3,16 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+# ── WebAssembly modules ───────────────────────────────────────────────────
+# Bundles `.wasm` files imported via TS into the Worker as
+# `WebAssembly.Module` objects. cloister-bd5241 ships leyline-sign as a
+# wasm32 build (rs/crates/sign/) — in-tree CMS/PKCS#7 + Ed25519 verifier
+# loadable from src/wire/signet-verify.ts. Build via `task rs:sign:wasm`.
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
 # ── Durable Objects ───────────────────────────────────────────────────────
 [durable_objects]
 bindings = [
