@@ -64,6 +64,12 @@ export interface Env {
   // state — peer_lease_counters today, peer_attestations + vault planned.
   // Per ADR-0011 + the 2026-05-09 review. See src/trust-store.ts.
   TRUST_STORE: DurableObjectNamespace;
+  // BlobStore is hypervisor-layer (singleton per cluster). Content-
+  // addressed substrate per ADR-0003 phase 1. Cross-DO writes
+  // (BeadStore + TrustStore) reference the same blobs by digest;
+  // idempotent puts make the multi-step handoff recoverable per
+  // ADR-0012. See src/blob-store.ts.
+  BLOB_STORE: DurableObjectNamespace;
 
   // Service bindings (workerd-native)
   NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs

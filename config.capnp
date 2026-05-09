@@ -78,6 +78,14 @@ const cloisterWorker :Workerd.Worker = (
       durableObjectNamespace = "TrustStore",
     ),
 
+    # BlobStore DO — hypervisor-layer, singleton per cluster. Content-
+    # addressed substrate per ADR-0003 phase 1. Cross-DO bead_create
+    # handoff (ADR-0012) relies on idempotent put. Added 2026-05-09
+    # (cloister-960f68).
+    ( name = "BLOB_STORE",
+      durableObjectNamespace = "BlobStore",
+    ),
+
     # notme-bot service binding — /identity/* proxy
     ( name = "NOTME",
       service = "notme-bot",
@@ -115,6 +123,10 @@ const cloisterWorker :Workerd.Worker = (
     ),
     ( className = "TrustStore",
       uniqueKey = "cloister-trust-v1",
+      enableSql = true,
+    ),
+    ( className = "BlobStore",
+      uniqueKey = "cloister-blobs-v1",
       enableSql = true,
     ),
   ],
