@@ -1,0 +1,97 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Default GITHUB_TOKEN permissions are read-only. Only grant write where a
+# step needs it (none here — lint + test only). No untrusted github.event
+# inputs are interpolated into run: blocks anywhere in this file.
+permissions:
+  contents: read
+
+# Cancel previous runs on the same ref when a new push lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (tsc + worker tests + plugin tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Match package.json's `packageManager` field. Bump together.
+          version: 10.30.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # workerd needs a recent node for the test-runner; 18 is the floor
+          # because the CC plugin's hooks use node:test.
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install task
+        # go-task wraps tsc + vitest + capnp codegen. CI runs the same
+        # `task lint` developers run locally.
+        run: |
+          curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin
+
+      - name: Install capnp
+        # Required by `task manifest` (compiled from cloister.capnp into
+        # src/generated/manifest.ts at build time, per ADR-0004).
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (the inner-loop gate)
+        # `task lint` chains: task manifest → tsc --noEmit → vitest in
+        # workerd → CC plugin's node:test suite. ~2s on dev hardware;
+        # bump timeout if CI runners lag.
+        run: task lint
+
+  verify:
+    name: verify (strict — substrate equivalence + smoke)
+    # Only on main pushes; PRs run lint only to keep PR feedback fast.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install task + capnp
+        run: |
+          curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin
+          sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (lint + capnp roundtrip + stub-companion smoke)
+        # `task verify` adds the substrate-equivalence harness (production
+        # codec ↔ capnp CLI ↔ production codec) and the stub-companion
+        # HTTP smoke. Per ADR-0005's amendment.
+        run: task verify
