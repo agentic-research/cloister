@@ -17,11 +17,42 @@
 export interface Gateway {
   metadata: Metadata;
   routes:   readonly Route[];
+  /**
+   * Interlace identity (ADR-0007). Empty `actor.fingerprint` opts out of
+   * the `/.well-known/interlace/` discovery doc.
+   */
+  actor:    Actor;
+  /** Interlace policy advertised in the `.well-known/interlace/` doc. */
+  policy:   InterlacePolicy;
 }
 
 export interface Metadata {
   name:    string;
   version: string;
+}
+
+// ── Interlace identity + policy (ADR-0007) ────────────────────────────────
+
+export interface Actor {
+  /** "sha256:<hex>" — empty string disables Interlace discovery. */
+  fingerprint:     string;
+  /** "ed25519" | "ml-dsa-44" */
+  algorithm:       string;
+  /** Env-var binding name holding the master public key (SPKI/raw bytes). */
+  pubkeyBinding:   string;
+  /** URL to attestation chain repo, or empty for in-DO storage. */
+  attestationRepo: string;
+  /** Off-platform endpoint (CF Tunnel hostname, etc.), or empty. */
+  tunnelEndpoint:  string;
+}
+
+export interface InterlacePolicy {
+  /** Max ephemeral-cert lifetime (seconds). Spec default 300. */
+  maxCertLifetimeSeconds: number;
+  /** Peer interactions must carry interlock peer-refs (§6.2). */
+  requireInterlock:       boolean;
+  /** Minimum cert algorithm accepted from peers. */
+  minAlgorithm:           string;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
@@ -39,7 +70,8 @@ export type RouteKind =
   | { health:              null }
   | { mcp:                 McpRouteSpec }
   | { serviceBindingProxy: ServiceBindingProxySpec }
-  | { httpProxy:           HttpProxySpec };
+  | { httpProxy:           HttpProxySpec }
+  | { wellKnownInterlace:  null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];

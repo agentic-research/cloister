@@ -28,6 +28,7 @@ import {
 import { McpEdgeRoute } from "../routes/mcp.js";
 import { HealthRoute } from "../routes/health.js";
 import { NotmeIdentityRoute } from "../routes/notme-identity.js";
+import { WellKnownInterlaceRoute } from "../routes/well-known.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -45,12 +46,12 @@ import { LeylineNetToolBackend } from "./backends/leyline-net.js";
  */
 export function instantiate(manifest: Gateway): EdgeRoute[] {
   validate(manifest);
-  return manifest.routes.map(toEdgeRoute);
+  return manifest.routes.map((route) => toEdgeRoute(route, manifest));
 }
 
 // ── Route instantiation ───────────────────────────────────────────────────
 
-function toEdgeRoute(route: Route): EdgeRoute {
+function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
   const k = route.kind;
   if ("health" in k) {
     if (route.path !== "/health") {
@@ -93,6 +94,12 @@ function toEdgeRoute(route: Route): EdgeRoute {
   }
   if ("httpProxy" in k) {
     return new HttpProxyRoute(route.path, k.httpProxy.urlBinding, k.httpProxy.stripPrefix);
+  }
+  if ("wellKnownInterlace" in k) {
+    // Receives the full manifest — synthesizes capabilities from mcp
+    // routes, identity from `manifest.actor`, policy from `manifest.policy`.
+    // See ADR-0007.
+    return new WellKnownInterlaceRoute(route.path, manifest);
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

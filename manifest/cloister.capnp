@@ -34,6 +34,59 @@
 struct Gateway {
   metadata @0 :Metadata;
   routes   @1 :List(Route);
+
+  # Interlace identity + policy (ADR-0007). Optional — leave fields empty
+  # (`actor.fingerprint = ""`) to opt out of the .well-known/interlace/
+  # discovery doc. The master public key is referenced by env-binding name
+  # only; key bytes never appear in the manifest.
+  actor    @2 :Actor;
+  policy   @3 :InterlacePolicy;
+}
+
+# Interlace actor identity (ADR-0007). Pinned at build time; the
+# corresponding master public key bytes are loaded from the env binding
+# named by `pubkeyBinding`. Empty `fingerprint` disables Interlace discovery.
+struct Actor {
+  # SHA-256 fingerprint of the master public key, formatted as
+  # "sha256:<hex>". Empty string ⇒ Interlace discovery disabled.
+  fingerprint     @0 :Text;
+
+  # Master-key signature algorithm: "ed25519" or "ml-dsa-44".
+  algorithm       @1 :Text;
+
+  # Name of the env-var binding holding the master public key in
+  # SPKI / raw-bytes form (e.g. "INTERLACE_MASTER_PUBKEY"). Cloister's
+  # discovery doc resolves this at runtime to publish the pubkey;
+  # the key bytes themselves never appear in the manifest.
+  pubkeyBinding   @2 :Text;
+
+  # Where this actor publishes its bilateral attestation chains. Empty
+  # string ⇒ in-DO storage (the BeadStore `peer_attestations` table per
+  # ADR-0007). A URL points at an external git repo, IPFS pin, etc.
+  attestationRepo @3 :Text;
+
+  # Optional CF Tunnel hostname or other off-platform endpoint. Empty
+  # string ⇒ the actor is reachable only via the standard public face
+  # (its workerd Worker hostname).
+  tunnelEndpoint  @4 :Text;
+}
+
+# Interlace policy declared in the .well-known/interlace/index.json
+# doc — peers learn the actor's requirements before initiating.
+struct InterlacePolicy {
+  # Maximum lifetime (seconds) for ephemeral certs the actor will accept.
+  # Defaults to 300 (5 min) per the spec; lower values tighten the
+  # blast radius of cert compromise.
+  maxCertLifetimeSeconds @0 :UInt32;
+
+  # Whether peer interactions must carry interlock peer-refs (Interlace §6.2).
+  # True ⇒ first-class bilateral chain; false ⇒ leases-only relationship.
+  requireInterlock       @1 :Bool;
+
+  # Minimum signature algorithm the actor will accept on incoming certs.
+  # Stricter than the actor's own `algorithm` is allowed (e.g. actor
+  # signs with ed25519 but only accepts ml-dsa-44 from peers).
+  minAlgorithm           @2 :Text;
 }
 
 struct Metadata {
@@ -63,6 +116,12 @@ struct Route {
 
     # <path>/* → HTTP forward to a URL (read from env var binding).
     httpProxy           @4 :HttpProxySpec;
+
+    # GET <path> → Interlace `.well-known` discovery doc, body synthesized
+    # at request time from the Gateway's actor + policy fields and the
+    # capabilities aggregated across the manifest's mcp routes.
+    # See ADR-0007.
+    wellKnownInterlace  @5 :Void;
   }
 }
 

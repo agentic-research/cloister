@@ -15,10 +15,35 @@ using Cloister = import "/cloister/manifest/cloister.capnp";
 const gateway :Cloister.Gateway = (
   metadata = (name = "cloister-art", version = "0.1.0"),
 
+  # ── Interlace identity (ADR-0007) ────────────────────────────────────────
+  # Empty `fingerprint` would disable .well-known/interlace/. The pinned
+  # value below is a placeholder; real deployments override at build time.
+  # Master public key bytes are loaded from INTERLACE_MASTER_PUBKEY env.
+  actor = (
+    fingerprint     = "sha256:placeholder-pinned-at-deploy-time",
+    algorithm       = "ed25519",
+    pubkeyBinding   = "INTERLACE_MASTER_PUBKEY",
+    attestationRepo = "",
+    tunnelEndpoint  = "",
+  ),
+
+  # ── Interlace policy ─────────────────────────────────────────────────────
+  policy = (
+    maxCertLifetimeSeconds = 300,
+    requireInterlock       = true,
+    minAlgorithm           = "ed25519",
+  ),
+
   routes = [
 
     # ── /health ────────────────────────────────────────────────────────────
     ( path = "/health", kind = (health = void) ),
+
+    # ── /.well-known/interlace/index.json (ADR-0007) ───────────────────────
+    # Body synthesized at request time from this manifest's `actor`,
+    # `policy`, and the capabilities aggregated across mcp routes.
+    ( path = "/.well-known/interlace/index.json",
+      kind = (wellKnownInterlace = void) ),
 
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
