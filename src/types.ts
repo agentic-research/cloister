@@ -57,7 +57,13 @@ export interface Bead {
 // Env bindings — matches wrangler.toml
 export interface Env {
   // Durable Objects
+  // BeadStore is bundle-layer (per-repo, idFromName(repo)). Holds work-item
+  // state — beads + comments. See src/beads.ts.
   BEAD_STORE: DurableObjectNamespace;
+  // TrustStore is hypervisor-layer (singleton per cluster). Holds trust
+  // state — peer_lease_counters today, peer_attestations + vault planned.
+  // Per ADR-0011 + the 2026-05-09 review. See src/trust-store.ts.
+  TRUST_STORE: DurableObjectNamespace;
 
   // Service bindings (workerd-native)
   NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs

@@ -14,14 +14,24 @@ globs = ["**/*.wasm"]
 fallthrough = true
 
 # ── Durable Objects ───────────────────────────────────────────────────────
+# BeadStore: bundle-layer, per-repo (idFromName(repo)), holds work-item state.
+# TrustStore: hypervisor-layer, singleton per cluster, holds trust state
+#             (peer_lease_counters today, peer_attestations + vault planned
+#             per ADR-0010 / ADR-0011). Added 2026-05-09 after the
+#             adversarial review of the BeadStore/TrustStore split.
 [durable_objects]
 bindings = [
-  { name = "BEAD_STORE", class_name = "BeadStore" }
+  { name = "BEAD_STORE",  class_name = "BeadStore"  },
+  { name = "TRUST_STORE", class_name = "TrustStore" }
 ]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["BeadStore"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TrustStore"]
 
 # ── Service bindings (workerd Workers) ────────────────────────────────────
 # notme-bot: agent identity authority — Ed25519 certs, JWT minting, passkeys

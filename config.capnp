@@ -65,9 +65,17 @@ const cloisterWorker :Workerd.Worker = (
   ],
 
   bindings = [
-    # BeadStore DO — per-repo SQLite bead storage
+    # BeadStore DO — bundle-layer, per-repo SQLite bead storage.
     ( name = "BEAD_STORE",
       durableObjectNamespace = "BeadStore",
+    ),
+
+    # TrustStore DO — hypervisor-layer, singleton per cluster. Holds
+    # peer_lease_counters today; peer_attestations + vault planned per
+    # ADR-0010 / ADR-0011. Added 2026-05-09 after the adversarial review
+    # of the BeadStore/TrustStore split.
+    ( name = "TRUST_STORE",
+      durableObjectNamespace = "TrustStore",
     ),
 
     # notme-bot service binding — /identity/* proxy
@@ -103,6 +111,10 @@ const cloisterWorker :Workerd.Worker = (
   durableObjectNamespaces = [
     ( className = "BeadStore",
       uniqueKey = "cloister-beads-v1",
+      enableSql = true,
+    ),
+    ( className = "TrustStore",
+      uniqueKey = "cloister-trust-v1",
       enableSql = true,
     ),
   ],

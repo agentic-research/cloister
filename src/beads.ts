@@ -10,8 +10,15 @@
 
 import type { Bead, BeadState, BeadPriority, JsonRpcRequest, JsonRpcResponse } from "./types.js";
 import { okResponse, errResponse } from "./types.js";
-import { SCHEMA_PEER_LEASE_COUNTERS } from "./storage/peer-lease-counters.js";
 
+// BeadStore is BUNDLE-LAYER per ADR-0011's three-criterion test (per-repo,
+// idFromName(repo) — many instances per cluster, not singleton). It holds
+// only work-item state — beads + comments. Trust state (peer_attestations,
+// peer_lease_counters, future vault) lives in `TrustStore` (hypervisor-
+// layer, singleton per cluster) at `src/trust-store.ts`. The 2026-05-09
+// adversarial review identified that putting trust state here violated the
+// boundary criteria; the fix moved peer_lease_counters out and reserved
+// the same DO class (TrustStore) for future peer_attestations + vault.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS beads (
   id          TEXT PRIMARY KEY,
@@ -34,7 +41,6 @@ CREATE TABLE IF NOT EXISTS comments (
   author     TEXT NOT NULL DEFAULT 'unknown',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-${SCHEMA_PEER_LEASE_COUNTERS}
 `;
 
 export class BeadStore implements DurableObject {
