@@ -9,8 +9,10 @@ import {
   verifyCmsSignature,
 } from "../../src/wire/signet-verify.js";
 import {
+  CERT_CRITICAL_UNKNOWN_EXT_B64,
   CERT_FULL_B64,
   CERT_MINIMAL_B64,
+  CERT_NONCRITICAL_UNKNOWN_EXT_B64,
   CERT_WRONG_MASTER_B64,
   EPHEMERAL_PUBKEY_B64,
   MASTER_PUBKEY_B64,
@@ -281,6 +283,24 @@ describe("verifyCertChain", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(/parse, sig, or buffer/i);
+  });
+
+  it("rejects cert with critical unknown extension (RFC 5280 §4.2 / cloister-c71977)", async () => {
+    const cert = b64uDecode(CERT_CRITICAL_UNKNOWN_EXT_B64);
+    const result = await verifyCertChain(cert, masterPubkey);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cert chain verify failed/i);
+  });
+
+  it("accepts cert with non-critical unknown extension (RFC 5280 says MAY ignore)", async () => {
+    const cert = b64uDecode(CERT_NONCRITICAL_UNKNOWN_EXT_B64);
+    const result = await verifyCertChain(cert, masterPubkey);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The cert was minted with epoch=7 + peer_fp + scope, same as
+    // mint_test_cert_with_extra_ext defaults. Sanity check at least one.
+    expect(result.claims.epoch).toBe(7);
   });
 
   it("multiple cert-chain verifies in sequence don't leak (allocs paired with frees)", async () => {

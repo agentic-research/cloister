@@ -12,6 +12,7 @@
 //
 // Run via: cargo run --example gen-fixture > test/wire/fixtures/cert-chain.ts
 
+use const_oid::ObjectIdentifier;
 use ed25519_dalek::{Signer, SigningKey};
 use leyline_sign::cert_chain::tests_helpers::*;
 
@@ -192,6 +193,36 @@ fn main() {
     println!("export const SAMPLE_NEAR_NA_TS_MS     = {};",     near_na_ts);
     println!("export const SAMPLE_NEAR_NA_NONCE_B64 = \"{}\";", near_na_nonce_b64);
     println!("export const SAMPLE_NEAR_NA_SIG_B64   = \"{}\";", b64(&near_na_sig.to_bytes()));
+
+    // ── Cert with a critical unknown extension (cloister-c71977) ─────────
+    //
+    // RFC 5280 §4.2: a verifier MUST reject any cert it does not recognize
+    // when the extension is critical-flagged. We mint a cert with a
+    // critical extension at a private OID outside cloister's known arc;
+    // the TS-side wasm verifier should reject it.
+
+    let unknown_oid = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.99999.42.1");
+    let cert_critical_unknown = mint_test_cert_with_extra_ext(
+        &master, &ephemeral, not_before, not_after,
+        unknown_oid,
+        true,                              // critical
+        vec![0x04, 0x01, 0x01],            // arbitrary DER bytes
+    );
+    let cert_noncritical_unknown = mint_test_cert_with_extra_ext(
+        &master, &ephemeral, not_before, not_after,
+        unknown_oid,
+        false,                             // non-critical
+        vec![0x04, 0x01, 0x01],
+    );
+
+    println!();
+    println!("/** Cert with a CRITICAL unknown extension (OID 1.3.6.1.4.1.99999.42.1).");
+    println!(" * Per RFC 5280 §4.2 / cloister-c71977, the verifier MUST reject. */");
+    println!("export const CERT_CRITICAL_UNKNOWN_EXT_B64 = \"{}\";", b64(&cert_critical_unknown));
+    println!();
+    println!("/** Cert with a NON-CRITICAL unknown extension at the same OID.");
+    println!(" * RFC 5280 says non-critical unknowns MAY be ignored — verifier accepts. */");
+    println!("export const CERT_NONCRITICAL_UNKNOWN_EXT_B64 = \"{}\";", b64(&cert_noncritical_unknown));
 }
 
 /// Hand-encode a JSON string literal — avoids pulling serde_json in for one

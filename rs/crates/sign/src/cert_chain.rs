@@ -70,6 +70,8 @@ pub enum ChainError {
     EncodingFailed(String),
     #[error("interlace extension malformed: {0}")]
     BadExtension(&'static str),
+    #[error("cert has critical unknown extension OID {0}")]
+    UnknownCriticalExtension(String),
 }
 
 /// OID arc for cloister's Interlace cert extensions. Shared with notme's
@@ -214,10 +216,20 @@ fn extract_interlace_extensions(
             let s = der::asn1::Utf8StringRef::from_der(value_bytes)
                 .map_err(|_| ChainError::BadExtension("scope is not DER UTF8String"))?;
             scope = Some(s.as_str().to_string());
+        } else if ext.critical {
+            // Per RFC 5280 §4.2 + threat-model §6.1.6 (cloister-c71977):
+            // a verifier MUST reject any cert it does not recognize when
+            // the extension is critical-flagged. Standard X.509 critical
+            // extensions (BasicConstraints, KeyUsage, ExtKeyUsage, SAN,
+            // etc.) are NOT in the cloister verifier's known set because
+            // Interlace certs minted by notme don't carry them today; if
+            // they do in the future, expand the allow-list before flipping
+            // them critical.
+            return Err(ChainError::UnknownCriticalExtension(
+                ext.extn_id.to_string(),
+            ));
         }
-        // Unknown extensions are ignored (but the X.509 standard says
-        // critical-flagged unknown extensions should reject — we don't
-        // do that yet; future hardening if needed).
+        // Non-critical unknown extensions are ignored per RFC 5280.
     }
 
     Ok((epoch, peer_fp, scope))
@@ -438,6 +450,102 @@ pub mod tests_helpers {
 
         cert.to_der().unwrap()
     }
+
+    /// Mint a self-signed-by-master cert with one extra extension on top
+    /// of the standard Interlace ones. Used to test cloister-c71977's
+    /// rejection of critical-flagged unknown extensions (RFC 5280 §4.2).
+    /// Caller picks the OID, the critical flag, and the raw DER value.
+    pub fn mint_test_cert_with_extra_ext(
+        master: &SigningKey,
+        ephemeral: &SigningKey,
+        not_before: i64,
+        not_after: i64,
+        extra_oid: const_oid::ObjectIdentifier,
+        extra_critical: bool,
+        extra_value_der: Vec<u8>,
+    ) -> Vec<u8> {
+        use der::{Encode, asn1::{BitString, OctetString, Utf8StringRef}};
+        use x509_cert::{
+            Certificate,
+            ext::{Extensions, Extension},
+            time::{Time, Validity},
+            spki::{AlgorithmIdentifier, SubjectPublicKeyInfo},
+            name::{Name, RdnSequence},
+            certificate::TbsCertificate,
+            serial_number::SerialNumber,
+        };
+
+        let alg_ed25519 = AlgorithmIdentifier {
+            oid: ID_ED25519,
+            parameters: None,
+        };
+        let spki = SubjectPublicKeyInfo {
+            algorithm: alg_ed25519.clone(),
+            subject_public_key: BitString::from_bytes(ephemeral.verifying_key().as_bytes()).unwrap(),
+        };
+        let issuer: Name = RdnSequence::default().into();
+        let subject = issuer.clone();
+        let validity = Validity {
+            not_before: Time::UtcTime(
+                der::asn1::UtcTime::from_unix_duration(
+                    std::time::Duration::from_secs(not_before as u64),
+                ).unwrap(),
+            ),
+            not_after: Time::UtcTime(
+                der::asn1::UtcTime::from_unix_duration(
+                    std::time::Duration::from_secs(not_after as u64),
+                ).unwrap(),
+            ),
+        };
+
+        // Standard Interlace extensions (non-critical) + the extra one.
+        let mut extensions: Vec<Extension> = Vec::new();
+        let int_der = encode_u32_as_der_int(7);
+        extensions.push(Extension {
+            extn_id: oid_interlace::EPOCH,
+            critical: false,
+            extn_value: OctetString::new(int_der).unwrap(),
+        });
+        let s_der = Utf8StringRef::new("sha256:test").unwrap().to_der().unwrap();
+        extensions.push(Extension {
+            extn_id: oid_interlace::PEER_FP,
+            critical: false,
+            extn_value: OctetString::new(s_der).unwrap(),
+        });
+        let s_der = Utf8StringRef::new("test:scope").unwrap().to_der().unwrap();
+        extensions.push(Extension {
+            extn_id: oid_interlace::SCOPE,
+            critical: false,
+            extn_value: OctetString::new(s_der).unwrap(),
+        });
+        extensions.push(Extension {
+            extn_id: extra_oid,
+            critical: extra_critical,
+            extn_value: OctetString::new(extra_value_der).unwrap(),
+        });
+
+        let tbs = TbsCertificate {
+            version: x509_cert::Version::V3,
+            serial_number: SerialNumber::new(&[1]).unwrap(),
+            signature: alg_ed25519.clone(),
+            issuer,
+            validity,
+            subject,
+            subject_public_key_info: spki,
+            issuer_unique_id: None,
+            subject_unique_id: None,
+            extensions: Some(Extensions::try_from(extensions).unwrap()),
+        };
+
+        let tbs_der = tbs.to_der().unwrap();
+        let sig = master.sign(&tbs_der);
+        let cert = Certificate {
+            tbs_certificate: tbs,
+            signature_algorithm: alg_ed25519,
+            signature: BitString::from_bytes(&sig.to_bytes()).unwrap(),
+        };
+        cert.to_der().unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -584,5 +692,83 @@ mod tests {
         let j = claims_to_json(&claims);
         // Embedded quote, backslash, newline must be escaped.
         assert!(j.contains("\"pf\":\"a\\\"b\\\\c\\n\""));
+    }
+
+    // ── Critical-extension rejection (cloister-c71977 / RFC 5280 §4.2) ──
+
+    use super::tests_helpers::mint_test_cert_with_extra_ext;
+    use const_oid::ObjectIdentifier;
+
+    /// An OID under a private arc that the verifier doesn't know about.
+    /// Per RFC 5280: when this is critical, the verifier MUST reject.
+    const UNKNOWN_PRIVATE_OID: ObjectIdentifier =
+        ObjectIdentifier::new_unwrap("1.3.6.1.4.1.99999.42.1");
+
+    #[test]
+    fn rejects_critical_unknown_extension() {
+        let master = SigningKey::generate(&mut OsRng);
+        let ephemeral = SigningKey::generate(&mut OsRng);
+        let nb = now() - 60;
+        let na = now() + 600;
+
+        // Mint with a critical-flagged unknown extension.
+        let cert = mint_test_cert_with_extra_ext(
+            &master, &ephemeral, nb, na,
+            UNKNOWN_PRIVATE_OID,
+            true,                         // critical
+            vec![0x04, 0x01, 0x01],       // arbitrary DER (OCTET STRING { 0x01 })
+        );
+
+        let result = verify_cert_chain(&cert, master.verifying_key().as_bytes());
+        match result {
+            Err(ChainError::UnknownCriticalExtension(oid)) => {
+                assert_eq!(oid, "1.3.6.1.4.1.99999.42.1");
+            }
+            _ => panic!("expected UnknownCriticalExtension, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn accepts_non_critical_unknown_extension() {
+        let master = SigningKey::generate(&mut OsRng);
+        let ephemeral = SigningKey::generate(&mut OsRng);
+        let nb = now() - 60;
+        let na = now() + 600;
+
+        // Same OID, but non-critical — RFC 5280 says "MAY ignore".
+        let cert = mint_test_cert_with_extra_ext(
+            &master, &ephemeral, nb, na,
+            UNKNOWN_PRIVATE_OID,
+            false,                        // non-critical
+            vec![0x04, 0x01, 0x01],
+        );
+
+        let result = verify_cert_chain(&cert, master.verifying_key().as_bytes());
+        let claims = result.expect("non-critical unknown should be ignored");
+        assert_eq!(claims.epoch, Some(7));
+        assert_eq!(claims.peer_fp.as_deref(), Some("sha256:test"));
+    }
+
+    #[test]
+    fn accepts_critical_known_interlace_extensions() {
+        // Sanity: the verifier doesn't reject Interlace extensions even
+        // if a future minter flags them critical. Our known-OID list is
+        // the EPOCH/PEER_FP/SCOPE arc; critical flag on those is fine.
+        let master = SigningKey::generate(&mut OsRng);
+        let ephemeral = SigningKey::generate(&mut OsRng);
+        let nb = now() - 60;
+        let na = now() + 600;
+
+        // Use the standard mint_test_cert (non-critical) — sanity baseline.
+        let cert = mint_test_cert(
+            &master, &ephemeral, nb, na,
+            Some(7),
+            Some("sha256:abc"),
+            Some("bead_create:/r/foo"),
+        );
+
+        let claims = verify_cert_chain(&cert, master.verifying_key().as_bytes())
+            .expect("standard interlace cert should verify");
+        assert_eq!(claims.epoch, Some(7));
     }
 }
