@@ -72,11 +72,20 @@ sufficient.
   manifests with AEAD. `src/wire/codec.ts` is the cloister-side encoder/
   decoder. Per ADR-0005 amendment, cloister ↔ companion is plain capnp
   IPC (no AEAD inside the trust boundary).
-- **`peer_attestations` table is BeadStore-resident** — when ADR-0007
-  lease/state work lands, attestation rows live in the same DO as the
-  beads they witness. State writes attest; read-only tool calls do not.
+- **Trust state lives in TrustStore (singleton)** — per ADR-0012, the
+  `peer_lease_counters` table is on a hypervisor-layer singleton DO
+  (`env.TRUST_STORE`, idFromName("cluster")), separate from per-repo
+  BeadStore. `peer_attestations` will live there too when bdcbe7 lands;
+  cross-DO writes use ADR-0003 content-addressed handoff so per-DO ACID
+  still holds. Lease writes attest on every authenticated call (§13.2).
+- **Lease verification lives in `src/routes/lease-middleware.ts`** —
+  `verifyAndUpsertLease` runs the full pipeline: header parse → wasm32
+  cert chain verify → claims required → epoch + validity-window check →
+  Web Crypto Ed25519 request-sig verify → scope match → TrustStore RPC
+  upsert. End-to-end tested. Wiring into `src/routes/mcp.ts` is the
+  follow-up bead (needs notme bundle-fetcher + test-fixture migration).
 
-## In-flight substrate work (ADRs 0007–0010)
+## In-flight substrate work (ADRs 0007–0012)
 
 | ADR | Status | Decade thread |
 |---|---|---|
@@ -84,6 +93,8 @@ sufficient.
 | 0008 — companion pool / load balancing | Proposed | `interlace-substrate/adrs` |
 | 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | Proposed | `interlace-substrate/adrs` |
 | 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed | `interlace-substrate/vault` |
+| 0011 — hypervisor / bundle boundary (three-criterion test) | Proposed | `interlace-substrate/adrs` |
+| 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.

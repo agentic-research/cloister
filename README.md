@@ -28,7 +28,7 @@ graph TB
 
         subgraph state ["Cluster state"]
             DO["BeadStore DO<br/>(per-repo SQLite)"]
-            ATTEST[("peer_attestations<br/>(per ADR-0007;<br/>state-boundary writes)")]
+            TRUST["TrustStore DO<br/>(singleton, per ADR-0012)<br/>peer_lease_counters,<br/>peer_attestations (planned)"]
             VAULT[("Vault DO<br/>(per ADR-0010;<br/>scoped slice tokens)")]
         end
 

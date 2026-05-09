@@ -383,12 +383,53 @@ volumes.
 `task image:check` parses `melange.yaml` + `apko.yaml` end-to-end without
 running a real build — useful in CI before bumping versions.
 
+## Lease verification (ADR-0007 / cloister-bd7770)
+
+Every authenticated `POST /mcp` call is verified by
+`src/routes/lease-middleware.ts:verifyAndUpsertLease` before reaching
+the JSON-RPC dispatch. The pipeline:
+
+1. **Header parse** — `Authorization: Signet <base64-cert-DER>`,
+   `X-Signet-Sig`, `X-Signet-Ts`, `X-Signet-Nonce`. Malformed headers
+   short-circuit to JSON-RPC error code -32001 / HTTP 401.
+2. **Cert chain verify** — `verifyCertChain` (TS wrapper around
+   wasm32-built `leyline-sign`) checks the cert is signed by the active
+   master in the CA bundle, falling back to the previous master during
+   a rotation window. Source: `rs/crates/sign/src/cert_chain.rs` →
+   `src/wire/signet-verify.ts`.
+3. **Claims required** — Phase 1 mandates `epoch` + `peer_fp` + `scope`
+   (Interlace OID extensions at `1.3.6.1.4.1.99999.1.{4,5,6}`). Certs
+   without them fail closed.
+4. **Epoch currency** — `isCertEpochCurrent` accepts the current bundle
+   epoch and (during a rotation window) `bundle.epoch - 1`.
+5. **Validity window** — server clock ∈ `[not_before, not_after]`.
+6. **Request signature** — `crypto.subtle.verify("Ed25519", …)` over
+   `canonicalRequestBytes(method, url, ts, nonce, body)`. Web Crypto's
+   raw-key import path; no extra wasm hop.
+7. **Scope match** — `scopeAllows(cert.scope, deriveRequestScope(...))`.
+   Glob semantics: `X:*` matches any `X:Y`; `*` matches anything (admin
+   only).
+8. **Lease counter UPSERT** — `TrustStore.upsertLeaseCounter(...)` via
+   workerd RPC. ADR-0007 §13.2: every authenticated call is recorded so
+   silence is evidence.
+
+The `INTERLACE_DEV_BYPASS` escape hatch was removed by the 2026-05-08
+ADR-0007 amendment. Auth is always-on in production. Dev workflow mints
+short-lived dev certs through `notme` against a real master.
+
+The substrate (header parse, canonical bytes, cert verify, sig verify,
+scope, TrustStore upsert) is end-to-end tested in
+`test/routes/lease-middleware.test.ts`. Wiring into the McpEdgeRoute
+hot path lives behind a follow-up bead — it requires the notme bundle
+fetcher and migration of unauthenticated test fixtures.
+
 ## Security surface
 
 | Layer            | Risk                                | Mitigation                                                |
 | ---------------- | ----------------------------------- | --------------------------------------------------------- |
-| `POST /mcp`      | Unauthenticated in local dev        | Add notme JWT middleware before prod deploy (ADR-0001 work item) |
+| `POST /mcp`      | Unauthenticated request execution   | `verifyAndUpsertLease` (lease middleware) runs the wasm32 cert-chain verifier + Web Crypto Ed25519 request-sig + scope match + TrustStore counter upsert. ADR-0007. Substrate tested; wiring into mcp.ts pending. |
 | BeadStore SQL    | Parameterized queries throughout    | No injection risk                                         |
+| TrustStore SQL   | Singleton DO, parameterized queries | No injection risk; per-DO ACID                            |
 | notme proxy      | SSRF?                               | `NOTME` is a service binding (not a user-controlled URL)  |
 | LLO HTTP         | SSRF                                | `LLO_MCP_URL` is an env var, not a request param          |
 | rosary proxy     | SSRF                                | `ROSARY_MCP_URL` is an env var                            |
