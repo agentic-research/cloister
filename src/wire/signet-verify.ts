@@ -69,6 +69,22 @@ interface SignetWasmExports {
     data_ptr: number, data_len: number,
     cert_out_buf: number, cert_out_len: number,
   ) => number;
+
+  /**
+   * Verify cert-chain (Ed25519 cert signed by master_pubkey) and write
+   * parsed claims as compact JSON into `claims_out_buf`. Returns claims
+   * byte length on success, -1 on any failure.
+   *
+   * JSON shape (see rs/crates/sign/src/cert_chain.rs::claims_to_json):
+   *   {"epk":"<base64url>","nb":<i64>,"na":<i64>,"ep":<u32>,"pf":"...","sc":"..."}
+   * `ep`, `pf`, `sc` are optional (omitted when cert lacks the matching
+   * Interlace extension).
+   */
+  leyline_verify_cert_chain: (
+    cert_der_ptr: number, cert_der_len: number,
+    master_pubkey_ptr: number, master_pubkey_len: number,
+    claims_out_buf: number, claims_out_len: number,
+  ) => number;
 }
 
 // ── Module instance — lazy, memoized ─────────────────────────────────
@@ -208,4 +224,144 @@ export function freeWasmBuffer(
   length: number,
 ): void {
   exports.lsign_free(ptr, length);
+}
+
+// ── Cert-chain verification + claims parsing ────────────────────────────
+
+/**
+ * Parsed claims extracted from a verified ephemeral cert. Mirrors the
+ * Rust `CertClaims` struct in `rs/crates/sign/src/cert_chain.rs`.
+ *
+ * `ephemeralPubkey` is the SubjectPublicKeyInfo's raw bytes (32 bytes for
+ * Ed25519). `notBefore` / `notAfter` are Unix-seconds. The Interlace-
+ * specific fields (`epoch`, `peerFp`, `scope`) are optional — present
+ * only when the cert was minted with the matching custom-OID extension.
+ */
+export interface CertClaims {
+  ephemeralPubkey: Uint8Array;
+  notBefore:       number;
+  notAfter:        number;
+  epoch?:          number;
+  peerFp?:         string;
+  scope?:          string;
+}
+
+export type CertChainResult =
+  | { ok: true;  claims: CertClaims }
+  | { ok: false; reason: string };
+
+/** Output buffer size for the JSON claims blob; ~512B is generous. */
+const DEFAULT_CLAIMS_OUT_LEN = 1024;
+
+/**
+ * Verify an ephemeral Signet cert is signed by the master public key,
+ * and extract its claims (ephemeral pubkey, validity window, optional
+ * Interlace extensions).
+ *
+ * On success: returns `{ ok: true, claims }` with parsed values.
+ * On any failure: `{ ok: false, reason }` — same shape as
+ * `verifyCmsSignature`. Callers branch on `ok`.
+ *
+ * The wasm module returns claims as compact JSON; we parse it once
+ * into the typed `CertClaims` shape. Callers shouldn't need to touch
+ * the JSON form directly.
+ */
+export async function verifyCertChain(
+  certDer: Uint8Array,
+  masterPubkey: Uint8Array,
+  options: { claimsOutLen?: number } = {},
+): Promise<CertChainResult> {
+  if (masterPubkey.length !== 32) {
+    return { ok: false, reason: "master pubkey must be 32 bytes (Ed25519)" };
+  }
+
+  const inst = await instance();
+  const exports = inst.exports as unknown as SignetWasmExports;
+  const claimsOutLen = options.claimsOutLen ?? DEFAULT_CLAIMS_OUT_LEN;
+
+  const certPtr = copyIn(exports, certDer);
+  const masterPtr = copyIn(exports, masterPubkey);
+  const claimsOutPtr = exports.lsign_alloc(claimsOutLen);
+
+  try {
+    const result = exports.leyline_verify_cert_chain(
+      certPtr, certDer.length,
+      masterPtr, masterPubkey.length,
+      claimsOutPtr, claimsOutLen,
+    );
+
+    if (result < 0) {
+      // -1 covers: bad DER, wrong sig algorithm, signature mismatch,
+      // bad SPKI, malformed Interlace extension, or output buffer too
+      // small. The wasm doesn't return structured error info; surface
+      // a generic reason. Callers that want to log details can match
+      // on the verdict at the Rust side via tests.
+      return { ok: false, reason: "cert chain verify failed (parse, sig, or buffer)" };
+    }
+
+    const jsonBytes = new Uint8Array(exports.memory.buffer, claimsOutPtr, result).slice();
+    const json = new TextDecoder().decode(jsonBytes);
+    return parseClaimsJson(json);
+  } finally {
+    exports.lsign_free(certPtr, certDer.length);
+    exports.lsign_free(masterPtr, masterPubkey.length);
+    exports.lsign_free(claimsOutPtr, claimsOutLen);
+  }
+}
+
+/**
+ * Parse the wasm's compact claims JSON into a typed `CertClaims`.
+ * Defensive — bad JSON or missing required fields return
+ * `{ ok: false, reason }`.
+ */
+function parseClaimsJson(json: string): CertChainResult {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return { ok: false, reason: "claims JSON parse failed" };
+  }
+
+  const epkRaw = parsed["epk"];
+  const nbRaw  = parsed["nb"];
+  const naRaw  = parsed["na"];
+
+  if (typeof epkRaw !== "string") return { ok: false, reason: "claims missing epk" };
+  if (typeof nbRaw  !== "number") return { ok: false, reason: "claims missing nb" };
+  if (typeof naRaw  !== "number") return { ok: false, reason: "claims missing na" };
+
+  let ephemeralPubkey: Uint8Array;
+  try {
+    ephemeralPubkey = b64decode(epkRaw);
+  } catch {
+    return { ok: false, reason: "claims epk not valid base64url" };
+  }
+  if (ephemeralPubkey.length !== 32) {
+    return { ok: false, reason: "claims epk wrong length (expected 32 bytes Ed25519)" };
+  }
+
+  const claims: CertClaims = {
+    ephemeralPubkey,
+    notBefore: nbRaw,
+    notAfter:  naRaw,
+  };
+
+  // Optional Interlace fields.
+  if (typeof parsed["ep"] === "number") claims.epoch  = parsed["ep"] as number;
+  if (typeof parsed["pf"] === "string") claims.peerFp = parsed["pf"] as string;
+  if (typeof parsed["sc"] === "string") claims.scope  = parsed["sc"] as string;
+
+  return { ok: true, claims };
+}
+
+// ── base64url helpers (no padding) ──────────────────────────────────────
+
+/** base64url decode (no padding) — matches the wasm's epk encoding. */
+function b64decode(s: string): Uint8Array {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/")
+    + "===".slice((s.length + 3) % 4);
+  const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }

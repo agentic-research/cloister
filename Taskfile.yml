@@ -52,6 +52,18 @@ tasks:
     generates:
       - target/wasm32-unknown-unknown/release/leyline_sign.wasm
 
+  rs:sign:fixtures:
+    desc: "Mint cert-chain test fixtures (cloister-9d49eb). Generates test/wire/fixtures/cert-chain.ts from a fixed RNG seed for stable test output."
+    dir: rs
+    cmds:
+      - cargo run --example gen-fixture > ../test/wire/fixtures/cert-chain.ts
+      - 'echo "fixture wrote: $(wc -l < ../test/wire/fixtures/cert-chain.ts) lines"'
+    sources:
+      - crates/sign/examples/gen-fixture.rs
+      - crates/sign/src/cert_chain.rs
+    generates:
+      - ../test/wire/fixtures/cert-chain.ts
+
   wire:verify-roundtrip:
     desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
     cmds:

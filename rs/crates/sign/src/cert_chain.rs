@@ -309,15 +309,38 @@ fn base64_url_encode_no_pad(bytes: &[u8]) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Test helpers — minting fixtures for cert-chain verification. Public so
+/// `examples/gen-fixture.rs` can produce stable test fixtures for the
+/// TS-side wasm wrapper. Don't use in production code paths; the helpers
+/// are intentionally permissive (no input validation, panics on bad
+/// inputs) for ergonomic test code.
+pub mod tests_helpers {
+    use super::oid_interlace;
+    use crate::oid::ID_ED25519;
     use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
+
+    /// Hand-encode unsigned u32 as a canonical DER INTEGER. `Int::new`
+    /// accepts the raw 4-byte BE form but emits leading zeros that
+    /// strict parsers reject as non-canonical.
+    fn encode_u32_as_der_int(v: u32) -> Vec<u8> {
+        let raw = v.to_be_bytes();
+        let mut start = 0;
+        while start < 3 && raw[start] == 0 { start += 1; }
+        let stripped = &raw[start..];
+        let needs_pad = stripped[0] & 0x80 != 0;
+        let content_len = stripped.len() + if needs_pad { 1 } else { 0 };
+        let mut out = Vec::with_capacity(2 + content_len);
+        out.push(0x02);
+        out.push(content_len as u8);
+        if needs_pad { out.push(0x00); }
+        out.extend_from_slice(stripped);
+        out
+    }
 
     /// Mint a self-signed-by-master ephemeral cert with the given key
-    /// material + extensions. Returns (cert_der, ephemeral_keypair).
-    fn mint_test_cert(
+    /// material + Interlace extensions. Returns DER bytes. Test-quality
+    /// only — issuer/subject are empty Names, no KeyUsage / EKU, etc.
+    pub fn mint_test_cert(
         master: &SigningKey,
         ephemeral: &SigningKey,
         not_before: i64,
@@ -329,8 +352,7 @@ mod tests {
         use der::{Encode, asn1::{BitString, OctetString, Utf8StringRef}};
         use x509_cert::{
             Certificate,
-            ext::Extensions,
-            ext::Extension,
+            ext::{Extensions, Extension},
             time::{Time, Validity},
             spki::{AlgorithmIdentifier, SubjectPublicKeyInfo},
             name::{Name, RdnSequence},
@@ -363,28 +385,6 @@ mod tests {
                 ).unwrap()
             ),
         };
-
-        // Hand-encode unsigned u32 as a canonical DER INTEGER. `Int::new`
-        // accepts the raw 4-byte BE form but emits leading zeros that
-        // strict parsers (including ours via `Int::from_der`) reject as
-        // non-canonical. Strip leading zeros, prepend 0x00 when the high
-        // bit is set (two's-complement sign disambiguation).
-        fn encode_u32_as_der_int(v: u32) -> Vec<u8> {
-            let raw = v.to_be_bytes();
-            let mut start = 0;
-            while start < 3 && raw[start] == 0 {
-                start += 1;
-            }
-            let stripped = &raw[start..];
-            let needs_pad = stripped[0] & 0x80 != 0;
-            let content_len = stripped.len() + if needs_pad { 1 } else { 0 };
-            let mut out = Vec::with_capacity(2 + content_len);
-            out.push(0x02);                 // INTEGER tag
-            out.push(content_len as u8);    // length (< 128)
-            if needs_pad { out.push(0x00); }
-            out.extend_from_slice(stripped);
-            out
-        }
 
         let mut extensions: Vec<Extension> = Vec::new();
         if let Some(ep) = epoch {
@@ -427,7 +427,6 @@ mod tests {
             },
         };
 
-        // Sign tbs.to_der() with master's signing key.
         let tbs_der = tbs.to_der().unwrap();
         let sig = master.sign(&tbs_der);
 
@@ -439,6 +438,15 @@ mod tests {
 
         cert.to_der().unwrap()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::rngs::OsRng;
+
+    use super::tests_helpers::mint_test_cert;
 
     fn now() -> i64 {
         std::time::SystemTime::now()
