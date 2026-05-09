@@ -1,11 +1,18 @@
 # Architecture
 
-cloister is an SSE/HTTP edge router that runs on workerd. The same
-TypeScript bundle runs locally via the `workerd` binary and on Cloudflare
-Workers in production — no code changes, only config differs.
+cloister is a **v8-isolate hypervisor**: it hosts workerd Workers,
+wires them into clusters via service bindings, mediates their access
+to identity and credentials, and routes external traffic to them. The
+same TypeScript bundle runs locally via the `workerd` binary and on
+Cloudflare Workers in production — no code changes, only config
+differs. The MCP/JSON-RPC face is **one tenant** of the public pipe;
+the substrate underneath (declarative routing, capability
+distribution, state-boundary attestation, Interlace identity) is the
+hypervisor layer per
+[ADR-0011](adr/0011-hypervisor-bundle-boundary.md).
 
-This document covers the runtime model and request routing as implemented
-today. The decisions behind it are in the ADRs:
+This document covers the runtime model and request routing as
+implemented today. The decisions behind it are in the ADRs:
 
 - [ADR-0001](adr/0001-workerd-mcp-gateway.md) — why workerd
 - [ADR-0002](adr/0002-edge-router-protocol-agnostic-backends.md) — why edge

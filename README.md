@@ -1,69 +1,114 @@
 # cloister
 
-SSE/HTTP edge router for the ART constellation. Same TypeScript bundle runs
-locally on `workerd` and on Cloudflare Workers in production. One HTTP port,
-one routing table, protocol-agnostic backends.
+A **v8-isolate hypervisor** that hosts workerd Workers, wires them into
+clusters via service bindings, mediates their access to identity and
+credentials, and routes external traffic to them. The same TypeScript
+bundle runs locally on `workerd` and on Cloudflare Workers in
+production — one HTTP port, one declarative route table, capability-
+shaped capabilities through it.
+
+The MCP/JSON-RPC face most consumers see today is **one tenant** of the
+public pipe — bead state, code intelligence, and an Interlace-discoverable
+identity surface ride on the same routing fabric. Future tenants (gRPC,
+WebSocket, anything HTTP-shaped) plug into the same `EdgeRoute` table
+without touching the substrate.
 
 ```mermaid
-graph LR
-    Client["MCP client\n(Claude Code, curl, any SSE reader)"]
+graph TB
+    Client["external client<br/>(MCP / curl / browser /<br/>another cluster's bundle)"]
 
-    subgraph cloister ["cloister :8787 (workerd)"]
-        direction TB
-        ROUTER["Router\nEdgeRoute table"]
-        MCP["McpEdgeRoute\n/mcp"]
-        BEADS["BeadToolBackend\nbead_*"]
-        LSP["LspToolBackend\nlsp_*"]
-        LIFE["LeylineLifecycleBackend\nreparse / enrich / status"]
-        ID["NotmeIdentityRoute\n/identity/*"]
-        HLT["HealthRoute\n/health"]
+    subgraph host ["Host runtime — workerd today (CF Workers in prod);<br/>Firecracker / WASI per ADR-0009"]
+        subgraph hyp ["Hypervisor layer — cloister-router bundle"]
+            ROUTER["Router<br/>declarative EdgeRoute table<br/>(from cloister.capnp)"]
+            MCP["MCP face<br/>/mcp (JSON-RPC + SSE)"]
+            IDENT["/identity/*<br/>(Interlace lease verification,<br/>per ADR-0007)"]
+            WK[".well-known/<br/>interlace/index.json<br/>(capability discovery)"]
+            HLT["/health"]
+        end
 
-        ROUTER --> HLT
-        ROUTER --> ID
-        ROUTER --> MCP
-        MCP --> BEADS
-        MCP --> LSP
-        MCP --> LIFE
+        subgraph state ["Cluster state"]
+            DO["BeadStore DO<br/>(per-repo SQLite)"]
+            ATTEST[("peer_attestations<br/>(per ADR-0007;<br/>state-boundary writes)")]
+            VAULT[("Vault DO<br/>(per ADR-0010;<br/>scoped slice tokens)")]
+        end
+
+        subgraph siblings ["Sibling bundles (intra-cluster — service bindings, unforgeable)"]
+            NOTME["notme-identity<br/>SigningAuthority master,<br/>born-in-CF, never leaves"]
+            COMP["cloister-companion<br/>(Rust sidecar — IPC seam,<br/>per ADR-0005 amendment)"]
+        end
     end
 
-    DO["BeadStore DO\nSQLite per repo"]
-    NOTME["notme worker\nidentity (no-net vault)"]
-    LLO["ley-line-open daemon\n(via notme-proxy in prod)"]
+    EXT["external services<br/>(rosary / mache / LLO / signet —<br/>NOT bundles; reached via httpForward)"]
 
-    Client -->|POST /mcp\nJSON-RPC| ROUTER
-    Client -->|GET /mcp\nSSE| ROUTER
-    BEADS --> DO
-    ID -->|service binding| NOTME
-    LSP -->|HTTP\nLLO_MCP_URL| LLO
-    LIFE -->|HTTP\nLLO_MCP_URL| LLO
+    Client -->|HTTPS| ROUTER
+    ROUTER --> MCP
+    ROUTER --> IDENT
+    ROUTER --> WK
+    ROUTER --> HLT
+    MCP -->|state writes| DO
+    MCP -->|state writes| ATTEST
+    IDENT -->|svc binding| NOTME
+    MCP -->|svc binding| COMP
+    COMP -.->|leyline-net wire<br/>(real network)| EXT
+    NOTME -.->|HKDF master pubkey| VAULT
+
+    style hyp fill:#dde7ff,color:#000
+    style state fill:#fff5e1,color:#000
+    style siblings fill:#fff5e1,color:#000
+    style EXT fill:#f5f5f5,color:#000
 ```
-
-The architecture: ADR-0002 reframes cloister as an SSE/HTTP edge router with
-protocol-agnostic backends. MCP is one tenant of the pipe; identity is
-another; future tenants (gRPC, WebSocket) plug into the same `EdgeRoute`
-table. Read the rationale: [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md).
 
 The route table is **declared, not coded** — `cloister.capnp` at the repo
 root is the source of truth, compiled by `task manifest` to a typed TS
-module that `src/index.ts` imports. To add an MCP-fronted service, edit
-`cloister.capnp`. See [ADR-0004](docs/adr/0004-capnp-manifest.md).
+module that `src/index.ts` imports. To add a route, backend, or new
+bundle to the cluster, edit `cloister.capnp`. See
+[ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest substrate
+and [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) for which
+responsibilities live at the hypervisor layer vs the bundle layer.
 
-## What it does
+## What runs at the hypervisor layer
 
-- **Bead CRUD** — `bead_create | update | search | list | close | comment` against
-  per-repo Durable Objects (native SQLite, one DB instance per repo path).
-- **LSP forwarding** — `lsp_hover | defs | refs | symbols | diagnostics` proxied
-  to `ley-line-open` over HTTP, via `notme-proxy` UDS in prod.
-- **Daemon lifecycle** — `reparse | enrich | status` forwarded to the same
-  `ley-line-open` daemon. The Claude Code plugin auto-fires `reparse` on every
-  edit so LSP results stay fresh.
-- **Identity proxy** — `/identity/*` forwards to [notme](https://github.com/agentic-research/notme)
-  over a workerd service binding (the notme vault has no network — cloister
-  is the only thing on the network in front of it).
-- **SSE streaming** — `GET /mcp` returns standard `text/event-stream`; any
-  language's EventSource reads it without MCP-specific libraries.
-- **Claude Code plugin** — `cloister-stale-sync` ships in this repo; closes the
-  stale-rust-analyzer gap inside long CC sessions. See [hooks/README.md](hooks/README.md).
+Per [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md): code is
+hypervisor-layer if it (a) mediates between bundles or to the outside,
+(b) compromise blast-radius is multi-bundle, (c) singleton per cluster.
+
+- **Routing** — `Router` + `EdgeRoute` dispatch over the public face
+  (`/mcp`, `/health`, `/identity/*`, `/.well-known/*`,
+  `/interlace/peers/{fp}`).
+- **Lease verification** — verify Signet ephemeral certs against the
+  pinned master + freshly-fetched epoch bundle (per
+  [ADR-0007](docs/adr/0007-interlace-substrate.md) audit amendment).
+  Bundles see only the verified cert + resolved scope.
+- **Capability distribution** — the manifest runtime mints
+  `slice_token`s at boot for each bundle's declared `vaultSlice`,
+  drops the unrestricted vault reference (per
+  [ADR-0010](docs/adr/0010-vault-and-bundle-clusters.md)).
+- **State-boundary attestation** — on bead writes (the cluster's
+  durable state), the middleware writes `peer_attestations` rows;
+  per-call lease counters update on every authenticated request.
+- **Inter-cluster identity** — Interlace handshake,
+  `.well-known/interlace/` publication, selective-disclosure read
+  endpoint for peer attestations.
+
+## What rides on top (bundles + tenants)
+
+- **Bead state** — `bead_create | update | search | list | close | comment`
+  against per-repo Durable Objects. The `cloister-router` bundle's
+  state surface; one of the cluster's tenants.
+- **Code intelligence forward** — `lsp_hover | defs | refs | symbols |
+  diagnostics` and `reparse | enrich | status` proxied to `ley-line-open`
+  over HTTP. ley-line-open is **not** a bundle; it's an external service
+  the cluster reaches via `httpForward`.
+- **Code intelligence cluster** — `mache_*` tools auto-derived from
+  `mache`'s upstream `tools/list` (per
+  [ADR-0006](docs/adr/0006-derived-tool-schemas.md)). Same external
+  pattern.
+- **Notme identity** — sibling bundle in the cluster
+  (workerd-resident); reachable via service binding only. The Signet
+  master lives in its `SigningAuthority` DO and never leaves.
+- **Claude Code plugin** — `cloister-stale-sync` ships in this repo;
+  closes the stale-rust-analyzer gap inside long CC sessions.
+  See [hooks/README.md](hooks/README.md).
 
 ## Quickstart
 
