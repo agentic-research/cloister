@@ -65,12 +65,27 @@ import {
 } from "./storage/seen-nonces.js";
 import {
   SCHEMA_PENDING_ATTESTATIONS,
+  commitPending as commitPendingHelper,
+  enqueuePending as enqueuePendingHelper,
+  listPendingForPeer as listPendingForPeerHelper,
+  recordFailedAttempt as recordFailedAttemptHelper,
+  type PendingAttestation,
 } from "./storage/pending-attestations.js";
+import {
+  AttestationIntegrityError,
+  SCHEMA_PEER_ATTESTATIONS,
+  applyAttestation as applyAttestationHelper,
+  findAttestationByContent as findAttestationByContentHelper,
+  lastAttestationForPeer as lastAttestationForPeerHelper,
+  listAttestationsForPeer as listAttestationsForPeerHelper,
+  type PeerAttestation,
+} from "./storage/peer-attestations.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
 ${SCHEMA_SEEN_NONCES}
 ${SCHEMA_PENDING_ATTESTATIONS}
+${SCHEMA_PEER_ATTESTATIONS}
 `;
 
 export class TrustStore extends DurableObject {
@@ -155,4 +170,102 @@ export class TrustStore extends DurableObject {
   pruneSeenNonces(beforeTsMs: number): number {
     return pruneSeenNoncesBefore(this.db, beforeTsMs);
   }
+
+  // ── peer_attestations RPC (cloister-bdcbe7) ─────────────────────────────
+
+  /**
+   * Append one attestation row for a state-boundary write. The caller
+   * (lease middleware on a state-mutating tools/call) supplies the
+   * already-verified cert + canonical-bytes digest. Wrapped in
+   * blockConcurrencyWhile so the read-then-write across the prev-ref
+   * lookup holds the input gate.
+   *
+   * Returns the new (seq, row) pair on success. Throws
+   * AttestationIntegrityError if prev_self_ref is wrong.
+   */
+  async applyAttestation(args: {
+    peerFingerprint: string;
+    contentHash:     string;
+    contentType:     string;
+    scope:           string;
+    cert:            Uint8Array;
+    sig:             Uint8Array;
+    prevSelfRef:     string | null;
+    prevPeerRef:     string | null;
+    nowMs:           number;
+  }): Promise<{ seq: number; row: PeerAttestation }> {
+    // Catch the integrity-error throw INSIDE the gate so it doesn't
+    // break the input gate (workerd shuts down a DO on uncaught throws
+    // inside blockConcurrencyWhile). Then re-throw outside the gate so
+    // the caller still sees the same error semantics.
+    type Result =
+      | { ok: true; value: { seq: number; row: PeerAttestation } }
+      | { ok: false; error: Error };
+    const result: Result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return { ok: true, value: applyAttestationHelper(this.db, args) } as const;
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e : new Error(String(e)) } as const;
+      }
+    });
+    if (!result.ok) throw result.error;
+    return result.value;
+  }
+
+  /** Read the most-recent attestation for a peer, or null if none. */
+  lastAttestationForPeer(peerFp: string): PeerAttestation | null {
+    return lastAttestationForPeerHelper(this.db, peerFp);
+  }
+
+  /** List a peer's attestation chain from `fromSeq` ascending. */
+  listAttestationsForPeer(
+    peerFp: string,
+    options: { fromSeq?: number; limit?: number } = {},
+  ): PeerAttestation[] {
+    return listAttestationsForPeerHelper(this.db, peerFp, options);
+  }
+
+  /** Lookup attestation by (peer, content_hash) — used for retry idempotency. */
+  findAttestationByContent(peerFp: string, contentHash: string): PeerAttestation | null {
+    return findAttestationByContentHelper(this.db, peerFp, contentHash);
+  }
+
+  // ── pending_attestations RPC (cloister-c6d378 retry queue) ──────────────
+
+  /**
+   * Enqueue a pending attestation after a TrustStore write fails or is
+   * deferred. Idempotent on (peer_fp, content_hash). Returns whether a
+   * new row was actually inserted (false = already pending).
+   */
+  enqueuePendingAttestation(args: {
+    peerFp:      string;
+    contentHash: string;
+    scope:       string;
+    cert:        Uint8Array;
+    sig:         Uint8Array;
+    nowMs:       number;
+  }): { enqueued: boolean } {
+    return enqueuePendingHelper(this.db, args);
+  }
+
+  /** Mark a pending row as committed (deleted) after successful retry. */
+  commitPendingAttestation(peerFp: string, contentHash: string): { deleted: boolean } {
+    return commitPendingHelper(this.db, peerFp, contentHash);
+  }
+
+  /** Increment retry attempts + push next_retry_at on failed retry. */
+  recordPendingFailedAttempt(
+    peerFp: string,
+    contentHash: string,
+    nowMs: number,
+  ): { newAttempts: number; nextRetryAt: number | null } {
+    return recordFailedAttemptHelper(this.db, peerFp, contentHash, nowMs);
+  }
+
+  /** List all pending rows for a peer (disclosure endpoint feed). */
+  listPendingForPeer(peerFp: string): PendingAttestation[] {
+    return listPendingForPeerHelper(this.db, peerFp);
+  }
 }
+
+export { AttestationIntegrityError };

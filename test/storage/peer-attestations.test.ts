@@ -1,0 +1,298 @@
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
+import { env, runInDurableObject } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
+import {
+  AttestationIntegrityError,
+  applyAttestation,
+  findAttestationByContent,
+  lastAttestationForPeer,
+  listAttestationsForPeer,
+} from "../../src/storage/peer-attestations.js";
+
+let counter = 0;
+function freshStub() {
+  return env.TRUST_STORE.get(
+    env.TRUST_STORE.idFromName(`peer-attestations-test-${counter++}-${Math.random()}`),
+  );
+}
+
+const PEER  = "sha256:abc123";
+const PEER2 = "sha256:def456";
+const HASH_A = "a".repeat(64);
+const HASH_B = "b".repeat(64);
+const HASH_C = "c".repeat(64);
+const SCOPE  = "bead_create:/r/foo";
+const CERT   = new Uint8Array([0xCA, 0xFE]);
+const SIG    = new Uint8Array([0xBA, 0xBE]);
+
+function applyArgs(over: Record<string, unknown> = {}) {
+  return {
+    peerFingerprint: PEER,
+    contentHash:     HASH_A,
+    contentType:     "bead/v1",
+    scope:           SCOPE,
+    cert:            CERT,
+    sig:             SIG,
+    prevSelfRef:     null,
+    prevPeerRef:     null,
+    nowMs:           1_000,
+    ...over,
+  } as Parameters<typeof applyAttestation>[1];
+}
+
+// ── lastAttestationForPeer ───────────────────────────────────────────────
+
+describe("lastAttestationForPeer", () => {
+  it("returns null when no rows exist for the peer", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      expect(lastAttestationForPeer(state.storage.sql, PEER)).toBeNull();
+    });
+  });
+
+  it("returns the highest-seq row for the peer", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_C, prevSelfRef: HASH_B }));
+      const last = lastAttestationForPeer(state.storage.sql, PEER);
+      expect(last).not.toBeNull();
+      expect(last!.seq).toBe(3);
+      expect(last!.content_hash).toBe(HASH_C);
+    });
+  });
+});
+
+// ── applyAttestation: chain progression ──────────────────────────────────
+
+describe("applyAttestation", () => {
+  it("genesis row: seq=1 with prev_self_ref=null", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      const r = applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A,
+        prevSelfRef: null,
+      }));
+      expect(r.seq).toBe(1);
+      expect(r.row.prev_self_ref).toBeNull();
+      expect(r.row.content_hash).toBe(HASH_A);
+    });
+  });
+
+  it("subsequent row: seq increments + prev_self_ref points at previous content_hash", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      const r1 = applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: null,
+      }));
+      const r2 = applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_B, prevSelfRef: HASH_A,
+      }));
+      expect(r1.seq).toBe(1);
+      expect(r2.seq).toBe(2);
+      expect(r2.row.prev_self_ref).toBe(HASH_A);
+    });
+  });
+
+  it("rejects mismatched prev_self_ref (chain integrity defense)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: null,
+      }));
+      // Caller LIES about the prev — should reject.
+      expect(() => applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_B, prevSelfRef: "f".repeat(64),
+      }))).toThrow(AttestationIntegrityError);
+    });
+  });
+
+  it("rejects non-null prev_self_ref on genesis (must be null when no prior row)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      expect(() => applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: HASH_B,
+      }))).toThrow(AttestationIntegrityError);
+    });
+  });
+
+  it("rejects null prev_self_ref when a prior row exists (chain skip)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: null,
+      }));
+      expect(() => applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_B, prevSelfRef: null,
+      }))).toThrow(AttestationIntegrityError);
+    });
+  });
+
+  it("integrity check leaves no row written when it throws", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: null,
+      }));
+      try {
+        applyAttestation(state.storage.sql, applyArgs({
+          contentHash: HASH_B, prevSelfRef: "wrong",
+        }));
+      } catch { /* expected */ }
+      const list = listAttestationsForPeer(state.storage.sql, PEER);
+      expect(list.length).toBe(1);
+      expect(list[0]!.content_hash).toBe(HASH_A);
+    });
+  });
+
+  it("scopes per-peer: PEER and PEER2 chains advance independently", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER, contentHash: HASH_A, prevSelfRef: null,
+      }));
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER2, contentHash: HASH_A, prevSelfRef: null,
+      }));
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER, contentHash: HASH_B, prevSelfRef: HASH_A,
+      }));
+
+      expect(lastAttestationForPeer(state.storage.sql, PEER)!.seq).toBe(2);
+      expect(lastAttestationForPeer(state.storage.sql, PEER2)!.seq).toBe(1);
+    });
+  });
+
+  it("preserves prev_peer_ref through the round-trip", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      const r = applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A, prevSelfRef: null,
+        prevPeerRef: "sha256:peer_chain_head",
+      }));
+      expect(r.row.prev_peer_ref).toBe("sha256:peer_chain_head");
+    });
+  });
+});
+
+// ── listAttestationsForPeer ──────────────────────────────────────────────
+
+describe("listAttestationsForPeer", () => {
+  it("returns rows ordered by seq ASC", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_C, prevSelfRef: HASH_B }));
+      const list = listAttestationsForPeer(state.storage.sql, PEER);
+      expect(list.map(r => r.seq)).toEqual([1, 2, 3]);
+      expect(list.map(r => r.content_hash)).toEqual([HASH_A, HASH_B, HASH_C]);
+    });
+  });
+
+  it("respects fromSeq for incremental tail reads", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_C, prevSelfRef: HASH_B }));
+      const tail = listAttestationsForPeer(state.storage.sql, PEER, { fromSeq: 2 });
+      expect(tail.map(r => r.seq)).toEqual([2, 3]);
+    });
+  });
+
+  it("respects the limit argument", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_C, prevSelfRef: HASH_B }));
+      const limited = listAttestationsForPeer(state.storage.sql, PEER, { limit: 2 });
+      expect(limited.length).toBe(2);
+    });
+  });
+
+  it("scopes strictly to the requested peer (no cross-peer leak)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER, contentHash: HASH_A, prevSelfRef: null,
+      }));
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER2, contentHash: HASH_A, prevSelfRef: null,
+      }));
+      const list = listAttestationsForPeer(state.storage.sql, PEER2);
+      expect(list.length).toBe(1);
+      expect(list[0]!.peer_fingerprint).toBe(PEER2);
+    });
+  });
+});
+
+// ── findAttestationByContent ─────────────────────────────────────────────
+
+describe("findAttestationByContent", () => {
+  it("returns the row matching (peer, content_hash)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      const found = findAttestationByContent(state.storage.sql, PEER, HASH_B);
+      expect(found?.seq).toBe(2);
+      expect(found?.content_hash).toBe(HASH_B);
+    });
+  });
+
+  it("returns null when no match exists", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      expect(findAttestationByContent(state.storage.sql, PEER, HASH_C)).toBeNull();
+    });
+  });
+
+  it("supports retry-idempotency probe (caller checks before re-attempting)", async () => {
+    // This is the ADR-0012 recovery story: pending-attestations retry pump
+    // uses findAttestationByContent before re-attempting a write to avoid
+    // double-applying. If the row already exists, the retry already
+    // succeeded earlier and the pending row should be cleaned up.
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      const probe = findAttestationByContent(state.storage.sql, PEER, HASH_A);
+      expect(probe).not.toBeNull();
+      // Caller would now call commitPending and skip the re-attempt.
+    });
+  });
+});
+
+// ── End-to-end: chain re-derivation from disclosed rows ──────────────────
+
+describe("disclosure-endpoint round-trip", () => {
+  it("a third-party verifier can reconstruct the chain from the disclosed rows", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_A, prevSelfRef: null }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_B, prevSelfRef: HASH_A }));
+      applyAttestation(state.storage.sql, applyArgs({ contentHash: HASH_C, prevSelfRef: HASH_B }));
+
+      // Simulate a third-party disclosure consumer: they get the rows
+      // via the (future) /interlace/peers/{fp} endpoint and verify the
+      // chain is internally consistent.
+      const chain = listAttestationsForPeer(state.storage.sql, PEER);
+      expect(chain.length).toBe(3);
+
+      // seq starts at 1 and increments by 1
+      expect(chain[0]!.seq).toBe(1);
+      expect(chain[1]!.seq).toBe(2);
+      expect(chain[2]!.seq).toBe(3);
+
+      // genesis prev_self_ref is null
+      expect(chain[0]!.prev_self_ref).toBeNull();
+
+      // each subsequent prev_self_ref points at previous content_hash
+      expect(chain[1]!.prev_self_ref).toBe(chain[0]!.content_hash);
+      expect(chain[2]!.prev_self_ref).toBe(chain[1]!.content_hash);
+    });
+  });
+});
