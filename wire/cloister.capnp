@@ -44,33 +44,53 @@
 #   - Hand-rolled = zero deps, no bundling surprises in workerd, exact
 #     byte control, audit-friendly for security review.
 #
-# Format flags:
+# Format flags — cloister requires **canonical** Cap'n Proto encoding
+# per capnproto.org/encoding.html#canonicalization. Canonicalization
+# fixes the bytes for a given value; without it, capnp encoders are free
+# to vary padding, segmentation, and unused-pointer truncation.
+# Cloister's encoder rejects non-canonical shapes loudly:
 #
-#   - **Single segment** per message. (Capnp allows multi-segment messages
-#     with far-pointer hops; we don't need it for these struct shapes and
-#     it complicates the encoder substantially.)
-#   - **Unpacked** binary encoding. The "packed" format that elides zero
-#     bytes is only worth it on slow/expensive transports; cloister-companion
-#     runs on loopback HTTP where bandwidth is free.
-#   - **Stream framing** is OUR responsibility, not capnp's. The outer wire
-#     frame (manifest-length / manifest-bytes / nonce / ciphertext) lives
-#     above the capnp encoder; the encoder produces a single contiguous
-#     byte slice per message.
+#   - **Single segment** per message. encoding.html says "Ideally, every
+#     message would have only one segment" and canonical form requires it.
+#     Multi-segment input is rejected by the decoder
+#     (src/wire/codec.ts:readSegmentStart) — implementations MAY emit
+#     multi-segment for unbounded messages, which is why we narrow to a
+#     bounded schema and demand canonical form.
+#   - **Unpacked** binary encoding. Canonical form forbids the "packed"
+#     zero-elision. cloister-companion runs on loopback HTTP where the
+#     bandwidth savings of packing are not worth the layout variability.
+#   - **Composite-list size code 7** for List(struct). Required by
+#     canonical form (encoding.html#lists).
+#   - **Stream framing** is OUR responsibility, not capnp's. The outer
+#     wire frame (manifest-length / manifest-bytes / nonce / ciphertext)
+#     lives above the capnp encoder; the encoder produces a single
+#     contiguous byte slice per message.
 #
 # Cross-side equivalence: cloister-companion (Rust, when 2B lands) uses
-# the official `capnp` crate which produces the same wire bytes. The
-# correctness contract is: same schema + same logical message → same bytes
-# on both sides. Substrate-equivalence test (Phase 2E) locks this in.
+# the official `capnp` crate. When both sides emit canonical form, the
+# byte sequence is determined by the value. The cross-check tests at
+# test/wire/cross-check.test.ts validate **structural equivalence**
+# (round-trip preserves the value) rather than byte equality, since
+# even canonical-form encoders may differ in implementation-defined
+# corners; the substrate-equivalence proof is value-deterministic, not
+# byte-deterministic. See encoding.html#canonicalization for the spec
+# we're holding ourselves to.
 
 # ── Schema-evolution discipline ──────────────────────────────────────────
 #
-# Cap'n Proto wire-compat rules apply here too:
+# Cap'n Proto wire-compat rules apply here too. Quoted from
+# capnproto.org/language.html § "Evolving Your Protocol":
 #
-#   - Adding a new field at the end of a struct is safe.
-#   - Adding a new variant to a union is safe IFF you bump union ordinals
-#     contiguously and never reuse a retired one.
-#   - Removing a field is NOT safe — mark it deprecated and stop populating it.
-#   - Renumbering @N tags is NEVER safe — capnp identifies fields by ordinal.
+#   - "New fields, enumerants, and methods may be added… as long as each
+#     new member's number is larger than all previous members." — adding
+#     fields and union variants at higher ordinals is safe.
+#   - "You cannot change a field, method, or enumerant's number." —
+#     renumbering @N tags is NEVER safe; reassigning a retired ordinal is
+#     equivalent to renumbering. Retire a field by leaving its ordinal in
+#     place and stopping population.
+#   - "Any symbolic name can be changed, as long as the type ID / ordinal
+#     numbers stay the same." — renaming a field is safe; names live in
+#     codegen, never on the wire.
 #
 # When in doubt: add new fields, never remove or renumber. This file is
 # load-bearing for cross-host wire compatibility once cloister-companion

@@ -41,8 +41,11 @@ const toolCallBasic :Wire.ToolCall = (
 const toolCallEmpty :Wire.ToolCall = (
   upstreamId    = "",
   toolName      = "",
-  # argumentsJson omitted — capnp const syntax does not accept `0x""` or
-  # `[]` for Data; defaulted Data is the empty list, which is what we want.
+  # argumentsJson omitted intentionally. Acceptance of literal-empty Data
+  # forms (`0x""`, `[]`) varies between capnp compiler versions and isn't
+  # mandated by the spec (capnproto.org/language.html § Constants shows
+  # only non-empty `0x"…"` examples). The portable form is to omit the
+  # field; defaulted Data is the empty list, which is what we want here.
 );
 
 const toolCallWithArgs :Wire.ToolCall = (

@@ -31,17 +31,28 @@ contribute.
 
 Three forces push the format choice:
 
-1. **workerd already speaks Cap'n Proto.** `config.capnp` is the existing runtime
-   config — same parser, same schema language. Adding a YAML/JSON manifest would
-   mean two parsers, two error formats, two schema-evolution stories. Cap'n Proto
-   is the lower-friction choice.
+1. **workerd already accepts the same `.capnp` schema language.**
+   `config.capnp` is the existing runtime config; both files are processed
+   by the Cap'n Proto schema language. (Whether workerd's runtime parser
+   and the `capnp` CLI used by `task manifest` share parser code is
+   unverified and not load-bearing — what matters is that schemas
+   accepted by `capnp compile` are accepted by workerd's config loader.)
+   Adding a YAML/JSON manifest would mean two parsers, two error formats,
+   two schema-evolution stories. Cap'n Proto is the lower-friction
+   choice.
 
-2. **Cap'n Proto's central abstraction *is* capabilities** — unforgeable references
-   to remote objects. That is literally what workerd service bindings are.
-   Expressing "the route for `/identity/*` is a capability proxied to `notme-bot`"
-   in a capability language isn't a metaphor; it matches the runtime model
-   one-to-one. ADR-0002 §"Capability boundary" makes this same observation about
-   the runtime; the manifest should reflect it.
+2. **The Cap'n Proto ecosystem couples serialization to a capability-based
+   RPC system** — interface references in capnp's RPC layer are
+   unforgeable capabilities, the same shape workerd's service bindings
+   take at runtime. The schema as we use it here has zero `interface`
+   declarations, so the relevant capnp property for cloister's manifest
+   is its **zero-copy ordinal-keyed wire format**, not capabilities-the-
+   RPC-feature. The ecosystem alignment with workerd's capability model
+   matters at the language level (one toolchain, one mental model); the
+   schema layer doesn't itself express capabilities. See [capnproto.org/rpc.html](https://capnproto.org/rpc.html)
+   for where capabilities live; ADR-0002 §"Capability boundary" describes
+   how cloister's runtime achieves capability-shaped semantics through
+   workerd's service bindings.
 
 3. **`import` statements are native** to capnp. Cross-repo composition
    (each consumer repo shipping its own partial schema, a top-level workspace
@@ -179,8 +190,15 @@ const composed :ArtRoot.Gateway = (
 );
 ```
 
-Capnp's static evaluator handles list concatenation in const expressions.
-Each consumer repo owns its slice; the top-level workspace owns composition.
+**Note (2026-05-09 audit):** stock `capnp eval` does **not** support list
+concatenation in const expressions — verified against
+[capnproto.org/language.html § Constants](https://capnproto.org/language.html)
+and [capnp-tool.html](https://capnproto.org/capnp-tool.html). The
+`++` operator above is illustrative; multi-repo composition will be
+done by a small TS pre-processor that splices source files before
+invoking `capnp compile`. Each consumer repo still owns its slice;
+the top-level workspace still owns composition; the join just happens
+in TS rather than in capnp's eval.
 
 ### Backend-kind registry
 
@@ -274,10 +292,14 @@ Schema-validation errors crash `task build`, not the worker.
 - Schema evolution becomes a real obligation. Adding a new field is fine
   (capnp's add-only rules); removing or renumbering one is not. Document the
   rules in this ADR's schema file as comments.
-- The "list concatenation in const expressions" capnp feature is real but not
-  well-known; need to verify the version of capnp we ship supports it. Fall-
-  back: a tiny TS pre-processor that merges multiple `Gateway` values before
-  codegen, run by the build step.
+- The "list concatenation in const expressions" capnp feature was originally
+  hedged here as "real but not well-known." 2026-05-09 audit verified
+  against [capnproto.org/language.html](https://capnproto.org/language.html)
+  + [capnp-tool.html](https://capnproto.org/capnp-tool.html): **no such
+  operator exists in stock capnp**. Multi-repo composition uses a small
+  TS pre-processor that merges multiple `Gateway` values before codegen,
+  run by the build step. The TS pre-processor is the plan; the capnp-eval
+  approach is not feasible.
 - The migration from current `src/index.ts` registration to the manifest is
   a one-shot rewrite — no per-feature flag. Mitigated by keeping the current
   TS classes as the kind implementations; the manifest only changes the

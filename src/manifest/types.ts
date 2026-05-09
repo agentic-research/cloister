@@ -63,8 +63,17 @@ export interface Route {
 }
 
 /**
- * Capnp unions encode as `{ <variant>: <value> }` in JSON — a single key
- * naming the active variant.
+ * Capnp unions encode in JSON as a single sibling field whose name is
+ * the active variant's name and whose value is the variant's payload —
+ * which TypeScript matches with the object-with-single-key shape below.
+ *
+ * This is the default `capnp eval -o json` behavior when the schema does
+ * NOT use the `$jsonDiscriminator` / `$jsonFlatten` annotations from
+ * `capnp/compat/json.capnp`. cloister's manifest schema uses neither,
+ * so we can rely on the single-key form. capnproto.org doesn't document
+ * the default in prose; the json.capnp annotation file is the
+ * authoritative source for opt-in alternatives, and the absence of
+ * those annotations on this schema implies the single-key default.
  */
 export type RouteKind =
   | { health:              null }

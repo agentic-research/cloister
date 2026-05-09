@@ -11,17 +11,25 @@
 # and a parser by design.
 #
 # ── Schema-evolution rules ────────────────────────────────────────────────
-# Capnp's wire-compat rules apply. Specifically:
+# Capnp's wire-compat rules apply. Quoted from
+# capnproto.org/language.html § "Evolving Your Protocol":
 #
-#   - Adding a new field at the end of a struct is safe.
-#   - Adding a new variant to a union is safe IFF you bump union ordinals
-#     contiguously and never reuse a retired one.
-#   - Removing a field is NOT safe — mark it deprecated and stop populating it.
-#   - Renumbering @N tags is NEVER safe — capnp identifies fields by ordinal,
-#     not name.
-#   - Renaming a field is safe (capnp uses ordinals); name is just for codegen.
+#   - "New fields, enumerants, and methods may be added to structs, enums,
+#     and interfaces, respectively, as long as each new member's number is
+#     larger than all previous members." — adding fields and union variants
+#     at higher ordinals is safe.
+#   - "You cannot change a field, method, or enumerant's number." —
+#     renumbering @N tags is NEVER safe. Reassigning a retired ordinal to
+#     a new field is equivalent to renumbering and equally forbidden. To
+#     retire a field, leave its ordinal in place and stop populating it
+#     (the docs don't have a literal "removing is unsafe" sentence; the
+#     ordinal-stability rule is what makes deprecate-don't-remove the
+#     correct discipline).
+#   - "Any symbolic name can be changed, as long as the type ID / ordinal
+#     numbers stay the same." — renaming a field is safe; names live in
+#     codegen, never on the wire.
 #
-# When in doubt: add new fields, never remove or renumber. Treat this file
+# When in doubt: add new fields, never reassign ordinals. Treat this file
 # as forwards/backwards compatible — consumer manifests built against an
 # older cloister must still parse here.
 
