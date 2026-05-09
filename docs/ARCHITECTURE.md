@@ -41,6 +41,13 @@ today. The decisions behind it are in the ADRs:
   introduces `Bundle`, `Cluster`, `VaultSliceGrant` as manifest
   primitives. KEK derived from `SigningAuthority` master (no env-var
   bootstrap). Tracking bead: `cloister-97610c`.
+- [ADR-0011](adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs
+  bundle responsibilities, and the k8s comparison made precise**
+  (Proposed). Formalizes the three-criterion test for
+  hypervisor-layer code, lists what's hypervisor-only vs bundle-only
+  vs neither, and enumerates where the k8s analogy actually holds vs
+  breaks down. Use this as the answer to "where should this code go?"
+  and "do we need a `cloister.capnp` slice in repo X?".
 
 The forward arc: ADRs 0007 + 0010 together replace today's env-var
 bindings (`LLO_MCP_URL`, `MACHE_MCP_URL`, `INTERLACE_MASTER_PUBKEY`,

@@ -194,7 +194,11 @@ source of truth for *why*; this README and ARCHITECTURE.md describe
 - [docs/adr/0008-companion-pool.md](docs/adr/0008-companion-pool.md) — companion pool / load balancing (Proposed; orthogonal to Interlace)
 - [docs/adr/0009-compute-substrate-portability.md](docs/adr/0009-compute-substrate-portability.md) — Linux / Firecracker / WASM / unikernel as deployment knob (Proposed)
 - [docs/adr/0010-vault-and-bundle-clusters.md](docs/adr/0010-vault-and-bundle-clusters.md) — **vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity** (Proposed)
+- [docs/adr/0011-hypervisor-bundle-boundary.md](docs/adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs bundle responsibilities, and what cloister's k8s analogy actually means** (Proposed)
 - [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
+- [src/README.md](src/README.md) — worker source layout map (routes / manifest / wire / backends)
+- [manifest/README.md](manifest/README.md) — capnp schema for the gateway (the `Cloister.Gateway` type)
+- [wire/README.md](wire/README.md) — capnp wire schemas (cloister↔companion + test fixtures)
 
 ## License
 
