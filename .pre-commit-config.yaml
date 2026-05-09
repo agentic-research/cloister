@@ -1,0 +1,72 @@
+# Pre-commit hooks for cloister. Mirrors the constellation pattern
+# (../mache, ../signet, ../ley-line) — SHA-pinned external repos with
+# version comments, local hooks invoking `task` for project gates.
+#
+# Run once per clone:    pnpm exec pre-commit install
+# Run manually anytime:  pnpm exec pre-commit run --all-files
+#
+# Install pre-commit itself:
+#   pip install pre-commit  (or: brew install pre-commit)
+
+repos:
+  # ── Markdown formatting ───────────────────────────────────────────────
+  # Same version + extras as mache/signet/rosary so the constellation's
+  # markdown formats consistently.
+  - repo: https://github.com/hukkin/mdformat
+    rev: 82912cdaea4fb830f751504486a7879c70526547  # 1.0.0
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-gfm
+          - mdformat-frontmatter
+        # Don't reformat: bead store data, agent transcripts, generated
+        # files, or build outputs. Matches constellation conventions.
+        exclude: '(^\.beads/|_agent_log/|^src/generated/|^dist/|^dist-verify/|^node_modules/)'
+
+  # ── Basic file hygiene ────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Don't strip trailing whitespace from .md inside fenced code
+        # blocks (mermaid layouts intentionally use trailing spaces in
+        # some renderers); mdformat already handles markdown.
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # Allow GitHub Actions' multi-document templates if any.
+        args: ['--allow-multiple-documents']
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+
+  # ── Project-local gates (invoke `task`) ───────────────────────────────
+  # These match what CI runs and what developers run locally. Local
+  # because they call out to the project's task pipeline (capnp codegen,
+  # vitest in workerd) — not portable as remote pre-commit hook repos.
+  - repo: local
+    hooks:
+      - id: task-lint
+        name: task lint (tsc + worker tests + plugin tests)
+        entry: task lint
+        language: system
+        # Run on any TS/manifest change. Cheap (~2s).
+        types_or: [ts, capnp]
+        pass_filenames: false
+
+
+  # ── Mermaid validation: deliberately omitted ──────────────────────────
+  # Investigated 2026-05-09 — the available parsers don't fit a casual
+  # pre-commit use case:
+  #   - @mermaid-js/parser requires the caller to know the exact diagram
+  #     type (graph / flowchart / sequenceDiagram / etc.) and won't
+  #     auto-detect from the block; that's effectively a re-implementation
+  #     of mermaid's own front-matter detection per hook invocation.
+  #   - mermaid-cli (mmdc) bundles puppeteer to render to SVG/PNG —
+  #     order-of-magnitude heavier, and pre-commit hooks shouldn't take
+  #     ≥10s.
+  # GitHub's renderer is the de facto validator: a malformed block
+  # surfaces as a "Unable to render rich display" placeholder. If that
+  # bites we'll revisit (ADR or new bead) with a proper validator.

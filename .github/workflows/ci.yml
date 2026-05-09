@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [main]
 
-# Default GITHUB_TOKEN permissions are read-only. Only grant write where a
-# step needs it (none here — lint + test only). No untrusted github.event
-# inputs are interpolated into run: blocks anywhere in this file.
+# Default GITHUB_TOKEN permissions are read-only at the workflow level.
+# Jobs that need writes opt in explicitly (none do — lint + verify only).
+# No untrusted github.event inputs interpolate into run: blocks anywhere
+# in this file. Only github.event_name (enum) and github.ref (validated
+# string) are used, in the verify job's branch guard and the concurrency
+# group key.
 permissions:
   contents: read
 
@@ -24,68 +27,87 @@ jobs:
     timeout-minutes: 8
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # Match package.json's `packageManager` field. Bump together.
-          version: 10.30.3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        # Pinned to the same v4.4.0 commit constellation repos use. Bumping
+        # node here probably wants a coordinated bump across the constellation.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          # workerd needs a recent node for the test-runner; 18 is the floor
-          # because the CC plugin's hooks use node:test.
+          # node:test (used by hooks/test/*.test.mjs) requires Node 18+;
+          # using 20 to track the same line workerd's runtime supports.
           node-version: '20'
-          cache: 'pnpm'
 
-      - name: Install task
-        # go-task wraps tsc + vitest + capnp codegen. CI runs the same
-        # `task lint` developers run locally.
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        # `packageManager` in package.json pins pnpm@10.30.3. Corepack ships
+        # with Node and reads that field — no third-party pnpm action needed,
+        # which sidesteps the pin-a-non-constellation-action question.
         run: |
-          curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        # Constellation's standard. SHA-pinned to the same commit ley-line
+        # and mache use; bump together when bumping their workflows.
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
 
       - name: Install capnp
-        # Required by `task manifest` (compiled from cloister.capnp into
+        # Required by `task manifest` (compiles cloister.capnp →
         # src/generated/manifest.ts at build time, per ADR-0004).
         run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Cache pnpm store
+        # Same cache action ley-line uses; SHA-pinned to v5. Keyed on the
+        # lockfile so a deps change invalidates the cache cleanly.
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Lint (the inner-loop gate)
         # `task lint` chains: task manifest → tsc --noEmit → vitest in
-        # workerd → CC plugin's node:test suite. ~2s on dev hardware;
-        # bump timeout if CI runners lag.
+        # workerd → CC plugin's node:test suite. ~2s on dev hardware.
         run: task lint
 
   verify:
     name: verify (strict — substrate equivalence + smoke)
-    # Only on main pushes; PRs run lint only to keep PR feedback fast.
+    # PRs run lint only to keep PR feedback fast; verify gates main pushes.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: lint
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
-          cache: 'pnpm'
 
-      - name: Install task + capnp
+      - name: Enable corepack
         run: |
-          curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin
-          sudo apt-get update && sudo apt-get install -y capnproto
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+
+      - name: Install capnp
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Cache pnpm store
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
