@@ -1,10 +1,12 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { describe, expect, it } from "vitest";
 import {
+  ChainIntegrityError,
   type PeerLeaseCounter,
   type SqlExecutor,
   ZERO_HASH,
   applyLeaseCounter,
+  assertChainStep,
   nextChainHash,
   readLeaseCounter,
 } from "../../src/storage/peer-lease-counters.js";
@@ -168,5 +170,65 @@ describe("applyLeaseCounter", () => {
 
     expect(readLeaseCounter(sql, PEER)?.seq).toBe(2);
     expect(readLeaseCounter(sql, PEER2)?.seq).toBe(1);
+  });
+});
+
+// ── Chain-integrity defense (cloister-c75da6 / threat-model §7.4-7.5) ────
+
+describe("assertChainStep — defensive chain-integrity check", () => {
+  const PREV_HASH = "abc123" + "0".repeat(58);  // 64 hex
+  const CERT = "fp1";
+  const NONCE = "n1";
+  const TS = 1000;
+
+  it("accepts a valid forward step (seq+1, hash matches)", async () => {
+    const expectedNext = await nextChainHash(PREV_HASH, CERT, NONCE, TS);
+    await expect(
+      assertChainStep(5, PREV_HASH, 6, expectedNext, CERT, NONCE, TS),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects non-monotonic seq (skip)", async () => {
+    const expectedNext = await nextChainHash(PREV_HASH, CERT, NONCE, TS);
+    await expect(
+      assertChainStep(5, PREV_HASH, 7, expectedNext, CERT, NONCE, TS),
+    ).rejects.toThrow(ChainIntegrityError);
+  });
+
+  it("rejects non-monotonic seq (rewind)", async () => {
+    const expectedNext = await nextChainHash(PREV_HASH, CERT, NONCE, TS);
+    await expect(
+      assertChainStep(5, PREV_HASH, 4, expectedNext, CERT, NONCE, TS),
+    ).rejects.toThrow(/non-monotonic/);
+  });
+
+  it("rejects equal seq (no advance)", async () => {
+    const expectedNext = await nextChainHash(PREV_HASH, CERT, NONCE, TS);
+    await expect(
+      assertChainStep(5, PREV_HASH, 5, expectedNext, CERT, NONCE, TS),
+    ).rejects.toThrow(ChainIntegrityError);
+  });
+
+  it("rejects hash-chain skip (correct seq, wrong hash)", async () => {
+    const wrongHash = "ff".repeat(32);
+    await expect(
+      assertChainStep(5, PREV_HASH, 6, wrongHash, CERT, NONCE, TS),
+    ).rejects.toThrow(/chain-hash skip/);
+  });
+
+  it("rejects when any input changes the expected hash (cert_fp tampering)", async () => {
+    const expectedNext = await nextChainHash(PREV_HASH, "different-cert", NONCE, TS);
+    // assertChainStep was called with CERT=fp1 but the claimed next hash
+    // was computed with cert_fp = "different-cert" — mismatch.
+    await expect(
+      assertChainStep(5, PREV_HASH, 6, expectedNext, CERT, NONCE, TS),
+    ).rejects.toThrow(ChainIntegrityError);
+  });
+
+  it("genesis step (seq=0 -> seq=1, prev=ZERO_HASH) is valid", async () => {
+    const expectedNext = await nextChainHash(ZERO_HASH, CERT, NONCE, TS);
+    await expect(
+      assertChainStep(0, ZERO_HASH, 1, expectedNext, CERT, NONCE, TS),
+    ).resolves.toBeUndefined();
   });
 });

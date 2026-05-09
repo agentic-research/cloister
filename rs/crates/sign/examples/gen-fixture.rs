@@ -139,6 +139,59 @@ fn main() {
     println!();
     println!("/** Master pubkey re-encoded as base64-STANDARD for CA-bundle insertion. */");
     println!("export const MASTER_PUBKEY_B64_STD = \"{}\";", b64_std(master.verifying_key().as_bytes()));
+
+    // ── Edge-of-validity envelopes for validity-window tests ─────────────
+    //
+    // The primary SAMPLE_TS sits in the middle of the cert validity window,
+    // which means a `nowMs` outside the validity window is also outside
+    // the clock-skew window (60s) and gets caught by the clock-skew gate
+    // first (cloister-c7e3e3). To exercise the validity-window check in
+    // isolation, we mint envelopes signed AT THE EDGE of the cert window
+    // — that way `nowMs` can step a few seconds outside the validity
+    // window while staying within ±60s of the envelope's ts.
+
+    let near_nb_ts: i64 = (not_before + 5) * 1000;  // 5s past not_before, in ms
+    let near_nb_nonce: [u8; 16] = [
+        0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8,
+        0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, 0xc0,
+    ];
+    let near_nb_nonce_b64 = b64(&near_nb_nonce);
+    let near_nb_canonical = format!(
+        "{}\n{}\n{}\n{}\n{}",
+        sample_method, sample_url, near_nb_ts, near_nb_nonce_b64, sample_body
+    );
+    let near_nb_sig = ephemeral.sign(near_nb_canonical.as_bytes());
+
+    let near_na_ts: i64 = (not_after - 5) * 1000;  // 5s before not_after, in ms
+    let near_na_nonce: [u8; 16] = [
+        0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8,
+        0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0,
+    ];
+    let near_na_nonce_b64 = b64(&near_na_nonce);
+    let near_na_canonical = format!(
+        "{}\n{}\n{}\n{}\n{}",
+        sample_method, sample_url, near_na_ts, near_na_nonce_b64, sample_body
+    );
+    let near_na_sig = ephemeral.sign(near_na_canonical.as_bytes());
+
+    println!();
+    println!("/**");
+    println!(" * Sample envelope signed AT THE EDGE of the cert validity window.");
+    println!(" * Used to test `cert.not_before` / `cert.not_after` rejections without");
+    println!(" * tripping the clock-skew gate first (cloister-c7e3e3).");
+    println!(" *");
+    println!(" * `NEAR_NB`: ts = (not_before + 5s); nowMs slightly before not_before");
+    println!(" *           stays within clock-skew (~5s) and triggers validity-window.");
+    println!(" * `NEAR_NA`: ts = (not_after - 5s); nowMs slightly past not_after");
+    println!(" *           stays within clock-skew (~5s) and triggers validity-window.");
+    println!(" */");
+    println!("export const SAMPLE_NEAR_NB_TS_MS     = {};",     near_nb_ts);
+    println!("export const SAMPLE_NEAR_NB_NONCE_B64 = \"{}\";", near_nb_nonce_b64);
+    println!("export const SAMPLE_NEAR_NB_SIG_B64   = \"{}\";", b64(&near_nb_sig.to_bytes()));
+    println!();
+    println!("export const SAMPLE_NEAR_NA_TS_MS     = {};",     near_na_ts);
+    println!("export const SAMPLE_NEAR_NA_NONCE_B64 = \"{}\";", near_na_nonce_b64);
+    println!("export const SAMPLE_NEAR_NA_SIG_B64   = \"{}\";", b64(&near_na_sig.to_bytes()));
 }
 
 /// Hand-encode a JSON string literal — avoids pulling serde_json in for one

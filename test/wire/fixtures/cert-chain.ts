@@ -35,3 +35,21 @@ export const SAMPLE_SIG_B64   = "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1U
 
 /** Master pubkey re-encoded as base64-STANDARD for CA-bundle insertion. */
 export const MASTER_PUBKEY_B64_STD = "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=";
+
+/**
+ * Sample envelope signed AT THE EDGE of the cert validity window.
+ * Used to test `cert.not_before` / `cert.not_after` rejections without
+ * tripping the clock-skew gate first (cloister-c7e3e3).
+ *
+ * `NEAR_NB`: ts = (not_before + 5s); nowMs slightly before not_before
+ *           stays within clock-skew (~5s) and triggers validity-window.
+ * `NEAR_NA`: ts = (not_after - 5s); nowMs slightly past not_after
+ *           stays within clock-skew (~5s) and triggers validity-window.
+ */
+export const SAMPLE_NEAR_NB_TS_MS     = 1700000005000;
+export const SAMPLE_NEAR_NB_NONCE_B64 = "sbKztLW2t7i5uru8vb6_wA";
+export const SAMPLE_NEAR_NB_SIG_B64   = "902EhK-twzr-1dhf-L3yqKgKm_1qR6cfDE8I8fAWQSgqAah3q1zdPu5Hm46wK4tkzwLAc0zbLBf4YMfnD2zgCQ";
+
+export const SAMPLE_NEAR_NA_TS_MS     = 1700000295000;
+export const SAMPLE_NEAR_NA_NONCE_B64 = "wcLDxMXGx8jJysvMzc7P0A";
+export const SAMPLE_NEAR_NA_SIG_B64   = "7d10wNUbM5d7fbnW4lvaP86nFix4iG6MtUH7ToeQ0xGbug-ZTLLJWnS41urUgbRmfvNNLbGYkbr_7TGXYZK0DA";

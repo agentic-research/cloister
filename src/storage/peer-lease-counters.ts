@@ -108,6 +108,45 @@ export function readLeaseCounter(
 }
 
 /**
+ * Chain-integrity error — a defensive class of failure that should never
+ * happen under correct callers. Surfaced so a caller bug or compromised
+ * helper can't silently corrupt the chain (cloister-c75da6 / threat
+ * model §7.4-7.5).
+ */
+export class ChainIntegrityError extends Error {
+  override readonly name = "ChainIntegrityError";
+}
+
+/**
+ * Defensive check: assert (prevSeq, prevHash) → (nextSeq, nextHash) is a
+ * valid chain step. Used inside `applyLeaseCounter` so even if a future
+ * refactor accepts seq from the caller, we'd still refuse non-monotonic
+ * writes or hash-chain skips. The check is over the helper's OWN inputs
+ * — it's defense-in-depth, not a substitute for trusting the caller.
+ */
+export async function assertChainStep(
+  prevSeq: number,
+  prevHash: string,
+  nextSeq: number,
+  nextHash: string,
+  certFp: string,
+  nonce: string,
+  ts: number,
+): Promise<void> {
+  if (nextSeq !== prevSeq + 1) {
+    throw new ChainIntegrityError(
+      `non-monotonic seq: expected ${prevSeq + 1}, got ${nextSeq}`,
+    );
+  }
+  const expectedNextHash = await nextChainHash(prevHash, certFp, nonce, ts);
+  if (nextHash !== expectedNextHash) {
+    throw new ChainIntegrityError(
+      `chain-hash skip: expected ${expectedNextHash}, got ${nextHash}`,
+    );
+  }
+}
+
+/**
  * Apply one authenticated-request observation to a peer's counter.
  *
  * Reads the current row (or genesis), folds (cert_fp, nonce, ts) into the
@@ -120,6 +159,11 @@ export function readLeaseCounter(
  * folding it in here binds the chain to a specific request, not just
  * to (peer, time). Two distinct requests at the same `ts` produce
  * distinct chain hashes.
+ *
+ * Throws `ChainIntegrityError` if the computed step is not a monotonic
+ * extension of the prior chain (cloister-c75da6). Should never happen
+ * under correct usage — the check is defense-in-depth so a future
+ * refactor can't silently corrupt the chain.
  */
 export async function applyLeaseCounter(
   sql: SqlExecutor,
@@ -134,6 +178,8 @@ export async function applyLeaseCounter(
 
   const last_chain_hash = await nextChainHash(prevHash, certFingerprint, nonce, ts);
   const seq = prevSeq + 1;
+
+  await assertChainStep(prevSeq, prevHash, seq, last_chain_hash, certFingerprint, nonce, ts);
 
   // UPSERT — INSERT or replace via ON CONFLICT(peer_fingerprint).
   sql.exec(

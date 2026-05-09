@@ -25,6 +25,12 @@ import {
   NOT_BEFORE,
   SAMPLE_BODY_JSON,
   SAMPLE_METHOD,
+  SAMPLE_NEAR_NA_NONCE_B64,
+  SAMPLE_NEAR_NA_SIG_B64,
+  SAMPLE_NEAR_NA_TS_MS,
+  SAMPLE_NEAR_NB_NONCE_B64,
+  SAMPLE_NEAR_NB_SIG_B64,
+  SAMPLE_NEAR_NB_TS_MS,
   SAMPLE_NONCE_B64,
   SAMPLE_SIG_B64,
   SAMPLE_TS_MS,
@@ -316,11 +322,17 @@ const SAMPLE_PARAMS = {
   arguments: { repo: "/repos/foo" },
 } as const;
 
-// Pick a `nowMs` inside [not_before, not_after].
+// Pick a `nowMs` inside [not_before, not_after] — used by the primary
+// "happy" envelope (SAMPLE_TS_MS sits 100s into the validity window).
 const HAPPY_NOW_MS = (NOT_BEFORE + 100) * 1000;
-// And one OUTSIDE.
-const PAST_NOW_MS  = (NOT_BEFORE - 1)   * 1000;
-const FUTURE_NOW_MS = (NOT_AFTER + 1)   * 1000;
+
+// "Edge" envelopes (SAMPLE_NEAR_NB / NA) are signed at the validity
+// window boundary, so a `nowMs` 5s outside the validity window is still
+// within ±60s of their `ts` — passes clock-skew, fails validity.
+const NEAR_NB_HAPPY_NOW_MS = SAMPLE_NEAR_NB_TS_MS;            // inside cert validity
+const NEAR_NB_PAST_NOW_MS  = (NOT_BEFORE - 5) * 1000;          // 5s before not_before, 10s skew
+const NEAR_NA_HAPPY_NOW_MS = SAMPLE_NEAR_NA_TS_MS;            // inside cert validity
+const NEAR_NA_FUTURE_NOW_MS = (NOT_AFTER + 5)  * 1000;         // 5s past not_after, 10s skew
 
 // Reset replay-defense + counter state between tests. The fixture's
 // SAMPLE_NONCE_B64 is reused by every happy-path test; without this,
@@ -467,12 +479,21 @@ describe("verifyAndUpsertLease", () => {
   });
 
   it("rejects request before cert.not_before → ERR_UNAUTHENTICATED", async () => {
-    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    // Use the NEAR_NB edge envelope: ts = (not_before + 5s); nowMs 5s
+    // before not_before is 10s skew (inside ±60s clock-skew window) so
+    // the validity-window check fires, not clock-skew.
+    const headers = {
+      "authorization":  `Signet ${CERT_FULL_B64}`,
+      "x-signet-sig":   SAMPLE_NEAR_NB_SIG_B64,
+      "x-signet-ts":    String(SAMPLE_NEAR_NB_TS_MS),
+      "x-signet-nonce": SAMPLE_NEAR_NB_NONCE_B64,
+    };
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers });
 
     const result = await verifyAndUpsertLease({
       req, body: SAMPLE_BODY_JSON, id: 1,
       method: "tools/call", params: SAMPLE_PARAMS,
-      env, bundle: makeBundle(), nowMs: PAST_NOW_MS,
+      env, bundle: makeBundle(), nowMs: NEAR_NB_PAST_NOW_MS,
     });
 
     expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
@@ -480,16 +501,45 @@ describe("verifyAndUpsertLease", () => {
   });
 
   it("rejects request after cert.not_after → ERR_UNAUTHENTICATED", async () => {
-    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    // NEAR_NA edge envelope; same defense-in-depth setup as the not_before
+    // test, just past the upper end.
+    const headers = {
+      "authorization":  `Signet ${CERT_FULL_B64}`,
+      "x-signet-sig":   SAMPLE_NEAR_NA_SIG_B64,
+      "x-signet-ts":    String(SAMPLE_NEAR_NA_TS_MS),
+      "x-signet-nonce": SAMPLE_NEAR_NA_NONCE_B64,
+    };
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers });
 
     const result = await verifyAndUpsertLease({
       req, body: SAMPLE_BODY_JSON, id: 1,
       method: "tools/call", params: SAMPLE_PARAMS,
-      env, bundle: makeBundle(), nowMs: FUTURE_NOW_MS,
+      env, bundle: makeBundle(), nowMs: NEAR_NA_FUTURE_NOW_MS,
     });
 
     expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
     if ("code" in result) expect(result.message).toMatch(/validity window/i);
+  });
+
+  it("accepts request at the edge of validity (NEAR_NB envelope, nowMs inside window)", async () => {
+    // Sanity: confirm the edge fixture itself works inside the window.
+    // Without this, a regression in clock-skew could pass the
+    // "rejects before not_before" test for the wrong reason.
+    const headers = {
+      "authorization":  `Signet ${CERT_FULL_B64}`,
+      "x-signet-sig":   SAMPLE_NEAR_NB_SIG_B64,
+      "x-signet-ts":    String(SAMPLE_NEAR_NB_TS_MS),
+      "x-signet-nonce": SAMPLE_NEAR_NB_NONCE_B64,
+    };
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: NEAR_NB_HAPPY_NOW_MS,
+    });
+
+    expect("code" in result).toBe(false);
   });
 
   it("rejects when canonical bytes don't match (different body) → ERR_BAD_REQUEST_SIG", async () => {
@@ -628,6 +678,66 @@ describe("verifyAndUpsertLease — replay defense", () => {
 
     const seqAfterReplay = (await trustStub.getLeaseCounter("sha256:abc123def456"))?.seq ?? 0;
     expect(seqAfterReplay).toBe(seqBeforeReplay);  // unchanged
+  });
+});
+
+// ── Clock-skew bound (cloister-c7e3e3 / threat-model §6.2.7) ─────────────
+
+describe("verifyAndUpsertLease — clock-skew bound", () => {
+  it("rejects when |nowMs - ts| > MAX_CLOCK_SKEW_MS (60s) → ERR_CLOCK_SKEW", async () => {
+    // SAMPLE_TS_MS sits in the middle of validity. nowMs 65s past ts
+    // exceeds the 60s tolerance — clock-skew fires before any cert work.
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: SAMPLE_TS_MS + 65_000,
+    });
+
+    expect(result).toMatchObject({ code: -32008 });  // ERR_CLOCK_SKEW
+    if ("code" in result) expect(result.message).toMatch(/skew/i);
+  });
+
+  it("rejects when nowMs is more than 60s in the past relative to ts → ERR_CLOCK_SKEW", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: SAMPLE_TS_MS - 65_000,
+    });
+
+    expect(result).toMatchObject({ code: -32008 });
+  });
+
+  it("accepts skew within tolerance (±60s)", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: SAMPLE_TS_MS + 30_000,  // 30s skew
+    });
+
+    expect("code" in result).toBe(false);  // happy path even with skew
+  });
+
+  it("clock-skew check fires BEFORE any wasm cert work (cheap-fail-fast contract)", async () => {
+    // Submit a cert that would FAIL chain verify (CERT_WRONG_MASTER) but
+    // with a ts more than 60s skew. Expect ERR_CLOCK_SKEW, not the
+    // cert-chain-failure code — proves the clock-skew gate runs first.
+    const h = happyHeaders();
+    h["authorization"] = `Signet ${CERT_WRONG_MASTER_B64}`;
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: SAMPLE_TS_MS + 200_000,
+    });
+
+    expect(result).toMatchObject({ code: -32008 });  // skew, not ERR_UNAUTHENTICATED
   });
 });
 

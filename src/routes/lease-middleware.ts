@@ -39,6 +39,7 @@ export const ERR_BAD_REQUEST_SIG = -32003;
 export const ERR_REPLAY          = -32004;
 export const ERR_CA_UNAVAILABLE  = -32005;
 export const ERR_EPOCH_MISMATCH  = -32006;
+export const ERR_CLOCK_SKEW      = -32008;
 
 export type LeaseErrorCode =
   | typeof ERR_UNAUTHENTICATED
@@ -46,7 +47,21 @@ export type LeaseErrorCode =
   | typeof ERR_BAD_REQUEST_SIG
   | typeof ERR_REPLAY
   | typeof ERR_CA_UNAVAILABLE
-  | typeof ERR_EPOCH_MISMATCH;
+  | typeof ERR_EPOCH_MISMATCH
+  | typeof ERR_CLOCK_SKEW;
+
+/**
+ * Maximum tolerated divergence between caller-claimed `X-Signet-Ts`
+ * and server clock. Rejects requests with `ts` more than ±60s from
+ * `nowMs` (cloister-c7e3e3 / threat-model §6.2.7).
+ *
+ * Why 60s: matches notme's typical cert-mint clock-skew tolerance and
+ * is well inside the 5-minute cert TTL. Tighter than this risks legitimate
+ * NTP skew on dev machines; looser opens a longer replay-window before
+ * cert expiry (defense-in-depth — the seen_nonces ledger handles
+ * exact replays, this bounds time-shifted replays).
+ */
+export const MAX_CLOCK_SKEW_MS = 60_000;
 
 // ── Header parsing ───────────────────────────────────────────────────────
 
@@ -203,6 +218,7 @@ export function leaseErrorResponse(
   const httpStatus =
     code === ERR_SCOPE_DENIED                                  ? 403 :
     code === ERR_CA_UNAVAILABLE || code === ERR_EPOCH_MISMATCH ? 503 :
+    code === ERR_CLOCK_SKEW                                    ? 401 :
                                                                  401 ;
 
   return Response.json(errResponse(id, code, message), { status: httpStatus });
@@ -343,6 +359,19 @@ export async function verifyAndUpsertLease(args: {
     return {
       code: ERR_UNAUTHENTICATED,
       message: `lease auth header malformed: ${headers.kind}`,
+    };
+  }
+
+  // 1b. Clock-skew bound. The signature already binds `headers.ts` to
+  // the canonical bytes, so a tampered ts fails the sig check; this
+  // catches a *legitimate* envelope replayed long after the wall-clock
+  // moved past the cert TTL gap (defense-in-depth alongside the
+  // seen_nonces ledger). Per cloister-c7e3e3 / threat model §6.2.7.
+  const skewMs = Math.abs(args.nowMs - headers.ts);
+  if (skewMs > MAX_CLOCK_SKEW_MS) {
+    return {
+      code: ERR_CLOCK_SKEW,
+      message: `client timestamp skew ${skewMs}ms exceeds tolerance (±${MAX_CLOCK_SKEW_MS}ms)`,
     };
   }
 
