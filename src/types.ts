@@ -87,4 +87,10 @@ export interface Env {
   /// Comma-separated list of allowed CORS origins. "*" (default) is wildcard
   /// — fine for local dev, tighten before prod. Example: "https://notme.bot,http://localhost:*"
   ALLOWED_ORIGINS?: string;
+  /// Cluster root Ed25519 public key (base64-standard, 32 bytes). Pinned
+  /// trust root for CA bundle signature verification (cloister-c614ae).
+  /// Bundles fetched from notme that don't verify against this key are
+  /// rejected. Empty disables verification (dev only — production MUST
+  /// have it set).
+  INTERLACE_ROOT_PUBKEY?: string;
 }

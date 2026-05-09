@@ -50,6 +50,8 @@ export interface CABundle {
   signature: string;
 }
 
+import { verifyBundleSignature } from "./bundle-canonical.js";
+
 /**
  * Fetcher contract: returns a fresh `CABundle` from wherever notme exposes
  * it. The transport (service binding, shared KV, plain HTTP) is the
@@ -88,11 +90,41 @@ export class CaUnavailableError extends Error {
  * fetcher otherwise. Throws `CaUnavailableError` if notme is unreachable
  * and the cache is stale or empty.
  */
+export interface GetBundleOptions {
+  /** Refresh interval override; defaults to BUNDLE_REFRESH_MS. */
+  refreshMs?: number;
+  /**
+   * Cluster root Ed25519 pubkey (base64-standard, 32 bytes). When set,
+   * fetched bundles are verified against this key BEFORE caching.
+   * Bundles that fail verification are rejected as if `fetcher()`
+   * returned null — the cache is not poisoned. When undefined or empty,
+   * verification is skipped (dev-mode only; production MUST pass a
+   * pinned root pubkey).
+   */
+  rootPubkey?: string;
+}
+
+/**
+ * Get the current bundle. Returns the cached bundle if fresh; calls the
+ * fetcher otherwise. Fetched bundles are signature-verified against
+ * `options.rootPubkey` (when set) before being cached.
+ *
+ * Throws `CaUnavailableError` if notme is unreachable, the fetched
+ * bundle fails signature verification, AND the cache is stale or empty.
+ */
 export async function getCABundle(
   fetcher: BundleFetcher,
   nowMs: number,
-  refreshMs: number = BUNDLE_REFRESH_MS,
+  optionsOrRefreshMs: GetBundleOptions | number = {},
 ): Promise<CABundle> {
+  // Backwards-compat: caller used to pass `refreshMs: number` as the
+  // third arg. Accept either shape so existing call sites keep working.
+  const options: GetBundleOptions =
+    typeof optionsOrRefreshMs === "number"
+      ? { refreshMs: optionsOrRefreshMs }
+      : optionsOrRefreshMs;
+  const refreshMs = options.refreshMs ?? BUNDLE_REFRESH_MS;
+
   if (_cache && nowMs - _cache.fetchedAtMs < refreshMs) {
     return _cache.bundle;
   }
@@ -108,14 +140,25 @@ export async function getCABundle(
     void err;
   }
 
+  // Verify signature against pinned root pubkey if configured. Per
+  // cloister-c614ae / threat-model §5: fetched bundles MUST be verified
+  // before caching; an unverified bundle is treated as "fetch failed."
+  // Empty rootPubkey disables verification (dev-only).
+  if (next && options.rootPubkey) {
+    const valid = await verifyBundleSignature(next, options.rootPubkey);
+    if (!valid) {
+      next = null;
+    }
+  }
+
   if (next) {
     _cache = { bundle: next, fetchedAtMs: nowMs };
     return next;
   }
 
-  // notme unreachable. If we have a cached bundle from before the window,
-  // we still fail closed — the audit amendment is explicit: ≤ bundle TTL
-  // tolerance only.
+  // notme unreachable OR signature verify failed. If we have a cached
+  // bundle from before the window, we still fail closed — the audit
+  // amendment is explicit: ≤ bundle TTL tolerance only.
   throw new CaUnavailableError(
     "notme CA bundle unavailable; cache is stale or empty",
   );
