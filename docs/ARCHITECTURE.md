@@ -20,9 +20,39 @@ today. The decisions behind it are in the ADRs:
   (signed capnp) at the cloister↔companion seam; MCP only at the public face.
   Open subset of leyline-net extracted into `ley-line-open` as `leyline-wire`;
   raptorq + sqlite-blast stay closed in `ley-line` proper. (planned)
+- [ADR-0006](adr/0006-derived-tool-schemas.md) — dynamic tools/list
+  passthrough with TTL cache; Asserted-vs-Derived schema evidence.
+- [ADR-0007](adr/0007-interlace-substrate.md) — **Interlace identity +
+  attestation + discovery** (Proposed). Lease ≠ state factoring;
+  `.well-known/interlace/index.json` (shipped at `3ccbea5`); CF Tunnel /
+  WARP off-platform deployment doc (shipped at `44a935a`); audit
+  amendment 2026-05-08 (revocation read, lease counter, prev_self_ref).
+- [ADR-0008](adr/0008-companion-pool.md) — companion pool / load
+  balancing (Proposed; orthogonal to Interlace — the lease layer
+  authorizes the call, attestation logs the state change, LB picks
+  where to send the call).
+- [ADR-0009](adr/0009-compute-substrate-portability.md) — Linux /
+  Firecracker / WASM / unikernel as deployment knob (Proposed). The
+  bundle is the unit that varies across substrates.
+- [ADR-0010](adr/0010-vault-and-bundle-clusters.md) — **vault as scoped
+  slices, bundles as the unit of trust, clusters as the unit of
+  identity** (Proposed). Reframes today's `EdgeRoute`/`ToolBackend`
+  abstraction as the degenerate one-bundle-one-cluster case;
+  introduces `Bundle`, `Cluster`, `VaultSliceGrant` as manifest
+  primitives. KEK derived from `SigningAuthority` master (no env-var
+  bootstrap). Tracking bead: `cloister-97610c`.
+
+The forward arc: ADRs 0007 + 0010 together replace today's env-var
+bindings (`LLO_MCP_URL`, `MACHE_MCP_URL`, `INTERLACE_MASTER_PUBKEY`,
+etc.) with vault-slice reads scoped per-bundle, all rooted in the same
+Ed25519 master that's already born-in-CF inside notme's `SigningAuthority`
+DO. The runtime described in this document is the *current* shape;
+the ADRs describe where it's going.
 
 If you're trying to *run* cloister rather than understand its shape, start
-at [../GETTING-STARTED.md](../GETTING-STARTED.md).
+at [../GETTING-STARTED.md](../GETTING-STARTED.md). If you want the
+"why" of any specific decision, walk into the linked ADR — they're the
+source of truth.
 
 ## Runtime model
 

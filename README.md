@@ -162,15 +162,38 @@ long sessions. Config + tests: [hooks/README.md](hooks/README.md).
 | mache                                                        | Go binary            | Code intelligence FUSE                        |
 | signet                                                       | Go binary            | Key exchange                                  |
 
+## Architectural framing
+
+Looked at from the right height, cloister is **a v8-isolate hypervisor**:
+it hosts workerd Workers, wires them into clusters via service bindings,
+mediates their access to credentials and identity, and routes external
+traffic to them. ADR-0007 adds Interlace identity (Signet ephemeral
+leases + bilateral attestation chains + `.well-known/interlace/`
+discovery) at the public face. ADR-0010 (proposed) reframes the tenant
+primitive as **bundles in a cluster** with **vault-slice** capabilities,
+collapsing today's env-var bindings into scoped, auditable handles
+rooted in the Signet master.
+
+If you want a concrete entry point: read ARCHITECTURE.md for the runtime
+model as it stands today, then walk the ADRs in order. The ADRs are the
+source of truth for *why*; this README and ARCHITECTURE.md describe
+*what*.
+
 ## Documentation map
 
 - [GETTING-STARTED.md](GETTING-STARTED.md) — install, run, smoke-test, wire upstreams, install the plugin
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime model, request routing, component map, packaging
+- [docs/deployment/off-platform-peers.md](docs/deployment/off-platform-peers.md) — CF Tunnel / WARP for peers outside the platform (per ADR-0007)
 - [docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
 - [docs/adr/0002-edge-router-protocol-agnostic-backends.md](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why edge router, not MCP gateway
 - [docs/adr/0003-content-addressed-bead-store.md](docs/adr/0003-content-addressed-bead-store.md) — bead storage as content-addressed DAG + CAS refs
 - [docs/adr/0004-capnp-manifest.md](docs/adr/0004-capnp-manifest.md) — Cap'n Proto manifest for declarative route + backend registration
 - [docs/adr/0005-internal-wire-leyline-net.md](docs/adr/0005-internal-wire-leyline-net.md) — internal wire = leyline-net (signed capnp); MCP only at the public face
+- [docs/adr/0006-derived-tool-schemas.md](docs/adr/0006-derived-tool-schemas.md) — dynamic tools/list passthrough with TTL cache
+- [docs/adr/0007-interlace-substrate.md](docs/adr/0007-interlace-substrate.md) — **Interlace identity + attestation + discovery** (Proposed; lease ≠ state, offline verification, audit-amended 2026-05-08)
+- [docs/adr/0008-companion-pool.md](docs/adr/0008-companion-pool.md) — companion pool / load balancing (Proposed; orthogonal to Interlace)
+- [docs/adr/0009-compute-substrate-portability.md](docs/adr/0009-compute-substrate-portability.md) — Linux / Firecracker / WASM / unikernel as deployment knob (Proposed)
+- [docs/adr/0010-vault-and-bundle-clusters.md](docs/adr/0010-vault-and-bundle-clusters.md) — **vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity** (Proposed)
 - [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
 
 ## License
