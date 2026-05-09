@@ -57,13 +57,18 @@ export interface PeerLeaseCounter {
 }
 
 /**
- * Minimal SQL executor shape — matches workerd's `SqlStorage` API used by
- * `BeadStore`. Pure-function helpers here accept any executor satisfying
- * this shape, so unit tests can inject an in-memory fake.
+ * Minimal SQL executor shape — matches workerd's `SqlStorage.exec` API.
+ * Pure-function helpers here accept any executor satisfying this shape,
+ * so unit tests can inject an in-memory fake.
+ *
+ * Workerd's `SqlStorage.exec` is non-generic and returns rows typed as
+ * `Record<string, SqlStorageValue>`; callers cast at the read site.
+ * (An earlier version of this interface used `<T>` on `exec`, but
+ * TypeScript variance rejects assigning a real `SqlStorage` to it.)
  */
 export interface SqlExecutor {
-  exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): {
-    toArray(): T[];
+  exec(query: string, ...bindings: unknown[]): {
+    toArray(): Record<string, unknown>[];
   };
 }
 
@@ -94,11 +99,11 @@ export function readLeaseCounter(
   peerFingerprint: string,
 ): PeerLeaseCounter | null {
   const rows = sql
-    .exec<PeerLeaseCounter>(
+    .exec(
       "SELECT peer_fingerprint, seq, last_chain_hash, last_cert_fp, updated_at FROM peer_lease_counters WHERE peer_fingerprint = ?",
       peerFingerprint,
     )
-    .toArray();
+    .toArray() as unknown as PeerLeaseCounter[];
   return rows[0] ?? null;
 }
 

@@ -20,14 +20,14 @@ import {
 class FakeSql implements SqlExecutor {
   private rows = new Map<string, PeerLeaseCounter>();
 
-  exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): { toArray(): T[] } {
+  exec(query: string, ...bindings: unknown[]): { toArray(): Record<string, unknown>[] } {
     const q = query.replace(/\s+/g, " ").trim();
 
     // SELECT for the read path
     if (q.startsWith("SELECT")) {
       const fp = bindings[0] as string;
       const row = this.rows.get(fp);
-      return { toArray: () => (row ? [row as unknown as T] : []) };
+      return { toArray: () => (row ? [row as unknown as Record<string, unknown>] : []) };
     }
 
     // INSERT … ON CONFLICT DO UPDATE — the upsert path. Match by signature

@@ -50,7 +50,12 @@
 // peer_lease_counters writes (which don't reference bead state) are
 // landed in this DO today; peer_attestations waits.
 
-import { SCHEMA_PEER_LEASE_COUNTERS } from "./storage/peer-lease-counters.js";
+import {
+  SCHEMA_PEER_LEASE_COUNTERS,
+  applyLeaseCounter,
+  readLeaseCounter,
+  type PeerLeaseCounter,
+} from "./storage/peer-lease-counters.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
@@ -82,14 +87,29 @@ export class TrustStore implements DurableObject {
   }
 
   /**
-   * Direct accessor to the DO's SqlStorage for trusted in-cluster
-   * callers. The lease middleware (and future attestation-disclosure
-   * endpoint) get this handle and call the pure-function helpers in
-   * `src/storage/`. Not exposed via fetch — only callable from sibling
-   * bundles via DurableObject method invocation, which workerd treats
-   * as an unforgeable capability.
+   * UPSERT the lease counter for a peer + return the new (seq, hash).
+   *
+   * Called by the lease middleware (cloister-bd7770) on every
+   * authenticated POST /mcp. ACID inside this DO; the chain hash is
+   * deterministic so a peer-side verifier can independently
+   * reconstruct it.
+   *
+   * The middleware passes `(peerFp, certFp, nonce, ts)` after
+   * verifying the cert; we don't re-verify here — the DO trusts that
+   * the unforgeable service-binding-as-capability means the caller
+   * already passed the cert checks.
    */
-  sql(): SqlStorage {
-    return this.db;
+  async upsertLeaseCounter(
+    peerFp: string,
+    certFp: string,
+    nonce: string,
+    ts: number,
+  ): Promise<{ seq: number; last_chain_hash: string }> {
+    return applyLeaseCounter(this.db, peerFp, certFp, nonce, ts);
+  }
+
+  /** Read the current counter for a peer; null if no observations yet. */
+  getLeaseCounter(peerFp: string): PeerLeaseCounter | null {
+    return readLeaseCounter(this.db, peerFp);
   }
 }
