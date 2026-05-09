@@ -4,6 +4,7 @@ status: Accepted
 date: 2026-05-09
 tags: [architecture, durable-objects, hypervisor, bundle, attestation, beads]
 supersedes_framing: []
+threat_model: docs/security/threat-model.md
 ---
 
 ## Context

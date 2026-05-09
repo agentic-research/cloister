@@ -4,6 +4,7 @@ status: Proposed
 date: 2026-05-09
 tags: [architecture, hypervisor, bundle, cluster, kubernetes, mental-model]
 supersedes_framing: []
+threat_model: docs/security/threat-model.md
 ---
 
 ## Context

@@ -4,6 +4,7 @@ status: Proposed
 date: 2026-05-08
 tags: [architecture, identity, attestation, capability, signet, interlace, ca, wasm, cloudflare]
 supersedes_framing: [ADR-0001 §"notme JWT middleware on POST /mcp", ADR-0002 §"public face is unauthenticated in dev"]
+threat_model: docs/security/threat-model.md
 ---
 
 ## Context
