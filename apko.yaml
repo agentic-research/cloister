@@ -19,6 +19,12 @@ contents:
     - ca-certificates-bundle
     - wolfi-baselayout
     - "@local cloister"
+    # Optional — uncomment to bake cloudflared into the image for
+    # self-hosted deployments that want CF Tunnel egress without a
+    # separate sidecar container. See docs/deployment/off-platform-peers.md
+    # for the recommended sidecar pattern (lets you upgrade cloudflared
+    # and cloister independently). cloister-bf0913 / ADR-0007.
+    # - cloudflared
 
 accounts:
   groups:

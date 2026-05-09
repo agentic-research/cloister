@@ -242,6 +242,22 @@ Other prod knobs (still ADR-0001 work items):
 - mTLS via notme-proxy in front of `LLO_MCP_URL`
 - mount `/data` as a persistent volume for the BeadStore DO SQLite files
 
+### Off-platform peers (CF Tunnel / WARP)
+
+Cloister doesn't run a userspace WireGuard daemon — workerd has no kernel
+access and the distroless apko image runs unprivileged. Off-platform
+peers (laptops, IoT, agents in another constellation, self-hosted
+services behind NAT) reach cloister through Cloudflare's edge: the peer
+runs `cloudflared` (server-shaped) or `WARP` (client-shaped — literally
+WireGuard managed by Cloudflare), CF anycast handles the rendezvous, and
+Interlace `.well-known/interlace/index.json` (per ADR-0007) negotiates
+identity on top.
+
+See [`docs/deployment/off-platform-peers.md`](docs/deployment/off-platform-peers.md)
+for the full deployment pattern, including a commented `cloudflared`
+sidecar slot in `apko.yaml` for self-hosted deployments that want
+CF Tunnel egress baked into the image.
+
 ## 10. Adding a new MCP-fronted service
 
 Cloister's route table is declared in [`cloister.capnp`](cloister.capnp) at
