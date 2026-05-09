@@ -59,6 +59,53 @@ worse than env vars, not better.
 
 Adopt three coupled primitives:
 
+```mermaid
+graph TB
+    subgraph host ["Hypervisor — workerd today; Firecracker / WASI / unikernel per ADR-0009"]
+        subgraph cluster ["<b>Cluster</b> 'cloister' — one Interlace actor identity (ADR-0007)"]
+            subgraph router ["Bundle: <b>cloister-router</b>"]
+                R_ROUTES["routes:<br/>/mcp, /health, /identity/*<br/>/.well-known/*"]
+                R_SLICE["vaultSlice:<br/>'router/*'"]
+                R_DO["DO: BEAD_STORE"]
+            end
+
+            subgraph notme ["Bundle: <b>notme-identity</b>"]
+                N_SLICE["vaultSlice:<br/>'identity/*'"]
+                N_DO["DO: SigningAuthority<br/>(Ed25519 master,<br/>born-in-CF)"]
+            end
+
+            subgraph companion ["Bundle: <b>cloister-companion</b><br/>(Rust sidecar — different host, same cluster)"]
+                CO_SLICE["vaultSlice:<br/>'companion/upstream/*'"]
+            end
+
+            VAULT[("Vault DO<br/>sealed entries<br/>partitioned by path<br/>read(slice_token, path)")]
+            RUNTIME["Manifest runtime<br/>holds unrestricted vault<br/>at boot only;<br/>mints slice_tokens"]
+        end
+    end
+
+    OTHER["other clusters<br/>(reachable only via<br/>Interlace + CF Tunnel)"]
+
+    RUNTIME -.->|"slice_token =<br/>HMAC(KEK, scope, mode, bundle)"| router
+    RUNTIME -.-> notme
+    RUNTIME -.-> companion
+    RUNTIME -->|"unrestricted ref<br/>dropped after instantiate()"| VAULT
+    router -->|"slice.read('upstream/llo/url')"| VAULT
+    notme -->|"slice.read('identity/master')"| VAULT
+    companion -->|"slice.read('companion/upstream/...')"| VAULT
+    notme -. KEK = HKDF(master_pubkey) .-> VAULT
+
+    router <-->|"service binding<br/>(intra-cluster, unforgeable)"| notme
+    router <-->|"service binding"| companion
+
+    cluster <==>|"Interlace + CF Tunnel<br/>(inter-cluster)"| OTHER
+
+    style VAULT fill:#fde7c8,color:#000
+    style RUNTIME fill:#dde7ff,color:#000
+    style OTHER fill:#f5f5f5,color:#000
+```
+
+The three primitives:
+
 1. **Bundle** — a unit of v8 isolation: a worker entry + its declared
    capabilities + its routes. Today's "cloister-router," "notme-identity,"
    and "cloister-companion" are bundles.

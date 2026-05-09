@@ -93,42 +93,22 @@ all three.
 
 ### Three-axis factoring
 
-```
-                    ┌─────────────── lease layer (per-call) ─────────────┐
-[caller]
-    │
-    │  POST /identity/lease                  (slow path: ~once/5min)
-    └─────────────────────────────▶  notme worker (SigningAuthority DO)
-                                    │
-                                    ▼  Ed25519 ephemeral cert (DER)
-[caller]
-    │
-    │  POST /mcp                              (fast path: every call)
-    │  Authorization: Signet <cert>
-    │  X-Signet-Sig: <sig>
-    │
-    ▼
-cloister  ─── verifyEphemeralCert (WASM, in-process, offline)
-    │         + scope ⊇ requested tool
-    │         + TTL bound
-    │
-    ▼
-McpEdgeRoute → backends
-                    ├─────────────── state layer (per boundary write) ───┤
-                                    │
-                                    ▼ on bead_create/update/close/comment
-                                attestation row written to
-                                BeadStore DO `peer_attestations` table
-                                (peer_fp, seq, prev_self_hash,
-                                 prev_peer_ref, content_hash, scope,
-                                 cert, sig)
-                    ├─────────────── discovery (static) ─────────────────┤
-                                    │
-                                    ▼  GET /.well-known/interlace/index.json
-                                synthesized at boot from cloister.capnp
-                                (capabilities + scopes + actor +
-                                 policy + tunnel hint)
-                    └────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph lease ["lease layer — per-call (cheap, offline-verifiable)"]
+        C1["caller"] -->|"POST /identity/lease<br/>(slow path: ~once/5min)"| NM["notme worker<br/>SigningAuthority DO"]
+        NM -->|"Ed25519 ephemeral cert (DER)"| C1
+        C1 -->|"POST /mcp<br/>Authorization: Signet &lt;cert&gt;<br/>X-Signet-Sig: &lt;sig&gt;<br/>(fast path: every call)"| CL["cloister<br/>verifyEphemeralCert (WASM, in-process, offline)<br/>+ scope ⊇ requested tool<br/>+ TTL bound"]
+        CL --> ME["McpEdgeRoute → backends"]
+    end
+
+    subgraph state ["state layer — per state-boundary write"]
+        ME -.->|"on bead_create / update / close / comment"| PA["BeadStore DO<br/><b>peer_attestations</b><br/>(peer_fp, seq, prev_self_ref,<br/>prev_peer_ref, content_hash,<br/>scope, cert, sig)"]
+    end
+
+    subgraph discovery ["discovery layer — static, manifest-derived"]
+        PEER["any peer"] -->|"GET /.well-known/interlace/index.json"| WK["cloister<br/>synthesized at boot from<br/><b>cloister.capnp</b><br/>(capabilities + scopes +<br/>actor + policy + tunnel hint)"]
+    end
 ```
 
 ### What each layer owns
@@ -478,28 +458,39 @@ cryptographic. Tracked as `cloister-e29308`.
 The audit reshapes dependencies enough that the wave graph is worth
 documenting explicitly so beads can dispatch in parallel:
 
-```
-Day 0 (parallel — no upstream beads, decision-only or different repo):
-    ley-line-e25413 — fix cms.rs signingTime
-    cloister-bf0913 — CF Tunnel deployment doc
-    cloister-bd9b5f — .well-known/interlace/ route + capnp schema additions
+```mermaid
+graph LR
+    subgraph d0 ["Day 0 — no upstream, fully parallel"]
+        E25["ley-line-e25413<br/>cms.rs signingTime fix"]
+        BF09["cloister-bf0913<br/>CF Tunnel deployment doc"]
+        BD9B["cloister-bd9b5f<br/>.well-known/interlace/<br/>+ capnp schema"]
+    end
 
-Wave 1 (parallel — gate on Day 0):
-    ley-line-c764c6 — wasm32 emit (gates: ley-line-e25413)
-    cloister-bdcbe7 — peer_attestations table (gates: e207d7 decision in this amendment)
-    cloister-e1d54e — peer_lease_counters table (independent; new file)
-    cloister-e29308 — genesis advisory marker (decision in amendment; small code change)
+    subgraph w1 ["Wave 1 — gate on Day 0"]
+        C764["ley-line-c764c6<br/>wasm32 emit"]
+        BDCB["cloister-bdcbe7<br/>peer_attestations table"]
+        E1D5["cloister-e1d54e<br/>peer_lease_counters table"]
+        E293["cloister-e29308<br/>genesis advisory marker"]
+    end
 
-Wave 2 (parallel — gate on Wave 1):
-    cloister-bd5241 — TS verifier wrapper (gates: ley-line-c764c6)
-    notme-bd2a72 — /identity/lease endpoint (gates: ley-line-c764c6)
-    cloister-bdef0c — disclosure endpoint (gates: cloister-bdcbe7)
-    cloister-e195ea — middleware revocation read (independent file, can start)
+    subgraph w2 ["Wave 2 — gate on Wave 1"]
+        BD52["cloister-bd5241<br/>TS verifier wrapper"]
+        BD2A["notme-bd2a72<br/>/identity/lease endpoint"]
+        BDEF["cloister-bdef0c<br/>disclosure endpoint"]
+        E195["cloister-e195ea<br/>middleware revocation read"]
+    end
 
-Wave 3 (sequential — terminal):
-    cloister-bd7770 — lease middleware
-        gates: cloister-bd5241, cloister-e1d54e, cloister-e195ea
-        merges: header parsing + verifier call + counter UPDATE + epoch check
+    subgraph w3 ["Wave 3 — terminal"]
+        BD77["cloister-bd7770<br/>lease middleware<br/>(merges all the lease-layer pieces)"]
+    end
+
+    E25 --> C764
+    C764 --> BD52
+    C764 --> BD2A
+    BDCB --> BDEF
+    BD52 --> BD77
+    E1D5 --> BD77
+    E195 --> BD77
 ```
 
 File-overlap detection in rsry serializes within a wave where beads

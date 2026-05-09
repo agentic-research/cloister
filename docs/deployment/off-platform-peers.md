@@ -42,21 +42,20 @@ What changes is *who runs the tunneling daemon*: the peer, not cloister.
 
 ## Topology
 
-```
-                        ┌─────────────────────────────────┐
-                        │  Cloudflare edge (anycast)      │
-                        │                                 │
-[off-platform peer]     │   ┌──────────────────────┐      │
-   │                    │   │  cloister.example.com│      │
-   │ outbound TCP/UDP   │   │  (Worker)            │      │
-   ├──cloudflared──▶    │   │                      │      │
-   │  punch hole        │   │  /.well-known/       │      │
-   │                    │   │  /mcp                │      │
-   │ ◀─encrypted────────┼───┤  /identity/          │      │
-   │   tunnel back      │   │  /interlace/peers/{} │      │
-   │                    │   │                      │      │
-   └────────────────────┼───└──────────────────────┘      │
-                        └─────────────────────────────────┘
+```mermaid
+flowchart LR
+    PEER["off-platform peer<br/>(laptop / IoT / agent host)"]
+
+    subgraph cf ["Cloudflare edge (anycast)"]
+        CL["cloister.example.com<br/>(Worker)<br/><br/>/.well-known/interlace/<br/>/mcp<br/>/identity/*<br/>/interlace/peers/&#123;fp&#125;"]
+    end
+
+    PEER ==>|"outbound cloudflared<br/>or WARP — punches hole"| cf
+    cf ==>|"encrypted tunnel back<br/>(WireGuard / TLS)"| PEER
+    PEER -.->|"HTTPS<br/>(via the tunnel CF holds open)"| CL
+
+    style cf fill:#f5d4a0,color:#000
+    style CL fill:#fff5e1,color:#000
 ```
 
 The peer's outbound `cloudflared` connection is the tunnel. CF holds the
