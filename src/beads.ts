@@ -10,6 +10,7 @@
 
 import type { Bead, BeadState, BeadPriority, JsonRpcRequest, JsonRpcResponse } from "./types.js";
 import { okResponse, errResponse } from "./types.js";
+import { SCHEMA_PEER_LEASE_COUNTERS } from "./storage/peer-lease-counters.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS beads (
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS comments (
   author     TEXT NOT NULL DEFAULT 'unknown',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+${SCHEMA_PEER_LEASE_COUNTERS}
 `;
 
 export class BeadStore implements DurableObject {
