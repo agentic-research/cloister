@@ -1,15 +1,35 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
-  ERR_CERT_NOT_IMPL,
+  ERR_BAD_REQUEST_SIG,
+  ERR_CA_UNAVAILABLE,
+  ERR_EPOCH_MISMATCH,
   ERR_SCOPE_DENIED,
+  ERR_UNAUTHENTICATED,
   canonicalRequestBytes,
   certFingerprint,
   deriveRequestScope,
   leaseErrorResponse,
   parseAuthHeaders,
   scopeAllows,
+  verifyAndUpsertLease,
 } from "../../src/routes/lease-middleware.js";
+import type { CABundle } from "../../src/storage/ca-bundle-cache.js";
+import {
+  CERT_FULL_B64,
+  CERT_MINIMAL_B64,
+  CERT_WRONG_MASTER_B64,
+  MASTER_PUBKEY_B64_STD,
+  NOT_AFTER,
+  NOT_BEFORE,
+  SAMPLE_BODY_JSON,
+  SAMPLE_METHOD,
+  SAMPLE_NONCE_B64,
+  SAMPLE_SIG_B64,
+  SAMPLE_TS_MS,
+  SAMPLE_URL,
+} from "../wire/fixtures/cert-chain.js";
 
 // ── Fixture helpers ──────────────────────────────────────────────────────
 
@@ -216,13 +236,18 @@ describe("scopeAllows", () => {
 
 describe("leaseErrorResponse", () => {
   it("returns 401 for unauthenticated codes", async () => {
-    const res = leaseErrorResponse(1, ERR_CERT_NOT_IMPL, "test");
-    expect(res.status).toBe(501);  // 501 = not implemented
+    expect(leaseErrorResponse(1, ERR_UNAUTHENTICATED, "test").status).toBe(401);
+    expect(leaseErrorResponse(1, ERR_BAD_REQUEST_SIG, "test").status).toBe(401);
   });
 
   it("returns 403 for scope_denied", async () => {
     const res = leaseErrorResponse(1, ERR_SCOPE_DENIED, "scope mismatch");
     expect(res.status).toBe(403);
+  });
+
+  it("returns 503 for ca_unavailable / epoch_mismatch", async () => {
+    expect(leaseErrorResponse(1, ERR_CA_UNAVAILABLE, "test").status).toBe(503);
+    expect(leaseErrorResponse(1, ERR_EPOCH_MISMATCH, "test").status).toBe(503);
   });
 
   it("body is JSON-RPC error envelope with the right code", async () => {
@@ -255,3 +280,307 @@ describe("certFingerprint", () => {
     expect(a).not.toBe(b);
   });
 });
+
+// ── verifyAndUpsertLease (full integration) ─────────────────────────────
+//
+// Exercises the un-stubbed orchestrator end-to-end with a real wasm
+// cert-chain verifier, real Web Crypto Ed25519 signature check, real CA
+// bundle, and a real workerd TRUST_STORE binding. The fixture
+// (test/wire/fixtures/cert-chain.ts) provides a cert + sample request +
+// pre-computed Ed25519 signature; same cert + sig used here as the
+// happy-path baseline, mutated for unhappy paths.
+
+function makeBundle(overrides: Partial<CABundle> = {}): CABundle {
+  return {
+    epoch:    7,
+    seqno:    1,
+    keys:     { active: MASTER_PUBKEY_B64_STD },
+    keyId:    "active",
+    issuedAt: 1_700_000_050,
+    signature: "",  // not verified at this layer
+    ...overrides,
+  };
+}
+
+function happyHeaders(): Record<string, string> {
+  return {
+    "authorization":  `Signet ${CERT_FULL_B64}`,
+    "x-signet-sig":   SAMPLE_SIG_B64,
+    "x-signet-ts":    String(SAMPLE_TS_MS),
+    "x-signet-nonce": SAMPLE_NONCE_B64,
+  };
+}
+
+const SAMPLE_PARAMS = {
+  name: "bead_create",
+  arguments: { repo: "/repos/foo" },
+} as const;
+
+// Pick a `nowMs` inside [not_before, not_after].
+const HAPPY_NOW_MS = (NOT_BEFORE + 100) * 1000;
+// And one OUTSIDE.
+const PAST_NOW_MS  = (NOT_BEFORE - 1)   * 1000;
+const FUTURE_NOW_MS = (NOT_AFTER + 1)   * 1000;
+
+describe("verifyAndUpsertLease", () => {
+  it("happy path: full cert + valid sig + matching scope → VerifiedLease", async () => {
+    const req  = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const body = SAMPLE_BODY_JSON;
+
+    const result = await verifyAndUpsertLease({
+      req, body, id: 1,
+      method: "tools/call",
+      params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(),
+      nowMs: HAPPY_NOW_MS,
+    });
+
+    if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
+    expect(result.peerFp).toBe("sha256:abc123def456");
+    expect(result.scope).toBe("bead_create:/repos/foo");
+    expect(result.epoch).toBe(7);
+    expect(result.certFp).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.serverTs).toBe(HAPPY_NOW_MS);
+  });
+
+  it("rejects missing Authorization header → ERR_UNAUTHENTICATED (401)", async () => {
+    const h = happyHeaders();
+    delete h["authorization"];
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+  });
+
+  it("rejects cert minted by a different master → ERR_UNAUTHENTICATED", async () => {
+    const h = happyHeaders();
+    h["authorization"] = `Signet ${CERT_WRONG_MASTER_B64}`;
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+    if ("code" in result) {
+      expect(result.message).toMatch(/cert chain verify failed/i);
+    }
+  });
+
+  it("rejects cert missing required Interlace claims (peer_fp/scope/epoch)", async () => {
+    // CERT_MINIMAL has no Interlace extensions → all three optional fields
+    // come back undefined. Phase 1 mandates them.
+    const h = happyHeaders();
+    h["authorization"] = `Signet ${CERT_MINIMAL_B64}`;
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+    if ("code" in result) {
+      expect(result.message).toMatch(/missing required Interlace claims/i);
+    }
+  });
+
+  it("rejects cert with epoch ahead of bundle → ERR_EPOCH_MISMATCH (503)", async () => {
+    // Cert claims epoch=7; serve bundle.epoch=5 (cert > bundle = "claims newer than reality").
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle({ epoch: 5 }), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_EPOCH_MISMATCH });
+  });
+
+  it("rejects cert revoked (bundle.epoch > cert.epoch by more than rotation window)", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    // Bundle two epochs ahead, no prevKeyId → cert.epoch=7 invalid.
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle({ epoch: 9 }), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_EPOCH_MISMATCH });
+  });
+
+  it("accepts cert one epoch behind during rotation window (prevKeyId set)", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    // bundle.epoch = 8, but prevKeyId points to the same master that
+    // signed our cert at epoch 7. cert.epoch=7 is accepted.
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle({
+        epoch: 8,
+        keyId: "next",
+        prevKeyId: "active",
+        keys: { active: MASTER_PUBKEY_B64_STD, next: "AA".repeat(32) },  // rotated to a new key
+      }),
+      nowMs: HAPPY_NOW_MS,
+    });
+
+    if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
+    expect(result.epoch).toBe(7);
+  });
+
+  it("rejects when bundle has empty active key → ERR_CA_UNAVAILABLE (503)", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle({ keys: {} }),  // active key id present but key missing
+      nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_CA_UNAVAILABLE });
+  });
+
+  it("rejects request before cert.not_before → ERR_UNAUTHENTICATED", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: PAST_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+    if ("code" in result) expect(result.message).toMatch(/validity window/i);
+  });
+
+  it("rejects request after cert.not_after → ERR_UNAUTHENTICATED", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: FUTURE_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+    if ("code" in result) expect(result.message).toMatch(/validity window/i);
+  });
+
+  it("rejects when canonical bytes don't match (different body) → ERR_BAD_REQUEST_SIG", async () => {
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    // Body differs from what the signature was computed over → sig fails.
+    const result = await verifyAndUpsertLease({
+      req,
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bead_create","arguments":{"repo":"/repos/BAR"}}}',
+      id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_BAD_REQUEST_SIG });
+  });
+
+  it("rejects when timestamp header doesn't match the signed canonical → ERR_BAD_REQUEST_SIG", async () => {
+    const h = happyHeaders();
+    h["x-signet-ts"] = String(SAMPLE_TS_MS + 1);  // off by one ms
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_BAD_REQUEST_SIG });
+  });
+
+  it("rejects scope mismatch — cert grants bead_create:/repos/foo but request hits a different repo → ERR_SCOPE_DENIED (403)", async () => {
+    // Re-derive a sig that covers the alternate body (so we get past the
+    // sig check and reach the scope check). We can't do that without the
+    // ephemeral private key, so instead we keep the signed body but
+    // override the parsed `params` (the verifier derives the requested
+    // scope from `method` + `params`, not from the body string).
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call",
+      params: { name: "bead_create", arguments: { repo: "/repos/BAR" } },
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_SCOPE_DENIED });
+    if ("code" in result) expect(result.message).toMatch(/scope/i);
+  });
+
+  it("rejects when ephemeral pubkey in cert doesn't match the signing key (tampered cert)", async () => {
+    // Flip a byte in the SPKI region of the cert. The cert chain verify
+    // will fail (signature over TbsCertificate is broken).
+    const certBytes = b64uDecode(CERT_FULL_B64);
+    certBytes[40] ^= 0x80;
+    const tamperedB64 = b64uEncode(certBytes);
+    const h = happyHeaders();
+    h["authorization"] = `Signet ${tamperedB64}`;
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: h });
+
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+
+    expect(result).toMatchObject({ code: ERR_UNAUTHENTICATED });
+  });
+
+  it("happy path writes a lease counter row to TrustStore", async () => {
+    // Read the counter before, run verify, read after — seq should bump.
+    const trustStub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("cluster")) as DurableObjectStub & {
+      getLeaseCounter(peerFp: string): Promise<{ peer_fp: string; seq: number; last_chain_hash: string } | null>;
+    };
+    const before = await trustStub.getLeaseCounter("sha256:abc123def456");
+    const beforeSeq = before?.seq ?? 0;
+
+    const req = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const result = await verifyAndUpsertLease({
+      req, body: SAMPLE_BODY_JSON, id: 1,
+      method: "tools/call", params: SAMPLE_PARAMS,
+      env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+    });
+    if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
+
+    const after = await trustStub.getLeaseCounter("sha256:abc123def456");
+    expect(after).not.toBeNull();
+    expect(after?.seq).toBeGreaterThan(beforeSeq);
+  });
+});
+
+// ── Local b64url helpers (mirrored from lease-middleware.ts) ─────────────
+
+function b64uDecode(s: string): Uint8Array {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/")
+    + "===".slice((s.length + 3) % 4);
+  const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function b64uEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}

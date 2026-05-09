@@ -50,6 +50,8 @@
 // peer_lease_counters writes (which don't reference bead state) are
 // landed in this DO today; peer_attestations waits.
 
+import { DurableObject } from "cloudflare:workers";
+import type { Env } from "./types.js";
 import {
   SCHEMA_PEER_LEASE_COUNTERS,
   applyLeaseCounter,
@@ -61,10 +63,11 @@ const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
 `;
 
-export class TrustStore implements DurableObject {
+export class TrustStore extends DurableObject {
   private readonly db: SqlStorage;
 
-  constructor(ctx: DurableObjectState, _env: unknown) {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
     this.db = ctx.storage.sql;
     this.initSchema();
   }
@@ -79,7 +82,7 @@ export class TrustStore implements DurableObject {
   // (cloister-bd7770) imports the helpers in src/storage/peer-lease-counters.ts
   // and calls them with `this.db` as the SqlExecutor. Future endpoints
   // (disclosure, vault read) will surface as methods here.
-  async fetch(_request: Request): Promise<Response> {
+  override async fetch(_request: Request): Promise<Response> {
     return new Response("trust-store: no inbound HTTP surface", {
       status: 405,
       headers: { "content-type": "text/plain" },

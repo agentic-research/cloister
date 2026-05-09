@@ -20,3 +20,18 @@ export const CERT_MINIMAL_B64 = "MIGrMF-gAwIBAgIBATAFBgMrZXAwADAeFw0yMzExMTQyMjE
 
 /** Cert minted by a different master — should reject under MASTER_PUBKEY_B64. */
 export const CERT_WRONG_MASTER_B64 = "MIIBEDCBw6ADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTIzMTExNDIyMTgyMFowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2IwYDARBgorBgEEAYaNHwEEBAMCAQcwIwYKKwYBBAGGjR8BBQQVDBNzaGEyNTY6YWJjMTIzZGVmNDU2MCYGCisGAQQBho0fAQYEGAwWYmVhZF9jcmVhdGU6L3JlcG9zL2ZvbzAFBgMrZXADQQDHOiQmfgD0F1dh-m7JMuFU-GmDLo46aGb-Eb7AVGAPBcyC3yQYnGg_9Xo4i-GLKLqCbf5J1PjRDQRZDX8UJKsK";
+
+/**
+ * Sample signed request for verifyAndUpsertLease integration tests.
+ * The signature is over canonicalRequestBytes(method, url, ts, nonce, body)
+ * using the ephemeral private key whose public key is embedded in CERT_FULL_B64.
+ */
+export const SAMPLE_METHOD    = "POST";
+export const SAMPLE_URL       = "http://x/mcp";
+export const SAMPLE_TS_MS     = 1700000100000;
+export const SAMPLE_NONCE_B64 = "oaKjpKWmp6ipqqusra6vsA";
+export const SAMPLE_BODY_JSON = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bead_create\",\"arguments\":{\"repo\":\"/repos/foo\"}}}";
+export const SAMPLE_SIG_B64   = "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1UzIFrZaOHmPqXaFMAhPyRmUNI-QUbObx2vxD4PAA";
+
+/** Master pubkey re-encoded as base64-STANDARD for CA-bundle insertion. */
+export const MASTER_PUBKEY_B64_STD = "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=";

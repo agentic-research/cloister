@@ -1,48 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Lease middleware (cloister-bd7770) — Phase 1 substrate.
+// Lease middleware (cloister-bd7770).
 //
 // Wraps `POST /mcp` so every authenticated call passes through:
 //
 //   1. Header parsing      — Authorization: Signet <cert>, X-Signet-Sig,
 //                            X-Signet-Ts, X-Signet-Nonce.
-//   2. Canonical bytes     — deterministic concatenation the caller signed.
-//   3. Cert verification   — chain to pinned INTERLACE_MASTER_PUBKEY +
-//                            epoch check vs CA bundle (e195ea).
-//   4. Request signature   — Ed25519(ephemeral_pubkey, sig, canonical).
-//   5. Scope check         — cert.scope ⊇ requested-tool scope.
-//   6. Lease counter       — TrustStore.upsertLeaseCounter (e1d54e).
-//   7. Dispatch            — passes through to McpEdgeRoute.
+//   2. Cert chain verify   — wasm32 leyline-sign verifies the cert is
+//                            signed by the cluster master (active key,
+//                            falling back to prev key during a rotation
+//                            window per the CA bundle).
+//   3. Claims required     — Interlace certs MUST carry epoch + peer_fp +
+//                            scope; Phase 1 fails closed if any is missing.
+//   4. Epoch check         — `cert.epoch` ∈ {bundle.epoch, bundle.epoch-1
+//                            during rotation}; older = revoked.
+//   5. Validity window     — server clock ∈ [not_before, not_after].
+//   6. Request signature   — Ed25519(claims.ephemeral_pubkey, sig,
+//                            canonical-bytes(method,url,ts,nonce,body)).
+//   7. Scope check         — cert.scope ⊇ requested-tool scope.
+//   8. Lease counter       — TrustStore.upsertLeaseCounter (e1d54e).
+//   9. Dispatch            — caller passes through to McpEdgeRoute.
 //
 // Per ADR-0007: NO INTERLACE_DEV_BYPASS escape hatch. Always-on auth.
-//
-// ## Phase 1 scope (this commit)
-//
-// Implemented:
-//   - Header parsing + structured errors
-//   - Canonical request bytes (deterministic, byte-stable)
-//   - Scope grammar + glob match
-//   - LeaseError → JSON-RPC 2.0 error response builders
-//   - Lease counter UPSERT (via TrustStore singleton)
-//
-// Stubbed (FAIL CLOSED — no production use until follow-up bead lands):
-//   - Cert-chain verification: needs new WASM FFI export
-//     (leyline_verify_cert_chain) or a TS X.509 parser. Filed as a
-//     follow-up bead.
-//   - Request signature verification: depends on extracting the
-//     ephemeral pubkey from the cert (same X.509-parse problem).
-//   - Cert claims parsing (peer_fp, scope, not_before, not_after,
-//     epoch): same.
-//
-// The middleware is therefore NOT yet wired into McpEdgeRoute (mcp.ts);
-// this commit ships the substrate so that wiring becomes a small
-// follow-up. The functions here are independently testable; the
-// orchestrator at the bottom of this file documents the full flow but
-// returns a `cert_verify_not_implemented` error from the stub points.
 
 import type { Env } from "../types.js";
 import { errResponse, type JsonRpcId } from "../types.js";
 import { isCertEpochCurrent, type CABundle } from "../storage/ca-bundle-cache.js";
+import { verifyCertChain, type CertClaims } from "../wire/signet-verify.js";
 
 // ── Error codes ──────────────────────────────────────────────────────────
 //
@@ -55,7 +39,6 @@ export const ERR_BAD_REQUEST_SIG = -32003;
 export const ERR_REPLAY          = -32004;
 export const ERR_CA_UNAVAILABLE  = -32005;
 export const ERR_EPOCH_MISMATCH  = -32006;
-export const ERR_CERT_NOT_IMPL   = -32007;  // Phase 1 stub — remove when cert verify lands
 
 export type LeaseErrorCode =
   | typeof ERR_UNAUTHENTICATED
@@ -63,8 +46,7 @@ export type LeaseErrorCode =
   | typeof ERR_BAD_REQUEST_SIG
   | typeof ERR_REPLAY
   | typeof ERR_CA_UNAVAILABLE
-  | typeof ERR_EPOCH_MISMATCH
-  | typeof ERR_CERT_NOT_IMPL;
+  | typeof ERR_EPOCH_MISMATCH;
 
 // ── Header parsing ───────────────────────────────────────────────────────
 
@@ -219,10 +201,9 @@ export function leaseErrorResponse(
 ): Response {
   // 401 for cert-related, 403 for scope, 503 for ca_unavailable, etc.
   const httpStatus =
-    code === ERR_SCOPE_DENIED                              ? 403 :
+    code === ERR_SCOPE_DENIED                                  ? 403 :
     code === ERR_CA_UNAVAILABLE || code === ERR_EPOCH_MISMATCH ? 503 :
-    code === ERR_CERT_NOT_IMPL                             ? 501 :
-                                                             401 ;
+                                                                 401 ;
 
   return Response.json(errResponse(id, code, message), { status: httpStatus });
 }
@@ -249,10 +230,10 @@ export function trustStoreStub(env: Env): DurableObjectStub {
   return env.TRUST_STORE.get(env.TRUST_STORE.idFromName("cluster"));
 }
 
-// ── Verify orchestrator (Phase 1 — cert verify stubbed) ──────────────────
+// ── Verify orchestrator ──────────────────────────────────────────────────
 
 export interface VerifiedLease {
-  /** Peer fingerprint claimed by the cert (parsed from extension). */
+  /** Peer fingerprint claimed by the cert. */
   peerFp: string;
   /** Cert's scope claim. */
   scope:  string;
@@ -271,25 +252,75 @@ export type VerifyError = {
   message: string;
 };
 
+/** TrustStore stub method shape — RPC over the DO binding. */
+interface TrustStoreRpc {
+  upsertLeaseCounter(
+    peerFp: string,
+    certFp: string,
+    nonce: string,
+    ts: number,
+  ): Promise<{ seq: number; last_chain_hash: string }>;
+}
+
 /**
- * Phase 1 — orchestrator stub. Wires header parsing + scope derivation +
- * lease-counter UPSERT, but stubs the actual cert verification and
- * request-signature verification. Returns a typed `VerifyError` from
- * the stub points so callers fail closed.
- *
- * When the follow-up bead (cert-chain verify + claims parsing in WASM)
- * lands, the stub points get filled in and this becomes the production
- * orchestrator.
+ * Resolve the master pubkey to verify a cert against. Returns the active
+ * key first; if `prevKeyId` is set we may need to retry the verify with
+ * the previous key (rotation window). Caller does the retry.
+ */
+function bundleMasterPubkeys(bundle: CABundle): { active: Uint8Array; prev?: Uint8Array } {
+  const active = b64StdDecode(bundle.keys[bundle.keyId] ?? "");
+  if (bundle.prevKeyId !== undefined) {
+    const prev = bundle.keys[bundle.prevKeyId];
+    if (prev !== undefined) return { active, prev: b64StdDecode(prev) };
+  }
+  return { active };
+}
+
+/**
+ * Verify the request signature: Ed25519(claims.ephemeralPubkey, sig,
+ * canonical-bytes). Uses Web Crypto's raw-key import, which workerd
+ * supports for Ed25519. A throw from the crypto layer surfaces as
+ * `ok: false` so callers don't have to try/catch.
+ */
+async function verifyRequestSignature(
+  ephemeralPubkey: Uint8Array,
+  sig:             Uint8Array,
+  canonical:       Uint8Array,
+): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      ephemeralPubkey as BufferSource,
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    const ok = await crypto.subtle.verify(
+      "Ed25519",
+      key,
+      sig as BufferSource,
+      canonical as BufferSource,
+    );
+    return { ok };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : "crypto failed" };
+  }
+}
+
+/**
+ * Run the full lease verification pipeline. Returns a `VerifiedLease` on
+ * success or a typed `VerifyError` on any failure. Always fails closed.
  *
  * Inputs the caller must provide:
  *   - `req` — the inbound Request
  *   - `body` — the raw request body (already read; rebuilding from req
  *     would consume it again)
  *   - `id`, `method`, `params` — already-parsed JSON-RPC fields
- *   - `env` — for TrustStore + CA bundle access
+ *   - `env` — for TrustStore access
  *   - `bundle` — current CA bundle (caller fetches via the cache module
  *     so the cache lifecycle is centralized; we're given the bundle
- *     ready-to-use)
+ *     ready-to-use). Master pubkey is `bundle.keys[bundle.keyId]`.
+ *   - `nowMs` — server clock at verify time, for validity-window check.
  */
 export async function verifyAndUpsertLease(args: {
   req:    Request;
@@ -301,6 +332,7 @@ export async function verifyAndUpsertLease(args: {
   bundle: CABundle;
   nowMs:  number;
 }): Promise<VerifiedLease | VerifyError> {
+  // 1. Header parse.
   const headers = parseAuthHeaders(args.req);
   if ("kind" in headers) {
     return {
@@ -309,8 +341,57 @@ export async function verifyAndUpsertLease(args: {
     };
   }
 
-  // Build canonical bytes (caller would have signed these). Used by the
-  // (stubbed) request-signature verification step.
+  // 2. Cert chain verify against the cluster master. Try active first;
+  // fall back to prev during a rotation window. The bundle's keyId rolls
+  // forward; certs minted just before the roll point are still valid for
+  // one window.
+  const { active, prev } = bundleMasterPubkeys(args.bundle);
+  if (active.length === 0) {
+    return { code: ERR_CA_UNAVAILABLE, message: "CA bundle missing active master pubkey" };
+  }
+  let chain = await verifyCertChain(headers.certDer, active);
+  if (!chain.ok && prev !== undefined) {
+    chain = await verifyCertChain(headers.certDer, prev);
+  }
+  if (!chain.ok) {
+    return {
+      code: ERR_UNAUTHENTICATED,
+      message: `cert chain verify failed: ${chain.reason}`,
+    };
+  }
+  const claims: CertClaims = chain.claims;
+
+  // 3. Required Interlace claims. Phase 1 mandates all three; admin /
+  // bootstrap certs that elide them are out of scope.
+  if (claims.epoch === undefined || claims.peerFp === undefined || claims.scope === undefined) {
+    return {
+      code: ERR_UNAUTHENTICATED,
+      message: "cert missing required Interlace claims (epoch, peer_fp, scope)",
+    };
+  }
+
+  // 4. Epoch currency. `isCertEpochCurrent` accepts current + (rotation
+  // window) prev. Same window the master-pubkey fallback above honors.
+  if (!isCertEpochCurrent(claims.epoch, args.bundle)) {
+    return {
+      code: ERR_EPOCH_MISMATCH,
+      message: `cert.epoch=${claims.epoch} not current (bundle.epoch=${args.bundle.epoch})`,
+    };
+  }
+
+  // 5. Validity window. Server clock is the truth; client-claimed `ts`
+  // is checked against canonical-bytes via the signature, not directly.
+  const nowSec = Math.floor(args.nowMs / 1000);
+  if (nowSec < claims.notBefore || nowSec > claims.notAfter) {
+    return {
+      code: ERR_UNAUTHENTICATED,
+      message: `cert outside validity window (now=${nowSec}, [${claims.notBefore},${claims.notAfter}])`,
+    };
+  }
+
+  // 6. Request signature. Caller signed the canonical bytes with the
+  // cert's ephemeral private key; verify against the SPKI we just
+  // extracted from the cert.
   const canonical = canonicalRequestBytes(
     args.req.method,
     args.req.url,
@@ -318,48 +399,41 @@ export async function verifyAndUpsertLease(args: {
     headers.nonce,
     args.body,
   );
-  void canonical;  // currently consumed only by the stubbed verifier
+  const sigCheck = await verifyRequestSignature(claims.ephemeralPubkey, headers.sig, canonical);
+  if (!sigCheck.ok) {
+    return {
+      code: ERR_BAD_REQUEST_SIG,
+      message: sigCheck.reason ? `request signature invalid: ${sigCheck.reason}` : "request signature invalid",
+    };
+  }
 
-  // Derive scope from the JSON-RPC request body. Done before cert
-  // verification so we can short-circuit common cases (tools/list is
-  // always allowed even with a degenerate cert if it ever reaches that
-  // branch — but we still gate on cert verify).
+  // 7. Scope check. Cert says what the holder may do; request derives
+  // what was actually attempted. scopeAllows enforces glob containment.
   const requestedScope = deriveRequestScope(args.method, args.params);
-  void requestedScope;  // currently consumed only by the stubbed scope check
+  if (!scopeAllows(claims.scope, requestedScope)) {
+    return {
+      code: ERR_SCOPE_DENIED,
+      message: `cert scope '${claims.scope}' does not allow '${requestedScope}'`,
+    };
+  }
 
-  // Phase 1 stub — cert-chain verify + ephemeral pubkey extraction +
-  // claims parsing all need WASM extensions or a TS X.509 parser. Until
-  // that lands, fail closed: the middleware is in place but doesn't
-  // accept any cert. Tests for the substrate (header parsing, canonical
-  // bytes, scope grammar) still pass; integration tests wait for the
-  // follow-up bead.
+  // 8. Lease counter UPSERT. ADR-0007 §13.2 — every authenticated call
+  // is recorded so silence is evidence (a missing counter means traffic
+  // never landed). Done last so a verify failure doesn't rewrite the
+  // chain. Cross-DO RPC; TrustStore is a singleton per cluster.
+  const certFp = await certFingerprint(headers.certDer);
+  const nonceB64 = b64encode(headers.nonce);
+  const trustStore = trustStoreStub(args.env) as DurableObjectStub & TrustStoreRpc;
+  await trustStore.upsertLeaseCounter(claims.peerFp, certFp, nonceB64, args.nowMs);
+
   return {
-    code: ERR_CERT_NOT_IMPL,
-    message: "cert chain verification not yet implemented (Phase 1 substrate); see cloister-bd5241 follow-up for WASM cert-parse extension",
+    peerFp:   claims.peerFp,
+    scope:    claims.scope,
+    epoch:    claims.epoch,
+    certFp,
+    nonce:    headers.nonce,
+    serverTs: args.nowMs,
   };
-
-  // ── PSEUDOCODE for when the stub is filled in ──
-  //
-  // const claims = await parseCertClaims(headers.certDer);  // peer_fp, scope, epoch, not_before, not_after, ephemeral_spki
-  // if (!isCertEpochCurrent(claims.epoch, args.bundle)) {
-  //   return { code: ERR_EPOCH_MISMATCH, message: "cert.epoch != bundle.epoch" };
-  // }
-  // const chainOk = await verifyCertChain(headers.certDer, masterPubkey);
-  // if (!chainOk) return { code: ERR_UNAUTHENTICATED, message: "cert chain verify failed" };
-  // const sigOk = await crypto.subtle.verify("Ed25519", claims.ephemeralPubkey, headers.sig, canonical);
-  // if (!sigOk) return { code: ERR_BAD_REQUEST_SIG, message: "request signature invalid" };
-  // if (args.nowMs < claims.not_before * 1000 || args.nowMs > claims.not_after * 1000) {
-  //   return { code: ERR_UNAUTHENTICATED, message: "cert outside validity window" };
-  // }
-  // if (!scopeAllows(claims.scope, requestedScope)) {
-  //   return { code: ERR_SCOPE_DENIED, message: `scope ${claims.scope} does not allow ${requestedScope}` };
-  // }
-  // const certFp = await certFingerprint(headers.certDer);
-  // const nonceB64 = b64encode(headers.nonce);
-  // const trustStore = trustStoreStub(args.env);
-  // await trustStore.upsertLeaseCounter(claims.peerFp, certFp, nonceB64, args.nowMs);
-  // return { peerFp: claims.peerFp, scope: claims.scope, epoch: claims.epoch, certFp,
-  //          nonce: headers.nonce, serverTs: args.nowMs };
 }
 
 // ── base64url helpers (no padding) ───────────────────────────────────────
@@ -377,6 +451,20 @@ function b64decode(s: string): Uint8Array {
   const padded = s.replace(/-/g, "+").replace(/_/g, "/")
     + "===".slice((s.length + 3) % 4);
   const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * base64-STANDARD decode (with `+`/`/` and `=` padding). The CA bundle's
+ * `keys` map encodes raw 32-byte Ed25519 pubkeys this way (per
+ * notme/worker/src/revocation.ts), so we need a separate decoder from
+ * the base64url path used for headers.
+ */
+function b64StdDecode(s: string): Uint8Array {
+  if (s === "") return new Uint8Array(0);
+  const bin = atob(s);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;

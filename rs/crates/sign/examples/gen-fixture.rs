@@ -12,12 +12,17 @@
 //
 // Run via: cargo run --example gen-fixture > test/wire/fixtures/cert-chain.ts
 
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{Signer, SigningKey};
 use leyline_sign::cert_chain::tests_helpers::*;
 
 fn b64(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn b64_std(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn main() {
@@ -93,4 +98,66 @@ fn main() {
     println!();
     println!("/** Cert minted by a different master — should reject under MASTER_PUBKEY_B64. */");
     println!("export const CERT_WRONG_MASTER_B64 = \"{}\";", b64(&cert_wrong_master));
+
+    // ── Sample signed request, for orchestrator integration tests ────────
+    //
+    // The lease middleware verifies a request signature: the caller signs
+    // canonical-bytes(method, url, ts, nonce_b64, body) with the cert's
+    // ephemeral private key. We mint a complete sample here so TS tests
+    // don't have to derive a CryptoKey from the seed at runtime.
+
+    let sample_method  = "POST";
+    let sample_url     = "http://x/mcp";
+    let sample_ts: i64 = 1_700_000_100_000;  // ms; inside [not_before, not_after] in seconds
+    let sample_nonce: [u8; 16] = [
+        0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8,
+        0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0,
+    ];
+    let sample_nonce_b64 = b64(&sample_nonce);
+    let sample_body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bead_create","arguments":{"repo":"/repos/foo"}}}"#;
+
+    // Reproduce src/routes/lease-middleware.ts canonicalRequestBytes:
+    //   <method>\n<url>\n<ts>\n<nonce-b64-no-pad>\n<body>
+    let canonical = format!(
+        "{}\n{}\n{}\n{}\n{}",
+        sample_method, sample_url, sample_ts, sample_nonce_b64, sample_body
+    );
+    let sig = ephemeral.sign(canonical.as_bytes());
+
+    println!();
+    println!("/**");
+    println!(" * Sample signed request for verifyAndUpsertLease integration tests.");
+    println!(" * The signature is over canonicalRequestBytes(method, url, ts, nonce, body)");
+    println!(" * using the ephemeral private key whose public key is embedded in CERT_FULL_B64.");
+    println!(" */");
+    println!("export const SAMPLE_METHOD    = \"{}\";", sample_method);
+    println!("export const SAMPLE_URL       = \"{}\";", sample_url);
+    println!("export const SAMPLE_TS_MS     = {};",     sample_ts);
+    println!("export const SAMPLE_NONCE_B64 = \"{}\";", sample_nonce_b64);
+    println!("export const SAMPLE_BODY_JSON = {};",     serde_json_str(sample_body));
+    println!("export const SAMPLE_SIG_B64   = \"{}\";", b64(&sig.to_bytes()));
+    println!();
+    println!("/** Master pubkey re-encoded as base64-STANDARD for CA-bundle insertion. */");
+    println!("export const MASTER_PUBKEY_B64_STD = \"{}\";", b64_std(master.verifying_key().as_bytes()));
+}
+
+/// Hand-encode a JSON string literal — avoids pulling serde_json in for one
+/// usage. Escapes `"` and `\\` and the control characters that would
+/// otherwise produce invalid TS source.
+fn serde_json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"'  => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
