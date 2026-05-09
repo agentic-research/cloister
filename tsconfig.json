@@ -6,8 +6,14 @@
     "moduleResolution": "Bundler",
     "types": ["@cloudflare/workers-types"],
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    // Skip type-checking of transitive dependency .d.ts files. Without this,
+    // tinybench (a vitest transitive dep) trips a known TypeScript variance
+    // issue with EventTarget addEventListener / removeEventListener overrides
+    // that surfaces under our strict config. Our own sources are still
+    // strict-checked; this only opts out of node_modules' .d.ts files.
+    "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "vault/src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

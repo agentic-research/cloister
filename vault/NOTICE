@@ -1,0 +1,36 @@
+cloister/vault/
+==============
+
+This directory contains a sealed-credential vault originally developed
+in the `notme` project (https://github.com/agentic-research/notme,
+licensed under Apache License 2.0). It was lifted into cloister on
+2026-05-09 and re-licensed under the AGPL-3.0-or-later license that
+governs cloister as a whole, per cloister ADR-0010.
+
+Per Apache License 2.0 §4(c), this NOTICE preserves attribution of
+the work's origin. The Apache 2.0 license permitted this lift; the
+original copy in notme remains under Apache 2.0 and is unaffected.
+The two copies may diverge over time; see cloister bead
+`cloister-9ad9eb` and notme bead `notme-9af5dd` for the divergence
+plan.
+
+Original source files (Apache 2.0, copyright (c) the same author):
+  notme/vault/src/vault.ts
+  notme/vault/src/crypto.ts
+  notme/vault/src/handler.ts
+  notme/vault/src/worker.ts
+  notme/vault/src/__tests__/vault.test.ts
+  notme/vault/src/__tests__/vault-security.test.ts
+  notme/vault/src/__tests__/vault-adversarial.test.ts
+  notme/vault/src/__tests__/encryption.test.ts
+  notme/vault/src/__tests__/worker.test.ts
+  notme/vault/wrangler.toml.example
+
+Each source file in this directory carries an SPDX header documenting
+the AGPL-3.0-or-later license under which the cloister copy is
+distributed.
+
+The portions in this directory that are derivative of the notme
+originals retain Apache 2.0's attribution requirement; the AGPL-3.0
+license additionally applies to the combined work as distributed
+with cloister.
