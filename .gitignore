@@ -24,3 +24,10 @@ melange.rsa.pub
 packages/
 cloister*.tar
 sbom-*.spdx.json
+
+# rsry per-repo dolt store — runtime state only. The dolt/ subdirectory
+# and metadata.json track in git (beads are first-class repo data,
+# managed via the rsry MCP). PID/port files regenerate on every
+# `rsry enable` / dolt server start.
+.beads/dolt-server.pid
+.beads/dolt-server.port
