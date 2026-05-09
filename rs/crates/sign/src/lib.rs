@@ -3,6 +3,7 @@
 // Origin: agentic-research/ley-line (Apache-2.0); see ../../../NOTICE.
 
 pub mod cert;
+pub mod cert_chain;
 pub mod cms;
 pub mod error;
 pub mod ffi;
