@@ -26,14 +26,40 @@ from `issue_type` if `owner` is omitted.
 
 | Thread | Purpose |
 |---|---|
-| `adrs` | Decision documents (ADR-0007/0008/0009/0010) |
-| `identity-lease` | notme lease minter, WASM verifier, lease middleware, leyline-sign wasm32 emit, audit-finding correctives |
+| `adrs` | Decision documents (ADR-0007/0008/0009/0010/0011/0012) |
+| `identity-lease` | notme lease minter, WASM verifier, lease middleware, leyline-sign wasm32 emit. **Substrate shipped 2026-05-09** (cloister-bd7770 / -9d49eb). Wiring into `mcp.ts` is `cloister-b89fdb`. |
 | `discovery` | `.well-known/interlace/` + capabilities surface |
-| `attestation` | `peer_attestations` table + selective disclosure endpoint |
-| `deployment` | CF Tunnel / WARP off-platform story |
-| `oss-prep` | CLAUDE.md / AGENTS.md / CI workflows / README+ARCH sync |
+| `attestation` | `peer_attestations` in **TrustStore** (per ADR-0012; was BeadStore-resident before the 2026-05-09 correction). Cross-DO writes use ADR-0003 content-addressed handoff. Gated on `cloister-960f68` (BlobStore Phase 1 hardening). |
+| `deployment` | CF Tunnel / WARP off-platform story; "cluster in a pod" via workerd v8 proc-iso (`cloister-be0607`, ADR-0009 implementation) |
+| `oss-prep` | CLAUDE.md / AGENTS.md / CI workflows / README+ARCH sync; ll-open 0.2.0 sync (`cloister-bd8c41`) |
 | `vault` | Lift `notme/vault/` → `cloister/vault/` (AGPL-3) + cross-repo notme cleanup |
 | `audit` | (now empty — audit findings folded into surface threads for parallelizability) |
+
+## What changed 2026-05-09 — start your map here
+
+If you're a fresh agent, read these first; they are the corrections
+that supersede earlier in-flight assumptions:
+
+- **TrustStore is a separate DO** from BeadStore. Singleton per cluster
+  at `idFromName("cluster")`; hypervisor-layer per ADR-0011's three-
+  criterion test. Bead state stays in BeadStore (per-repo). See ADR-0012.
+- **Cross-DO writes use content-addressed handoff** (ADR-0003 phase 1).
+  Workerd ACID is per-DO; `bead_create → BlobStore → BeadStore →
+  TrustStore` walks four steps, but BlobStore is idempotent so failure
+  recovery is well-defined. The bolded ADR-0007:154 "same SQL transaction"
+  rule is replaced by this multi-step but recoverable pattern.
+- **Lease middleware substrate is real**. `verifyAndUpsertLease` runs the
+  full pipeline (header parse → wasm32 cert verify → claims required →
+  epoch + window → Web Crypto Ed25519 sig → scope → TrustStore RPC).
+  46 tests pass end-to-end. It's NOT yet wired into `mcp.ts`; that's
+  `cloister-b89fdb`.
+- **`leyline-sign` lives at `rs/crates/sign/`** (AGPL-3, NOTICE references
+  the upstream). The lift from agentic-research/ley-line happened
+  2026-05-08/09; ll-open 0.2.0 has now made the upstream public, so
+  attribution path may simplify (`cloister-bd8c41`).
+- **Threat model is the contract** for completing the lease/attestation
+  arc. See `docs/security/threat-model.md` (math-friend authored,
+  `cloister-bd32b1`).
 
 ## Bead lifecycle on cloister
 

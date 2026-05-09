@@ -8,13 +8,22 @@ Apache License 2.0) and lifted into cloister on 2026-05-09 per
 cloister ADR-0007 + the cloister-side decision summarized in
 ADR-0010 (vault precedent for cross-repo lifts).
 
+**Upstream now public (2026-05-09)**: ll-open 0.2.0 lifted the same
+crate from the (then-private) `ley-line` repo with the same
+Apache → AGPL-3-or-later license bump. The canonical public location
+is now `agentic-research/ley-line-open`, at `rs/ll-open/sign/`.
+cloister's copy and ll-open's copy share an Apache-2.0 origin and
+both relicense as AGPL-3-or-later; the two copies are kept in sync
+by cloister-bd8c41 (NOTICE + targeted PRs upstream for cloister-only
+additions like cert_chain.rs).
+
 Per Apache License 2.0 §4(c), this NOTICE preserves attribution of
 the work's origin. The Apache 2.0 license permitted this lift; the
-original copy in ley-line remains under Apache 2.0 and is unaffected.
-The cloister copy is governed by the AGPL-3.0-or-later license in
-the cloister repo's LICENSE file. The two copies may diverge over
-time; the lift is not a fork-and-abandon — see ADR-0007 for the
-forward plan.
+original copy in ley-line (closed) and ll-open (public) remain under
+their respective licenses. The cloister copy is governed by the
+AGPL-3.0-or-later license in the cloister repo's LICENSE file.
+Cloister contributions PR'd back to ll-open ship under the upstream
+license terms (compatible — Apache-2.0 → AGPL-3 is one-way).
 
 The proprietary parts of leyline-net that ley-line retains —
 specifically the raptorq FEC layer and sqlite-blast — are NOT part
@@ -36,10 +45,29 @@ Each Rust source file in this directory carries an SPDX header
 documenting the AGPL-3.0-or-later license under which the cloister
 copy is distributed.
 
-Cloister-side modifications since the lift:
+Cloister-side modifications since the lift (cloister-only, not in
+ll-open's copy as of 0.2.0):
+
   - signingTime attribute omitted from CMS SignedAttributes per
     cloister ADR-0007 amendment 2026-05-08 (originally tracked as
     ley-line-e25413 before the lift). Reason: the wasm32 emit needs
     a per-host time source; a frozen placeholder shipping across
     hosts would silently collapse temporal binding. See `sign_data`
     doc-comment in src/cms.rs.
+
+  - `lsign_alloc` / `lsign_free` exports in src/ffi.rs for wasm32
+    linear memory management. Required for any wasm32 host (workerd,
+    browsers, WASI) to pass byte buffers across the FFI boundary.
+
+  - `cert_chain.rs` — new module. Verifies an ephemeral Signet cert
+    is signed by the cluster master + extracts Interlace OID claims
+    (epoch, peer_fp, scope at OID arc 1.3.6.1.4.1.99999.1.{4,5,6}).
+    Used by cloister's lease middleware (cloister-bd7770).
+
+  - `leyline_verify_cert_chain` FFI export wiring cert_chain.rs to
+    the wasm32/native FFI surface. Returns claims as compact JSON
+    (no serde_json dep — adds substantial wasm size for a flat struct).
+
+These four pieces should be PR'd back to ll-open under
+cloister-bd8c41 so a single canonical crate exists. Until then the
+cloister copy is the source of truth for these specific surfaces.
