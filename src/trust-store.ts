@@ -63,10 +63,14 @@ import {
   pruneSeenNoncesBefore,
   recordSeenNonce as recordSeenNonceHelper,
 } from "./storage/seen-nonces.js";
+import {
+  SCHEMA_PENDING_ATTESTATIONS,
+} from "./storage/pending-attestations.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
 ${SCHEMA_SEEN_NONCES}
+${SCHEMA_PENDING_ATTESTATIONS}
 `;
 
 export class TrustStore extends DurableObject {
