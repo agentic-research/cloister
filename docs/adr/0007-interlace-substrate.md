@@ -1,6 +1,6 @@
 ---
 title: "ADR-0007: Interlace substrate — Signet leases, peer attestations, .well-known discovery (lease ≠ state)"
-status: Proposed
+status: Accepted (substrate shipped 2026-05-09; bd7770/bdcbe7/c5c846/c614ae)
 date: 2026-05-08
 tags: [architecture, identity, attestation, capability, signet, interlace, ca, wasm, cloudflare]
 supersedes_framing: [ADR-0001 §"notme JWT middleware on POST /mcp", ADR-0002 §"public face is unauthenticated in dev"]
