@@ -7,8 +7,56 @@
 //! Follows the leyline-fs pattern: buffer-based API, return conventions:
 //! - `>= 0`: bytes written to output buffer
 //! - `-1`: error (signing/verification failed, buffer too small)
+//!
+//! ## wasm32 consumption
+//!
+//! The same FFI exports work for both native (cdylib via cbindgen) and
+//! wasm32 (workerd / browsers / WASI hosts) consumers. wasm32 callers
+//! manage linear memory directly: allocate via `lsign_alloc`, copy inputs
+//! in, call the FFI function, read output bytes, free via `lsign_free`.
+//! Same calling convention; pointers become 32-bit indices into wasm
+//! linear memory.
+//!
+//! For TypeScript-side wrapping in cloister, see `src/wire/signet-verify.ts`
+//! (cloister-bd5241 phase 2). This module's exports are the contract.
 
 use crate::cms;
+
+// ── wasm32 memory management exports ────────────────────────────────────
+//
+// Without these, a wasm32 consumer has no way to pass byte buffers to the
+// verifier — wasm linear memory is opaque to JS without explicit
+// allocator exports. These pair with `Vec::with_capacity` + `mem::forget`
+// (alloc) and `Vec::from_raw_parts` (dealloc).
+
+/// Allocate `size` bytes in wasm linear memory; return pointer (caller
+/// owns and must free via `lsign_free`). Returns null on allocation
+/// failure.
+///
+/// # Safety
+/// Caller must pair every `lsign_alloc(n)` with exactly one
+/// `lsign_free(ptr, n)`. Failing to free leaks linear memory until the
+/// wasm instance is destroyed.
+#[unsafe(no_mangle)]
+pub extern "C" fn lsign_alloc(size: usize) -> *mut u8 {
+    let mut buf: Vec<u8> = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    core::mem::forget(buf);
+    ptr
+}
+
+/// Free a buffer previously allocated by `lsign_alloc`. The `size` must
+/// match the original allocation.
+///
+/// # Safety
+/// `ptr` must be a value previously returned by `lsign_alloc`, with the
+/// same `size`. Double-free or mismatched-size free is undefined behavior.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lsign_free(ptr: *mut u8, size: usize) {
+    if !ptr.is_null() && size > 0 {
+        unsafe { drop(Vec::from_raw_parts(ptr, 0, size)) };
+    }
+}
 
 /// Helper: write bytes into an output buffer, returning byte count or -1 if too large.
 unsafe fn write_out(data: &[u8], out_buf: *mut u8, out_len: usize) -> i32 {

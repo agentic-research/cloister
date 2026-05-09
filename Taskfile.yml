@@ -34,6 +34,24 @@ tasks:
     generates:
       - test/wire/fixtures/canonical.ts
 
+  rs:sign:
+    desc: "Test the Rust leyline-sign crate (native build)"
+    dir: rs
+    cmds:
+      - cargo test -p leyline-sign
+
+  rs:sign:wasm:
+    desc: "Build leyline-sign for wasm32 (cloister-bd5241). Requires `rustup target add wasm32-unknown-unknown` once."
+    dir: rs
+    cmds:
+      - cargo build --release --target wasm32-unknown-unknown -p leyline-sign
+      - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/leyline_sign.wasm ($(wc -c < target/wasm32-unknown-unknown/release/leyline_sign.wasm) bytes)"'
+    sources:
+      - crates/sign/src/**/*.rs
+      - crates/sign/Cargo.toml
+    generates:
+      - target/wasm32-unknown-unknown/release/leyline_sign.wasm
+
   wire:verify-roundtrip:
     desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
     cmds:
