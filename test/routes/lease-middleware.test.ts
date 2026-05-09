@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
-import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { env, runInDurableObject } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   ERR_BAD_REQUEST_SIG,
   ERR_CA_UNAVAILABLE,
@@ -322,6 +322,19 @@ const HAPPY_NOW_MS = (NOT_BEFORE + 100) * 1000;
 const PAST_NOW_MS  = (NOT_BEFORE - 1)   * 1000;
 const FUTURE_NOW_MS = (NOT_AFTER + 1)   * 1000;
 
+// Reset replay-defense + counter state between tests. The fixture's
+// SAMPLE_NONCE_B64 is reused by every happy-path test; without this,
+// the first test recording the (cert_fp, nonce) tuple causes every
+// subsequent test to be rejected as a replay (correct production
+// behavior, hostile to test ergonomics).
+beforeEach(async () => {
+  const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("cluster"));
+  await runInDurableObject(stub, async (_, state) => {
+    state.storage.sql.exec("DELETE FROM seen_nonces");
+    state.storage.sql.exec("DELETE FROM peer_lease_counters");
+  });
+});
+
 describe("verifyAndUpsertLease", () => {
   it("happy path: full cert + valid sig + matching scope → VerifiedLease", async () => {
     const req  = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
@@ -565,6 +578,56 @@ describe("verifyAndUpsertLease", () => {
     const after = await trustStub.getLeaseCounter("sha256:abc123def456");
     expect(after).not.toBeNull();
     expect(after?.seq).toBeGreaterThan(beforeSeq);
+  });
+});
+
+// ── Replay defense (cloister-c5c846 / threat-model §6.2.3) ───────────────
+
+describe("verifyAndUpsertLease — replay defense", () => {
+  const baseArgs = () => ({
+    body: SAMPLE_BODY_JSON,
+    id: 1,
+    method: "tools/call",
+    params: SAMPLE_PARAMS,
+    env, bundle: makeBundle(), nowMs: HAPPY_NOW_MS,
+  });
+
+  it("first call with envelope succeeds; identical replay rejected with ERR_REPLAY (-32004 / 401)", async () => {
+    const req1 = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const req2 = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+
+    const first  = await verifyAndUpsertLease({ ...baseArgs(), req: req1 });
+    const second = await verifyAndUpsertLease({ ...baseArgs(), req: req2 });
+
+    expect("code" in first).toBe(false);  // first: clean pass
+    if ("code" in first) return;
+
+    expect("code" in second).toBe(true);  // second: replay rejected
+    if (!("code" in second)) return;
+    expect(second.code).toBe(-32004);  // ERR_REPLAY
+    expect(second.message).toMatch(/replayed/i);
+  });
+
+  it("replay rejection short-circuits BEFORE the counter UPSERT", async () => {
+    // The counter chain must NOT advance on a replay — otherwise an
+    // attacker could use replays to spin the counter and corrupt the
+    // chain state observable by peers (threat-model §13.2).
+    const req1 = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    await verifyAndUpsertLease({ ...baseArgs(), req: req1 });
+
+    const trustStub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("cluster")) as DurableObjectStub & {
+      getLeaseCounter(peerFp: string): Promise<{ seq: number } | null>;
+    };
+    const seqBeforeReplay = (await trustStub.getLeaseCounter("sha256:abc123def456"))?.seq ?? 0;
+    expect(seqBeforeReplay).toBe(1);
+
+    // Replay attempt
+    const req2 = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const replay = await verifyAndUpsertLease({ ...baseArgs(), req: req2 });
+    expect("code" in replay).toBe(true);
+
+    const seqAfterReplay = (await trustStub.getLeaseCounter("sha256:abc123def456"))?.seq ?? 0;
+    expect(seqAfterReplay).toBe(seqBeforeReplay);  // unchanged
   });
 });
 

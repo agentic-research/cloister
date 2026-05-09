@@ -58,9 +58,15 @@ import {
   readLeaseCounter,
   type PeerLeaseCounter,
 } from "./storage/peer-lease-counters.js";
+import {
+  SCHEMA_SEEN_NONCES,
+  pruneSeenNoncesBefore,
+  recordSeenNonce as recordSeenNonceHelper,
+} from "./storage/seen-nonces.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
+${SCHEMA_SEEN_NONCES}
 `;
 
 export class TrustStore extends DurableObject {
@@ -108,11 +114,41 @@ export class TrustStore extends DurableObject {
     nonce: string,
     ts: number,
   ): Promise<{ seq: number; last_chain_hash: string }> {
-    return applyLeaseCounter(this.db, peerFp, certFp, nonce, ts);
+    // blockConcurrencyWhile holds the input gate across the await on
+    // crypto.subtle.digest inside applyLeaseCounter. Without this,
+    // workerd releases the gate during non-I/O awaits, letting two
+    // concurrent same-peer upserts read the same prevHash + prevSeq
+    // and fork the chain (cloister-c66fea / threat-model §7.3).
+    return this.ctx.blockConcurrencyWhile(async () =>
+      applyLeaseCounter(this.db, peerFp, certFp, nonce, ts),
+    );
   }
 
   /** Read the current counter for a peer; null if no observations yet. */
   getLeaseCounter(peerFp: string): PeerLeaseCounter | null {
     return readLeaseCounter(this.db, peerFp);
+  }
+
+  /**
+   * Record a (cert_fp, nonce) tuple for replay defense (cloister-c5c846).
+   * Single SQL statement — no read-then-write race; safe outside
+   * blockConcurrencyWhile. Returns whether this is the first time we've
+   * seen this tuple. Caller (lease middleware) rejects on `fresh: false`.
+   */
+  recordSeenNonce(
+    certFp: string,
+    nonce: string,
+    tsMs: number,
+  ): { fresh: boolean } {
+    return recordSeenNonceHelper(this.db, certFp, nonce, tsMs);
+  }
+
+  /**
+   * Garbage-collect nonces older than `beforeTsMs`. Intended to be
+   * called periodically (e.g. by a scheduled handler) with a cutoff of
+   * `now - max_cert_ttl_ms`. Returns the number of rows deleted.
+   */
+  pruneSeenNonces(beforeTsMs: number): number {
+    return pruneSeenNoncesBefore(this.db, beforeTsMs);
   }
 }

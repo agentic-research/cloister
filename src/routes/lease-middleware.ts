@@ -260,6 +260,11 @@ interface TrustStoreRpc {
     nonce: string,
     ts: number,
   ): Promise<{ seq: number; last_chain_hash: string }>;
+  recordSeenNonce(
+    certFp: string,
+    nonce: string,
+    tsMs: number,
+  ): Promise<{ fresh: boolean }>;
 }
 
 /**
@@ -417,13 +422,27 @@ export async function verifyAndUpsertLease(args: {
     };
   }
 
-  // 8. Lease counter UPSERT. ADR-0007 §13.2 — every authenticated call
-  // is recorded so silence is evidence (a missing counter means traffic
-  // never landed). Done last so a verify failure doesn't rewrite the
-  // chain. Cross-DO RPC; TrustStore is a singleton per cluster.
+  // 8. Replay defense (cloister-c5c846 / threat-model §6.2.3). Anti-replay
+  // is keyed on (cert_fp, nonce). Single-statement INSERT OR FAIL — no
+  // read-then-write race. A duplicate envelope short-circuits BEFORE the
+  // counter advances so the chain doesn't record replay attempts as
+  // legitimate calls.
   const certFp = await certFingerprint(headers.certDer);
   const nonceB64 = b64encode(headers.nonce);
   const trustStore = trustStoreStub(args.env) as DurableObjectStub & TrustStoreRpc;
+
+  const replay = await trustStore.recordSeenNonce(certFp, nonceB64, args.nowMs);
+  if (!replay.fresh) {
+    return {
+      code: ERR_REPLAY,
+      message: "request envelope replayed (cert_fp, nonce) tuple already seen",
+    };
+  }
+
+  // 9. Lease counter UPSERT. ADR-0007 §13.2 — every authenticated call
+  // is recorded so silence is evidence (a missing counter means traffic
+  // never landed). Done last so a verify failure doesn't rewrite the
+  // chain. Cross-DO RPC; TrustStore is a singleton per cluster.
   await trustStore.upsertLeaseCounter(claims.peerFp, certFp, nonceB64, args.nowMs);
 
   return {
