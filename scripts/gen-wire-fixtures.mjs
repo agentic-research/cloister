@@ -25,8 +25,16 @@
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO_PARENT = "/Users/jamesgardner/remotes/art";
+// Schema-root for capnp's `import "/cloister/manifest/cloister.capnp"` —
+// the parent of the cloister repo directory. Derived from this script's
+// own location so OSS clones work regardless of where the repo lives.
+// Override with CLOISTER_SCHEMA_ROOT for worktrees not named `cloister/`.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_PARENT = process.env.CLOISTER_SCHEMA_ROOT
+  ?? resolve(SCRIPT_DIR, "..", "..");
 const FIXTURES_FILE = "wire/cross-check-fixtures.capnp";
 
 // Logical fixtures — paired with the capnp const names declared in

@@ -28,11 +28,20 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { encodeManifest, decodeManifest } from "../dist-verify/src/wire/manifest.js";
 import { encodeToolCall, decodeToolCall } from "../dist-verify/src/wire/tool-call.js";
 import { encodeToolResult, decodeToolResult } from "../dist-verify/src/wire/tool-result.js";
 
-const REPO_PARENT = "/Users/jamesgardner/remotes/art";
+// Schema-root for capnp's `-I` flag — the parent of the cloister repo
+// directory, where `import "/cloister/.../cloister.capnp"` resolves
+// against. Derived from this script's location so OSS clones work
+// regardless of repo path. Override via CLOISTER_SCHEMA_ROOT for
+// non-`cloister/`-named worktrees.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_PARENT = process.env.CLOISTER_SCHEMA_ROOT
+  ?? resolve(SCRIPT_DIR, "..", "..");
 const SCHEMA = "wire/cloister.capnp";
 
 const filled = (n, byte) => { const a = new Uint8Array(n); a.fill(byte); return a; };
