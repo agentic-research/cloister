@@ -141,9 +141,18 @@ tasks:
     cmds:
       - npx workerd serve config.capnp --experimental
 
+  mermaid:lint:
+    desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
+    cmds:
+      - node scripts/lint-mermaid.mjs README.md docs/ARCHITECTURE.md
+    sources:
+      - README.md
+      - docs/ARCHITECTURE.md
+      - scripts/lint-mermaid.mjs
+
   lint:
-    desc: Fast gate — tsc + worker tests + plugin tests. Runs ≤2s. Use this in inner-loop dev.
-    deps: [type-check, test, test:plugin]
+    desc: Fast gate — tsc + worker tests + plugin tests + mermaid lint. Runs ≤2s. Use this in inner-loop dev.
+    deps: [type-check, test, test:plugin, mermaid:lint]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.

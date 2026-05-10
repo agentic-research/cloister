@@ -46,7 +46,7 @@ graph TB
     ROUTER --> WK
     ROUTER --> HLT
     MCP -->|state writes| DO
-    MCP -->|state writes| ATTEST
+    MCP -->|state writes| TRUST
     IDENT -->|svc binding| NOTME
     MCP -->|svc binding| COMP
     COMP -.->|leyline-net wire<br/>(real network)| EXT
