@@ -1,0 +1,18 @@
+[project]
+name = "interlace-ref"
+version = "0.1.0"
+description = "Reference implementation of Interlace v0.1.0 (Python). Conformance test harness for the wire-format spec."
+requires-python = ">=3.11"
+authors = [{ name = "cloister contributors" }]
+license = { text = "AGPL-3.0-or-later OR (spec license TBD)" }
+
+# Dependencies kept intentionally minimal — a second implementor should be
+# able to audit every byte that goes into a digest without pulling in a
+# stack of transitive packages. See README for rationale.
+dependencies = [
+    "cryptography>=42",  # Ed25519, SHA-256, HMAC. Stdlib-equivalent crypto.
+    "cbor2>=5.4",        # RFC 8949 canonical CBOR (for CA bundle signing).
+]
+
+[tool.setuptools]
+packages = ["interlace"]

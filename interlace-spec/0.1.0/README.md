@@ -48,6 +48,13 @@ record *every authenticated call*, not just state-mutating ones.
 - [`wire/disclosure-jsonl.md`](wire/disclosure-jsonl.md) — JSONL line
   shapes for the disclosure endpoint.
 - [`test-vectors/`](test-vectors/) — canonical inputs + expected digests.
+- [`ref-impl-py/`](ref-impl-py/) — Python reference implementation. If
+  you reach the same digests on the test vectors via
+  `python conformance/run.py`, you're conformant with v0.1.0. The Python
+  impl exists *because* cross-implementation byte-equality is what makes
+  §13.2 ("silence is evidence") falsifiable instead of a unilateral
+  cloister claim. cloister is the TypeScript reference; `ref-impl-py/`
+  is the second implementation that pins the wire.
 
 ### Note on test-vector format (JSON-as-carrier, NOT JSON-as-spec)
 
