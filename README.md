@@ -44,8 +44,9 @@ graph TB
 
         subgraph state ["Cluster state"]
             DO["BeadStore DO<br/>(per-repo SQLite)"]
-            TRUST["TrustStore DO<br/>(singleton, per ADR-0012)<br/>peer_lease_counters,<br/>peer_attestations (planned)"]
-            VAULT[("Vault DO<br/>(per ADR-0010;<br/>scoped slice tokens)")]
+            TRUST["TrustStore DO<br/>(singleton, per ADR-0012)<br/>peer_lease_counters,<br/>peer_attestations"]
+            BLOB[("BlobStore DO<br/>(singleton, per ADR-0003)<br/>content-addressed bytes")]
+            VAULT[("CredentialVault DO<br/>(singleton, per ADR-0013)<br/>HKDF+AES-GCM envelope,<br/>allowedSubs gate")]
         end
 
         subgraph siblings ["Sibling bundles (intra-cluster — service bindings, unforgeable)"]
@@ -63,10 +64,11 @@ graph TB
     ROUTER --> HLT
     MCP -->|state writes| DO
     MCP -->|state writes| TRUST
+    MCP -->|canonical bytes| BLOB
+    MCP -->|credential reads| VAULT
     IDENT -->|svc binding| NOTME
     MCP -->|svc binding| COMP
     COMP -.->|"leyline-net wire<br/>(real network)"| EXT
-    NOTME -.->|HKDF master pubkey| VAULT
 
     style hyp fill:#dde7ff,color:#000
     style state fill:#fff5e1,color:#000
@@ -97,10 +99,13 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
   pinned master + freshly-fetched epoch bundle (per
   [ADR-0007](docs/adr/0007-interlace-substrate.md) audit amendment).
   Bundles see only the verified cert + resolved scope.
-- **Capability distribution** — the manifest runtime mints
-  `slice_token`s at boot for each bundle's declared `vaultSlice`,
-  drops the unrestricted vault reference (per
-  [ADR-0010](docs/adr/0010-vault-and-bundle-clusters.md)).
+- **Capability distribution** — credential reads go through the
+  `CredentialVault` DO; per-credential `allowedSubs` glob lists gate
+  access against the caller's identity. Enforcement is **V8 isolate
+  + service-binding-as-syscall**, not signed slice tokens
+  (per [ADR-0013](docs/adr/0013-slice-grant-enforcement.md), the
+  ratification of [ADR-0010](docs/adr/0010-vault-and-bundle-clusters.md)'s
+  framing).
 - **State-boundary attestation** — on bead writes (the cluster's
   durable state), the middleware writes `peer_attestations` rows;
   per-call lease counters update on every authenticated request.
@@ -265,10 +270,14 @@ it hosts workerd Workers, wires them into clusters via service bindings,
 mediates their access to credentials and identity, and routes external
 traffic to them. ADR-0007 adds Interlace identity (Signet ephemeral
 leases + bilateral attestation chains + `.well-known/interlace/`
-discovery) at the public face. ADR-0010 (proposed, impl-gated) reframes the tenant
-primitive as **bundles in a cluster** with **vault-slice** capabilities,
-collapsing today's env-var bindings into scoped, auditable handles
-rooted in the Signet master.
+discovery) at the public face. ADR-0010 reframed the tenant primitive
+as **bundles in a cluster** with **vault-slice** capabilities;
+ADR-0013 ratified the *enforcement* model (V8 isolate +
+service-binding-as-syscall, no signed tokens) and the
+[`CredentialVault`](src/vault-store.ts) DO shipped 2026-05-10 with
+that contract. ADR-0010 stays Proposed for the manifest-side
+question of whether `Bundle.vaultSlice` should appear in
+`cluster.capnp` as a tooling hint.
 
 If you want a concrete entry point: read ARCHITECTURE.md for the runtime
 model as it stands today, then walk the ADRs in order. The ADRs are the

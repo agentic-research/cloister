@@ -73,17 +73,29 @@ source of truth.
 ```mermaid
 graph TB
     subgraph local ["Local (workerd serve config.capnp)"]
-        direction LR
-        W["Worker\nsrc/index.ts"]
-        DO["BeadStore DO\nSQLite on disk\n/data/do"]
-        W --- DO
+        direction TB
+        W["Worker<br/>src/index.ts"]
+        subgraph dos ["Durable Objects (SQLite on disk — /data/do)"]
+            direction LR
+            BEAD["BeadStore<br/>per-repo<br/>(ADR-0003)"]
+            TRUST["TrustStore<br/>singleton<br/>(ADR-0012)"]
+            BLOB["BlobStore<br/>singleton<br/>(ADR-0003)"]
+            VAULT["CredentialVault<br/>singleton<br/>(ADR-0013)"]
+        end
+        W --- dos
     end
 
     subgraph cf ["Cloudflare (wrangler deploy)"]
-        direction LR
-        CW["Worker\nsrc/index.ts"]
-        CDO["BeadStore DO\nCF-managed SQLite"]
-        CW --- CDO
+        direction TB
+        CW["Worker<br/>src/index.ts"]
+        subgraph cdos ["Durable Objects (CF-managed SQLite)"]
+            direction LR
+            CBEAD["BeadStore"]
+            CTRUST["TrustStore"]
+            CBLOB["BlobStore"]
+            CVAULT["CredentialVault"]
+        end
+        CW --- cdos
     end
 
     Dev["Developer / Claude Code"] -->|workerd :8787| local
@@ -92,6 +104,9 @@ graph TB
 
 The code is identical. Storage differs: local disk vs Cloudflare-managed
 Durable Object SQLite. Both use the same DO SQL API (`ctx.storage.sql`).
+Tier classification per ADR-0011's three-criterion test: **BeadStore** is
+bundle-tier (per-repo, idFromName(repo)); **TrustStore**, **BlobStore**,
+and **CredentialVault** are hypervisor-tier singletons (idFromName("cluster")).
 
 ## Request routing — two layers
 
@@ -287,7 +302,10 @@ graph TD
     end
 
     subgraph durable ["Durable layer"]
-        BDO["beads.ts\nBeadStore DO + SQLite schema"]
+        BDO["beads.ts<br/>BeadStore DO<br/>(per-repo)"]
+        TDO["trust-store.ts<br/>TrustStore DO<br/>(singleton)"]
+        BLO["blob-store.ts<br/>BlobStore DO<br/>(singleton)"]
+        VDO["vault-store.ts<br/>CredentialVault DO<br/>(singleton)<br/>uses vault/src/{vault,crypto,handler}.ts"]
     end
 
     IDX --> RR

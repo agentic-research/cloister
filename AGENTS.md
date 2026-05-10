@@ -48,11 +48,21 @@ that supersede earlier in-flight assumptions:
   TrustStore` walks four steps, but BlobStore is idempotent so failure
   recovery is well-defined. The bolded ADR-0007:154 "same SQL transaction"
   rule is replaced by this multi-step but recoverable pattern.
-- **Lease middleware substrate is real**. `verifyAndUpsertLease` runs the
-  full pipeline (header parse → wasm32 cert verify → claims required →
-  epoch + window → Web Crypto Ed25519 sig → scope → TrustStore RPC).
-  46 tests pass end-to-end. It's NOT yet wired into `mcp.ts`; that's
-  `cloister-b89fdb`.
+- **Lease middleware substrate is real and wired**. `verifyAndUpsertLease`
+  runs the full pipeline (header parse → wasm32 cert verify → claims
+  required → epoch + window → Web Crypto Ed25519 sig → scope →
+  TrustStore RPC). Wired into `McpEdgeRoute.handlePost` per
+  `cloister-b89fdb` (closed). Active when `INTERLACE_ROOT_PUBKEY` is
+  set; skipped in dev/test when unset (deployment-binding granularity,
+  NOT per-request bypass).
+- **CredentialVault is wired** as a hypervisor-tier singleton DO
+  (`env.VAULT_STORE`) per ADR-0013 (slice-grant enforcement via V8
+  isolate + service-binding-as-syscall). Envelope encryption + per-
+  credential `allowedSubs` glob enforcement; plaintext credential bytes
+  never cross the RPC boundary. Library lifted from notme/vault
+  (cloister-9ad9eb); DO wrapper at `src/vault-store.ts`. Open: in-
+  cluster bundle identity propagation (gated on the first workerd-
+  bundle Worker — see `cloister-ac30e7`).
 - **`leyline-sign` lives at `rs/crates/sign/`** (AGPL-3, NOTICE references
   the upstream). The lift from agentic-research/ley-line happened
   2026-05-08/09; ll-open 0.2.0 has now made the upstream public, so
