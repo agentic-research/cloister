@@ -1,10 +1,35 @@
 ---
 title: "ADR-0008: Companion pool — load balancing across N companions, orthogonal to Interlace"
-status: Proposed
+status: Deferred (2026-05-10)
 date: 2026-05-09
 tags: [architecture, load-balancing, companion, leyline-net, hypervisor]
 supersedes_framing: []
 ---
+
+## Status amendment — 2026-05-10
+
+Marked **Deferred**, not rejected. The design isn't wrong; it's just
+not currently load-bearing.
+
+What changed since this ADR was drafted:
+
+- **ADR-0005 amendment (2026-04-30)** moved the cloister ↔ companion
+  seam inside the trust boundary (plain capnp IPC, no AEAD). A single
+  in-pod companion sidecar is now the canonical shape.
+- **ADR-0009 Phase 1 (Accepted 2026-05-10)** committed to cluster-in-
+  a-pod: cloister, mache, rosary, notme as sibling containers behind
+  a single trust boundary, capnp-over-UDS between them. There's only
+  ever one companion per cluster in this topology.
+- The multi-companion case (the load-balancing motivation) presupposes
+  cross-pod scaling, which is itself out of scope per the single-pod-
+  for-now constraint in cloister-be0607.
+
+**When to revisit**: when a real deployment hits the throughput ceiling
+of a single companion AND we have horizontal-scale story for the DOs
+underneath. Both gates are unfulfilled today. File a fresh bead with
+measured numbers as the trigger.
+
+This is a status change only; no semantic content changes below.
 
 ## Context
 

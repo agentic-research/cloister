@@ -1,10 +1,35 @@
 ---
 title: "ADR-0010: Vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity"
-status: Proposed
+status: Proposed (impl-gated; see 2026-05-10 amendment)
 date: 2026-05-08
 tags: [architecture, vault, capability, hypervisor, isolate, oss, license]
 supersedes_framing: [ADR-0002 §"backend abstraction", ADR-0007 §"INTERLACE_MASTER_PUBKEY env binding"]
 ---
+
+## Status amendment — 2026-05-10
+
+Stays **Proposed**. Other Interlace-substrate ADRs flipped to Accepted
+in May 2026 because their implementations shipped (ADR-0007 lease
+substrate, ADR-0011 three-criterion test consumed by `Bundle.tier`,
+ADR-0012 TrustStore split). This one hasn't — no `Vault` DO exists,
+no `VaultSliceGrant` primitive, no slice-token issuance. The design
+is intact and reviewed; it's gated on implementation.
+
+**Gating dependencies**:
+
+1. A vault DO (singleton, hypervisor-tier per ADR-0011) with the
+   slice-grant model encoded.
+2. Manifest schema extension: `vaultSlice` field on `Bundle`,
+   replacing `[vars]`-style env bindings for credentials per the
+   "what NOT to add" rule in `CLAUDE.md`.
+3. Slice-token issuance + verification on the lease path.
+4. The prompt-injection demo (`cloister-74ce00`) — the failure-mode
+   test that proves the slice boundary holds against a compromised
+   bundle. Gating bead until the primitive exists.
+
+Until those land, the architectural decision is recorded but not
+load-bearing. Don't cite this ADR as a security guarantee — cite it
+as a roadmap with a designed solution waiting on engineering effort.
 
 ## Context
 

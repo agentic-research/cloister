@@ -265,7 +265,7 @@ it hosts workerd Workers, wires them into clusters via service bindings,
 mediates their access to credentials and identity, and routes external
 traffic to them. ADR-0007 adds Interlace identity (Signet ephemeral
 leases + bilateral attestation chains + `.well-known/interlace/`
-discovery) at the public face. ADR-0010 (proposed) reframes the tenant
+discovery) at the public face. ADR-0010 (proposed, impl-gated) reframes the tenant
 primitive as **bundles in a cluster** with **vault-slice** capabilities,
 collapsing today's env-var bindings into scoped, auditable handles
 rooted in the Signet master.

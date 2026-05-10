@@ -1,11 +1,33 @@
 ---
 title: "ADR-0011: Hypervisor vs bundle responsibilities — what runs where, and how that compares to Kubernetes"
-status: Proposed
+status: Accepted (2026-05-10)
 date: 2026-05-09
 tags: [architecture, hypervisor, bundle, cluster, kubernetes, mental-model]
 supersedes_framing: []
 threat_model: docs/security/threat-model.md
 ---
+
+## Status amendment — 2026-05-10
+
+Flipped from **Proposed** to **Accepted**. The three-criterion test
+(mediates / multi-bundle blast / singleton) is load-bearing in the
+codebase, not aspirational:
+
+- **`manifest/cluster.capnp`** encodes the test via `Bundle.tier`
+  enum (`hypervisor` vs `cluster`). Every bundle declares which side
+  of the line it sits on; the schema rejects ambiguous classifications
+  at build time (see `cloister-be0607a`).
+- **ADR-0012** cites this ADR by name when justifying TrustStore as
+  hypervisor-tier and BeadStore as per-cluster — that decision was
+  the test's first real-world application.
+- **`docs/security/threat-model.md`** §10 uses the same test to
+  classify seams: hypervisor-tier seams get the strict invariants
+  (singleton, counter chain, attestation), cluster-tier seams get
+  the per-repo isolation guarantees.
+
+The framework is consumed by working code; leaving it Proposed would
+mislead anyone reading `Bundle.tier`. Status change only — no
+semantic content edits below.
 
 ## Context
 

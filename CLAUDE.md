@@ -27,7 +27,10 @@ top-level docs describe *what*.
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
   numbered ADR before changing the substrate. The next free number is
-  ADR-0011 (0001–0010 taken, with 0007–0010 currently `Proposed`).
+  ADR-0013 (0001–0012 taken). Status mix as of 2026-05-10: most are
+  Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
+  signal); ADR-0010 is Proposed (impl-gated on a vault DO + slice-
+  token primitive).
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
@@ -110,11 +113,11 @@ sufficient.
 
 | ADR | Status | Decade thread |
 |---|---|---|
-| 0007 — Interlace substrate (Signet leases + attestation + discovery) | Proposed | `interlace-substrate/identity-lease`, `/attestation`, `/discovery` |
-| 0008 — companion pool / load balancing | Proposed | `interlace-substrate/adrs` |
-| 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | Proposed | `interlace-substrate/adrs` |
-| 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed | `interlace-substrate/vault` |
-| 0011 — hypervisor / bundle boundary (three-criterion test) | Proposed | `interlace-substrate/adrs` |
+| 0007 — Interlace substrate (Signet leases + attestation + discovery) | Accepted | `interlace-substrate/identity-lease`, `/attestation`, `/discovery` |
+| 0008 — companion pool / load balancing | Deferred | `interlace-substrate/adrs` |
+| 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | Accepted (Phase 1: OCI + workerd) | `interlace-substrate/adrs` |
+| 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed (impl-gated) | `interlace-substrate/vault` |
+| 0011 — hypervisor / bundle boundary (three-criterion test) | Accepted | `interlace-substrate/adrs` |
 | 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
