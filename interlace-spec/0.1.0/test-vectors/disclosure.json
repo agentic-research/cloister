@@ -1,0 +1,87 @@
+{
+  "$comment": "Worked example of a disclosure-endpoint response. Shape: one header line + N attestation lines (ordered by seq ASC) + M pending lines, then a trailing LF. The constant-time error response is fully specified — body is exactly 256 ASCII '0' bytes.",
+  "endpoint": {
+    "path_pattern": "/interlace/peers/:fp",
+    "method":       "GET",
+    "lease_scope":  "disclosure:<peer_fingerprint>"
+  },
+  "success_response": {
+    "status": 200,
+    "headers": {
+      "content-type":  "application/jsonl; charset=utf-8",
+      "cache-control": "no-store"
+    },
+    "body_lines": [
+      {
+        "type": "header",
+        "version": "v1",
+        "peer_fingerprint": "sha256:abc123def456",
+        "master_public_key": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+        "$note": "next_cursor field is omitted when there are no more pages."
+      },
+      {
+        "type": "attestation",
+        "seq": 1,
+        "prev_self_ref": null,
+        "prev_peer_ref": null,
+        "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "content_type": "application/vnd.cloister.bead.v1+cbor",
+        "scope": "bead_create:/repos/foo",
+        "cert_b64": "(cert_full DER base64-std)",
+        "sig_b64":  "(Ed25519 sig base64-std)",
+        "created_at": 1700000100000
+      },
+      {
+        "type": "attestation",
+        "seq": 2,
+        "prev_self_ref": "1111111111111111111111111111111111111111111111111111111111111111",
+        "prev_peer_ref": "549167a8c86aa0ea24bb14a968784a5b15bdb7d9f63dca16a55746fee205df64",
+        "content_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+        "content_type": "application/vnd.cloister.bead.v1+cbor",
+        "scope": "bead_update:/repos/foo",
+        "cert_b64": "(cert_full DER base64-std)",
+        "sig_b64":  "(Ed25519 sig base64-std)",
+        "created_at": 1700000200000
+      },
+      {
+        "type": "pending",
+        "content_hash": "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+        "scope": "bead_close:/repos/foo",
+        "attempts": 2,
+        "next_retry_at": 1700000600000,
+        "exhausted": false,
+        "created_at": 1700000400000,
+        "last_attempt_at": 1700000500000
+      }
+    ],
+    "trailing_newline": true,
+    "$note": "Each line is the JSON encoding of one object (any whitespace style is acceptable inside a single line; the JSONL convention is one record per line). Line separator is exactly LF (0x0A), NOT CRLF."
+  },
+  "paginated_response": {
+    "description": "When the chain length exceeds page_size (cloister: 100), the header carries next_cursor and the body contains exactly page_size attestation records.",
+    "next_cursor_format": "v1.<base64url payload-json>.<base64url HMAC-SHA256>",
+    "payload_canonical_json": "{\"fromSeq\":101,\"peerFp\":\"sha256:abc123def456\",\"ts\":1700001000000}",
+    "payload_canonical_rules": "keys sorted ASCII ascending; no whitespace; JSON.stringify on the keys themselves (e.g. \"fromSeq\":101 not fromSeq:101)",
+    "hmac_input": "UTF8(\"v1.\" || base64url_no_pad(payload_canonical_json))",
+    "hmac_algorithm": "HMAC-SHA256 with a 32+ byte secret shared across all replicas of the actor"
+  },
+  "constant_time_error_response": {
+    "status": 404,
+    "headers": {
+      "content-type":   "application/octet-stream",
+      "content-length": "256",
+      "cache-control":  "no-store"
+    },
+    "body_length_bytes": 256,
+    "body_byte_value":   "0x30 (ASCII '0')",
+    "body_hex_repeat":   "30",
+    "expected_body_hex_prefix": "30303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030",
+    "covers_failure_classes": [
+      "unknown_peer",
+      "auth_denied",
+      "bad_cursor",
+      "malformed_url"
+    ],
+    "$note": "All failure classes return byte-identical bodies. Implementations MUST NOT vary body bytes, MUST NOT add status-distinguishing headers, and SHOULD NOT vary processing time beyond unavoidable cryptographic timing."
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "$comment": "Source: rs/crates/sign/examples/gen-fixture.rs (deterministic; fixed RNG seeds). Cert DER bytes are base64url, no padding. Expected_claims is what verify_cert_chain MUST return on each input.",
+  "fixed_inputs": {
+    "master_pubkey_b64url_no_pad": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+    "master_pubkey_b64_standard":  "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+    "ephemeral_pubkey_b64url_no_pad": "zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o",
+    "not_before_unix_sec": 1700000000,
+    "not_after_unix_sec":  2524607999
+  },
+  "vectors": [
+    {
+      "name": "cert_full",
+      "description": "Cert with all three Interlace extensions: epoch=7, peer_fp='sha256:abc123def456', scope='bead_create:/repos/foo'.",
+      "input_cert_b64url_no_pad": "MIIBEDCBw6ADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTQ5MTIzMTIzNTk1OVowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2IwYDARBgorBgEEAYaNHwEEBAMCAQcwIwYKKwYBBAGGjR8BBQQVDBNzaGEyNTY6YWJjMTIzZGVmNDU2MCYGCisGAQQBho0fAQYEGAwWYmVhZF9jcmVhdGU6L3JlcG9zL2ZvbzAFBgMrZXADQQAke7lJkybGWHBxDUQujgF_qWaui0cUeUkmjfXFaJqnyjtRQX_WUfhKwhRXMIkAKDOMbic31bXNne6ijmdSppAD",
+      "expected_verify_result": "ok",
+      "expected_claims": {
+        "ephemeral_pubkey_b64url_no_pad": "zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o",
+        "not_before": 1700000000,
+        "not_after":  2524607999,
+        "epoch": 7,
+        "peer_fp": "sha256:abc123def456",
+        "scope": "bead_create:/repos/foo"
+      },
+      "expected_claims_json": "{\"epk\":\"zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o\",\"nb\":1700000000,\"na\":2524607999,\"ep\":7,\"pf\":\"sha256:abc123def456\",\"sc\":\"bead_create:/repos/foo\"}",
+      "expected_cert_fp_sha256_hex": "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73"
+    },
+    {
+      "name": "cert_minimal",
+      "description": "Cert without any Interlace extensions. Verifier returns valid claims with epoch/peer_fp/scope = None. Phase 1 lease middleware will subsequently reject for missing required claims.",
+      "input_cert_b64url_no_pad": "MIGrMF-gAwIBAgIBATAFBgMrZXAwADAeFw0yMzExMTQyMjEzMjBaFw00OTEyMzEyMzU5NTlaMAAwKjAFBgMrZXADIQDNFLN_lW6VMZT_f7c7PYHcxWHWGnU4CUt8PhpkPuXzqjAFBgMrZXADQQAxSk4K9h2Daa-HTeI5aX1CFKkAWySMhVj7hvwId3w5uhZETPHGRy3EV-VDAiEWvnaFpmWvy-uIrdJvsmjSZ3gJ",
+      "expected_verify_result": "ok",
+      "expected_claims": {
+        "ephemeral_pubkey_b64url_no_pad": "zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o",
+        "not_before": 1700000000,
+        "not_after":  2524607999,
+        "epoch": null,
+        "peer_fp": null,
+        "scope": null
+      },
+      "expected_claims_json": "{\"epk\":\"zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o\",\"nb\":1700000000,\"na\":2524607999}"
+    },
+    {
+      "name": "cert_wrong_master",
+      "description": "Cert minted by an unrelated master key (seed = 0xff * 32). Under the fixture master pubkey, verifier MUST reject as BadSignature.",
+      "input_cert_b64url_no_pad": "MIIBEDCBw6ADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTQ5MTIzMTIzNTk1OVowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2IwYDARBgorBgEEAYaNHwEEBAMCAQcwIwYKKwYBBAGGjR8BBQQVDBNzaGEyNTY6YWJjMTIzZGVmNDU2MCYGCisGAQQBho0fAQYEGAwWYmVhZF9jcmVhdGU6L3JlcG9zL2ZvbzAFBgMrZXADQQCVKYCrsFsvCV9c0KDjaDyacj4byKm5Ci4fMkBBXKpL1-vuLIr0PfS-WiEH3JRlzOfzwyN2JRza8CYk2_FLdxUI",
+      "expected_verify_result": "reject",
+      "expected_reject_kind": "BadSignature"
+    },
+    {
+      "name": "cert_critical_unknown_ext",
+      "description": "Cert with a critical-flagged extension at OID 1.3.6.1.4.1.99999.42.1 (outside the known Interlace arc). Per RFC 5280 §4.2 the verifier MUST reject.",
+      "input_cert_b64url_no_pad": "MIIBEjCBxaADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTQ5MTIzMTIzNTk1OVowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2QwYjARBgorBgEEAYaNHwEEBAMCAQcwGwYKKwYBBAGGjR8BBQQNDAtzaGEyNTY6dGVzdDAaBgorBgEEAYaNHwEGBAwMCnRlc3Q6c2NvcGUwFAYKKwYBBAGGjR8qAQEB_wQDBAEBMAUGAytlcANBAIBamT6Ykq3cQd1tiTGBBXmufdbFfb3OPq-Blkd0l9jvx9vESZ7aQIuhd5wqWdEHWRpAxFf1pB2rEWa9UtLXawQ",
+      "expected_verify_result": "reject",
+      "expected_reject_kind": "UnknownCriticalExtension",
+      "expected_unknown_oid": "1.3.6.1.4.1.99999.42.1"
+    },
+    {
+      "name": "cert_noncritical_unknown_ext",
+      "description": "Same as cert_critical_unknown_ext but the extra extension is critical=false. RFC 5280 permits verifiers to ignore non-critical unknowns; verifier MUST accept and return the standard Interlace claims (epoch=7, peer_fp='sha256:test', scope='test:scope').",
+      "input_cert_b64url_no_pad": "MIIBDzCBwqADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTQ5MTIzMTIzNTk1OVowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2EwXzARBgorBgEEAYaNHwEEBAMCAQcwGwYKKwYBBAGGjR8BBQQNDAtzaGEyNTY6dGVzdDAaBgorBgEEAYaNHwEGBAwMCnRlc3Q6c2NvcGUwEQYKKwYBBAGGjR8qAQQDBAEBMAUGAytlcANBAAJMBYsDsH7EQHsg_eL0ULzQrgBOkoLc8wJVicyXhNE15LIqR0fmhAXLAdHRPzIE9e18UXRTtSwI4z4cNVxlXwc",
+      "expected_verify_result": "ok",
+      "expected_claims": {
+        "ephemeral_pubkey_b64url_no_pad": "zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o",
+        "not_before": 1700000000,
+        "not_after":  2524607999,
+        "epoch": 7,
+        "peer_fp": "sha256:test",
+        "scope":   "test:scope"
+      }
+    },
+    {
+      "name": "verify_truncated_cert",
+      "description": "Half of cert_minimal. Verifier MUST reject as malformed DER (returning a parse-error variant, never a successful claims object).",
+      "input_cert_b64url_no_pad_first_half_of": "cert_minimal",
+      "expected_verify_result": "reject",
+      "expected_reject_kind": "BadDer"
+    },
+    {
+      "name": "verify_wrong_master_key_length",
+      "description": "Master pubkey input is only 31 bytes. Verifier MUST reject as BadMasterKey regardless of cert contents.",
+      "input_master_pubkey_byte_length": 31,
+      "expected_verify_result": "reject",
+      "expected_reject_kind": "BadMasterKey"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+; SPDX-License-Identifier: CC0-1.0
+;
+; CDDL schema (RFC 8610) for the Interlace CA bundle's CBOR-canonical
+; signing input. The transport encoding is JSON; this CBOR layout is
+; ONLY used as the byte representation that goes into Ed25519.sign /
+; verify.
+;
+; Encoding rules: RFC 8949 §4.2 ("Core Deterministic Encoding"). In
+; particular:
+;
+;   - Integers in shortest form (major type 0/1).
+;   - Byte strings as major type 2 (NOT the typed-array tag from RFC 8746).
+;   - Map keys sorted: integer keys numerically (already canonical for
+;     1..6 below); the inner "keys" map's text-string keys sorted by
+;     RFC 8949 §4.2 (shorter first; equal length compared bytewise).
+
+ca-bundle-canonical = {
+  1 => uint           ; epoch (matches CABundle.epoch)
+  2 => uint           ; seqno (matches CABundle.seqno)
+  3 => keys-map       ; keys: kid → raw Ed25519 pubkey (32 bytes)
+  4 => tstr           ; keyId — the currently-active kid
+  5 => tstr           ; prevKeyId — empty string when absent
+  6 => int            ; issuedAt (Unix seconds; signed integer)
+}
+
+; The "keys" map's text keys MUST be sorted bytewise (RFC 8949 §4.2):
+; shorter key first; on equal length, lexicographic bytewise.
+keys-map = {
+  * tstr => bstr .size 32     ; raw Ed25519 pubkey bytes (NOT base64 — the
+                              ; bundle's JSON encoding uses base64-std for
+                              ; transport; this CBOR signing input uses raw bytes)
+}
+
+; The signature itself is NOT inside the canonical signing input. It's
+; computed externally:
+;
+;   signature = Ed25519.sign(
+;     master_priv_key,
+;     CBOR_canonical_encode(ca-bundle-canonical)
+;   )
+;
+; and transported as the JSON field `bundle.signature` (base64-standard).

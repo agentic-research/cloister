@@ -1,0 +1,71 @@
+{
+  "$comment": "Canonical-bytes worked example. Inputs and expected sha256 / signature bytes come from rs/crates/sign/examples/gen-fixture.rs. The signature was produced with the fixture's ephemeral private key seed; a conformant implementation reaches the SAME canonical bytes (sha256 matches) and the SAME signature (Ed25519 is deterministic per RFC 8032).",
+  "shared": {
+    "ephemeral_pubkey_b64url_no_pad": "zRSzf5VulTGU_3-3Oz2B3MVh1hp1OAlLfD4aZD7l86o",
+    "ephemeral_priv_seed_b64url_no_pad": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8",
+    "$comment_seed": "Test fixture only — not a real key. 32-byte raw seed; load into Ed25519 via RFC 8032 §5.1.5."
+  },
+  "vectors": [
+    {
+      "name": "sample_envelope",
+      "description": "Primary canonical-bytes vector. ts is in the middle of the cert validity window (1700000000..2524607999), so a clock-skew check at nowMs == ts passes.",
+      "inputs": {
+        "method": "POST",
+        "url":    "http://x/mcp",
+        "ts_ms":  1700000100000,
+        "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+        "nonce_hex":  "a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
+        "body":   "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bead_create\",\"arguments\":{\"repo\":\"/repos/foo\"}}}"
+      },
+      "expected_canonical_bytes_len": 167,
+      "expected_canonical_bytes_hex": "504f53540a687474703a2f2f782f6d63700a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a22746f6f6c732f63616c6c222c22706172616d73223a7b226e616d65223a22626561645f637265617465222c22617267756d656e7473223a7b227265706f223a222f7265706f732f666f6f227d7d7d",
+      "expected_canonical_bytes_sha256_hex": "5e1c29ddf0ffb301f73d34c42103e04296c35caf8b37c9d634bc9b281729e932",
+      "expected_signature_b64url_no_pad": "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1UzIFrZaOHmPqXaFMAhPyRmUNI-QUbObx2vxD4PAA"
+    },
+    {
+      "name": "near_not_before_envelope",
+      "description": "Signed at (not_before + 5s). nowMs slightly before not_before passes clock-skew (|skew|<60s) but fails the cert validity-window check.",
+      "inputs": {
+        "method": "POST",
+        "url":    "http://x/mcp",
+        "ts_ms":  1700000005000,
+        "nonce_b64url_no_pad": "sbKztLW2t7i5uru8vb6_wA",
+        "nonce_hex": "b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
+        "body":   "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bead_create\",\"arguments\":{\"repo\":\"/repos/foo\"}}}"
+      },
+      "expected_signature_b64url_no_pad": "902EhK-twzr-1dhf-L3yqKgKm_1qR6cfDE8I8fAWQSgqAah3q1zdPu5Hm46wK4tkzwLAc0zbLBf4YMfnD2zgCQ"
+    },
+    {
+      "name": "near_not_after_envelope",
+      "description": "Signed at (not_after - 5s). nowMs slightly past not_after passes clock-skew but fails validity-window.",
+      "inputs": {
+        "method": "POST",
+        "url":    "http://x/mcp",
+        "ts_ms":  2524607994000,
+        "nonce_b64url_no_pad": "wcLDxMXGx8jJysvMzc7P0A",
+        "nonce_hex": "c1c2c3c4c5c6c7c8c9cacbcccdcecfd0",
+        "body":   "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"bead_create\",\"arguments\":{\"repo\":\"/repos/foo\"}}}"
+      },
+      "expected_signature_b64url_no_pad": "LaPkM5oLrxaSkaXnT3nMG7-p-Co-exqEGfgI0GvoWOPcfYhz1909epHN3VnUkcAidtr1V3LdGbSLPVQPZDeNCA"
+    },
+    {
+      "name": "get_disclosure_empty_body",
+      "description": "GET disclosure request canonical bytes — body is the empty string, NOT omitted. The trailing LF before the (empty) body is required.",
+      "inputs": {
+        "method": "GET",
+        "url":    "http://x/interlace/peers/sha256:abc123",
+        "ts_ms":  1700000100000,
+        "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+        "body":   ""
+      },
+      "$comment": "Implementations that strip the trailing LF will compute a different digest and fail to verify. The format is `method LF url LF ts LF nonce LF body`; when body is empty, the last byte before EOF is the LF that separates nonce from body."
+    }
+  ],
+  "canonical_format": {
+    "template": "<method>\\n<url>\\n<ts_ms>\\n<nonce_b64url_no_pad>\\n<body>",
+    "separator_byte": "0x0A",
+    "encoding": "UTF-8",
+    "no_trailing_newline": true,
+    "body_can_contain_lf": true
+  }
+}

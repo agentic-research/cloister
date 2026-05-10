@@ -1,0 +1,54 @@
+{
+  "$comment": "Lease counter chain — sha256_hex(prev_chain_hash || cert_fp || nonce_b64 || ts_str). Inputs are concatenated as UTF-8 with NO separator. cert_fp is the sha256_hex of the cert DER. The ts is decimal Unix-milliseconds as ASCII (no zero-padding, no separator).",
+  "chain_step_formula": {
+    "input_template": "UTF8(prev_chain_hash || cert_fp || nonce_b64url_no_pad || ts_ms_decimal)",
+    "hash_algorithm": "SHA-256",
+    "output_format":  "lowercase hex, 64 chars"
+  },
+  "fixed_inputs": {
+    "cert_b64url_no_pad": "MIIBEDCBw6ADAgECAgEBMAUGAytlcDAAMB4XDTIzMTExNDIyMTMyMFoXDTQ5MTIzMTIzNTk1OVowADAqMAUGAytlcAMhAM0Us3-VbpUxlP9_tzs9gdzFYdYadTgJS3w-GmQ-5fOqo2IwYDARBgorBgEEAYaNHwEEBAMCAQcwIwYKKwYBBAGGjR8BBQQVDBNzaGEyNTY6YWJjMTIzZGVmNDU2MCYGCisGAQQBho0fAQYEGAwWYmVhZF9jcmVhdGU6L3JlcG9zL2ZvbzAFBgMrZXADQQAke7lJkybGWHBxDUQujgF_qWaui0cUeUkmjfXFaJqnyjtRQX_WUfhKwhRXMIkAKDOMbic31bXNne6ijmdSppAD",
+    "cert_fp_sha256_hex": "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73"
+  },
+  "vectors": [
+    {
+      "seq": 1,
+      "name": "genesis",
+      "description": "First observation of a peer. prev_chain_hash is 64 ASCII zeros; row not yet in storage.",
+      "inputs": {
+        "prev_chain_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "cert_fp":         "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73",
+        "nonce_b64":       "oaKjpKWmp6ipqqusra6vsA",
+        "ts_ms":           1700000100000
+      },
+      "expected_last_chain_hash": "549167a8c86aa0ea24bb14a968784a5b15bdb7d9f63dca16a55746fee205df64"
+    },
+    {
+      "seq": 2,
+      "name": "second_step",
+      "description": "Same cert, fresh nonce, ts advanced 100 seconds.",
+      "inputs": {
+        "prev_chain_hash": "549167a8c86aa0ea24bb14a968784a5b15bdb7d9f63dca16a55746fee205df64",
+        "cert_fp":         "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73",
+        "nonce_b64":       "sbKztLW2t7i5uru8vb6_wA",
+        "ts_ms":           1700000200000
+      },
+      "expected_last_chain_hash": "0b9d1e76bf3f422b5098557d40b342a0c17f1ad91dfa0d4fe3dfa9b53b6c5963"
+    },
+    {
+      "seq": 3,
+      "name": "third_step",
+      "description": "Third call, fresh nonce, ts advanced another 100s. Demonstrates monotonicity of seq and chain extension.",
+      "inputs": {
+        "prev_chain_hash": "0b9d1e76bf3f422b5098557d40b342a0c17f1ad91dfa0d4fe3dfa9b53b6c5963",
+        "cert_fp":         "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73",
+        "nonce_b64":       "wcLDxMXGx8jJysvMzc7P0A",
+        "ts_ms":           1700000300000
+      },
+      "expected_last_chain_hash": "13b1bec2df65fad43f3adfc1e98a2f41dc7560391a0f7277b0cf35e38a96c665"
+    }
+  ],
+  "invariants": {
+    "monotonic_seq": "next_seq == prev_seq + 1; verifiers MUST reject non-monotonic chain steps",
+    "ZERO_HASH":     "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

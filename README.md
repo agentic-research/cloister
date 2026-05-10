@@ -270,7 +270,10 @@ it hosts workerd Workers, wires them into clusters via service bindings,
 mediates their access to credentials and identity, and routes external
 traffic to them. ADR-0007 adds Interlace identity (Signet ephemeral
 leases + bilateral attestation chains + `.well-known/interlace/`
-discovery) at the public face. ADR-0010 reframed the tenant primitive
+discovery) at the public face. The Interlace protocol is also
+[specified standalone](interlace-spec/0.1.0/README.md) so a second
+implementation (Python, Rust, Go) can reach byte-compatible digests
+against shared test vectors. ADR-0010 reframed the tenant primitive
 as **bundles in a cluster** with **vault-slice** capabilities;
 ADR-0013 ratified the *enforcement* model (V8 isolate +
 service-binding-as-syscall, no signed tokens) and the
@@ -302,6 +305,7 @@ Reproduce with `task bench:lease` (excluded from `task lint` / `task test`).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime model, request routing, component map, packaging
 - [docs/perf/](docs/perf/) — perf write-ups (`2026-05-10-lease-pipeline.md` is the first; more in `cloister-747d98b`)
 - [docs/deployment/off-platform-peers.md](docs/deployment/off-platform-peers.md) — CF Tunnel / WARP for peers outside the platform (per ADR-0007)
+- [interlace-spec/0.1.0/](interlace-spec/0.1.0/README.md) — **Interlace protocol v0.1.0** (vendor-neutral spec extracted from ADR-0007; canonical wire + test vectors for a second implementation)
 - [docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
 - [docs/adr/0002-edge-router-protocol-agnostic-backends.md](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why edge router, not MCP gateway
 - [docs/adr/0003-content-addressed-bead-store.md](docs/adr/0003-content-addressed-bead-store.md) — bead storage as content-addressed DAG + CAS refs

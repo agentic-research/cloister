@@ -1,10 +1,11 @@
 ---
 title: "ADR-0007: Interlace substrate — Signet leases, peer attestations, .well-known discovery (lease ≠ state)"
-status: Accepted (substrate shipped 2026-05-09; bd7770/bdcbe7/c5c846/c614ae)
+status: Accepted (substrate shipped 2026-05-09; bd7770/bdcbe7/c5c846/c614ae). Spec extracted to interlace-spec/0.1.0/ on 2026-05-10 (cloister-765132) — see vendor-neutral protocol docs + canonical test vectors at `interlace-spec/0.1.0/README.md`.
 date: 2026-05-08
 tags: [architecture, identity, attestation, capability, signet, interlace, ca, wasm, cloudflare]
 supersedes_framing: [ADR-0001 §"notme JWT middleware on POST /mcp", ADR-0002 §"public face is unauthenticated in dev"]
 threat_model: docs/security/threat-model.md
+spec: interlace-spec/0.1.0/README.md
 ---
 
 ## Context

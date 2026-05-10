@@ -1,0 +1,47 @@
+{
+  "$comment": "CA bundle canonical signing input (the bytes that get Ed25519-signed). The transport encoding is JSON; this CBOR encoding is ONLY used as the signature input.",
+  "encoding_rules": {
+    "spec": "RFC 8949 §4.2 Core Deterministic Encoding",
+    "integers": "shortest form, major type 0/1",
+    "bytes":    "major type 2 (NOT the typed-array tag RFC 8746)",
+    "maps":     "major type 5; outer integer keys 1..6 in numeric order; inner 'keys' map's text keys sorted bytewise per RFC 8949 §4.2 (shorter first; equal-length compared bytewise)"
+  },
+  "vectors": [
+    {
+      "name": "bundle_with_prev_key",
+      "description": "Two-key bundle during a rotation window. master-k1 is active; master-k0 is the previous key still accepted for one window.",
+      "inputs": {
+        "epoch":  1,
+        "seqno":  1,
+        "keys": {
+          "master-k0_b64_std": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+          "master-k1_b64_std": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ="
+        },
+        "keyId":     "master-k1",
+        "prevKeyId": "master-k0",
+        "issuedAt_unix_sec": 1700000000,
+        "$note": "Inner 'keys' map is canonically sorted: 'master-k0' < 'master-k1' bytewise; both have equal length 9 so byte-by-byte comparison applies."
+      },
+      "expected_cbor_canonical_len": 123,
+      "expected_cbor_canonical_hex": "a60101020103a2696d61737465722d6b305820000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f696d61737465722d6b31582079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404696d61737465722d6b3105696d61737465722d6b30061a6553f100",
+      "expected_cbor_canonical_sha256_hex": "82ad5e2b63285a99b88f15e457b7869cf3ef9aa85ee3092e2945e5b0429a6a90"
+    },
+    {
+      "name": "bundle_single_key",
+      "description": "Steady-state bundle: one active key, no prev. prevKeyId is encoded as the empty text string (the JSON field MAY be absent on the wire; the CBOR canonical input MUST carry the empty-string placeholder at key 5).",
+      "inputs": {
+        "epoch":  1,
+        "seqno":  1,
+        "keys": {
+          "master-k1_b64_std": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ="
+        },
+        "keyId":     "master-k1",
+        "prevKeyId": "",
+        "issuedAt_unix_sec": 1700000000
+      },
+      "expected_cbor_canonical_len": 70,
+      "expected_cbor_canonical_hex": "a60101020103a1696d61737465722d6b31582079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966404696d61737465722d6b310560061a6553f100",
+      "expected_cbor_canonical_sha256_hex": "5dd769c693677415e4688d89bd9ced0177b71f834d6ad1d647bfae59a9fbc6ef"
+    }
+  ]
+}

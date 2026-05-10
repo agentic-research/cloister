@@ -1,0 +1,74 @@
+{
+  "$comment": "Worked example of a three-row peer_attestations chain. prev_self_ref is per-peer (NOT a global hash chain across all of the actor's peers — see ADR-0007 audit amendment 3). The per-peer scoping is what makes selective disclosure safe: disclosing peer X's chain reveals nothing about peer Y's writes. content_hash is the digest of the underlying state-write's canonical bytes (cloister: bead-canonical.ts); it's NOT recomputed by the attestation step.",
+  "fixed_inputs": {
+    "peer_fingerprint": "sha256:abc123def456",
+    "scope":            "bead_create:/repos/foo",
+    "cert_b64_std_inline": "(see cert-vectors.json::cert_full for the DER)",
+    "$note": "The cert + sig fields in each row store raw bytes; this test vector elides them as 'cert_b64' / 'sig_b64' placeholders for layout-only verification. A full byte-exact vector would require running an Ed25519 signing oracle; that's the ref-impl's job."
+  },
+  "chain": [
+    {
+      "seq": 1,
+      "name": "genesis_row",
+      "description": "First state-boundary write for this (actor, peer) pair. prev_self_ref is NULL; prev_peer_ref MAY be NULL (peer hasn't claimed a counter chain head yet) or the peer's first-call counter hash.",
+      "row": {
+        "peer_fingerprint": "sha256:abc123def456",
+        "seq":              1,
+        "prev_self_ref":    null,
+        "prev_peer_ref":    null,
+        "content_hash":     "1111111111111111111111111111111111111111111111111111111111111111",
+        "content_type":     "application/vnd.cloister.bead.v1+cbor",
+        "scope":            "bead_create:/repos/foo",
+        "cert_b64":         "(cert_full DER, base64-std)",
+        "sig_b64":          "(Ed25519 sig over canonical_bytes || prev_self_ref where prev_self_ref is the empty string for genesis, by implementation choice)",
+        "created_at":       1700000100000
+      }
+    },
+    {
+      "seq": 2,
+      "name": "second_row",
+      "description": "Second state-write. prev_self_ref MUST equal genesis_row.content_hash exactly. Implementations MUST reject a write whose prev_self_ref doesn't match the chain head; cloister returns `prev_self_ref_mismatch` and writes nothing.",
+      "row": {
+        "peer_fingerprint": "sha256:abc123def456",
+        "seq":              2,
+        "prev_self_ref":    "1111111111111111111111111111111111111111111111111111111111111111",
+        "prev_peer_ref":    "549167a8c86aa0ea24bb14a968784a5b15bdb7d9f63dca16a55746fee205df64",
+        "content_hash":     "2222222222222222222222222222222222222222222222222222222222222222",
+        "content_type":     "application/vnd.cloister.bead.v1+cbor",
+        "scope":            "bead_update:/repos/foo",
+        "cert_b64":         "(cert_full DER, base64-std)",
+        "sig_b64":          "(Ed25519 sig)",
+        "created_at":       1700000200000
+      }
+    },
+    {
+      "seq": 3,
+      "name": "third_row",
+      "description": "Third state-write. prev_self_ref now points at second_row.content_hash. prev_peer_ref MAY advance independently to whatever counter-chain head the peer claims in this request envelope.",
+      "row": {
+        "peer_fingerprint": "sha256:abc123def456",
+        "seq":              3,
+        "prev_self_ref":    "2222222222222222222222222222222222222222222222222222222222222222",
+        "prev_peer_ref":    "0b9d1e76bf3f422b5098557d40b342a0c17f1ad91dfa0d4fe3dfa9b53b6c5963",
+        "content_hash":     "3333333333333333333333333333333333333333333333333333333333333333",
+        "content_type":     "application/vnd.cloister.bead.v1+cbor",
+        "scope":            "bead_close:/repos/foo",
+        "cert_b64":         "(cert_full DER, base64-std)",
+        "sig_b64":          "(Ed25519 sig)",
+        "created_at":       1700000300000
+      }
+    }
+  ],
+  "rejection_cases": [
+    {
+      "name": "wrong_prev_self_ref",
+      "description": "Caller submits seq=2 with prev_self_ref=0xdead... when the chain head is 0x1111... . Implementations MUST refuse the INSERT and surface the mismatch (cloister returns {ok:false, error:'prev_self_ref_mismatch'}).",
+      "expected_outcome": "reject_no_row_written"
+    },
+    {
+      "name": "globally_chained_prev_self_ref",
+      "description": "An implementation that chained prev_self_ref across all peers (a bug ADR-0007 audit finding 3 explicitly warned against) would leak peer-existence at disclosure time. Verifiers SHOULD validate that the chain step references the same peer's prior row only.",
+      "expected_outcome": "implementation_bug"
+    }
+  ]
+}
