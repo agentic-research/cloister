@@ -79,7 +79,9 @@ that supersede earlier in-flight assumptions:
    Run `pnpm install` first; export `CLOISTER_SCHEMA_ROOT` if the bead
    touches the manifest schema (see CLAUDE.md "Working in worktrees").
 3. **Test** with `task lint` (always) and `task verify` (for substrate
-   changes — wire codec edits, schema changes, etc.).
+   changes — wire codec edits, schema changes, etc.). Any new cross-DO
+   state-mutating sequence requires a fault-injection test per the
+   §13.4 audit pattern (`test/security/cross-do-recovery.test.ts`).
 4. **Commit** with `[<bead-id>] type(scope): description`. The
    commit-msg hook auto-injects the prefix when `.rsry-bead-id` exists.
 5. **Comment** the bead via `rsry_bead_comment` with the commit hash +

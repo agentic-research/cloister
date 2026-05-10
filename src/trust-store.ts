@@ -105,7 +105,8 @@ const REPLAY_SENTINEL: unique symbol = Symbol("replay-sentinel");
 // ── TEST-ONLY — DO NOT USE IN PRODUCTION ─────────────────────────────────
 //
 // Fault-injection seam for the cross-DO recovery test
-// (`test/security/cross-do-recovery.test.ts`, cloister-fff647).
+// (`test/security/cross-do-recovery.test.ts`, cloister-fff647 + the
+// expansion in cloister-3dd355 covering the earlier hops).
 //
 // At runtime in a deployed worker, `globalThis.__cloisterTestFaults` is
 // `undefined` — the `Map.get` call below short-circuits to `undefined`
@@ -119,11 +120,17 @@ const REPLAY_SENTINEL: unique symbol = Symbol("replay-sentinel");
 // it), unlike an env-var gate which could in principle be flipped at
 // deploy time.
 //
+// The key type unions every fault key used across the pipeline DOs
+// (BlobStore.put, BeadStore.write, TrustStore.applyAttestation). The
+// per-DO seam files each filter to their own key locally; tests use
+// the union type to hold the Map.
+//
 // Reviewers: if you see code reading from `__cloisterTestFaults`
 // anywhere outside this file, that is a bug; the seam should never
 // have callers, only this defender's check.
-type FaultInjectionMap = Map<"applyAttestation", { failOnce: boolean }>;
-function checkAndConsumeFault(key: "applyAttestation"): boolean {
+type FaultKey = "applyAttestation" | "blobStorePut" | "beadStoreWrite";
+type FaultInjectionMap = Map<FaultKey, { failOnce: boolean }>;
+function checkAndConsumeFault(key: FaultKey): boolean {
   const faults = (globalThis as { __cloisterTestFaults?: FaultInjectionMap })
     .__cloisterTestFaults;
   if (faults === undefined) return false;

@@ -11,6 +11,46 @@
 import type { Bead, BeadState, BeadPriority, JsonRpcRequest, JsonRpcResponse } from "./types.js";
 import { okResponse, errResponse } from "./types.js";
 
+// ── TEST-ONLY — DO NOT USE IN PRODUCTION ─────────────────────────────────
+//
+// Fault-injection seam for the cross-DO recovery test
+// (`test/security/cross-do-recovery.test.ts`, cloister-3dd355). Mirrors
+// the seam in `src/trust-store.ts` (cloister-fff647) for the middle hop
+// of the BlobStore → BeadStore → TrustStore pipeline. Same shape, same
+// safety argument:
+//
+//   - `globalThis.__cloisterTestFaults` is `undefined` at runtime in a
+//     deployed worker. The Map.get below short-circuits to `undefined`
+//     and the production path proceeds unchanged.
+//   - The seam is reachable ONLY when a test explicitly installs the
+//     map + the fault key. Tests install + remove the fault in
+//     `beforeEach`/`afterEach` so cross-test bleed is impossible.
+//   - A `globalThis` Map check is unambiguously test-only (production
+//     code never reads from it).
+//
+// We trip the fault inside `create()` only — the cross-DO recovery
+// audit (§13.4) is concerned with `bead_create` as the entry point to
+// the multi-hop pipeline. Other JSON-RPC methods (`update`, `close`,
+// `comment`) are intra-DO single-SQL-statement writes per §13.4 and
+// don't participate in the cross-DO retry contract; no seam needed.
+//
+// Reviewers: if you see code reading from `__cloisterTestFaults`
+// anywhere outside this seam-check site, that is a bug.
+type FaultKey = "applyAttestation" | "blobStorePut" | "beadStoreWrite";
+type FaultInjectionMap = Map<FaultKey, { failOnce: boolean }>;
+function checkAndConsumeFault(key: FaultKey): boolean {
+  const faults = (globalThis as { __cloisterTestFaults?: FaultInjectionMap })
+    .__cloisterTestFaults;
+  if (faults === undefined) return false;
+  const entry = faults.get(key);
+  if (entry === undefined) return false;
+  if (entry.failOnce) {
+    faults.delete(key);
+    return true;
+  }
+  return false;
+}
+
 // BeadStore is BUNDLE-LAYER per ADR-0011's three-criterion test (per-repo,
 // idFromName(repo) — many instances per cluster, not singleton). It holds
 // only work-item state — beads + comments. Trust state (peer_attestations,
@@ -90,6 +130,15 @@ export class BeadStore implements DurableObject {
   // ── CRUD ──────────────────────────────────────────────────────────────────
 
   private create(req: JsonRpcRequest): JsonRpcResponse {
+    // TEST-ONLY fault-injection seam (cloister-3dd355). The check is
+    // inert in production — see header above. We throw BEFORE the
+    // INSERT so the assertion "no bead row in BeadStore on faulted
+    // write" holds. `dispatch()`'s try/catch converts the throw into a
+    // JSON-RPC error response, mirroring how a real intra-DO write
+    // failure (e.g. a SQL constraint violation) would propagate.
+    if (checkAndConsumeFault("beadStoreWrite")) {
+      throw new Error("test-injected beadStoreWrite failure (cloister-3dd355)");
+    }
     const p = req.params as Record<string, unknown>;
     const id = generateId();
     const title       = String(p.title ?? "");

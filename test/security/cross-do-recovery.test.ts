@@ -34,14 +34,22 @@
 
 import { SELF, env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BLOB_PUT_FAULT_DIGEST } from "../../src/blob-store.js";
 import type { PeerAttestation } from "../../src/storage/peer-attestations.js";
 import type { PendingAttestation } from "../../src/storage/pending-attestations.js";
 
 // ── Fault-injection seam (test-only — see src/trust-store.ts header) ────
+//
+// Key union widened in cloister-3dd355 to cover the EARLIER hops of the
+// BlobStore → BeadStore → TrustStore pipeline. Each DO's seam check
+// reads the same `globalThis.__cloisterTestFaults` Map and filters by
+// key; tests below install one key per case + assert recovery semantics
+// specific to that hop.
 
-type FaultInjectionMap = Map<"applyAttestation", { failOnce: boolean }>;
+type FaultKey = "applyAttestation" | "blobStorePut" | "beadStoreWrite";
+type FaultInjectionMap = Map<FaultKey, { failOnce: boolean }>;
 
-function installFault(key: "applyAttestation"): void {
+function installFault(key: FaultKey): void {
   const g = globalThis as { __cloisterTestFaults?: FaultInjectionMap };
   if (g.__cloisterTestFaults === undefined) g.__cloisterTestFaults = new Map();
   g.__cloisterTestFaults.set(key, { failOnce: true });
@@ -108,9 +116,13 @@ function freshTrustStore(): DurableObjectStub & TrustStoreRpc {
 // should move into src and this test should call it via SELF.fetch.
 
 interface PipelineResult {
-  digest:        string;
-  bead_id:       string;
-  attestationOk: boolean;
+  /** Digest from BlobStore.put. `null` if step 1 short-circuited (e.g. BlobStore fault). */
+  digest:          string | null;
+  /** Bead id from BeadStore.bead_create. `null` if step 1 or 2 short-circuited. */
+  bead_id:         string | null;
+  /** Which step failed, or null if the pipeline completed. */
+  failedStep:      "blobStorePut" | "beadStoreWrite" | "applyAttestation" | null;
+  attestationOk:   boolean;
   pendingEnqueued: boolean;
 }
 
@@ -130,15 +142,34 @@ async function runBeadCreatePipeline(args: {
   // generates the bead id internally, and we need the digest BEFORE
   // BeadStore writes the row. (Production will refactor BeadStore.create
   // to accept a pre-allocated id + canonical bytes; out of scope here.)
+  //
+  // Short-circuit on BlobStore failure: ADR-0012 + §13.4 require that
+  // a failed first hop leaves NO downstream writes attempted. We model
+  // that explicitly here.
   const bytes = new TextEncoder().encode(`bead-canonical:${args.repo}:${args.title}`);
   const blobStore = env.BLOB_STORE.get(env.BLOB_STORE.idFromName("cluster")) as DurableObjectStub & {
     put(b: Uint8Array): Promise<string>;
   };
+  // The fault-injection seam in BlobStore.put returns BLOB_PUT_FAULT_DIGEST
+  // rather than throwing — see the seam header in src/blob-store.ts for
+  // the rationale (cloister-3dd355: avoid workerd-RPC-boundary
+  // unhandled-rejection noise that throwing causes in vitest, mirroring
+  // the cloister-fff647 motivation for Result-shape returns).
   const digest = await blobStore.put(bytes);
+  if (digest === BLOB_PUT_FAULT_DIGEST) {
+    return {
+      digest:          null,
+      bead_id:         null,
+      failedStep:      "blobStorePut",
+      attestationOk:   false,
+      pendingEnqueued: false,
+    };
+  }
 
   // Step 2: BeadStore.bead_create — per-repo DO write referencing the
   // digest. We call the existing JSON-RPC method to preserve the
-  // standard write path.
+  // standard write path. Short-circuit on JSON-RPC `error` response:
+  // §13.4 requires no TrustStore write when BeadStore failed.
   const beadStore = env.BEAD_STORE.get(env.BEAD_STORE.idFromName(args.repo)) as DurableObjectStub & {
     fetch(req: Request): Promise<Response>;
   };
@@ -153,7 +184,19 @@ async function runBeadCreatePipeline(args: {
     }),
   });
   const createRes = await beadStore.fetch(createReq);
-  const createBody = await createRes.json() as { result: { id: string } };
+  const createBody = await createRes.json() as {
+    result?: { id: string };
+    error?:  { code: number; message: string };
+  };
+  if (createBody.error !== undefined || createBody.result === undefined) {
+    return {
+      digest,
+      bead_id:         null,
+      failedStep:      "beadStoreWrite",
+      attestationOk:   false,
+      pendingEnqueued: false,
+    };
+  }
   const beadId = createBody.result.id;
 
   // Step 3: TrustStore.applyAttestation — singleton DO write. May fail
@@ -191,7 +234,13 @@ async function runBeadCreatePipeline(args: {
     pendingEnqueued = e.enqueued;
   }
 
-  return { digest: digest, bead_id: beadId, attestationOk, pendingEnqueued };
+  return {
+    digest,
+    bead_id:         beadId,
+    failedStep:      attestationOk ? null : "applyAttestation",
+    attestationOk,
+    pendingEnqueued,
+  };
 }
 
 // ── Test inputs ─────────────────────────────────────────────────────────
@@ -272,6 +321,14 @@ describe("cross-DO recovery (cloister-fff647)", () => {
     });
     expect(faulted.attestationOk).toBe(false);
     expect(faulted.pendingEnqueued).toBe(true);
+    expect(faulted.failedStep).toBe("applyAttestation");
+    // After widening the pipeline result to `string | null` (cloister-3dd355
+    // — needed by the BlobStore/BeadStore-fault cases below), assert the
+    // step-3-fault case has non-null digest + bead_id before using them.
+    expect(faulted.digest).not.toBeNull();
+    expect(faulted.bead_id).not.toBeNull();
+    const faultedDigest = faulted.digest!;
+    const faultedBeadId = faulted.bead_id!;
 
     // ── Assertion 1: bead row IS in BeadStore (step 2 succeeded).
     //                Read it back via the standard JSON-RPC method.
@@ -283,12 +340,12 @@ describe("cross-DO recovery (cloister-fff647)", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0", method: "bead_get",
-        params: { id: faulted.bead_id }, id: 1,
+        params: { id: faultedBeadId }, id: 1,
       }),
     });
     const getRes = await beadStore.fetch(getReq);
     const getBody = await getRes.json() as { result?: { bead: { id: string; title: string } } };
-    expect(getBody.result?.bead.id).toBe(faulted.bead_id);
+    expect(getBody.result?.bead.id).toBe(faultedBeadId);
     expect(getBody.result?.bead.title).toBe("during-fault");
 
     // ── Assertion 2: NO new attestation row in TrustStore (step 3
@@ -296,13 +353,13 @@ describe("cross-DO recovery (cloister-fff647)", () => {
     //                attestation; no row exists for the faulted digest.
     const headDuringFault = await trustStore.lastAttestationForPeer(PEER);
     expect(headDuringFault?.content_hash).toBe(digestBeforeFault);
-    expect(await trustStore.findAttestationByContent(PEER, faulted.digest)).toBeNull();
+    expect(await trustStore.findAttestationByContent(PEER, faultedDigest)).toBeNull();
 
     // ── Assertion 3: pending_attestations has a retry row keyed by
     //                the bead's content digest.
     const pendingDuringFault = await trustStore.listPendingForPeer(PEER);
     expect(pendingDuringFault.length).toBe(1);
-    expect(pendingDuringFault[0]!.content_hash).toBe(faulted.digest);
+    expect(pendingDuringFault[0]!.content_hash).toBe(faultedDigest);
     expect(pendingDuringFault[0]!.attempts).toBe(0);
 
     // ── Step C: clear the fault. The seam consumed itself on first hit
@@ -323,7 +380,7 @@ describe("cross-DO recovery (cloister-fff647)", () => {
     expect(drainResult.failed).toBe(0);
 
     // ── Assertion 4: attestation now lands in TrustStore.
-    const recoveredRow = await trustStore.findAttestationByContent(PEER, faulted.digest);
+    const recoveredRow = await trustStore.findAttestationByContent(PEER, faultedDigest);
     expect(recoveredRow).not.toBeNull();
 
     // ── Assertion 5: pending_attestations row removed.
@@ -342,6 +399,223 @@ describe("cross-DO recovery (cloister-fff647)", () => {
     const fullChain = await trustStore.listAttestationsForPeer(PEER);
     expect(fullChain.map(r => r.seq)).toEqual([1, 2]);
     expect(fullChain[1]!.prev_self_ref).toBe(fullChain[0]!.content_hash);
+  });
+
+  it("fault-at-BlobStore.put: no downstream writes; retry recovers full pipeline", async () => {
+    // Earlier-hop expansion of the §13.4 audit (cloister-3dd355).
+    // BlobStore is the FIRST hop of the bead_create pipeline. Failing
+    // here must leave NO downstream writes attempted — neither BeadStore
+    // nor TrustStore should see the call. On retry, the same canonical
+    // bytes produce the same digest (idempotent CAS, per ADR-0003), so
+    // the recovery path is observationally indistinguishable from a
+    // fresh first-time write.
+    const trustStore = freshTrustStore();
+    const repoPath = repo();
+    const peer = `${PEER}-blob-fault`;
+
+    // ── Step A: inject fault for the next BlobStore.put call.
+    installFault("blobStorePut");
+
+    // ── Step B: drive bead_create. The orchestrator catches the
+    //           BlobStore throw and short-circuits with failedStep =
+    //           "blobStorePut"; no BeadStore or TrustStore RPC issued.
+    const faulted = await runBeadCreatePipeline({
+      trustStore,
+      repo:            repoPath,
+      title:           "blob-fault-case",
+      peerFingerprint: peer,
+      scope:           "bead_create:/repos/foo",
+      cert:            CERT,
+      sig:             SIG,
+      nowMs:           7_000,
+    });
+    expect(faulted.failedStep).toBe("blobStorePut");
+    expect(faulted.digest).toBeNull();
+    expect(faulted.bead_id).toBeNull();
+    expect(faulted.attestationOk).toBe(false);
+    expect(faulted.pendingEnqueued).toBe(false); // step 4 not reached
+
+    // ── Assertion: no digest in BlobStore. We compute the canonical
+    //              bytes the orchestrator WOULD have hashed, then ask
+    //              BlobStore.has — should be false. Same fault key was
+    //              consumed (failOnce), so this probe call goes through
+    //              and tells us truthfully whether the prior put landed.
+    const blobStore = env.BLOB_STORE.get(env.BLOB_STORE.idFromName("cluster")) as DurableObjectStub & {
+      has(d: string): Promise<boolean>;
+      put(b: Uint8Array): Promise<string>;
+    };
+    const canonicalBytes = new TextEncoder().encode(`bead-canonical:${repoPath}:blob-fault-case`);
+    // Use crypto.subtle.digest on the same canonical bytes to derive what
+    // the digest WOULD be. workerd's BlobStore uses raw sha256-hex
+    // (see `digestBytes` in src/storage/canonical.ts — hex, no prefix).
+    const expectedHashBytes = new Uint8Array(await crypto.subtle.digest("SHA-256", canonicalBytes));
+    const expectedDigest = Array.from(expectedHashBytes, b => b.toString(16).padStart(2, "0")).join("");
+    expect(await blobStore.has(expectedDigest)).toBe(false);
+
+    // ── Assertion: no bead row in BeadStore for the canonical title.
+    //              We can't search by digest (BeadStore doesn't index by
+    //              that), but a bead_list filtered to the test title is
+    //              cheap and the DO is per-repo so isolation is intact.
+    const beadStore = env.BEAD_STORE.get(env.BEAD_STORE.idFromName(repoPath)) as DurableObjectStub & {
+      fetch(req: Request): Promise<Response>;
+    };
+    const listReq = new Request("https://bead-store.invalid/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", method: "bead_list", params: {}, id: 1,
+      }),
+    });
+    const listRes = await beadStore.fetch(listReq);
+    const listBody = await listRes.json() as { result: { beads: { title: string }[] } };
+    expect(listBody.result.beads.filter(b => b.title === "blob-fault-case")).toEqual([]);
+
+    // ── Assertion: no attestation row in TrustStore for this peer.
+    expect(await trustStore.lastAttestationForPeer(peer)).toBeNull();
+
+    // ── Assertion: no pending row.
+    expect(await trustStore.listPendingForPeer(peer)).toEqual([]);
+
+    // ── Step C: clear faults (defense-in-depth — failOnce already consumed).
+    clearFaults();
+
+    // ── Step D: retry bead_create. Should run end-to-end clean.
+    const recovered = await runBeadCreatePipeline({
+      trustStore,
+      repo:            repoPath,
+      title:           "blob-fault-case", // SAME title → SAME canonical bytes → SAME digest
+      peerFingerprint: peer,
+      scope:           "bead_create:/repos/foo",
+      cert:            CERT,
+      sig:             SIG,
+      nowMs:           8_000,
+    });
+    expect(recovered.failedStep).toBeNull();
+    expect(recovered.attestationOk).toBe(true);
+    expect(recovered.pendingEnqueued).toBe(false);
+
+    // ── Assertion: idempotent CAS — the recovered digest equals the
+    //              digest the failed attempt would have produced.
+    expect(recovered.digest).toBe(expectedDigest);
+    expect(await blobStore.has(expectedDigest)).toBe(true);
+
+    // ── Assertion: attestation row landed, no pending queue residue.
+    const attestation = await trustStore.findAttestationByContent(peer, expectedDigest);
+    expect(attestation).not.toBeNull();
+    expect(await trustStore.listPendingForPeer(peer)).toEqual([]);
+  });
+
+  it("fault-at-BeadStore.write: idempotent BlobStore landed; no TrustStore write; retry recovers", async () => {
+    // Middle-hop expansion of the §13.4 audit (cloister-3dd355).
+    // BeadStore is the SECOND hop. By the time we get here, step 1
+    // (BlobStore.put) has already landed — content-addressed and
+    // idempotent. The fault is observable as "blob digest exists but
+    // no bead row references it (yet)". The §13.4 audit's bead_create
+    // row already records intra-DO ACID for the SQL INSERT, so step 2
+    // failure is well-defined: the INSERT never ran.
+    //
+    // The orchestrator MUST NOT call TrustStore.applyAttestation when
+    // BeadStore returned an error — that's the cross-DO short-circuit
+    // invariant from §13.4. We assert this by checking that no
+    // attestation row exists for the peer after the fault.
+    const trustStore = freshTrustStore();
+    const repoPath = repo();
+    const peer = `${PEER}-bead-fault`;
+
+    // ── Step A: inject fault for the next BeadStore.bead_create call.
+    installFault("beadStoreWrite");
+
+    // ── Step B: drive bead_create. Step 1 (BlobStore) succeeds; step 2
+    //           (BeadStore) throws, dispatch() converts to a JSON-RPC
+    //           error response, orchestrator short-circuits with
+    //           failedStep = "beadStoreWrite".
+    const faulted = await runBeadCreatePipeline({
+      trustStore,
+      repo:            repoPath,
+      title:           "bead-fault-case",
+      peerFingerprint: peer,
+      scope:           "bead_create:/repos/foo",
+      cert:            CERT,
+      sig:             SIG,
+      nowMs:           9_000,
+    });
+    expect(faulted.failedStep).toBe("beadStoreWrite");
+    expect(faulted.digest).not.toBeNull(); // step 1 landed
+    expect(faulted.bead_id).toBeNull();    // step 2 didn't
+    expect(faulted.attestationOk).toBe(false);
+    expect(faulted.pendingEnqueued).toBe(false); // step 4 not reached — short-circuit invariant
+
+    const stage1Digest = faulted.digest!;
+
+    // ── Assertion: digest IS in BlobStore (step 1 already landed
+    //              BEFORE step 2 was attempted; that's the whole point
+    //              of the content-addressed handoff).
+    const blobStore = env.BLOB_STORE.get(env.BLOB_STORE.idFromName("cluster")) as DurableObjectStub & {
+      has(d: string): Promise<boolean>;
+    };
+    expect(await blobStore.has(stage1Digest)).toBe(true);
+
+    // ── Assertion: no bead row in BeadStore (write was faulted before
+    //              the SQL INSERT ran).
+    const beadStore = env.BEAD_STORE.get(env.BEAD_STORE.idFromName(repoPath)) as DurableObjectStub & {
+      fetch(req: Request): Promise<Response>;
+    };
+    const listReq = new Request("https://bead-store.invalid/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", method: "bead_list", params: {}, id: 1,
+      }),
+    });
+    const listRes = await beadStore.fetch(listReq);
+    const listBody = await listRes.json() as { result: { beads: { title: string }[] } };
+    expect(listBody.result.beads.filter(b => b.title === "bead-fault-case")).toEqual([]);
+
+    // ── Assertion: NO attestation row in TrustStore — the orchestrator
+    //              correctly short-circuited on BeadStore failure and
+    //              did NOT attempt step 3. (If this assertion ever
+    //              fires, the orchestrator is leaking writes past the
+    //              §13.4 short-circuit invariant; that's a separate
+    //              bead, not a fix in this file.)
+    expect(await trustStore.lastAttestationForPeer(peer)).toBeNull();
+    expect(await trustStore.findAttestationByContent(peer, stage1Digest)).toBeNull();
+
+    // ── Assertion: no pending row (step 4 only runs after step 3
+    //              actually attempted-and-failed).
+    expect(await trustStore.listPendingForPeer(peer)).toEqual([]);
+
+    // ── Step C: clear faults.
+    clearFaults();
+
+    // ── Step D: retry bead_create. BlobStore.put is idempotent — same
+    //           bytes return the same digest, no duplicate row — so the
+    //           retry should produce the exact same digest as the
+    //           faulted attempt.
+    const recovered = await runBeadCreatePipeline({
+      trustStore,
+      repo:            repoPath,
+      title:           "bead-fault-case",
+      peerFingerprint: peer,
+      scope:           "bead_create:/repos/foo",
+      cert:            CERT,
+      sig:             SIG,
+      nowMs:           10_000,
+    });
+    expect(recovered.failedStep).toBeNull();
+    expect(recovered.attestationOk).toBe(true);
+    expect(recovered.pendingEnqueued).toBe(false);
+
+    // ── Assertion: BlobStore digest unchanged across the retry — the
+    //              idempotent put returned the same content-hash as the
+    //              faulted attempt's stage-1 result.
+    expect(recovered.digest).toBe(stage1Digest);
+
+    // ── Assertion: bead row now in BeadStore.
+    expect(recovered.bead_id).not.toBeNull();
+
+    // ── Assertion: attestation now in TrustStore, no pending residue.
+    expect(await trustStore.findAttestationByContent(peer, stage1Digest)).not.toBeNull();
+    expect(await trustStore.listPendingForPeer(peer)).toEqual([]);
   });
 
   it("drain on empty pending queue is a no-op", async () => {

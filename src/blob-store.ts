@@ -34,6 +34,55 @@ import type { Env } from "./types.js";
 import { WorkerdBlobStore } from "./storage/workerd.js";
 import type { Digest } from "./storage/types.js";
 
+// ── TEST-ONLY — DO NOT USE IN PRODUCTION ─────────────────────────────────
+//
+// Fault-injection seam for the cross-DO recovery test
+// (`test/security/cross-do-recovery.test.ts`, cloister-3dd355). Mirrors
+// the seam in `src/trust-store.ts` (cloister-fff647) for the earlier
+// hops of the BlobStore → BeadStore → TrustStore pipeline. Same shape,
+// same safety argument:
+//
+//   - `globalThis.__cloisterTestFaults` is `undefined` at runtime in a
+//     deployed worker. The Map.get below short-circuits to `undefined`
+//     and the production path proceeds unchanged.
+//   - The seam is reachable ONLY when a test explicitly installs the
+//     map + the fault key. Tests install + remove the fault in
+//     `beforeEach`/`afterEach` so cross-test bleed is impossible.
+//   - A `globalThis` Map check is unambiguously test-only (production
+//     code never reads from it), unlike an env-var gate which could in
+//     principle be flipped at deploy time.
+//
+// Reviewers: if you see code reading from `__cloisterTestFaults`
+// anywhere outside this seam-check site, that is a bug; the seam
+// should never have callers, only this defender's check.
+type FaultKey = "applyAttestation" | "blobStorePut" | "beadStoreWrite";
+type FaultInjectionMap = Map<FaultKey, { failOnce: boolean }>;
+function checkAndConsumeFault(key: FaultKey): boolean {
+  const faults = (globalThis as { __cloisterTestFaults?: FaultInjectionMap })
+    .__cloisterTestFaults;
+  if (faults === undefined) return false;
+  const entry = faults.get(key);
+  if (entry === undefined) return false;
+  if (entry.failOnce) {
+    // Single-shot: consume the fault so the retry path sees a clean store.
+    faults.delete(key);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Sentinel returned by `BlobStore.put` ONLY when the test fault-injection
+ * seam fires (cloister-3dd355). Not a valid hex sha256 digest — its
+ * `__fault:` prefix is reserved + the total length exceeds 64 chars, so
+ * downstream code that mistakes it for a real digest fails closed (the
+ * SELECT against `store_blobs` returns no row). The cross-DO recovery
+ * test recognizes this sentinel and treats it as the "first hop failed"
+ * signal. Exported so tests can compare against it without duplicating
+ * the magic string.
+ */
+export const BLOB_PUT_FAULT_DIGEST = "__fault:blobStorePut" as Digest;
+
 export class BlobStore extends DurableObject {
   private readonly inner: WorkerdBlobStore;
 
@@ -52,6 +101,22 @@ export class BlobStore extends DurableObject {
    * one-to-one and lets callers verify offline.
    */
   async put(bytes: Uint8Array): Promise<Digest> {
+    // TEST-ONLY fault-injection seam (cloister-3dd355). The check is
+    // inert in production: `globalThis.__cloisterTestFaults` is
+    // `undefined` outside of cross-DO-recovery tests. See the
+    // checkAndConsumeFault header above for the safety argument.
+    //
+    // We return a sentinel "fault digest" (BLOB_PUT_FAULT_DIGEST below)
+    // rather than throwing. Throwing across the workerd RPC boundary
+    // surfaces in the vitest reporter as an unhandled rejection even
+    // when the test's awaiter catches it cleanly — same motivation as
+    // cloister-fff647's switch to Result-shape returns on
+    // applyAttestation. The sentinel is NOT a valid sha256 hex digest
+    // (it's longer than 64 chars + uses `:`), so any downstream code
+    // that misuses it as a real digest fails closed.
+    if (checkAndConsumeFault("blobStorePut")) {
+      return BLOB_PUT_FAULT_DIGEST;
+    }
     return this.inner.put(bytes);
   }
 

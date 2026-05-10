@@ -616,15 +616,21 @@ codebase where two state-mutating writes could span DOs. Findings:
 | **CredentialVault** (`putCredential`, `proxyRequest`) | Intra-DO writes only (the vault DO writes its own SQLite). The vault → upstream HTTP fetch is downstream of the read but not a state mutation in cloister. | n/a |
 | **BlobStore** (`put`) | Single intra-DO write; idempotent by content addressing per ADR-0003. | n/a |
 
-**Cross-DO recovery is now e2e-tested** at
-`test/security/cross-do-recovery.test.ts` (cloister-fff647): the test
-installs a test-only fault-injection seam on
-`TrustStore.applyAttestation`, drives a `bead_create` through the full
-BlobStore → BeadStore → TrustStore pipeline, asserts the §8
-"dangerous case" state (bead row committed, no attestation row,
-pending row enqueued), then drains the retry queue and asserts the
-late attestation lands with `prev_self_ref` referencing the chain head
-before the fault (no fork).
+**Every cross-DO state-mutating hop in the inventory above is
+fault-injection-tested** at `test/security/cross-do-recovery.test.ts`.
+New cross-DO sequences MUST add a corresponding test case before
+landing. The seam (`globalThis.__cloisterTestFaults` Map) is documented
+in the per-DO headers (`src/blob-store.ts`, `src/beads.ts`,
+`src/trust-store.ts`) and is production-inert (the Map is `undefined`
+outside of test runs).
+
+Coverage today (cloister-fff647 + cloister-3dd355):
+
+| Hop faulted | Test case | Asserts |
+|---|---|---|
+| `TrustStore.applyAttestation` (step 3, last hop) | "full pipeline: step-3 fault → pending row → drain → attestation lands" | §8 dangerous-case state (bead row committed, no attestation, pending enqueued); retry drains; chain integrity preserved (no fork) |
+| `BlobStore.put` (step 1, first hop) | "fault-at-BlobStore.put: no downstream writes; retry recovers full pipeline" | NO writes anywhere on fault; idempotent CAS yields same digest on retry |
+| `BeadStore.bead_create` (step 2, middle hop) | "fault-at-BeadStore.write: idempotent BlobStore landed; no TrustStore write; retry recovers" | BlobStore digest landed (step 1 already happened); no bead row; **orchestrator did NOT attempt step 3** (short-circuit invariant); retry produces same digest (idempotent CAS), bead row, attestation |
 
 **Net**: the audit found exactly one missed case (the lease pipeline,
 now closed). The structural pattern for new cross-DO writes is
