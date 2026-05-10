@@ -29,6 +29,7 @@ import { McpEdgeRoute } from "../routes/mcp.js";
 import { HealthRoute } from "../routes/health.js";
 import { NotmeIdentityRoute } from "../routes/notme-identity.js";
 import { WellKnownInterlaceRoute } from "../routes/well-known.js";
+import { DisclosureRoute } from "../routes/disclosure.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -100,6 +101,13 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // routes, identity from `manifest.actor`, policy from `manifest.policy`.
     // See ADR-0007.
     return new WellKnownInterlaceRoute(route.path, manifest);
+  }
+  if ("disclosure" in k) {
+    // GET /interlace/peers/:fp — selective disclosure of peer_attestations
+    // chains. Lease-gated when INTERLACE_ROOT_PUBKEY is set. Defaults are
+    // sane (INTERLACE_DISCLOSURE_HMAC_KEY for cursors, INTERLACE_ROOT_PUBKEY
+    // for the published master pubkey). See ADR-0007 §11 / cloister-bdef0c.
+    return new DisclosureRoute();
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

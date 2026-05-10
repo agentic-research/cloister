@@ -130,6 +130,11 @@ struct Route {
     # capabilities aggregated across the manifest's mcp routes.
     # See ADR-0007.
     wellKnownInterlace  @5 :Void;
+
+    # GET <path>/:fp → Selective disclosure of peer_attestations rows
+    # (cloister-bdef0c). Lease-gated when INTERLACE_ROOT_PUBKEY is set.
+    # See ADR-0007 §11 + threat model §9.
+    disclosure          @6 :Void;
   }
 }
 

@@ -93,12 +93,13 @@ sufficient.
   patterns built once at construction. See `src/routes/disclosure.ts`,
   `src/routes/notme-identity.ts`, `src/manifest/runtime.ts:HttpProxyRoute`
   for examples.
-- **Disclosure endpoint substrate lives in `src/routes/disclosure.ts`** —
+- **Disclosure endpoint lives in `src/routes/disclosure.ts`** —
   `GET /interlace/peers/{fp}` streams a peer's attestation chain +
   pending state as JSONL, with HMAC-signed cursors and constant-time
-  404 error responses (threat model §9). Route class is shipped + tested;
-  manifest registration in `cloister.capnp` is gated on `b89fdb` so auth
-  wrapping is in place before the endpoint goes external.
+  404 error responses (threat model §9). Registered in `cloister.capnp`
+  as a `disclosure` route kind. Lease-gated when `INTERLACE_ROOT_PUBKEY`
+  is set (scope `disclosure:<fp>`); auth-failure collapses into the
+  same constant-time 404 to avoid peer-existence + cert-validity oracles.
 - **Threat model is the contract** for the lease/attestation surface —
   `docs/security/threat-model.md` (math-friend authored, cross-linked
   from ADR-0007/0011/0012 frontmatter). Adding a new seam (cert mint,

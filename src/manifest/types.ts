@@ -80,7 +80,8 @@ export type RouteKind =
   | { mcp:                 McpRouteSpec }
   | { serviceBindingProxy: ServiceBindingProxySpec }
   | { httpProxy:           HttpProxySpec }
-  | { wellKnownInterlace:  null };
+  | { wellKnownInterlace:  null }
+  | { disclosure:          null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];

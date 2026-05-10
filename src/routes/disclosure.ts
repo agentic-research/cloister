@@ -22,19 +22,19 @@
 //                "no peer" so the endpoint can't be used as a peer-
 //                existence oracle — threat model §9.2)
 //
-// ## Auth gating (deferred to cloister-b89fdb wiring)
+// ## Auth gating (cloister-bdef0c)
 //
 // ADR-0007 mandates this endpoint be auth-gated by the lease middleware
-// with scope `disclosure:<fingerprint>`. The middleware orchestrator
-// (`verifyAndUpsertLease`) is built and tested but not yet wired into
-// the request hot path. **This route class is therefore NOT registered
-// in `cloister.capnp` yet** — it's reachable only via direct
-// instantiation in tests until cloister-b89fdb lands a notme bundle
-// fetcher and wires the lease check into both /mcp and /interlace/*.
+// with scope `disclosure:<fingerprint>`. The check is now INSIDE
+// `handle()` — when `INTERLACE_ROOT_PUBKEY` is set, every request must
+// carry a valid Signet envelope (Authorization/X-Signet-* headers, sig
+// over canonical-bytes(GET, url, ts, nonce, "")) and the cert's scope
+// must contain `disclosure:<peerFp>`. When unset, dev mode runs without
+// auth — same deployment-binding-presence pattern as `/mcp`.
 //
-// When that wiring lands, registration is a one-line manifest addition
-// — the route class doesn't need to know about the auth wrapper, since
-// the manifest runtime composes auth around it.
+// Auth failure collapses into `constantTimeErrorResponse("denied")` so
+// the response is byte-identical to "no such peer" — threat-model §9.2
+// (no peer-existence + cert-validity oracle).
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
@@ -47,6 +47,12 @@ import {
   signCursor,
   verifyCursor,
 } from "../storage/disclosure-cursor.js";
+import { verifyAndUpsertLease } from "./lease-middleware.js";
+import {
+  CaUnavailableError,
+  getCABundle,
+} from "../storage/ca-bundle-cache.js";
+import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 
 /** Default page size for the JSONL stream. */
 const DEFAULT_PAGE_SIZE = 100;
@@ -136,6 +142,20 @@ export class DisclosureRoute implements EdgeRoute {
       return constantTimeErrorResponse("not_found");
     }
     const url = new URL(request.url);
+
+    // Lease gate (cloister-bdef0c). Same deployment-binding contract as
+    // /mcp: when INTERLACE_ROOT_PUBKEY is set, every request MUST carry
+    // a valid Signet envelope with scope `disclosure:<peerFp>`. When
+    // unset, the route runs in dev mode (no auth).
+    //
+    // Failure surface is collapsed into the constant-time 404 the rest
+    // of the route uses (threat-model §9.2 — success/auth-failure must
+    // be indistinguishable, else the endpoint becomes a peer-existence
+    // + cert-validity oracle).
+    if (env.INTERLACE_ROOT_PUBKEY) {
+      const gateOk = await this.verifyLease(request, env, peerFp);
+      if (!gateOk) return constantTimeErrorResponse("denied");
+    }
 
     // Cursor — if present, MUST validate. Reject unsigned / tampered
     // cursors with a constant-time 404 (threat model §9.4: paginated-
@@ -232,6 +252,45 @@ export class DisclosureRoute implements EdgeRoute {
         "cache-control": "no-store",
       },
     });
+  }
+
+  /**
+   * Run the lease pipeline for a GET disclosure request. Returns true
+   * iff the request is authorized to read `peerFp`'s chain.
+   *
+   * Disclosure differs from POST /mcp in three ways:
+   *  - No body (GET) — sig is over empty body
+   *  - Scope is `disclosure:<peerFp>`, not derived from JSON-RPC
+   *  - Auth-failure does NOT reveal which step failed; caller maps the
+   *    boolean to `constantTimeErrorResponse("denied")`
+   */
+  private async verifyLease(
+    request: Request,
+    env:     Env,
+    peerFp:  string,
+  ): Promise<boolean> {
+    const nowMs = Date.now();
+    let bundle;
+    try {
+      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
+        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
+      });
+    } catch (err) {
+      if (err instanceof CaUnavailableError) return false;
+      throw err;
+    }
+    const verdict = await verifyAndUpsertLease({
+      req:    request,
+      body:   "",                          // GET — no body
+      id:     null,                        // GET — no JSON-RPC id
+      method: "disclosure",                // synthetic; ignored when requestedScope is set
+      params: undefined,
+      env,
+      bundle,
+      nowMs,
+      requestedScope: `disclosure:${peerFp}`,
+    });
+    return !("code" in verdict);
   }
 }
 

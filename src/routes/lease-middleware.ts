@@ -352,6 +352,13 @@ export async function verifyAndUpsertLease(args: {
   env:    Env;
   bundle: CABundle;
   nowMs:  number;
+  /**
+   * Override the scope derived from (method, params) — used by routes
+   * whose scope grammar doesn't fit JSON-RPC (e.g. GET /interlace/peers/{fp}
+   * needs scope `disclosure:<fp>`, which has no JSON-RPC equivalent).
+   * When unset, the orchestrator calls `deriveRequestScope(method, params)`.
+   */
+  requestedScope?: string;
 }): Promise<VerifiedLease | VerifyError> {
   // 1. Header parse.
   const headers = parseAuthHeaders(args.req);
@@ -443,7 +450,9 @@ export async function verifyAndUpsertLease(args: {
 
   // 7. Scope check. Cert says what the holder may do; request derives
   // what was actually attempted. scopeAllows enforces glob containment.
-  const requestedScope = deriveRequestScope(args.method, args.params);
+  // Caller may override the derived scope (GET disclosure routes do this
+  // because their scope isn't JSON-RPC-shaped).
+  const requestedScope = args.requestedScope ?? deriveRequestScope(args.method, args.params);
   if (!scopeAllows(claims.scope, requestedScope)) {
     return {
       code: ERR_SCOPE_DENIED,

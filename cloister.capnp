@@ -45,6 +45,14 @@ const gateway :Cloister.Gateway = (
     ( path = "/.well-known/interlace/index.json",
       kind = (wellKnownInterlace = void) ),
 
+    # ── /interlace/peers/:fp → disclosure (ADR-0007 §11, threat model §9) ──
+    # JSONL stream of peer_attestations + pending state for the requested
+    # peer fingerprint. Lease-gated when INTERLACE_ROOT_PUBKEY is set
+    # (scope `disclosure:<fp>`). HMAC-signed cursors via
+    # INTERLACE_DISCLOSURE_HMAC_KEY. Failures are constant-time 404 to
+    # avoid peer-existence + cert-validity oracles. cloister-bdef0c.
+    ( path = "/interlace/peers/:fp", kind = (disclosure = void) ),
+
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
       kind = (serviceBindingProxy = (

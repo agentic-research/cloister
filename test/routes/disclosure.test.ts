@@ -18,11 +18,13 @@ const HMAC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";  // 32 bytes
 const MASTER_PUBKEY = "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=";
 
 function makeEnv(over: Partial<typeof env> = {}): typeof env {
-  // The cloudflare:test `env` is a real workerd Env including bindings.
-  // Spread + override only the string vars we need to set per-test.
+  // Default: gate OFF (INTERLACE_ROOT_PUBKEY unset) so the disclosure-
+  // logic tests (JSONL shape, cursor signing, constant-time errors)
+  // exercise the post-auth code path. Tests that exercise the auth gate
+  // explicitly opt in by setting INTERLACE_ROOT_PUBKEY in the override.
   return Object.assign({}, env, {
     INTERLACE_DISCLOSURE_HMAC_KEY: HMAC_KEY,
-    INTERLACE_ROOT_PUBKEY: MASTER_PUBKEY,
+    // INTERLACE_ROOT_PUBKEY intentionally absent here; set by gate-on tests
     ...over,
   }) as typeof env;
 }
@@ -125,8 +127,14 @@ describe("DisclosureRoute.handle — happy path", () => {
     await trustStub().applyAttestation(baseAttestation({ contentHash: HASH_A, prevSelfRef: null }));
     await trustStub().applyAttestation(baseAttestation({ contentHash: HASH_B, prevSelfRef: HASH_A }));
 
-    const route = new DisclosureRoute();
-    const res = await route.handle(makeReq(`/interlace/peers/${PEER}`), makeEnv());
+    // Use a DIFFERENT env binding for the surfaced master pubkey so we
+    // can set it WITHOUT triggering the lease gate (which keys on
+    // INTERLACE_ROOT_PUBKEY). This test is about response shape, not auth.
+    const route = new DisclosureRoute(undefined, "INTERLACE_PUBLISHED_MASTER");
+    const res = await route.handle(
+      makeReq(`/interlace/peers/${PEER}`),
+      makeEnv({ INTERLACE_PUBLISHED_MASTER: MASTER_PUBKEY } as unknown as Partial<typeof env>),
+    );
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/jsonl/);
@@ -356,5 +364,142 @@ describe("DisclosureRoute.handle — error paths (threat model §9.2)", () => {
     const attRows = rows.slice(1) as { content_hash: string }[];
     expect(attRows.every(r => r.content_hash === HASH_C)).toBe(true);
     expect(attRows.find(r => r.content_hash === HASH_A)).toBeUndefined();
+  });
+});
+
+// ── Auth gate integration (cloister-bdef0c) ──────────────────────────────
+//
+// When INTERLACE_ROOT_PUBKEY is set, every request MUST carry a valid
+// Signet envelope with scope `disclosure:<peerFp>`. These tests exercise
+// the gate via the same direct McpEdgeRoute pattern used in
+// test/mcp-auth.test.ts.
+
+import { _resetCache } from "../../src/storage/ca-bundle-cache.js";
+import { bundleCanonical } from "../../src/storage/bundle-canonical.js";
+
+async function makeRootKey(): Promise<{ privateKey: CryptoKey; publicKeyB64: string }> {
+  const kp = (await crypto.subtle.generateKey(
+    { name: "Ed25519" }, true, ["sign", "verify"],
+  )) as CryptoKeyPair;
+  const raw = (await crypto.subtle.exportKey("raw", kp.publicKey)) as ArrayBuffer;
+  const bytes = new Uint8Array(raw);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return { privateKey: kp.privateKey, publicKeyB64: btoa(bin) };
+}
+
+async function signedBundle(root: CryptoKey, masterB64Std: string) {
+  const base = {
+    epoch:    7,
+    seqno:    1,
+    keys:     { active: masterB64Std },
+    keyId:    "active",
+    issuedAt: 1_700_000_050,
+  };
+  const sig = new Uint8Array(
+    (await crypto.subtle.sign(
+      "Ed25519", root,
+      bundleCanonical({ ...base, signature: "" }) as BufferSource,
+    )) as ArrayBuffer,
+  );
+  let bin = "";
+  for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]!);
+  return { ...base, signature: btoa(bin) };
+}
+
+function envWithGate(
+  root: CryptoKey,
+  rootPubkeyB64: string,
+  notmeResponder: (req: Request) => Promise<Response>,
+): typeof env {
+  return Object.assign({}, env, {
+    INTERLACE_DISCLOSURE_HMAC_KEY: HMAC_KEY,
+    INTERLACE_ROOT_PUBKEY: rootPubkeyB64,
+    NOTME: { fetch: notmeResponder } as unknown as typeof env.NOTME,
+  }) as typeof env;
+}
+
+describe("DisclosureRoute — auth gate (INTERLACE_ROOT_PUBKEY set)", () => {
+  it("rejects (constant-time 404) when no auth headers are present", async () => {
+    _resetCache();
+    const root = await makeRootKey();
+    const bundle = await signedBundle(root.privateKey, MASTER_PUBKEY);
+    const route = new DisclosureRoute();
+
+    const res = await route.handle(
+      makeReq(`/interlace/peers/${PEER}`),
+      envWithGate(root.privateKey, root.publicKeyB64, async () => Response.json(bundle)),
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body.length).toBe(CONSTANT_TIME_ERROR_BODY_LEN);
+  });
+
+  it("rejects (constant-time 404) when notme CA bundle is unreachable", async () => {
+    _resetCache();
+    const root = await makeRootKey();
+    const route = new DisclosureRoute();
+
+    const res = await route.handle(
+      makeReq(`/interlace/peers/${PEER}`),
+      envWithGate(root.privateKey, root.publicKeyB64, async () =>
+        new Response("nope", { status: 503 }),
+      ),
+    );
+
+    // Auth-fail collapses into the same 404 as "not_found" — the threat-
+    // model §9.2 indistinguishability contract holds even when the cause
+    // is bundle-unavailable rather than missing-headers.
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body.length).toBe(CONSTANT_TIME_ERROR_BODY_LEN);
+  });
+
+  it("rejects with malformed Signet cert (constant-time 404)", async () => {
+    _resetCache();
+    const root = await makeRootKey();
+    const bundle = await signedBundle(root.privateKey, MASTER_PUBKEY);
+    const route = new DisclosureRoute();
+
+    const req = new Request(`http://x/interlace/peers/${PEER}`, {
+      method: "GET",
+      headers: {
+        "authorization":  "Signet not_a_real_cert_just_bytes",
+        "x-signet-sig":   "AAAA",
+        "x-signet-ts":    String(Date.now()),
+        "x-signet-nonce": "AAAA",
+      },
+    });
+
+    const res = await route.handle(
+      req,
+      envWithGate(root.privateKey, root.publicKeyB64, async () => Response.json(bundle)),
+    );
+
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body.length).toBe(CONSTANT_TIME_ERROR_BODY_LEN);
+  });
+
+  it("indistinguishability: gate-on auth-fail body == gate-off not-found body", async () => {
+    _resetCache();
+    const root = await makeRootKey();
+    const bundle = await signedBundle(root.privateKey, MASTER_PUBKEY);
+    const route = new DisclosureRoute();
+
+    // gate-on: no auth headers → constant-time 404
+    const denied = await route.handle(
+      makeReq(`/interlace/peers/${PEER}`),
+      envWithGate(root.privateKey, root.publicKeyB64, async () => Response.json(bundle)),
+    );
+
+    // gate-off: unknown peer → constant-time 404
+    const notFound = await route.handle(makeReq(`/interlace/peers/unknown`), makeEnv());
+
+    const deniedBody = await denied.text();
+    const notFoundBody = await notFound.text();
+    expect(deniedBody).toBe(notFoundBody);
+    expect(deniedBody.length).toBe(CONSTANT_TIME_ERROR_BODY_LEN);
   });
 });
