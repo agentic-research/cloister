@@ -34,6 +34,42 @@
 // attestation writes; both target TrustStore. Putting them in BeadStore
 // would require BeadStore→TrustStore RPC during the retry, defeating
 // the purpose of the retry queue.
+//
+// ── Why `prev_self_ref` is NOT a column on this table ────────────────────
+//
+// The pending row stores `cert`, `sig`, `scope`, and `content_hash` —
+// enough to recompute the attestation but NOT enough to blindly replay
+// the original `applyAttestation` call. That's deliberate, and worth
+// preserving.
+//
+// `prev_self_ref` for an attestation is "the chain_hash of the peer's
+// previous attestation, at write time." If we cached the pre-failure
+// value here and replayed it at drain time, we'd fork the chain
+// whenever a concurrent direct write landed between the first attempt
+// and the retry. Concretely:
+//
+//   t0: applyAttestation(peer=P, content=X) computes prev_self_ref = A
+//       (= current chain head for P). TrustStore write fails. Row
+//       enqueued with cached prev_self_ref = A.
+//   t1: applyAttestation(peer=P, content=Y) for a DIFFERENT bead
+//       succeeds. Chain head for P is now B, sealing A → B.
+//   t2: drainPendingRetries runs. If we replay with prev_self_ref = A,
+//       the new row claims A as its predecessor — but B already does.
+//       The chain forks: A has two successors (X and Y), both at the
+//       same seq. §13.2 disclosure cannot recover.
+//
+// To avoid forking, the drain re-reads the chain head at retry time
+// and computes prev_self_ref fresh. The pending row carries the
+// inputs that don't depend on chain ordering (cert/sig/scope/
+// content_hash); the order-dependent piece is re-derived at write.
+// This matches the lease-counter chain pattern in
+// peer-lease-counters.ts:computeNextLeaseStep — order-dependent
+// fields are computed at write time against the current chain head,
+// never persisted upstream of the write.
+//
+// Implication for callers: do NOT add a `prev_self_ref` column here
+// without a design conversation. Its absence is load-bearing for
+// concurrent-write correctness.
 
 /** Hard-coded backoff schedule (milliseconds). Index = attempt count. */
 export const RETRY_BACKOFF_MS: readonly number[] = [
