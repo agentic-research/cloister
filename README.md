@@ -13,6 +13,21 @@ identity surface ride on the same routing fabric. Future tenants (gRPC,
 WebSocket, anything HTTP-shaped) plug into the same `EdgeRoute` table
 without touching the substrate.
 
+**New here?** Start with [GETTING-STARTED.md](GETTING-STARTED.md) for
+the end-to-end setup, then come back here for the architectural map.
+
+> **Contents**
+> - [Hypervisor layer](#what-runs-at-the-hypervisor-layer) — what cloister itself owns
+> - [Bundles + tenants](#what-rides-on-top-bundles--tenants) — what rides on the route table
+> - [Quickstart](#quickstart) — 5-minute local boot
+> - [Run via workerd directly](#run-via-workerd-directly-no-cloudflare-account) — no Cloudflare account
+> - [Tasks](#tasks) — the `task` targets you'll use most
+> - [Hardening knobs](#hardening-knobs) — what to flip before prod
+> - [Plugin](#claude-code-plugin) — the Claude Code plugin in [`hooks/`](hooks/)
+> - [Ecosystem](#ecosystem) — sibling repos cloister talks to
+> - [Architectural framing](#architectural-framing) — the ADR story
+> - [Documentation map](#documentation-map) — where each kind of doc lives
+
 ```mermaid
 graph TB
     Client["external client<br/>(MCP / curl / browser /<br/>another cluster's bundle)"]
@@ -58,13 +73,15 @@ graph TB
     style EXT fill:#f5f5f5,color:#000
 ```
 
-The route table is **declared, not coded** — `cloister.capnp` at the repo
-root is the source of truth, compiled by `task manifest` to a typed TS
-module that `src/index.ts` imports. To add a route, backend, or new
-bundle to the cluster, edit `cloister.capnp`. See
-[ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest substrate
-and [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) for which
-responsibilities live at the hypervisor layer vs the bundle layer.
+The route table is **declared, not coded** — [`cloister.capnp`](cloister.capnp)
+at the repo root is the source of truth, compiled by `task manifest`
+(runs at build + on-save; see [Tasks](#tasks)) to a typed TS module
+that [`src/index.ts`](src/index.ts) imports. To add a route, backend,
+or new bundle to the cluster, edit [`cloister.capnp`](cloister.capnp).
+See [ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest
+substrate and [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md)
+for which responsibilities live at the hypervisor layer vs the bundle
+layer.
 
 ## What runs at the hypervisor layer
 
@@ -112,6 +129,9 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
 
 ## Quickstart
 
+Three-terminal smoke. For the longer walkthrough (toolchain, ports,
+auth setup), see [GETTING-STARTED.md](GETTING-STARTED.md).
+
 ```bash
 # Terminal 1 — ley-line-open daemon (for lsp_* + reparse/enrich/status)
 leyline daemon --mcp-port 8384
@@ -152,7 +172,7 @@ pnpm run build:local                           # bundle → dist/index.js
 npx workerd serve config.capnp --experimental
 ```
 
-`config.capnp` and `wrangler.toml` are kept in sync: same bindings (`BEAD_STORE`,
+[`config.capnp`](config.capnp) and [`wrangler.toml`](wrangler.toml) are kept in sync: same bindings (`BEAD_STORE`,
 `NOTME`, `ROSARY_MCP_URL`, `LLO_MCP_URL`, `SIGNET_URL`) on both paths.
 
 ## Tasks
