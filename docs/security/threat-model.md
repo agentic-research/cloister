@@ -228,6 +228,35 @@ a handler — that requires `ctx.storage.transactionSync()` or
 `ctx.blockConcurrencyWhile(...)`. We need to verify behavior under
 contention and either tighten the helper or document the assumption.
 
+### 7.7 Cross-implementation chain-hash gotcha (load-bearing for spec)
+
+The chain-step formula is
+
+```
+next_chain_hash = sha256_hex(UTF8(prev_chain_hash || cert_fp || nonce_b64 || ts_str))
+```
+
+with the inputs **byte-concatenated, no separators, no length prefixes**.
+This is documented in
+[`interlace-spec/0.1.0/README.md`](../../interlace-spec/0.1.0/README.md)
+§4.1 and pinned by the worked-example digests in
+[`test-vectors/lease-counter.json`](../../interlace-spec/0.1.0/test-vectors/lease-counter.json).
+
+| # | Adversary / implementation hazard | Defensive invariant | Status |
+|---|---|---|---|
+| 7.7.a | A second implementor adds a separator (e.g. `\|\|`, `:`, or a length prefix) between concatenated fields | Their chain digests diverge from cloister's, the disclosure cross-check fails, and §13.2 ("silence is evidence") generates false positives — both parties' chains "should" match but don't. The fix is the byte-exact concat described above. | `interlace-spec/0.1.0` ratifies the exact bytes; test vectors are the load-bearing assertion |
+| 7.7.b | An implementor changes the **encoding** of any field (hex case, base64 padding, ts representation) | `prev_chain_hash` MUST be 64 *lowercase* hex; `cert_fp` MUST be 64 *lowercase* hex; `nonce_b64` MUST be base64url *no padding* (RFC 4648 §5); `ts_str` MUST be decimal Unix-ms with no padding. Each invariant is pinned by a test-vector row. | Spec §4.1 + test vectors |
+| 7.7.c | An implementor uses sha256 *raw bytes* rather than sha256_hex for the next-iteration input | The cloister implementation chains over the **hex string** of the previous digest, not the 32-byte raw output. Using raw bytes would silently produce different digests. The recursion is over UTF-8 of the hex string. | Spec §4.1 spells this out; cloister-side reference at `src/storage/peer-lease-counters.ts:computeNextLeaseStep` |
+
+**Why this is in §7 of the threat model and not just the spec.** A
+chain-hash divergence between two implementations is **operationally
+indistinguishable from §13.2 evidence of misbehavior**: a peer's
+disclosure endpoint would show a counter chain that doesn't reconcile
+with the requester's own derived chain. Without this section, a benign
+implementation bug looks identical to a malicious cloister rewriting
+history. The spec is the protocol; this section is the *security
+consequence of getting the spec subtly wrong*.
+
 ## 8. Seam: cross-DO handoff BlobStore → BeadStore → TrustStore
 
 This is the centerpiece. ADR-0007:154 stated attestation rows are written
@@ -555,6 +584,37 @@ For posterity, the original §13 items 1-8 — all closed by 2026-05-10:
 | 7. Counter monotonicity + chain integrity | `cloister-c75da6` | T.3, T.4 |
 | 8. Server clock skew bound | `cloister-c7e3e3` | T.1 |
 | 9. seen_nonces / lease_counter atomicity gap (§6.2.8) | `cloister-ee51b8` | (composed inside `TrustStore.verifyLeaseAndAdvanceChain`; parity tested against `interlace-spec/0.1.0/test-vectors/lease-counter.json`) |
+
+### 13.4 Cross-DO atomicity audit (2026-05-10)
+
+After §6.2.8's gap was discovered, an audit walked every place in the
+codebase where two state-mutating writes could span DOs. Findings:
+
+| Site | Pattern | Status |
+|---|---|---|
+| **Lease pipeline** (`lease-middleware.ts` → `seen_nonces` + `peer_lease_counters`) | Two cross-DO RPCs (singleton `TrustStore`, sequential). **HAD the gap.** | **CLOSED** — `cloister-ee51b8`, one transactional RPC. |
+| **Bead writes** (`bead_create | update | close | comment`) | Intra-DO only (BeadStore); a single SQL statement per write. No cross-DO concern. | n/a |
+| **Peer attestations** (`peer_attestations` row write keyed by content digest from BlobStore) | Designed for cross-DO failure: idempotent BlobStore `put`, retry queue via `pending_attestations` (per cloister-c6d378). The §8 dangerous-case ("3 succeeds, 4 fails") is acknowledged + has the retry path. | **Mitigated by design** — ADR-0012 content-addressed handoff + `pending_attestations` retry queue |
+| **Disclosure endpoint** (`GET /interlace/peers/{fp}`) | Read-only. No writes; atomicity n/a. | n/a |
+| **CredentialVault** (`putCredential`, `proxyRequest`) | Intra-DO writes only (the vault DO writes its own SQLite). The vault → upstream HTTP fetch is downstream of the read but not a state mutation in cloister. | n/a |
+| **BlobStore** (`put`) | Single intra-DO write; idempotent by content addressing per ADR-0003. | n/a |
+
+**Test-coverage gap (acknowledged, not closed)**. There are unit tests
+for the retry helpers (`test/storage/pending-attestations.test.ts`) and
+parity tests for the new batched lease RPC, but **no end-to-end test
+that simulates "kill the request between two cross-DO writes; verify
+the system recovers."** That would require workerd-level fault
+injection. The design intent is that idempotent BlobStore puts +
+`pending_attestations` retry queue handle it; until fault-injection
+tests exist, the recovery path is asserted by inspection of the
+retry helper tests + the ADR-0012 design doc rather than by
+end-to-end exercise.
+
+**Net**: the audit found exactly one missed case (the lease pipeline,
+now closed). The structural pattern for new cross-DO writes is
+ADR-0012's content-addressed handoff; future code should default to
+that pattern rather than introducing new "two sequential RPCs without
+shared transaction" sites.
 
 ## 14. Cross-references
 

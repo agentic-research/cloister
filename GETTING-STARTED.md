@@ -56,9 +56,9 @@ node --test hooks/test/*.test.mjs       # CC plugin tests
 
 ## 3. Run cloister locally
 
-Two equivalent paths — same code, different launcher.
+Three equivalent paths — same code, different launcher.
 
-### Path A — `wrangler dev` (hot reload, easiest)
+### Path A — `wrangler dev` (hot reload, easiest, single process)
 
 ```sh
 task dev             # → http://localhost:8787
@@ -71,9 +71,24 @@ task build:local     # bundles src/ → dist/index.js
 task serve:local     # workerd serve config.capnp --experimental
 ```
 
-Both bind on `:8787`. Storage paths differ slightly (`wrangler` uses
-`.wrangler/state/...`, `workerd` uses `/data/do` per `config.capnp`); the
-DO API is identical.
+### Path C — `task cluster:dev` (full cluster topology, mac-native)
+
+Per [cluster.capnp](cluster.capnp), spawns cloister-router **plus**
+sibling bundles (notme-identity, mache, rosary) as native processes
+with UDS sockets in `/tmp/cloister-dev/run/`. Missing binaries are
+skipped with hints — you can dev cloister-router alone if mache/rosary
+aren't built. See
+[docs/deployment/cluster-in-a-pod.md](docs/deployment/cluster-in-a-pod.md).
+
+```sh
+CLUSTER_DEV_DRY_RUN=1 task cluster:dev   # preview the launch plan
+task cluster:dev                          # spawn it
+```
+
+All three paths bind cloister-router on `:8787`. Storage paths differ
+slightly (`wrangler` uses `.wrangler/state/...`, `workerd` uses
+`/data/do` per `config.capnp`, `cluster:dev` uses
+`$HOME/.cache/cloister-dev/do/`); the DO API is identical.
 
 ## 4. Smoke tests
 
@@ -356,4 +371,24 @@ existing route kinds (`health`, `httpProxy`, `serviceBindingProxy`).
 - [ADR-0003](docs/adr/0003-content-addressed-bead-store.md) — bead storage
   as Merkle DAG + CAS refs (Phase 1 shipped)
 - [ADR-0004](docs/adr/0004-capnp-manifest.md) — Cap'n Proto manifest as the
-  registration format (just shipped)
+  registration format
+- [ADR-0007](docs/adr/0007-interlace-substrate.md) — Interlace identity:
+  Signet leases, peer attestations, .well-known discovery
+- [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) — hypervisor vs
+  bundle tier classification (three-criterion test)
+- [ADR-0012](docs/adr/0012-truststore-vs-beadstore.md) — DO classification:
+  TrustStore / BlobStore / CredentialVault are hypervisor-tier singletons;
+  BeadStore is per-repo
+- [ADR-0013](docs/adr/0013-slice-grant-enforcement.md) — slice-grant
+  enforcement via V8 isolate + service-binding-as-syscall (the security
+  model behind `CredentialVault`)
+- [interlace-spec/0.1.0/](interlace-spec/0.1.0/README.md) — **vendor-
+  neutral protocol spec + test vectors** (extracted 2026-05-10) if you're
+  building a second implementation
+- [docs/perf/2026-05-10-lease-pipeline.md](docs/perf/2026-05-10-lease-pipeline.md)
+  — measured per-step latency for the lease middleware (substrate overhead
+  is ~520µs / 1ms p50 / 1ms p99 local after batching)
+- [docs/deployment/cluster-in-a-pod.md](docs/deployment/cluster-in-a-pod.md)
+  — running cloister + sibling bundles as a unit (mac-dev, compose, k8s)
+- [docs/security/threat-model.md](docs/security/threat-model.md) — what
+  this surface defends against, and the open gaps
