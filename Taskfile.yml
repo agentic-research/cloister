@@ -12,14 +12,26 @@ tasks:
     generates:
       - .wrangler/tmp/build-*/index.js
 
+  tool-schemas:
+    desc: "Compile src/tool-schemas/*.ts (zod) → src/generated/tool-schemas.ts (cloister-7ca96c)"
+    cmds:
+      - pnpm exec tsx scripts/build-tool-schemas.mjs
+    sources:
+      - src/tool-schemas/**/*.ts
+      - scripts/build-tool-schemas.mjs
+    generates:
+      - src/generated/tool-schemas.ts
+
   manifest:
-    desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004)
+    desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004). Overlays zod-derived tool schemas (cloister-7ca96c).
+    deps: [tool-schemas]
     cmds:
       - node scripts/build-manifest.mjs
     sources:
       - cloister.capnp
       - manifest/cloister.capnp
       - scripts/build-manifest.mjs
+      - src/generated/tool-schemas.ts
     generates:
       - src/generated/manifest.ts
 

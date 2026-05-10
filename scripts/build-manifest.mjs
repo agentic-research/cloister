@@ -29,13 +29,20 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const REPO          = process.cwd();
 const MANIFEST_FILE = process.env.CLOISTER_MANIFEST    ?? resolve(REPO, "cloister.capnp");
 const SCHEMA_FILE   = process.env.CLOISTER_SCHEMA      ?? resolve(REPO, "manifest/cloister.capnp");
 const OUTPUT_FILE   = process.env.CLOISTER_OUTPUT      ?? resolve(REPO, "src/generated/manifest.ts");
+// Generated map of toolName → JSON Schema, produced by
+// scripts/build-tool-schemas.mjs from src/tool-schemas/*.ts (zod). When
+// present, it's the source of truth: the manifest's `inputSchemaJson`
+// becomes either a parity check (must match) or empty (we inject).
+// Per cloister-7ca96c.
+const TOOL_SCHEMAS_FILE = process.env.CLOISTER_TOOL_SCHEMAS ?? resolve(REPO, "src/generated/tool-schemas.ts");
 // Default import root: parent of the directory containing manifest/cloister.capnp.
 // e.g. SCHEMA_FILE = /work/cloister/manifest/cloister.capnp
 //      schemaDir   = /work/cloister/manifest
@@ -59,6 +66,15 @@ try {
   console.error(stderr);
   process.exit(1);
 }
+
+// ── Overlay TS-sourced tool schemas (cloister-7ca96c) ─────────────────────
+//
+// If `src/generated/tool-schemas.ts` exists, it's the source of truth.
+// For each tool in the manifest, we either inject (when the manifest
+// has `inputSchemaJson = ""`) or parity-check (when both are present).
+// Any drift fails the build with a precise error.
+
+await overlayToolSchemas(json);
 
 // ── Static validation (build-time, before the TS compiler sees this) ──────
 
@@ -164,6 +180,12 @@ function validate(g) {
           if (typeof t.inputSchemaJson !== "string") {
             fail(`tool.inputSchemaJson must be a string on tool ${t.name}`);
           }
+          // After the overlay step, every tool MUST have a populated schema —
+          // either from the TS source (preferred) or the legacy inline JSON.
+          // Empty string means: zod schema missing AND no inline fallback.
+          if (t.inputSchemaJson === "") {
+            fail(`tool ${t.name} has no input schema — register it in src/tool-schemas/ or set inputSchemaJson in cloister.capnp`);
+          }
           try { JSON.parse(t.inputSchemaJson); }
           catch { fail(`tool.inputSchemaJson is not valid JSON on tool ${t.name}`); }
         }
@@ -175,6 +197,83 @@ function validate(g) {
 function fail(msg) {
   console.error(`build-manifest: validation failed — ${msg}`);
   process.exit(2);
+}
+
+// ── TS-sourced tool schema overlay ────────────────────────────────────────
+//
+// Source: scripts/build-tool-schemas.mjs writes
+// `src/generated/tool-schemas.ts`, exporting `toolSchemas: Record<name,
+// JSONSchema>`. This function loads it and either INJECTS the schema
+// (when the manifest has `inputSchemaJson = ""`) or PARITY-CHECKS it
+// (when the manifest has a non-empty inputSchemaJson).
+//
+// "Drift" here means: a tool's manifest-declared schema disagrees with
+// the TS handler's actual schema. That's the cloister-7ca96c bug class.
+// Build fails on drift, with a diff in the error message.
+
+async function overlayToolSchemas(g) {
+  if (!existsSync(TOOL_SCHEMAS_FILE)) {
+    // Bootstrap path — first invocation before tool-schemas.ts exists.
+    // Skip silently; legacy inline JSON path still works.
+    return;
+  }
+
+  let toolSchemas;
+  try {
+    const mod = await import(pathToFileURL(TOOL_SCHEMAS_FILE).href);
+    toolSchemas = mod.toolSchemas;
+  } catch (e) {
+    console.error(`build-manifest: failed to load ${relPath(TOOL_SCHEMAS_FILE)} — ${e?.message ?? e}`);
+    process.exit(2);
+  }
+  if (!toolSchemas || typeof toolSchemas !== "object") {
+    fail(`${relPath(TOOL_SCHEMAS_FILE)} must export \`toolSchemas\` as an object`);
+  }
+
+  let injected = 0, parity = 0;
+
+  for (const r of g.routes ?? []) {
+    if (!r.kind?.mcp) continue;
+    for (const b of r.kind.mcp.backends ?? []) {
+      const inner = b.kind?.[Object.keys(b.kind ?? {})[0]];
+      const tools = inner?.tools ?? [];
+      for (const t of tools) {
+        const tsSchema = toolSchemas[t.name];
+        if (!tsSchema) continue;  // Tool not in TS registry — keep manifest value.
+
+        const tsJson = JSON.stringify(tsSchema);
+        if (t.inputSchemaJson === "") {
+          // Inject. This is the post-migration path: cloister.capnp drops
+          // the inline JSON; build wires it in here.
+          t.inputSchemaJson = tsJson;
+          injected += 1;
+        } else {
+          // Parity check. Both sources present — must match exactly.
+          // Comparison is structural via canonical JSON: parse + re-stringify
+          // so whitespace/key-order differences don't false-positive.
+          let manifestSchema;
+          try { manifestSchema = JSON.parse(t.inputSchemaJson); }
+          catch { fail(`tool.inputSchemaJson is not valid JSON on tool ${t.name}`); }
+          const manifestCanonical = JSON.stringify(manifestSchema);
+          const tsCanonical = tsJson;
+          if (manifestCanonical !== tsCanonical) {
+            console.error(`build-manifest: schema drift on tool "${t.name}" (cloister-7ca96c)`);
+            console.error(`  manifest (cloister.capnp): ${manifestCanonical}`);
+            console.error(`  TS (src/tool-schemas/):    ${tsCanonical}`);
+            console.error(`  Resolution: drop the inline JSON in cloister.capnp (set inputSchemaJson = "")`);
+            console.error(`              and let the TS schema be the source of truth, OR update`);
+            console.error(`              src/tool-schemas/ to match the manifest if the manifest is right.`);
+            process.exit(2);
+          }
+          parity += 1;
+        }
+      }
+    }
+  }
+
+  if (injected || parity) {
+    console.error(`build-manifest:   tool schemas: ${injected} injected, ${parity} parity-checked`);
+  }
 }
 
 function relPath(p) {
