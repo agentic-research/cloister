@@ -67,6 +67,7 @@ import {
 } from "./storage/seen-nonces.js";
 import {
   SCHEMA_PENDING_ATTESTATIONS,
+  claimRetryBatch as claimRetryBatchHelper,
   commitPending as commitPendingHelper,
   enqueuePending as enqueuePendingHelper,
   listPendingForPeer as listPendingForPeerHelper,
@@ -100,6 +101,41 @@ ${SCHEMA_PEER_ATTESTATIONS}
  * stack-trace allocation, and the `===` identity check is unambiguous.
  */
 const REPLAY_SENTINEL: unique symbol = Symbol("replay-sentinel");
+
+// ── TEST-ONLY — DO NOT USE IN PRODUCTION ─────────────────────────────────
+//
+// Fault-injection seam for the cross-DO recovery test
+// (`test/security/cross-do-recovery.test.ts`, cloister-fff647).
+//
+// At runtime in a deployed worker, `globalThis.__cloisterTestFaults` is
+// `undefined` — the `Map.get` call below short-circuits to `undefined`
+// and the production path proceeds unchanged. The seam is reachable
+// ONLY when a test explicitly installs the map and the fault key. Tests
+// install + remove the fault in `beforeEach`/`afterEach` so cross-test
+// bleed is impossible.
+//
+// This is the recommended seam per cloister-fff647: a `globalThis` Map
+// check is unambiguously test-only (production code never reads from
+// it), unlike an env-var gate which could in principle be flipped at
+// deploy time.
+//
+// Reviewers: if you see code reading from `__cloisterTestFaults`
+// anywhere outside this file, that is a bug; the seam should never
+// have callers, only this defender's check.
+type FaultInjectionMap = Map<"applyAttestation", { failOnce: boolean }>;
+function checkAndConsumeFault(key: "applyAttestation"): boolean {
+  const faults = (globalThis as { __cloisterTestFaults?: FaultInjectionMap })
+    .__cloisterTestFaults;
+  if (faults === undefined) return false;
+  const entry = faults.get(key);
+  if (entry === undefined) return false;
+  if (entry.failOnce) {
+    // Single-shot: consume the fault so the retry path sees a clean store.
+    faults.delete(key);
+    return true;
+  }
+  return false;
+}
 
 export class TrustStore extends DurableObject {
   private readonly db: SqlStorage;
@@ -312,6 +348,25 @@ export class TrustStore extends DurableObject {
     prevPeerRef:     string | null;
     nowMs:           number;
   }): Promise<ApplyAttestationResult> {
+    // TEST-ONLY fault-injection seam (cloister-fff647). The check is
+    // inert in production: `globalThis.__cloisterTestFaults` is
+    // `undefined` outside of cross-DO-recovery tests. See the
+    // checkAndConsumeFault header for the safety argument.
+    //
+    // Result-shape failure (not a throw) per cloister-175a3a: throws
+    // across the workerd RPC boundary surface as unhandled rejections
+    // in the vitest reporter. The Result return mirrors the real
+    // integrity-mismatch failure shape so the caller's recovery code
+    // path is identical for both cases.
+    if (checkAndConsumeFault("applyAttestation")) {
+      return {
+        ok:       false,
+        error:    "prev_self_ref_mismatch",
+        message:  "test-injected applyAttestation failure (cloister-fff647)",
+        expected: null,
+        got:      null,
+      };
+    }
     // Helper returns a Result; we just pass it through. blockConcurrencyWhile
     // serializes the read-then-write so concurrent calls can't both see the
     // same chain head + race to a fork (cloister-c66fea pattern).
@@ -377,6 +432,67 @@ export class TrustStore extends DurableObject {
   /** List all pending rows for a peer (disclosure endpoint feed). */
   listPendingForPeer(peerFp: string): PendingAttestation[] {
     return listPendingForPeerHelper(this.db, peerFp);
+  }
+
+  /**
+   * Drain due retry rows from `pending_attestations`. Sequenced as
+   * (claim → applyAttestation → commit) per row, with `recordFailedAttempt`
+   * on integrity-mismatch or thrown error. Returns counts for the caller.
+   *
+   * This is the same orchestration an alarm-driven retry pump would do.
+   * The alarm wiring is filed as a follow-up bead (see
+   * `src/storage/pending-attestations.ts` header); this method exposes
+   * the drain path explicitly so callers (the cross-DO recovery test
+   * cloister-fff647 today; an alarm handler tomorrow) don't have to
+   * reach into the helpers.
+   *
+   * `contentType` and `prevSelfRef`/`prevPeerRef` aren't stored on the
+   * pending row — the caller supplies them per-claim by looking up the
+   * current chain head + bead's content type. Genesis attestations use
+   * `prevSelfRef: null`. The retry path computes the prev-ref by reading
+   * the current chain head, so the drain is correct against concurrent
+   * direct writes.
+   */
+  async drainPendingRetries(args: {
+    nowMs:        number;
+    contentType:  string;
+    limit?:       number;
+  }): Promise<{ claimed: number; committed: number; failed: number }> {
+    const batch = claimRetryBatchHelper(this.db, args.nowMs, args.limit ?? 32);
+    let committed = 0;
+    let failed = 0;
+    for (const row of batch) {
+      try {
+        // Recompute prev_self_ref from the current chain head — handles
+        // the case where direct writes raced in while the row was pending.
+        const head = lastAttestationForPeerHelper(this.db, row.peer_fp);
+        const prevSelfRef = head?.content_hash ?? null;
+        const result = await this.ctx.blockConcurrencyWhile(async () =>
+          applyAttestationHelper(this.db, {
+            peerFingerprint: row.peer_fp,
+            contentHash:     row.content_hash,
+            contentType:     args.contentType,
+            scope:           row.scope,
+            cert:            row.cert,
+            sig:             row.sig,
+            prevSelfRef,
+            prevPeerRef:     null,
+            nowMs:           args.nowMs,
+          }),
+        );
+        if (result.ok) {
+          commitPendingHelper(this.db, row.peer_fp, row.content_hash);
+          committed++;
+        } else {
+          recordFailedAttemptHelper(this.db, row.peer_fp, row.content_hash, args.nowMs);
+          failed++;
+        }
+      } catch {
+        recordFailedAttemptHelper(this.db, row.peer_fp, row.content_hash, args.nowMs);
+        failed++;
+      }
+    }
+    return { claimed: batch.length, committed, failed };
   }
 }
 

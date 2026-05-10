@@ -247,6 +247,7 @@ This is documented in
 | 7.7.a | A second implementor adds a separator (e.g. `\|\|`, `:`, or a length prefix) between concatenated fields | Their chain digests diverge from cloister's, the disclosure cross-check fails, and §13.2 ("silence is evidence") generates false positives — both parties' chains "should" match but don't. The fix is the byte-exact concat described above. | `interlace-spec/0.1.0` ratifies the exact bytes; test vectors are the load-bearing assertion |
 | 7.7.b | An implementor changes the **encoding** of any field (hex case, base64 padding, ts representation) | `prev_chain_hash` MUST be 64 *lowercase* hex; `cert_fp` MUST be 64 *lowercase* hex; `nonce_b64` MUST be base64url *no padding* (RFC 4648 §5); `ts_str` MUST be decimal Unix-ms with no padding. Each invariant is pinned by a test-vector row. | Spec §4.1 + test vectors |
 | 7.7.c | An implementor uses sha256 *raw bytes* rather than sha256_hex for the next-iteration input | The cloister implementation chains over the **hex string** of the previous digest, not the 32-byte raw output. Using raw bytes would silently produce different digests. The recursion is over UTF-8 of the hex string. | Spec §4.1 spells this out; cloister-side reference at `src/storage/peer-lease-counters.ts:computeNextLeaseStep` |
+| 7.7.d | An implementor's `peer_attestations` chain diverges from the spec on row layout (per-peer seq, prev_self_ref invariant, content_hash preservation, null-genesis) | Cloister's `applyAttestation` is parity-tested against `interlace-spec/0.1.0/test-vectors/peer-attestation.json` at `test/storage/peer-attestation-parity.test.ts` (cloister-fff647). The three-row chain (genesis → middle → late) is replayed byte-for-byte; rejection-case `wrong_prev_self_ref` is also pinned. | Spec test vectors; cloister-side reference at `src/storage/peer-attestations.ts:applyAttestation` |
 
 **Why this is in §7 of the threat model and not just the spec.** A
 chain-hash divergence between two implementations is **operationally
@@ -599,16 +600,15 @@ codebase where two state-mutating writes could span DOs. Findings:
 | **CredentialVault** (`putCredential`, `proxyRequest`) | Intra-DO writes only (the vault DO writes its own SQLite). The vault → upstream HTTP fetch is downstream of the read but not a state mutation in cloister. | n/a |
 | **BlobStore** (`put`) | Single intra-DO write; idempotent by content addressing per ADR-0003. | n/a |
 
-**Test-coverage gap (acknowledged, not closed)**. There are unit tests
-for the retry helpers (`test/storage/pending-attestations.test.ts`) and
-parity tests for the new batched lease RPC, but **no end-to-end test
-that simulates "kill the request between two cross-DO writes; verify
-the system recovers."** That would require workerd-level fault
-injection. The design intent is that idempotent BlobStore puts +
-`pending_attestations` retry queue handle it; until fault-injection
-tests exist, the recovery path is asserted by inspection of the
-retry helper tests + the ADR-0012 design doc rather than by
-end-to-end exercise.
+**Cross-DO recovery is now e2e-tested** at
+`test/security/cross-do-recovery.test.ts` (cloister-fff647): the test
+installs a test-only fault-injection seam on
+`TrustStore.applyAttestation`, drives a `bead_create` through the full
+BlobStore → BeadStore → TrustStore pipeline, asserts the §8
+"dangerous case" state (bead row committed, no attestation row,
+pending row enqueued), then drains the retry queue and asserts the
+late attestation lands with `prev_self_ref` referencing the chain head
+before the fault (no fork).
 
 **Net**: the audit found exactly one missed case (the lease pipeline,
 now closed). The structural pattern for new cross-DO writes is
