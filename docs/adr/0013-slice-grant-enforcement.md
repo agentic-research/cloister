@@ -19,6 +19,21 @@ made: *even if a bundle is fully compromised (prompt-injected into
 running attacker code), it can only exfil what its slice grants — not
 the whole vault.*
 
+### What "compromised" means here
+
+The threat model assumes complete attacker control of the bundle's V8
+isolate: the attacker can call any binding the bundle has, manipulate
+its heap, and run arbitrary JS. **The substrate's guarantee is not
+that the bundle behaves; it's that the things the bundle CANNOT do
+are the things that matter for confidentiality.** A "good" bundle
+and a "compromised" bundle are indistinguishable from the substrate's
+side — both can only reach what their bindings + slice grants permit.
+
+This is the inversion that makes the slice-grant model work: we don't
+authenticate behavior, we constrain reachability. The same security
+property holds against a buggy bundle, a malicious bundle, a prompt-
+injected bundle, and a benign bundle.
+
 ADR-0010 sat in **Proposed** status from 2026-05-08 through 2026-05-10
 because the implementation wasn't specified. What "slice grant" means
 in operational terms — token format, sealing primitive, mint authority,

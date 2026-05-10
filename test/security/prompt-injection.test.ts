@@ -81,19 +81,60 @@ const githubPatCred: StoredCredential = {
 };
 
 // ── Scenario 1: in-slice access succeeds ──────────────────────────────────
+//
+// A single happy-path identity proves the gate isn't blanket-deny, but
+// only against ONE shape. Parametrize over the range of legitimate
+// identities the substrate is expected to mint so that regressions in
+// glob semantics (trailing colon, empty suffix, case sensitivity,
+// nearby-but-different prefixes) get caught.
+//
+// The glob implementation in vault/src/vault.ts uses prefix-match-then-
+// suffix-match via String.startsWith / endsWith — case-SENSITIVE.
+// These cases pin the load-bearing properties of that implementation.
 
 describe("prompt-injection demo — scenario 1: in-slice read", () => {
-  it("compromised bundle CAN access credentials its slice grants", () => {
-    // The compromised bundle's runtime identity. In production this
-    // comes from workerd's service-binding caller context — workerd
-    // sets it based on which Worker holds the binding, not on anything
-    // the caller's heap controls.
-    const compromisedBundleIdentity = "bundle:test-app:malicious-payload";
+  // Glob `bundle:test-app:*` — what should match.
+  const inSliceCases: Array<{ identity: string; reason: string }> = [
+    { identity: "bundle:test-app:malicious-payload", reason: "canonical bundle-instance identity" },
+    { identity: "bundle:test-app:probe",             reason: "different instance, same bundle name" },
+    { identity: "bundle:test-app:a",                 reason: "single-char suffix — `*` matches one or more chars" },
+    { identity: "bundle:test-app:nested:dispatch",   reason: "colon-segmented instance path; `*` is greedy across segment boundaries" },
+    { identity: "bundle:test-app:",                  reason: "empty suffix — `*` matches the empty string; substrate may mint this as a default-instance form" },
+  ];
 
-    const allowed = checkAccess(testAppCred.allowedSubs, compromisedBundleIdentity);
+  for (const { identity, reason } of inSliceCases) {
+    it(`permits "${identity}" (${reason})`, () => {
+      expect(checkAccess(testAppCred.allowedSubs, identity)).toBe(true);
+    });
+  }
 
-    expect(allowed,
-      "in-slice access must succeed — otherwise the gate is just blanket-deny and doesn't prove anything").toBe(true);
+  // The flip side of "in-slice": identities that LOOK close to the
+  // pattern but are NOT in the slice. These prove the glob isn't
+  // matching too permissively.
+  const nearMissCases: Array<{ identity: string; reason: string }> = [
+    { identity: "bundle:test-app",                   reason: "missing trailing colon — pattern requires `bundle:test-app:` exactly" },
+    { identity: "bundle:test-applepie:foo",          reason: "extended-prefix attack — `test-applepie` ⊃ `test-app` as bytes; pattern needs the colon delimiter" },
+    { identity: "BUNDLE:TEST-APP:foo",               reason: "case-sensitive match — uppercase bundle name is NOT the same identity" },
+    { identity: "bundle:test-app",                   reason: "no colon at all between bundle name and instance — different shape entirely" },
+    { identity: "prefix-bundle:test-app:foo",        reason: "smuggled prefix in front of the pattern — anchored match required" },
+    { identity: "",                                  reason: "empty identity must never match a non-trivial pattern" },
+  ];
+
+  for (const { identity, reason } of nearMissCases) {
+    it(`denies near-miss "${identity}" (${reason})`, () => {
+      expect(checkAccess(testAppCred.allowedSubs, identity)).toBe(false);
+    });
+  }
+
+  it("the cross-slice credential remains untouchable by the same probe set", () => {
+    // Sanity: every in-slice identity above is for testAppCred. None of
+    // them should accidentally satisfy githubPatCred's pattern.
+    for (const { identity } of inSliceCases) {
+      expect(
+        checkAccess(githubPatCred.allowedSubs, identity),
+        `identity "${identity}" must NOT cross into the github-pat slice`,
+      ).toBe(false);
+    }
   });
 });
 
