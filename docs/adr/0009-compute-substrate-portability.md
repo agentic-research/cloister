@@ -1,9 +1,51 @@
 ---
 title: "ADR-0009: Compute substrate portability — Linux / Firecracker / WASI / unikernel as deployment knob"
-status: Proposed
+status: Accepted (Phase 1: workerd-on-OCI committed 2026-05-10 via cloister-be0607)
 date: 2026-05-09
 tags: [architecture, substrate, deployment, isolate, hypervisor, wasm, firecracker, unikernel]
 supersedes_framing: []
+threat_model: ../security/threat-model.md
+---
+
+## Amendment 2026-05-10 — Phase 1 architectural commit (cloister-be0607)
+
+The original ADR listed FOUR substrate targets (apko / Firecracker / WASI / unikernel). The 2026-05-10 architectural review locks **Phase 1 to workerd-on-OCI only**. The other three targets stay as the ADR's long-term map but do NOT ship in `be0607`.
+
+### What's decided
+
+- **Packaging**: OCI images via apko/melange. Each bundle (cloister-router, mache, rosary, notme) ships as its own image.
+- **Runtime**: containerd-compatible (containerd directly, or podman, or nerdctl, or k8s kubelet). NOT docker specifically — OCI spec, not docker the product.
+- **Bundle composition**: `cluster.capnp` (new typed schema, sibling to `cloister.capnp`) declares N bundles + their inter-bundle wires + storage volumes.
+- **Inter-bundle wire**: capnp ToolCall/ToolResult over UDS (plain, no AEAD) per [ADR-0005](0005-internal-wire-leyline-net.md)'s amendment. The `udsForward` backend kind in the manifest already exists.
+- **Bundle boundary types**:
+  - **Cluster tier-2 bundles** (mache Go, rosary Rust, notme): OS process + container namespace per bundle. NOT v8 isolates — they can't be without WASM compile + losing native dependencies (FUSE, dolt).
+  - **Hypervisor tier-1 inside cloister-router**: v8 isolates within one workerd binary (cloister-router itself + future TS/JS tool bundles).
+- **Identity**: notme runs as a tier-1 bundle by default (every cluster mints its own master). Federation across clusters via leylineNet is for cross-cluster, not intra-pod.
+- **Storage**: shared volume mount for DO SQLite at `/var/lib/cloister/do/`. Survives pod restarts.
+- **Deployment shapes from one source-of-truth (`cluster.capnp`)**:
+  - `task dev:all` — Mac native binaries + UDS in `/tmp/cloister-dev/`
+  - `task cluster:up` — Linux nerdctl-compose / podman compose
+  - `kubectl apply pod.yaml` — k8s multi-container pod
+
+### What's NOT in Phase 1 (deferred)
+
+- **WASM-everything path** — mache (Go) and rosary (Rust + dolt) can't compile cleanly to WASM. Re-architecting those services for WASM is a sub-project; defer.
+- **Firecracker / Unikernel** — still in the ADR's long-term map below, but no ship requirement. If a self-hoster asks, file a follow-up bead.
+- **Multi-replica clustering** — Phase 1 is single-pod. Replicas break the DO singleton contract; that's a separate design informed by [ADR-0010](0010-vault-and-bundle-clusters.md) vault-clustering.
+- **Per-bundle CPU/memory enforcement** — workerd doesn't enforce these; that's a containerd/k8s/cgroup concern. Document the knobs, don't implement them.
+- **CNAB packaging** — too niche. Plain OCI + emitted compose/pod manifests instead.
+
+### Why this is right
+
+1. **v8 isolates stay lightweight inside cloister-router** — the "V8 is our IPC isolation" framing applies to the router's internal composition. For sibling services (Go, Rust), process+container isolation is the only honest answer without re-architecting them.
+2. **capnp-over-UDS is faster than HTTP-over-UDS** — already designed in [ADR-0005](0005-internal-wire-leyline-net.md)'s amendment; tooling exists in `src/wire/`.
+3. **OCI / containerd is k8s-compatible without locking us into k8s** — `task cluster:up` works without any k8s; `kubectl apply` works without changes to the image.
+4. **Notme-as-tier-1-bundle** = "cluster is its own identity authority" — the OSS pitch ("docker compose up = working cluster with its own master") with no external services required.
+
+### Implementation
+
+Tracked as cloister-be0607 with three sub-deliverables (a/b/c). See the bead for scope + acceptance.
+
 ---
 
 ## Context
