@@ -205,9 +205,29 @@ tasks:
       - docs/ARCHITECTURE.md
       - scripts/lint-mermaid.mjs
 
+  lint:paths:
+    desc: "Validate the do-storage path agrees across apko/config.capnp/cluster.capnp (cloister-7c12cc)"
+    cmds:
+      - node scripts/lint-paths.mjs
+    sources:
+      - apko.yaml
+      - config.capnp
+      - cluster.capnp
+      - scripts/lint-paths.mjs
+
+  lint:timing:
+    desc: "Validate security-affecting timing invariants (cloister-7ea4c4 / P1) — clock-skew, bundle refresh, retry backoff"
+    cmds:
+      - node scripts/lint-timing-invariants.mjs
+    sources:
+      - src/storage/ca-bundle-cache.ts
+      - src/routes/lease-middleware.ts
+      - src/storage/pending-attestations.ts
+      - scripts/lint-timing-invariants.mjs
+
   lint:
-    desc: Fast gate — tsc + worker tests + plugin tests + mermaid lint. Runs ≤2s. Use this in inner-loop dev.
-    deps: [type-check, test, test:plugin, mermaid:lint]
+    desc: Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing. Runs ≤2s. Use this in inner-loop dev.
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
