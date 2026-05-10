@@ -55,7 +55,9 @@ import type { Env } from "./types.js";
 import {
   SCHEMA_PEER_LEASE_COUNTERS,
   applyLeaseCounter,
+  computeNextLeaseStep,
   readLeaseCounter,
+  writeLeaseCounterRow,
   type PeerLeaseCounter,
 } from "./storage/peer-lease-counters.js";
 import {
@@ -88,6 +90,16 @@ ${SCHEMA_SEEN_NONCES}
 ${SCHEMA_PENDING_ATTESTATIONS}
 ${SCHEMA_PEER_ATTESTATIONS}
 `;
+
+/**
+ * Internal sentinel thrown inside `verifyLeaseAndAdvanceChain`'s
+ * `transactionSync` callback to roll back when the nonce was a
+ * duplicate (replay attempt). Caught immediately by the surrounding
+ * `try/catch` — never escapes the RPC method. Using a sentinel
+ * (rather than a real Error subclass) keeps the rollback path free of
+ * stack-trace allocation, and the `===` identity check is unambiguous.
+ */
+const REPLAY_SENTINEL: unique symbol = Symbol("replay-sentinel");
 
 export class TrustStore extends DurableObject {
   private readonly db: SqlStorage;
@@ -147,6 +159,111 @@ export class TrustStore extends DurableObject {
   /** Read the current counter for a peer; null if no observations yet. */
   getLeaseCounter(peerFp: string): PeerLeaseCounter | null {
     return readLeaseCounter(this.db, peerFp);
+  }
+
+  /**
+   * Atomically check the (cert_fp, nonce) replay ledger AND advance the
+   * peer's lease counter chain in ONE DO RPC + ONE SQL transaction.
+   *
+   * Replaces the two-RPC sequence (`recordSeenNonce` + `upsertLeaseCounter`)
+   * on the lease-middleware hot path. Two motivations (cloister-ee51b8):
+   *
+   *   1. **Perf.** The two cross-DO RPCs together accounted for ~85% of
+   *      lease-pipeline cost (~760µs of 925µs on local workerd; 2–6ms
+   *      on CF Workers prod). Coalescing them halves the cross-DO
+   *      overhead at the call site.
+   *
+   *   2. **Correctness.** The two-RPC version was NOT atomic. Workerd's
+   *      `sql.exec` auto-commits per call, so a crash between the
+   *      seen_nonces INSERT and the peer_lease_counters UPSERT left the
+   *      nonce consumed but the chain un-advanced — a §13.2 off-by-one
+   *      ("silence is evidence" reads the missing counter advance as a
+   *      malicious-cloister signal even though the cluster did nothing
+   *      wrong). Wrapping the two writes in a single `transactionSync`
+   *      closes this window.
+   *
+   * Return values:
+   *
+   *   - `{ replayed: true }`  — duplicate (cert_fp, nonce); caller MUST
+   *     reject as replay. Counter NOT advanced.
+   *   - `{ replayed: false, seq, last_chain_hash }` — fresh; counter
+   *     advanced. Caller proceeds with dispatch.
+   *
+   * Atomicity model:
+   *
+   *   - The outer `blockConcurrencyWhile` holds the DO input gate across
+   *     `await crypto.subtle.digest` so two concurrent same-peer calls
+   *     can't read the same `prevHash` + fork the chain (cloister-c66fea
+   *     pattern; same defense as the legacy `upsertLeaseCounter`).
+   *   - The digest is computed BEFORE the `transactionSync` because
+   *     `transactionSync` accepts only synchronous callbacks. Safe to
+   *     compute outside the txn: it's pure SHA-256 over deterministic
+   *     inputs, and the read of the prev row also happens inside the
+   *     gate so the inputs to the digest are consistent with the row
+   *     we're about to UPDATE.
+   *   - Inside `transactionSync`: nonce INSERT-OR-NOTHING → if not
+   *     fresh, throw to roll back (no counter write); if fresh, UPSERT
+   *     the counter. Both writes commit atomically.
+   *
+   * The chain hash is byte-identical to `applyLeaseCounter` — both paths
+   * route through `computeNextLeaseStep`. Parity verified against
+   * `interlace-spec/0.1.0/test-vectors/lease-counter.json`.
+   */
+  async verifyLeaseAndAdvanceChain(args: {
+    peerFp: string;
+    certFp: string;
+    nonce:  string;
+    ts:     number;
+  }): Promise<
+    | { replayed: true }
+    | { replayed: false; seq: number; last_chain_hash: string }
+  > {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      // Compute the next chain step OUTSIDE transactionSync — the
+      // digest is async and transactionSync only accepts sync
+      // callbacks. blockConcurrencyWhile ensures the prev-row read +
+      // digest + write all see a consistent view (no concurrent same-
+      // peer interleave).
+      const step = await computeNextLeaseStep(
+        this.db,
+        args.peerFp,
+        args.certFp,
+        args.nonce,
+        args.ts,
+      );
+
+      // Atomic write: nonce ledger + counter UPSERT in one txn. Throwing
+      // inside transactionSync rolls back; we use a sentinel error to
+      // signal the replay case so the counter UPSERT never lands when
+      // the nonce was a duplicate.
+      let replayed = false;
+      try {
+        this.ctx.storage.transactionSync(() => {
+          const nonceResult = recordSeenNonceHelper(this.db, args.certFp, args.nonce, args.ts);
+          if (!nonceResult.fresh) {
+            replayed = true;
+            throw REPLAY_SENTINEL;
+          }
+          writeLeaseCounterRow(
+            this.db,
+            args.peerFp,
+            args.certFp,
+            args.ts,
+            step.seq,
+            step.last_chain_hash,
+          );
+        });
+      } catch (err) {
+        if (err !== REPLAY_SENTINEL) throw err;
+      }
+
+      if (replayed) return { replayed: true };
+      return {
+        replayed: false,
+        seq:             step.seq,
+        last_chain_hash: step.last_chain_hash,
+      };
+    });
   }
 
   /**

@@ -164,6 +164,12 @@ export async function assertChainStep(
  * extension of the prior chain (cloister-c75da6). Should never happen
  * under correct usage — the check is defense-in-depth so a future
  * refactor can't silently corrupt the chain.
+ *
+ * Implementation note: composed from `computeNextLeaseStep` (pure read +
+ * digest) and `writeLeaseCounterRow` (pure write). The split exists so
+ * the batched `verifyLeaseAndAdvanceChain` RPC (cloister-ee51b8) can
+ * insert a `transactionSync` between the digest and the write so the
+ * seen_nonces INSERT and the counter UPSERT commit atomically.
  */
 export async function applyLeaseCounter(
   sql: SqlExecutor,
@@ -172,6 +178,40 @@ export async function applyLeaseCounter(
   nonce: string,
   ts: number,
 ): Promise<{ seq: number; last_chain_hash: string }> {
+  const step = await computeNextLeaseStep(sql, peerFingerprint, certFingerprint, nonce, ts);
+  writeLeaseCounterRow(sql, peerFingerprint, certFingerprint, ts, step.seq, step.last_chain_hash);
+  return { seq: step.seq, last_chain_hash: step.last_chain_hash };
+}
+
+/**
+ * Compute the next chain step for a peer WITHOUT writing. Reads the
+ * current row, folds (cert_fp, nonce, ts) into the chain hash via the
+ * deterministic SHA-256 transcript, and asserts monotonic chain
+ * extension.
+ *
+ * Returns `{ prevSeq, prevHash, seq, last_chain_hash }` — caller is
+ * responsible for the UPSERT (typically via `writeLeaseCounterRow`,
+ * usually inside a `transactionSync` for cross-table atomicity).
+ *
+ * Extracted from `applyLeaseCounter` for cloister-ee51b8 so the
+ * batched RPC can do the digest async BEFORE entering the synchronous
+ * write transaction (since `transactionSync` doesn't accept async
+ * callbacks). The chain math is byte-identical to `applyLeaseCounter`
+ * — the spec test vectors at `interlace-spec/0.1.0/test-vectors/
+ * lease-counter.json` verify this.
+ */
+export async function computeNextLeaseStep(
+  sql: SqlExecutor,
+  peerFingerprint: string,
+  certFingerprint: string,
+  nonce: string,
+  ts: number,
+): Promise<{
+  prevSeq:         number;
+  prevHash:        string;
+  seq:             number;
+  last_chain_hash: string;
+}> {
   const existing = readLeaseCounter(sql, peerFingerprint);
   const prevHash = existing?.last_chain_hash ?? ZERO_HASH;
   const prevSeq  = existing?.seq ?? 0;
@@ -181,6 +221,23 @@ export async function applyLeaseCounter(
 
   await assertChainStep(prevSeq, prevHash, seq, last_chain_hash, certFingerprint, nonce, ts);
 
+  return { prevSeq, prevHash, seq, last_chain_hash };
+}
+
+/**
+ * UPSERT the counter row. Pure synchronous write — safe to call inside
+ * `transactionSync`. Caller MUST have computed `seq` + `last_chain_hash`
+ * via `computeNextLeaseStep` (or equivalent) so monotonicity and
+ * chain-step assertions hold.
+ */
+export function writeLeaseCounterRow(
+  sql:             SqlExecutor,
+  peerFingerprint: string,
+  certFingerprint: string,
+  ts:              number,
+  seq:             number,
+  lastChainHash:   string,
+): void {
   // UPSERT — INSERT or replace via ON CONFLICT(peer_fingerprint).
   sql.exec(
     `INSERT INTO peer_lease_counters
@@ -193,10 +250,8 @@ export async function applyLeaseCounter(
        updated_at = excluded.updated_at`,
     peerFingerprint,
     seq,
-    last_chain_hash,
+    lastChainHash,
     certFingerprint,
     ts,
   );
-
-  return { seq, last_chain_hash };
 }

@@ -18,7 +18,11 @@
 //   6. Request signature   — Ed25519(claims.ephemeral_pubkey, sig,
 //                            canonical-bytes(method,url,ts,nonce,body)).
 //   7. Scope check         — cert.scope ⊇ requested-tool scope.
-//   8. Lease counter       — TrustStore.upsertLeaseCounter (e1d54e).
+//   8. Replay + chain      — TrustStore.verifyLeaseAndAdvanceChain
+//                            (cloister-ee51b8): single RPC, atomic
+//                            seen_nonces INSERT-OR-FAIL + lease counter
+//                            UPSERT inside one transactionSync. Replaces
+//                            the legacy two-RPC pair (e1d54e + c5c846).
 //   9. Dispatch            — caller passes through to McpEdgeRoute.
 //
 // Per ADR-0007: NO INTERLACE_DEV_BYPASS escape hatch. Always-on auth.
@@ -281,6 +285,22 @@ interface TrustStoreRpc {
     nonce: string,
     tsMs: number,
   ): Promise<{ fresh: boolean }>;
+  /**
+   * Atomic replay-check + chain advance (cloister-ee51b8). Replaces the
+   * back-to-back `recordSeenNonce` + `upsertLeaseCounter` pair on the
+   * hot path: one cross-DO RPC instead of two, and the two writes
+   * commit in one `transactionSync` so a crash between them can't
+   * leave the nonce consumed but the chain un-advanced.
+   */
+  verifyLeaseAndAdvanceChain(args: {
+    peerFp: string;
+    certFp: string;
+    nonce:  string;
+    ts:     number;
+  }): Promise<
+    | { replayed: true }
+    | { replayed: false; seq: number; last_chain_hash: string }
+  >;
 }
 
 /**
@@ -460,28 +480,39 @@ export async function verifyAndUpsertLease(args: {
     };
   }
 
-  // 8. Replay defense (cloister-c5c846 / threat-model §6.2.3). Anti-replay
-  // is keyed on (cert_fp, nonce). Single-statement INSERT OR FAIL — no
-  // read-then-write race. A duplicate envelope short-circuits BEFORE the
-  // counter advances so the chain doesn't record replay attempts as
-  // legitimate calls.
+  // 8 + 9. Replay defense + lease counter UPSERT, batched into ONE
+  // cross-DO RPC (cloister-ee51b8). Replaces what used to be two
+  // sequential RPCs (`recordSeenNonce` + `upsertLeaseCounter`):
+  //
+  //   - Perf: the two RPCs together accounted for ~85% of the lease
+  //     pipeline cost. Coalescing halves the cross-DO overhead.
+  //   - Atomicity: the previous shape committed `seen_nonces` before
+  //     `peer_lease_counters`, with no shared transaction. A crash
+  //     between the two left the nonce consumed but the chain
+  //     un-advanced — a §13.2 off-by-one signal even though the cluster
+  //     did nothing wrong. The new RPC wraps both writes in one
+  //     `transactionSync` on the DO so either both land or neither does.
+  //
+  // Semantics preserved: a duplicate (cert_fp, nonce) short-circuits to
+  // ERR_REPLAY BEFORE the counter advances (the chain never records
+  // replay attempts as legitimate calls). Per cloister-c5c846 / threat-
+  // model §6.2.3 + §6.2.8.
   const certFp = await certFingerprint(headers.certDer);
   const nonceB64 = b64encode(headers.nonce);
   const trustStore = trustStoreStub(args.env) as DurableObjectStub & TrustStoreRpc;
 
-  const replay = await trustStore.recordSeenNonce(certFp, nonceB64, args.nowMs);
-  if (!replay.fresh) {
+  const result = await trustStore.verifyLeaseAndAdvanceChain({
+    peerFp: claims.peerFp,
+    certFp,
+    nonce:  nonceB64,
+    ts:     args.nowMs,
+  });
+  if (result.replayed) {
     return {
       code: ERR_REPLAY,
       message: "request envelope replayed (cert_fp, nonce) tuple already seen",
     };
   }
-
-  // 9. Lease counter UPSERT. ADR-0007 §13.2 — every authenticated call
-  // is recorded so silence is evidence (a missing counter means traffic
-  // never landed). Done last so a verify failure doesn't rewrite the
-  // chain. Cross-DO RPC; TrustStore is a singleton per cluster.
-  await trustStore.upsertLeaseCounter(claims.peerFp, certFp, nonceB64, args.nowMs);
 
   return {
     peerFp:   claims.peerFp,

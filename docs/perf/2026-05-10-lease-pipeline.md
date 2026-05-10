@@ -8,17 +8,26 @@ endpoint, cold-start cluster boot) are tracked in a follow-up sub-bead.
 
 ## TL;DR
 
-| | µs |
-|---|---:|
-| Sum of step means | **900** |
-| Full pipeline mean | **925** |
-| Full pipeline p99  | **3000** |
+| | Before (µs) | After (µs) | Δ |
+|---|---:|---:|---:|
+| Sum of step means     | 900  | 1026 (legacy steps still benched) | n/a |
+| Full pipeline mean    | **925** | **520** | **−405µs / −44%** |
+| Full pipeline p99     | **3000** | **1000** | **−2000µs / −67%** |
 
-The two TrustStore DO RPCs together account for ~85% of pipeline time
-(~760µs of 900µs). The wasm32 cert-chain verify (90µs) and the
-Web-Crypto Ed25519 request-sig verify (32µs) are the next biggest
+The two TrustStore DO RPCs together accounted for ~85% of pipeline time
+(~760µs of 900µs) before batching. The wasm32 cert-chain verify (90µs)
+and the Web-Crypto Ed25519 request-sig verify (32µs) are the next biggest
 contributors. Pure-JS steps (header parse, scope match, epoch +
 validity, sha256 fingerprint) are sub-10µs each.
+
+**Update 2026-05-10 (cloister-ee51b8): the two DO RPCs were coalesced
+into one (`TrustStore.verifyLeaseAndAdvanceChain`). The legacy methods
+are still benched in isolation (per-step rows below) and still exist on
+the DO, but the live `verifyAndUpsertLease` pipeline now does ONE cross-
+DO call instead of two.** The per-step `seen_nonces` + `lease_counter`
+rows below describe the legacy RPCs (preserved for non-batched callers
+and benchmark continuity); the [After-batching](#after-batching-cloister-ee51b8)
+section captures the new measurement.
 
 **These numbers are local workerd, not Cloudflare Workers edge**; see
 [Caveats](#caveats).
@@ -84,6 +93,8 @@ dominant variance source).
 
 ### Full pipeline (`verifyAndUpsertLease`, end-to-end)
 
+#### Before batching (original 2026-05-10 measurement; audit trail)
+
 | Metric | value (ms) |
 |---|---:|
 | mean | 0.925 |
@@ -94,6 +105,36 @@ dominant variance source).
 
 Min=0 is the clock-grain artifact: a "real" sample of 0.5ms reads as
 either 0 or 1ms depending on which side of the boundary it lands.
+
+#### After batching (cloister-ee51b8)
+
+Same harness, same machine, same PER_STEP_N/PIPELINE_N/WARMUP, but the
+pipeline now does ONE `TrustStore.verifyLeaseAndAdvanceChain` RPC
+instead of `recordSeenNonce` + `upsertLeaseCounter` back-to-back.
+
+| Metric | value (ms) |
+|---|---:|
+| mean | 0.520 |
+| p50  | 1.000 |
+| p99  | 1.000 |
+| min  | 0.000 |
+| max  | 3.000 |
+
+**Delta: mean −405µs (−44%), p99 −2000µs (−67%), max −4000µs (−57%).**
+
+The p99 collapse is the bigger story. Before batching, p99 sat at 3ms
+because the two RPCs each had an independent chance of landing on a
+slow tick. After batching, p99 drops to 1ms (the clock grain itself) —
+the second RPC's tail variance no longer compounds with the first's.
+
+The 405µs mean improvement is close to one full DO RPC roundtrip
+(legacy `seen_nonces upsert` benchmarked at 374–514µs), which is what
+the bead predicted (~380µs).
+
+The "Sum of step means" row above (1026µs) is artificially inflated
+because the per-step bench still drives the LEGACY methods in
+isolation for benchmark continuity — they remain on the DO for non-
+batched callers. The live pipeline does not use them.
 
 ## Interpretation
 
@@ -116,10 +157,13 @@ of them is wasted effort until the DO RPCs come down.
 
 ### Possible follow-ups (not implemented this session)
 
-- **Coalesce the two RPCs into one.** A single `upsertLeaseAndRecordNonce`
-  method on `TrustStore` would halve the cross-DO overhead — assuming
-  the singleton DO can handle both as one transaction. Material win
-  candidate (~30% pipeline-level).
+- ~~**Coalesce the two RPCs into one.**~~ **DONE — cloister-ee51b8**
+  (2026-05-10). The new `TrustStore.verifyLeaseAndAdvanceChain` method
+  composes the seen_nonces INSERT + lease_counter UPSERT inside one
+  `transactionSync` on the DO; the lease middleware now calls it instead
+  of the back-to-back pair. Also closes the cross-table atomicity gap
+  (a crash between the two writes would have left the nonce consumed
+  but the chain un-advanced — a §13.2 off-by-one).
 - **CA bundle fetch.** This bench feeds a pre-built bundle directly to
   `verifyAndUpsertLease`, mirroring the cached path in `getCABundle`
   (TTL = 4min, in-process). The uncached path adds one service-binding
@@ -151,7 +195,12 @@ of them is wasted effort until the DO RPCs come down.
 - Tracking bead: `cloister-747d98`.
 - Sub-bead for remaining four surfaces: `cloister-747d98b` (filed
   separately; see `rsry_bead_search`).
-- Source: [`src/routes/lease-middleware.ts`](../../src/routes/lease-middleware.ts).
+- **Batched-RPC bead: `cloister-ee51b8`** — closed the two-RPC fan-out
+  + atomicity gap; produced the After numbers above.
+- Source: [`src/routes/lease-middleware.ts`](../../src/routes/lease-middleware.ts),
+  [`src/trust-store.ts`](../../src/trust-store.ts) (`verifyLeaseAndAdvanceChain`).
+- Parity test: [`test/trust-store.test.ts`](../../test/trust-store.test.ts)
+  (`PARITY: spec vector chain hashes`).
 - Bench script: [`test/perf/lease-pipeline.test.ts`](../../test/perf/lease-pipeline.test.ts).
 - Bench config: [`vitest.bench.config.ts`](../../vitest.bench.config.ts).
 - Threat model context for each step: [`docs/security/threat-model.md`](../security/threat-model.md).

@@ -41,6 +41,33 @@ interface TrustStoreRpc {
     nowMs: number,
   ): Promise<{ newAttempts: number; nextRetryAt: number | null }>;
   listPendingForPeer(peerFp: string): Promise<PendingAttestation[]>;
+  // cloister-ee51b8 — atomic replay-check + chain advance, replaces the
+  // recordSeenNonce + upsertLeaseCounter pair on the lease-middleware
+  // hot path.
+  verifyLeaseAndAdvanceChain(args: {
+    peerFp: string;
+    certFp: string;
+    nonce:  string;
+    ts:     number;
+  }): Promise<
+    | { replayed: true }
+    | { replayed: false; seq: number; last_chain_hash: string }
+  >;
+  // Legacy methods kept for benches + non-batched callers.
+  recordSeenNonce(certFp: string, nonce: string, tsMs: number): Promise<{ fresh: boolean }>;
+  upsertLeaseCounter(
+    peerFp:  string,
+    certFp:  string,
+    nonce:   string,
+    ts:      number,
+  ): Promise<{ seq: number; last_chain_hash: string }>;
+  getLeaseCounter(peerFp: string): Promise<{
+    peer_fingerprint: string;
+    seq:              number;
+    last_chain_hash:  string;
+    last_cert_fp:     string;
+    updated_at:       number;
+  } | null>;
 }
 
 let counter = 0;
@@ -217,5 +244,176 @@ describe("TrustStore.enqueuePending + commit (RPC)", () => {
     //    attestation row present.
     expect(await stub.listPendingForPeer(PEER)).toEqual([]);
     expect((await stub.findAttestationByContent(PEER, HASH_A))?.seq).toBe(1);
+  });
+});
+
+// ── verifyLeaseAndAdvanceChain RPC (cloister-ee51b8) ─────────────────────
+//
+// Batched replacement for the recordSeenNonce + upsertLeaseCounter pair
+// on the lease-middleware hot path. Three load-bearing properties:
+//
+//   1. PARITY — chain hash is byte-identical to the legacy two-RPC path
+//      AND to the Interlace spec test vectors at
+//      `interlace-spec/0.1.0/test-vectors/lease-counter.json`. The chain
+//      is a cryptographic contract; ANY drift breaks the spec.
+//   2. ATOMICITY — replay rejection rolls back the counter UPSERT inside
+//      one transactionSync; nonce never gets consumed without the chain
+//      advancing in lockstep.
+//   3. CONCURRENCY — same-peer concurrent calls don't fork the chain
+//      (blockConcurrencyWhile holds the input gate across the digest
+//      await; same defense as legacy upsertLeaseCounter).
+
+describe("TrustStore.verifyLeaseAndAdvanceChain (RPC, cloister-ee51b8)", () => {
+  const PEER_FP = "sha256:test-peer-ee51b8";
+  const CERT_FP = "sha256:test-cert-ee51b8";
+
+  it("genesis call: returns seq=1 + computed chain hash, NOT replayed", async () => {
+    const stub = freshStub();
+    const r = await stub.verifyLeaseAndAdvanceChain({
+      peerFp: PEER_FP, certFp: CERT_FP, nonce: "nonce-1", ts: 1_000,
+    });
+    expect(r.replayed).toBe(false);
+    if (!r.replayed) {
+      expect(r.seq).toBe(1);
+      expect(r.last_chain_hash).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("second call: monotonic seq advance + chain extension", async () => {
+    const stub = freshStub();
+    await stub.verifyLeaseAndAdvanceChain({
+      peerFp: PEER_FP, certFp: CERT_FP, nonce: "nonce-1", ts: 1_000,
+    });
+    const r2 = await stub.verifyLeaseAndAdvanceChain({
+      peerFp: PEER_FP, certFp: CERT_FP, nonce: "nonce-2", ts: 2_000,
+    });
+    expect(r2.replayed).toBe(false);
+    if (!r2.replayed) {
+      expect(r2.seq).toBe(2);
+    }
+  });
+
+  it("duplicate (cert_fp, nonce) returns replayed:true; chain does NOT advance", async () => {
+    const stub = freshStub();
+    const r1 = await stub.verifyLeaseAndAdvanceChain({
+      peerFp: PEER_FP, certFp: CERT_FP, nonce: "nonce-dup", ts: 1_000,
+    });
+    expect(r1.replayed).toBe(false);
+    if (r1.replayed) throw new Error("first call should not be replayed");
+
+    // Snapshot chain head BEFORE the duplicate attempt.
+    const beforeReplay = await stub.getLeaseCounter(PEER_FP);
+    expect(beforeReplay?.seq).toBe(1);
+    const headHashBefore = beforeReplay?.last_chain_hash;
+
+    // Replay the same (cert_fp, nonce). MUST be rejected and MUST NOT
+    // advance the counter.
+    const r2 = await stub.verifyLeaseAndAdvanceChain({
+      peerFp: PEER_FP, certFp: CERT_FP, nonce: "nonce-dup", ts: 2_000,
+    });
+    expect(r2.replayed).toBe(true);
+
+    // Chain head unchanged — the atomicity contract: replay rejection
+    // rolls back the counter UPSERT inside one transactionSync.
+    const afterReplay = await stub.getLeaseCounter(PEER_FP);
+    expect(afterReplay?.seq).toBe(1);
+    expect(afterReplay?.last_chain_hash).toBe(headHashBefore);
+  });
+
+  it("PARITY: batched chain hashes match the legacy two-RPC path byte-for-byte (N=5)", async () => {
+    // The bead's load-bearing assertion. Both paths route through the
+    // same `computeNextLeaseStep` helper, so this is effectively a
+    // regression test: drift here means the helper composition got
+    // accidentally tweaked.
+    const N = 5;
+    const inputs = Array.from({ length: N }, (_, i) => ({
+      nonce: `parity-nonce-${i}`,
+      ts:    1_000 + i * 100,
+    }));
+
+    // Path 1: legacy two-RPC sequence (recordSeenNonce + upsertLeaseCounter).
+    const legacyStub = freshStub();
+    const legacyChain: string[] = [];
+    for (const { nonce, ts } of inputs) {
+      const fresh = await legacyStub.recordSeenNonce(CERT_FP, nonce, ts);
+      expect(fresh.fresh).toBe(true);
+      const u = await legacyStub.upsertLeaseCounter(PEER_FP, CERT_FP, nonce, ts);
+      legacyChain.push(u.last_chain_hash);
+    }
+
+    // Path 2: batched one-RPC version.
+    const batchedStub = freshStub();
+    const batchedChain: string[] = [];
+    for (const { nonce, ts } of inputs) {
+      const r = await batchedStub.verifyLeaseAndAdvanceChain({
+        peerFp: PEER_FP, certFp: CERT_FP, nonce, ts,
+      });
+      expect(r.replayed).toBe(false);
+      if (!r.replayed) batchedChain.push(r.last_chain_hash);
+    }
+
+    // Byte-identical at every step.
+    expect(batchedChain).toEqual(legacyChain);
+    expect(batchedChain.length).toBe(N);
+  });
+
+  it("PARITY: spec vector chain hashes — Interlace 0.1.0 lease-counter.json", async () => {
+    // This is the load-bearing spec contract. The Interlace 0.1.0
+    // spec at `interlace-spec/0.1.0/test-vectors/lease-counter.json`
+    // pins the chain-hash transcript. Both the legacy and batched paths
+    // MUST produce these digests. If they drift, we've broken the spec
+    // — stop, investigate, do NOT rationalize.
+    //
+    // Spec formula: sha256_hex(UTF8(prev_hash || cert_fp || nonce_b64 || ts_ms_decimal)).
+    const SPEC_CERT_FP = "faec491cb52fe7908ae6f5817a342dc261b70fafbea906f211651b0320787c73";
+    const SPEC_VECTORS = [
+      {
+        seq: 1,
+        nonce: "oaKjpKWmp6ipqqusra6vsA",
+        ts: 1700000100000,
+        expected: "549167a8c86aa0ea24bb14a968784a5b15bdb7d9f63dca16a55746fee205df64",
+      },
+      {
+        seq: 2,
+        nonce: "sbKztLW2t7i5uru8vb6_wA",
+        ts: 1700000200000,
+        expected: "0b9d1e76bf3f422b5098557d40b342a0c17f1ad91dfa0d4fe3dfa9b53b6c5963",
+      },
+      {
+        seq: 3,
+        nonce: "wcLDxMXGx8jJysvMzc7P0A",
+        ts: 1700000300000,
+        expected: "13b1bec2df65fad43f3adfc1e98a2f41dc7560391a0f7277b0cf35e38a96c665",
+      },
+    ];
+
+    // Drive the batched path through the spec inputs. The chain head
+    // after each step must match the spec's `expected_last_chain_hash`.
+    const stub = freshStub();
+    const SPEC_PEER_FP = "sha256:spec-vector-peer";
+    for (const v of SPEC_VECTORS) {
+      const r = await stub.verifyLeaseAndAdvanceChain({
+        peerFp: SPEC_PEER_FP, certFp: SPEC_CERT_FP, nonce: v.nonce, ts: v.ts,
+      });
+      expect(r.replayed).toBe(false);
+      if (!r.replayed) {
+        expect(r.seq).toBe(v.seq);
+        // The byte-level spec contract. If this fails, the chain
+        // formula or its inputs have drifted from interlace-spec/0.1.0
+        // — do NOT change the expected; figure out what drifted.
+        expect(r.last_chain_hash).toBe(v.expected);
+      }
+    }
+
+    // Cross-check: legacy path must produce the same digests. (We
+    // already test legacy parity in the previous case, but spec-vector
+    // coverage of the legacy path is the regression hedge if someone
+    // later "optimizes" the legacy path out of band.)
+    const legacyStub = freshStub();
+    for (const v of SPEC_VECTORS) {
+      await legacyStub.recordSeenNonce(SPEC_CERT_FP, v.nonce, v.ts);
+      const u = await legacyStub.upsertLeaseCounter(SPEC_PEER_FP, SPEC_CERT_FP, v.nonce, v.ts);
+      expect(u.last_chain_hash).toBe(v.expected);
+    }
   });
 });

@@ -173,6 +173,7 @@ The current shape:
 | 6.2.5 | Partial replay: same body, different timestamp | The signature was over the *original* ts; a new ts would not match canonical bytes → sig fails | §11 row L.14 |
 | 6.2.6 | Server clock skew exceeds cert TTL | Cert is rejected as outside validity window | §11 row L.10, L.11 |
 | 6.2.7 | Server clock skew is between 0 and cert TTL (small skew) | Currently accepted — the implementation does not bound `nowSec - ts` | §11 row T.1 (proposed) |
+| 6.2.8 | Crash between seen_nonces INSERT and peer_lease_counters UPSERT leaves nonce consumed but chain un-advanced — §13.2 off-by-one (disclosure endpoint reads the missing counter advance as a malicious-cloister signal even though the cluster did nothing wrong) | The two writes are now wrapped in ONE `ctx.storage.transactionSync` inside `TrustStore.verifyLeaseAndAdvanceChain`. Either both land or neither does. Replay rejection throws to roll back the txn so the counter UPSERT never commits when the nonce was a duplicate. | **CLOSED 2026-05-10** — `cloister-ee51b8`. See ADR-0007 + `docs/perf/2026-05-10-lease-pipeline.md` "After batching." |
 
 **Honest disposition.** §6.2.3 is the most important gap in this model.
 The middleware comment (`src/routes/lease-middleware.ts:4`) advertises
@@ -553,6 +554,7 @@ For posterity, the original §13 items 1-8 — all closed by 2026-05-10:
 | 6. Constant-time error path | `cloister-c7a184` + `cloister-bdef0c` | D.3 + D.1/D.2/D.4/D.5 |
 | 7. Counter monotonicity + chain integrity | `cloister-c75da6` | T.3, T.4 |
 | 8. Server clock skew bound | `cloister-c7e3e3` | T.1 |
+| 9. seen_nonces / lease_counter atomicity gap (§6.2.8) | `cloister-ee51b8` | (composed inside `TrustStore.verifyLeaseAndAdvanceChain`; parity tested against `interlace-spec/0.1.0/test-vectors/lease-counter.json`) |
 
 ## 14. Cross-references
 
