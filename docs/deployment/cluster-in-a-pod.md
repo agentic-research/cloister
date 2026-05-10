@@ -134,15 +134,85 @@ end-to-end; track as a follow-up bead.)
 
 ## Persistence
 
-The `cloister-do` volume holds:
+The `cloister-do` volume mounts at `/data/do` inside the
+cloister-router container. It holds:
 
 - BeadStore SQLite (per-repo bead state)
 - TrustStore SQLite (singleton, lease counters + attestations + pending)
 - BlobStore SQLite (singleton, content-addressed blobs)
 
-Backups: `nerdctl volume inspect cloister-do` shows the host path; back
-it up like any filesystem. The SQLite files are append-only-friendly
-under workerd's DO storage layer.
+### Why `/data/do` specifically
+
+The path `/data/do` is hard-coded today across THREE files:
+
+- [`apko.yaml`](../../apko.yaml) — creates the dir at image build (uid 65532)
+- [`config.capnp`](../../config.capnp) — workerd `do-storage` service points here
+- [`cluster.capnp`](../../cluster.capnp) — `storage.doStoragePath = "/data/do"`
+
+Drift between these three is silently broken. A path lint is filed
+under `cloister-7c12cc`. Until that lands, **don't change `/data/do`
+in any one file without updating all three in the same commit.**
+
+A more dangerous class of drift — timing/security constants — is
+tracked under `cloister-7ea4c4`: cert TTL ↔ bundle refresh ↔ seen_nonces
+eviction ↔ pending-attestation alarms must satisfy specific invariants
+or the cluster is silently insecure.
+
+### SIGTERM behavior
+
+Workerd handles `SIGTERM` (and `SIGINT`) by:
+
+1. Stopping accept on the listening socket — no new requests admitted.
+2. Draining in-flight requests up to a deadline (default ~30s).
+3. Flushing DO storage. Each Durable Object commits any pending writes
+   to its SQLite file before exit; the volume mount survives.
+
+`task cluster:down` sends `SIGTERM` to each container in stop-order
+(reverse of `compose up` order). cloister-router stops last so
+sibling bundles don't lose connectivity mid-shutdown.
+
+### Persistence smoke test (manual)
+
+```sh
+task cluster:up &              # backgrounds the cluster
+sleep 5
+# Create a bead via the cluster
+curl -X POST http://localhost:8787/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"bead_create",
+                 "arguments":{"repo":"/test","title":"persistence-test"}}}'
+
+task cluster:down              # SIGTERM → drain → exit; volume preserved
+task cluster:up &              # fresh container start
+sleep 5
+# Verify the bead is still there
+curl -X POST http://localhost:8787/mcp \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"bead_search",
+                 "arguments":{"repo":"/test","query":"persistence-test"}}}'
+# Should return the bead created earlier.
+```
+
+Run this with `task cluster:down` AND `task cluster:down DESTROY=1`
+followed by `cluster:up` — the second case starts fresh (volume
+removed); the bead does NOT come back. That's expected and confirms
+the volume is the persistence boundary.
+
+### Backup strategy
+
+`nerdctl volume inspect cloister-do` (or `podman volume inspect`) shows
+the host path. The SQLite files are workerd-managed; they're safe to
+copy when no writes are in flight. For online backup:
+
+1. `task cluster:down` (graceful drain) → SIGTERM → workerd flushes
+2. `cp -a $(nerdctl volume inspect -f '{{.Mountpoint}}' cloister-do) /backup/`
+3. `task cluster:up` to resume
+
+Online (no-downtime) checkpoint isn't supported today — workerd doesn't
+expose a `flush-now` signal. Filed as a follow-up bead when self-hosters
+need it operationally.
 
 ## Troubleshooting
 

@@ -166,9 +166,18 @@ struct Wire {
 # Durable Object SQLite files need a writable volume that survives
 # container restarts. Phase 1 ships one volume mount; future revisions
 # may split into per-DO volumes for finer-grained backup policy.
+#
+# IMPORTANT — drift coupling:
+#   - apko.yaml creates `/data` + `/data/do` (uid 65532) at image build
+#   - config.capnp's `do-storage` service points workerd at `/data/do`
+#   - this field MUST agree with both. Lint pending under cloister-7c12cc.
+#
+# Don't change the path without updating apko.yaml + config.capnp in
+# the same commit.
 struct StoragePolicy {
-  # Host path where DO storage is mounted. Emitters wire this into the
-  # cloister-router container's volume mounts. Defaults to
-  # `/var/lib/cloister/do` if empty.
+  # Host path where DO storage is mounted. Default `/data/do` matches
+  # the apko image's pre-created directory + workerd's localDisk service.
+  # Operators MAY override per deployment (e.g. k8s PVC mounted elsewhere)
+  # but the override has to match all three places.
   doStoragePath @0 :Text;
 }

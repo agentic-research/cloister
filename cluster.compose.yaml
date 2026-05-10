@@ -18,7 +18,7 @@ services:
       - "8787:8787"
     volumes:
       - cloister-uds:/run/cloister-uds
-      - cloister-do:/var/lib/cloister/do
+      - cloister-do:/data/do
     environment:
       - "MACHE_BUNDLE=/run/cloister-uds/mache.sock"
       - "ROSARY_BUNDLE=/run/cloister-uds/rosary.sock"

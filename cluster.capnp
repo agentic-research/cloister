@@ -100,6 +100,6 @@ const cluster :Cluster.Cluster = (
 
   # ── Storage: where DO SQLite lives ─────────────────────────────────────
   storage = (
-    doStoragePath = "/var/lib/cloister/do",
+    doStoragePath = "/data/do"  # MUST match apko.yaml + config.capnp; see manifest/cluster.capnp StoragePolicy doc,
   ),
 );

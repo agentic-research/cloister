@@ -29,7 +29,7 @@ function cluster(over: Partial<Cluster> = {}): Cluster {
     metadata: { name: "test-cluster", version: "0.0.1" },
     bundles:  [],
     wires:    [],
-    storage:  { doStoragePath: "/var/lib/cloister/do" },
+    storage:  { doStoragePath: "/data/do" },
     ...over,
   };
 }
@@ -167,6 +167,6 @@ describe("the generated cluster.ts (consumer manifest)", () => {
 
   it("storage path set to the documented default", async () => {
     const { cluster: real } = await import("../../src/generated/cluster.js");
-    expect(real.storage.doStoragePath).toBe("/var/lib/cloister/do");
+    expect(real.storage.doStoragePath).toBe("/data/do");
   });
 });

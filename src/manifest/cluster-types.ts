@@ -129,7 +129,7 @@ export type WireTransport =
  */
 export interface StoragePolicy {
   /**
-   * Host path. Defaults to `/var/lib/cloister/do` if empty.
+   * Host path. Defaults to `/data/do` (matches apko image + config.capnp).
    * Resolves to a Docker named volume / k8s PVC / mac local dir
    * depending on the emitter.
    */
