@@ -46,8 +46,13 @@ fn main() {
     let ephemeral = SigningKey::from_bytes(&ephemeral_seed);
 
     // Fixed-time validity so the fixture doesn't drift.
+    // Validity window: Nov 14 2023 → Dec 31 2049 (the end of UTCTime's
+    // representable range). Wide enough that wall-clock Date.now() in
+    // any test session passes the validity-window check; SELF.fetch
+    // tests can use real Date.now() via signedMcpRequest without
+    // tripping the cert.not_after gate. Closes cloister-2197d8.
     let not_before: i64 = 1_700_000_000;
-    let not_after:  i64 = 1_700_000_300;
+    let not_after:  i64 = 2_524_607_999;  // 2049-12-31T23:59:59Z
 
     // Cert with all Interlace extensions populated.
     let cert_full = mint_test_cert(

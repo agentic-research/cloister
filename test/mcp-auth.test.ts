@@ -156,13 +156,36 @@ describe("McpEdgeRoute.handlePost — lease gate (INTERLACE_ROOT_PUBKEY set)", (
     expect(body.error.code).toBe(-32005);  // ERR_CA_UNAVAILABLE
   });
 
-  // Skipping the full happy-path test: the production Worker uses
-  // workerd's real Date.now() at request time, not vi.useFakeTimers().
-  // The fixture cert validity window is 1700000000–1700000300 (Nov 2023);
-  // wall-clock NOW is well outside that. The orchestrator-level happy
-  // path is already covered exhaustively in lease-middleware.test.ts
-  // (which can pin nowMs as an explicit arg). Here we focus on the
-  // failure modes that don't depend on the system clock.
+  it("happy path: signed envelope with real Date.now() passes the full pipeline", async () => {
+    // cloister-2197d8 fix made this possible: cert validity now runs
+    // through 2049-12-31, so wall-clock Date.now() falls inside the
+    // window. signedMcpRequest signs canonical bytes with the fixture's
+    // ephemeral key at `tsMs: Date.now()`, so clock-skew passes too.
+    _resetCache();
+    const root = await makeRootKey();
+    const bundle = await makeBundleResponder(root.privateKey);
+    const route = new McpEdgeRoute([]);
+
+    const { request } = await signedMcpRequest({
+      method: "tools/call",
+      params: { name: "bead_create", arguments: { repo: "/repos/foo" } },
+      tsMs: Date.now(),  // real wall-clock — works because cert.not_after = 2049
+    });
+
+    const res = await route.handle(request, envWith(
+      { INTERLACE_ROOT_PUBKEY: root.publicKeyB64 },
+      async () => Response.json(bundle),
+    ));
+
+    // The dispatch reaches the empty-backend McpEdgeRoute, which
+    // returns method-not-found (-32601) because there's no bead_create
+    // tool registered. The key point: the LEASE GATE PASSED — if it
+    // had rejected, we'd see a 4xx/5xx + lease error code (-32001/3/5).
+    // Instead we see HTTP 200 with the post-gate dispatch error.
+    expect(res.status).toBe(200);
+    const body = await res.json() as { error?: { code: number } };
+    expect(body.error?.code).toBe(-32601);
+  });
 
   it("CORS Access-Control-Allow-Origin is set on lease-error responses", async () => {
     const root = await makeRootKey();
