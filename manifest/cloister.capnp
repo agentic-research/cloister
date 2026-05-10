@@ -167,10 +167,9 @@ struct Backend {
     udsForward     @5 :UdsForwardBackend;
 
     # leyline-net wire to cloister-companion (ADR-0005). cloister sends
-    # signed-capnp frames over loopback HTTP; companion decodes, forwards
+    # capnp ToolCall frames over loopback HTTP; companion decodes, forwards
     # to the upstream by `upstreamId`, and returns a capnp ToolResult.
-    # Backend kind is reserved here; runtime impl currently throws
-    # "not yet implemented" (Phase 2D-skel) — see cloister-5183bc.
+    # cloister-5183bc / cloister-46fc1a — backend wired.
     leylineNet     @6 :LeylineNetBackend;
   }
 }
@@ -229,9 +228,14 @@ struct ServiceBindingBackend {
 }
 
 struct UdsForwardBackend {
-  # Path to the UDS socket. Placeholder — workerd's outbound is HTTP-only,
-  # so this kind is realized by an external bridge (e.g. notme-proxy)
-  # exposed as either a serviceBinding or httpForward at the cloister face.
+  # Path to the UDS socket the upstream listens on (e.g.
+  # "/run/cloister-uds/mache.sock"). workerd can't dial AF_UNIX from JS,
+  # so the runtime POSTs a capnp ToolCall to cloister-companion (the
+  # COMPANION_URL endpoint) with two HTTP headers:
+  #   X-Cloister-Transport: uds
+  #   X-Cloister-Socket-Path: <socketPath>
+  # Companion then dials the socket and proxies the bytes. See
+  # ADR-0005 amendment 2026-05-10 (cloister-46fc1a).
   socketPath @0 :Text;
 
   tools      @1 :List(McpTool);

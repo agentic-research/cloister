@@ -227,20 +227,35 @@ describe("manifest runtime: httpProxy route kind", () => {
   });
 });
 
-// ── UdsForwardToolBackend reservation ──────────────────────────────────────
+// ── UdsForwardToolBackend manifest-runtime integration ─────────────────────
+//
+// Deep behavioral coverage (round-trip wire, success/error paths) lives in
+// test/manifest/uds-forward-backend.test.ts. These tests verify slot-in to
+// the manifest runtime and that invocation without COMPANION_URL fails
+// with the expected diagnostic (mirrors LeylineNet's pattern).
 
-describe("UdsForwardToolBackend (placeholder)", () => {
-  it("throws JsonRpcInvocationError(-32603) on invoke (reserved kind)", async () => {
+describe("UdsForwardToolBackend (manifest integration)", () => {
+  it("advertises tools and matches handlesPrefix", async () => {
     const { UdsForwardToolBackend } = await import("../../src/manifest/backends/uds-forward.js");
     const b = new UdsForwardToolBackend(
-      { socketPath: "/tmp/x.sock", tools: [{ name: "x", description: "", inputSchemaJson: '{"type":"object"}' }] },
-      "x",
+      { socketPath: "/tmp/x.sock", tools: [{ name: "x_one", description: "", inputSchemaJson: '{"type":"object"}' }] },
+      "x_",
     );
-    expect(b.handles("x")).toBe(true);
-    await expect(b.invoke("x", {}, {} as never)).rejects.toMatchObject({
+    expect(b.tools().map(t => t.name)).toEqual(["x_one"]);
+    expect(b.handles("x_one")).toBe(true);
+    expect(b.handles("other")).toBe(false);
+  });
+
+  it("throws JsonRpcInvocationError(-32603) when COMPANION_URL is unset", async () => {
+    const { UdsForwardToolBackend } = await import("../../src/manifest/backends/uds-forward.js");
+    const b = new UdsForwardToolBackend(
+      { socketPath: "/tmp/x.sock", tools: [{ name: "x_one", description: "", inputSchemaJson: '{"type":"object"}' }] },
+      "x_",
+    );
+    await expect(b.invoke("x_one", {}, {} as never)).rejects.toMatchObject({
       name: "JsonRpcInvocationError",
       code: -32603,
-      message: expect.stringContaining("not yet implemented"),
+      message: expect.stringContaining("COMPANION_URL"),
     });
   });
 });
