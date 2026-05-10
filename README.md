@@ -289,21 +289,38 @@ source of truth for *why*; this README and ARCHITECTURE.md describe
 
 ## Performance
 
-Per-pipeline latency for the lease middleware — workerd-local numbers,
-not Cloudflare Workers prod:
+Per-surface latency + throughput — workerd-local numbers, not
+Cloudflare Workers prod. See [docs/perf/README.md](docs/perf/README.md)
+for the full index.
 
 - [docs/perf/2026-05-10-lease-pipeline.md](docs/perf/2026-05-10-lease-pipeline.md) —
   per-step + full-pipeline timings for `verifyAndUpsertLease`. TL;DR:
-  ~900µs full pipeline; TrustStore DO RPCs are ~85% of the cost,
-  wasm32 cert verify ~10%, everything else noise.
+  520 µs full pipeline post-batching; TrustStore DO RPCs are ~85% of
+  the cost, wasm32 cert verify ~10%, everything else noise.
+- [docs/perf/2026-05-10-tools-call-dispatch.md](docs/perf/2026-05-10-tools-call-dispatch.md) —
+  `tools/call` dispatch cost. TL;DR: 16 µs direct, < 1 µs of CPU work;
+  dispatch is 0.005% of an authenticated POST /mcp budget.
+- [docs/perf/2026-05-10-trust-store-contention.md](docs/perf/2026-05-10-trust-store-contention.md) —
+  TrustStore RPC under load. TL;DR: 10k-row prefill doesn't move
+  the needle; throughput ceiling ~5,000 req/s on the singleton's
+  input gate.
+- [docs/perf/2026-05-10-disclosure-endpoint.md](docs/perf/2026-05-10-disclosure-endpoint.md) —
+  `GET /interlace/peers/{fp}` paths. TL;DR: 107k rows/sec page
+  throughput; **§9.4 timing-channel finding — the constant-time
+  404 isn't.**
+- [docs/perf/2026-05-10-cold-start.md](docs/perf/2026-05-10-cold-start.md) —
+  `wrangler dev` → first 200 on `/health`. TL;DR: 610 ms warm,
+  1.9 s cold-cache.
 
-Reproduce with `task bench:lease` (excluded from `task lint` / `task test`).
+Reproduce with `task bench:<surface>` (`lease`, `dispatch`,
+`trust-store`, `disclosure`, `cold-start`, `all`) — all opt-in,
+excluded from `task lint` / `task test`.
 
 ## Documentation map
 
 - [GETTING-STARTED.md](GETTING-STARTED.md) — install, run, smoke-test, wire upstreams, install the plugin
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime model, request routing, component map, packaging
-- [docs/perf/](docs/perf/) — perf write-ups (`2026-05-10-lease-pipeline.md` is the first; more in `cloister-747d98b`)
+- [docs/perf/](docs/perf/) — perf write-ups (5 surfaces; see `docs/perf/README.md` for the index)
 - [docs/deployment/off-platform-peers.md](docs/deployment/off-platform-peers.md) — CF Tunnel / WARP for peers outside the platform (per ADR-0007)
 - [interlace-spec/0.1.0/](interlace-spec/0.1.0/README.md) — **Interlace protocol v0.1.0** (vendor-neutral spec extracted from ADR-0007; canonical wire + test vectors for a second implementation)
 - [docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md) — why workerd

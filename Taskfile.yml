@@ -204,7 +204,37 @@ tasks:
     desc: "Lease-pipeline microbenchmark (cloister-747d98). Excluded from `task lint`/`task test`. Writes results to stdout — paste into docs/perf/*.md."
     deps: [manifest]
     cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/lease-pipeline.test.ts
+
+  bench:dispatch:
+    desc: "tools/call dispatch microbenchmark (cloister-e4daae surface 1). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/tools-call-dispatch.test.ts
+
+  bench:trust-store:
+    desc: "TrustStore RPC contention bench (cloister-e4daae surface 2). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/trust-store-contention.test.ts
+
+  bench:disclosure:
+    desc: "Disclosure endpoint throughput bench (cloister-e4daae surface 3). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/disclosure-endpoint.test.ts
+
+  bench:cold-start:
+    desc: "Cold-start cluster boot bench (cloister-e4daae surface 4). External probe — spawns wrangler dev, polls /health."
+    cmds:
+      - node scripts/bench-cold-start.mjs
+
+  bench:all:
+    desc: "Run all perf benches (cloister-e4daae). Slow — opt-in. Writes results to stdout."
+    deps: [manifest]
+    cmds:
       - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose
+      - node scripts/bench-cold-start.mjs
 
   type-check:
     desc: TypeScript type check (no emit)
