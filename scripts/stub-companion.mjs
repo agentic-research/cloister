@@ -23,8 +23,14 @@
  *
  * Routing:
  *   - Decode incoming ToolCall
- *   - Lookup canned response in STUBS by `${upstreamId}:${toolName}`
- *     or fall back to a generic `{"echo":<args>}` payload
+ *   - Inspect the `X-Cloister-Transport` header:
+ *       - `uds`            → forward ToolCall bytes to the UDS socket
+ *                            named by `X-Cloister-Socket-Path`,
+ *                            read response bytes, return verbatim.
+ *                            See cloister-46fc1a.
+ *       - absent / `local` → lookup canned response in STUBS by
+ *                            `${upstreamId}:${toolName}` or fall back
+ *                            to a generic `{"echo":<args>}` payload.
  *   - Encode ToolResult, return
  *
  * Usage:
@@ -37,6 +43,7 @@
  */
 
 import { createServer } from "node:http";
+import { createConnection } from "node:net";
 import { decodeToolCall } from "../dist-verify/src/wire/tool-call.js";
 import { encodeToolResult } from "../dist-verify/src/wire/tool-result.js";
 
@@ -88,6 +95,38 @@ const server = createServer(async (req, res) => {
   const argsText = new TextDecoder().decode(toolCall.argumentsJson);
   log(`→ ${key} args=${argsText.length > 80 ? argsText.slice(0, 80) + "…" : argsText}`);
 
+  // ── Transport dispatch ──────────────────────────────────────────────────
+  // The leyline-net path (default) services upstream traffic from in-memory
+  // STUBS. The UDS path opens a connect("AF_UNIX", socketPath), writes the
+  // raw ToolCall bytes, reads bytes-back, returns them verbatim — companion
+  // is a pure byte-proxy on this hop (the UDS backend produces a complete
+  // ToolResult; companion doesn't re-encode). See cloister-46fc1a.
+  const transport = (req.headers["x-cloister-transport"] || "").toString().toLowerCase();
+  if (transport === "uds") {
+    const socketPath = (req.headers["x-cloister-socket-path"] || "").toString();
+    if (!socketPath) {
+      log(`! uds transport missing X-Cloister-Socket-Path`);
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("stub-companion: X-Cloister-Transport=uds requires X-Cloister-Socket-Path\n");
+      return;
+    }
+    log(`  transport=uds socket=${socketPath}`);
+    try {
+      const bytes = await proxyToUds(socketPath, new Uint8Array(body));
+      res.writeHead(200, {
+        "Content-Type":   "application/x-capnp; type=ToolResult",
+        "Content-Length": String(bytes.length),
+      });
+      res.end(Buffer.from(bytes));
+      log(`← ${key} uds ok (${bytes.length} bytes)`);
+    } catch (e) {
+      log(`! uds proxy failed: ${e.message}`);
+      res.writeHead(502, { "Content-Type": "text/plain" });
+      res.end(`stub-companion: uds proxy to ${socketPath} failed: ${e.message}\n`);
+    }
+    return;
+  }
+
   const stub = STUBS[key];
   const result = stub
     ? stub(toolCall)
@@ -121,6 +160,40 @@ const server = createServer(async (req, res) => {
   res.end(Buffer.from(bytes));
   log(`← ${key} ok (${bytes.length} bytes)`);
 });
+
+// ── UDS proxy ──────────────────────────────────────────────────────────────
+
+/**
+ * Write `payload` (capnp ToolCall) to the UDS at `socketPath`, read the
+ * complete response (capnp ToolResult bytes) back, return them.
+ *
+ * Frame discipline on the wire: the request is the full ToolCall byte
+ * blob and the responder MUST half-close (FIN) its write side to signal
+ * end-of-response. We match that by half-closing our write side after
+ * sending the request, then concatenating bytes until the responder
+ * closes its end. This matches how `task smoke:leyline-stub` and the
+ * sibling-bundle UDS responders (mache, rosary) are expected to behave
+ * once their `--ipc-socket` modes ship.
+ */
+function proxyToUds(socketPath, payload) {
+  return new Promise((resolve, reject) => {
+    const sock = createConnection({ path: socketPath });
+    const chunks = [];
+    let settled = false;
+    const fail = (e) => { if (!settled) { settled = true; sock.destroy(); reject(e); } };
+    const ok   = (b) => { if (!settled) { settled = true; resolve(b); } };
+
+    sock.on("connect", () => {
+      sock.write(Buffer.from(payload), (err) => {
+        if (err) return fail(err);
+        sock.end(); // half-close: signal end-of-request
+      });
+    });
+    sock.on("data",  (chunk) => chunks.push(chunk));
+    sock.on("end",   ()      => ok(new Uint8Array(Buffer.concat(chunks))));
+    sock.on("error", (err)   => fail(err));
+  });
+}
 
 server.listen(PORT, () => {
   console.error(`stub-companion: listening on http://localhost:${PORT}/  (POST capnp ToolCall → capnp ToolResult)`);
