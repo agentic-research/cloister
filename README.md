@@ -19,6 +19,7 @@ the end-to-end setup, then come back here for the architectural map.
 > **Contents**
 > - [Hypervisor layer](#what-runs-at-the-hypervisor-layer) — what cloister itself owns
 > - [Bundles + tenants](#what-rides-on-top-bundles--tenants) — what rides on the route table
+> - [What cloister is NOT](#what-cloister-is-not) — decide whether to keep reading
 > - [Quickstart](#quickstart) — 5-minute local boot
 > - [Run via workerd directly](#run-via-workerd-directly-no-cloudflare-account) — no Cloudflare account
 > - [Tasks](#tasks) — the `task` targets you'll use most
@@ -126,6 +127,36 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
 - **Claude Code plugin** — `cloister-stale-sync` ships in this repo;
   closes the stale-rust-analyzer gap inside long CC sessions.
   See [hooks/README.md](hooks/README.md).
+
+## What cloister is NOT
+
+So you can decide whether to read further, here's what cloister
+*explicitly isn't*:
+
+- **Not an MCP server.** MCP is the public tenant most consumers see
+  today, but cloister is a substrate (edge router + bundle host + auth
+  middleware). MCP is one route table entry. The protocol-agnostic
+  framing is load-bearing for ADR-0002 — adding a second tenant (gRPC,
+  WebSocket, anything HTTP-shaped) is a known follow-up
+  (`cloister-6fc72e`, see the beads ledger).
+- **Not Kubernetes.** cloister's cluster shape (`cluster.capnp` →
+  multi-container pod) targets containerd / podman / nerdctl / kubelet,
+  but it doesn't replace them. You bring your container runtime;
+  cloister provides the manifest + the wiring. K8s can run the same
+  pod manifest.
+- **Not a service mesh.** No Envoy sidecar per service. The lease
+  middleware lives in cloister-router itself — one gate at the cluster
+  edge, not N gates at N sidecars. Auth verification is centralized.
+- **Not a database.** Durable Objects hold bead/trust/blob state, but
+  they're an integration point, not the system of record. Replicas +
+  multi-region storage are an ADR-0010 follow-on; today's DOs are
+  per-cluster singletons.
+- **Not a build tool.** apko / melange build the OCI images; cloister
+  consumes those artifacts via the manifest. The container ecosystem
+  is BYO.
+- **Not a replacement for Cloudflare Workers.** workerd runs on CF
+  Workers identically; cloister cluster-in-a-pod is for self-hosters
+  who don't want a CF account. Same code, different host.
 
 ## Quickstart
 

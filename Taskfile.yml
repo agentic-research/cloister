@@ -23,6 +23,61 @@ tasks:
     generates:
       - src/generated/manifest.ts
 
+  cluster:manifest:
+    desc: "Compile cluster.capnp → src/generated/cluster.ts (cloister-be0607a)"
+    cmds:
+      - node scripts/build-cluster.mjs
+    sources:
+      - cluster.capnp
+      - manifest/cluster.capnp
+      - scripts/build-cluster.mjs
+    generates:
+      - src/generated/cluster.ts
+
+  cluster:emit:
+    desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
+    deps: [cluster:manifest]
+    cmds:
+      - node scripts/emit-compose.mjs
+    sources:
+      - src/generated/cluster.ts
+      - scripts/emit-compose.mjs
+    generates:
+      - cluster.compose.yaml
+
+  cluster:up:
+    desc: "Run the cluster locally via nerdctl/podman/docker compose"
+    deps: [cluster:emit]
+    cmds:
+      - 'echo "[cluster] using compose runtime — set COMPOSE_CMD to override (default tries nerdctl, then podman, then docker)"'
+      - |
+        CMD="${COMPOSE_CMD:-}"
+        if [ -z "$CMD" ]; then
+          if command -v nerdctl >/dev/null 2>&1; then CMD="nerdctl compose";
+          elif command -v podman >/dev/null 2>&1; then CMD="podman compose";
+          elif command -v docker >/dev/null 2>&1; then CMD="docker compose";
+          else echo "no compose-capable runtime found (need nerdctl, podman, or docker)" >&2; exit 1; fi
+        fi
+        echo "[cluster] running: $CMD up -f cluster.compose.yaml"
+        exec $CMD -f cluster.compose.yaml up
+
+  cluster:down:
+    desc: "Tear down the local cluster (preserves volumes — pass DESTROY=1 to also remove)"
+    cmds:
+      - |
+        CMD="${COMPOSE_CMD:-}"
+        if [ -z "$CMD" ]; then
+          if command -v nerdctl >/dev/null 2>&1; then CMD="nerdctl compose";
+          elif command -v podman >/dev/null 2>&1; then CMD="podman compose";
+          elif command -v docker >/dev/null 2>&1; then CMD="docker compose";
+          else echo "no compose-capable runtime found" >&2; exit 1; fi
+        fi
+        if [ "${DESTROY:-0}" = "1" ]; then
+          exec $CMD -f cluster.compose.yaml down -v
+        else
+          exec $CMD -f cluster.compose.yaml down
+        fi
+
   wire:fixtures:
     desc: Regenerate substrate-equivalence fixtures from wire/cross-check-fixtures.capnp (ADR-0005, cloister-5183bc 2D-codec.D)
     cmds:
