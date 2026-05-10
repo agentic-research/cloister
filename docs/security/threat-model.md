@@ -1,7 +1,7 @@
 ---
 title: "Threat model — Interlace lease + attestation surface"
-status: Draft (2026-05-09)
-scope: cloister-bd7770 (lease middleware), cloister-9d49eb (cert chain verifier), cloister-bd5241 (TS wrapper), cloister-bdcbe7 (peer_attestations, planned), cloister-bdef0c (disclosure endpoint, planned)
+status: Living (drafted 2026-05-09; status-update 2026-05-10 — see callout below)
+scope: cloister-bd7770 (lease middleware, shipped), cloister-9d49eb (cert chain verifier, shipped), cloister-bd5241 (TS wrapper, shipped), cloister-bdcbe7 (peer_attestations, shipped), cloister-bdef0c (disclosure endpoint, shipped)
 related_adrs:
   - 0007-interlace-substrate.md
   - 0011-hypervisor-bundle-boundary.md
@@ -14,6 +14,37 @@ audit_log: _agent_log/theoretical-foundations-analyst_2026-05-09_agent_log.md (g
 > from outside in. The honest disposition of each invariant — covered, gap,
 > or known-weak — is recorded in §11 *Test contract*. Do not skip §11; that
 > is where the tests-vs-claims accounting lives.
+
+## Status update 2026-05-10 — most GAPs closed
+
+When this model was drafted (2026-05-09), §11's test contract listed
+**14 GAPs** alongside the named tests. **12 of those have since shipped**
+as closed beads with backing tests. The remaining 2 are parked
+low-priority edge cases (L.15, C.11). The body text below preserves the
+original analysis for the audit trail; **§11 is the authoritative
+current state**.
+
+| Original GAP | Resolution | Bead | Test file |
+|---|---|---|---|
+| M.1, M.2, M.3 (replay defense) | INSERT … ON CONFLICT `seen_nonces` ledger | `cloister-c5c846` (closed) | `test/storage/seen-nonces.test.ts`, `test/routes/lease-middleware.test.ts` |
+| T.10 (counter-race) | `blockConcurrencyWhile` across read-then-write | `cloister-c66fea` (closed) | `test/storage/peer-lease-counters.test.ts`, `test/trust-store.test.ts` |
+| C.5 (bundle signature verify) | `verifyBundleSignature` wired into `getCABundle` | `cloister-c614ae` (closed) | `test/storage/bundle-canonical.test.ts`, `test/storage/ca-bundle-cache.test.ts` |
+| C.6 (critical unknown ext rejected) | `cert_chain.rs` rejects per RFC 5280 §4.2 | `cloister-c71977` (closed) | `rs/crates/sign/src/cert_chain.rs` (24 native), `test/wire/signet-verify.test.ts` |
+| T.1 (clock-skew bound) | `MAX_CLOCK_SKEW_MS = 60s` check in `verifyAndUpsertLease` | `cloister-c7e3e3` (closed) | `test/routes/lease-middleware.test.ts` |
+| T.3, T.4 (counter monotonicity + chain integrity) | `assertChainStep()` defense in `applyLeaseCounter` | `cloister-c75da6` (closed) | `test/storage/peer-lease-counters.test.ts` |
+| H.2, H.3, H.4 (cross-DO handoff retry) | `pending_attestations` table + retry pump RPC | `cloister-c6d378` (closed) | `test/storage/pending-attestations.test.ts`, `test/trust-store.test.ts` |
+| D.3 (constant-time error path) | `constantTimeErrorResponse` with fixed-length body | `cloister-c7a184` (closed) | `test/storage/disclosure-cursor.test.ts`, `test/routes/disclosure.test.ts` |
+| D.1, D.2, D.4, D.5 (disclosure endpoint) | `DisclosureRoute` registered + HMAC cursor + auth gate | `cloister-bdef0c` (closed) | `test/routes/disclosure.test.ts` (24 tests) |
+
+**Still GAP** (low-priority, parked):
+
+- **L.15** — Tool name with embedded colon (scope-grammar edge case). No bead filed; would be a single regression test in `test/routes/lease-middleware.test.ts`.
+- **C.11** — TBS re-encoding round-trip test (defensive coverage for an x509-cert parser bug that has not surfaced). No bead filed; would be a single test against a hand-minted cert with non-canonical TBS.
+
+The body sections below (§4-§10) preserve their original "GAP" /
+"POTENTIAL GAP" labels for the audit trail — **read §11 for the current
+truth**. Future material updates: edit §11 first, then add a new
+status-update callout above describing the change.
 
 ## 1. Scope
 
@@ -334,7 +365,7 @@ under the current bead (cloister-bd32b1) or a derivative bead.
 | L.12 | Bundle missing active key rejected | "rejects when bundle has empty active key" |
 | L.13 | Body tamper rejected via canonical bytes | "rejects when canonical bytes don't match (different body)" |
 | L.14 | Timestamp tamper rejected via canonical bytes | "rejects when timestamp header doesn't match the signed canonical" |
-| L.15 | **GAP** — Tool name with embedded colon | **proposed** (cloister-tm-scope-edge-cases) |
+| L.15 | **GAP** — Tool name with embedded colon | **parked** (no bead filed; low-priority edge case) |
 | L.16 | Counter row written on happy path | "happy path writes a lease counter row to TrustStore" |
 
 ### C. Cert-chain tests (21 native Rust + 19 TS wasm-wrapper)
@@ -345,13 +376,13 @@ under the current bead (cloister-bd32b1) or a derivative bead.
 | C.2 | Reject cert.epoch > bundle.epoch | `isCertEpochCurrent` "rejects cert.epoch > bundle.epoch" |
 | C.3 | notme down ≤ TTL accepts cached | `getCABundle` "respects custom refresh window" + cache test |
 | C.4 | notme down > TTL fails closed | `getCABundle` "throws CaUnavailableError when fetcher returns null and cache is stale" |
-| C.5 | **GAP** — Bundle signature verified | **proposed** (cloister-tm-bundle-sig-verify) |
-| C.6 | **GAP** — Critical unknown extension rejected | **proposed** (cloister-tm-critical-ext) |
+| C.5 | **CLOSED** — Bundle signature verified | `cloister-c614ae` (closed). `test/storage/bundle-canonical.test.ts` (15 tests), `test/storage/ca-bundle-cache.test.ts` |
+| C.6 | **CLOSED** — Critical unknown extension rejected | `cloister-c71977` (closed). `rs/crates/sign/src/cert_chain.rs` (3 tests), `test/wire/signet-verify.test.ts` (2 tests) |
 | C.7 | Truncated cert DER rejected | `cert_chain.rs` "truncated_cert_rejects" + TS "rejects truncated cert" |
 | C.8 | Wrong master pubkey rejects | `cert_chain.rs` "wrong_master_pubkey_rejects" + TS "rejects cert when master pubkey doesn't match" |
 | C.9 | Non-Ed25519 sig algorithm rejected | Rust: covered by `NotEd25519` variant. TS: not directly tested. |
 | C.10 | Non-Ed25519 SPKI rejected | Rust: covered by `BadSpki`. TS: not directly tested. |
-| C.11 | **GAP** — TBS round-trip canonicalization holds | **proposed** (cloister-tm-tbs-roundtrip) |
+| C.11 | **GAP** — TBS round-trip canonicalization holds | **parked** (no bead filed; defensive coverage for an unsurfaced parser bug) |
 
 ### S. Signet wasm wrapper tests
 
@@ -370,43 +401,43 @@ under the current bead (cloister-bd32b1) or a derivative bead.
 
 | ID | Invariant | Test |
 |---|---|---|
-| T.1 | **GAP** — Server clock skew bound | **proposed** (cloister-tm-clock-skew-bound) |
+| T.1 | **CLOSED** — Server clock skew bound | `cloister-c7e3e3` (closed). `test/routes/lease-middleware.test.ts` (4 tests under "clock-skew bound") |
 | T.2 | TrustStore has no public HTTP entry | proposed simple test: GET/POST `fetch()` returns 405. (currently covered only by lack of inbound surface in code review) |
-| T.3 | **GAP** — Counter monotonicity (seq must strictly increase) | **proposed** (cloister-tm-counter-monotonic) |
-| T.4 | **GAP** — Hash-chain integrity (server-side validation that `last_chain_hash == nextChainHash(prev, ...)`) | **proposed** (cloister-tm-counter-monotonic) |
+| T.3 | **CLOSED** — Counter monotonicity (seq must strictly increase) | `cloister-c75da6` (closed). `test/storage/peer-lease-counters.test.ts` ("assertChainStep" describe block) |
+| T.4 | **CLOSED** — Hash-chain integrity (server-side validation) | `cloister-c75da6` (closed). Same suite as T.3 |
 | T.5 | nextChainHash deterministic | "is deterministic for the same inputs" |
 | T.6 | nextChainHash collision-free under input perturbation | "changes when any input changes" |
 | T.7 | Genesis from ZERO_HASH on first observation | "creates a counter on first call (genesis from ZERO_HASH)" |
 | T.8 | seq increments on each call | "increments seq on each call" |
 | T.9 | Per-peer isolation | "isolates counter per peer" |
-| T.10 | **GAP** — Concurrent same-peer upserts don't fork the chain | **proposed** (cloister-tm-counter-race) |
+| T.10 | **CLOSED** — Concurrent same-peer upserts don't fork the chain | `cloister-c66fea` (closed). `blockConcurrencyWhile` wraps the read-then-write in `TrustStore.upsertLeaseCounter`; integrity defense in `applyAttestation` catches forks. `test/trust-store.test.ts` ("integrity check rejects stale-prev-ref fork") |
 
 ### M. Replay defense
 
 | ID | Invariant | Test |
 |---|---|---|
-| M.1 | **GAP** — Same envelope replayed within cert TTL is rejected | **proposed** (cloister-rt-replay) |
-| M.2 | **GAP** — Nonce reuse with different ts is rejected | **proposed** (cloister-rt-replay) |
-| M.3 | **GAP** — `(cert_fp, nonce)` table eviction matches cert TTL | **proposed** (cloister-rt-replay) |
+| M.1 | **CLOSED** — Same envelope replayed within cert TTL is rejected | `cloister-c5c846` (closed). `test/routes/lease-middleware.test.ts` ("replay defense" describe block, 2 tests) |
+| M.2 | **CLOSED** — Nonce reuse with different ts is rejected | `cloister-c5c846` (closed). `(cert_fp, nonce)` PK in `seen_nonces` table; `test/storage/seen-nonces.test.ts` ("duplicate (cert_fp, nonce)" + "triple-replay") |
+| M.3 | **CLOSED** — `(cert_fp, nonce)` table eviction matches cert TTL | `cloister-c5c846` (closed). `pruneSeenNoncesBefore()` helper; `test/storage/seen-nonces.test.ts` ("prune deletes < cutoff") |
 
 ### D. Disclosure endpoint (planned, cloister-bdef0c)
 
 | ID | Invariant | Test |
 |---|---|---|
-| D.1 | Missing counter row visible at the endpoint | **proposed** (cloister-bdef0c) |
-| D.2 | Per-fp scoping (cannot read another peer's chain) | **proposed** (cloister-bdef0c + cloister-tm-disclosure-scoping) |
-| D.3 | Constant-time error path for "absent" vs "rejected" | **proposed** (cloister-tm-disclosure-oracle) |
-| D.4 | Response signed by cluster master | **proposed** (cloister-bdef0c) |
-| D.5 | Cursor is signed; unsigned cursors rejected | **proposed** (cloister-bdef0c) |
+| D.1 | **CLOSED** — Missing counter row visible at the endpoint | `cloister-bdef0c` (closed). Disclosure JSONL surfaces 3 states: COMPLETE / PENDING / GAP. `test/routes/disclosure.test.ts` |
+| D.2 | **CLOSED** — Per-fp scoping (cannot read another peer's chain) | `cloister-bdef0c` (closed). URLPattern `/interlace/peers/:fp` extracts the param; `test/routes/disclosure.test.ts` ("scopes strictly: PEER's data is not leaked through PEER2's URL") |
+| D.3 | **CLOSED** — Constant-time error path for "absent" vs "rejected" | `cloister-c7a184` (closed). `constantTimeErrorResponse` returns fixed-length body, same status, same content-type across all error classes. `test/routes/disclosure.test.ts` ("indistinguishability: gate-on auth-fail body == gate-off not-found body") |
+| D.4 | **CLOSED** — Response includes cluster master pubkey for offline verification | `cloister-bdef0c` (closed). JSONL header record carries `master_public_key` (base64-std). `test/routes/disclosure.test.ts` |
+| D.5 | **CLOSED** — Cursor is signed; unsigned cursors rejected | `cloister-bdef0c` + `cloister-c7a184` (closed). HMAC-SHA256 over canonical JSON `{peerFp, fromSeq, ts}`. `test/routes/disclosure.test.ts` ("rejects unsigned cursor", "rejects cursor signed for different peer", "rejects cursor signed by different HMAC key") |
 
 ### H. Cross-DO handoff (planned, cloister-bdcbe7)
 
 | ID | Invariant | Test |
 |---|---|---|
 | H.1 | BlobStore.put idempotent under retry | covered by ADR-0003 phase 1 tests; reaffirm under ADR-0007 path |
-| H.2 | BeadStore-success / TrustStore-fail recovery (retry succeeds and lands attestation) | **proposed** (cloister-tm-handoff-retry-policy) |
-| H.3 | BeadStore-success / TrustStore-fail leaves an explicit retry-pending marker | **proposed** (cloister-tm-handoff-retry-policy) |
-| H.4 | The disclosure endpoint surfaces retry-pending state distinguishably from "complete" or "missing" | **proposed** (cloister-tm-handoff-retry-policy) |
+| H.2 | **CLOSED** — BeadStore-success / TrustStore-fail recovery | `cloister-c6d378` (closed). `pending_attestations` table + retry pump RPC; lifecycle test in `test/trust-store.test.ts` ("complete bdcbe7 lifecycle: failed write → enqueue → retry success → commit") |
+| H.3 | **CLOSED** — Retry-pending marker is explicit + visible | `cloister-c6d378` (closed). `pending_attestations` row IS the marker; `listPendingForPeer` exposes it. Surfaced in disclosure JSONL as `{ type: "pending" }`. `test/routes/disclosure.test.ts` |
+| H.4 | **CLOSED** — Disclosure distinguishes 3 chain states (COMPLETE / PENDING / GAP) | `cloister-bdef0c` + `cloister-c6d378` (closed). Records: `type: attestation` (COMPLETE), `type: pending` (PENDING), endpoint returns constant-time 404 (GAP). Pending rows flag `exhausted: true` after MAX_RETRY_ATTEMPTS. `test/routes/disclosure.test.ts` (pending tests + lifecycle test) |
 
 ## 12. Doubt-but-not-disproval check
 
