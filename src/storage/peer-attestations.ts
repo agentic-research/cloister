@@ -70,14 +70,37 @@ export interface PeerAttestation {
 }
 
 /**
- * AttestationIntegrityError — thrown when applyAttestation detects that
- * its caller-supplied prev_self_ref does not match the chain's actual
- * previous content_hash. This is defense-in-depth: the helper validates
- * its own input so a buggy caller can't silently fork the chain.
+ * AttestationIntegrityError — kept for compatibility with callers that
+ * want exception semantics. The helper itself returns a Result-shape;
+ * see `ApplyAttestationResult`. Construct an instance from a
+ * `prev_self_ref_mismatch` result if you need to throw.
  */
 export class AttestationIntegrityError extends Error {
   override readonly name = "AttestationIntegrityError";
 }
+
+/**
+ * Result of `applyAttestation`. Returned (not thrown) so the failure mode
+ * crosses workerd RPC boundaries cleanly. The integrity-failure path is
+ * defense-in-depth — it should NEVER fire under correct caller behavior,
+ * but when it does fire it must be observable as a value, not a hidden
+ * unhandled rejection in the test reporter.
+ *
+ * - `ok: true`  — INSERT happened; row is the new chain entry.
+ * - `ok: false, error: "prev_self_ref_mismatch"` — caller's claimed
+ *   prev_self_ref didn't match the actual chain head. `expected` is
+ *   what the chain says; `got` is what the caller supplied. No row was
+ *   written.
+ */
+export type ApplyAttestationResult =
+  | { ok: true;  seq: number; row: PeerAttestation }
+  | {
+      ok: false;
+      error: "prev_self_ref_mismatch";
+      message: string;
+      expected: string | null;
+      got: string | null;
+    };
 
 /** Read the most-recent attestation for a peer, or null if none exist. */
 export function lastAttestationForPeer(
@@ -136,14 +159,19 @@ export function applyAttestation(
     /** Server-side timestamp (Unix ms). */
     nowMs:           number;
   },
-): { seq: number; row: PeerAttestation } {
+): ApplyAttestationResult {
   const last = lastAttestationForPeer(sql, args.peerFingerprint);
   const expectedPrevSelfRef = last?.content_hash ?? null;
   if (args.prevSelfRef !== expectedPrevSelfRef) {
-    throw new AttestationIntegrityError(
-      `prev_self_ref mismatch for peer ${args.peerFingerprint}: ` +
-      `expected ${expectedPrevSelfRef ?? "(genesis)"}, got ${args.prevSelfRef ?? "(genesis)"}`,
-    );
+    return {
+      ok: false,
+      error: "prev_self_ref_mismatch",
+      message:
+        `prev_self_ref mismatch for peer ${args.peerFingerprint}: ` +
+        `expected ${expectedPrevSelfRef ?? "(genesis)"}, got ${args.prevSelfRef ?? "(genesis)"}`,
+      expected: expectedPrevSelfRef,
+      got:      args.prevSelfRef,
+    };
   }
   const seq = (last?.seq ?? 0) + 1;
 
@@ -165,6 +193,7 @@ export function applyAttestation(
   );
 
   return {
+    ok: true,
     seq,
     row: {
       peer_fingerprint: args.peerFingerprint,

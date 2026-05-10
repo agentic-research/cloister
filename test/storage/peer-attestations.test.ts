@@ -101,19 +101,27 @@ describe("applyAttestation", () => {
       applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_A, prevSelfRef: null,
       }));
-      // Caller LIES about the prev — should reject.
-      expect(() => applyAttestation(state.storage.sql, applyArgs({
+      // Caller LIES about the prev — should return ok:false, not throw.
+      const r = applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_B, prevSelfRef: "f".repeat(64),
-      }))).toThrow(AttestationIntegrityError);
+      }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toBe("prev_self_ref_mismatch");
+        expect(r.expected).toBe(HASH_A);
+        expect(r.got).toBe("f".repeat(64));
+      }
     });
   });
 
   it("rejects non-null prev_self_ref on genesis (must be null when no prior row)", async () => {
     const stub = freshStub();
     await runInDurableObject(stub, async (_, state) => {
-      expect(() => applyAttestation(state.storage.sql, applyArgs({
+      const r = applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_A, prevSelfRef: HASH_B,
-      }))).toThrow(AttestationIntegrityError);
+      }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toBe("prev_self_ref_mismatch");
     });
   });
 
@@ -123,23 +131,26 @@ describe("applyAttestation", () => {
       applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_A, prevSelfRef: null,
       }));
-      expect(() => applyAttestation(state.storage.sql, applyArgs({
+      const r = applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_B, prevSelfRef: null,
-      }))).toThrow(AttestationIntegrityError);
+      }));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toBe("prev_self_ref_mismatch");
     });
   });
 
-  it("integrity check leaves no row written when it throws", async () => {
+  it("integrity-failure leaves NO row written (only one valid INSERT)", async () => {
     const stub = freshStub();
     await runInDurableObject(stub, async (_, state) => {
       applyAttestation(state.storage.sql, applyArgs({
         contentHash: HASH_A, prevSelfRef: null,
       }));
-      try {
-        applyAttestation(state.storage.sql, applyArgs({
-          contentHash: HASH_B, prevSelfRef: "wrong",
-        }));
-      } catch { /* expected */ }
+      const bad = applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_B, prevSelfRef: "wrong",
+      }));
+      expect(bad.ok).toBe(false);
+
+      // Chain still exactly 1 row — no fork landed.
       const list = listAttestationsForPeer(state.storage.sql, PEER);
       expect(list.length).toBe(1);
       expect(list[0]!.content_hash).toBe(HASH_A);

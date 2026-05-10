@@ -19,7 +19,7 @@ interface TrustStoreRpc {
     prevSelfRef:     string | null;
     prevPeerRef:     string | null;
     nowMs:           number;
-  }): Promise<{ seq: number; row: PeerAttestation }>;
+  }): Promise<import("../src/storage/peer-attestations.js").ApplyAttestationResult>;
   lastAttestationForPeer(peerFp: string): Promise<PeerAttestation | null>;
   listAttestationsForPeer(
     peerFp: string,
@@ -76,39 +76,57 @@ describe("TrustStore.applyAttestation (RPC)", () => {
   it("appends a genesis row over RPC", async () => {
     const stub = freshStub();
     const r = await stub.applyAttestation(baseApply());
-    expect(r.seq).toBe(1);
-    expect(r.row.content_hash).toBe(HASH_A);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.seq).toBe(1);
+      expect(r.row.content_hash).toBe(HASH_A);
+    }
   });
 
   it("subsequent rows chain correctly across RPC calls", async () => {
     const stub = freshStub();
     await stub.applyAttestation(baseApply({ contentHash: HASH_A, prevSelfRef: null }));
     const r2 = await stub.applyAttestation(baseApply({ contentHash: HASH_B, prevSelfRef: HASH_A }));
-    expect(r2.seq).toBe(2);
-    expect(r2.row.prev_self_ref).toBe(HASH_A);
+    expect(r2.ok).toBe(true);
+    if (r2.ok) {
+      expect(r2.seq).toBe(2);
+      expect(r2.row.prev_self_ref).toBe(HASH_A);
+    }
   });
 
-  it("RPC propagates AttestationIntegrityError on prev_self_ref mismatch", async () => {
+  it("RPC surfaces integrity failure as a Result (not an exception)", async () => {
     const stub = freshStub();
-    await stub.applyAttestation(baseApply({ contentHash: HASH_A, prevSelfRef: null }));
-    await expect(
-      stub.applyAttestation(baseApply({ contentHash: HASH_B, prevSelfRef: "f".repeat(64) })),
-    ).rejects.toThrow(/prev_self_ref mismatch/i);
+    const ok = await stub.applyAttestation(baseApply({ contentHash: HASH_A, prevSelfRef: null }));
+    expect(ok.ok).toBe(true);
+
+    const bad = await stub.applyAttestation(baseApply({
+      contentHash: HASH_B, prevSelfRef: "f".repeat(64),
+    }));
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.error).toBe("prev_self_ref_mismatch");
+      expect(bad.expected).toBe(HASH_A);
+      expect(bad.got).toBe("f".repeat(64));
+      expect(bad.message).toMatch(/prev_self_ref mismatch/i);
+    }
   });
 
-  it("integrity check rejects stale-prev-ref fork without breaking the DO (gate stays alive)", async () => {
+  it("stale-prev-ref fork returns ok:false; DO stays alive (no fork landed)", async () => {
     const stub = freshStub();
     await stub.applyAttestation(baseApply({ contentHash: HASH_A, prevSelfRef: null }));
     await stub.applyAttestation(baseApply({ contentHash: HASH_B, prevSelfRef: HASH_A }));
 
-    // Stale-prev fork attempt — should reject AND leave the DO healthy.
-    await expect(
-      stub.applyAttestation(baseApply({ contentHash: "f".repeat(64), prevSelfRef: HASH_A })),
-    ).rejects.toThrow(/prev_self_ref mismatch/i);
+    // Stale-prev fork attempt — Result-shape failure, no exception.
+    const bad = await stub.applyAttestation(baseApply({
+      contentHash: "f".repeat(64), prevSelfRef: HASH_A,
+    }));
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toBe("prev_self_ref_mismatch");
 
-    // The DO is still usable: subsequent reads succeed and the chain
-    // is exactly 2 entries (no fork landed). This regression-tests the
-    // catch-inside-gate / rethrow-outside-gate restructure.
+    // The DO is still healthy: subsequent reads succeed, chain has
+    // exactly 2 entries — no fork landed. This regression-tests the
+    // Result-shape contract (cloister-175a3a): a failed write must NOT
+    // poison the chain OR break the input gate.
     const list = await stub.listAttestationsForPeer(PEER);
     expect(list.length).toBe(2);
     expect(list.map(r => r.content_hash)).toEqual([HASH_A, HASH_B]);

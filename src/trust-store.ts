@@ -78,6 +78,7 @@ import {
   findAttestationByContent as findAttestationByContentHelper,
   lastAttestationForPeer as lastAttestationForPeerHelper,
   listAttestationsForPeer as listAttestationsForPeerHelper,
+  type ApplyAttestationResult,
   type PeerAttestation,
 } from "./storage/peer-attestations.js";
 
@@ -193,23 +194,17 @@ export class TrustStore extends DurableObject {
     prevSelfRef:     string | null;
     prevPeerRef:     string | null;
     nowMs:           number;
-  }): Promise<{ seq: number; row: PeerAttestation }> {
-    // Catch the integrity-error throw INSIDE the gate so it doesn't
-    // break the input gate (workerd shuts down a DO on uncaught throws
-    // inside blockConcurrencyWhile). Then re-throw outside the gate so
-    // the caller still sees the same error semantics.
-    type Result =
-      | { ok: true; value: { seq: number; row: PeerAttestation } }
-      | { ok: false; error: Error };
-    const result: Result = await this.ctx.blockConcurrencyWhile(async () => {
-      try {
-        return { ok: true, value: applyAttestationHelper(this.db, args) } as const;
-      } catch (e) {
-        return { ok: false, error: e instanceof Error ? e : new Error(String(e)) } as const;
-      }
-    });
-    if (!result.ok) throw result.error;
-    return result.value;
+  }): Promise<ApplyAttestationResult> {
+    // Helper returns a Result; we just pass it through. blockConcurrencyWhile
+    // serializes the read-then-write so concurrent calls can't both see the
+    // same chain head + race to a fork (cloister-c66fea pattern).
+    //
+    // No throws cross the gate boundary — the integrity-failure path is
+    // a Result. This eliminates the workerd-RPC unhandled-rejection
+    // noise vitest used to see on the test reporter (cloister-175a3a).
+    return this.ctx.blockConcurrencyWhile(async () =>
+      applyAttestationHelper(this.db, args),
+    );
   }
 
   /** Read the most-recent attestation for a peer, or null if none. */
