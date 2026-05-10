@@ -96,6 +96,14 @@ interface PendingRecord {
 
 /** TrustStore RPC surface needed by the disclosure endpoint. */
 interface TrustStoreRpc {
+  /**
+   * Constant-cost existence check — used by every 404 path so wall-
+   * clock cost doesn't leak peer chain length (cloister-1c42ae).
+   * Calling on a reject path is REQUIRED for §9.4 timing equality
+   * across cases; calling on the happy path is also fine (the boolean
+   * informs whether to fetch + emit).
+   */
+  peerHasChain(peerFp: string): Promise<boolean>;
   listAttestationsForPeer(
     peerFp: string,
     options?: { fromSeq?: number; limit?: number },
@@ -134,13 +142,26 @@ export class DisclosureRoute implements EdgeRoute {
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
+    // ── §9.4 invariant: ALL 404 paths perform equivalent work ──────────
+    //
+    // Prior to cloister-1c42ae the route early-returned on auth/cursor/
+    // missing-peer failures and only paid the TrustStore round-trip on
+    // the "peer truly doesn't exist" path. That made the 404 cases
+    // distinguishable by timing (~17×) for an in-DC attacker. Fix:
+    // funnel every reject into one `rejectReason` flag and run the
+    // same DO RPC pair regardless before returning. The DO calls use
+    // the request's ACTUAL `peerFp` (which may be the empty string if
+    // the URL match returned nothing — DO returns 0 rows for that,
+    // same as for any other unknown peer). No placeholder values; the
+    // request's own bytes drive the work.
+    let rejectReason: "not_found" | "denied" | "bad_cursor" | null = null;
+
     const m = PEER_DISCLOSURE_PATTERN.exec(request.url);
     // `match()` already gates on URLPattern, so a null here means a
     // direct call (test/test) bypassed match — fail closed identically.
     const peerFp = m?.pathname.groups.fp ?? "";
-    if (!peerFp) {
-      return constantTimeErrorResponse("not_found");
-    }
+    if (!peerFp) rejectReason ??= "not_found";
+
     const url = new URL(request.url);
 
     // Lease gate (cloister-bdef0c). Same deployment-binding contract as
@@ -148,46 +169,85 @@ export class DisclosureRoute implements EdgeRoute {
     // a valid Signet envelope with scope `disclosure:<peerFp>`. When
     // unset, the route runs in dev mode (no auth).
     //
-    // Failure surface is collapsed into the constant-time 404 the rest
-    // of the route uses (threat-model §9.2 — success/auth-failure must
-    // be indistinguishable, else the endpoint becomes a peer-existence
-    // + cert-validity oracle).
+    // Failure collapses into the constant-time 404 (threat-model §9.2
+    // — success/auth-failure must be indistinguishable). The DO RPCs
+    // at the bottom still run regardless so wall-clock converges.
     if (env.INTERLACE_ROOT_PUBKEY) {
       const gateOk = await this.verifyLease(request, env, peerFp);
-      if (!gateOk) return constantTimeErrorResponse("denied");
+      if (!gateOk) rejectReason ??= "denied";
     }
 
     // Cursor — if present, MUST validate. Reject unsigned / tampered
-    // cursors with a constant-time 404 (threat model §9.4: paginated-
-    // tail oracle defense).
+    // cursors with a constant-time 404 (threat model §9.4).
     const hmacKeyB64 = readEnvString(env, this.hmacKeyBinding);
-    if (!hmacKeyB64) {
-      return constantTimeErrorResponse("denied");
-    }
-    const hmacKey = await importHmacKey(hmacKeyB64);
+    if (!hmacKeyB64) rejectReason ??= "denied";
+
+    // Import the key once if available; both cursor-verify (incoming)
+    // and cursor-sign (outgoing, for the next-page header) use it.
+    // Hoisted out of the cursor-check block so the happy-path emit
+    // below can reach it. If the binding is missing, rejectReason was
+    // already set above and the response will 404; hmacKey staying
+    // null on that path is fine because next_cursor signing happens
+    // only on the happy path (which requires hmacKey by definition).
+    const hmacKey: CryptoKey | null = hmacKeyB64
+      ? await importHmacKey(hmacKeyB64)
+      : null;
 
     const cursorParam = url.searchParams.get("since");
     let fromSeq = 0;
-    if (cursorParam) {
+    if (cursorParam && hmacKey) {
       const decoded = await verifyCursor(cursorParam, hmacKey);
       if (!decoded || decoded.peerFp !== peerFp) {
-        return constantTimeErrorResponse("bad_cursor");
+        rejectReason ??= "bad_cursor";
+      } else {
+        fromSeq = decoded.fromSeq;
       }
-      fromSeq = decoded.fromSeq;
     }
 
+    // ── Existence probe: ALWAYS performed (constant-cost) ─────────────
+    //
+    // The §9.4 timing invariant requires every reject path AND every
+    // existence-check to pay the same wall-clock cost regardless of
+    // the requested peer's chain length. `peerHasChain` uses two
+    // `SELECT 1 ... LIMIT 1` queries (one per table) — both SQL exec
+    // time and RPC marshaling are effectively constant in N. This
+    // closes the cross-peer enumeration oracle that `list*ForPeer`
+    // would create (row-count-proportional marshaling).
+    //
+    // The rows themselves are fetched ONLY on the happy path below.
     const trust = trustStoreStub(env) as DurableObjectStub & TrustStoreRpc;
-    const limit = DEFAULT_PAGE_SIZE;
+    const hasChain = await trust.peerHasChain(peerFp);
 
-    // Read both surfaces in parallel.
+    // If any reject condition was set above, return now — `hasChain`
+    // is discarded. The wall-clock cost matches every other 404 path
+    // because the same constant-cost existence probe ran.
+    if (rejectReason !== null) {
+      return constantTimeErrorResponse(rejectReason);
+    }
+
+    // GAP: peer has no rows in either table — unknown peer or active
+    // misbehavior. The constant-time response makes those two cases
+    // externally indistinguishable (threat model §9.2).
+    if (!hasChain) {
+      return constantTimeErrorResponse("not_found");
+    }
+
+    // ── Happy path: fetch the actual page ─────────────────────────────
+    //
+    // Only reached when (a) every reject condition cleared AND (b) the
+    // peer has at least one row in some table. The full chain fetch is
+    // a different timing class than the 404 paths — that's fine; the
+    // §9.4 invariant is about distinguishing AMONG 404 cases, not
+    // between 404 and 200.
+    const limit = DEFAULT_PAGE_SIZE;
     const [attestations, pending] = await Promise.all([
       trust.listAttestationsForPeer(peerFp, { fromSeq, limit: limit + 1 }),
       trust.listPendingForPeer(peerFp),
     ]);
 
-    // GAP: no rows in either table — unknown peer or active misbehavior.
-    // The constant-time response makes those two cases externally
-    // indistinguishable (threat model §9.2).
+    // Defensive: if both lists came back empty despite hasChain=true
+    // (extremely unlikely race — rows deleted between the existence
+    // probe and the list calls), fall through to the 404 path.
     if (attestations.length === 0 && pending.length === 0) {
       return constantTimeErrorResponse("not_found");
     }
@@ -205,6 +265,14 @@ export class DisclosureRoute implements EdgeRoute {
       master_public_key:   masterKeyB64,
     };
     if (hasMore) {
+      // Invariant: reaching the happy path means rejectReason stayed
+      // null, which means hmacKeyB64 was present (otherwise it'd be
+      // "denied"). Hence hmacKey is non-null. Assert defensively in
+      // case the flow ever changes — better a loud failure here than
+      // an unsigned cursor leaking.
+      if (hmacKey === null) {
+        throw new Error("disclosure: invariant — hmacKey null on happy path");
+      }
       const lastSeq = page[page.length - 1]!.seq;
       header.next_cursor = await signCursor(
         { peerFp, fromSeq: lastSeq + 1, ts: Date.now() },

@@ -392,6 +392,52 @@ export class TrustStore extends DurableObject {
     return listAttestationsForPeerHelper(this.db, peerFp, options);
   }
 
+  /**
+   * Constant-cost existence check for a peer's chain — returns true if
+   * EITHER `peer_attestations` OR `pending_attestations` has any row
+   * for the given fingerprint. Used by the disclosure endpoint as the
+   * "this peer has data" gate (per cloister-1c42ae §9.4 timing-oracle
+   * fix).
+   *
+   * Why this exists (vs. just calling `listAttestationsForPeer`):
+   *
+   *   The result-set size of `listAttestationsForPeer` scales with the
+   *   peer's chain length (up to the requested `limit`). RPC marshaling
+   *   cost scales with the result-set bytes. An attacker probing
+   *   different peers gets different timing back even on rejected
+   *   requests because the DO returned different amounts of data.
+   *
+   *   `peerHasChain` uses `SELECT 1 ... LIMIT 1` on both tables. SQLite
+   *   stops at the first match; the return value is a boolean. Both
+   *   the SQL execution time AND the RPC marshaling cost are
+   *   effectively constant in chain length — eliminating the cross-
+   *   peer enumeration oracle that the row-count variation creates.
+   *
+   *   Callers MUST NOT use this method's result to gate ANY decision
+   *   that's externally observable beyond a constant-time 404. The
+   *   returned boolean is a substrate-internal hint; the moment it
+   *   leaks into a wire-visible distinction it becomes the oracle
+   *   we're trying to suppress.
+   */
+  peerHasChain(peerFp: string): boolean {
+    // NB: the two tables use different column names for the same
+    // logical field. peer_attestations uses `peer_fingerprint` (per
+    // its CREATE TABLE in src/storage/peer-attestations.ts);
+    // pending_attestations uses `peer_fp` (per
+    // src/storage/pending-attestations.ts). Don't try to unify these
+    // here — that's a separate migration if anyone cares to do it.
+    const attRow = this.db.exec(
+      "SELECT 1 FROM peer_attestations WHERE peer_fingerprint = ? LIMIT 1",
+      peerFp,
+    ).toArray();
+    if (attRow.length > 0) return true;
+    const pendingRow = this.db.exec(
+      "SELECT 1 FROM pending_attestations WHERE peer_fp = ? LIMIT 1",
+      peerFp,
+    ).toArray();
+    return pendingRow.length > 0;
+  }
+
   /** Lookup attestation by (peer, content_hash) — used for retry idempotency. */
   findAttestationByContent(peerFp: string, contentHash: string): PeerAttestation | null {
     return findAttestationByContentHelper(this.db, peerFp, contentHash);

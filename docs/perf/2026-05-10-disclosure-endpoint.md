@@ -190,3 +190,56 @@ former for now.
 - Source: [`src/routes/disclosure.ts`](../../src/routes/disclosure.ts),
   [`src/storage/disclosure-cursor.ts`](../../src/storage/disclosure-cursor.ts).
 - Bench script: [`test/perf/disclosure-endpoint.test.ts`](../../test/perf/disclosure-endpoint.test.ts).
+
+## Update 2026-05-10 (post `cloister-1c42ae` fix)
+
+The §9.4.b cross-peer timing oracle this bench surfaced is now closed.
+
+The fix adds a new constant-cost DO method `TrustStore.peerHasChain`:
+`SELECT 1 ... LIMIT 1` against both `peer_attestations` and
+`pending_attestations`. The disclosure endpoint uses it as the
+existence gate on every path (`src/routes/disclosure.ts`) and only
+fetches the row-count-proportional `listAttestationsForPeer` /
+`listPendingForPeer` payloads on the happy path. Result-set size is no
+longer multiplexed across reject paths — the boolean comes back at
+constant marshaling cost regardless of chain length.
+
+### Post-fix bench (same M3 Max, vitest cloudflarePool)
+
+| Path | Pre-fix mean | First attempt¹ | Post-fix mean |
+|---|---:|---:|---:|
+| Constant-time 404 (unknown peer) | 0.53 ms | 0.51 ms | **0.345 ms** |
+| Constant-time 404 (tampered cursor) | 0.03 ms | 1.01 ms | **0.285 ms** |
+| **Delta** | **17× (oracle live)** | **2×, wrong direction** | **1.2× — both inside workerd 1ms clock grain** |
+| Happy path (100-row page) | 0.94 ms | 1.05 ms | **1.315 ms** |
+
+¹ "First attempt" = the earlier `cloister-1c42ae` revision that funneled
+all paths into a `listAttestationsForPeer` call regardless of reject
+state but used the request's own peerFp. That eliminated the same-peer
+oracle but kept the cross-peer one (different peers had different row
+counts → different marshaling cost). The `peerHasChain` refactor closes
+the cross-peer signal at its source.
+
+### What "closed" means concretely
+
+- **The shape contract is pinned** at `test/trust-store.test.ts` —
+  `peerHasChain` returns a boolean and only a boolean, regardless of
+  the peer's chain length. SQLite's `LIMIT 1` semantics + RPC
+  marshaling of a single primitive make this constant-cost by
+  construction.
+- **The empirical timing parity is checked** by re-running this bench
+  after any change to the disclosure 404 path. The bench's delta line
+  is the load-bearing assertion; if a refactor pushes the delta out of
+  clock-grain range, the fix has regressed.
+- **The happy-path cost grew by ~0.4 ms** (0.97 → 1.31) because it
+  now does the existence probe AND the row fetch. That's the price of
+  the §9.4.b fix; the alternative (skip the probe on happy path) would
+  reintroduce the cross-peer oracle by making the path conditional on
+  a row-count-proportional call.
+
+### Caveats still standing
+
+The pre-fix caveats section still applies (local workerd ≠ CF prod;
+single-request, no contention; fixture peer; etc.). The §9.4.b fix is
+substrate-side, not network-side — same-DC adversaries lose the
+17× signal; cross-DC RTT variance always dominated.

@@ -352,6 +352,7 @@ The threat surface this opens:
 | 9.2 | Selective oracle — request multiple fingerprints, learn the existence of a third-party relationship | Return shapes must be identical for "absent" and "present-but-rejected" responses (constant-time error path) | §11 row D.3 (proposed) |
 | 9.3 | Divergence-detection bypass — peer claims a different chain head; cloister can lie | The disclosure response is signed; a third-party auditor with both peers' versions plus the cluster master pubkey can independently verify which is canonical | §11 row D.4 (proposed) |
 | 9.4 | Paginated-tail oracle — attacker requests `?from_seq=N` and learns whether the chain has reached N | Cursor is a signed token over `(fp, from_seq, ts)`; cloister rejects unsigned cursors | §11 row D.5 (proposed) |
+| 9.4.b | **Cross-peer timing oracle** — attacker times multiple 404 responses (auth-fail / bad-cursor / unknown-peer) and distinguishes them by the wall-clock cost of the DO read. Originally the no-peer path early-returned (~0.03 ms), the peer-exists-but-rejected path returned only after fetching the full chain (~0.53 ms) — a 17× signal. | **CLOSED 2026-05-10** — `cloister-1c42ae`. Every 404 path runs the same constant-cost existence probe (`TrustStore.peerHasChain`, `SELECT 1 ... LIMIT 1` on both `peer_attestations` and `pending_attestations`), and rows themselves are fetched ONLY on the happy path. Post-fix bench (`docs/perf/2026-05-10-disclosure-endpoint.md`): no-peer-404 = 0.345 ms, bad-cursor-404 = 0.285 ms, delta = 0.060 ms (~17% of mean, well inside workerd's 1ms `performance.now()` quantization floor). The pre-fix path (`listAttestationsForPeer` returning row-count-proportional bytes) is the row-count-marshaling oracle this fix retires; using the existence probe makes the DO RPC return a single boolean of constant marshaling cost regardless of chain length. | **CLOSED** — `cloister-1c42ae`; pinned by `test/trust-store.test.ts` (peerHasChain constant-shape contract) + `test/perf/disclosure-endpoint.test.ts` (empirical timing parity). |
 
 **Honest disposition.** This is all paper today. The endpoint is the
 load-bearing seam for §13.2's third-party verifiability. Until the
@@ -599,6 +600,7 @@ For posterity, the original §13 items 1-8 — all closed by 2026-05-10:
 | 7. Counter monotonicity + chain integrity | `cloister-c75da6` | T.3, T.4 |
 | 8. Server clock skew bound | `cloister-c7e3e3` | T.1 |
 | 9. seen_nonces / lease_counter atomicity gap (§6.2.8) | `cloister-ee51b8` | (composed inside `TrustStore.verifyLeaseAndAdvanceChain`; parity tested against `interlace-spec/0.1.0/test-vectors/lease-counter.json`) |
+| 10. Disclosure 404 cross-peer timing oracle (§9.4.b) | `cloister-1c42ae` | `TrustStore.peerHasChain` (constant-cost SELECT 1...LIMIT 1 across both attestation tables); pre-fix 17× delta → post-fix delta ≤ workerd `performance.now()` quantization. Test: `test/trust-store.test.ts` (shape contract) + `test/perf/disclosure-endpoint.test.ts` (empirical timing). |
 
 ### 13.4 Cross-DO atomicity audit (2026-05-10)
 

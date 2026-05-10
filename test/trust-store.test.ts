@@ -41,6 +41,8 @@ interface TrustStoreRpc {
     nowMs: number,
   ): Promise<{ newAttempts: number; nextRetryAt: number | null }>;
   listPendingForPeer(peerFp: string): Promise<PendingAttestation[]>;
+  /** cloister-1c42ae — constant-cost existence probe. */
+  peerHasChain(peerFp: string): Promise<boolean>;
   // cloister-ee51b8 — atomic replay-check + chain advance, replaces the
   // recordSeenNonce + upsertLeaseCounter pair on the lease-middleware
   // hot path.
@@ -415,5 +417,65 @@ describe("TrustStore.verifyLeaseAndAdvanceChain (RPC, cloister-ee51b8)", () => {
       const u = await legacyStub.upsertLeaseCounter(SPEC_PEER_FP, SPEC_CERT_FP, v.nonce, v.ts);
       expect(u.last_chain_hash).toBe(v.expected);
     }
+  });
+});
+
+// ── peerHasChain RPC (cloister-1c42ae §9.4 timing-oracle fix) ────────────
+
+describe("TrustStore.peerHasChain (RPC)", () => {
+  it("returns false for a peer with no attestations and no pending rows", async () => {
+    const stub = freshStub();
+    expect(await stub.peerHasChain("sha256:never-seen-peer")).toBe(false);
+  });
+
+  it("returns true once a peer has even one attestation row", async () => {
+    const stub = freshStub();
+    expect(await stub.peerHasChain(PEER)).toBe(false);
+    await stub.applyAttestation(baseApply());
+    expect(await stub.peerHasChain(PEER)).toBe(true);
+  });
+
+  it("returns true once a peer has only a pending row (no attestations)", async () => {
+    const stub = freshStub();
+    expect(await stub.peerHasChain(PEER)).toBe(false);
+    await stub.enqueuePendingAttestation({
+      peerFp:      PEER,
+      contentHash: HASH_A,
+      scope:       "test",
+      cert:        new Uint8Array([1]),
+      sig:         new Uint8Array([2]),
+      nowMs:       1_700_000_000_000,
+    });
+    expect(await stub.peerHasChain(PEER)).toBe(true);
+  });
+
+  it("returns the same boolean shape regardless of chain length (constant-cost contract)", async () => {
+    // The §9.4 timing claim depends on the SQL `SELECT 1 ... LIMIT 1`
+    // returning the same shape (1 row of 1 column, or 0 rows) for
+    // every peer regardless of how many rows they have. This test
+    // pins the result-shape contract; the actual timing parity is
+    // tested in the bench (test/perf/disclosure-endpoint.test.ts).
+    const stub = freshStub();
+    // Build a peer with multiple rows
+    for (let i = 0; i < 5; i++) {
+      await stub.applyAttestation({
+        ...baseApply(),
+        contentHash:  `${"c".repeat(63)}${i}`,
+      });
+    }
+    const r1 = await stub.peerHasChain(PEER);
+    const r2 = await stub.peerHasChain("sha256:nonexistent");
+    expect(typeof r1).toBe("boolean");
+    expect(typeof r2).toBe("boolean");
+    expect(r1).toBe(true);
+    expect(r2).toBe(false);
+  });
+
+  it("scopes by peer fingerprint exactly (no prefix bleed)", async () => {
+    const stub = freshStub();
+    await stub.applyAttestation(baseApply());
+    expect(await stub.peerHasChain(PEER)).toBe(true);
+    expect(await stub.peerHasChain(PEER + "-suffix")).toBe(false);
+    expect(await stub.peerHasChain("prefix-" + PEER)).toBe(false);
   });
 });
