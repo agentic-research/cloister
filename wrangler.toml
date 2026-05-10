@@ -27,7 +27,13 @@ fallthrough = true
 bindings = [
   { name = "BEAD_STORE",  class_name = "BeadStore"  },
   { name = "TRUST_STORE", class_name = "TrustStore" },
-  { name = "BLOB_STORE",  class_name = "BlobStore"  }
+  { name = "BLOB_STORE",  class_name = "BlobStore"  },
+  # CredentialVault — hypervisor-layer singleton vault. Envelope-encrypted
+  # credentials (HKDF + AES-256-GCM), per-service allowedSubs enforcement,
+  # plaintext-stays-in-DO proxying. Per ADR-0010 + ADR-0013. Lifted from
+  # notme/vault per cloister-9ad9eb (2026-05-09). Library code in
+  # vault/src/{vault,crypto,handler}.ts; DO wrapper in src/vault-store.ts.
+  { name = "VAULT_STORE", class_name = "CredentialVault" }
 ]
 
 [[migrations]]
@@ -41,6 +47,10 @@ new_sqlite_classes = ["TrustStore"]
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["BlobStore"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["CredentialVault"]
 
 # ── Service bindings (workerd Workers) ────────────────────────────────────
 # notme-bot: agent identity authority — Ed25519 certs, JWT minting, passkeys
@@ -72,3 +82,11 @@ COMPANION_URL   = "http://localhost:8385/mcp"
 # mache (Go FUSE/MCP). Local dev: `mache serve --http :7532`.
 # Used by the mache_* backend with dynamicTools=true (ADR-0006).
 MACHE_MCP_URL   = "http://localhost:7532/mcp"
+# CredentialVault KEK secret — derives the AES-GCM KEK used to wrap
+# per-credential DEKs. Set to a high-entropy ≥32-char string in
+# production via `wrangler secret put VAULT_KEK_SECRET`. The local-dev
+# placeholder below is plain text for `task dev` ergonomics; do NOT
+# deploy with this value. A leak compromises every credential the
+# vault holds. Set to empty to disable VAULT_STORE (its constructor
+# throws on first write if the secret is unset).
+VAULT_KEK_SECRET = "local-dev-only-CHANGE-IN-PRODUCTION-via-wrangler-secret-put"

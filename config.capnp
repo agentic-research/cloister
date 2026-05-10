@@ -86,6 +86,23 @@ const cloisterWorker :Workerd.Worker = (
       durableObjectNamespace = "BlobStore",
     ),
 
+    # CredentialVault DO — hypervisor-layer singleton vault. Per ADR-0010 +
+    # ADR-0013. Envelope-encrypted (HKDF + AES-256-GCM); plaintext stays
+    # in the DO. Library code lifted from notme/vault (cloister-9ad9eb).
+    # Identity propagation from in-cluster bundles is unresolved until
+    # the first workerd-bundle Worker lands.
+    ( name = "VAULT_STORE",
+      durableObjectNamespace = "CredentialVault",
+    ),
+
+    # CredentialVault KEK secret — derives the AES-GCM key wrapping each
+    # credential's DEK. Local-dev placeholder; production sets via a
+    # workerd secret-binding mechanism. Empty disables vault writes
+    # (constructor throws on first putCredential when secret is unset).
+    ( name = "VAULT_KEK_SECRET",
+      text = "local-dev-only-CHANGE-IN-PRODUCTION",
+    ),
+
     # notme-bot service binding — /identity/* proxy
     ( name = "NOTME",
       service = "notme-bot",
@@ -127,6 +144,10 @@ const cloisterWorker :Workerd.Worker = (
     ),
     ( className = "BlobStore",
       uniqueKey = "cloister-blobs-v1",
+      enableSql = true,
+    ),
+    ( className = "CredentialVault",
+      uniqueKey = "cloister-vault-v1",
       enableSql = true,
     ),
   ],

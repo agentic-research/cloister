@@ -70,6 +70,20 @@ export interface Env {
   // idempotent puts make the multi-step handoff recoverable per
   // ADR-0012. See src/blob-store.ts.
   BLOB_STORE: DurableObjectNamespace;
+  // CredentialVault is hypervisor-layer (singleton per cluster).
+  // Per-cluster credential vault — envelope-encrypted credentials,
+  // per-service allowedSubs glob enforcement, plaintext-stays-in-DO
+  // proxying. Per ADR-0010 (architectural frame) + ADR-0013
+  // (enforcement model: V8-isolate + service-binding-as-syscall).
+  // Identity propagation from in-cluster bundles to vault is
+  // unresolved until the first workerd-bundle Worker ships — see
+  // src/vault-store.ts header comment for the open options.
+  VAULT_STORE?: DurableObjectNamespace;
+  /// Secret used to derive the AES-GCM KEK that wraps per-credential
+  /// DEKs in CredentialVault. Required when VAULT_STORE is bound.
+  /// MUST be a high-entropy string (≥32 bytes); a leak compromises
+  /// every credential in the vault.
+  VAULT_KEK_SECRET?: string;
 
   // Service bindings (workerd-native)
   NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs

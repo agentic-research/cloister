@@ -21,6 +21,7 @@ import { manifest } from "./generated/manifest.js";
 export { BeadStore } from "./beads.js";
 export { TrustStore } from "./trust-store.js";
 export { BlobStore } from "./blob-store.js";
+export { CredentialVault } from "./vault-store.js";
 
 const router = new Router(instantiate(manifest));
 
