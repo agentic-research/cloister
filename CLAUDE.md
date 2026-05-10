@@ -79,11 +79,24 @@ sufficient.
   cross-DO writes use ADR-0003 content-addressed handoff so per-DO ACID
   still holds. Lease writes attest on every authenticated call (§13.2).
 - **Lease verification lives in `src/routes/lease-middleware.ts`** —
-  `verifyAndUpsertLease` runs the full pipeline: header parse → wasm32
-  cert chain verify → claims required → epoch + validity-window check →
-  Web Crypto Ed25519 request-sig verify → scope match → TrustStore RPC
-  upsert. End-to-end tested. Wiring into `src/routes/mcp.ts` is the
-  follow-up bead (needs notme bundle-fetcher + test-fixture migration).
+  `verifyAndUpsertLease` runs the full pipeline: header parse → clock-
+  skew bound → wasm32 cert chain verify → claims required → epoch +
+  validity-window check → Web Crypto Ed25519 request-sig verify →
+  scope match → seen-nonces replay check → TrustStore RPC upsert.
+  End-to-end tested. Wiring into `src/routes/mcp.ts` is the follow-up
+  bead (cloister-b89fdb — needs notme bundle-fetcher + test-fixture
+  migration).
+- **Disclosure endpoint substrate lives in `src/routes/disclosure.ts`** —
+  `GET /interlace/peers/{fp}` streams a peer's attestation chain +
+  pending state as JSONL, with HMAC-signed cursors and constant-time
+  404 error responses (threat model §9). Route class is shipped + tested;
+  manifest registration in `cloister.capnp` is gated on `b89fdb` so auth
+  wrapping is in place before the endpoint goes external.
+- **Threat model is the contract** for the lease/attestation surface —
+  `docs/security/threat-model.md` (math-friend authored, cross-linked
+  from ADR-0007/0011/0012 frontmatter). Adding a new seam (cert mint,
+  bundle fetch, lease step, counter write, cross-DO handoff, disclosure
+  endpoint, compute substrate) means extending the model first.
 
 ## In-flight substrate work (ADRs 0007–0012)
 

@@ -93,4 +93,10 @@ export interface Env {
   /// rejected. Empty disables verification (dev only — production MUST
   /// have it set).
   INTERLACE_ROOT_PUBKEY?: string;
+  /// HMAC key (base64-standard or base64url, 32+ bytes) used to sign
+  /// disclosure-endpoint cursors (cloister-bdef0c / threat model §9.4).
+  /// Same key on every replica so cursors round-trip across instances.
+  /// Empty disables disclosure responses (dev only — production MUST
+  /// have it set).
+  INTERLACE_DISCLOSURE_HMAC_KEY?: string;
 }

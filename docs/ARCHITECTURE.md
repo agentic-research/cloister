@@ -427,9 +427,10 @@ fetcher and migration of unauthenticated test fixtures.
 
 | Layer            | Risk                                | Mitigation                                                |
 | ---------------- | ----------------------------------- | --------------------------------------------------------- |
-| `POST /mcp`      | Unauthenticated request execution   | `verifyAndUpsertLease` (lease middleware) runs the wasm32 cert-chain verifier + Web Crypto Ed25519 request-sig + scope match + TrustStore counter upsert. ADR-0007. Substrate tested; wiring into mcp.ts pending. |
+| `POST /mcp`      | Unauthenticated request execution   | `verifyAndUpsertLease` (lease middleware) runs the wasm32 cert-chain verifier + Web Crypto Ed25519 request-sig + scope match + TrustStore counter upsert. ADR-0007. Substrate tested; wiring into mcp.ts pending (`cloister-b89fdb`). |
+| `GET /interlace/peers/{fp}` | Peer-existence oracle, paginated-tail oracle, attestation forgery | `DisclosureRoute` (src/routes/disclosure.ts): HMAC-signed cursors (rejects unsigned), constant-time 404 across all error classes (not_found / denied / bad_cursor are byte-identical), cross-peer cursor reuse rejected. JSONL stream includes the cluster master pubkey for offline verification. ADR-0007 §11 + threat model §9. Route class shipped; manifest registration gated on `b89fdb` (auth wrapper). |
 | BeadStore SQL    | Parameterized queries throughout    | No injection risk                                         |
-| TrustStore SQL   | Singleton DO, parameterized queries | No injection risk; per-DO ACID                            |
+| TrustStore SQL   | Singleton DO, parameterized queries | No injection risk; per-DO ACID; `seen_nonces` blocks request replay (cloister-c5c846); `peer_attestations` chain-integrity defense rejects forks (cloister-bdcbe7) |
 | notme proxy      | SSRF?                               | `NOTME` is a service binding (not a user-controlled URL)  |
 | LLO HTTP         | SSRF                                | `LLO_MCP_URL` is an env var, not a request param          |
 | rosary proxy     | SSRF                                | `ROSARY_MCP_URL` is an env var                            |
