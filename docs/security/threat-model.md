@@ -499,21 +499,60 @@ read but require qualification:
 
 ## 13. What this model does NOT yet defend
 
-Items the threat model deliberately leaves to future work, in
-descending priority:
+Updated 2026-05-10. The original list (drafted 2026-05-09) ranked 9
+items; 8 of them have since shipped. See the [status-update callout at
+the top of this doc](#status-update-2026-05-10--most-gaps-closed) for
+the closed→bead mapping, and [§11](#11-test-contract) for per-row
+detail.
 
-1. **Replay defense as implemented.** §6.2.3. P0; filed.
-2. **Bundle signature verification.** §5.2. P1; filed.
-3. **Cross-DO retry policy + disclosure visibility.** §8. P1; filed.
-4. **Counter-write race under concurrency.** §7.3. P1; filed.
-5. **Critical unknown extension handling.** §6.1.6 / C.6. P2.
-6. **Constant-time error path on disclosure endpoint.** §9. P2; tracked
-   under cloister-bdef0c.
-7. **Counter monotonicity and chain integrity validation server-side.**
-   §7.4 / §7.5. P2.
-8. **Server clock skew bound (separate from cert validity window).**
-   §6.2.7. P2.
-9. **Tool-name colon edge case in scope grammar.** §6.3.4. P3.
+### Still not defended (current list)
+
+In descending priority:
+
+1. **Prompt-injection vs vault-slice failure mode (NOT YET DEMONSTRATED).**
+   ADR-0010 claims a compromised bundle can only exfil what its slice
+   token grants. The substrate exists at the design level; no working
+   demo proves the claim. Filed as `cloister-74ce00` (P2; blocked on
+   ADR-0010 implementation).
+
+2. **Second Interlace implementor (NO ALTERNATIVE EXISTS).** §13.2's
+   "silence is evidence" claim is a cryptographic invariant. Today
+   cloister is the only implementation; a second implementation would
+   either reach the same chain at the same hash (claim confirmed) or
+   diverge (claim falsified). Without it, the invariant is a unilateral
+   assertion. Spec extraction tracked as `cloister-765132`
+   (not yet filed; see beads).
+
+3. **L.15 — Tool name with embedded colon.** §6.3.4. The scope grammar
+   `<name>:<repo>` doesn't validate tool names against `:` characters.
+   A tool named `bead:create` would parse as scope `bead:create:foo`
+   and `scopeAllows` matches by prefix. Edge case; tool names are
+   compile-time strings, not user input. **Parked**, no bead filed.
+
+4. **C.11 — TBS re-encoding round-trip mismatch.** §6.1.5. The
+   verifier re-encodes `tbs_certificate` to derive what the master
+   signed; defensive coverage for a hypothetical x509-cert parser bug
+   that has not surfaced. Would be one regression test against a
+   hand-minted cert with non-canonical TBS. **Parked**, no bead filed.
+
+5. **Performance characterization.** The model says nothing about
+   latency/throughput; threat surface considered, but operational
+   cost not measured. Filed as `cloister-747d98` (P3).
+
+### Closed since the original list (for the audit trail)
+
+For posterity, the original §13 items 1-8 — all closed by 2026-05-10:
+
+| Original item | Bead | §11 rows |
+|---|---|---|
+| 1. Replay defense | `cloister-c5c846` | M.1, M.2, M.3 |
+| 2. Bundle signature verification | `cloister-c614ae` | C.5 |
+| 3. Cross-DO retry policy | `cloister-c6d378` | H.2, H.3, H.4 |
+| 4. Counter-write race | `cloister-c66fea` | T.10 |
+| 5. Critical unknown extension | `cloister-c71977` | C.6 |
+| 6. Constant-time error path | `cloister-c7a184` + `cloister-bdef0c` | D.3 + D.1/D.2/D.4/D.5 |
+| 7. Counter monotonicity + chain integrity | `cloister-c75da6` | T.3, T.4 |
+| 8. Server clock skew bound | `cloister-c7e3e3` | T.1 |
 
 ## 14. Cross-references
 
