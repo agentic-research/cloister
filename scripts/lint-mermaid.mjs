@@ -113,6 +113,28 @@ function lintBlock(lines, startLineNo) {
     }
   }
 
+  // ── Pass 2.5: edge labels with special chars need quoting ─────────────
+  //
+  // GitHub's mermaid parser rejects `|... (foo) ...|` — unquoted parens
+  // inside edge labels. The fix is `|"... (foo) ..."|`. Local renderers
+  // are more permissive, but GH's strict mode is the ground truth we
+  // care about for README display.
+  for (let i = 0; i < lines.length; i++) {
+    const line = stripComments(lines[i]);
+    // Match pipe-delimited edge labels: |...|
+    // If the content contains an unquoted ( ) [ ] or { },
+    // flag it. Already-quoted (`|"..."|`) is fine.
+    for (const m of line.matchAll(/\|([^|]*)\|/g)) {
+      const content = m[1];
+      const trimmed = content.trim();
+      const isQuoted = trimmed.startsWith('"') && trimmed.endsWith('"');
+      const hasSpecial = /[()\[\]{}]/.test(content);
+      if (hasSpecial && !isQuoted) {
+        errors.push(`L${startLineNo + i}: edge label \`|${content}|\` contains special chars (parens/brackets/braces) — wrap with double quotes \`|"..."|\` for GitHub mermaid render`);
+      }
+    }
+  }
+
   // ── Pass 3: style/class blocks ─────────────────────────────────────────
   for (let i = 0; i < lines.length; i++) {
     const line = stripComments(lines[i]);

@@ -116,7 +116,7 @@ graph TB
     R -->|first match wins| H
     R --> I
     R --> M
-    M -->|handles(name)| B
+    M -->|"handles(name)"| B
     M --> L
     M --> F
 ```
@@ -316,9 +316,9 @@ Each repo gets its own Durable Object instance, keyed by repo path:
 ```mermaid
 graph LR
     GW["DurableObjectToolBackend (bead_*)"]
-    GW -->|idFromName('/repos/rosary')| R["BeadStore\n/repos/rosary\nSQLite: beads, comments"]
-    GW -->|idFromName('/repos/mache')| M["BeadStore\n/repos/mache\nSQLite: beads, comments"]
-    GW -->|idFromName('/repos/crumb')| C["BeadStore\n/repos/crumb\nSQLite: beads, comments"]
+    GW -->|"idFromName('/repos/rosary')"| R["BeadStore\n/repos/rosary\nSQLite: beads, comments"]
+    GW -->|"idFromName('/repos/mache')"| M["BeadStore\n/repos/mache\nSQLite: beads, comments"]
+    GW -->|"idFromName('/repos/crumb')"| C["BeadStore\n/repos/crumb\nSQLite: beads, comments"]
 ```
 
 Isolation is physical: separate SQLite files, separate DO instances, no

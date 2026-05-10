@@ -49,7 +49,7 @@ graph TB
     MCP -->|state writes| TRUST
     IDENT -->|svc binding| NOTME
     MCP -->|svc binding| COMP
-    COMP -.->|leyline-net wire<br/>(real network)| EXT
+    COMP -.->|"leyline-net wire<br/>(real network)"| EXT
     NOTME -.->|HKDF master pubkey| VAULT
 
     style hyp fill:#dde7ff,color:#000
