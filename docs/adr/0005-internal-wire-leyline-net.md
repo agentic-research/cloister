@@ -416,14 +416,58 @@ proof against the official capnp implementation.
 | Architectural amendment   | `65de540`    | This ADR's amendment — IPC reframe                      |
 | 2D-wire implementation    | `dd8a235`    | `LeylineNetToolBackend.invoke` real, no crypto          |
 | End-to-end integration    | `05b3de5`    | McpEdgeRoute → leylineNet → companion stub round-trip   |
+| udsForward wire-up        | cloister-46fc1a | `UdsForwardToolBackend` invokes companion with `X-Cloister-Transport: uds` headers; stub-companion proxies to a real `AF_UNIX` socket; same capnp ToolCall/ToolResult bytes. |
 
 Still pending (out-of-scope for this ADR):
 - **Phase 2B** — cloister-companion Rust binary; depends on
   `ley-line-3278b4` extracting the open-subset `leyline-wire` crate
-  to `ley-line-open`.
+  to `ley-line-open`. Includes a UDS-dial path equivalent to the stub's
+  `X-Cloister-Transport: uds` handler (cloister-46fc1a installs the
+  cloister side; companion-Rust catches up).
 - **Phase 2F** — migrate the rosary backend declaration in
   `cloister.capnp` from `httpForward` (currently commented out) to
   `leylineNet` once companion exists.
+
+## Amendment 2026-05-10 — udsForward backend landed (cloister-46fc1a)
+
+The `udsForward` backend kind has stopped being a reservation. Wire path:
+
+```
+[Worker] UdsForwardToolBackend.invoke()
+    │  capnp ToolCall bytes + headers
+    │  X-Cloister-Transport: uds
+    │  X-Cloister-Socket-Path: /run/cloister-uds/<sock>
+    ▼  HTTP POST → env.COMPANION_URL
+[companion]  connect("AF_UNIX", socketPath); write ToolCall; read ToolResult
+    │  capnp ToolResult bytes
+    ▼
+[Worker] decode → MCP edge
+```
+
+Why this matches ADR-0005's design and not a workaround:
+
+1. **The Worker still doesn't dial UDS.** workerd has no `AF_UNIX`
+   capability, and we deliberately don't add one. The companion sidecar
+   is the IPC seam exactly as this ADR promised.
+2. **Same wire format.** capnp ToolCall/ToolResult on the wire; no new
+   schema, no new codec. The transport indicator is a pair of HTTP
+   headers — companion reads them, picks the dial path.
+3. **Same trust model.** UDS is intra-pod (inside the apko trust
+   boundary); the amendment's "cloister↔companion is plain capnp IPC
+   (no AEAD)" guarantee still applies. Companion↔backend on UDS is
+   also plain capnp per `docs/deployment/cluster-in-a-pod.md`.
+4. **No manifest schema change.** `UdsForwardBackend.socketPath`
+   already carried the address. The well-known `COMPANION_URL` binding
+   (used by `leylineNet`) is reused for `udsForward` — singleton
+   companion per cluster.
+
+The local-dev stub at `scripts/stub-companion.mjs` was extended to
+honor the headers: when `X-Cloister-Transport: uds` is present, it
+connects to the named UDS socket and acts as a pure byte proxy
+between cloister and the responder.
+
+Production cloister-companion (Rust) needs a parallel UDS handler.
+Tracked as a follow-up bead in the companion repo (Phase 2B work).
 
 Adding a `leylineNet` backend today is a manifest edit:
 

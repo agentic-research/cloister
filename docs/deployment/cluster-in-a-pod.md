@@ -137,6 +137,24 @@ Socket, plain (no AEAD, per [ADR-0005](../adr/0005-internal-wire-leyline-net.md)
 amendment 2026-04-30). The `leylineNet` variant is reserved for
 cross-cluster reach (signed capnp + AEAD); not used intra-pod.
 
+**How a workerd bundle (cloister-router) actually reaches a UDS sibling:**
+workerd can't dial `AF_UNIX` from JS. cloister-router's
+`UdsForwardToolBackend` POSTs the capnp ToolCall to **cloister-companion**
+(a Rust sidecar; ADR-0005) with two transport-indicator headers:
+
+```
+X-Cloister-Transport: uds
+X-Cloister-Socket-Path: /run/cloister-uds/<bundle>.sock
+```
+
+Companion connects to the named socket, proxies the bytes, returns
+the ToolResult. The companion bundle therefore MUST mount the same
+`cloister-uds` volume as the sibling bundles whose sockets it dials.
+Once Phase 2B lands the Rust companion as a separate bundle in
+`cluster.capnp` (currently TBD), its `volumes:` entry will be
+`cloister-uds:/run/cloister-uds`, matching the existing
+cloister-router / mache / rosary mounts.
+
 ## Bootstrap path (cold-start)
 
 When a fresh container comes up:
