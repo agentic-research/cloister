@@ -6,30 +6,47 @@ tags: [architecture, vault, capability, hypervisor, isolate, oss, license]
 supersedes_framing: [ADR-0002 §"backend abstraction", ADR-0007 §"INTERLACE_MASTER_PUBKEY env binding"]
 ---
 
-## Status amendment — 2026-05-10
+## Status amendment — 2026-05-10 (updated post-ADR-0013)
 
-Stays **Proposed**. Other Interlace-substrate ADRs flipped to Accepted
-in May 2026 because their implementations shipped (ADR-0007 lease
-substrate, ADR-0011 three-criterion test consumed by `Bundle.tier`,
-ADR-0012 TrustStore split). This one hasn't — no `Vault` DO exists,
-no `VaultSliceGrant` primitive, no slice-token issuance. The design
-is intact and reviewed; it's gated on implementation.
+Stays **Proposed for manifest-side concerns only**. The
+**enforcement-model question** that originally gated this ADR — what
+"slice grant" means operationally — was resolved by
+[ADR-0013](0013-slice-grant-enforcement.md) (Accepted same day).
 
-**Gating dependencies**:
+What ADR-0013 ratified:
 
-1. A vault DO (singleton, hypervisor-tier per ADR-0011) with the
-   slice-grant model encoded.
-2. Manifest schema extension: `vaultSlice` field on `Bundle`,
-   replacing `[vars]`-style env bindings for credentials per the
-   "what NOT to add" rule in `CLAUDE.md`.
-3. Slice-token issuance + verification on the lease path.
-4. The prompt-injection demo (`cloister-74ce00`) — the failure-mode
-   test that proves the slice boundary holds against a compromised
-   bundle. Gating bead until the primitive exists.
+- The vault primitive already exists at `cloister/vault/` (lifted per
+  `cloister-9ad9eb`, closed 2026-05-09). HKDF + AES-256-GCM envelope
+  encryption, per-credential `allowedSubs` glob lists, plaintext-in-DO.
+- Slice-grant *enforcement* is V8 isolate + service-binding-as-syscall
+  (per notme/docs/design/009). No new cryptographic envelope; no
+  signed slice tokens; no Interlace-lease integration for in-cluster
+  vault access. The substrate gives the guarantee.
+- The prompt-injection demo (`cloister-74ce00`) is structured against
+  this model — single-session work, not multi-week.
 
-Until those land, the architectural decision is recorded but not
-load-bearing. Don't cite this ADR as a security guarantee — cite it
-as a roadmap with a designed solution waiting on engineering effort.
+What's **still open** under this ADR:
+
+1. Whether `Bundle.vaultSlice` should appear in `cluster.capnp` as a
+   *manifest hint* (tooling support — e.g. `task cluster:emit`
+   generates the right service bindings + records the slice
+   association in container labels). NOT for enforcement — workerd
+   bindings + vault `allowedSubs` enforce.
+2. Multi-cluster vault federation. Today vault is single-cluster
+   per ADR-0011 tier-classification.
+
+Until those manifest-side concerns get answered, this ADR records the
+*shape* the primitive will take in the manifest layer. The
+*enforcement-side* answer is in ADR-0013 + the running code.
+
+**Citation guidance** (updated):
+
+- For the **substrate security claim** (slice grants hold against a
+  compromised bundle): cite **ADR-0013** and the demo test.
+- For the **architectural framing** (vault as scoped slices, bundle
+  as unit of trust, cluster as unit of identity): cite this ADR.
+- For the **vault primitive itself**: cite `cloister/vault/` source
+  + `cloister-9ad9eb` lift bead.
 
 ## Context
 

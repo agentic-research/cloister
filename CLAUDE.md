@@ -27,10 +27,12 @@ top-level docs describe *what*.
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
   numbered ADR before changing the substrate. The next free number is
-  ADR-0013 (0001–0012 taken). Status mix as of 2026-05-10: most are
+  ADR-0014 (0001–0013 taken). Status mix as of 2026-05-10: most are
   Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
-  signal); ADR-0010 is Proposed (impl-gated on a vault DO + slice-
-  token primitive).
+  signal); ADR-0010 stays Proposed for the manifest-side vault wiring
+  question, but ADR-0013 ratified the enforcement model (V8 isolate +
+  service-binding-as-syscall) — the substrate-level security claim no
+  longer waits on ADR-0010 to land.
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
@@ -116,9 +118,10 @@ sufficient.
 | 0007 — Interlace substrate (Signet leases + attestation + discovery) | Accepted | `interlace-substrate/identity-lease`, `/attestation`, `/discovery` |
 | 0008 — companion pool / load balancing | Deferred | `interlace-substrate/adrs` |
 | 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | Accepted (Phase 1: OCI + workerd) | `interlace-substrate/adrs` |
-| 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed (impl-gated) | `interlace-substrate/vault` |
+| 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed (manifest-side only — enforcement ratified by ADR-0013) | `interlace-substrate/vault` |
 | 0011 — hypervisor / bundle boundary (three-criterion test) | Accepted | `interlace-substrate/adrs` |
 | 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
+| 0013 — slice-grant enforcement (V8 isolate + service-binding-as-syscall) | Accepted | `interlace-substrate/vault` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
