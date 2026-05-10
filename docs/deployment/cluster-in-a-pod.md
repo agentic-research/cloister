@@ -26,13 +26,37 @@ auto-detects, you don't pick.
 ### Mac dev — native binaries, no containers
 
 ```sh
-task dev:all       # spawns each bundle as a native process
-                   # UDS sockets land in /tmp/cloister-dev/
+task cluster:dev   # spawns each bundle as a native process
+                   # UDS sockets land in /tmp/cloister-dev/run/
+                   # DO storage in $HOME/.cache/cloister-dev/do/
 ```
 
-No container layer. Fast iteration. Same `cluster.capnp` parsed by
-[`scripts/emit-dev.mjs`](../../scripts/) (separate emitter, not in
-Phase 1a — file [be0607c](../../.beads/) when the time comes).
+No container layer — same `cluster.capnp`, parsed by
+[`scripts/cluster-dev.mjs`](../../scripts/cluster-dev.mjs) and
+spawned as subprocesses with the wire bindings injected as env vars.
+Fast iteration; survives Ctrl-C cleanly (SIGTERM each child, SIGKILL
+stragglers after 5s). DO state persists in `$HOME/.cache/cloister-dev/`
+across runs.
+
+**Missing binaries are surfaced, not fatal.** If `mache` isn't on
+PATH or `../notme/worker/wrangler.toml` doesn't exist, that bundle is
+skipped with a clear hint; the rest of the cluster still boots. This
+lets you dev cloister-router without first building all sibling repos.
+
+Useful env vars:
+
+| Var | Effect |
+|---|---|
+| `CLUSTER_DEV_DRY_RUN=1` | Print the launch plan, don't spawn |
+| `CLUSTER_DEV_BIN_<NAME>=/path` | Override the binary lookup for bundle NAME (upper-cased, hyphens → underscores) |
+| `CLUSTER_DEV_DIR_NOTME_IDENTITY=/path` | Override the notme worker dir (default `../notme/worker`) |
+| `CLUSTER_DEV_RUN_DIR=/path` | UDS dir (default `/tmp/cloister-dev/run`) |
+| `CLUSTER_DEV_DO_DIR=/path` | DO storage dir (default `$HOME/.cache/cloister-dev/do`) |
+
+If `cloister-router` or `notme-identity` (the hypervisor-tier bundles)
+exits, the launcher tears the whole cluster down — those are the
+load-bearing pieces and a partial cluster is more confusing than a
+dead one.
 
 ### Linux self-host — containerd via nerdctl/podman/docker
 
@@ -45,12 +69,14 @@ The compose file is OCI-spec; works with **containerd directly** (no
 docker daemon required), podman (daemonless), or docker if you have
 it. The auto-detector tries them in that order.
 
-### K8s — multi-container pod
+### K8s — deferred
 
-`task emit:pod` (future, [be0607c](../../.beads/)) will emit a Pod
-manifest that wraps the same bundles + wires. The bundles run as
-containers in a single Pod, sharing network namespace + the UDS
-volume mount.
+A k8s Pod-manifest emitter was scoped for be0607c but deferred —
+mac-dev + compose cover the operator paths we care about today, and
+k8s adds operational weight (kubelet, etcd, networking) that most
+self-hosters don't want. The schema permits adding `scripts/emit-pod.mjs`
+later without touching anything else; file a follow-up bead if you
+need it.
 
 ## Schema anatomy
 

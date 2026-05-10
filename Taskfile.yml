@@ -57,6 +57,15 @@ tasks:
     generates:
       - cluster.compose.yaml
 
+  cluster:dev:
+    desc: "Mac dev launcher — spawns cluster.capnp bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
+    deps: [cluster:manifest]
+    cmds:
+      - node scripts/cluster-dev.mjs
+    sources:
+      - src/generated/cluster.ts
+      - scripts/cluster-dev.mjs
+
   cluster:up:
     desc: "Run the cluster locally via nerdctl/podman/docker compose"
     deps: [cluster:emit]
