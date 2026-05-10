@@ -37,6 +37,18 @@ export const SAMPLE_SIG_B64   = "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1U
 export const MASTER_PUBKEY_B64_STD = "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=";
 
 /**
+ * Ephemeral key SEED (base64url, no padding) — the 32-byte raw seed
+ * matching EPHEMERAL_PUBKEY_B64. Tests import this as a JWK Ed25519
+ * private key (`{ kty:"OKP", crv:"Ed25519", d:<seed>, x:<pub> }`)
+ * and sign canonical request bytes per-test, so each test uses a
+ * unique nonce and timestamp without colliding with the
+ * (cert_fp, nonce) replay-defense ledger.
+ *
+ * Test-fixture only — not a real key.
+ */
+export const EPHEMERAL_PRIV_SEED_B64 = "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8";
+
+/**
  * Sample envelope signed AT THE EDGE of the cert validity window.
  * Used to test `cert.not_before` / `cert.not_after` rejections without
  * tripping the clock-skew gate first (cloister-c7e3e3).

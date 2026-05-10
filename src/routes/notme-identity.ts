@@ -10,9 +10,14 @@
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 
+const IDENTITY_PATTERN = new URLPattern({ pathname: "/identity/*" });
+
 export class NotmeIdentityRoute implements EdgeRoute {
   match(request: Request): boolean {
-    return new URL(request.url).pathname.startsWith("/identity/");
+    // URLPattern rejects "/identity" (no trailing segment), accepts
+    // "/identity/<anything>". The `*` greedy matcher captures the rest
+    // of the path so the proxy can forward it as-is.
+    return IDENTITY_PATTERN.test(request.url);
   }
 
   async handle(request: Request, env: Env): Promise<Response> {

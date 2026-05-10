@@ -97,6 +97,19 @@ interface TrustStoreRpc {
   listPendingForPeer(peerFp: string): Promise<PendingAttestation[]>;
 }
 
+/**
+ * URLPattern for `GET /interlace/peers/:fp`. Web Platform standard
+ * (workerd-native, no regex, no string slicing). Constructed once
+ * per instance — the constructor cost is non-trivial, but the match
+ * cost on each request is tiny.
+ *
+ * The pattern rejects subpaths, trailing slashes, and empty fp
+ * segments, so we don't need defensive parsing in `handle`.
+ */
+const PEER_DISCLOSURE_PATTERN = new URLPattern({
+  pathname: "/interlace/peers/:fp",
+});
+
 export class DisclosureRoute implements EdgeRoute {
   /**
    * @param hmacKeyBinding name of the env binding holding the
@@ -111,18 +124,18 @@ export class DisclosureRoute implements EdgeRoute {
 
   match(request: Request): boolean {
     if (request.method !== "GET") return false;
-    const url = new URL(request.url);
-    return url.pathname.startsWith("/interlace/peers/");
+    return PEER_DISCLOSURE_PATTERN.test(request.url);
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const peerFp = decodeURIComponent(
-      url.pathname.slice("/interlace/peers/".length),
-    );
+    const m = PEER_DISCLOSURE_PATTERN.exec(request.url);
+    // `match()` already gates on URLPattern, so a null here means a
+    // direct call (test/test) bypassed match — fail closed identically.
+    const peerFp = m?.pathname.groups.fp ?? "";
     if (!peerFp) {
       return constantTimeErrorResponse("not_found");
     }
+    const url = new URL(request.url);
 
     // Cursor — if present, MUST validate. Reject unsigned / tampered
     // cursors with a constant-time 404 (threat model §9.4: paginated-

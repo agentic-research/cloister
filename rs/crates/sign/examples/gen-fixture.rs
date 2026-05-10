@@ -141,6 +141,19 @@ fn main() {
     println!("/** Master pubkey re-encoded as base64-STANDARD for CA-bundle insertion. */");
     println!("export const MASTER_PUBKEY_B64_STD = \"{}\";", b64_std(master.verifying_key().as_bytes()));
 
+    println!();
+    println!("/**");
+    println!(" * Ephemeral key SEED (base64url, no padding) — the 32-byte raw seed");
+    println!(" * matching EPHEMERAL_PUBKEY_B64. Tests import this as a JWK Ed25519");
+    println!(" * private key (`{{ kty:\"OKP\", crv:\"Ed25519\", d:<seed>, x:<pub> }}`)");
+    println!(" * and sign canonical request bytes per-test, so each test uses a");
+    println!(" * unique nonce and timestamp without colliding with the");
+    println!(" * (cert_fp, nonce) replay-defense ledger.");
+    println!(" *");
+    println!(" * Test-fixture only — not a real key.");
+    println!(" */");
+    println!("export const EPHEMERAL_PRIV_SEED_B64 = \"{}\";", b64(&ephemeral_seed));
+
     // ── Edge-of-validity envelopes for validity-window tests ─────────────
     //
     // The primary SAMPLE_TS sits in the middle of the cert validity window,

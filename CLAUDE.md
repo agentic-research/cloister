@@ -83,9 +83,16 @@ sufficient.
   skew bound → wasm32 cert chain verify → claims required → epoch +
   validity-window check → Web Crypto Ed25519 request-sig verify →
   scope match → seen-nonces replay check → TrustStore RPC upsert.
-  End-to-end tested. Wiring into `src/routes/mcp.ts` is the follow-up
-  bead (cloister-b89fdb — needs notme bundle-fetcher + test-fixture
-  migration).
+  **Wired into `McpEdgeRoute.handlePost`** (cloister-b89fdb); the gate
+  is active when `INTERLACE_ROOT_PUBKEY` is set, skipped when unset
+  (dev/test mode — deployment-binding granularity, NOT per-request
+  bypass).
+- **Path matching uses `URLPattern`** — Web Platform standard,
+  workerd-native, no regex. Exact-match routes use `pathname === "..."`;
+  parameterized routes use `new URLPattern({ pathname: "/foo/:bar" })`
+  patterns built once at construction. See `src/routes/disclosure.ts`,
+  `src/routes/notme-identity.ts`, `src/manifest/runtime.ts:HttpProxyRoute`
+  for examples.
 - **Disclosure endpoint substrate lives in `src/routes/disclosure.ts`** —
   `GET /interlace/peers/{fp}` streams a peer's attestation chain +
   pending state as JSONL, with HMAC-signed cursors and constant-time

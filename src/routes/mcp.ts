@@ -17,6 +17,15 @@ import type { Env, JsonRpcRequest, JsonRpcResponse, McpTool } from "../types.js"
 import { okResponse, errResponse } from "../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../backends.js";
 import { pickAllowedOrigin } from "../cors.js";
+import {
+  leaseErrorResponse,
+  verifyAndUpsertLease,
+} from "./lease-middleware.js";
+import {
+  CaUnavailableError,
+  getCABundle,
+} from "../storage/ca-bundle-cache.js";
+import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
@@ -39,20 +48,76 @@ export class McpEdgeRoute implements EdgeRoute {
 
   private async handlePost(request: Request, env: Env): Promise<Response> {
     const allowOrigin = pickAllowedOrigin(request, env.ALLOWED_ORIGINS);
+    const nowMs = Date.now();
+
+    // Read the body ONCE so we can both verify-against-canonical-bytes
+    // and pass it as parsed JSON to dispatch. JSON-RPC §5: when the
+    // request can't be parsed, id MUST be null.
+    const bodyText = await request.text();
     let req: JsonRpcRequest;
     try {
-      req = await request.json<JsonRpcRequest>();
+      req = JSON.parse(bodyText) as JsonRpcRequest;
     } catch {
-      // JSON-RPC 2.0 §5: when the request can't be parsed, id MUST be null.
       return Response.json(errResponse(null, -32700, "parse error"), {
         status: 400,
         headers: { "Access-Control-Allow-Origin": allowOrigin },
       });
     }
+
+    // Lease verification — ADR-0007 always-on auth. Skipped entirely
+    // when `INTERLACE_ROOT_PUBKEY` is unset (dev/test deployments;
+    // production MUST have it set per ADR-0007 and the threat model).
+    // The skip is at deployment-binding granularity, NOT per-request,
+    // so this is not the `INTERLACE_DEV_BYPASS` the audit removed.
+    if (env.INTERLACE_ROOT_PUBKEY) {
+      const verifyResult = await this.verifyLease(request, bodyText, req, env, nowMs);
+      if (verifyResult) return withCors(verifyResult, allowOrigin);
+    }
+
     const out = await this.dispatch(req, env);
     return Response.json(out, {
       headers: { "Access-Control-Allow-Origin": allowOrigin },
     });
+  }
+
+  /**
+   * Run the lease pipeline. Returns a `Response` if the request was
+   * REJECTED (caller should return it as-is) or `undefined` if the
+   * request passed verification (caller continues to dispatch).
+   */
+  private async verifyLease(
+    request: Request,
+    body:    string,
+    req:     JsonRpcRequest,
+    env:     Env,
+    nowMs:   number,
+  ): Promise<Response | undefined> {
+    let bundle;
+    try {
+      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
+        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
+      });
+    } catch (err) {
+      if (err instanceof CaUnavailableError) {
+        return leaseErrorResponse(req.id, -32005, "CA bundle unavailable");
+      }
+      throw err;
+    }
+
+    const verdict = await verifyAndUpsertLease({
+      req:    request,
+      body,
+      id:     req.id,
+      method: req.method,
+      params: req.params,
+      env,
+      bundle,
+      nowMs,
+    });
+    if ("code" in verdict) {
+      return leaseErrorResponse(req.id, verdict.code, verdict.message);
+    }
+    return undefined;
   }
 
   private async dispatch(req: JsonRpcRequest, env: Env): Promise<JsonRpcResponse> {
@@ -138,6 +203,14 @@ function handleSse(request: Request, env: Env): Response {
       "Access-Control-Allow-Origin": allowOrigin,
     },
   });
+}
+
+// ── CORS helper for lease-error responses ─────────────────────────────────
+
+function withCors(res: Response, allowOrigin: string): Response {
+  const headers = new Headers(res.headers);
+  headers.set("Access-Control-Allow-Origin", allowOrigin);
+  return new Response(res.body, { status: res.status, headers });
 }
 
 // ── Validation ────────────────────────────────────────────────────────────

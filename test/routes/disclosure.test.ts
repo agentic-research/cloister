@@ -95,6 +95,27 @@ describe("DisclosureRoute.match", () => {
     expect(route.match(makeReq("/.well-known/interlace/index.json"))).toBe(false);
     expect(route.match(makeReq("/mcp"))).toBe(false);
   });
+
+  it("URLPattern shape: rejects subpaths under /interlace/peers/", () => {
+    const route = new DisclosureRoute();
+    // /interlace/peers/<fp>/divergence is a sibling endpoint (per
+    // ADR-0007 §6.4) — must NOT match this route. URLPattern's
+    // segment-match prevents the "swallow everything" bug startsWith
+    // would have.
+    expect(route.match(makeReq(`/interlace/peers/${PEER}/divergence`))).toBe(false);
+    expect(route.match(makeReq(`/interlace/peers/${PEER}/anything`))).toBe(false);
+  });
+
+  it("URLPattern shape: rejects empty fp segment", () => {
+    const route = new DisclosureRoute();
+    expect(route.match(makeReq("/interlace/peers/"))).toBe(false);
+  });
+
+  it("URLPattern shape: rejects bare /interlace or /interlace/peers", () => {
+    const route = new DisclosureRoute();
+    expect(route.match(makeReq("/interlace"))).toBe(false);
+    expect(route.match(makeReq("/interlace/peers"))).toBe(false);
+  });
 });
 
 // ── Happy path: chain reconstruction ─────────────────────────────────────

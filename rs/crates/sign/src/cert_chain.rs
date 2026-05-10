@@ -551,7 +551,7 @@ pub mod tests_helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{Signer, SigningKey};
+    use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
     use super::tests_helpers::mint_test_cert;

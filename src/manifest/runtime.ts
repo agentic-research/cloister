@@ -128,15 +128,24 @@ function toToolBackend(b: Backend): ToolBackend {
 // purely an outer-layer proxy.
 
 class HttpProxyRoute implements EdgeRoute {
+  private readonly exactPattern:   URLPattern;
+  private readonly subpathPattern: URLPattern;
   constructor(
     private readonly path:        string,
     private readonly urlBinding:  string,
     private readonly stripPrefix: string,
-  ) {}
+  ) {
+    // URLPattern matches `<path>` exactly via `exactPattern` and any
+    // subpath via `subpathPattern`. Built once at construction so each
+    // request is just two `.test()` calls — cheaper than re-parsing
+    // the URL or doing startsWith with manual segment-boundary checks.
+    this.exactPattern   = new URLPattern({ pathname: path });
+    this.subpathPattern = new URLPattern({ pathname: `${path}/*` });
+  }
 
   match(request: Request): boolean {
-    const u = new URL(request.url);
-    return u.pathname === this.path || u.pathname.startsWith(this.path + "/");
+    return this.exactPattern.test(request.url) ||
+           this.subpathPattern.test(request.url);
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
