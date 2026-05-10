@@ -49,6 +49,48 @@ record *every authenticated call*, not just state-mutating ones.
   shapes for the disclosure endpoint.
 - [`test-vectors/`](test-vectors/) — canonical inputs + expected digests.
 
+### Note on test-vector format (JSON-as-carrier, NOT JSON-as-spec)
+
+The test-vector files are JSON because every target implementation
+language (Python, Rust, Go, JS) parses it with zero tooling burden —
+**but JSON is not the spec wire format**. Each test-vector file
+carries:
+
+- **canonical bytes hex-encoded** in a field like `canonical_hex` or
+  `cbor_canonical_hex` or `cert_der_hex` — these are the actual wire
+  bytes the spec defines.
+- **expected digests hex-encoded** in a field like `sha256` or
+  `chain_hash` — what your implementation must compute over the
+  canonical bytes.
+- **human-readable field labels** describing which canonical-bytes
+  byte-range is which (`prev_chain_hash`, `cert_fp`, `nonce_b64`,
+  `ts_str`, etc.) — these are documentation, not protocol fields.
+
+A conformant implementation:
+
+1. Reads the test-vector JSON in any convenient language.
+2. Hex-decodes the canonical-bytes field.
+3. Runs its own canonical-encoder against the named inputs.
+4. Asserts byte-equality with the hex-decoded canonical bytes AND with
+   the expected digest after hashing.
+
+The actual wire encodings the spec ratifies:
+
+| Surface | Canonical encoding |
+|---|---|
+| CA bundle | RFC 8949 deterministic CBOR |
+| Cert + extensions | X.509 DER (RFC 5280) |
+| Chain-hash input | UTF-8 byte concatenation, no separators (see §4.1) |
+| Cert claims (for `cert_fp`) | Canonical JSON: alphabetical keys, no whitespace, no trailing newline, minimal escaping (see §3 + threat-model §7.7.e) |
+| Lease envelope | UTF-8 byte concatenation of canonical request fields (see `wire/lease-envelope.md`) |
+| Disclosure response lines | JSONL with constrained schema (see `wire/disclosure-jsonl.md`) |
+
+None of these is "test-vector JSON." Implementors who treat the
+test-vector JSON shapes as the wire format will silently diverge —
+threat-model §7.7 (a-e) catalogs how each divergence breaks the
+§13.2 "silence is evidence" property. Reach byte-equality against
+the canonical-bytes fields, not the surrounding JSON envelope.
+
 ## 1. Identity
 
 ### 1.1 Master keypair
