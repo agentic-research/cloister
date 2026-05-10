@@ -200,6 +200,12 @@ tasks:
     cmds:
       - node --test hooks/test/*.test.mjs
 
+  bench:lease:
+    desc: "Lease-pipeline microbenchmark (cloister-747d98). Excluded from `task lint`/`task test`. Writes results to stdout — paste into docs/perf/*.md."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose
+
   type-check:
     desc: TypeScript type check (no emit)
     deps: [manifest]

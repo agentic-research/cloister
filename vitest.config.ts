@@ -21,7 +21,9 @@ export default defineConfig({
     pool: cloudflarePool(workerConfig),
     // The CC plugin lives at hooks/ and is tested via node --test (not vitest)
     // because workerd has no `node:test`. Keep its tests off vitest's path.
-    exclude: ["**/node_modules/**", "**/dist/**", "hooks/**"],
+    // `test/perf/**` is opt-in (cloister-747d98) — not part of the lint gate;
+    // run it via `task bench:lease` to regenerate `docs/perf/*.md` numbers.
+    exclude: ["**/node_modules/**", "**/dist/**", "hooks/**", "test/perf/**"],
     // Explicit include — pins both test dirs so `vitest list` and
     // `vitest run` agree (without this they used different discovery
     // and `vitest list` silently omitted vault, masking what was

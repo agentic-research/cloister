@@ -284,10 +284,23 @@ model as it stands today, then walk the ADRs in order. The ADRs are the
 source of truth for *why*; this README and ARCHITECTURE.md describe
 *what*.
 
+## Performance
+
+Per-pipeline latency for the lease middleware — workerd-local numbers,
+not Cloudflare Workers prod:
+
+- [docs/perf/2026-05-10-lease-pipeline.md](docs/perf/2026-05-10-lease-pipeline.md) —
+  per-step + full-pipeline timings for `verifyAndUpsertLease`. TL;DR:
+  ~900µs full pipeline; TrustStore DO RPCs are ~85% of the cost,
+  wasm32 cert verify ~10%, everything else noise.
+
+Reproduce with `task bench:lease` (excluded from `task lint` / `task test`).
+
 ## Documentation map
 
 - [GETTING-STARTED.md](GETTING-STARTED.md) — install, run, smoke-test, wire upstreams, install the plugin
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime model, request routing, component map, packaging
+- [docs/perf/](docs/perf/) — perf write-ups (`2026-05-10-lease-pipeline.md` is the first; more in `cloister-747d98b`)
 - [docs/deployment/off-platform-peers.md](docs/deployment/off-platform-peers.md) — CF Tunnel / WARP for peers outside the platform (per ADR-0007)
 - [docs/adr/0001-workerd-mcp-gateway.md](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
 - [docs/adr/0002-edge-router-protocol-agnostic-backends.md](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why edge router, not MCP gateway
