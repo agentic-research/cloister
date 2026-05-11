@@ -630,6 +630,48 @@ Breaking changes require a major bump:
 - Renumbering existing extension OIDs.
 - Changing the scope grammar.
 
+### 7.1 Spec drift gate
+
+The `test-vectors/` directory is the contract: a second implementation
+that reproduces every digest in it is byte-compatible at every signed
+surface. To keep that contract honest the cloister repo enforces a CI
+gate (`.github/workflows/interlace-spec-drift.yml`, filed under
+cloister-af1290) on every PR that touches `interlace-spec/**`:
+
+1. **Pinned digests.** `interlace-spec/0.1.0/VECTORS.sha256` records
+   the SHA-256 of every `test-vectors/*.json` file. Drift fails the
+   build with a message telling the dev to either revert or bump the
+   spec version.
+2. **Ref-impl conformance.** The Python reference under
+   `interlace-spec/0.1.0/ref-impl-py/` is run on every PR via
+   `uv run python conformance/run.py`. A divergence between the
+   Python ref impl and the pinned vectors is treated as a spec-level
+   finding, not a CI auto-fix.
+3. **Version-string sanity.** Any change to a file under
+   `test-vectors/` that is not paired with a touch of this README
+   in the same PR fails. Vector changes are spec-breaking by
+   definition, so the version string at the top of this file MUST
+   move (and the change probably belongs in `interlace-spec/0.2.0-draft/`,
+   not here).
+
+If you need to **intentionally** update a vector — say you're cutting
+v0.1.1 with a backwards-compatible extension that adds a new entry,
+or you're cutting v0.2.0 in the draft tree:
+
+```sh
+# 1. Edit / regenerate the vector(s).
+# 2. Recompute the pinned digests:
+cd interlace-spec/0.1.0
+shasum -a 256 test-vectors/*.json > VECTORS.sha256
+# 3. Bump the version string at the top of this README (or move the
+#    work into interlace-spec/0.2.0-draft/).
+# 4. Commit vectors + VECTORS.sha256 + README in one PR.
+```
+
+The gate is intentionally noisy: a "silent vector drift" would let
+cloister and the spec diverge invisibly, breaking the byte-compat
+guarantee the spec exists to enforce.
+
 ## 8. Reference implementation
 
 cloister (this repository) is the reference implementation:
