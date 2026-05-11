@@ -27,6 +27,14 @@ package:
 
 environment:
   contents:
+    # Wolfi base — matches what notme/mache/rosary/llo's melange configs
+    # use. Without these, `melange build` aborts with "must provide at
+    # least one repository" before any build step runs. Fix: surfaced
+    # by the cloister-1b1124 integration matrix run 2026-05-11.
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - build-base
       - ca-certificates-bundle
