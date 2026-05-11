@@ -313,7 +313,7 @@ Per the Security Best Practices, proxies that bridge to third-party authorizatio
 
 ### `proxy/upstreams` metadata exposure
 
-The `proxy/upstreams` RPC exposes information about a proxy's internal topology. In some deployment scenarios this is sensitive (e.g., an enterprise proxy that doesn't want to advertise which internal services it bridges to). The RPC is gated by whatever authentication the proxy already requires; a proxy that wants to hide its upstreams can simply not declare the `proxy` capability (graceful degradation makes this safe — clients see a regular server).
+The `proxy/upstreams` RPC exposes information about a proxy's internal topology. In some deployments this is sensitive (e.g., a private-network proxy that doesn't want to advertise which internal services it bridges to). The RPC is gated by whatever authentication the proxy already requires; a proxy that wants to hide its upstreams can simply not declare the `proxy` capability (graceful degradation makes this safe — clients see a regular server).
 
 The RPC explicitly forbids returning credentials or routing state (§2), so even if leaked it cannot be used to bypass the proxy's auth or impersonate it.
 

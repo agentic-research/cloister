@@ -450,14 +450,25 @@ excluded from `task lint` / `task test`.
 
 ## License
 
-**AGPL-3.0** — see [LICENSE](LICENSE).
+**AGPL-3.0** — see [LICENSE](LICENSE). The hypervisor substrate in this
+repository is copyleft.
 
-The Interlace protocol specification ([`interlace-spec/`](interlace-spec/))
-and the `notme` / `signet` identity layers (sibling repos) are
-permissively licensed (Apache 2.0). This **hypervisor substrate** is
-copyleft to protect the ecosystem from proprietary enclosure: integrate
-freely over the wire, run it as a service, build commercial products
-on top — but if you fork the substrate and ship a modified version as
-a managed service, the AGPL requires you to publish your modifications.
-Identity primitives stay open for universal adoption; the operational
-boundary stays open for everyone who uses it.
+The companion Interlace protocol specification
+([`interlace-spec/`](interlace-spec/)) and the `notme` / `signet`
+identity primitives (sibling repos) are licensed under **Apache 2.0**.
+The protocol is independent of any specific implementation; multiple
+implementations can speak it without any AGPL implications.
+
+Practical effect:
+
+- **Running cloister** as-is in any deployment (including managed
+  services and behind paid APIs) is unrestricted by AGPL — AGPL only
+  triggers on modified-and-distributed code.
+- **Integrating over the wire** (any client, any service that talks to
+  cloister) is unrestricted; the wire is a network boundary, not a
+  derived-work boundary.
+- **Implementing the Interlace protocol** from the
+  [`interlace-spec/`](interlace-spec/) specification is Apache 2.0 — no
+  AGPL inheritance to the implementation.
+- **Forking cloister and shipping a modified substrate** requires
+  publishing the modifications under the same license per AGPL §13.
