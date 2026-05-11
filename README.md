@@ -15,11 +15,9 @@ without touching the substrate.
 
 ## Load-bearing claims (and how they're defended)
 
-What makes cloister a *substrate* rather than a single-author project
-is that the security properties it publishes are defended by running
-code + tests + cross-implementation byte-equality — not just stated in
-ADRs. Four specific claims worth knowing about before you decide
-whether this is interesting:
+The security properties cloister publishes are defended by running
+code + tests + cross-implementation byte-equality, not just stated
+in ADRs. Four specific claims worth knowing about:
 
 | Claim | Where it lives | How it's defended |
 |---|---|---|
