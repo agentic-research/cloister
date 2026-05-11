@@ -91,7 +91,20 @@ sufficient.
   **Wired into `McpEdgeRoute.handlePost`** (cloister-b89fdb); the gate
   is active when `INTERLACE_ROOT_PUBKEY` is set, skipped when unset
   (dev/test mode — deployment-binding granularity, NOT per-request
-  bypass).
+  bypass). The verified `VerifiedLease` (peerFp + scope + cert DER + sig)
+  is threaded into `callTool` so the cross-DO `bead_create` orchestrator
+  can write attestation rows against the same cert that authorized the
+  call. Per cloister-492c08.
+- **Cross-DO `bead_create` orchestration lives in
+  `src/routes/bead-create-orchestrator.ts`** — runs the ADR-0012 four-
+  step handoff (BlobStore.put → BeadStore.bead_create → TrustStore.applyAttestation →
+  optional pending enqueue) for the one state-boundary write that
+  participates in the §13.4 audit. `McpEdgeRoute.callTool` intercepts
+  `tools/call bead_create` and delegates here when the lease gate is
+  on. Other bead methods (search, list, get, close, comment, update)
+  stay intra-DO. The `beads.content_hash` column links bead rows to
+  their canonical-bytes digest. Per cloister-492c08; threat model §8 +
+  §11 row H.5.
 - **Path matching uses `URLPattern`** — Web Platform standard,
   workerd-native, no regex. Exact-match routes use `pathname === "..."`;
   parameterized routes use `new URLPattern({ pathname: "/foo/:bar" })`

@@ -290,6 +290,45 @@ handoff:
 4. TrustStore writes peer_attestations referencing digest (singleton; ACID)
 ```
 
+### Status update 2026-05-10 (cloister-492c08): **load-bearing in production**
+
+The four-step pipeline above is now the production code path for
+`bead_create` when the lease gate is active (`INTERLACE_ROOT_PUBKEY`
+set). Source of truth: [`src/routes/bead-create-orchestrator.ts`](../../src/routes/bead-create-orchestrator.ts).
+Wiring: `src/routes/mcp.ts` `McpEdgeRoute.callTool` intercepts
+`tools/call bead_create` and delegates to `runBeadCreateOrchestrator`,
+which pays all four steps before returning a JSON-RPC success body.
+
+Prior to cloister-492c08, the four-step shape existed only in a
+TEST-ONLY orchestrator inside `test/security/cross-do-recovery.test.ts`;
+production `bead_create` was a single intra-DO INSERT. The §13.2
+"silence is evidence" invariant was defended at the design level
+(ADR-0012) and the test level (cloister-3dd355) but not in production.
+This is now closed: every authenticated `bead_create` writes a row to
+all three DOs (or enqueues the attestation for retry when step 4 fails).
+
+End-to-end smoke test: `test/security/disclosure-attestation-smoke.test.ts`
+drives `POST /mcp tools/call bead_create` through the production
+McpEdgeRoute pipeline and then reads `GET /interlace/peers/<actor_fp>`
+to assert that:
+
+  - the disclosure chain contains a row whose `content_hash` matches the
+    BlobStore digest returned by the orchestrator
+  - hex-decoding the digest + fetching from BlobStore yields the
+    canonical bead bytes (which re-hash to the same digest)
+  - the bead row in BeadStore carries the same `content_hash`
+
+Three rows, one digest, end-to-end visible from the public face.
+
+Dev-mode exception: when `INTERLACE_ROOT_PUBKEY` is unset (test /
+local-dev deployments), there is no verified cert to write an
+attestation against, so `bead_create` falls back to the generic
+backend's intra-DO INSERT path (no BlobStore put, no peer_attestations
+row, no `content_hash` on the bead row). This is the same
+deployment-binding-presence pattern the rest of the lease surface uses
+— it is NOT a per-request bypass. Production deployments MUST set
+`INTERLACE_ROOT_PUBKEY` per ADR-0007.
+
 Below is the failure tree with audit-signal disposition for each leaf.
 The signal column says: from the disclosure endpoint, what evidence is
 left, and is it distinguishable from misbehavior vs. a benign blip?
@@ -484,6 +523,7 @@ under the current bead (cloister-bd32b1) or a derivative bead.
 | H.2 | **CLOSED** — BeadStore-success / TrustStore-fail recovery | `cloister-c6d378` (closed). `pending_attestations` table + retry pump RPC; lifecycle test in `test/trust-store.test.ts` ("complete bdcbe7 lifecycle: failed write → enqueue → retry success → commit") |
 | H.3 | **CLOSED** — Retry-pending marker is explicit + visible | `cloister-c6d378` (closed). `pending_attestations` row IS the marker; `listPendingForPeer` exposes it. Surfaced in disclosure JSONL as `{ type: "pending" }`. `test/routes/disclosure.test.ts` |
 | H.4 | **CLOSED** — Disclosure distinguishes 3 chain states (COMPLETE / PENDING / GAP) | `cloister-bdef0c` + `cloister-c6d378` (closed). Records: `type: attestation` (COMPLETE), `type: pending` (PENDING), endpoint returns constant-time 404 (GAP). Pending rows flag `exhausted: true` after MAX_RETRY_ATTEMPTS. `test/routes/disclosure.test.ts` (pending tests + lifecycle test) |
+| H.5 | **CLOSED** — §13.2 invariant is runtime-load-bearing for `bead_create` | `cloister-492c08` (closed). The ADR-0012 four-step pipeline (BlobStore.put → BeadStore.bead_create → TrustStore.applyAttestation → optional pending enqueue) is the production code path at `src/routes/bead-create-orchestrator.ts`, wired into `McpEdgeRoute.callTool`. Before this, the pipeline lived only in test scaffolding while production was a single intra-DO INSERT. End-to-end smoke: `test/security/disclosure-attestation-smoke.test.ts` confirms BlobStore digest = BeadStore.content_hash = peer_attestations.content_hash visible via `GET /interlace/peers/<fp>`. Fault-injection tests at `test/security/cross-do-recovery.test.ts` now exercise the production orchestrator (not a test-only inline pipeline) for all three hop-fault cases. |
 
 ## 12. Doubt-but-not-disproval check
 
@@ -506,11 +546,19 @@ read but require qualification:
 
 3. **"Silence is evidence" (§13.2).** The amendment text reads as if this
    is a global property of the trust state. **It holds CLEANLY for the
-   counter chain.** It is **WEAKENED for the per-attestation chain**
-   because a missing `peer_attestations` row is indistinguishable from
-   a network-blip mid-handoff. Until the cross-DO retry policy lands
-   (`cloister-tm-handoff-retry-policy`) and the disclosure endpoint
-   exposes retry-pending state, attestation-silence remains ambiguous.
+   counter chain.** It was **WEAKENED for the per-attestation chain**
+   because a missing `peer_attestations` row could be indistinguishable
+   from a network-blip mid-handoff. **2026-05-10 (`cloister-492c08`):
+   the four-step ADR-0012 pipeline is now load-bearing in production for
+   `bead_create`** — see §8 status update + §11 row H.5. Attestation-
+   silence is no longer ambiguous: the production orchestrator either
+   writes the `peer_attestations` row OR enqueues to `pending_attestations`
+   (visible at the disclosure endpoint as PENDING). A truly missing row
+   for an authenticated `bead_create` IS now §13.2 evidence rather than
+   a benign network-blip. The retry policy (`cloister-c6d378`) +
+   disclosure endpoint (`cloister-bdef0c`) supply the durability +
+   visibility halves; the orchestrator supplies the production write
+   path that connects them.
 
 4. **"notme is on the cool path, not the hot path."** True for cert
    *signature* verification (offline, pure crypto). **For revocation,
@@ -611,26 +659,29 @@ codebase where two state-mutating writes could span DOs. Findings:
 |---|---|---|
 | **Lease pipeline** (`lease-middleware.ts` → `seen_nonces` + `peer_lease_counters`) | Two cross-DO RPCs (singleton `TrustStore`, sequential). **HAD the gap.** | **CLOSED** — `cloister-ee51b8`, one transactional RPC. |
 | **Bead writes** (`bead_create | update | close | comment`) | Intra-DO only (BeadStore); a single SQL statement per write. No cross-DO concern. | n/a |
-| **Peer attestations** (`peer_attestations` row write keyed by content digest from BlobStore) | Designed for cross-DO failure: idempotent BlobStore `put`, retry queue via `pending_attestations` (per cloister-c6d378). The §8 dangerous-case ("3 succeeds, 4 fails") is acknowledged + has the retry path. | **Mitigated by design** — ADR-0012 content-addressed handoff + `pending_attestations` retry queue |
+| **Peer attestations** (`peer_attestations` row write keyed by content digest from BlobStore) | Designed for cross-DO failure: idempotent BlobStore `put`, retry queue via `pending_attestations` (per cloister-c6d378). The §8 dangerous-case ("3 succeeds, 4 fails") is acknowledged + has the retry path. | **CLOSED 2026-05-10** — `cloister-492c08`. The ADR-0012 four-step handoff is now load-bearing in production at `src/routes/bead-create-orchestrator.ts`, wired into `McpEdgeRoute.callTool` for `tools/call bead_create`. Pre-cloister-492c08 the orchestrator was test-only; production was a single intra-DO INSERT. End-to-end smoke at `test/security/disclosure-attestation-smoke.test.ts` confirms BlobStore digest = BeadStore.content_hash = peer_attestations.content_hash. |
 | **Disclosure endpoint** (`GET /interlace/peers/{fp}`) | Read-only. No writes; atomicity n/a. | n/a |
 | **CredentialVault** (`putCredential`, `proxyRequest`) | Intra-DO writes only (the vault DO writes its own SQLite). The vault → upstream HTTP fetch is downstream of the read but not a state mutation in cloister. | n/a |
 | **BlobStore** (`put`) | Single intra-DO write; idempotent by content addressing per ADR-0003. | n/a |
 
 **Every cross-DO state-mutating hop in the inventory above is
-fault-injection-tested** at `test/security/cross-do-recovery.test.ts`.
-New cross-DO sequences MUST add a corresponding test case before
-landing. The seam (`globalThis.__cloisterTestFaults` Map) is documented
-in the per-DO headers (`src/blob-store.ts`, `src/beads.ts`,
-`src/trust-store.ts`) and is production-inert (the Map is `undefined`
-outside of test runs).
+fault-injection-tested** at `test/security/cross-do-recovery.test.ts`,
+which since cloister-492c08 drives the PRODUCTION orchestrator
+(`src/routes/bead-create-orchestrator.ts`) rather than a test-only
+inline pipeline. New cross-DO sequences MUST add a corresponding test
+case before landing. The seam (`globalThis.__cloisterTestFaults` Map)
+is documented in the per-DO headers (`src/blob-store.ts`,
+`src/beads.ts`, `src/trust-store.ts`) and is production-inert (the Map
+is `undefined` outside of test runs).
 
-Coverage today (cloister-fff647 + cloister-3dd355):
+Coverage today (cloister-fff647 + cloister-3dd355 + cloister-492c08):
 
 | Hop faulted | Test case | Asserts |
 |---|---|---|
 | `TrustStore.applyAttestation` (step 3, last hop) | "full pipeline: step-3 fault → pending row → drain → attestation lands" | §8 dangerous-case state (bead row committed, no attestation, pending enqueued); retry drains; chain integrity preserved (no fork) |
-| `BlobStore.put` (step 1, first hop) | "fault-at-BlobStore.put: no downstream writes; retry recovers full pipeline" | NO writes anywhere on fault; idempotent CAS yields same digest on retry |
-| `BeadStore.bead_create` (step 2, middle hop) | "fault-at-BeadStore.write: idempotent BlobStore landed; no TrustStore write; retry recovers" | BlobStore digest landed (step 1 already happened); no bead row; **orchestrator did NOT attempt step 3** (short-circuit invariant); retry produces same digest (idempotent CAS), bead row, attestation |
+| `BlobStore.put` (step 1, first hop) | "fault-at-BlobStore.put: no downstream writes; retry recovers full pipeline" | NO writes anywhere on fault; retry of bead_create lands a fresh end-to-end pipeline |
+| `BeadStore.bead_create` (step 2, middle hop) | "fault-at-BeadStore.write: idempotent BlobStore landed; no TrustStore write; retry recovers" | No bead row; **orchestrator did NOT attempt step 3** (short-circuit invariant); retry produces a fresh bead row + attestation |
+| end-to-end happy path | `test/security/disclosure-attestation-smoke.test.ts` "bead_create writes a chain row visible from GET /interlace/peers/<fp>" | Disclosure chain contains an attestation referencing the orchestrator's BlobStore digest; BlobStore.get(digest) round-trips to the canonical bead bytes; BeadStore row carries the same content_hash |
 
 **Net**: the audit found exactly one missed case (the lease pipeline,
 now closed). The structural pattern for new cross-DO writes is
