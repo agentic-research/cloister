@@ -45,7 +45,7 @@ environment:
       # Cap'n Proto compiler — needed because `task manifest` runs
       # `capnp eval` to compile cloister.capnp → JSON. Without this, the
       # build would fail at the manifest-generation step.
-      - capnproto
+      - capnp
       # go-task — Taskfile is the golden path (ADR-0001). melange's build
       # pipeline calls `task build:local` rather than re-implementing the
       # bundle steps inline, so the local-dev path and the OCI-image path
