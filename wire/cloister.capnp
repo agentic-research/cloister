@@ -99,6 +99,23 @@
 
 @0xa1c0157e2a1e0001;
 
+# ── Go codegen annotations ───────────────────────────────────────────────
+#
+# Consumed by capnpc-go to produce clients/go/cloister-schema/wire/cloister.capnp.go.
+# Inert for the hand-rolled TypeScript encoder/decoder in src/wire/ — it
+# doesn't parse the schema, it knows the layout directly. Inert for
+# cross-check-fixtures.capnp + `capnp eval` — annotations are extensions,
+# unknown ones are no-ops in the eval path.
+#
+# The vendored `go.capnp` lives at wire/go.capnp; this relative import
+# resolves regardless of -I path (so `capnp eval -I ..` from the existing
+# fixtures script keeps working with no changes).
+#
+# See clients/go/cloister-schema/README.md and ADR-0005.
+using Go = import "go.capnp";
+$Go.package("wire");
+$Go.import("github.com/agentic-research/cloister/clients/go/cloister-schema/wire");
+
 # ── Manifest: the unforgeable per-message header ─────────────────────────
 
 # Every wire frame carries one of these. The signature binds the message's
