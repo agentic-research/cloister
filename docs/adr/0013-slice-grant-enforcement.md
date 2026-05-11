@@ -206,3 +206,79 @@ vault's existing access-control — both already exist.
   cloister-9ad9eb, closed 2026-05-09).
 - **`cloister-74ce00`** — the prompt-injection demo, the test this
   ADR enables.
+
+## Amendment 2026-05-11 (cloister-26546a) — layered cross-bundle isolation
+
+### Context
+
+The original Decision puts cross-bundle isolation at the **binding
+layer**: each bundle is wired to a distinct vault DO via its own
+`env.VAULT_STORE.idFromName(...)` namespace, and the manifest grants
+are the load-bearing thing. If the manifest is correct, bundles
+cannot reach each other's vault data — the binding mediates.
+
+A review of cloister-0854b7 surfaced a follow-up: *inside* a single
+vault DO, the `credentials` table had a flat namespace keyed solely by
+the caller-supplied `service` string. `allowedSubs` gated READS at
+`proxyRequest` time, but the WRITE side accepted any `service` value.
+If two bundles were ever wired to the same vault DO (a manifest
+mistake, or a transitional shared-binding configuration), bundle A
+could call `putCredential("foo", …)` and clobber bundle B's slot.
+
+The original ADR took the binding layer as sufficient. The follow-up
+asked: what's the next line of defense if the manifest is wrong?
+
+### Decision
+
+Make the SQL-row layer a defense-in-depth peer to the binding layer.
+The vault DO's `credentials` table now has a composite primary key
+`(subject_fp, service)`, where `subject_fp` is the verified caller's
+cert fingerprint (`VerifiedLease.peerFp` from the lease pipeline; the
+same identity tracked across the lease + attestation chain). Every
+RPC method on `VaultStoreRpc` takes a `subjectFp` argument that the
+DO refuses to accept as caller-controlled — the router (the only
+caller today) threads it from post-verify lease state.
+
+The two-layer model:
+
+| Layer | Mechanism | Enforced by | What it covers |
+|---|---|---|---|
+| **Binding (which DO instance)** | `env.VAULT_STORE.idFromName(...)` returns distinct IDs per bundle | manifest + workerd config (syscall layer) | Bundles wired to different namespaces cannot reach each other's DOs at all. Primary gate. |
+| **SQL row (which row inside a DO)** | Composite PK `(subject_fp, service)` filters every read/write/delete/list | the DO's SQLite schema | Even if two callers share a binding (manifest mistake), they cannot read or overwrite each other's credential rows. Defense-in-depth. |
+
+**If the manifest is correct, the SQL layer is unreachable for
+cross-bundle traffic. If the manifest is wrong, the SQL layer is the
+next line of defense.** Both layers fail closed independently — an
+attacker who breaches one still faces the other.
+
+### Migration
+
+Vault is pre-1.0 and has no production data; no in-cluster bundles
+call it yet (the only caller is cloister-router itself, gateway-
+internal). The schema change is destructive: a constructor-time
+PRAGMA `table_info` check drops a legacy single-PK `credentials`
+table if one exists from prior workerd runs. Documented in the
+`src/vault-store.ts` file header.
+
+### Tests
+
+- `test/vault-store.test.ts` — SQL-layer invariants (subject_fp
+  filter on read/write/delete/list/proxyRequest) inside a single DO.
+- `test/vault/multi-tenant-isolation.test.ts` — both layers:
+  - `idFromName(A) !== idFromName(B)` and the resulting stubs reach
+    independent storage (binding layer);
+  - `(subject_fp, service)` filter inside a deliberately shared DO
+    (SQL layer);
+  - composite scenario: forged `subject_fp` + manifest mistake +
+    failed `allowedSubs` glob → no plaintext leak.
+- Threat model row §11.V.1 (added in this amendment) maps the
+  intra-DO write-collision invariant to the multi-tenant-isolation
+  test.
+
+### References
+
+- `cloister-26546a` — bead driving the amendment.
+- `src/vault-store.ts` (top-of-file comment block) — operational
+  description of the layered model.
+- `docs/security/threat-model.md` §11 row V.1 — test contract for
+  the intra-DO write-collision attack.

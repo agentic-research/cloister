@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit. Regenerate with `task manifest`.
  * Source: cloister.capnp
  * Schema: manifest/cloister.capnp
- * Built:  2026-05-11T03:22:32.425Z
+ * Built:  2026-05-11T19:20:06.863Z
  */
 import type { Gateway } from "../manifest/types.js";
 

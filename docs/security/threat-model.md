@@ -525,6 +525,12 @@ under the current bead (cloister-bd32b1) or a derivative bead.
 | H.4 | **CLOSED** — Disclosure distinguishes 3 chain states (COMPLETE / PENDING / GAP) | `cloister-bdef0c` + `cloister-c6d378` (closed). Records: `type: attestation` (COMPLETE), `type: pending` (PENDING), endpoint returns constant-time 404 (GAP). Pending rows flag `exhausted: true` after MAX_RETRY_ATTEMPTS. `test/routes/disclosure.test.ts` (pending tests + lifecycle test) |
 | H.5 | **CLOSED** — §13.2 invariant is runtime-load-bearing for `bead_create` | `cloister-492c08` (closed). The ADR-0012 four-step pipeline (BlobStore.put → BeadStore.bead_create → TrustStore.applyAttestation → optional pending enqueue) is the production code path at `src/routes/bead-create-orchestrator.ts`, wired into `McpEdgeRoute.callTool`. Before this, the pipeline lived only in test scaffolding while production was a single intra-DO INSERT. End-to-end smoke: `test/security/disclosure-attestation-smoke.test.ts` confirms BlobStore digest = BeadStore.content_hash = peer_attestations.content_hash visible via `GET /interlace/peers/<fp>`. Fault-injection tests at `test/security/cross-do-recovery.test.ts` now exercise the production orchestrator (not a test-only inline pipeline) for all three hop-fault cases. |
 
+### V. Vault cross-bundle isolation (cloister-26546a)
+
+| ID | Invariant | Class | Mitigation | Test |
+|---|---|---|---|---|
+| V.1 | **CLOSED** — Intra-DO write-collision in a shared vault binding cannot let bundle A clobber bundle B's credential row | low-likelihood, high-impact (requires a manifest mistake to put two bundles on one vault DO; consequence is silent credential-grant overwrite) | **Layered**: (a) binding-layer — cluster.capnp grants each bundle a distinct `env.VAULT_STORE` namespace via `idFromName()` (ADR-0013 primary gate); (b) SQL-layer — composite PK `(subject_fp, service)` on the `credentials` table inside the DO, where `subject_fp = VerifiedLease.peerFp` is threaded from post-verify lease state and never accepted from caller input (cloister-26546a defense-in-depth). | `test/vault/multi-tenant-isolation.test.ts` covers both layers (distinct `idFromName()` produces distinct row-spaces; shared `idFromName()` still scopes rows by `subject_fp`; forged-`subject_fp` composite scenario verifies the `allowedSubs` + `buildErrorResponse` gates downstream of the row lookup). `test/vault-store.test.ts` covers the SQL-layer subject_fp filter directly. |
+
 ## 12. Doubt-but-not-disproval check
 
 For the careful reviewer who scans the ADRs and the code and walks

@@ -35,10 +35,58 @@
 //     "Open: in-cluster bundle identity propagation" below).
 //
 //   - **No automatic identity verification** — every method takes an
-//     explicit `callerSub` string. The DO trusts what's passed; callers
-//     must verify identity BEFORE calling. Today only cloister-router
-//     itself reaches vault, so callers are gateway-internal and
-//     trust-bounded.
+//     explicit `subjectFp` (and `callerSub` on proxyRequest) string.
+//     The DO trusts what's passed; callers MUST verify identity BEFORE
+//     calling. Today only cloister-router itself reaches vault, so
+//     callers are gateway-internal and trust-bounded — the router
+//     threads `VerifiedLease.peerFp` (post lease-middleware) as the
+//     `subjectFp` arg.
+//
+// ── Cross-bundle isolation: layered defense (cloister-26546a) ────────────
+//
+// ADR-0013 places cross-bundle isolation at the BINDING layer: each
+// bundle should be wired to a distinct vault DO via its own
+// `idFromName(...)` namespace, and the manifest grants are the
+// load-bearing thing. That contract holds: if the manifest is correct,
+// bundles can't even *reach* each other's vault namespaces.
+//
+// But within a single vault DO, before this revision, the `credentials`
+// table used `service` alone as the primary key. If a manifest mistake
+// (or a transitional shared-binding configuration) ever placed two
+// bundles in the same vault DO, bundle A could call putCredential with
+// any `service` string and clobber bundle B's row — `allowedSubs` only
+// gates READS at proxyRequest time. The write side was a flat namespace.
+//
+// Defense-in-depth fix: the credentials table now has a composite
+// primary key `(subject_fp, service)`. `subject_fp` is the verified
+// caller's cert fingerprint (`VerifiedLease.peerFp` for in-router
+// callers; same for service-binding callers when identity propagation
+// lands). The DO never accepts a caller-supplied `subject_fp` from
+// request input — it's a positional argument that the router (the
+// only caller today) threads from post-verify lease state. All
+// read/write/delete/list methods filter by `(subject_fp, service)`.
+//
+// Layered model:
+//
+//   - Binding layer (which DO instance): manifest-enforced. Two
+//     bundles wired to the same `env.VAULT_STORE` namespace can reach
+//     the same DO; bundles wired to distinct namespaces cannot.
+//   - SQL layer (which row): subject_fp-enforced. Even if two callers
+//     share a binding, they cannot read or overwrite each other's
+//     credential rows. This is layered protection, not the primary
+//     gate.
+//
+// If the manifest is correct, the SQL layer is unreachable for
+// cross-bundle traffic. If the manifest is wrong, the SQL layer is the
+// next line of defense.
+//
+// Migration note: vault is pre-1.0 and ships with no production data
+// (no in-cluster bundles call it yet — see "Open" below). The
+// CREATE TABLE installs the new schema cleanly; an old table (if it
+// exists from a prior workerd run) is dropped DESTRUCTIVELY at
+// constructor time after a PRAGMA table_info check. Documented as
+// destructive recreate in the migration section of `cluster.capnp`
+// when the first production deploy nears.
 //
 // ── Open: in-cluster bundle identity propagation ─────────────────────────
 //
@@ -94,23 +142,33 @@ interface StoredRow {
  * method. Plaintext credential bytes never cross the RPC boundary —
  * `proxyRequest` decrypts inside the DO and performs the upstream fetch
  * from here. Callers see the proxied response, never the credential.
+ *
+ * Every method takes a `subjectFp` argument — the verified caller's cert
+ * fingerprint. Callers MUST derive this from `VerifiedLease.peerFp` (or
+ * the service-binding identity once that lands); never from
+ * request-supplied input. Per cloister-26546a.
  */
 export interface VaultStoreRpc {
   putCredential(
+    subjectFp: string,
     service: string,
     cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
   ): Promise<void>;
 
-  getCredentialMetadata(service: string): Promise<{
+  getCredentialMetadata(
+    subjectFp: string,
+    service: string,
+  ): Promise<{
     upstream: string;
     allowedSubs: string[];
   } | null>;
 
-  deleteCredential(service: string): Promise<boolean>;
+  deleteCredential(subjectFp: string, service: string): Promise<boolean>;
 
-  listServices(): Promise<string[]>;
+  listServices(subjectFp: string): Promise<string[]>;
 
   proxyRequest(
+    subjectFp: string,
     service: string,
     callerSub: string,
     incomingRequest: Request,
@@ -119,67 +177,116 @@ export interface VaultStoreRpc {
 
 export class CredentialVault extends DurableObject implements VaultStoreRpc {
   private kekPromise: Promise<CryptoKey> | null = null;
-  private readonly storage: VaultStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
-    // Provision the credentials table once per DO lifetime. SQL .exec()
-    // is the workerd Storage API (NOT a process exec) — same call shape
-    // as BeadStore / TrustStore / BlobStore use.
+    // Provision the credentials table once per DO lifetime. Composite PK
+    // is `(subject_fp, service)` — every row is namespaced by the
+    // verified caller's cert fingerprint. See file header for the
+    // rationale (cloister-26546a, defense-in-depth against shared-
+    // binding manifest mistakes).
+    //
+    // Same SQL Storage API shape as BeadStore / TrustStore / BlobStore.
     ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS credentials (
-        service TEXT PRIMARY KEY,
+        subject_fp TEXT NOT NULL,
+        service TEXT NOT NULL,
         upstream TEXT NOT NULL,
         sealed_headers TEXT NOT NULL,
         allowed_subs_json TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (subject_fp, service)
       )
     `);
 
-    // Adapter shape required by vault/src/vault.ts pure helpers. The
-    // shape exists so the library can be unit-tested with in-memory
-    // storage — we plug SQLite in for the DO.
-    this.storage = {
-      get: async (service: string) => this.#readRow(service),
-      put: async (service: string, cred: StoredCredential) => this.#writeRow(service, cred),
-      delete: async (service: string) => this.#deleteRow(service),
-      list: async () => this.#listRows(),
+    // Defensive migration: if the table existed previously with the OLD
+    // schema (single PK `service`, no `subject_fp` column), the CREATE
+    // TABLE IF NOT EXISTS above is a no-op and we'd silently retain the
+    // unsafe shape. Detect that case via PRAGMA table_info and recreate
+    // destructively. Pre-1.0; no production data exists. Runs once per
+    // DO lifetime so the cost is negligible.
+    const cols = ctx.storage.sql
+      .exec("PRAGMA table_info(credentials)")
+      .toArray() as unknown as Array<{ name: string }>;
+    const hasSubjectFp = cols.some((c) => c.name === "subject_fp");
+    if (!hasSubjectFp && cols.length > 0) {
+      ctx.storage.sql.exec("DROP TABLE credentials");
+      ctx.storage.sql.exec(`
+        CREATE TABLE credentials (
+          subject_fp TEXT NOT NULL,
+          service TEXT NOT NULL,
+          upstream TEXT NOT NULL,
+          sealed_headers TEXT NOT NULL,
+          allowed_subs_json TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (subject_fp, service)
+        )
+      `);
+    }
+  }
+
+  /**
+   * Build the storage adapter the pure `vault/` library expects, bound
+   * to a specific verified subject fingerprint. Every (subjectFp,
+   * service) tuple is its own row; the adapter scopes all CRUD to that
+   * subject so the library never sees cross-subject data.
+   */
+  #storageFor(subjectFp: string): VaultStorage {
+    return {
+      get: (service: string) => this.#readRow(subjectFp, service),
+      put: (service: string, cred: StoredCredential) =>
+        this.#writeRow(subjectFp, service, cred),
+      delete: (service: string) => this.#deleteRow(subjectFp, service),
+      list: () => this.#listRows(subjectFp),
     };
   }
 
   async putCredential(
+    subjectFp: string,
     service: string,
     cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
   ): Promise<void> {
-    await this.storage.put(service, cred);
+    assertSubjectFp(subjectFp);
+    await this.#storageFor(subjectFp).put(service, cred);
   }
 
-  async getCredentialMetadata(service: string): Promise<{
+  async getCredentialMetadata(
+    subjectFp: string,
+    service: string,
+  ): Promise<{
     upstream: string;
     allowedSubs: string[];
   } | null> {
-    const row = await this.#readRow(service);
+    assertSubjectFp(subjectFp);
+    const row = await this.#readRow(subjectFp, service);
     if (!row) return null;
     return { upstream: row.upstream, allowedSubs: row.allowedSubs };
   }
 
-  async deleteCredential(service: string): Promise<boolean> {
-    return this.storage.delete(service);
+  async deleteCredential(subjectFp: string, service: string): Promise<boolean> {
+    assertSubjectFp(subjectFp);
+    return this.#deleteRow(subjectFp, service);
   }
 
-  async listServices(): Promise<string[]> {
-    return this.storage.list();
+  async listServices(subjectFp: string): Promise<string[]> {
+    assertSubjectFp(subjectFp);
+    return this.#listRows(subjectFp);
   }
 
   async proxyRequest(
+    subjectFp: string,
     service: string,
     callerSub: string,
     incomingRequest: Request,
   ): Promise<Response> {
+    assertSubjectFp(subjectFp);
+
     const row = this.ctx.storage.sql.exec(
-      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE service = ?",
+      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
+      subjectFp,
       service,
     ).toArray() as unknown as StoredRow[];
 
@@ -236,9 +343,10 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     return this.kekPromise;
   }
 
-  async #readRow(service: string): Promise<StoredCredential | null> {
+  async #readRow(subjectFp: string, service: string): Promise<StoredCredential | null> {
     const rows = this.ctx.storage.sql.exec(
-      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE service = ?",
+      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
+      subjectFp,
       service,
     ).toArray() as unknown as StoredRow[];
     if (rows.length === 0) return null;
@@ -249,18 +357,23 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     };
   }
 
-  async #writeRow(service: string, cred: StoredCredential): Promise<void> {
+  async #writeRow(
+    subjectFp: string,
+    service: string,
+    cred: StoredCredential,
+  ): Promise<void> {
     const kek = await this.#getKEK();
     const sealed = await encrypt(cred.headers, kek);
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO credentials (service, upstream, sealed_headers, allowed_subs_json)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(service) DO UPDATE SET
+      `INSERT INTO credentials (subject_fp, service, upstream, sealed_headers, allowed_subs_json)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(subject_fp, service) DO UPDATE SET
          upstream = excluded.upstream,
          sealed_headers = excluded.sealed_headers,
          allowed_subs_json = excluded.allowed_subs_json,
          updated_at = datetime('now')`,
+      subjectFp,
       service,
       cred.upstream,
       JSON.stringify(sealed),
@@ -268,17 +381,45 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     );
   }
 
-  async #deleteRow(service: string): Promise<boolean> {
+  async #deleteRow(subjectFp: string, service: string): Promise<boolean> {
     const result = this.ctx.storage.sql.exec(
-      "DELETE FROM credentials WHERE service = ?",
+      "DELETE FROM credentials WHERE subject_fp = ? AND service = ?",
+      subjectFp,
       service,
     );
     return result.rowsWritten > 0;
   }
 
-  async #listRows(): Promise<string[]> {
-    return this.ctx.storage.sql.exec("SELECT service FROM credentials ORDER BY service")
+  async #listRows(subjectFp: string): Promise<string[]> {
+    return this.ctx.storage.sql.exec(
+      "SELECT service FROM credentials WHERE subject_fp = ? ORDER BY service",
+      subjectFp,
+    )
       .toArray()
       .map((r) => (r as unknown as { service: string }).service);
+  }
+}
+
+/**
+ * Guard the load-bearing assumption: every RPC method takes a
+ * non-empty subject fingerprint, and the DO refuses to operate
+ * without one.
+ *
+ * This isn't authentication — the DO trusts what's passed (see file
+ * header). It's a contract check: a caller forgetting to thread
+ * `VerifiedLease.peerFp` through can't accidentally collapse to a
+ * global namespace by passing `""`. Fail loud at the call site rather
+ * than silent on the SQL row.
+ */
+function assertSubjectFp(subjectFp: string): void {
+  if (typeof subjectFp !== "string" || subjectFp.length === 0) {
+    throw new Error("vault: subjectFp is required and must be non-empty");
+  }
+  // Reject control characters — same family of injection concerns as
+  // checkAccess (vault/src/vault.ts:137). subject_fp goes straight into
+  // a SQL parameter, so the SQL driver handles quoting, but a control
+  // char in here is a sign of upstream mishandling.
+  if (/[\x00-\x1f]/.test(subjectFp)) {
+    throw new Error("vault: subjectFp contains control characters");
   }
 }
