@@ -344,10 +344,37 @@ tasks:
       # apko narrows to whatever the local melange step produced — keeps
       # local-dev images buildable without setting up cross-arch apks.
       # Multi-arch publishes still use apko's release pipeline (CI).
-      # apko appends `-<arch>` to the tar tag; we retag to the bare TAG
-      # after load so cluster.compose.yaml's image: cloister:0.1.0 resolves.
       - "apko build --arch \"$(uname -m | sed 's/arm64/aarch64/;s/amd64/x86_64/')\" apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
-      - 'echo "Built cloister.tar — load with: docker load < cloister.tar (then docker tag cloister:{{.TAG}}-$(uname -m | sed s/arm64/aarch64/) cloister:{{.TAG}})"'
+      - 'echo "Built cloister.tar — run \"task image:load\" to load+retag in one step (or do it manually: docker load < cloister.tar && docker tag cloister:{{.TAG}}-<arch> cloister:{{.TAG}})"'
+
+  image:load:
+    desc: "Build, load, and retag the cloister image so cluster.compose.yaml's bare TAG resolves (cloister-280136)"
+    deps: [image]
+    vars:
+      TAG: '{{.TAG | default "0.1.0"}}'
+    cmds:
+      - "docker load < cloister.tar"
+      # apko's docker-tar output is tagged `<image>:<TAG>-<arch>` (e.g.
+      # `cloister:0.1.0-arm64`). cluster.compose.yaml references the
+      # bare `cloister:0.1.0` — retag so it resolves on both arm and
+      # x86 hosts without compose-file edits. Multi-arch publishes
+      # via CI do their own manifest-list tagging; this is local-dev only.
+      - |
+        ARCH_SUFFIX="$(uname -m | sed 's/arm64/arm64/;s/x86_64/amd64/;s/aarch64/arm64/')"
+        # apko's local-load tag uses the OS-arch convention, not Linux-arch
+        SOURCE_TAG="cloister:{{.TAG}}-${ARCH_SUFFIX}"
+        # Try common variants; the first one that exists wins.
+        for candidate in "cloister:{{.TAG}}-arm64" "cloister:{{.TAG}}-amd64" "cloister:{{.TAG}}-aarch64" "cloister:{{.TAG}}-x86_64"; do
+          if docker image inspect "$candidate" >/dev/null 2>&1; then
+            docker tag "$candidate" "cloister:{{.TAG}}"
+            echo "[image:load] tagged $candidate → cloister:{{.TAG}}"
+            exit 0
+          fi
+        done
+        echo "[image:load] FATAL: no arch-tagged cloister:{{.TAG}}-* image found after docker load" >&2
+        echo "[image:load] available cloister:* images:" >&2
+        docker images cloister --format '  {{`{{.Repository}}:{{.Tag}}`}}' >&2
+        exit 1
 
   image:check:
     desc: Validate melange.yaml + apko.yaml syntax without running a real build
