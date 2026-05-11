@@ -341,9 +341,9 @@ if [ "${SKIP_PHASE_A:-0}" != "1" ]; then
   log "═══ Phase A: image-in-isolation smokes ═══════════════════════════"
   # Order: build cheap ones first; cloister last (skips smoke).
   build_and_smoke "notme"          "$NOTME_DIR"   "notme:0.1.0"          "notme"
+  build_and_smoke "ley-line-open"  "$LLO_DIR"     "ley-line-open:0.2.1"  "llo"
   build_and_smoke "mache"          "$MACHE_DIR"   "mache:0.8.0"          "mache"
   build_and_smoke "rosary"         "$ROSARY_DIR"  "rosary:0.2.0"         "rosary"
-  build_and_smoke "ley-line-open"  "$LLO_DIR"     "ley-line-open:0.2.1"  "llo"
   build_and_smoke "cloister"       "$CLOISTER_DIR" "cloister:0.1.0"      "cloister"
 else
   log "Phase A skipped (SKIP_PHASE_A=1)"

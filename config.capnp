@@ -62,6 +62,9 @@ const cloisterWorker :Workerd.Worker = (
     ( name = "worker",
       esModule = embed "dist/index.js",
     ),
+    ( name = "leyline_sign.wasm",
+      wasm = embed "dist/leyline_sign.wasm",
+    ),
   ],
 
   bindings = [

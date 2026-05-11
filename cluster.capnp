@@ -59,7 +59,7 @@ const cluster :Cluster.Cluster = (
         image     = "mache:0.8.0",
         ipcSocket = "/run/cloister-uds/mache.sock",
         httpPort  = 0,                        # UDS only (cluster-internal)
-        args      = ["serve", "--ipc-socket", "/run/cloister-uds/mache.sock"],
+        args      = ["serve", "--http", "unix:/run/cloister-uds/mache.sock"],
         env       = [],
       )),
     ),

@@ -52,8 +52,8 @@ export const cluster: Cluster = {
           "httpPort": 0,
           "args": [
             "serve",
-            "--ipc-socket",
-            "/run/cloister-uds/mache.sock"
+            "--http",
+            "unix:/run/cloister-uds/mache.sock"
           ],
           "env": []
         }

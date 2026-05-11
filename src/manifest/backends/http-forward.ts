@@ -295,7 +295,15 @@ export class HttpForwardToolBackend implements ToolBackend {
       parsed = text;
     }
 
-    if (result.isError) {
+    let isError = result.isError === true;
+    if (!isError && parsed && typeof parsed === "object") {
+      const p = parsed as Record<string, unknown>;
+      if (p.ok === false || p.error !== undefined) {
+        isError = true;
+      }
+    }
+
+    if (isError) {
       const err =
         parsed && typeof parsed === "object" && "error" in (parsed as object)
           ? String((parsed as { error: unknown }).error)

@@ -93,6 +93,7 @@ pipeline:
       # wrangler 3.x has no standalone `build`; `deploy --dry-run --outdir`
       # is the supported bundler entry point.
       pnpm exec wrangler deploy --dry-run --outdir dist
+      node scripts/fix-wasm-imports.mjs
       test -f dist/index.js
 
   - name: Stage worker artifacts

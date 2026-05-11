@@ -45,8 +45,8 @@ services:
       - "cloister.description=mache:0.8.0 — Code intelligence — symbol search, definitions, callgraph"
     command:
       - "serve"
-      - "--ipc-socket"
-      - "/run/cloister-uds/mache.sock"
+      - "--http"
+      - "unix:/run/cloister-uds/mache.sock"
     volumes:
       - cloister-uds:/run/cloister-uds
 

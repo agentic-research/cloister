@@ -190,12 +190,12 @@ except Exception:
                           || fail "status phase = '$PHASE' (raw: $STATUS)"
 
 echo
-echo "── tools/call lsp_diagnostics on empty db (error mapping) ──────────"
+echo "── tools/call lsp_hover on empty db (error mapping) ──────────"
 LSP=$(post_mcp "$CLST_PORT" \
-  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lsp_diagnostics","arguments":{"file":"/tmp/no.rs"}}}')
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lsp_hover","arguments":{"file":"/tmp/no.rs","line":1,"col":1}}}')
 ERR_CODE=$(echo "$LSP" | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('error',{}).get('code',''))")
-[[ "$ERR_CODE" == "-32000" ]] && pass "lsp_diagnostics → JSON-RPC -32000 (LLO inner error)" \
-                              || fail "lsp_diagnostics did not propagate isError (got: $LSP)"
+[[ "$ERR_CODE" == "-32000" ]] && pass "lsp_hover → JSON-RPC -32000 (LLO inner error)" \
+                              || fail "lsp_hover did not propagate isError (got: $LSP)"
 
 echo
 echo "── PostToolUse-shaped reparse on a single file ──────────────────────"
