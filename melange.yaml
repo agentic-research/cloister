@@ -93,15 +93,33 @@ pipeline:
       # wrangler 3.x has no standalone `build`; `deploy --dry-run --outdir`
       # is the supported bundler entry point.
       pnpm exec wrangler deploy --dry-run --outdir dist
-      node scripts/fix-wasm-imports.mjs
+      node scripts/emit-workerd-config.mjs
       test -f dist/index.js
 
   - name: Stage worker artifacts
     runs: |
+      # Debug: confirm we're staging the EMIT-SCRIPT output, not the
+      # source template. The emit script's output has wasm entries and
+      # `embed "index.js"` (no `dist/` prefix); the source template has
+      # only `( name = "worker", esModule = embed "dist/index.js" )`.
+      # Past failure mode (cloister-0854b7): emit output got dropped
+      # somewhere and the baked image carried the template-only config,
+      # so workerd couldn't resolve the wasm import. Guarded below.
+      echo "--- dist/config.capnp modules block ---"
+      sed -n '/^  modules = \[/,/^  \],/p' dist/config.capnp
+      echo "--- end ---"
+      if ! grep -q "wasm = embed" dist/config.capnp; then
+        echo "ERROR: dist/config.capnp has no wasm entries; emit-workerd-config.mjs didn't run or its output was clobbered" >&2
+        exit 1
+      fi
       install -Dm644 dist/index.js \
         "${{targets.destdir}}/usr/share/cloister/dist/index.js"
-      install -Dm644 config.capnp \
-        "${{targets.destdir}}/usr/share/cloister/config.capnp"
+      # config.capnp lives INSIDE dist/ so workerd's embed paths
+      # (which resolve relative to the config file's directory)
+      # find index.js and the wasm modules as siblings. Entrypoint
+      # below points workerd at /usr/share/cloister/dist/config.capnp.
+      install -Dm644 dist/config.capnp \
+        "${{targets.destdir}}/usr/share/cloister/dist/config.capnp"
       # wrangler emits any imported wasm modules as content-addressed
       # siblings of index.js (e.g. leyline-sign verifier). Stage them
       # alongside index.js so the worker can wire them at startup.
@@ -132,7 +150,7 @@ test:
     - runs: |
         /usr/bin/workerd --version
         test -f /usr/share/cloister/dist/index.js
-        test -f /usr/share/cloister/config.capnp
+        test -f /usr/share/cloister/dist/config.capnp
 
 update:
   enabled: true

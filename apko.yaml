@@ -58,7 +58,9 @@ entrypoint:
 
 # Default cmd: serve the bundled config with experimental features (DOs).
 # Override at run time with `docker run cloister serve <other-config>`.
-cmd: serve --experimental /usr/share/cloister/config.capnp
+# Config lives in dist/ so its `embed "<file>"` paths resolve to the
+# sibling index.js + content-hashed wasm modules in the same dir.
+cmd: serve --experimental /usr/share/cloister/dist/config.capnp
 
 archs:
   - x86_64

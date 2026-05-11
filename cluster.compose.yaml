@@ -9,6 +9,7 @@ name: art-default
 services:
   cloister-router:
     image: cloister:0.1.0
+    pull_policy: never
     container_name: cloister-cloister-router
     labels:
       - "cloister.bundle=cloister-router"
@@ -20,12 +21,13 @@ services:
       - cloister-uds:/run/cloister-uds
       - cloister-do:/data/do
     environment:
-      - "MACHE_BUNDLE=/run/cloister-uds/mache.sock"
+      - "MACHE_BUNDLE=http://127.0.0.1:7532"
       - "ROSARY_BUNDLE=/run/cloister-uds/rosary.sock"
       - "NOTME=http://notme-identity:8788"
 
   notme-identity:
     image: notme:0.1.0
+    pull_policy: never
     container_name: cloister-notme-identity
     labels:
       - "cloister.bundle=notme-identity"
@@ -38,6 +40,7 @@ services:
 
   mache:
     image: mache:0.8.0
+    pull_policy: never
     container_name: cloister-mache
     labels:
       - "cloister.bundle=mache"
@@ -46,12 +49,14 @@ services:
     command:
       - "serve"
       - "--http"
-      - "unix:/run/cloister-uds/mache.sock"
+      - "localhost:7532"
+    network_mode: "service:cloister-router"
     volumes:
       - cloister-uds:/run/cloister-uds
 
   rosary:
     image: rosary:0.2.0
+    pull_policy: never
     container_name: cloister-rosary
     labels:
       - "cloister.bundle=rosary"

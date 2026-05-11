@@ -48,12 +48,12 @@ export const cluster: Cluster = {
       "kind": {
         "external": {
           "image": "mache:0.8.0",
-          "ipcSocket": "/run/cloister-uds/mache.sock",
-          "httpPort": 0,
+          "ipcSocket": "",
+          "httpPort": 7532,
           "args": [
             "serve",
             "--http",
-            "unix:/run/cloister-uds/mache.sock"
+            "localhost:7532"
           ],
           "env": []
         }

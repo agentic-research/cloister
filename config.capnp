@@ -36,11 +36,16 @@ const config :Workerd.Config = (
     ),
 
     # notme identity authority — service binding for /identity/* proxy.
-    # Start notme separately: wrangler dev in ../notme/worker --port 8788
-    # Remove this service entry if running cloister standalone (identity/ will 503).
+    # Start notme separately: wrangler dev in ../notme/worker --port 8788.
+    # Remove this service entry if running cloister standalone (identity/
+    # will 503).
+    # Note: workerd's `network.allow` takes CIDR or the magic tokens
+    # `public` / `private` — not host:port. The actual reachable
+    # endpoint is configured via the NOTME service binding's URL
+    # (env binding NOTME_URL, or wrangler.toml [[services]] entry).
     ( name = "notme-bot",
       network = (
-        allow = ["localhost:8788"],
+        allow = ["public"],
       ),
     ),
   ],
@@ -61,9 +66,6 @@ const cloisterWorker :Workerd.Worker = (
   modules = [
     ( name = "worker",
       esModule = embed "dist/index.js",
-    ),
-    ( name = "leyline_sign.wasm",
-      wasm = embed "dist/leyline_sign.wasm",
     ),
   ],
 

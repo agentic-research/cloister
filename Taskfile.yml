@@ -187,11 +187,12 @@ tasks:
       # bundler + asset emit, then exits before pushing). Also surfaces
       # any wrangler.toml binding misconfig at build time.
       - pnpm exec wrangler deploy --dry-run --outdir dist
-      - node scripts/fix-wasm-imports.mjs
+      - node scripts/emit-workerd-config.mjs
     sources:
       - src/**/*.ts
     generates:
       - dist/index.js
+      - dist/config.capnp
 
   test:
     desc: Run tests inside workerd (real DOs, real SQLite)
@@ -261,7 +262,7 @@ tasks:
   serve:local:
     desc: Run via workerd directly (requires build:local first)
     cmds:
-      - npx workerd serve config.capnp --experimental
+      - npx workerd serve dist/config.capnp --experimental
 
   mermaid:lint:
     desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
@@ -333,15 +334,20 @@ tasks:
     desc: Compose the cloister OCI image via apko (depends on `task apk`)
     deps: [apk]
     vars:
-      TAG: '{{.TAG | default "latest"}}'
+      # Default to the package version so `task cluster:up` (which references
+      # `cloister:0.1.0` in cluster.compose.yaml) finds the freshly-built
+      # image. Override with TAG=latest for ad-hoc local pushes.
+      TAG: '{{.TAG | default "0.1.0"}}'
     cmds:
       # `task apk` only builds the host arch; apko.yaml's `archs: [x86_64,
       # aarch64]` is the release-shape declaration. Pass `--arch host` so
       # apko narrows to whatever the local melange step produced — keeps
       # local-dev images buildable without setting up cross-arch apks.
       # Multi-arch publishes still use apko's release pipeline (CI).
+      # apko appends `-<arch>` to the tar tag; we retag to the bare TAG
+      # after load so cluster.compose.yaml's image: cloister:0.1.0 resolves.
       - "apko build --arch \"$(uname -m | sed 's/arm64/aarch64/;s/amd64/x86_64/')\" apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
-      - 'echo "Built cloister.tar — load with: docker load < cloister.tar"'
+      - 'echo "Built cloister.tar — load with: docker load < cloister.tar (then docker tag cloister:{{.TAG}}-$(uname -m | sed s/arm64/aarch64/) cloister:{{.TAG}})"'
 
   image:check:
     desc: Validate melange.yaml + apko.yaml syntax without running a real build
