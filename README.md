@@ -13,10 +13,36 @@ identity surface ride on the same routing fabric. Future tenants (gRPC,
 WebSocket, anything HTTP-shaped) plug into the same `EdgeRoute` table
 without touching the substrate.
 
+## Load-bearing claims (and how they're defended)
+
+What makes cloister a *substrate* rather than a single-author project
+is that the security properties it publishes are defended by running
+code + tests + cross-implementation byte-equality — not just stated in
+ADRs. Four specific claims worth knowing about before you decide
+whether this is interesting:
+
+| Claim | Where it lives | How it's defended |
+|---|---|---|
+| **§13.2 "silence is evidence"** — every authenticated request advances a hash-chained counter, every state-boundary write advances an attestation chain. A third party with the master pubkey can verify the chain offline; a missing row is cryptographic proof the actor admitted the request off-record. | [ADR-0007](docs/adr/0007-interlace-substrate.md); orchestrator at [`src/routes/bead-create-orchestrator.ts`](src/routes/bead-create-orchestrator.ts) | Runtime path on every authenticated `bead_create` (`cloister-492c08`). End-to-end smoke at [`test/security/disclosure-attestation-smoke.test.ts`](test/security/disclosure-attestation-smoke.test.ts) proves `BlobStore digest = BeadStore.content_hash = peer_attestations.content_hash`. Cross-implementation: a Python reference impl in [`interlace-spec/0.1.0/ref-impl-py/`](interlace-spec/0.1.0/ref-impl-py/) passes the same 27 conformance vectors. |
+| **§9.4 constant-time 404** — the disclosure endpoint can't be used as a peer-enumeration oracle. Auth-fail / bad-cursor / unknown-peer all return byte-identical 404s in within-clock-grain time. | [`src/routes/disclosure.ts`](src/routes/disclosure.ts) + `TrustStore.peerHasChain` | Bench-pinned ([`docs/perf/2026-05-10-disclosure-endpoint.md`](docs/perf/2026-05-10-disclosure-endpoint.md)). Constant-cost via SQL semantics (`SELECT 1 ... LIMIT 1`), not padding or placeholders. Pre-fix delta was 17×; post-fix is 60µs, inside workerd's `performance.now()` floor. |
+| **Slice-grant via V8 isolate + service-binding-as-syscall** — a compromised tool bundle cannot exfiltrate credentials outside its `allowedSubs`. Plaintext credential bytes never cross the RPC boundary. | [ADR-0013](docs/adr/0013-slice-grant-enforcement.md); [`src/vault-store.ts`](src/vault-store.ts) | Prompt-injection demo at [`test/security/prompt-injection.test.ts`](test/security/prompt-injection.test.ts) — 19 cases including glob-boundary edge cases, sealed-at-rest verification, cross-slice denial without leak. |
+| **Substrate overhead is bounded + measured** — the lease pipeline is <1ms p50 / 1ms p99 / 3ms p99 (post-batching). 85% of cost is DO RPCs; crypto is cheap. | [`docs/perf/2026-05-10-lease-pipeline.md`](docs/perf/2026-05-10-lease-pipeline.md) | Reproducible bench harness at [`test/perf/lease-pipeline.test.ts`](test/perf/lease-pipeline.test.ts) (opt-in via `task bench:lease`). Five surface benches total. |
+
+If any of those break, the substrate's claim breaks; the gate at
+[`docs/security/threat-model.md`](docs/security/threat-model.md) §11
+is where the test-vs-claim accounting lives.
+
+The protocol cloister implements is **specified standalone** at
+[`interlace-spec/0.1.0/`](interlace-spec/0.1.0/README.md) — vendor-
+neutral wire format, CDDL schemas, 27 test vectors derived from
+deterministic seeds. If you reach the same digests on the vectors
+in any language, you're conformant.
+
 **New here?** Start with [GETTING-STARTED.md](GETTING-STARTED.md) for
 the end-to-end setup, then come back here for the architectural map.
 
 > **Contents**
+> - [Load-bearing claims](#load-bearing-claims-and-how-theyre-defended) — what cloister actually defends
 > - [Hypervisor layer](#what-runs-at-the-hypervisor-layer) — what cloister itself owns
 > - [Bundles + tenants](#what-rides-on-top-bundles--tenants) — what rides on the route table
 > - [What cloister is NOT](#what-cloister-is-not) — decide whether to keep reading
