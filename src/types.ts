@@ -52,6 +52,15 @@ export interface Bead {
   created_by?: string;
   repo: string;
   notes?: string; // JSON blob for provenance / extras
+  /**
+   * sha256-hex digest of the canonical `bead/v1` bytes for the row, as
+   * computed by the cross-DO bead_create orchestrator (cloister-492c08).
+   * Links a bead row to its BlobStore entry + its TrustStore
+   * peer_attestations row. NULL for rows created before the orchestrator
+   * landed; the disclosure endpoint flags those as "legacy" since they
+   * predate the attestation regime.
+   */
+  content_hash?: string;
 }
 
 // Env bindings — matches wrangler.toml

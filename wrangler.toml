@@ -52,6 +52,18 @@ new_sqlite_classes = ["BlobStore"]
 tag = "v4"
 new_sqlite_classes = ["CredentialVault"]
 
+# v5: BeadStore.beads.content_hash column for ADR-0012 content-addressed
+# handoff (cloister-492c08). The cross-DO bead_create orchestrator
+# (src/routes/bead-create-orchestrator.ts) writes canonical bead bytes
+# to BlobStore first, then stores the resulting digest on the bead row
+# so disclosure + verification can link bead rows ↔ peer_attestations
+# rows by content_hash. No new DO classes — the column is added at
+# DO-init time via an idempotent ALTER TABLE in BeadStore.initSchema().
+# This tag documents the migration even though workerd doesn't have an
+# automatic ALTER-runner for non-class schema changes.
+[[migrations]]
+tag = "v5"
+
 # ── Service bindings (workerd Workers) ────────────────────────────────────
 # notme-bot: agent identity authority — Ed25519 certs, JWT minting, passkeys
 # Local dev: run `wrangler dev` in ../notme/worker/ first (port 8788)

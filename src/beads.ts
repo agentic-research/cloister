@@ -59,6 +59,21 @@ function checkAndConsumeFault(key: FaultKey): boolean {
 // adversarial review identified that putting trust state here violated the
 // boundary criteria; the fix moved peer_lease_counters out and reserved
 // the same DO class (TrustStore) for future peer_attestations + vault.
+//
+// ── `content_hash` column (cloister-492c08, wrangler v5) ─────────────────
+//
+// Per ADR-0012's content-addressed handoff: when a bead is created via the
+// production orchestrator, the canonical bytes are written to BlobStore
+// FIRST (idempotent CAS), then the resulting digest is stored on the bead
+// row. The disclosure endpoint + future readers can use the digest to
+// retrieve the canonical bytes the attestation chain references.
+//
+// Backfill: existing rows (created before the orchestrator landed) have
+// `content_hash = NULL`. That's the legacy state — disclosure / verification
+// flag them as "predates the attestation regime". New rows always carry
+// a digest. The orchestrator is the only writer; intra-DO callers that
+// bypass the orchestrator (currently none in production; the test
+// fault-injection paths exercise the recovery cases) leave it unset.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS beads (
   id          TEXT PRIMARY KEY,
@@ -71,7 +86,8 @@ CREATE TABLE IF NOT EXISTS beads (
   updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
   created_by  TEXT,
   repo        TEXT NOT NULL DEFAULT '',
-  notes       TEXT
+  notes       TEXT,
+  content_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -82,6 +98,22 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `;
+
+/**
+ * Idempotent column-add for `content_hash`. Existing `beads` tables that
+ * predate cloister-492c08 won't get the column from `CREATE TABLE IF NOT
+ * EXISTS` (the table already exists). This statement adds the column when
+ * missing; on already-migrated DOs it's a no-op (SQLite-specific:
+ * `ADD COLUMN IF NOT EXISTS` isn't standard, so we use a defensive PRAGMA
+ * check via the catch). For new DOs the CREATE TABLE above already
+ * includes the column so this is a redundant no-op.
+ *
+ * Why two-statement schema init: workerd's DO SQLite has no top-level
+ * migration runner (we don't get the wrangler `[[migrations]]` block run
+ * automatically — that's only for `new_sqlite_classes`). So we issue the
+ * ALTER inside the DO constructor and swallow "duplicate column" errors.
+ */
+const ADD_CONTENT_HASH = `ALTER TABLE beads ADD COLUMN content_hash TEXT`;
 
 export class BeadStore implements DurableObject {
   // Alias to a clear SQLite context — avoids ambiguity with process exec calls.
@@ -94,6 +126,17 @@ export class BeadStore implements DurableObject {
 
   private initSchema(): void {
     this.db.exec(SCHEMA);
+    // Idempotent ALTER for the content_hash column on existing tables
+    // that were created before cloister-492c08. SQLite throws
+    // "duplicate column name" if the column already exists; swallow
+    // that exact error and re-throw anything else. Per the migration
+    // rationale in the SCHEMA header above.
+    try {
+      this.db.exec(ADD_CONTENT_HASH);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/duplicate column name/i.test(msg)) throw err;
+    }
   }
 
   private query(sql: string, ...bindings: SqlStorageValue[]): SqlStorageCursor<Record<string, SqlStorageValue>> {
@@ -140,21 +183,34 @@ export class BeadStore implements DurableObject {
       throw new Error("test-injected beadStoreWrite failure (cloister-3dd355)");
     }
     const p = req.params as Record<string, unknown>;
-    const id = generateId();
-    const title       = String(p.title ?? "");
-    const description = String(p.description ?? "");
-    const priority    = Number(p.priority ?? 0) as BeadPriority;
-    const labels      = JSON.stringify(p.labels ?? []);
-    const created_by  = p.created_by != null ? String(p.created_by) : null;
-    const repo        = String(p.repo ?? "");
+    // Per cloister-492c08: the cross-DO orchestrator
+    // (src/routes/bead-create-orchestrator.ts) pre-computes the bead id +
+    // content_hash + BlobStore put BEFORE calling into BeadStore, then
+    // passes both via the JSON-RPC params. When the orchestrator drives
+    // the call, `params.id` and `params.content_hash` are present; when a
+    // legacy intra-DO caller drives it (tests, manual probes), they're
+    // absent and the DO falls back to generating its own id with NULL
+    // content_hash. The fallback path is what the §13.4 audit calls
+    // "orphan rows" — they're allowed to exist for backward compat but
+    // are flagged by the disclosure endpoint.
+    const id = (typeof p.id === "string" && p.id.length > 0) ? p.id : generateId();
+    const title        = String(p.title ?? "");
+    const description  = String(p.description ?? "");
+    const priority     = Number(p.priority ?? 0) as BeadPriority;
+    const labels       = JSON.stringify(p.labels ?? []);
+    const created_by   = p.created_by != null ? String(p.created_by) : null;
+    const repo         = String(p.repo ?? "");
+    const content_hash = (typeof p.content_hash === "string" && p.content_hash.length > 0)
+      ? p.content_hash
+      : null;
 
     this.query(
-      `INSERT INTO beads (id, title, description, priority, labels, created_by, repo)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      id, title, description, priority, labels, created_by, repo,
+      `INSERT INTO beads (id, title, description, priority, labels, created_by, repo, content_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, title, description, priority, labels, created_by, repo, content_hash,
     );
 
-    return okResponse(req.id, { id, title, state: "open" as BeadState });
+    return okResponse(req.id, { id, title, state: "open" as BeadState, content_hash });
   }
 
   private update(req: JsonRpcRequest): JsonRpcResponse {
@@ -243,6 +299,7 @@ function cursorToBeads(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>
       created_by:  row["created_by"] != null ? String(row["created_by"]) : undefined,
       repo:        String(row["repo"] ?? ""),
       notes:       row["notes"] != null ? String(row["notes"]) : undefined,
+      content_hash: row["content_hash"] != null ? String(row["content_hash"]) : undefined,
     });
   }
   return results;

@@ -265,6 +265,20 @@ export interface VerifiedLease {
   nonce:  Uint8Array;
   /** Server-side timestamp at verify time. */
   serverTs: number;
+  /**
+   * Cert DER bytes (raw). Pass-through from `parseAuthHeaders.certDer` so
+   * downstream orchestrators (e.g. cross-DO `bead_create`, cloister-492c08)
+   * can put the cert in a `peer_attestations` row without re-decoding.
+   * Always populated when verify succeeds.
+   */
+  certDer: Uint8Array;
+  /**
+   * Ed25519 signature bytes the caller produced over the canonical
+   * request bytes. Pass-through from `parseAuthHeaders.sig`. Used by
+   * the same downstream orchestrators as `certDer`. Always populated
+   * when verify succeeds.
+   */
+  sig:    Uint8Array;
 }
 
 export type VerifyError = {
@@ -521,6 +535,8 @@ export async function verifyAndUpsertLease(args: {
     certFp,
     nonce:    headers.nonce,
     serverTs: args.nowMs,
+    certDer:  headers.certDer,
+    sig:      headers.sig,
   };
 }
 
