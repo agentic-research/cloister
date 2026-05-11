@@ -189,7 +189,7 @@ The `proxy/upstreams` response **MUST NOT** include any credential material (tok
 
 A server declaring the `proxy` capability **MUST**:
 
-1. **Complete the full MCP client lifecycle** with each upstream it aggregates. This includes (on protocol versions that require it) the `notifications/initialized` notification after the `initialize` response. Skipping any lifecycle step is a spec violation, regardless of whether the upstream tolerates it.
+1. **Complete the full MCP client lifecycle** with each upstream it aggregates. This includes (on protocol versions that require it) the `notifications/initialized` notification after the `initialize` response. Skipping any lifecycle step is a spec violation, regardless of whether the upstream tolerates it. If lifecycle completion fails (for any reason — handshake error, missing notification ack, session-expiry response from upstream), the proxy **MUST** mark the upstream as `unreachable` in `proxy/upstreams` and **MUST NOT** silently fall back to a stale tool catalog for that upstream.
 
 2. **Validate version compatibility per-upstream**. If an upstream returns a protocol version the proxy does not support, the proxy **MUST** mark that upstream as `unreachable` in `proxy/upstreams` and **MUST NOT** silently fall back to incompatible behavior. The proxy **MAY** support multiple protocol versions internally and select the right one per upstream.
 
