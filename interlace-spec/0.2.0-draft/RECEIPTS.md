@@ -85,6 +85,14 @@ HEADER_ALLOWLIST := [
   # OCI registry — included for the OCI tenant under cloister
   "docker-distribution-api-version",
   "docker-content-digest",
+  # MCP protocol negotiation — load-bearing for MCP sessions and SEP-2575
+  # version handshake. Without these, A could downgrade P from sessionless
+  # to legacy or rebind a session context without the receipt detecting.
+  # Per math-friend round-3 review R3-1 (HIGH).
+  "mcp-session-id",
+  "mcp-protocol-version",
+  # CORS expose — operational, lets browser P actually read Interlace-Receipt
+  "access-control-expose-headers",
 ]
 
 # This list is a defined-by-the-spec set. Future extensions MUST
@@ -280,8 +288,14 @@ event_hash[n] = SHA-256(canonical_cbor({
   "seq":        <uint; n>,
 }))
 
-# Where open_commitment_hash is the SHA-256 of the open commitment:
-open_commitment_hash = SHA-256(stream_open_commitment)
+# Where open_commitment_hash is the SHA-256 of the canonical CBOR
+# encoding of the open commitment. Math-friend round-3 review R3-2
+# (MEDIUM): the hash input is the canonical-CBOR bytes of the
+# commitment object, NOT the signed envelope and NOT the signature.
+# Implementations MUST hash the same bytes that go through
+# Ed25519_Sign in `stream_open_sig`. Test vectors (§7) exercise
+# this distinction.
+open_commitment_hash = SHA-256(canonical_cbor(stream_open_commitment))
 
 # At stream close, A signs the final commitment, cryptographically
 # pairing close to open via `open_commitment_hash`. This closes
@@ -407,6 +421,92 @@ batch / per-request mode capability as the main chain). Implementation
 detail: cloister stores read-receipts in TrustStore's `peer_attestations`
 table with a `kind: "read"` column; the disclosure endpoint serves
 both kinds, distinguishable by query parameter.
+
+**V's audit of the read-receipt log itself terminates at V's discretion.**
+Math-friend round-3 review correctly observed that V fetching
+`/.well-known/interlace/read-receipts/` is itself an authenticated read,
+which produces a receipt, which lands in the read-receipt log, which V
+could re-audit — bounded only by V's audit-depth policy. Chain-
+completeness invariants apply to **state-write chains only** (the
+§13.6 audit pattern). Read-receipt logs serve V's transparency
+needs; their auditing is not part of §13.2's soundness claim. V
+SHOULD audit the read-receipt log to depth 1 (verify receipts for
+its own state-write-chain reads); deeper audit is operator-discretionary.
+
+### 2.7 Master-key live-compromise notice
+
+If A's master signing key for an epoch leaks while still active, every
+receipt under that epoch becomes retroactively forgeable by anyone
+holding the leaked key. Soundness of §13.2 then collapses for the
+affected epoch's receipts unless V can distinguish pre-leak from
+post-leak signatures.
+
+A **MUST** publish a `compromise_notice` per affected epoch in
+`.well-known/interlace/index.json` immediately upon discovery, signed
+by the **next-epoch** master key (rotation precedes notice — see
+"bootstrap" below):
+
+```
+compromise_notice_cbor = canonical_cbor({
+  "compromised_epoch":  <uint N; the leaked epoch>,
+  "compromised_at_ms":  <uint T; earliest known compromise timestamp>,
+  "prev_pubkey_fp":     <bytes-32; SHA-256 of sk_N's pubkey>,
+  "rotation_actor_fp":  <bytes-32; A's stable cross-rotation master fp>,
+  "notice_at_ms":       <uint; when this notice was published>,
+})
+
+compromise_notice_sig = Ed25519_Sign(sk_{N+1}, compromise_notice_cbor)
+
+# Published as a new array entry in index.json:
+{
+  ...existing fields...
+  "compromise_notices": [
+    {
+      "commitment": <canonical_cbor of compromise_notice_cbor>,
+      "signature":  <Ed25519 signature under sk_{N+1}>
+    },
+    ...
+  ]
+}
+```
+
+**Bootstrap.** A discovering compromise of `sk_N` MUST rotate keys
+FIRST (mint `sk_{N+1}`), THEN sign the notice with `sk_{N+1}`. The
+adversary holding compromised `sk_N` cannot suppress the notice because
+`sk_{N+1}` is fresh post-rotation and the adversary doesn't have it.
+
+**Cascade.** If `sk_{N+1}` is also leaked, sign with `sk_{N+2}`, and
+so on. In the limit, this requires at least one uncompromised key
+in the rotation chain — the standard PKI key-compromise recovery story
+(CRL signed by the current CA).
+
+**Cross-anchoring.** A SHOULD also publish the compromise notice to
+its external anchor (per §2.3 lost-bundle recovery), so an adversary
+controlling A's bundle cannot suppress it by taking down `index.json`.
+
+**V semantics.** V verifying a receipt under epoch N **MUST** check
+for a compromise notice for that epoch (in §2.2.2 step 9):
+
+- No notice exists → receipt remains trusted (EUF-CMA holds for all
+  signatures under sk_N).
+- Notice exists AND `commitment.timestamp_ms < compromised_at_ms` →
+  receipt remains trusted (signed before the leak; adversary couldn't
+  have forged it pre-leak).
+- Notice exists AND `commitment.timestamp_ms >= compromised_at_ms` →
+  receipt is **untrustworthy**; V MUST NOT use it as proof of
+  admission or proof of off-record admission. The chain-completeness
+  property is undefined for the affected window.
+
+**Trust shift.** V's notion of "valid receipt" becomes:
+```
+valid signature
+  AND epoch resolvable in archival bundle
+  AND (no compromise notice for epoch)
+       OR (commitment.timestamp_ms < compromise_notice.compromised_at_ms)
+```
+
+(Per math-friend round-3 review, deferred from round-2 §11 Q4 to this
+normative section.)
 
 ## 3. Receipt format details
 
@@ -551,15 +651,24 @@ root_commitment = canonical_cbor({
   "batch_id":     <bytes-16; A's per-batch identifier>,
   "leaf_count":   <uint>,
   "timestamp_ms": <uint>,
-  "prev_batch":   <bytes-32; SHA-256 of the previous batch's signed root envelope>,
+  "prev_batch":   <bytes-32; SHA-256(canonical_cbor({"commitment": prev_root_commitment, "signature": prev_root_sig}))>,
 })
+
+# For the very first batch in a deployment (no predecessor):
+prev_batch (genesis) = SHA-256("interlace-spec/0.2.0 genesis batch")
+                     = 32 specific bytes pinned in test vectors
 ```
 
 (Math-friend N4 second-pass review: an earlier draft of this field
 specified Ed25519 *signature* bytes (64 bytes) but typed them as
-`bytes-32`. Corrected to SHA-256 of the previous signed envelope,
-matching CT-style log integrity convention — hash-chain over
-already-signed material, not signature-chain.)
+`bytes-32`. Corrected to SHA-256 of the canonical CBOR encoding of
+the full signed envelope `{commitment, signature}`, matching CT-style
+log integrity convention.
+
+Math-friend R3-2 + R3-3 round-three review: byte-source disambiguation
+made explicit — hash input is the canonical CBOR of the
+`{commitment, signature}` envelope, not just the signature or just
+the commitment alone. Genesis-batch sentinel pinned via test vector.)
 
 The `prev_batch` field chains batches together, providing CT-style log
 consistency: V can verify A maintains a single consistent view of the
@@ -757,6 +866,28 @@ this revision:
   bearing under `prev` collision-resistance; required for sparse-
   archive chain reconstruction.
 
+**Resolved in third-pass review (math-friend 2026-05-11 round 3):**
+
+- **R3-1 (HIGH) — MCP-protocol header coverage gap.** Added
+  `mcp-session-id`, `mcp-protocol-version`, `access-control-expose-headers`
+  to HEADER_ALLOWLIST (§2.1). Without these, A could rebind sessions or
+  downgrade the SEP-2575 protocol version without the receipt detecting.
+- **R3-2 (MEDIUM) — Hash-input byte-source ambiguity.** Both
+  `open_commitment_hash` (§2.4) and `prev_batch` (§6.1) now explicitly
+  hash `canonical_cbor(...)` of named structures. Distinguishes commitment
+  vs envelope vs signature unambiguously.
+- **R3-3 (LOW) — Genesis-batch `prev_batch` undefined.** Defined as
+  `SHA-256("interlace-spec/0.2.0 genesis batch")`; specific 32 bytes
+  pinned in test vectors (§7).
+- **N2 caveat (round-2 closure refinement) — Read-receipt-log audit
+  recursion.** Added normative termination clause (§2.6): V audits
+  to depth 1 by default; deeper audit is operator-discretionary;
+  chain-completeness applies to state-write chains only.
+- **Q4 (round-2 deferred) — Master-key live-compromise notice.** Full
+  design landed as §2.7. Next-epoch key signs a `compromise_notice`;
+  V's verification procedure adds a timestamp check against
+  `compromised_at_ms` before trusting receipts.
+
 ## 11. Open questions for further review
 
 Math-friend's first-pass review surfaced these, still open:
@@ -775,24 +906,28 @@ Math-friend's first-pass review surfaced these, still open:
    from A's side. Deferred to a future 0.3.0 amendment unless math-
    friend pushes it earlier.
 
-**New open from second-pass review (math-friend 2026-05-11 round 2):**
+**Open after round 3 (these are minor; not soundness-blocking):**
 
-4. **Master-key live compromise notice.** §2.3 covers natural rotation
-   and decommission; if `sk_A` *leaks while still active*, all extant
-   receipts under that epoch become forgeable post-hoc. Spec should
-   add a "compromise notice" mechanism: A publishes an
-   epoch-retired-as-compromised marker, V flags affected receipts
-   as untrustworthy retrospectively. Mechanism design: a separate
-   signed-by-the-next-epoch revocation field in `index.json`?
-   Cross-anchored compromise notices? Math-friend asked for this
-   in round 2; flagged for round 3 design.
-
-5. **SSE keepalive comments.** §2.4 says SSE comments are NOT events
+4. **SSE keepalive comments.** §2.4 says SSE comments are NOT events
    and MUST NOT be in the hash chain. Implementers should confirm
    their SSE library can distinguish data-line emission from comment
    emission for the chain-step hook. Cloister's `src/routes/mcp.ts`
    emits comments only on the keepalive path; verify before Phase 2
    of receipts implementation.
+
+5. **V-side bundle snapshotting MUST vs SHOULD** (§2.3) — currently
+   SHOULD. Math-friend round-3 noted V is the §13.2 beneficiary and
+   the spec could conceivably bind V. Counter-argument: V's behavior
+   is operator-discretionary in many deployments. Worth a round-4
+   look if any deployment pushes back.
+
+6. **CBOR simple-value type 7 enumeration** (§3.1) — minor gap;
+   true/false/null are allowed and ASCII-canonical, but the spec
+   doesn't restate this. Minor.
+
+7. **Bignum tag prohibition** (§3.1) — should be more explicit; tags
+   are forbidden generally, but bignum tags (RFC 8949 §3.4.3) are
+   the most likely accidental emission from naive encoders.
 
 ## 12. Comparison to literature
 
