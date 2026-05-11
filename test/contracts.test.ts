@@ -191,3 +191,151 @@ describe("McpEdgeRoute HTTP methods", () => {
     res.body?.cancel();
   });
 });
+
+// ── Sessionless protocol surface (ADR-0015 Phase 2 / SEP-2575) ────────────
+//
+// Cloister supports two MCP protocol versions side-by-side. The
+// `MCP-Protocol-Version` HTTP header selects sessionless mode on a
+// per-request basis. These tests lock the sessionless surface in:
+//
+// - legacy clients still get `initialize` / `tools/list` etc.
+// - sessionless clients get `server/discover` + `subscriptions/listen`
+// - cross-mode method calls are rejected with -32601
+// - version mismatches return HTTP-400 UnsupportedProtocolVersionError
+// - header/payload protocolVersion disagreement returns HTTP-400
+
+async function postSessionless(
+  route: McpEdgeRoute,
+  body: unknown,
+  protocolVersion: string,
+): Promise<{ res: Response; body: JsonRpcResponse }> {
+  const res = await route.handle(
+    new Request("http://x/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type":         "application/json",
+        "MCP-Protocol-Version": protocolVersion,
+      },
+      body: JSON.stringify(body),
+    }),
+    fakeEnv(),
+  );
+  return { res, body: (await res.json()) as JsonRpcResponse };
+}
+
+describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
+  const NEXT = "2026-XX-XX";
+
+  it("server/discover returns supportedVersions + capabilities + serverInfo", async () => {
+    const route = new McpEdgeRoute([]);
+    const { body } = await postSessionless(
+      route,
+      { jsonrpc: "2.0", id: 1, method: "server/discover" },
+      NEXT,
+    );
+    const result = body.result as {
+      protocolVersion:   string;
+      supportedVersions: string[];
+      capabilities:      Record<string, unknown>;
+      serverInfo:        { name: string };
+    };
+    expect(result.protocolVersion).toBe(NEXT);
+    expect(result.supportedVersions).toContain(NEXT);
+    expect(result.supportedVersions).toContain("2024-11-05");
+    expect(result.capabilities).toHaveProperty("tools");
+    expect(result.serverInfo.name).toBe("cloister");
+  });
+
+  it("server/discover without MCP-Protocol-Version header returns -32601", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postMcp(route, { jsonrpc: "2.0", id: 2, method: "server/discover" });
+    expect(res.error?.code).toBe(-32601);
+  });
+
+  it("initialize via sessionless header returns -32601 (SEP-2575 removed initialize)", async () => {
+    const route = new McpEdgeRoute([]);
+    const { body } = await postSessionless(
+      route,
+      { jsonrpc: "2.0", id: 3, method: "initialize" },
+      NEXT,
+    );
+    expect(body.error?.code).toBe(-32601);
+  });
+
+  it("subscriptions/listen returns stub acknowledgment", async () => {
+    const route = new McpEdgeRoute([]);
+    const { body } = await postSessionless(
+      route,
+      {
+        jsonrpc: "2.0", id: 4, method: "subscriptions/listen",
+        params: { subscriptions: ["tools/list_changed"] },
+      },
+      NEXT,
+    );
+    const result = body.result as { acknowledged: boolean; subscriptions: unknown };
+    expect(result.acknowledged).toBe(true);
+    expect(result.subscriptions).toEqual(["tools/list_changed"]);
+  });
+
+  it("subscriptions/listen without MCP-Protocol-Version header returns -32601", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postMcp(route, { jsonrpc: "2.0", id: 5, method: "subscriptions/listen" });
+    expect(res.error?.code).toBe(-32601);
+  });
+
+  it("unsupported protocol version returns HTTP-400 UnsupportedProtocolVersionError", async () => {
+    const route = new McpEdgeRoute([]);
+    const { res, body } = await postSessionless(
+      route,
+      { jsonrpc: "2.0", id: 6, method: "ping" },
+      "1999-01-01", // not in supportedVersions
+    );
+    expect(res.status).toBe(400);
+    expect(body.error?.message).toBe("UnsupportedProtocolVersionError");
+    const data = body.error?.data as { supported: string[]; requested: string };
+    expect(data.requested).toBe("1999-01-01");
+    expect(data.supported).toContain(NEXT);
+  });
+
+  it("_meta protocolVersion mismatch returns HTTP-400", async () => {
+    const route = new McpEdgeRoute([]);
+    const { res, body } = await postSessionless(
+      route,
+      {
+        jsonrpc: "2.0", id: 7, method: "ping",
+        params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2024-11-05" } },
+      },
+      NEXT,
+    );
+    expect(res.status).toBe(400);
+    expect(body.error?.message).toContain("protocol version mismatch");
+  });
+
+  it("tools/list is shared across legacy and sessionless paths", async () => {
+    const a = new FakeBackend("a_", [tool("a_one")]);
+    const route = new McpEdgeRoute([a]);
+
+    const { body: sessionlessBody } = await postSessionless(
+      route,
+      { jsonrpc: "2.0", id: 8, method: "tools/list" },
+      NEXT,
+    );
+    const legacyBody = await postMcp(route, { jsonrpc: "2.0", id: 9, method: "tools/list" });
+
+    const sessionlessNames = (sessionlessBody.result as { tools: McpTool[] }).tools.map(t => t.name);
+    const legacyNames      = (legacyBody.result as { tools: McpTool[] }).tools.map(t => t.name);
+    expect(sessionlessNames).toEqual(legacyNames);
+    expect(sessionlessNames).toContain("a_one");
+  });
+
+  it("supportedProtocolVersions in constructor overrides the runtime default", async () => {
+    const route = new McpEdgeRoute([], ["custom-version-1", "custom-version-2"]);
+    const { body } = await postSessionless(
+      route,
+      { jsonrpc: "2.0", id: 10, method: "server/discover" },
+      "custom-version-1",
+    );
+    const result = body.result as { supportedVersions: string[] };
+    expect(result.supportedVersions).toEqual(["custom-version-1", "custom-version-2"]);
+  });
+});

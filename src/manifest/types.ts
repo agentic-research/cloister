@@ -24,6 +24,14 @@ export interface Gateway {
   actor:    Actor;
   /** Interlace policy advertised in the `.well-known/interlace/` doc. */
   policy:   InterlacePolicy;
+  /**
+   * MCP protocol versions this gateway advertises (ADR-0015 Phase 2 /
+   * cloister-a35fdb / SEP-2575). Empty ⇒ runtime default of just the
+   * current-spec version. Declare both the legacy ("2025-11-25") and
+   * sessionless ("2026-XX-XX") version strings here for dual-stack
+   * deployments.
+   */
+  supportedProtocolVersions?: readonly string[];
 }
 
 export interface Metadata {
@@ -182,6 +190,23 @@ export interface HttpForwardBackend {
    * Leave false for LLO-style genuinely-stateless servers.
    */
   requiresSession?: boolean;
+  /**
+   * Per-upstream protocol mode (ADR-0015 Phase 2 / cloister-a35fdb /
+   * SEP-2575 + SEP-2567):
+   *
+   *   - `"current"` (default; empty string treated identically): legacy
+   *     MCP 2025-11-25 lifecycle. `initialize` + optional sessions.
+   *   - `"next"`: sessionless. Each outbound request carries an
+   *     `MCP-Protocol-Version` HTTP header and a `_meta` block with
+   *     `clientInfo` / `clientCapabilities` / `protocolVersion`.
+   *     Catalog introspection uses `server/discover`. No
+   *     `Mcp-Session-Id`. No `notifications/initialized`.
+   *   - `"auto"`: try sessionless first; on a 400
+   *     `UnsupportedProtocolVersionError` response from the upstream,
+   *     cache that fact and fall back to current-spec for the lifetime
+   *     of the binding.
+   */
+  protocolMode?: string;
 }
 
 export interface ServiceBindingBackend {

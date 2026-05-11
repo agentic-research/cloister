@@ -3,6 +3,9 @@
  *
  * Owns:
  *   - JSON-RPC lifecycle (initialize, ping, tools/list, tools/call)
+ *   - Sessionless protocol surface (SEP-2575 + SEP-2567): per-request
+ *     `MCP-Protocol-Version` header + `_meta` block, `server/discover`,
+ *     `subscriptions/listen`. ADR-0015 Phase 2.
  *   - tools/list aggregation across registered ToolBackends
  *   - tools/call dispatch to the first backend that handles(name)
  *   - SSE keep-alive stream for server-pushed notifications
@@ -10,6 +13,19 @@
  * Does NOT own:
  *   - HTTP transport multiplexing (that is the Router's job)
  *   - any specific tool family — backends are passed in
+ *
+ * Dual-protocol support (ADR-0015 Phase 2 / cloister-a35fdb):
+ *   The route detects protocol version per-request from the
+ *   `MCP-Protocol-Version` HTTP header. Absent ⇒ legacy 2025-11-25
+ *   lifecycle (current path: `initialize` + sessions). Present ⇒
+ *   sessionless (SEP-2575): every request carries inline `_meta`
+ *   clientInfo / clientCapabilities / protocolVersion, capability
+ *   introspection is `server/discover`, no `initialize` is honored
+ *   under sessionless mode.
+ *
+ *   The lease pipeline (ADR-0007) authenticates every request
+ *   independently, so removing the `initialize` handshake does NOT
+ *   weaken authentication — see docs/security/threat-model.md §6.
  */
 
 import type { EdgeRoute } from "../router.js";
@@ -29,13 +45,84 @@ import {
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 import { runBeadCreateOrchestrator } from "./bead-create-orchestrator.js";
 
-const PROTOCOL_VERSION = "2024-11-05";
+/**
+ * Legacy MCP protocol version — `initialize` + sessions path. Returned in
+ * `initialize` responses to current-protocol clients. The string tracks
+ * the MCP-spec basic transport release date and is intentionally NOT a
+ * cloister version.
+ *
+ * NOTE: the historical value `2024-11-05` is preserved here (rather than
+ * bumped to the 2025-11-25 spec lifecycle) so existing tests + clients
+ * pinning to it continue to work. ADR-0015 Phase 1 will reconcile the
+ * version-string against the MCP lifecycle spec.
+ */
+const LEGACY_PROTOCOL_VERSION = "2024-11-05";
+
+/**
+ * Sessionless MCP protocol version — SEP-2575 + SEP-2567 path. Returned
+ * in `server/discover` responses. The SEPs do not (yet) lock a date
+ * string; cloister advertises `2026-XX-XX` matching the Phase 0 fixture's
+ * default and will reconcile when SEP-2575 lands a final version string.
+ */
+const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
+
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
 const KEEPALIVE_MS = 15_000;
 
+/**
+ * HTTP header for per-request protocol-version negotiation (SEP-2575 +
+ * SEP-2243 HTTP standardization). Presence flips the dispatch to the
+ * sessionless path.
+ */
+const PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
+
+/**
+ * Per-request `_meta` key under which sessionless clients declare their
+ * own protocol version. Must match the HTTP header. Spec-defined under
+ * the `io.modelcontextprotocol` namespace.
+ */
+const META_PROTOCOL_VERSION_KEY = "io.modelcontextprotocol/protocolVersion";
+
+/**
+ * Capabilities cloister-as-server advertises. In sessionless mode these
+ * are returned in `server/discover`; in legacy mode they are returned in
+ * the `initialize` response. `tools` is the primitive cloister always
+ * surfaces; future primitives (resources, prompts) are added here when
+ * implemented.
+ */
+const SERVER_CAPABILITIES = { tools: {} } as const;
+
+/**
+ * Sessionless-protocol error data envelope per SEP-2575.
+ * `UnsupportedProtocolVersionError` is returned when a client requests a
+ * protocol version not in the gateway's `supportedProtocolVersions`
+ * advertisement.
+ */
+interface UnsupportedProtocolVersionData {
+  supported: readonly string[];
+  requested: string;
+}
+
 export class McpEdgeRoute implements EdgeRoute {
-  constructor(private readonly backends: readonly ToolBackend[]) {
+  /**
+   * Set of protocol versions this gateway accepts on the sessionless
+   * surface. Built from the manifest's `supportedProtocolVersions` field
+   * (or the runtime default if absent).
+   */
+  private readonly supportedVersions: readonly string[];
+
+  constructor(
+    private readonly backends: readonly ToolBackend[],
+    supportedVersions?: readonly string[],
+  ) {
     assertNoDuplicateToolNames(backends);
+    // Runtime default — manifest is authoritative when set, otherwise we
+    // advertise both legacy and sessionless. This keeps Phase 1 backends
+    // unchanged while still letting Phase 2 sessionless clients discover us.
+    this.supportedVersions =
+      supportedVersions && supportedVersions.length > 0
+        ? supportedVersions
+        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION];
   }
 
   match(request: Request): boolean {
@@ -66,6 +153,24 @@ export class McpEdgeRoute implements EdgeRoute {
       });
     }
 
+    // ── Sessionless protocol detection (SEP-2575) ─────────────────────────
+    //
+    // The `MCP-Protocol-Version` HTTP header marks a sessionless client.
+    // If absent the request rides the legacy `initialize` lifecycle. If
+    // present we validate (a) the requested version is supported, and
+    // (b) that the optional inline `_meta.io.modelcontextprotocol/protocolVersion`
+    // matches the header (SEP-2243: header/payload must agree).
+    const headerVersion = request.headers.get(PROTOCOL_VERSION_HEADER);
+    if (headerVersion !== null) {
+      const validation = this.validateSessionlessRequest(req, headerVersion);
+      if (validation) {
+        return Response.json(validation.body, {
+          status:  validation.status,
+          headers: { "Access-Control-Allow-Origin": allowOrigin },
+        });
+      }
+    }
+
     // Lease verification — ADR-0007 always-on auth. Skipped entirely
     // when `INTERLACE_ROOT_PUBKEY` is unset (dev/test deployments;
     // production MUST have it set per ADR-0007 and the threat model).
@@ -76,6 +181,11 @@ export class McpEdgeRoute implements EdgeRoute {
     // cert+sig+scope+peerFp through to the dispatch path so the cross-DO
     // bead_create orchestrator (cloister-492c08) can write an attestation
     // row referencing the same cert that authorized the call.
+    //
+    // Sessionless protocol note (cloister-a35fdb / SEP-2575): the lease
+    // pipeline is per-request and version-agnostic, so removing the
+    // `initialize` handshake does NOT change the auth posture. See
+    // docs/security/threat-model.md §"Sessionless protocol".
     let lease: VerifiedLease | undefined;
     if (env.INTERLACE_ROOT_PUBKEY) {
       const verifyResult = await this.verifyLease(request, bodyText, req, env, nowMs);
@@ -83,10 +193,66 @@ export class McpEdgeRoute implements EdgeRoute {
       lease = verifyResult.lease;
     }
 
-    const out = await this.dispatch(req, env, lease, nowMs);
+    const sessionless = headerVersion !== null;
+    const out = await this.dispatch(req, env, lease, nowMs, sessionless);
     return Response.json(out, {
       headers: { "Access-Control-Allow-Origin": allowOrigin },
     });
+  }
+
+  /**
+   * Sessionless request validation (SEP-2575 + SEP-2243).
+   *
+   * Returns `null` when the request is acceptable. Returns an HTTP-400
+   * JSON-RPC error body when:
+   *   - the header version isn't in `supportedVersions`
+   *     (`UnsupportedProtocolVersionError`)
+   *   - `_meta.io.modelcontextprotocol/protocolVersion` is present but
+   *     disagrees with the header (SEP-2243 § "Header/payload agreement")
+   *
+   * Absence of `_meta` is NOT an error at the route level — individual
+   * RPCs may still want to interpret it. Per SEP-2575 the spec says
+   * clients SHOULD send `_meta`; we don't reject in its absence to keep
+   * backward-compat with implementations that only send the header.
+   */
+  private validateSessionlessRequest(
+    req: JsonRpcRequest,
+    headerVersion: string,
+  ): { body: JsonRpcResponse; status: number } | null {
+    if (!this.supportedVersions.includes(headerVersion)) {
+      const data: UnsupportedProtocolVersionData = {
+        supported: this.supportedVersions,
+        requested: headerVersion,
+      };
+      const err: JsonRpcResponse = {
+        jsonrpc: "2.0",
+        id:      req.id ?? null,
+        error: {
+          code:    -32600,
+          message: "UnsupportedProtocolVersionError",
+          data,
+        },
+      };
+      return { body: err, status: 400 };
+    }
+    const meta = extractMeta(req.params);
+    if (meta) {
+      const metaVersion = meta[META_PROTOCOL_VERSION_KEY];
+      if (typeof metaVersion === "string" && metaVersion !== headerVersion) {
+        const err: JsonRpcResponse = {
+          jsonrpc: "2.0",
+          id:      req.id ?? null,
+          error: {
+            code:    -32600,
+            message:
+              `protocol version mismatch: header=${headerVersion} ` +
+              `_meta.${META_PROTOCOL_VERSION_KEY}=${metaVersion}`,
+          },
+        };
+        return { body: err, status: 400 };
+      }
+    }
+    return null;
   }
 
   /**
@@ -131,18 +297,59 @@ export class McpEdgeRoute implements EdgeRoute {
   }
 
   private async dispatch(
-    req:   JsonRpcRequest,
-    env:   Env,
-    lease: VerifiedLease | undefined,
-    nowMs: number,
+    req:         JsonRpcRequest,
+    env:         Env,
+    lease:       VerifiedLease | undefined,
+    nowMs:       number,
+    sessionless: boolean,
   ): Promise<JsonRpcResponse> {
     switch (req.method) {
       case "initialize":
+        // Per SEP-2575 sessionless clients MUST NOT call `initialize`.
+        // Return -32601 to a sessionless caller; legacy clients get the
+        // standard handshake response.
+        if (sessionless) {
+          return errResponse(req.id, -32601, "method not found: initialize (sessionless protocol)");
+        }
         return okResponse(req.id, {
-          protocolVersion: PROTOCOL_VERSION,
-          capabilities: { tools: {} },
-          serverInfo: SERVER_INFO,
+          protocolVersion: LEGACY_PROTOCOL_VERSION,
+          capabilities:    SERVER_CAPABILITIES,
+          serverInfo:      SERVER_INFO,
         });
+
+      // SEP-2575 capability-introspection RPC. Replaces the negotiation
+      // bits of the legacy `initialize` handshake. Sessionless-only —
+      // legacy clients are expected to use `initialize`.
+      case "server/discover":
+        if (!sessionless) {
+          return errResponse(req.id, -32601, "method not found: server/discover (requires MCP-Protocol-Version header)");
+        }
+        return okResponse(req.id, {
+          protocolVersion:    SESSIONLESS_PROTOCOL_VERSION,
+          supportedVersions:  this.supportedVersions,
+          capabilities:       SERVER_CAPABILITIES,
+          serverInfo:         SERVER_INFO,
+          instructions:       "cloister MCP gateway — see /.well-known/mcp-registry for the upstream catalog.",
+        });
+
+      // SEP-2575 sessionless equivalent of GET-for-SSE. Stub-and-ack —
+      // cloister has no primitives that emit change-notifications today.
+      // Phase 2 obligation: register the RPC so clients don't get -32601.
+      // Future work: actually emit notifications when cloister grows
+      // change-bearing primitives (tools/list_changed, etc.).
+      case "subscriptions/listen":
+        if (!sessionless) {
+          return errResponse(req.id, -32601, "method not found: subscriptions/listen (requires MCP-Protocol-Version header)");
+        }
+        return okResponse(req.id, {
+          acknowledged: true,
+          subscriptions: extractSubscriptions(req.params),
+          // No notifications stream is emitted today — the call is
+          // idempotent and the client can poll instead. When cloister
+          // grows change-bearing primitives this becomes a real stream.
+          implementationStatus: "stub",
+        });
+
       case "tools/list":
         await Promise.all(this.backends.map(b => b.refreshTools?.(env)));
         return okResponse(req.id, { tools: this.allTools() });
@@ -242,7 +449,7 @@ function handleSse(request: Request, env: Env): Response {
       const init: JsonRpcResponse = {
         jsonrpc: "2.0",
         id: 0,
-        result: { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} } },
+        result: { protocolVersion: LEGACY_PROTOCOL_VERSION, capabilities: SERVER_CAPABILITIES },
       };
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(init)}\n\n`));
       const keepAlive = setInterval(() => {
@@ -267,6 +474,34 @@ function withCors(res: Response, allowOrigin: string): Response {
   const headers = new Headers(res.headers);
   headers.set("Access-Control-Allow-Origin", allowOrigin);
   return new Response(res.body, { status: res.status, headers });
+}
+
+// ── Sessionless helpers ────────────────────────────────────────────────────
+
+/**
+ * Extract the `_meta` block from a JSON-RPC params payload. SEP-2575
+ * places the per-request metadata (clientInfo, clientCapabilities,
+ * protocolVersion) here; the key is conventionally `_meta` on the
+ * params object.
+ */
+function extractMeta(params: unknown): Record<string, unknown> | null {
+  if (!params || typeof params !== "object") return null;
+  const p = params as Record<string, unknown>;
+  const meta = p._meta ?? p["_meta"];
+  if (!meta || typeof meta !== "object") return null;
+  return meta as Record<string, unknown>;
+}
+
+/**
+ * Best-effort extraction of the `subscriptions` field passed to
+ * `subscriptions/listen`. Returned verbatim in the ack response so
+ * clients can verify the request reached us; we do not currently emit
+ * any notifications, so the field is informational.
+ */
+function extractSubscriptions(params: unknown): unknown {
+  if (!params || typeof params !== "object") return [];
+  const p = params as Record<string, unknown>;
+  return p.subscriptions ?? [];
 }
 
 // ── Validation ────────────────────────────────────────────────────────────

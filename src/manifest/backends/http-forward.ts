@@ -13,6 +13,19 @@
  *                         `Mcp-Session-Id` on every subsequent request.
  *                         Required for mark3labs/mcp-go servers (mache, rsry)
  *                         which validate session-id format on every request.
+ *   - `protocolMode`    — ADR-0015 Phase 2 / cloister-a35fdb. Per-upstream
+ *                         protocol selector. Values:
+ *                           - "current" / "" (default): legacy 2025-11-25
+ *                              lifecycle. `initialize` + (optional) sessions.
+ *                           - "next":    sessionless (SEP-2575 + SEP-2567).
+ *                              Per-request `MCP-Protocol-Version` header +
+ *                              inline `_meta` block. No `initialize`. No
+ *                              `Mcp-Session-Id`. Capability introspection
+ *                              uses `server/discover`.
+ *                           - "auto":    try sessionless first; on a 400
+ *                              `UnsupportedProtocolVersionError` from the
+ *                              upstream, cache that fact and fall back to
+ *                              legacy for the lifetime of the binding.
  *
  * Forwards `tools/call` JSON-RPC verbatim to the upstream MCP HTTP endpoint
  * (after stripping `stripPrefix` from the name); unwraps `content[0].text`
@@ -41,8 +54,34 @@ interface UpstreamToolsListResult {
 
 const DERIVED_TTL_MS = 60_000;
 
-const PROTOCOL_VERSION = "2024-11-05";
+/** Legacy MCP-spec wire version (`initialize` lifecycle). */
+const LEGACY_PROTOCOL_VERSION = "2024-11-05";
+/** Sessionless wire version (SEP-2575). Provisional — see mcp.ts. */
+const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
 const CLOISTER_INFO    = { name: "cloister", version: "0.1.0" } as const;
+/**
+ * Client capabilities cloister-the-MCP-client declares to upstreams.
+ * Phase 1/2 obligation (ADR-0015 + SEP §3 Obligation 5): the declaration
+ * must be non-empty. Cloister is a proxy aggregating upstreams — it does
+ * not consume sampling / roots / elicitation primitives, so the only
+ * positively-asserted bit is its proxy identity. In sessionless mode this
+ * rides inside the per-request `_meta`; in legacy mode it goes into the
+ * `initialize` params.
+ *
+ * NOTE: this is intentionally a minimal proxy declaration. When cloister
+ * grows the ability to surface upstream sampling / elicitation to the
+ * external client, declare those capabilities here.
+ */
+const CLOISTER_CLIENT_CAPABILITIES = {
+  // Marker bit so the upstream's empty-capabilities check sees a non-empty
+  // capabilities block. The exact key name is informational; the spec
+  // mandates "declare what you support", and what cloister supports
+  // intrinsically is the proxy-aggregation pattern.
+  experimental: { proxy: true },
+} as const;
+
+/** SEP-2575 meta key for protocol version inside `_meta`. */
+const META_PROTOCOL_VERSION_KEY = "io.modelcontextprotocol/protocolVersion";
 
 /**
  * Common Accept header — Streamable HTTP servers (mark3labs/mcp-go) require
@@ -50,6 +89,14 @@ const CLOISTER_INFO    = { name: "cloister", version: "0.1.0" } as const;
  * always correct.
  */
 const ACCEPT_HEADER = "application/json, text/event-stream";
+
+/**
+ * Per-upstream protocol-mode resolved at construction time. `"current"`
+ * keeps the legacy lifecycle. `"next"` flips us into sessionless. `"auto"`
+ * tries sessionless first and caches a sticky fallback if the upstream
+ * returns `UnsupportedProtocolVersionError`.
+ */
+type ProtocolMode = "current" | "next" | "auto";
 
 export class HttpForwardToolBackend implements ToolBackend {
   private readonly assertedTools: McpTool[];
@@ -66,10 +113,25 @@ export class HttpForwardToolBackend implements ToolBackend {
    * Captured session-id from the upstream's `initialize` response, when
    * `requiresSession` is set. Null until `ensureSession()` succeeds, or
    * after a 4xx invalid-session response invalidates it.
+   *
+   * Always null in sessionless mode (SEP-2567 removed sessions). The
+   * dispatch path consults `effectiveMode()` before using this field.
    */
   private sessionId: string | null = null;
 
   private sessionInflight: Promise<void> | null = null;
+
+  private readonly protocolMode: ProtocolMode;
+
+  /**
+   * Sticky downgrade flag for `protocolMode === "auto"`. Once an upstream
+   * has rejected the sessionless protocol with
+   * `UnsupportedProtocolVersionError`, we remember the fact for the
+   * lifetime of the binding so we don't keep paying the failed-request
+   * cost on every refresh. Cleared only at process restart (cloister
+   * lifecycle).
+   */
+  private sessionlessDowngraded = false;
 
   constructor(
     private readonly spec: HttpForwardBackend,
@@ -78,6 +140,7 @@ export class HttpForwardToolBackend implements ToolBackend {
   ) {
     this.assertedTools = toolsFromSpecs(spec.tools);
     this.assertedNames = new Set(this.assertedTools.map(t => t.name));
+    this.protocolMode = normalizeProtocolMode(spec.protocolMode);
   }
 
   tools(): McpTool[] {
@@ -109,10 +172,101 @@ export class HttpForwardToolBackend implements ToolBackend {
     return this.toolsInflight;
   }
 
+  /**
+   * Resolve which wire protocol to speak right now. `current` and `next`
+   * are static; `auto` flips to `current` after a sessionless probe is
+   * rejected with `UnsupportedProtocolVersionError`.
+   */
+  private effectiveMode(): "current" | "next" {
+    if (this.protocolMode === "current") return "current";
+    if (this.protocolMode === "next")    return "next";
+    return this.sessionlessDowngraded ? "current" : "next";
+  }
+
+  /**
+   * Common per-request headers. In `next` mode every request carries
+   * `MCP-Protocol-Version` (SEP-2575) and never `Mcp-Session-Id`
+   * (SEP-2567). In `current` mode behavior matches the pre-Phase-2
+   * implementation: session header is sent when `requiresSession` is set
+   * and we have a session id.
+   */
+  private requestHeaders(): Record<string, string> {
+    const h: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept":       ACCEPT_HEADER,
+    };
+    if (this.effectiveMode() === "next") {
+      h["MCP-Protocol-Version"] = SESSIONLESS_PROTOCOL_VERSION;
+      return h;
+    }
+    if (this.spec.requiresSession && this.sessionId) {
+      h["Mcp-Session-Id"] = this.sessionId;
+    }
+    return h;
+  }
+
+  /**
+   * Build the per-request `_meta` block required by SEP-2575 in sessionless
+   * mode. Returned only on the sessionless path; legacy `tools/list` and
+   * `tools/call` requests are unchanged.
+   */
+  private sessionlessMeta(): Record<string, unknown> {
+    return {
+      [META_PROTOCOL_VERSION_KEY]: SESSIONLESS_PROTOCOL_VERSION,
+      clientInfo:         CLOISTER_INFO,
+      clientCapabilities: CLOISTER_CLIENT_CAPABILITIES,
+    };
+  }
+
+  /**
+   * Decorate a JSON-RPC params object with `_meta` when in sessionless
+   * mode. No-op in legacy mode. Pure helper — does not mutate `base`.
+   */
+  private withMeta<T extends Record<string, unknown> | undefined>(base: T): T | Record<string, unknown> {
+    if (this.effectiveMode() !== "next") return base;
+    return { ...(base ?? {}), _meta: this.sessionlessMeta() };
+  }
+
   private async fetchUpstreamTools(env: Env): Promise<void> {
     const url = (env as unknown as Record<string, string>)[this.spec.urlBinding];
     if (!url) return;
 
+    // Sessionless path — no initialize handshake, no session header.
+    // `server/discover` is the SEP-2575 catalog-introspection RPC; we
+    // call it as a sanity check (its response carries the upstream's
+    // supportedVersions + capabilities, which we ignore today but will
+    // surface through `/.well-known/mcp-registry/` once Phase 3 lands).
+    // Then we POST `tools/list` with the same per-request `_meta`.
+    if (this.effectiveMode() === "next") {
+      const discoverOk = await this.doDiscover(url);
+      if (!discoverOk && this.protocolMode === "auto") {
+        // Sticky downgrade. Re-enter via the current-spec path.
+        this.sessionlessDowngraded = true;
+        return this.fetchUpstreamTools(env);
+      }
+      if (!discoverOk) return;
+
+      const innerReq = {
+        jsonrpc: "2.0" as const,
+        id:      0,
+        method:  "tools/list",
+        params:  this.withMeta(undefined as undefined) as Record<string, unknown>,
+      };
+      const res = await this.fetchImpl(url, {
+        method:  "POST",
+        headers: this.requestHeaders(),
+        body:    JSON.stringify(innerReq),
+      });
+      if (!res.ok) return;
+      let body: JsonRpcResponse;
+      try { body = await res.json() as JsonRpcResponse; } catch { return; }
+      if (body.error) return;
+      this.captureDerivedTools(body.result);
+      return;
+    }
+
+    // Legacy path — initialize handshake (when requiresSession set), then
+    // tools/list. Unchanged from pre-Phase-2 behavior.
     const tryFetch = async (): Promise<{ status: number; body: JsonRpcResponse | null } | null> => {
       if (this.spec.requiresSession) await this.ensureSession(url);
       const innerReq = { jsonrpc: "2.0" as const, id: 0, method: "tools/list" };
@@ -138,8 +292,16 @@ export class HttpForwardToolBackend implements ToolBackend {
       result = await tryFetch();
     }
     if (!result?.body || result.body.error) return;
+    this.captureDerivedTools(result.body.result);
+  }
 
-    const upstreamResult = result.body.result as UpstreamToolsListResult | undefined;
+  /**
+   * Pull `tools` out of a JSON-RPC `tools/list` result and store them in
+   * the Derived cache (advertised under the prefix). No-op on shape
+   * mismatch — Asserted fallback continues to be returned by `tools()`.
+   */
+  private captureDerivedTools(result: unknown): void {
+    const upstreamResult = result as UpstreamToolsListResult | undefined;
     if (!upstreamResult || !Array.isArray(upstreamResult.tools)) return;
 
     const next = new Map<string, McpTool>();
@@ -158,9 +320,48 @@ export class HttpForwardToolBackend implements ToolBackend {
   }
 
   /**
+   * Sessionless capability-introspection probe (SEP-2575). Returns true
+   * when `server/discover` succeeded and `false` if the upstream returned
+   * a 4xx (likely because it doesn't speak sessionless), which is the
+   * trigger for the `auto`-mode downgrade. Other transport errors are
+   * swallowed and surface as `false` so the caller can decide whether
+   * to retry or fall back.
+   */
+  private async doDiscover(url: string): Promise<boolean> {
+    const innerReq = {
+      jsonrpc: "2.0" as const,
+      id:      0,
+      method:  "server/discover",
+      params:  this.withMeta(undefined as undefined) as Record<string, unknown>,
+    };
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method:  "POST",
+        headers: this.requestHeaders(),
+        body:    JSON.stringify(innerReq),
+      });
+    } catch {
+      return false;
+    }
+    if (!res.ok) {
+      // Drain body so the connection can release.
+      await res.text().catch(() => "");
+      return false;
+    }
+    // We don't currently consume the `server/discover` result. Drain the
+    // body to release the connection; future work surfaces upstream
+    // capabilities into `/.well-known/mcp-registry/` (ADR-0015 Phase 3).
+    await res.json().catch(() => null);
+    return true;
+  }
+
+  /**
    * MCP Streamable HTTP `initialize` handshake. Captures the
    * `Mcp-Session-Id` response header and stores it for subsequent calls.
    * Concurrent callers share an in-flight Promise.
+   *
+   * Legacy-only — sessionless mode skips this entirely.
    */
   private async ensureSession(url: string): Promise<void> {
     if (this.sessionId !== null) return;
@@ -177,7 +378,7 @@ export class HttpForwardToolBackend implements ToolBackend {
       id:      0,
       method:  "initialize",
       params:  {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: LEGACY_PROTOCOL_VERSION,
         capabilities:    {},
         clientInfo:      CLOISTER_INFO,
       },
@@ -200,17 +401,6 @@ export class HttpForwardToolBackend implements ToolBackend {
     if (sid) this.sessionId = sid;
   }
 
-  private requestHeaders(): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Accept":       ACCEPT_HEADER,
-    };
-    if (this.spec.requiresSession && this.sessionId) {
-      h["Mcp-Session-Id"] = this.sessionId;
-    }
-    return h;
-  }
-
   async invoke(
     toolName: string,
     args: Record<string, unknown>,
@@ -229,15 +419,22 @@ export class HttpForwardToolBackend implements ToolBackend {
       ? toolName.slice(stripPrefix.length)
       : toolName;
 
+    const params: Record<string, unknown> = { name: wireName, arguments: args };
+    if (this.effectiveMode() === "next") {
+      params._meta = this.sessionlessMeta();
+    }
+
     const innerReq = {
       jsonrpc: "2.0" as const,
       id:      0,
       method:  "tools/call",
-      params:  { name: wireName, arguments: args },
+      params,
     };
 
     const tryCall = async (): Promise<Response> => {
-      if (this.spec.requiresSession) await this.ensureSession(url);
+      if (this.effectiveMode() === "current" && this.spec.requiresSession) {
+        await this.ensureSession(url);
+      }
       return this.fetchImpl(url, {
         method:  "POST",
         headers: this.requestHeaders(),
@@ -248,7 +445,20 @@ export class HttpForwardToolBackend implements ToolBackend {
     let res: Response;
     try {
       res = await tryCall();
-      if (!res.ok && res.status >= 400 && this.spec.requiresSession) {
+      // 400 in sessionless mode under "auto" is treated as the protocol-
+      // downgrade signal. We swap to current-spec and retry once with the
+      // legacy lifecycle. In "next" mode (no auto fallback configured)
+      // the error surfaces as an upstream HTTP failure.
+      if (
+        !res.ok && res.status >= 400
+        && this.effectiveMode() === "next"
+        && this.protocolMode === "auto"
+      ) {
+        await res.text().catch(() => "");
+        this.sessionlessDowngraded = true;
+        res = await tryCall();
+      }
+      if (!res.ok && res.status >= 400 && this.effectiveMode() === "current" && this.spec.requiresSession) {
         // Drain + reset session, retry once. Catches mache restarts and
         // upstream session-table evictions without surfacing the blip.
         await res.text().catch(() => "");
@@ -313,4 +523,16 @@ export class HttpForwardToolBackend implements ToolBackend {
 
     return parsed;
   }
+}
+
+/**
+ * Normalize the `protocolMode` field. Accepts the three documented values
+ * and treats anything else (including empty string and unset) as
+ * `"current"` — schema-evolution safe (older manifests + future-but-typo'd
+ * values both land on legacy behavior). Adding a new mode here is a
+ * deliberate schema change, not a stringly-typed footgun.
+ */
+function normalizeProtocolMode(value: string | undefined): ProtocolMode {
+  if (value === "next" || value === "auto") return value;
+  return "current";
 }

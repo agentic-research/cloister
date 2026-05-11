@@ -49,6 +49,15 @@ struct Gateway {
   # only; key bytes never appear in the manifest.
   actor    @2 :Actor;
   policy   @3 :InterlacePolicy;
+
+  # Set of MCP protocol versions this gateway advertises support for.
+  # Empty list ⇒ runtime default (current-spec "2025-11-25" only). Used by
+  # the server-side `/mcp` route both in `initialize` responses (current
+  # protocol) and in `server/discover` responses (sessionless / SEP-2575).
+  # When sessionless is enabled, declare both the legacy and new version
+  # strings here so dual-stack clients can pick.
+  # ADR-0015 Phase 2 (cloister-a35fdb).
+  supportedProtocolVersions @4 :List(Text);
 }
 
 # Interlace actor identity (ADR-0007). Pinned at build time; the
@@ -260,6 +269,23 @@ struct HttpForwardBackend {
   # servers (mache, rsry) which reject requests without a well-formed session
   # ID. Leave false for genuinely stateless upstreams (LLO daemon).
   requiresSession @4 :Bool;
+
+  # Per-upstream protocol mode (ADR-0015 Phase 2 / SEP-2575 / SEP-2567):
+  #   - "current" (default, empty string treated as same): legacy MCP
+  #     2025-11-25 lifecycle. `initialize` + (optional) sessions.
+  #   - "next":    sessionless. Every request carries the
+  #     `MCP-Protocol-Version` HTTP header and a `_meta` block with
+  #     `clientInfo`, `clientCapabilities`, `protocolVersion`. Catalog
+  #     introspection goes through `server/discover` instead of
+  #     `initialize`. No `Mcp-Session-Id` header. No
+  #     `notifications/initialized` notification.
+  #   - "auto":    try sessionless first; on a 400
+  #     `UnsupportedProtocolVersionError` from the upstream, cache that
+  #     fact and fall back to the legacy lifecycle. The cache lives for
+  #     the lifetime of the binding (i.e. until cloister restarts).
+  # Field is optional/append-only for back-compat with manifests built
+  # against older schemas; absent ⇒ "current".
+  protocolMode @5 :Text;
 }
 
 struct ServiceBindingBackend {

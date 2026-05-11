@@ -72,7 +72,11 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
       );
     }
     const backends = k.mcp.backends.map(toToolBackend);
-    return new McpEdgeRoute(backends);
+    // ADR-0015 Phase 2 / cloister-a35fdb: the gateway-level
+    // `supportedProtocolVersions` controls what cloister advertises in
+    // `server/discover` and accepts on the `MCP-Protocol-Version`
+    // header. Omitted ⇒ runtime default (legacy + sessionless).
+    return new McpEdgeRoute(backends, manifest.supportedProtocolVersions);
   }
   if ("serviceBindingProxy" in k) {
     // NotmeIdentityRoute hard-codes "/identity/*" + NOTME binding +

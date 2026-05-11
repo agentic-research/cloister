@@ -695,6 +695,86 @@ ADR-0012's content-addressed handoff; future code should default to
 that pattern rather than introducing new "two sequential RPCs without
 shared transaction" sites.
 
+## 13.5 Sessionless protocol (SEP-2575 + SEP-2567)
+
+ADR-0015 Phase 2 (`cloister-a35fdb`) added support for the MCP
+sessionless protocol: clients sending the `MCP-Protocol-Version` HTTP
+header bypass the `initialize` handshake entirely, declare their
+`clientInfo` / `clientCapabilities` / `protocolVersion` inline in a
+`_meta` block on every request, and discover server capabilities via
+`server/discover` rather than `initialize`.
+
+SEP-2575 §"Security Implications" warns:
+
+> Without a session handshake, every request must be independently
+> authenticated and authorized. Implementations MUST ensure that
+> authentication is not bypassed by the removal of the initialization
+> phase.
+
+### Disposition: **no change required at the auth layer**
+
+The cloister lease pipeline (§6 above) was designed independently of the
+MCP protocol-version concept. Every `POST /mcp` request carries its own
+lease envelope (cert + sig + ts + nonce in the Authorization-family
+headers) and is verified end-to-end against the pinned master pubkey
+before the request reaches `dispatch()`. Specifically:
+
+| Property | Legacy path | Sessionless path | Same? |
+|---|---|---|---|
+| Cert chain verify (§6.1) | Per-request | Per-request | yes |
+| Request signature verify (§6.2) | Per-request | Per-request | yes |
+| Scope enforcement (§6.3) | Per-request | Per-request | yes |
+| Replay defense via `seen_nonces` (§6.2.8) | Per-request | Per-request | yes |
+| Counter chain advance (§7) | Per-request | Per-request | yes |
+
+The `initialize` handshake was never load-bearing for auth — it carried
+no cryptographic state (no session key derivation, no MAC), only the
+protocol-version negotiation and a server-issued `Mcp-Session-Id` used
+for transport bookkeeping. Removing it changes nothing in the threat
+model's seam diagram (§3).
+
+The `handlePost` flow in `src/routes/mcp.ts` reflects this by running
+the same lease pipeline before *any* dispatch, regardless of whether
+`MCP-Protocol-Version` is present. The sessionless branch enters
+`dispatch()` with the same `VerifiedLease` the legacy branch produces;
+the `bead_create` orchestrator (§8) operates identically across both
+paths.
+
+### What changed (informationally)
+
+- The `Mcp-Session-Id` header is no longer used in sessionless mode and
+  is explicitly recorded as a violation by the Phase 0 fixture's
+  `mode: "next"` if a client sends it (SEP-2567 removed sessions). This
+  has no auth consequence — the header was never authenticated.
+- `server/discover` and `subscriptions/listen` are new RPCs. Both are
+  routed through the same `handlePost` lease gate; the latter is a
+  stub-and-ack today (cloister has no change-bearing primitives yet),
+  meaning a sessionless client subscribing to nothing receives an
+  acknowledgment but no notifications. No new seam.
+- A protocol-version mismatch between the `MCP-Protocol-Version` HTTP
+  header and an optional `_meta.io.modelcontextprotocol/protocolVersion`
+  body field produces an HTTP-400 JSON-RPC error per SEP-2243. This is
+  a wire-format check, not an auth check.
+
+### Adversary model deltas
+
+| Adversary capability | Legacy mitigation | Sessionless mitigation | Delta |
+|---|---|---|---|
+| Skip auth by skipping `initialize` | n/a — every request is checked | n/a — every request is checked | none |
+| Spoof an `Mcp-Session-Id` to impersonate a peer | Session id was a transport bookkeeping value; auth was the per-request signature | n/a — sessions removed | sessionless path is strictly simpler (one fewer header to consider) |
+| Downgrade a sessionless client to legacy to bypass new auth bits | n/a — auth bits are identical across paths | n/a — auth bits are identical across paths | none |
+
+The conclusion above also implies: any future auth-tightening landed on
+the legacy path (e.g. a replay window narrowing) automatically applies
+to the sessionless path because both share `handlePost`.
+
+### Outstanding: protocol-version oracle
+
+A pedantic concern: cloister advertises its `supportedProtocolVersions`
+in the `server/discover` response, which is reachable pre-auth in dev
+mode (no `INTERLACE_ROOT_PUBKEY`) and post-auth otherwise. In production
+the advertisement is gated by the lease pipeline. No oracle leak.
+
 ## 14. Cross-references
 
 - ADR-0007 §154 (bolded transactional rule) — preserved-via-substitute by

@@ -230,7 +230,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   //
   // Phase 2 implements the sessionless path for upstreams advertising
   // SEP-2575 support. Current implementation knows nothing about this.
-  it.skip("[Phase 2] sessionless mode: every request carries MCP-Protocol-Version header", async () => {
+  it("[Phase 2] sessionless mode: every request carries MCP-Protocol-Version header", async () => {
     const fixture = new FixtureMcpServer({
       mode:  "next",
       tools: [{ name: "ping" }],
@@ -238,7 +238,9 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     await fixture.start();
     try {
       const backend = new HttpForwardToolBackend(
-        specFor({ requiresSession: false }), // Phase 2 will add a `protocolMode` field
+        // Phase 2 (cloister-a35fdb): `protocolMode: "next"` flips the
+        // backend into the sessionless code path (SEP-2575 + SEP-2567).
+        specFor({ requiresSession: false, protocolMode: "next" }),
         "fixture_",
         fixture.fetcher,
       );
@@ -258,7 +260,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   // replaces capability negotiation via `initialize`. A Phase 2-compliant
   // proxy uses it to populate the upstream's serverInfo + capabilities for
   // `proxy/upstreams`.
-  it.skip("[Phase 2] sessionless mode: calls server/discover instead of initialize", async () => {
+  it("[Phase 2] sessionless mode: calls server/discover instead of initialize", async () => {
     const fixture = new FixtureMcpServer({
       mode:  "next",
       tools: [{ name: "ping" }],
@@ -266,7 +268,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     await fixture.start();
     try {
       const backend = new HttpForwardToolBackend(
-        specFor({ requiresSession: false }),
+        specFor({ requiresSession: false, protocolMode: "next" }),
         "fixture_",
         fixture.fetcher,
       );

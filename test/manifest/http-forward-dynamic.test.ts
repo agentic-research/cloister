@@ -416,3 +416,159 @@ describe("manifest runtime: dynamicTools validation", () => {
     expect(() => instantiate(m)).not.toThrow();
   });
 });
+
+// ── Sessionless client path (ADR-0015 Phase 2 / SEP-2575) ─────────────────
+//
+// These complement the fixture-based compliance tests in test/spec/. The
+// fixture asserts violations in aggregate; these tests pin specific wire-
+// level properties of the sessionless client (header presence, _meta
+// shape, no initialize, server/discover precedes tools/list).
+
+describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => {
+  it("sends MCP-Protocol-Version header on every request and inline _meta", async () => {
+    const recorded: Array<{ method: string; headers: Record<string, string>; body: { params?: { _meta?: Record<string, unknown> } } }> = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      const headers: Record<string, string> = {};
+      const raw = init?.headers ?? {};
+      if (raw instanceof Headers) raw.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+      else if (Array.isArray(raw)) for (const [k, v] of raw) headers[k.toLowerCase()] = String(v);
+      else for (const [k, v] of Object.entries(raw)) headers[k.toLowerCase()] = String(v);
+
+      const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
+      recorded.push({ method: body.method, headers, body });
+
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
+      return jsonResponse({ content: [{ type: "text", text: "{}" }] });
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: false,
+      protocolMode:    "next",
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/mcp"));
+
+    // Every outbound request carries MCP-Protocol-Version + _meta.
+    for (const call of recorded) {
+      expect(call.headers["mcp-protocol-version"]).toBeDefined();
+      expect(call.headers["mcp-session-id"]).toBeUndefined();
+      const meta = call.body.params?._meta;
+      expect(meta).toBeDefined();
+      expect(meta?.["io.modelcontextprotocol/protocolVersion"]).toBe("2026-XX-XX");
+      expect(meta?.clientInfo).toBeDefined();
+      expect(meta?.clientCapabilities).toBeDefined();
+    }
+  });
+
+  it("calls server/discover instead of initialize, in that order", async () => {
+    const seenMethods: string[] = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
+      seenMethods.push(body.method);
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
+      return jsonResponse({});
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: false,
+      protocolMode:    "next",
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/mcp"));
+
+    expect(seenMethods).toContain("server/discover");
+    expect(seenMethods).not.toContain("initialize");
+    // server/discover must arrive before tools/list.
+    const discoverIdx = seenMethods.indexOf("server/discover");
+    const listIdx     = seenMethods.indexOf("tools/list");
+    expect(discoverIdx).toBeLessThan(listIdx);
+  });
+
+  it("invoke() forwards _meta on tools/call and never sends a session header", async () => {
+    let callBody: { params?: { _meta?: Record<string, unknown> } } | null = null;
+    let callHeaders: Record<string, string> = {};
+    const fetcher: typeof fetch = async (_input, init) => {
+      const headers: Record<string, string> = {};
+      const raw = init?.headers ?? {};
+      if (raw instanceof Headers) raw.forEach((v, k) => { headers[k.toLowerCase()] = v; });
+      else if (Array.isArray(raw)) for (const [k, v] of raw) headers[k.toLowerCase()] = String(v);
+      else for (const [k, v] of Object.entries(raw)) headers[k.toLowerCase()] = String(v);
+
+      const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
+      if (body.method === "tools/call") {
+        callBody = body;
+        callHeaders = headers;
+        return jsonResponse({ content: [{ type: "text", text: '{"ok":true}' }] });
+      }
+      return jsonResponse({});
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: false,
+      protocolMode:    "next",
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/mcp"));
+    await b.invoke("mache_get_overview", { repo: "x" }, envWith("http://stub/mcp"));
+
+    expect(callBody).not.toBeNull();
+    expect(callBody!.params?._meta).toBeDefined();
+    expect(callHeaders["mcp-protocol-version"]).toBe("2026-XX-XX");
+    expect(callHeaders["mcp-session-id"]).toBeUndefined();
+  });
+});
+
+describe("HttpForwardToolBackend — protocolMode: 'auto' downgrade", () => {
+  it("downgrades to current-spec when upstream rejects sessionless on server/discover", async () => {
+    let discoverCount = 0;
+    let initializeCount = 0;
+    const fetcher: typeof fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
+      if (body.method === "server/discover") {
+        discoverCount++;
+        return new Response("not supported", { status: 400 });
+      }
+      if (body.method === "initialize") {
+        initializeCount++;
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 0, result: { protocolVersion: "2024-11-05" } }), {
+          status:  200,
+          headers: { "Content-Type": "application/json", "Mcp-Session-Id": "sid-1" },
+        });
+      }
+      if (body.method === "tools/list") return jsonResponse(TOOLS_LIST_RESULT);
+      return jsonResponse({});
+    };
+
+    const spec: HttpForwardBackend = {
+      urlBinding:      "MACHE_MCP_URL",
+      tools:           [],
+      dynamicTools:    true,
+      stripPrefix:     "mache_",
+      requiresSession: true,
+      protocolMode:    "auto",
+    };
+    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/mcp"));
+
+    expect(discoverCount).toBe(1);
+    expect(initializeCount).toBe(1);
+    // Derived catalog populated via the legacy path.
+    expect(b.tools().map(t => t.name).sort()).toEqual(["mache_find_callers", "mache_get_overview"]);
+  });
+});
