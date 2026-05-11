@@ -17,5 +17,17 @@
   "include": [
     "src/wire/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "dist-verify"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dist-verify",
+    // signet-verify.ts is the wasm-loading wrapper, not part of the
+    // wire codec. It imports a `.wasm` file by path, which NodeNext
+    // resolution refuses to load (Bundler resolution in tsconfig.json
+    // is fine because esbuild handles it). The substrate-equivalence
+    // smoke at `scripts/smoke-leyline-stub.mjs` exercises the codec
+    // round-trip, not the cert-chain verifier — exclude this file
+    // from the verify compile.
+    "src/wire/signet-verify.ts"
+  ]
 }

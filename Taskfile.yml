@@ -26,7 +26,16 @@ tasks:
     desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004). Overlays zod-derived tool schemas (cloister-7ca96c).
     deps: [tool-schemas]
     cmds:
-      - node scripts/build-manifest.mjs
+      # `scripts/build-manifest.mjs` dynamically `import()`s
+      # `src/generated/tool-schemas.ts` — a `.ts` file directly. Node 23+
+      # strips types natively (works locally), but the CI runner uses
+      # Node 20 LTS (matches workerd's runtime line) which can't load .ts
+      # without a loader. `tsx` (in devDeps) provides the loader on any
+      # Node version. Don't switch back to `node` until CI moves off
+      # Node 20 OR build-tool-schemas emits .mjs (the latter would
+      # break tsc on src/generated/tool-schemas.ts; pick the right path
+      # then, not now).
+      - pnpm exec tsx scripts/build-manifest.mjs
     sources:
       - cloister.capnp
       - manifest/cloister.capnp
@@ -300,6 +309,17 @@ tasks:
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
     deps: [lint, wire:verify-roundtrip, smoke:leyline-stub]
+
+  ci:
+    desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."
+    cmds:
+      - 'echo "[ci] Running the exact gate CI runs. See .github/workflows/ci.yml for the workflow spec."'
+      - task: lint
+      - task: verify
+
+  pre-push:
+    desc: "Pre-push gate — alias for `task ci`. Wire into .git/hooks/pre-push (or just `task pre-push` manually) to catch CI failures before the push, not after."
+    deps: [ci]
 
   smoke:
     desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain
