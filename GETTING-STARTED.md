@@ -472,6 +472,12 @@ conformance suite, you're conformant; if it diverges, see
 [threat-model §7.7](docs/security/threat-model.md) for the
 "silently-wrong" failure modes implementors hit.
 
+**If you want to wire a client to it** —
+[`docs/integration/mcp-client.md`](docs/integration/mcp-client.md) is the
+one-stop reference: which URL to point each MCP client at (Claude Code,
+Cursor, raw curl), the auth model when `INTERLACE_ROOT_PUBKEY` is set,
+and the most common failure modes with fixes.
+
 **If you're operating it** —
 [`docs/deployment/cluster-in-a-pod.md`](docs/deployment/cluster-in-a-pod.md)
 covers the three deployment targets (`task cluster:dev` mac-native,

@@ -254,7 +254,9 @@ curl -s -X POST http://localhost:8787/mcp \
 ```
 
 For step-by-step setup including upstream wiring and end-to-end verification,
-see [GETTING-STARTED.md](GETTING-STARTED.md).
+see [GETTING-STARTED.md](GETTING-STARTED.md). For wiring details specific
+to MCP clients (Claude Code, Cursor, raw curl) — auth, transport, common
+failure modes — see [docs/integration/mcp-client.md](docs/integration/mcp-client.md).
 
 ## Run via workerd directly (no Cloudflare account)
 

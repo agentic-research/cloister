@@ -158,6 +158,8 @@ parallel-direct against the same checkout.**
 | Commit rejected: "commit message must start with [bead-id]" | `.rsry-bead-id` missing or message hand-typed without the prefix | `echo <bead-id> > .rsry-bead-id` then re-commit, or include `[<bead-id>]` in message |
 | `cargo test` fails on `axum` / `leyline-cli-lib` | ley-line ↔ ley-line-open Cargo.toml drift (open bead `ley-line-9e6b97`) | Don't `--no-verify`; wait for that bead to land |
 | Apko build fails: `task image:check` errors on `melange.yaml` | Schema drift in the apko/melange tooling | `task image:check` shows the parser error; fix the YAML |
+| workerd boot: `*** Fatal uncaught kj::Exception: kj/cidr.c++: invalid CIDR; pattern = <X>` | A `network.allow` (or `deny`) entry in `config.capnp` is not a valid CIDR string or the magic tokens `public`/`private`. Common mistake: `["localhost:8788"]` (host:port). | Use `"public"` for "anywhere routable", `"private"` for RFC1918, or a valid CIDR (`"127.0.0.1/32"`). Reachability to a specific upstream is gated by the service binding (its URL), not by the network allowlist. Per `cloister-27ae16`. |
+| `task cluster:up` fails fast: cloister image not present | apko appends `-<arch>` to the docker tag, but `cluster.compose.yaml` references `cloister:0.1.0` (no arch). | `docker load < cloister.tar && docker tag cloister:0.1.0-$(uname -m \| sed 's/arm64/aarch64/') cloister:0.1.0`. `task image` echoes the same hint. Per `cloister-280136`. |
 
 ## When you find new failure modes
 
