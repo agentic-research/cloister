@@ -84,12 +84,20 @@ import {
   type ApplyAttestationResult,
   type PeerAttestation,
 } from "./storage/peer-attestations.js";
+import {
+  SCHEMA_REGISTRY_TAGS,
+  getManifestDigestForTag as getManifestDigestForTagHelper,
+  listRepos as listReposHelper,
+  listTagsForRepo as listTagsForRepoHelper,
+  upsertTag as upsertTagHelper,
+} from "./storage/registry-tags.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
 ${SCHEMA_SEEN_NONCES}
 ${SCHEMA_PENDING_ATTESTATIONS}
 ${SCHEMA_PEER_ATTESTATIONS}
+${SCHEMA_REGISTRY_TAGS}
 `;
 
 /**
@@ -546,6 +554,50 @@ export class TrustStore extends DurableObject {
       }
     }
     return { claimed: batch.length, committed, failed };
+  }
+
+  // ── OCI registry tag index (cloister-cabd57) ────────────────────────────
+  //
+  // Phase 1 (read-only pull path) — the RPC surface the OCI route relies
+  // on. Writes happen via the `scripts/import-image.mjs` import path
+  // (operator-driven, deploy-time); reads happen on every `docker pull`.
+  // Schema lives in src/storage/registry-tags.ts; this class re-exports
+  // the helpers as DO RPC methods so callers don't poke at the SQL
+  // executor through the stub.
+
+  /**
+   * UPSERT a `(repo, tag) → manifest_digest` mapping. Idempotent on
+   * (repo, tag) — re-tagging the same blob is a no-op; re-pointing a tag
+   * to a different blob overwrites the digest in place.
+   *
+   * `manifestDigest` MUST be in "sha256:<64-hex>" form. The route layer
+   * validates the prefix; this method trusts its caller. The bytes the
+   * digest points at MUST be in BlobStore — the OCI registry route
+   * doesn't check (the import script writes blob-then-tag, so the
+   * invariant holds at write time).
+   */
+  upsertRegistryTag(
+    repo:           string,
+    tag:            string,
+    manifestDigest: string,
+    nowMs:          number,
+  ): void {
+    upsertTagHelper(this.db, repo, tag, manifestDigest, nowMs);
+  }
+
+  /** Resolve a tag → digest; null if the tag is unknown for that repo. */
+  getRegistryManifestDigestForTag(repo: string, tag: string): string | null {
+    return getManifestDigestForTagHelper(this.db, repo, tag);
+  }
+
+  /** List a repo's tags (lex ascending). Empty array for unknown repo. */
+  listRegistryTagsForRepo(repo: string): string[] {
+    return listTagsForRepoHelper(this.db, repo);
+  }
+
+  /** List all repos with at least one tag (lex ascending). */
+  listRegistryRepos(): string[] {
+    return listReposHelper(this.db);
   }
 }
 

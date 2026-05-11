@@ -68,6 +68,23 @@ const gateway :Cloister.Gateway = (
     ( path = "/.well-known/identity-bridge",
       kind = (wellKnownIdentityBridge = void) ),
 
+    # ── OCI Distribution Spec v1.1 registry (cloister-cabd57) ──────────────
+    # Phase 1 read-only pull path. One Route declaration covers every
+    # `/v2/*` endpoint because the handler's URLPatterns match them all
+    # internally. `path` below is a sentinel — the actual matching is:
+    #   GET  /v2/                              — version handshake
+    #   GET  /v2/_catalog                      — repo listing
+    #   GET  /v2/<name>/tags/list              — tag listing
+    #   HEAD /v2/<name>/manifests/<reference>  — existence check
+    #   GET  /v2/<name>/manifests/<reference>  — manifest bytes
+    #   HEAD /v2/<name>/blobs/<digest>         — existence check
+    #   GET  /v2/<name>/blobs/<digest>         — blob bytes
+    # Blob bytes flow from BlobStore (ADR-0003 phase 1); tag → manifest
+    # mapping lives in TrustStore.registry_tags. Second non-MCP tenant.
+    # See src/routes/oci-registry.ts.
+    ( path = "/v2",
+      kind = (ociRegistry = void) ),
+
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
       kind = (serviceBindingProxy = (

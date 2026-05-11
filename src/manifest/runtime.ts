@@ -31,6 +31,7 @@ import { NotmeIdentityRoute } from "../routes/notme-identity.js";
 import { WellKnownInterlaceRoute } from "../routes/well-known.js";
 import { WellKnownIdentityBridgeRoute } from "../routes/well-known-identity.js";
 import { DisclosureRoute } from "../routes/disclosure.js";
+import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -120,6 +121,17 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // router. The route's `path` field is a sentinel marker; the actual
     // path matching happens inside the handler.
     return new WellKnownIdentityBridgeRoute(manifest);
+  }
+  if ("ociRegistry" in k) {
+    // OCI Distribution Spec (v1.1) registry, Phase 1 read-only (cloister-cabd57).
+    // One EdgeRoute handles every `/v2/*` endpoint because they all
+    // project the same content-addressed substrate: blobs from
+    // BlobStore + tag→manifest mapping from TrustStore.registry_tags.
+    // The route's `path` field is a sentinel marker; the actual path
+    // matching happens inside the handler's URLPatterns. Sibling tenant
+    // to the identity bridge — both are non-MCP tenants on the same
+    // ADR-0002 seam.
+    return new OciRegistryRoute();
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

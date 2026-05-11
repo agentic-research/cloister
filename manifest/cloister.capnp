@@ -149,6 +149,19 @@ struct Route {
     # `/.well-known/webfinger`, `/.well-known/nostr.json`,
     # `/oauth/token`). cloister-c9922f.
     wellKnownIdentityBridge @7 :Void;
+
+    # OCI Distribution Spec (v1.1) registry — Phase 1 read-only pull
+    # path (cloister-cabd57). The handler serves all v2/* endpoints
+    # under one route declaration; `path` here is a sentinel marker.
+    # URLPatterns inside the handler match `/v2/`, `/v2/_catalog`,
+    # `/v2/<name>/tags/list`, `/v2/<name>/manifests/<ref>`, and
+    # `/v2/<name>/blobs/<digest>`. Blob bytes flow from BlobStore;
+    # the tag → manifest mapping lives in `TrustStore.registry_tags`.
+    # Second non-MCP tenant after `wellKnownIdentityBridge` — together
+    # they form the load-bearing demonstration that ADR-0002's
+    # protocol-agnostic seam holds. Auth posture is anonymous pulls
+    # in Phase 1; Phase 2 will add an `oci:push:<repo>` scope for writes.
+    ociRegistry             @8 :Void;
   }
 }
 

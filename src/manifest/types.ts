@@ -97,7 +97,25 @@ export type RouteKind =
    * on the actual paths above via its own `match()`. See
    * `src/routes/well-known-identity.ts`.
    */
-  | { wellKnownIdentityBridge: null };
+  | { wellKnownIdentityBridge: null }
+  /**
+   * OCI Distribution Spec (v1.1) registry, Phase 1 read-only pull path
+   * (cloister-cabd57). Handler serves all `v2/*` endpoints under one
+   * route declaration; the route's `path` is a sentinel marker. The
+   * inner URLPatterns match:
+   *
+   *   - `GET  /v2/`                              (version handshake)
+   *   - `GET  /v2/_catalog`                      (repo listing)
+   *   - `GET  /v2/<name>/tags/list`              (tag listing)
+   *   - `HEAD /v2/<name>/manifests/<reference>`  (existence check)
+   *   - `GET  /v2/<name>/manifests/<reference>`  (manifest bytes)
+   *   - `HEAD /v2/<name>/blobs/<digest>`         (existence check)
+   *   - `GET  /v2/<name>/blobs/<digest>`         (blob bytes)
+   *
+   * Blob bytes flow from `BlobStore`; the tag → manifest mapping lives
+   * in `TrustStore.registry_tags`. See `src/routes/oci-registry.ts`.
+   */
+  | { ociRegistry:             null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];
