@@ -161,6 +161,15 @@ describe("McpEdgeRoute.handlePost — lease gate (INTERLACE_ROOT_PUBKEY set)", (
     // through 2049-12-31, so wall-clock Date.now() falls inside the
     // window. signedMcpRequest signs canonical bytes with the fixture's
     // ephemeral key at `tsMs: Date.now()`, so clock-skew passes too.
+    //
+    // 2026-05-10 cloister-492c08: this test previously expected -32601
+    // ("unknown tool") because McpEdgeRoute had no backends registered
+    // and `bead_create` fell through to the post-gate dispatch error.
+    // The cross-DO orchestrator interceptor now handles `bead_create`
+    // INSIDE McpEdgeRoute (regardless of backends), so the call now
+    // succeeds end-to-end: BlobStore.put → BeadStore.bead_create →
+    // TrustStore.applyAttestation. The new "lease gate passed" signal
+    // is "HTTP 200 with a successful bead-create result body".
     _resetCache();
     const root = await makeRootKey();
     const bundle = await makeBundleResponder(root.privateKey);
@@ -177,14 +186,21 @@ describe("McpEdgeRoute.handlePost — lease gate (INTERLACE_ROOT_PUBKEY set)", (
       async () => Response.json(bundle),
     ));
 
-    // The dispatch reaches the empty-backend McpEdgeRoute, which
-    // returns method-not-found (-32601) because there's no bead_create
-    // tool registered. The key point: the LEASE GATE PASSED — if it
-    // had rejected, we'd see a 4xx/5xx + lease error code (-32001/3/5).
-    // Instead we see HTTP 200 with the post-gate dispatch error.
+    // The orchestrator ran end-to-end. HTTP 200 + a success body with
+    // the bead id and content_hash. Had the lease gate REJECTED we'd
+    // see a 4xx with a lease-error code (-32001/3/5).
     expect(res.status).toBe(200);
-    const body = await res.json() as { error?: { code: number } };
-    expect(body.error?.code).toBe(-32601);
+    const body = await res.json() as { result?: { content?: { type: string; text: string }[] }; error?: { code: number } };
+    expect(body.error).toBeUndefined();
+    expect(body.result?.content?.[0]?.type).toBe("text");
+    const orchestratorResult = JSON.parse(body.result!.content![0]!.text) as {
+      id: string;
+      content_hash: string;
+      state: string;
+    };
+    expect(orchestratorResult.id).toMatch(/^[0-9a-f]{8}$/);
+    expect(orchestratorResult.content_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(orchestratorResult.state).toBe("open");
   });
 
   it("CORS Access-Control-Allow-Origin is set on lease-error responses", async () => {
