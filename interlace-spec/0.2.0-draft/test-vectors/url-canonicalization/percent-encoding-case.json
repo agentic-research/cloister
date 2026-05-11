@@ -1,0 +1,23 @@
+{
+  "$comment": "Percent-encoding hex case folding (URL-CANONICALIZATION.md §3.3.4 rule 5). P emits %2F (uppercase) or %2f (lowercase); proxy may rewrite to the other case. Both ends uppercase to %2F per RFC 3986 §6.2.2.1. %2F is RFC 3986 reserved (the slash), so it stays encoded (rule 7).",
+  "name": "percent-encoding-case",
+  "scenario": "HTTP/2 client lowercase canonicalization vs HTTP/1 preserve-as-emitted",
+  "prefix": "",
+  "p_signed_url": "https://api.example.com/foo?path=%2Fhome",
+  "a_received_url": "https://api.example.com/foo?path=%2fhome",
+  "p_pre_normalize_query": "path=%2Fhome",
+  "a_pre_normalize_query": "path=%2fhome",
+  "expected_path_suffix": "/foo?path=%2Fhome",
+  "inputs": {
+    "method": "GET",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": ""
+  },
+  "canonical_bytes_template": "GET\\n/foo?path=%2Fhome\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n",
+  "canonical_bytes_len": 59,
+  "canonical_bytes_hex": "4745540a2f666f6f3f706174683d253246686f6d650a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a",
+  "canonical_bytes_sha256_hex": "a24d8695e869a13f55f631a0c214a72afb37976e809cec93144165b4e1e38eb7",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "a24d8695e869a13f55f631a0c214a72afb37976e809cec93144165b4e1e38eb7"
+}

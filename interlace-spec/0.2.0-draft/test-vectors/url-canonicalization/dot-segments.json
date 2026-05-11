@@ -1,0 +1,24 @@
+{
+  "$comment": "Dot-segment removal per RFC 3986 §5.2.4 (URL-CANONICALIZATION.md §3.3.4 rule 3). Both ends resolve ./ and ../ before reaching the canonical bytes. The exact algorithm is RFC 3986's, applied verbatim; this vector pins a simple case.",
+  "name": "dot-segments",
+  "scenario": "Naive URL builder emits relative path components; both ends normalize",
+  "prefix": "",
+  "p_signed_url": "https://api.example.com/foo/./baz/../bar",
+  "a_received_url": "https://api.example.com/foo/bar",
+  "p_pre_normalize_path": "/foo/./baz/../bar",
+  "a_pre_normalize_path": "/foo/bar",
+  "expected_path_suffix": "/foo/bar",
+  "inputs": {
+    "method": "GET",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": ""
+  },
+  "canonical_bytes_template": "GET\\n/foo/bar\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n",
+  "canonical_bytes_len": 50,
+  "canonical_bytes_hex": "4745540a2f666f6f2f6261720a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a",
+  "canonical_bytes_sha256_hex": "1ddefb8820cbd9816852ab9fd6da2da0a244d4021289369f5b7e1d766ffa29a2",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "1ddefb8820cbd9816852ab9fd6da2da0a244d4021289369f5b7e1d766ffa29a2",
+  "$comment_security": "Dot-segment removal is REQUIRED, not optional. A naive proxy that resolves dot-segments and a naive P that doesn't would otherwise disagree, and the signature would fail. Both ends MUST apply the same RFC 3986 §5.2.4 algorithm."
+}

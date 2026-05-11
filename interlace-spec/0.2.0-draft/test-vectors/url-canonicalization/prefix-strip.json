@@ -1,0 +1,22 @@
+{
+  "$comment": "Primary canonicalizable case. Operator routes /v1/cluster/mcp to a backend at /mcp by stripping /v1/cluster. Affects Kong, Envoy, AWS API Gateway, NGINX ingress, Caddy, Traefik. P signs over path-suffix /mcp; A computes path-suffix /mcp; signature verifies.",
+  "name": "prefix-strip",
+  "scenario": "Kong/Envoy/NGINX-style prefix stripping",
+  "prefix": "/v1/cluster",
+  "p_signed_url": "https://api.example.com/v1/cluster/mcp",
+  "a_received_url": "https://internal/mcp",
+  "expected_path_suffix": "/mcp",
+  "inputs": {
+    "method": "POST",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+  },
+  "canonical_bytes_template": "POST\\n/mcp\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}",
+  "canonical_bytes_len": 105,
+  "canonical_bytes_hex": "504f53540a2f6d63700a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a22746f6f6c732f6c697374222c22706172616d73223a7b7d7d",
+  "canonical_bytes_sha256_hex": "7a3ed325013918d6f02f6fe7eecef8320947f31836b5e7dfd68a3b3fd408314e",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "7a3ed325013918d6f02f6fe7eecef8320947f31836b5e7dfd68a3b3fd408314e",
+  "$comment_receipts": "request_hash (RECEIPTS.md §2.1) is byte-identical to canonical_bytes_sha256_hex by definition. The receipts spec consumes the same canonical bytes."
+}

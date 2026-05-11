@@ -1,0 +1,20 @@
+{
+  "$comment": "Un-canonicalizable request (URL-CANONICALIZATION.md §3.3.5). A's declared prefix is /v1/cluster; A's verifier observes a path /v2/cluster/mcp that does NOT start with the prefix and is not equal to the prefix. The verifier MUST reject with bad_request_sig BEFORE attempting any signature verification.",
+  "name": "uncanonicalizable-reject",
+  "scenario": "Misrouted request / stale prefix declaration / cross-deployment leakage",
+  "prefix": "/v1/cluster",
+  "p_signed_url": "https://api.example.com/v1/cluster/mcp",
+  "a_received_url": "https://internal/v2/cluster/mcp",
+  "expected_path_suffix": null,
+  "inputs": {
+    "method": "POST",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+  },
+  "$comment_p_canonical": "P would have computed canonical bytes over path-suffix /mcp (its declared prefix at signing time was /v1/cluster). For reference, the P-side canonical-bytes SHA-256 matches prefix-strip.json: 7a3ed325013918d6f02f6fe7eecef8320947f31836b5e7dfd68a3b3fd408314e. But A NEVER reaches signature verification; rejection happens at §3.3.3 prefix-strip when /v2/cluster/mcp does not start with /v1/cluster + '/'.",
+  "verifier_outcome": "reject",
+  "verifier_rejection_reason": "bad_request_sig",
+  "verifier_rejection_detail": "request path does not start with declared prefix; un-canonicalizable per §3.3.5",
+  "$comment_receipts": "RECEIPTS.md §5 inherits this: A MUST NOT emit a receipt over the un-canonicalizable request. The receipt would commit to bytes P cannot reproduce, so P would reject it; the rejection happens at the lease layer instead."
+}

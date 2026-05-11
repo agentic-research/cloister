@@ -577,3 +577,204 @@ function b64StdDecode(s: string): Uint8Array {
 // Used by isCertEpochCurrent's caller — re-exported for downstream
 // middleware routes that want to compute the same check.
 export { isCertEpochCurrent };
+
+// ── 0.2.0 URL-canonicalization prototype (cloister-aecd26) ──────────────
+//
+// SKETCH — not wired into the live verifier path.
+//
+// This helper demonstrates the path-suffix canonicalization rules defined
+// in interlace-spec/0.2.0-draft/URL-CANONICALIZATION.md §3.3 for the
+// cross-implementation conformance suite. The PRODUCTION verifier above
+// (`verifyAndUpsertLease`) still uses the 0.1.0 full-URL canonical bytes
+// (`canonicalRequestBytes`); switching the live path waits for 0.2.0 spec
+// ratification + a follow-up bead.
+//
+// The reference test vectors under
+//   interlace-spec/0.2.0-draft/test-vectors/url-canonicalization/*.json
+// pin canonical-bytes hex and SHA-256 values that
+// `canonicalPathSuffix_0_2_0_prototype` MUST reproduce given the same
+// inputs. RECEIPTS.md §2.1 `request_hash` inherits these bytes:
+// `SHA-256(canonicalRequestBytesV2(...))`.
+//
+// DO NOT call this from production code. The receipts spec also pairs
+// with this change and lands in the same 0.2.0 cutover (see
+// cloister-ae713f).
+
+/**
+ * Strip the operator-declared prefix from `path` per
+ * URL-CANONICALIZATION.md §3.3.3. Returns the post-strip path, or
+ * `undefined` if the path is un-canonicalizable under the prefix
+ * (verifier MUST reject as bad_request_sig).
+ *
+ * Edge cases:
+ *   prefix == "" → no-op, return path as-is.
+ *   path == prefix → return "/" (root-of-route).
+ *   path starts with prefix + "/" → return path[prefix.length:].
+ *   otherwise → undefined.
+ */
+function stripPrefix_0_2_0(path: string, prefix: string): string | undefined {
+  if (prefix === "") return path;
+  if (path === prefix) return "/";
+  if (path.startsWith(prefix + "/")) return path.slice(prefix.length);
+  return undefined;
+}
+
+/**
+ * Normalize a path per URL-CANONICALIZATION.md §3.3.4. Apply rules in
+ * the order given by the spec:
+ *
+ *   1. Empty → "/".
+ *   2. Collapse consecutive "/" runs.
+ *   3. Resolve "." and ".." segments per RFC 3986 §5.2.4.
+ *   4. Strip a single trailing "/" unless path is exactly "/".
+ *   5. Uppercase percent-encoded hex; decode RFC 3986 §2.3 unreserved.
+ */
+function normalizePath_0_2_0(input: string): string {
+  // Rule 1.
+  if (input === "") return "/";
+
+  // Rule 2: collapse repeated slashes.
+  let path = input.replace(/\/+/g, "/");
+
+  // Rule 3: RFC 3986 §5.2.4 dot-segment removal. Implementation per
+  // the RFC's pseudocode — operates on a stack of segments.
+  const segments = path.split("/");
+  const stack: string[] = [];
+  for (const seg of segments) {
+    if (seg === "" || seg === ".") {
+      // Skip empty (preserves leading/trailing slash context) and ".".
+      // We re-emit empty for path boundaries below.
+      continue;
+    }
+    if (seg === "..") {
+      stack.pop();
+      continue;
+    }
+    stack.push(seg);
+  }
+  // Reassemble with leading slash if input started with "/", and trailing
+  // slash if input ended with "/" (rule 4 will strip below).
+  const startsWithSlash = path.startsWith("/");
+  const endsWithSlash   = path.endsWith("/") && path !== "/";
+  path = (startsWithSlash ? "/" : "") + stack.join("/") + (endsWithSlash ? "/" : "");
+  if (path === "") path = "/";
+
+  // Rule 4: trim single trailing slash on non-root paths.
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+
+  // Rule 5: percent-encoding normalization.
+  path = normalizePctEncoding_0_2_0(path);
+
+  return path;
+}
+
+/**
+ * Normalize percent-encoded triplets per URL-CANONICALIZATION.md
+ * §3.3.4 rule 5 and §3.3.5 rule 4. Uppercase hex; decode unreserved.
+ */
+function normalizePctEncoding_0_2_0(s: string): string {
+  return s.replace(/%([0-9a-fA-F]{2})/g, (_, hex: string) => {
+    const upper = hex.toUpperCase();
+    const byte = Number.parseInt(upper, 16);
+    // RFC 3986 §2.3 unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
+    const isUnreserved =
+      (byte >= 0x41 && byte <= 0x5A) || // A-Z
+      (byte >= 0x61 && byte <= 0x7A) || // a-z
+      (byte >= 0x30 && byte <= 0x39) || // 0-9
+      byte === 0x2D || byte === 0x2E || byte === 0x5F || byte === 0x7E;
+    return isUnreserved ? String.fromCharCode(byte) : "%" + upper;
+  });
+}
+
+/**
+ * Normalize a query string per URL-CANONICALIZATION.md §3.3.5.
+ * Returns the canonical query (no leading "?"); empty string if no
+ * canonical query content.
+ */
+function normalizeQuery_0_2_0(query: string): string {
+  if (query === "") return "";
+
+  // Split on "&"; each pair split on the FIRST "=".
+  type Pair = { key: string; value: string; origIndex: number };
+  const pairs: Pair[] = query.split("&").map((pair, i) => {
+    const eq = pair.indexOf("=");
+    if (eq < 0) return { key: pair, value: "", origIndex: i };
+    return { key: pair.slice(0, eq), value: pair.slice(eq + 1), origIndex: i };
+  });
+
+  // Apply percent-encoding normalization to keys and values.
+  for (const p of pairs) {
+    p.key   = normalizePctEncoding_0_2_0(p.key);
+    p.value = normalizePctEncoding_0_2_0(p.value);
+  }
+
+  // Stable sort by bytewise-lex on key, preserving original order
+  // within equal keys (§3.3.5 rule 4).
+  pairs.sort((a, b) => {
+    if (a.key < b.key) return -1;
+    if (a.key > b.key) return 1;
+    return a.origIndex - b.origIndex;
+  });
+
+  return pairs.map((p) => `${p.key}=${p.value}`).join("&");
+}
+
+/**
+ * Compute the 0.2.0 canonical path-suffix for a request URL per
+ * URL-CANONICALIZATION.md §3.3.
+ *
+ * Returns the path-suffix string on success, or `undefined` if the
+ * request is un-canonicalizable under the declared prefix. The verifier
+ * MUST reject un-canonicalizable requests as `bad_request_sig` BEFORE
+ * attempting signature verification.
+ *
+ * @param rawUrl       The full request URL (P's outgoing URL or A's
+ *                     observed `request.url`).
+ * @param prefix       The operator-declared prefix from
+ *                     `.well-known/interlace/index.json`. Empty string
+ *                     means no prefix.
+ *
+ * SKETCH ONLY — not wired into the live verifier. See module-level
+ * banner above.
+ */
+export function canonicalPathSuffix_0_2_0_prototype(
+  rawUrl: string,
+  prefix: string,
+): string | undefined {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); }
+  catch { return undefined; }
+
+  const stripped = stripPrefix_0_2_0(parsed.pathname, prefix);
+  if (stripped === undefined) return undefined;
+
+  const path  = normalizePath_0_2_0(stripped);
+  const query = normalizeQuery_0_2_0(parsed.search.startsWith("?")
+    ? parsed.search.slice(1)
+    : parsed.search);
+
+  return query === "" ? path : `${path}?${query}`;
+}
+
+/**
+ * Compute the 0.2.0 canonical request bytes — same shape as
+ * `canonicalRequestBytes` (the 0.1.0 path) but with `path-suffix`
+ * substituted for the full URL field. See URL-CANONICALIZATION.md §3.2.
+ *
+ * Caller is responsible for computing `pathSuffix` from
+ * `canonicalPathSuffix_0_2_0_prototype` and rejecting requests where
+ * the function returns `undefined`.
+ *
+ * SKETCH ONLY — `verifyAndUpsertLease` does NOT call this yet.
+ */
+export function canonicalRequestBytesV2_prototype(
+  method:      string,
+  pathSuffix:  string,
+  ts:          number,
+  nonce:       Uint8Array,
+  body:        string,
+): Uint8Array {
+  const nonceB64 = b64encode(nonce);
+  const text = `${method}\n${pathSuffix}\n${ts}\n${nonceB64}\n${body}`;
+  return new TextEncoder().encode(text);
+}

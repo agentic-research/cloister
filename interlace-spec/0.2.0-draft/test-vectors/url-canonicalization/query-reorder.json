@@ -1,0 +1,24 @@
+{
+  "$comment": "Query-parameter reordering (URL-CANONICALIZATION.md §3.3.5 rule 4). P signs ?b=2&a=1; proxy reorders to ?a=1&b=2 for cache normalization. Both ends sort pairs bytewise lex by key, reaching the canonical query a=1&b=2.",
+  "name": "query-reorder",
+  "scenario": "Cloudflare argo / Go net/url re-serialize / OpenAPI client alphabetize",
+  "prefix": "",
+  "p_signed_url": "https://api.example.com/foo?b=2&a=1",
+  "a_received_url": "https://api.example.com/foo?a=1&b=2",
+  "p_pre_normalize_query": "b=2&a=1",
+  "a_pre_normalize_query": "a=1&b=2",
+  "expected_path_suffix": "/foo?a=1&b=2",
+  "inputs": {
+    "method": "GET",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": ""
+  },
+  "canonical_bytes_template": "GET\\n/foo?a=1&b=2\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n",
+  "canonical_bytes_len": 54,
+  "canonical_bytes_hex": "4745540a2f666f6f3f613d3126623d320a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a",
+  "canonical_bytes_sha256_hex": "0b982ce8aee1812bb7683c25c59bd88c9c2016b46b92663a359e38b80d4a4916",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "0b982ce8aee1812bb7683c25c59bd88c9c2016b46b92663a359e38b80d4a4916",
+  "$comment_duplicates": "Duplicate keys preserve original RELATIVE order per §3.3.5 rule 4. E.g. ?tag=a&tag=b stays tag=a&tag=b after sort because tag==tag and a-then-b was the original order."
+}

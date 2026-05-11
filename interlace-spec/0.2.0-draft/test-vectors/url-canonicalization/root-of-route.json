@@ -1,0 +1,24 @@
+{
+  "$comment": "Root-of-route case (URL-CANONICALIZATION.md §3.3.3 / §3.3.4 rule 1). The request path equals the declared prefix exactly (path == prefix), so after prefix-strip the path is empty. §3.3.4 rule 1 promotes the empty path to /.",
+  "name": "root-of-route",
+  "scenario": "P hits the route root at /api with prefix /api declared (proxy preserves the prefix end-to-end)",
+  "prefix": "/api",
+  "p_signed_url": "https://api.example.com/api",
+  "a_received_url": "https://internal/api",
+  "p_pre_normalize_path": "/api",
+  "a_pre_normalize_path": "/api",
+  "expected_path_suffix": "/",
+  "inputs": {
+    "method": "POST",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+  },
+  "canonical_bytes_template": "POST\\n/\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}",
+  "canonical_bytes_len": 102,
+  "canonical_bytes_hex": "504f53540a2f0a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a22746f6f6c732f6c697374222c22706172616d73223a7b7d7d",
+  "canonical_bytes_sha256_hex": "872e29a7e00d3702d2495db6fc1e0a654d60bc0f0f21753073a3ac847f92b6dc",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "872e29a7e00d3702d2495db6fc1e0a654d60bc0f0f21753073a3ac847f92b6dc",
+  "$comment_strip": "Both sides apply §3.3.3 'path == prefix' branch: stripped_path is set to '/'. §3.3.4 rule 1 is a no-op because '/' is already the root. The path-suffix is '/'."
+}

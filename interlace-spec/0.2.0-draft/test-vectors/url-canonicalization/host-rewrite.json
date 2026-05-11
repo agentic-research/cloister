@@ -1,0 +1,21 @@
+{
+  "$comment": "ALB-style host rewriting. Public hostname (api.example.com) differs from backend hostname (internal-svc.svc.cluster.local) but path is preserved. Path-suffix is identical end-to-end because host is NOT in the canonical bytes per URL-CANONICALIZATION.md §3.2.",
+  "name": "host-rewrite",
+  "scenario": "AWS ALB / GCP load balancer / service-mesh host rewriting",
+  "prefix": "",
+  "p_signed_url": "https://api.example.com/mcp",
+  "a_received_url": "https://internal-svc.svc.cluster.local/mcp",
+  "expected_path_suffix": "/mcp",
+  "inputs": {
+    "method": "POST",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+  },
+  "canonical_bytes_template": "POST\\n/mcp\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}",
+  "canonical_bytes_len": 105,
+  "canonical_bytes_hex": "504f53540a2f6d63700a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a22746f6f6c732f6c697374222c22706172616d73223a7b7d7d",
+  "canonical_bytes_sha256_hex": "7a3ed325013918d6f02f6fe7eecef8320947f31836b5e7dfd68a3b3fd408314e",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "7a3ed325013918d6f02f6fe7eecef8320947f31836b5e7dfd68a3b3fd408314e"
+}

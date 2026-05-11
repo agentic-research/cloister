@@ -1,0 +1,24 @@
+{
+  "$comment": "Percent-encoded unreserved characters are decoded (URL-CANONICALIZATION.md §3.3.4 rule 6). RFC 3986 §2.3 lists ALPHA / DIGIT / - . _ ~ as unreserved; their percent-encoded form is semantically identical to the literal byte. P emits %41/bar, A receives A/bar; both decode to A/bar.",
+  "name": "unreserved-decoded",
+  "scenario": "Naive HTTP client emits %41 for 'A'; modern proxy decodes to literal byte",
+  "prefix": "",
+  "p_signed_url": "https://api.example.com/%41/bar",
+  "a_received_url": "https://api.example.com/A/bar",
+  "p_pre_normalize_path": "/%41/bar",
+  "a_pre_normalize_path": "/A/bar",
+  "expected_path_suffix": "/A/bar",
+  "inputs": {
+    "method": "GET",
+    "ts_ms": 1700000100000,
+    "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+    "body": ""
+  },
+  "canonical_bytes_template": "GET\\n/A/bar\\n1700000100000\\noaKjpKWmp6ipqqusra6vsA\\n",
+  "canonical_bytes_len": 48,
+  "canonical_bytes_hex": "4745540a2f412f6261720a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a",
+  "canonical_bytes_sha256_hex": "a52f3177d8d02b206e3a4389905890c829c6ca57b9c2fff24635e9f6010706fc",
+  "verifier_outcome": "accept",
+  "receipts_request_hash_hex": "a52f3177d8d02b206e3a4389905890c829c6ca57b9c2fff24635e9f6010706fc",
+  "$comment_reserved": "Contrast: %2F (the slash, RFC 3986 §2.2 reserved) stays %2F under rule 7. Decoding it would change the request target (slash is a path separator). See percent-encoding-case.json."
+}
