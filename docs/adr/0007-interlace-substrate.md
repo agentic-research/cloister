@@ -535,6 +535,57 @@ decision.
 - Push-based revocation propagation; the 4-min bundle poll is the
   v1 answer.
 
+## Amendment 2026-05-11 — interoperability with OIDC / Fediverse / Nostr (cloister-c9922f)
+
+Cloister's identity surface — `actor.fingerprint`,
+`master_public_key`, and the capability set declared in
+`cloister.capnp` — is now published under three additional standard
+wire formats alongside `/.well-known/interlace/index.json`:
+
+| Format | Path | Bridges to |
+|---|---|---|
+| OIDC discovery + JWKS | `/.well-known/openid-configuration` + `/.well-known/jwks.json` | Any OAuth2/OIDC client. "Log in with $cluster". |
+| WebFinger (RFC 7033) | `/.well-known/webfinger?resource=acct:cluster@host` | Mastodon / Fediverse identity discovery. |
+| Nostr NIP-05 | `/.well-known/nostr.json?name=cluster` | Nostr clients. |
+
+Plus a minimal `client_credentials` OAuth2 token endpoint at
+`/oauth/token` that mints JWTs signed by the master via the existing
+NOTME service binding (notme's `SigningAuthority` owns the master
+private key; cloister never sees it). Implementation lives in
+`src/routes/well-known-identity.ts`; route kind
+`wellKnownIdentityBridge` in `manifest/cloister.capnp` @7.
+
+Three things worth noting:
+
+1. **No placeholder identity.** All four formats project the same
+   bytes — `manifest.actor.fingerprint` for `kid`/`subject`/`kty=OKP`,
+   the master pubkey bound at `env[actor.pubkeyBinding]` for the JWK
+   `x` and the NIP-05 hex pubkey. No new env knobs, no parallel key
+   material. If `actor.fingerprint` is empty (Interlace discovery
+   disabled), every bridge format also 404s — symmetric with
+   `WellKnownInterlaceRoute`.
+
+2. **JWT signing delegates to notme via the existing service
+   binding.** The contract is `POST /internal/sign-jwt` returning
+   `{signature}`. Same trust posture as `/internal/ca-bundle` — the
+   master private key never leaves notme; cloister forwards the
+   signing-input bytes and assembles the JWS compact form locally.
+   503 when notme is unreachable.
+
+3. **CORS posture differs by spec.** WebFinger (RFC 7033 §5) and
+   NIP-05 (§"Allowing access from JavaScript apps") both REQUIRE
+   wildcard CORS so browser-based clients can read the response;
+   OIDC discovery and JWKS use `cache-control: public, max-age=300`
+   only. The bridge handler is the only place in cloister that emits
+   `Access-Control-Allow-Origin: *` — the rest of the surface is
+   authenticated and explicitly origin-scoped via ALLOWED_ORIGINS.
+
+This does not change the §13.2 chain accounting or the threat-model
+surface; the bridge routes do not advance peer chains or write to
+TrustStore. They project the same identity surface in additional
+formats so cloister becomes discoverable by the wider identity
+ecosystem.
+
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice; closes the

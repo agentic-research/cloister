@@ -143,6 +143,31 @@ of service bindings is preserved end-to-end.
       Plugin auto-fires `reparse` on every Edit to keep `lsp_*` results fresh.
 - [x] Add `LLO_MCP_URL` to both `wrangler.toml` and `config.capnp` (commit `4f970f6`)
 
+## Amendment — 2026-05-11 (cloister-c9922f)
+
+**First non-MCP tenant has landed.** `WellKnownIdentityBridgeRoute`
+publishes the cluster's existing Interlace identity (master pubkey +
+manifest-declared capabilities) under three additional standard wire
+formats — OIDC discovery + JWKS, WebFinger, Nostr NIP-05 — plus a
+minimal `client_credentials` OAuth2 token endpoint at `/oauth/token`.
+Five concrete paths share one `EdgeRoute` entry in `cloister.capnp`
+because they all project the same underlying identity surface; the
+handler's `match()` dispatches by URL pathname.
+
+This validates the protocol-agnostic framing this ADR introduced:
+adding the bridge required zero edits to `McpEdgeRoute`, `BeadStore`,
+or `lease-middleware`. One new `RouteKind` variant
+(`wellKnownIdentityBridge`), one new file
+(`src/routes/well-known-identity.ts`), one new branch in
+`runtime.ts`. The token-signing delegation reuses the existing NOTME
+service binding (the same one `notme-bundle-fetcher.ts` calls for
+the CA bundle) — no new trust boundary.
+
+The MCP+identity routing fabric is now demonstrating two tenants of
+genuinely different shapes (JSON-RPC over POST vs JRD/JWK/JWT over
+GET+POST). Adding further tenants (gRPC, WebSocket, anything HTTP-
+shaped) plugs into the same table without touching the substrate.
+
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice and packaging story

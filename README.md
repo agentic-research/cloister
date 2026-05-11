@@ -162,6 +162,14 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
 - **Notme identity** — sibling bundle in the cluster
   (workerd-resident); reachable via service binding only. The Signet
   master lives in its `SigningAuthority` DO and never leaves.
+- **Identity ecosystem bridge** — the cluster's native Interlace
+  identity (master pubkey + manifest capabilities) is also published
+  under OIDC discovery (`/.well-known/openid-configuration`,
+  `/.well-known/jwks.json`), WebFinger (`/.well-known/webfinger`),
+  and Nostr NIP-05 (`/.well-known/nostr.json`), with a
+  `client_credentials` token endpoint at `/oauth/token`. First
+  non-MCP tenant — same routing fabric, different wire format
+  (`cloister-c9922f`; see [`src/routes/well-known-identity.ts`](src/routes/well-known-identity.ts)).
 - **Claude Code plugin** — `cloister-stale-sync` ships in this repo;
   closes the stale-rust-analyzer gap inside long CC sessions.
   See [hooks/README.md](hooks/README.md).
@@ -171,12 +179,14 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
 So you can decide whether to read further, here's what cloister
 *explicitly isn't*:
 
-- **Not an MCP server.** MCP is the public tenant most consumers see
-  today, but cloister is a substrate (edge router + bundle host + auth
-  middleware). MCP is one route table entry. The protocol-agnostic
-  framing is load-bearing for ADR-0002 — adding a second tenant (gRPC,
-  WebSocket, anything HTTP-shaped) is a known follow-up
-  (`cloister-6fc72e`, see the beads ledger).
+- **Not an MCP server.** MCP is the most visible tenant today, but
+  cloister is a substrate (edge router + bundle host + auth
+  middleware). MCP is one route table entry; the identity-format-
+  shifting bridge (OIDC / WebFinger / NIP-05) at `/.well-known/*` is
+  another (`cloister-c9922f`). The protocol-agnostic framing is
+  load-bearing for ADR-0002 — adding further tenants (gRPC, WebSocket,
+  anything HTTP-shaped) plugs into the same `EdgeRoute` table without
+  touching the substrate.
 - **Not Kubernetes.** cloister's cluster shape (`cluster.capnp` →
   multi-container pod) targets containerd / podman / nerdctl / kubelet,
   but it doesn't replace them. You bring your container runtime;
