@@ -67,13 +67,32 @@ absence-in-step-4 is mathematical proof of cheating.
 
 ## 3. The claim, formalized
 
+### 3.0 Asymmetry note (added 2026-05-11 per math-friend review)
+
+The §13.2 framing in 0.1.0 obscures a directional asymmetry. The
+**request side** is already non-repudiable in 0.1.0: per
+`wire/lease-envelope.md`, *P* signs the canonical request bytes
+`(method, url, ts, nonce, body)` under Ed25519 using its
+Signet-issued lease cert. The lease cert chains to a master key
+*A* has pinned. So *A* can prove to *V* that *P* sent any specific
+request, provided the lease cert is still resolvable through the CA
+bundle.
+
+The §13.2 gap is therefore purely the **response side**: nothing in
+0.1.0 binds *A*'s 2xx response bytes to *A*'s long-term key.
+The soundness statement below is about the response direction only;
+the request-side claim is already discharged.
+
+### 3.1 Soundness statement (response side)
+
 For §13.2 to be "cryptographic proof," the following must hold:
 
-> **Soundness (no false positives).** For any honest peer $P^\star$,
-> if $V$ later observes "*P*$^\star$ holds a record of A's 2xx for
-> request $r$, but $D_A$ has no entry for $\text{nonce}(r)$," then
-> with probability $\geq 1 - \text{negl}(\lambda)$ in the security
-> parameter $\lambda$, *A* did in fact admit $r$ off-record.
+> **Response-side soundness (no false positives).** For any honest
+> peer $P^\star$, if $V$ later observes "*P*$^\star$ holds a record
+> of *A*'s 2xx for request $r$, but $D_A$ has no entry for
+> $\text{nonce}(r)$," then with probability $\geq 1 - \text{negl}(\lambda)$
+> in the security parameter $\lambda$, *A* did in fact admit $r$
+> off-record.
 
 (Completeness — every actually-admitted request appears in $D_A$ — is
 trivially achievable: $A$ just writes the entry. We're focused on
