@@ -302,9 +302,24 @@ tasks:
       - src/storage/pending-attestations.ts
       - scripts/lint-timing-invariants.mjs
 
+  lint:bundle-isolation:
+    desc: "Validate ADR-0013 substrate invariants on cluster.capnp + config.capnp (cloister-ac30e7) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings"
+    cmds:
+      - node scripts/lint-bundle-isolation.mjs
+    sources:
+      - cluster.capnp
+      - config.capnp
+      - manifest/cluster.capnp
+      - scripts/lint-bundle-isolation.mjs
+
+  test:lint-scripts:
+    desc: "Run node:test suites for lint scripts (cloister-ac30e7). Lives under scripts/test/ — node-native, NOT vitest (lint scripts shell out via child_process which workerd doesn't have)."
+    cmds:
+      - node --test scripts/test/lint-bundle-isolation.test.mjs
+
   lint:
-    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing]
+    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, test:lint-scripts]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
