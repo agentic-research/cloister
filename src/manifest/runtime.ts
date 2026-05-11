@@ -29,6 +29,7 @@ import { McpEdgeRoute } from "../routes/mcp.js";
 import { HealthRoute } from "../routes/health.js";
 import { NotmeIdentityRoute } from "../routes/notme-identity.js";
 import { WellKnownInterlaceRoute } from "../routes/well-known.js";
+import { WellKnownIdentityBridgeRoute } from "../routes/well-known-identity.js";
 import { DisclosureRoute } from "../routes/disclosure.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
@@ -108,6 +109,17 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // sane (INTERLACE_DISCLOSURE_HMAC_KEY for cursors, INTERLACE_ROOT_PUBKEY
     // for the published master pubkey). See ADR-0007 §11 / cloister-bdef0c.
     return new DisclosureRoute();
+  }
+  if ("wellKnownIdentityBridge" in k) {
+    // Multi-format identity discovery (cloister-c9922f). One EdgeRoute
+    // handles all five concrete paths (`/.well-known/openid-configuration`,
+    // `/.well-known/jwks.json`, `/.well-known/webfinger`,
+    // `/.well-known/nostr.json`, `/oauth/token`) because they all project
+    // the same identity surface — `manifest.actor` + the master pubkey
+    // bound at `env[actor.pubkeyBinding]`. First non-MCP tenant on the
+    // router. The route's `path` field is a sentinel marker; the actual
+    // path matching happens inside the handler.
+    return new WellKnownIdentityBridgeRoute(manifest);
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

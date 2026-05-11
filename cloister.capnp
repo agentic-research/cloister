@@ -53,6 +53,21 @@ const gateway :Cloister.Gateway = (
     # avoid peer-existence + cert-validity oracles. cloister-bdef0c.
     ( path = "/interlace/peers/:fp", kind = (disclosure = void) ),
 
+    # ── identity bridge → OIDC / WebFinger / Nostr NIP-05 (cloister-c9922f) ─
+    # First non-MCP tenant. One Route declaration covers five concrete
+    # paths because they all project the same identity surface
+    # (manifest.actor + master pubkey at env[actor.pubkeyBinding]):
+    #   GET  /.well-known/openid-configuration  — OIDC discovery
+    #   GET  /.well-known/jwks.json             — JWK Set (Ed25519 / EdDSA)
+    #   GET  /.well-known/webfinger             — JRD, ?resource=acct:cluster@host
+    #   GET  /.well-known/nostr.json            — NIP-05 names + relays
+    #   POST /oauth/token                       — client_credentials grant
+    # The `path` below is a sentinel — the handler's match() inspects
+    # the request URL and dispatches across all five paths internally.
+    # See src/routes/well-known-identity.ts.
+    ( path = "/.well-known/identity-bridge",
+      kind = (wellKnownIdentityBridge = void) ),
+
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
       kind = (serviceBindingProxy = (

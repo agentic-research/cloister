@@ -135,6 +135,20 @@ struct Route {
     # (cloister-bdef0c). Lease-gated when INTERLACE_ROOT_PUBKEY is set.
     # See ADR-0007 §11 + threat model §9.
     disclosure          @6 :Void;
+
+    # Multi-format identity discovery bridge — surfaces the cluster's
+    # native Interlace identity (actor.pubkey + capabilities) under the
+    # OIDC, WebFinger, and Nostr NIP-05 well-known paths, plus a minimal
+    # `client_credentials` token endpoint. First non-MCP tenant of the
+    # router (per ADR-0002). One route entry covers five concrete paths
+    # because they all derive from the same identity surface — adding a
+    # path-per-format would multiply manifest entries with no semantic
+    # gain. The handler internally dispatches by URL pathname; the
+    # `path` on this Route is a sentinel marker (the actual paths are
+    # `/.well-known/openid-configuration`, `/.well-known/jwks.json`,
+    # `/.well-known/webfinger`, `/.well-known/nostr.json`,
+    # `/oauth/token`). cloister-c9922f.
+    wellKnownIdentityBridge @7 :Void;
   }
 }
 

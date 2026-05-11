@@ -76,12 +76,28 @@ export interface Route {
  * those annotations on this schema implies the single-key default.
  */
 export type RouteKind =
-  | { health:              null }
-  | { mcp:                 McpRouteSpec }
-  | { serviceBindingProxy: ServiceBindingProxySpec }
-  | { httpProxy:           HttpProxySpec }
-  | { wellKnownInterlace:  null }
-  | { disclosure:          null };
+  | { health:                  null }
+  | { mcp:                     McpRouteSpec }
+  | { serviceBindingProxy:     ServiceBindingProxySpec }
+  | { httpProxy:               HttpProxySpec }
+  | { wellKnownInterlace:      null }
+  | { disclosure:              null }
+  /**
+   * Multi-format identity discovery bridge (cloister-c9922f). First non-MCP
+   * tenant. Handler internally serves five concrete paths derived from
+   * the same identity surface:
+   *
+   *   - `/.well-known/openid-configuration`  (OIDC discovery, RFC 8414)
+   *   - `/.well-known/jwks.json`             (RFC 7517 + RFC 8037 EdDSA)
+   *   - `/.well-known/webfinger`             (JRD, RFC 7033)
+   *   - `/.well-known/nostr.json`            (NIP-05)
+   *   - `/oauth/token`                       (client_credentials grant)
+   *
+   * The route's `path` field is a sentinel marker — the handler matches
+   * on the actual paths above via its own `match()`. See
+   * `src/routes/well-known-identity.ts`.
+   */
+  | { wellKnownIdentityBridge: null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];
