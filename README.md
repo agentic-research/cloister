@@ -107,8 +107,17 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
   ratification of [ADR-0010](docs/adr/0010-vault-and-bundle-clusters.md)'s
   framing).
 - **State-boundary attestation** — on bead writes (the cluster's
-  durable state), the middleware writes `peer_attestations` rows;
-  per-call lease counters update on every authenticated request.
+  durable state), the cross-DO orchestrator at
+  [`src/routes/bead-create-orchestrator.ts`](src/routes/bead-create-orchestrator.ts)
+  runs the ADR-0012 four-step handoff (`BlobStore.put → BeadStore.write
+  → TrustStore.applyAttestation → optional pending-retry enqueue`) so
+  every authenticated `bead_create` lands an attestation row keyed by
+  the canonical-bytes digest. Per-call lease counters update on every
+  authenticated request. The §13.2 "silence is evidence" invariant is
+  runtime-load-bearing (per `cloister-492c08`), not just specified —
+  end-to-end smoke at
+  [`test/security/disclosure-attestation-smoke.test.ts`](test/security/disclosure-attestation-smoke.test.ts)
+  proves `BlobStore digest = BeadStore.content_hash = peer_attestations.content_hash`.
 - **Inter-cluster identity** — Interlace handshake,
   `.well-known/interlace/` publication, selective-disclosure read
   endpoint for peer attestations.

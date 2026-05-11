@@ -124,7 +124,7 @@ sufficient.
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
 
-## In-flight substrate work (ADRs 0007–0012)
+## In-flight substrate work (ADRs 0007–0013)
 
 | ADR | Status | Decade thread |
 |---|---|---|
