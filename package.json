@@ -3,7 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Portable MCP gateway — isolates rosary/mache/crumb tools in workerd Durable Objects",
+  "description": "v8-isolate hypervisor on workerd — declarative route table, cryptographically-verifiable identity substrate (Interlace), capability-shaped credential distribution. MCP is one tenant.",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentic-research/cloister.git"
+  },
+  "homepage": "https://github.com/agentic-research/cloister#readme",
+  "bugs": {
+    "url": "https://github.com/agentic-research/cloister/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "workerd",
+    "cloudflare-workers",
+    "mcp",
+    "model-context-protocol",
+    "durable-objects",
+    "edge-router",
+    "interlace",
+    "ed25519",
+    "capnp",
+    "substrate"
+  ],
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "wrangler dev",
