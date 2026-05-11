@@ -168,6 +168,31 @@ genuinely different shapes (JSON-RPC over POST vs JRD/JWK/JWT over
 GET+POST). Adding further tenants (gRPC, WebSocket, anything HTTP-
 shaped) plugs into the same table without touching the substrate.
 
+## Amendment — 2026-05-11 (cloister-cabd57)
+
+**Second non-MCP tenant has landed.** `OciRegistryRoute` serves the
+OCI Distribution Spec v1.1 read-only pull path at `/v2/*`. The wire
+shape has nothing in common with MCP JSON-RPC or the identity
+bridge's JWK/JRD: binary content, content-addressed multi-step
+semantics, opaque `application/vnd.oci.image.*` media types, multi-
+segment repository paths. Yet the integration touched only one new
+`RouteKind` variant (`ociRegistry`), one new file
+(`src/routes/oci-registry.ts`), and one new branch in `runtime.ts` —
+exactly the same shape as the identity-bridge integration.
+
+The substrate reuse runs deeper than the seam: blob bytes flow from
+`BlobStore`, the same DO that holds bead canonical bytes for the
+ADR-0012 cross-DO handoff. The OCI digest `sha256:<hex>` *is* the
+BlobStore key (sans-prefix). Only the mutable tag → manifest pointer
+needed a new table (`TrustStore.registry_tags`); everything else is
+the existing content-addressed monoid (ADR-0003 phase 1).
+
+Three tenants of genuinely different wire shapes (MCP/JSON-RPC,
+identity-bridge/JRD+JWK, OCI/binary-CAS) now ride the same router
+table with no cross-cutting changes. The protocol-agnostic framing
+holds. Adding gRPC, WebSocket, or `application/grpc-web` plugs into
+the same seam — confidence in ADR-0002 is no longer theoretical.
+
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice and packaging story

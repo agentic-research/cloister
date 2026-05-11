@@ -170,6 +170,18 @@ hypervisor-layer if it (a) mediates between bundles or to the outside,
   `client_credentials` token endpoint at `/oauth/token`. First
   non-MCP tenant — same routing fabric, different wire format
   (`cloister-c9922f`; see [`src/routes/well-known-identity.ts`](src/routes/well-known-identity.ts)).
+- **In-cluster OCI registry** — the same `BlobStore` that holds bead
+  canonical bytes (ADR-0003 phase 1) doubles as a content-addressed
+  blob store for OCI images. `cloister` serves the OCI Distribution
+  Spec v1.1 read-only pull path at `/v2/*` (handshake, catalog,
+  tags/list, manifest + blob `GET`/`HEAD`), with a small
+  `registry_tags` index in TrustStore keyed by `(repo, tag)`. Air-
+  gapped deploys can `task registry:import cloister.tar` and
+  `docker pull localhost:8787/cloister:latest` without an external
+  registry. Second non-MCP tenant — load-bearing demonstration that
+  the ADR-0002 protocol-agnostic seam holds for content-addressed
+  binary wires too (`cloister-cabd57`; see
+  [`src/routes/oci-registry.ts`](src/routes/oci-registry.ts)).
 - **Claude Code plugin** — `cloister-stale-sync` ships in this repo;
   closes the stale-rust-analyzer gap inside long CC sessions.
   See [hooks/README.md](hooks/README.md).

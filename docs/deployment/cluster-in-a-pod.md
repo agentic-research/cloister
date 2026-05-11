@@ -299,6 +299,63 @@ it, every request needs auth + a fetchable bundle. See
 two wires share a binding name, the workerd config will reject. Pick
 distinct names per wire.
 
+## Self-distribution — in-cluster OCI registry (cloister-cabd57)
+
+Phase 1 (read-only pull path) lets a running cluster serve OCI images
+from its own `BlobStore` over the standard
+[OCI Distribution Spec v1.1](https://github.com/opencontainers/distribution-spec/blob/main/spec.md)
+`/v2/` API. The deploy story for an air-gapped cluster becomes:
+
+```sh
+# 1. Build the image locally.
+task image                           # → cloister.tar (apko output)
+
+# 2. Bring the cluster up.
+task cluster:up                      # → http://localhost:8787
+
+# 3. Import the image into the cluster's own registry.
+IMAGE=cloister.tar task registry:import
+
+# 4. Pull from the cluster (no external registry involved).
+docker pull localhost:8787/cloister:latest
+```
+
+Once imported, subsequent `task cluster:up` invocations can pull
+bundle images from the cluster itself — no external registry,
+no public hub, nothing leaks. The cluster is self-sufficient for its
+own re-deployment loop.
+
+What rides on what:
+
+- **Blobs** (image config + every layer tarball) live in `BlobStore`
+  (ADR-0003 phase 1). The OCI digest `sha256:<hex>` is literally the
+  `BlobStore` key — no translation layer.
+- **Tags** (mutable `(repo, tag) → manifest_digest` pointers) live in
+  `TrustStore.registry_tags`. One row per tag; UPSERT on import,
+  read-only on pull.
+- **Route table** declares one `ociRegistry` entry in
+  [`cloister.capnp`](../../cloister.capnp); the handler
+  [`src/routes/oci-registry.ts`](../../src/routes/oci-registry.ts) maps
+  every `/v2/*` endpoint to BlobStore + TrustStore reads internally.
+
+### Auth posture (Phase 1)
+
+Pulls are anonymous. The "stand up a cluster, pull from it" loop is
+the simple-deploy story; any cluster reachable on the network can
+serve its catalog publicly. Phase 2 adds an `oci:push:<repo>` scope
+on the Signet lease for the write path, and Phase 2 callers MAY also
+require an `oci:pull` scope on reads if a private registry is wanted.
+
+### What's NOT here yet
+
+- **Push** (`POST/PATCH/PUT /v2/<name>/blobs/uploads/*`) is deferred.
+  Phase-1 import uses an out-of-band loader (`scripts/import-image.mjs`,
+  invoked via `task registry:import`).
+- The import script's live-upload path requires an admin-write seam
+  on cloister-router that doesn't exist yet (filed as a follow-up bead
+  alongside Phase-2 OCI push). For now `--dry-run` mode plans the
+  upload and prints the digests, which the test suite exercises.
+
 ## Cross-repo dependencies
 
 Phase 1 of the deployment needs sibling repos to support capnp-over-UDS:

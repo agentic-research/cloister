@@ -214,6 +214,32 @@ evaluation" to this ADR's structural work). Sliced as:
 - [ ] Substrate-equivalence test: same bead → same digest on workerd vs
       native SQLite
 
+## Amendment — 2026-05-11 (cloister-cabd57)
+
+**BlobStore now powers a second tenant: the in-cluster OCI registry.**
+The OCI Distribution Spec v1.1's blob addressing model is byte-for-
+byte the same primitive this ADR specified: SHA-256 over the raw
+bytes, hex-encoded, used as the storage key. The OCI digest
+`sha256:<hex>` *is* a `BlobStore` digest (sans-prefix), so the
+registry's `GET /v2/<name>/blobs/<digest>` and
+`GET /v2/<name>/manifests/<reference>` resolve to direct
+`BlobStore.get(digest)` calls with no extra translation layer.
+
+Concrete consequence: image bytes and bead canonical bytes share the
+same content-addressed monoid. An apko-built `cloister:latest` layer
+and a `bead/v1` canonical struct coexist in `BlobStore` without
+namespacing — their digests can't collide (different bytes give
+different hashes), and the storage substrate's idempotent-put property
+holds for both equally.
+
+Mutable tag → manifest pointers (which OCI calls "tags") needed a new
+table; per ADR-0012 they live in `TrustStore.registry_tags` because
+TrustStore is the hypervisor-tier singleton with SQL semantics suitable
+for low-write-volume mutable indices. The immutable layer is untouched.
+
+See [ADR-0002 amendment 2026-05-11](0002-edge-router-protocol-agnostic-backends.md#amendment--2026-05-11-cloister-cabd57)
+for the routing-side write-up.
+
 ## See also
 
 - [ADR-0001](0001-workerd-mcp-gateway.md) — workerd choice; this ADR
