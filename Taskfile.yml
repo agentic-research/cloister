@@ -337,3 +337,16 @@ tasks:
       - melange compile melange.yaml --arch "$(uname -m)" >/dev/null
       # apko equivalent: show-config resolves all packages + paths.
       - apko show-config apko.yaml >/dev/null
+
+  registry:import:
+    desc: "Import an OCI image tarball into the cluster's in-cluster registry (cloister-cabd57 Phase 1). Use --dry-run via env CLOISTER_DRY_RUN=1 to validate without uploading."
+    cmds:
+      - |
+        if [ -z "${IMAGE:-}" ]; then
+          echo "registry:import — set IMAGE=path/to/image.tar (e.g. cloister.tar from \`task image\`)" >&2
+          exit 1
+        fi
+        DRY=""
+        if [ "${CLOISTER_DRY_RUN:-0}" = "1" ]; then DRY="--dry-run"; fi
+        REG="${CLOISTER_REGISTRY:-http://localhost:8787}"
+        node scripts/import-image.mjs "$IMAGE" --registry "$REG" $DRY
