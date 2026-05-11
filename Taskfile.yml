@@ -99,6 +99,11 @@ tasks:
           exec $CMD -f cluster.compose.yaml down
         fi
 
+  cluster:test:
+    desc: "Tier 1 integration matrix (cloister-1b1124) — builds + smokes all 5 sibling OCI images then boots cluster.capnp via task cluster:up. Opt-in, not part of `task lint`. ~5-10 min cold; SKIP_BUILDS=1 reuses loaded images. See scripts/integration-test.sh."
+    cmds:
+      - bash scripts/integration-test.sh
+
   wire:fixtures:
     desc: Regenerate substrate-equivalence fixtures from wire/cross-check-fixtures.capnp (ADR-0005, cloister-5183bc 2D-codec.D)
     cmds:
@@ -283,7 +288,7 @@ tasks:
       - scripts/lint-timing-invariants.mjs
 
   lint:
-    desc: Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing. Runs ≤2s. Use this in inner-loop dev.
+    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
     deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing]
 
   verify:

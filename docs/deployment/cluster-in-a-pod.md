@@ -78,6 +78,45 @@ self-hosters don't want. The schema permits adding `scripts/emit-pod.mjs`
 later without touching anything else; file a follow-up bead if you
 need it.
 
+## Verifying your deployment
+
+`task cluster:test` (Tier 1 integration matrix, cloister-1b1124) is
+the end-to-end verification harness. It runs two phases and prints a
+matrix table at the end:
+
+1. **Image-in-isolation smokes.** For each sibling repo (cloister,
+   notme, mache, rosary, ley-line-open) it runs that repo's `task
+   image` to build the OCI artifact, loads it into docker, then runs
+   a per-image smoke:
+   - `notme` — HTTP `GET /health` on the workerd listener.
+   - `mache` — `--version` (UDS-MCP can't be exercised without a peer).
+   - `rosary` — `--version` (UDS-MCP can't be exercised without a peer).
+   - `ley-line-open` — POST `/mcp` `tools/list`.
+   - `cloister` — verified by phase B.
+2. **Cluster boot.** Runs `task cluster:emit` then `task cluster:up`,
+   waits ≤60s for all four bundles to be `Up`, then hits
+   `:8787/health` and `:8787/.well-known/interlace/index.json`. Always
+   runs `task cluster:down` via an `EXIT` trap.
+
+Run it before cutting a release or after touching any of:
+
+- `cluster.capnp` / `scripts/emit-compose.mjs`
+- A sibling repo's apko / Dockerfile
+- The wire bindings in `cluster.compose.yaml`
+
+```sh
+task cluster:test                  # full run (cold ≈ 5–10 min)
+SKIP_BUILDS=1 task cluster:test    # reuse already-loaded images (≈ 90 s)
+SKIP_PHASE_A=1 task cluster:test   # cluster boot only
+SKIP_PHASE_B=1 task cluster:test   # image smokes only
+```
+
+`task cluster:test` is **not** wired into `task lint`. The fast inner-
+loop gate (`task lint`) stays ~2 s; integration is opt-in. Logs land
+under `/tmp/cloister-integration/`. Authenticated traffic through the
+cluster is **out of scope** here — that's covered by Tier 2 (which
+requires the companion-in-pod topology).
+
 ## Schema anatomy
 
 The full schema is in [`manifest/cluster.capnp`](../../manifest/cluster.capnp).
