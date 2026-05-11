@@ -136,9 +136,14 @@ sufficient.
 | 0011 — hypervisor / bundle boundary (three-criterion test) | Accepted | `interlace-substrate/adrs` |
 | 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
 | 0013 — slice-grant enforcement (V8 isolate + service-binding-as-syscall) | Accepted | `interlace-substrate/vault` |
+| 0014 — pluggable KEK source (Keychain / libsecret / file / env) | Accepted | `interlace-substrate/vault` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
+
+In-flight MCP-spec-alignment work (cloister-as-MCP-Proxy-Server formalization)
+is tracked in the `mcp-spec-alignment` thread; draft SEP at
+[`docs/mcp-seps/`](docs/mcp-seps/).
 
 ## What NOT to add
 

@@ -354,6 +354,24 @@ model as it stands today, then walk the ADRs in order. The ADRs are the
 source of truth for *why*; this README and ARCHITECTURE.md describe
 *what*.
 
+## MCP spec contributions
+
+Cloister is, in MCP-spec terms, an **MCP Proxy Server** — a pattern named
+in the [Security Best Practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
+document but not yet modeled at the data layer. The conflation produces
+real failure modes (silent client-side lifecycle non-compliance, ad-hoc
+tool namespacing, no host-side proxy awareness).
+
+Drafted in this repo and tracked for upstream submission:
+
+- [**SEP-XXXX: Formalize MCP Proxy Server as a First-Class Type**](docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md)
+  — adds a `proxy` capability with normative obligations + a `proxy/upstreams`
+  introspection RPC. Cloister is the reference implementation. Draft, awaiting
+  sponsor.
+
+See [docs/mcp-seps/README.md](docs/mcp-seps/README.md) for the SEP workflow
+this repo follows.
+
 ## Performance
 
 Per-surface latency + throughput — workerd-local numbers, not

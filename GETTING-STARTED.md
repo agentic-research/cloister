@@ -301,6 +301,25 @@ and trusts everything on its port. **Don't expose it remotely.**
 Linux libsecret (`secret-tool://`) is on the roadmap; today the
 helper returns 501 for that scheme.
 
+**Round-trip dogfood check** (proves Keychain → helper → bytes works
+end-to-end on your machine):
+
+```sh
+NAME="cloister-kek-test-$(date +%s)"
+KEK_HEX="$(openssl rand -hex 32)"
+security add-generic-password -a cloister -s "$NAME" -w "$KEK_HEX"
+node scripts/kek-helper.mjs --bind 127.0.0.1:8786 > /tmp/kek-helper.log 2>&1 &
+sleep 1
+RESOLVED="$(curl -s "http://127.0.0.1:8786/resolve?url=keychain://$NAME")"
+[ "$RESOLVED" = "$KEK_HEX" ] && echo "OK: round-trip $RESOLVED" || echo "FAIL"
+kill %1 2>/dev/null
+security delete-generic-password -a cloister -s "$NAME"
+```
+
+Validated end-to-end on macOS 2026-05-11 (cloister-268a01). If you see
+`FAIL`, check `/tmp/kek-helper.log` — usually means the helper didn't
+bind (port in use) or the `security` CLI isn't on PATH.
+
 For OCI / Cloudflare deployments where "Keychain" isn't a thing,
 stick with `env://VAULT_KEK_SECRET` populated via `wrangler secret
 put` or a docker secret — the file/keychain backends are explicitly
