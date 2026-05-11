@@ -286,19 +286,22 @@ graph TD
     end
 
     subgraph router ["Routing layer"]
-        RR["router.ts\nRouter + EdgeRoute"]
+        RR["router.ts<br/>Router + EdgeRoute"]
         H["routes/health.ts"]
         I["routes/notme-identity.ts"]
-        M["routes/mcp.ts\nMcpEdgeRoute (SSE + JSON-RPC)"]
+        M["routes/mcp.ts<br/>McpEdgeRoute (SSE + JSON-RPC)"]
+        LM["routes/lease-middleware.ts<br/>verifyAndUpsertLease<br/>(ADR-0007 pipeline)"]
+        BC["routes/bead-create-orchestrator.ts<br/>ADR-0012 four-step handoff<br/>(BlobStore → BeadStore → TrustStore<br/>→ pending-retry)"]
+        DR["routes/disclosure.ts<br/>GET /interlace/peers/:fp<br/>(JSONL stream, constant-time 404)"]
     end
 
     subgraph backends ["MCP backends"]
-        BI["backends.ts\nToolBackend interface\nJsonRpcInvocationError"]
-        BB["manifest/backends/durable-object.ts\nDurableObjectToolBackend"]
-        BL["manifest/backends/http-forward.ts\nHttpForwardToolBackend"]
-        BS["manifest/backends/service-binding.ts\nServiceBindingToolBackend"]
-        BU["manifest/backends/uds-forward.ts\nUdsForwardToolBackend (placeholder)"]
-        BLN["manifest/backends/leyline-net.ts\nLeylineNetToolBackend (ADR-0005)"]
+        BI["backends.ts<br/>ToolBackend interface<br/>JsonRpcInvocationError"]
+        BB["manifest/backends/durable-object.ts<br/>DurableObjectToolBackend"]
+        BL["manifest/backends/http-forward.ts<br/>HttpForwardToolBackend"]
+        BS["manifest/backends/service-binding.ts<br/>ServiceBindingToolBackend"]
+        BU["manifest/backends/uds-forward.ts<br/>UdsForwardToolBackend<br/>(via companion proxy, cloister-46fc1a)"]
+        BLN["manifest/backends/leyline-net.ts<br/>LeylineNetToolBackend (ADR-0005)"]
     end
 
     subgraph durable ["Durable layer"]
@@ -312,14 +315,23 @@ graph TD
     IDX --> H
     IDX --> I
     IDX --> M
+    IDX --> DR
+    M --> LM
+    M --> BC
     M --> BB
     M --> BL
     M --> BS
     M --> BU
     M --> BLN
     BB --> BDO
+    BC --> BLO
+    BC --> BDO
+    BC --> TDO
+    LM --> TDO
+    DR --> TDO
     BL -.->|HTTP| LLO[(LLO_MCP_URL)]
-    BLN -.->|loopback HTTP\ncapnp ToolCall/Result| CO[(COMPANION_URL)]
+    BLN -.->|"loopback HTTP<br/>capnp ToolCall/Result"| CO[(COMPANION_URL)]
+    BU -.->|"loopback HTTP<br/>X-Cloister-Transport: uds"| CO
 ```
 
 `router.ts`, `backends.ts`, and the four route/backend modules are the

@@ -273,7 +273,86 @@ for the full deployment pattern, including a commented `cloudflared`
 sidecar slot in `apko.yaml` for self-hosted deployments that want
 CF Tunnel egress baked into the image.
 
-## 10. Adding a new MCP-fronted service
+## 10. What just happened — anatomy of an authenticated `bead_create`
+
+You've installed it, run it, hit `/health`, and the smoke test
+`bead_create` round-tripped. Worth a minute to look at what the
+substrate actually does on that one call — because the §13.2 "silence
+is evidence" invariant cloister publishes only holds if all the parts
+below show up.
+
+When `INTERLACE_ROOT_PUBKEY` is set (production-mode) and an MCP
+client `POST /mcp` with a `tools/call bead_create` for repo
+`/r/example`:
+
+```
+client POST /mcp ─→ McpEdgeRoute.handlePost
+                        │
+                        ├─ lease-middleware.ts: verifyAndUpsertLease
+                        │     ↳ header parse → wasm32 cert chain verify
+                        │       → Ed25519 sig → scope → seen_nonces
+                        │       → TrustStore.verifyLeaseAndAdvanceChain
+                        │           (one atomic transaction;
+                        │            peer_lease_counters chain advances)
+                        │
+                        ├─ McpEdgeRoute.callTool(req, env, lease, nowMs)
+                        │     ↳ tool_name == "bead_create" →
+                        │       runBeadCreateOrchestrator(req, env, lease)
+                        │           ↳ src/storage/bead-canonical.ts
+                        │               → canonical bytes
+                        │           ↳ BlobStore.put(bytes) → digest
+                        │           ↳ BeadStore.bead_create({digest, ...})
+                        │           ↳ TrustStore.applyAttestation({
+                        │               peerFingerprint, contentHash=digest,
+                        │               contentType="bead/v1", cert, sig,
+                        │               prevSelfRef, prevPeerRef, nowMs
+                        │             })
+                        │             ↳ on failure: pending_attestations
+                        │                queue; drainPendingRetries retries
+                        │
+                        └─ JSON-RPC result back to client
+```
+
+A few things to notice:
+
+1. **The counter chain advances on every authenticated call.** Read
+   tools too. That's what makes "silence is evidence" — a request
+   that the disclosure endpoint can't show in the counter chain is
+   cryptographic proof cloister admitted it off-record. See
+   [ADR-0007](docs/adr/0007-interlace-substrate.md).
+
+2. **The attestation chain advances on every state-boundary write.**
+   The `bead_create` orchestrator is the production path that
+   actually writes attestation rows; pre-`cloister-492c08`,
+   attestation lived only in test scaffolding. See the smoke at
+   [`test/security/disclosure-attestation-smoke.test.ts`](test/security/disclosure-attestation-smoke.test.ts).
+
+3. **Verify it yourself.** After running the smoke `bead_create`,
+   `GET /interlace/peers/<actor_fp>` returns the JSONL stream with a
+   `header` line, a `counter` row for the lease-counter advance, AND
+   an `attestation` row whose `content_hash` matches the BlobStore
+   digest of the canonical bytes. A third party with the cluster's
+   master pubkey can independently reconstruct the chain.
+
+4. **Dev mode (no `INTERLACE_ROOT_PUBKEY`) skips ALL of this.** That's
+   intentional — auth-off means no peer fingerprint, no attestation,
+   no §13.2 promise to defend. The deployment-binding presence is
+   the gate; production MUST have the binding set.
+
+If any of those steps don't show up when you exercise the gate-on
+path, that's a bug. The threat model
+[`docs/security/threat-model.md`](docs/security/threat-model.md) is
+the contract; the disclosure endpoint is how a peer or auditor
+verifies cloister kept it.
+
+## 11. Reference — adding a new MCP-fronted service
+
+This and §12 are reference material, not part of the setup walkthrough
+above. Skip until you actually want to extend the route table.
+
+---
+
+
 
 Cloister's route table is declared in [`cloister.capnp`](cloister.capnp) at
 the repo root; per ADR-0004, this is the source of truth. To add a service
@@ -355,40 +434,51 @@ Empty `handlesPrefix` is allowed and means "exact-match against the
 advertised tool names" — used today for `reparse | enrich | status` which
 have no shared prefix on the upstream LLO daemon.
 
-## 11. Adding a new HTTP route (not MCP)
+## 12. Reference — adding a new HTTP route (not MCP)
 
 Implement `EdgeRoute` in `src/routes/`, register it in
 `src/manifest/runtime.ts` if you want it manifest-driven, or for a
 one-off path tweak just declare it in `cloister.capnp` under one of the
 existing route kinds (`health`, `httpProxy`, `serviceBindingProxy`).
 
-## 12. Further reading
+## 13. Where to go from here
 
-- [ADR-0001](docs/adr/0001-workerd-mcp-gateway.md) — why workerd
-- [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md) — why
-  edge router rather than MCP gateway, and why workerd's service bindings
-  replace Istio-style mTLS
-- [ADR-0003](docs/adr/0003-content-addressed-bead-store.md) — bead storage
-  as Merkle DAG + CAS refs (Phase 1 shipped)
-- [ADR-0004](docs/adr/0004-capnp-manifest.md) — Cap'n Proto manifest as the
-  registration format
-- [ADR-0007](docs/adr/0007-interlace-substrate.md) — Interlace identity:
-  Signet leases, peer attestations, .well-known discovery
-- [ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) — hypervisor vs
-  bundle tier classification (three-criterion test)
-- [ADR-0012](docs/adr/0012-truststore-vs-beadstore.md) — DO classification:
-  TrustStore / BlobStore / CredentialVault are hypervisor-tier singletons;
-  BeadStore is per-repo
-- [ADR-0013](docs/adr/0013-slice-grant-enforcement.md) — slice-grant
-  enforcement via V8 isolate + service-binding-as-syscall (the security
-  model behind `CredentialVault`)
-- [interlace-spec/0.1.0/](interlace-spec/0.1.0/README.md) — **vendor-
-  neutral protocol spec + test vectors** (extracted 2026-05-10) if you're
-  building a second implementation
-- [docs/perf/2026-05-10-lease-pipeline.md](docs/perf/2026-05-10-lease-pipeline.md)
-  — measured per-step latency for the lease middleware (substrate overhead
-  is ~520µs / 1ms p50 / 1ms p99 local after batching)
-- [docs/deployment/cluster-in-a-pod.md](docs/deployment/cluster-in-a-pod.md)
-  — running cloister + sibling bundles as a unit (mac-dev, compose, k8s)
-- [docs/security/threat-model.md](docs/security/threat-model.md) — what
-  this surface defends against, and the open gaps
+Three directions, depending on what you came for.
+
+**If you want to understand why the substrate is shaped this way** —
+the ADR sequence reads as one argument:
+[ADR-0001](docs/adr/0001-workerd-mcp-gateway.md) (why workerd at all) →
+[ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md)
+(edge router, not MCP gateway; workerd's service bindings replace
+Istio-style mTLS) →
+[ADR-0004](docs/adr/0004-capnp-manifest.md) (capnp as the
+registration format) →
+[ADR-0007](docs/adr/0007-interlace-substrate.md) (Signet leases +
+attestation chains + `.well-known/` discovery) →
+[ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) +
+[ADR-0012](docs/adr/0012-truststore-vs-beadstore.md) (which DO sits
+where) →
+[ADR-0013](docs/adr/0013-slice-grant-enforcement.md) (V8 isolate +
+service-binding-as-syscall is the slice-grant enforcement).
+[ADR-0003](docs/adr/0003-content-addressed-bead-store.md) +
+[ADR-0009](docs/adr/0009-compute-substrate-portability.md) round
+out the storage + deployment shape.
+
+**If you're building against the wire** —
+[`interlace-spec/0.1.0/`](interlace-spec/0.1.0/README.md) is the
+vendor-neutral protocol spec with test vectors + a Python reference
+implementation. If your impl reaches the same digests as the
+conformance suite, you're conformant; if it diverges, see
+[threat-model §7.7](docs/security/threat-model.md) for the
+"silently-wrong" failure modes implementors hit.
+
+**If you're operating it** —
+[`docs/deployment/cluster-in-a-pod.md`](docs/deployment/cluster-in-a-pod.md)
+covers the three deployment targets (`task cluster:dev` mac-native,
+nerdctl/podman/docker compose, k8s deferred);
+[`docs/security/threat-model.md`](docs/security/threat-model.md) is
+what this surface defends against and where the open gaps are; the
+[`docs/perf/`](docs/perf/) docs have measured per-step latency on
+each substrate seam (lease pipeline, tools-call dispatch, TrustStore
+under contention, disclosure endpoint, cold-start) so you know the
+overhead bound before deploying.
