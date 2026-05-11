@@ -56,6 +56,39 @@ record *every authenticated call*, not just state-mutating ones.
   cloister claim. cloister is the TypeScript reference; `ref-impl-py/`
   is the second implementation that pins the wire.
 
+## Errata (post-freeze clarifications)
+
+The frozen byte-level contract has not changed since 2026-05-10; the
+test vectors in `test-vectors/` remain the authoritative spec. The
+following clarifications correct README wording that contradicted the
+test vectors + the three conforming implementations (cloister Rust
+gen-fixture, cloister TS, `ref-impl-py/`). Implementors reading a
+cached or older copy of this README should treat these as binding.
+
+1. **Claims JSON key order** (§1 / §2.1). An earlier draft of this
+   README said the cert claims JSON used "alphabetical keys." That
+   wording was wrong: the canonical form is **declaration order** as
+   listed in §2.1 — `epk, nb, na, ep, pf, sc` — confirmed by every
+   test vector in `test-vectors/cert-vectors.json` and by all three
+   reference implementations. The §1 JSON-as-carrier table now states
+   declaration order explicitly.
+2. **`cert_fp` definition** (§3 / §4.1). An earlier draft labeled the
+   cert-claims JSON row as "for `cert_fp`", implying `cert_fp =
+   sha256(canonical_claims_json)`. That is wrong. The load-bearing
+   form is `cert_fp = sha256_hex(cert_der)` over the raw cert DER, per
+   §3.4 step 9 and §4.1. The claims JSON is an interop hand-off
+   format (§2.1), not an input to `cert_fp`.
+3. **`prevKeyId` placeholder in CBOR signing input** (§1.3). The CBOR
+   canonical-signing input MUST always include map key 5 (`prevKeyId`),
+   using an empty-string value when no rotation is in flight. The JSON
+   wire form MAY omit the field entirely in the same case. §1.3 now
+   spells this out explicitly to head off implementor confusion.
+
+The cloister-side threat-model document (`docs/security/threat-model.md`
+§7.7.e) inherits the same "alphabetical keys" wording as item (1); it
+is stale in the same way and will be reconciled in a follow-up. The
+load-bearing assertion is the test vectors, not either prose document.
+
 ### Note on test-vector format (JSON-as-carrier, NOT JSON-as-spec)
 
 The test-vector files are JSON because every target implementation
@@ -88,7 +121,8 @@ The actual wire encodings the spec ratifies:
 | CA bundle | RFC 8949 deterministic CBOR |
 | Cert + extensions | X.509 DER (RFC 5280) |
 | Chain-hash input | UTF-8 byte concatenation, no separators (see §4.1) |
-| Cert claims (for `cert_fp`) | Canonical JSON: alphabetical keys, no whitespace, no trailing newline, minimal escaping (see §3 + threat-model §7.7.e) |
+| Cert claims (interop JSON, §2.1) | Canonical JSON: declaration order as listed in §2.1 (`epk, nb, na, ep, pf, sc`), no whitespace, no trailing newline, minimal escaping. NOT used to compute `cert_fp`. See §2.1 + threat-model §7.7.e (note: the threat-model entry's "alphabetical key order" wording is stale; declaration order is the load-bearing form per the test vectors). |
+| Cert fingerprint (`cert_fp`) | `sha256_hex(cert_der)` over the raw DER bytes (NOT over the claims JSON). See §3.4 step 9 + §4.1. |
 | Lease envelope | UTF-8 byte concatenation of canonical request fields (see `wire/lease-envelope.md`) |
 | Disclosure response lines | JSONL with constrained schema (see `wire/disclosure-jsonl.md`) |
 
@@ -163,6 +197,19 @@ Encoding rules (RFC 8949 §4.2, "Core Deterministic Encoding"):
 - Bytes use major type 2 (NOT the typed-array tag RFC 8746).
 - Text uses major type 3.
 - Maps use major type 5; keys MUST be sorted per §4.2.
+
+**Wire form vs canonical signing input — `prevKeyId`.** When `prevKeyId`
+is absent from the JSON wire form (no rotation in flight), the CBOR
+canonical-signing input MUST still include the key at map position 5
+with an empty-string value. This keeps `bundleCanonical(bundle)`
+byte-identical regardless of whether the JSON wire form serialized the
+field — implementors that drop the key from the CBOR input will compute
+a different digest from cloister and from the Python ref impl, and
+their bundle signatures will fail verification cluster-wide. The two
+serializations are deliberately asymmetric: the JSON form optimizes
+for human-readability and may omit empty optionals; the CBOR form
+optimizes for byte-stability under a fixed schema and never omits any
+of map keys 1..6.
 
 Verifiers MUST recompute `bundleCanonical(bundle)` and verify
 `Ed25519.verify(keys[keyId], signature, bundleCanonical(bundle))`. See
