@@ -106,6 +106,49 @@ Conventions in this repo:
 - `src/generated/manifest.ts` is `.gitignore`'d — don't list it in
   `files`; never commit it.
 
+### Parallel direct-dispatch (Agent tool, bypassing rsry)
+
+When a session agent dispatches sub-agents directly via the `Agent`
+tool (not via `rsry_dispatch`), rsry's overlap-serialization engine
+**does not apply**. Two sub-agents launched into the same working
+checkout can — and have — collided when both touch shared manifest /
+schema / type files. Symptom: one agent's `git commit` resets the
+other's unstaged working-tree edits; the second agent has to re-apply.
+
+**Rule**: before launching two `Agent` tool calls in parallel, compare
+their bead `files` lists. If they intersect on any file in the
+"shared by every X bead" conventions above (`cloister.capnp`,
+`src/manifest/types.ts`, `src/manifest/runtime.ts`,
+`wrangler.toml`/`config.capnp`, threat-model, AGENTS.md, CLAUDE.md,
+README.md), use one of these mitigations:
+
+1. **`isolation: "worktree"`** on the `Agent` tool call. The tool
+   spins up a temporary git worktree for that agent so its edits
+   don't share state with siblings. Cleanest for short-lived
+   parallel work.
+2. **`rsry_dispatch`** instead of `Agent`. Sets up worktrees under
+   `~/.rsry/worktrees/<repo>/<bead-id>/` and uses rsry's dispatch
+   serialization. Best when both agents would want full rsry
+   bookkeeping (commit-msg hooks, status threading).
+3. **Sequential dispatch**. Run the first agent foreground or wait
+   for completion before starting the second. Trivially correct
+   when the agents are bounded enough that serialization isn't a
+   bottleneck.
+
+Concrete instance that bit (2026-05-11): `cloister-c9922f` (identity
+bridge) + `cloister-cabd57` (OCI registry) dispatched in parallel
+against the main checkout. Both touched
+`{cloister.capnp,src/manifest/runtime.ts,src/manifest/types.ts}`. The
+OCI agent's mid-flight schema edits got reset when the c9922f agent
+committed; OCI had to re-apply. No data loss, no main-branch
+breakage, but ~5-10 min of redo time. Both `files` lists declared
+the overlap correctly — the gap was bypassing rsry's serialization
+by going direct-Agent.
+
+Rule of thumb: **if both bead descriptions declare overlap in their
+`files` field, use worktree isolation or sequential dispatch — never
+parallel-direct against the same checkout.**
+
 ## Failure-mode playbook
 
 | Symptom | Likely cause | Fix |
