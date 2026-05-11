@@ -18,7 +18,7 @@ contents:
   packages:
     - ca-certificates-bundle
     - wolfi-baselayout
-    - "@local cloister"
+    - cloister@local
     # Optional — uncomment to bake cloudflared into the image for
     # self-hosted deployments that want CF Tunnel egress without a
     # separate sidecar container. See docs/deployment/off-platform-peers.md

@@ -182,7 +182,11 @@ tasks:
     desc: Bundle Worker for local workerd (embeds into dist/)
     deps: [manifest]
     cmds:
-      - pnpm exec wrangler build --outdir dist
+      # wrangler 3.x dropped the standalone `build` subcommand; `deploy
+      # --dry-run --outdir` is the supported equivalent (it runs the
+      # bundler + asset emit, then exits before pushing). Also surfaces
+      # any wrangler.toml binding misconfig at build time.
+      - pnpm exec wrangler deploy --dry-run --outdir dist
     sources:
       - src/**/*.ts
     generates:
@@ -330,7 +334,12 @@ tasks:
     vars:
       TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - "apko build apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
+      # `task apk` only builds the host arch; apko.yaml's `archs: [x86_64,
+      # aarch64]` is the release-shape declaration. Pass `--arch host` so
+      # apko narrows to whatever the local melange step produced — keeps
+      # local-dev images buildable without setting up cross-arch apks.
+      # Multi-arch publishes still use apko's release pipeline (CI).
+      - "apko build --arch \"$(uname -m | sed 's/arm64/aarch64/;s/amd64/x86_64/')\" apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
       - 'echo "Built cloister.tar — load with: docker load < cloister.tar"'
 
   image:check:

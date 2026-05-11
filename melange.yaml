@@ -36,22 +36,22 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
+      - busybox          # provides tar + gzip (matches notme/mache convention)
       - build-base
       - ca-certificates-bundle
       - nodejs
       - npm
-      - tar
-      - gzip
-      # Cap'n Proto compiler — needed because `task manifest` runs
-      # `capnp eval` to compile cloister.capnp → JSON. Without this, the
-      # build would fail at the manifest-generation step.
-      - capnp
-      # go-task — Taskfile is the golden path (ADR-0001). melange's build
-      # pipeline calls `task build:local` rather than re-implementing the
-      # bundle steps inline, so the local-dev path and the OCI-image path
-      # share the same logic. If `task` changes, melange picks it up
-      # automatically; no two-source-of-truth drift.
-      - go-task
+      # NOTE (cloister-0854b7): the melange build path used to depend on
+      # `capnp` + `go-task` so it could run `task manifest` + `task
+      # build:local`. Wolfi doesn't ship `capnp`. Rather than switch
+      # base images (Alpine has it, but ABI-differs from the rest of
+      # the substrate's Wolfi-based siblings), `src/generated/{manifest,
+      # tool-schemas,cluster}.ts` are now TRACKED in git as the
+      # deterministic codegen outputs they are. The OCI build invokes
+      # `wrangler build` directly (see the pipeline step below); no
+      # capnp at build time, no task runner needed. Drift between
+      # source + generated is gated in CI by .github/workflows/
+      # generated-drift.yml.
 
 # Pin workerd to the version the cloister tree builds against. Bump in
 # lockstep with the @cloudflare/workerd-* dep in package.json.
@@ -65,23 +65,34 @@ vars:
   workerd-version: "1.20250718.0"
 
 pipeline:
-  - uses: git-checkout
-    with:
-      repository: https://github.com/agentic-research/cloister
-      tag: v${{package.version}}
+  # No git-checkout step — melange populates the workspace from the
+  # build context (cwd) on its own. Matches notme/mache convention; the
+  # public-repo + release-tag clone form (used by rosary) is only right
+  # once cloister has a public repo + release tags. Until then, this
+  # builds the local tree.
 
   - name: Install pnpm
     runs: |
       npm install -g pnpm@10
 
-  - name: Install + bundle the worker (via Taskfile — golden path)
+  - name: Install + bundle the worker (wrangler direct — no capnp needed)
     runs: |
-      # Mirror the local-dev golden path so build logic lives in one place
-      # (Taskfile.yml). `task build:local` is `manifest` (capnp → typed TS)
-      # then `wrangler build --outdir dist`. If either step changes, melange
-      # picks it up without edits to this file.
+      # Generated TS modules (src/generated/{manifest,tool-schemas,cluster}.ts)
+      # are checked in per cloister-0854b7, so the OCI build skips capnp +
+      # task-runner entirely. Local-dev still uses `task build:local` which
+      # regenerates first; CI drift check at .github/workflows/generated-drift.yml
+      # keeps the checked-in artifacts honest.
+      #
+      # CI=true: melange's runs are non-interactive; pnpm aborts on node_modules
+      # cleanup without it. The workspace is populated from the host build
+      # context so a host-side node_modules can pre-exist.
+      export CI=true
+      # Start clean so the host's node_modules layout can't leak into the build.
+      rm -rf node_modules
       pnpm install --frozen-lockfile
-      task build:local
+      # wrangler 3.x has no standalone `build`; `deploy --dry-run --outdir`
+      # is the supported bundler entry point.
+      pnpm exec wrangler deploy --dry-run --outdir dist
       test -f dist/index.js
 
   - name: Stage worker artifacts
@@ -90,6 +101,14 @@ pipeline:
         "${{targets.destdir}}/usr/share/cloister/dist/index.js"
       install -Dm644 config.capnp \
         "${{targets.destdir}}/usr/share/cloister/config.capnp"
+      # wrangler emits any imported wasm modules as content-addressed
+      # siblings of index.js (e.g. leyline-sign verifier). Stage them
+      # alongside index.js so the worker can wire them at startup.
+      for w in dist/*.wasm; do
+        [ -f "$w" ] || continue
+        install -Dm644 "$w" \
+          "${{targets.destdir}}/usr/share/cloister/dist/$(basename "$w")"
+      done
 
   - name: Fetch workerd binary for this arch
     runs: |

@@ -1,0 +1,95 @@
+name: generated-drift
+# Gates that src/generated/{manifest,tool-schemas,cluster}.ts match
+# what their respective build scripts produce (per cloister-0854b7).
+#
+# Contract enforced here:
+#   Generated TS modules in src/generated/ match the output of running
+#   the codegen scripts on the checked-in source schemas + zod modules.
+#   git diff --exit-code fails on drift, so a schema change without a
+#   regen is a CI failure, not a runtime bug.
+#
+# Why tracked: cloister's OCI build (melange.yaml) depends on these
+# files being present so it can skip the build-time capnp dependency
+# entirely. Wolfi (the base image) does not ship capnp.
+#
+# All run: blocks below execute repo-controlled scripts only; no
+# untrusted github.event.* input is interpolated.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/generated/**"
+      - "cloister.capnp"
+      - "cluster.capnp"
+      - "manifest/cloister.capnp"
+      - "manifest/cluster.capnp"
+      - "wire/cloister.capnp"
+      - "src/tool-schemas/**"
+      - "scripts/build-manifest.mjs"
+      - "scripts/build-tool-schemas.mjs"
+      - "scripts/build-cluster.mjs"
+      - ".github/workflows/generated-drift.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/generated/**"
+      - "cloister.capnp"
+      - "cluster.capnp"
+      - "manifest/cloister.capnp"
+      - "manifest/cluster.capnp"
+      - "wire/cloister.capnp"
+      - "src/tool-schemas/**"
+      - "scripts/build-manifest.mjs"
+      - "scripts/build-tool-schemas.mjs"
+      - "scripts/build-cluster.mjs"
+      - ".github/workflows/generated-drift.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generated-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift-check:
+    name: regen + diff (manifest, tool-schemas, cluster)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+        with:
+          version: "10.30.3"
+
+      - name: Install capnp (build-time tool — not needed at deploy)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends capnproto
+          capnp --version
+
+      - name: Install dependencies (frozen)
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate src/generated/*.ts
+        run: |
+          pnpm exec tsx scripts/build-tool-schemas.mjs
+          node scripts/build-manifest.mjs
+          node scripts/build-cluster.mjs
+
+      - name: Assert no drift in src/generated/
+        run: |
+          if ! git diff --exit-code src/generated/; then
+            echo "::error::src/generated/ has drift; regenerate locally + commit:" >&2
+            echo "::error::  pnpm exec tsx scripts/build-tool-schemas.mjs" >&2
+            echo "::error::  node scripts/build-manifest.mjs" >&2
+            echo "::error::  node scripts/build-cluster.mjs" >&2
+            echo "::error::  git add src/generated/ && git commit" >&2
+            exit 1
+          fi
