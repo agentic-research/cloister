@@ -78,6 +78,7 @@ for (const b of cluster.bundles) {
   const ext = b.kind.external;
   lines.push(`  ${b.name}:`);
   lines.push(`    image: ${ext.image}`);
+  lines.push(`    pull_policy: never`);
   lines.push(`    container_name: cloister-${b.name}`);
   lines.push(`    labels:`);
   lines.push(`      - "cloister.bundle=${b.name}"`);
@@ -90,8 +91,12 @@ for (const b of cluster.bundles) {
     for (const a of ext.args) lines.push(`      - ${JSON.stringify(a)}`);
   }
 
+  if (b.name === "mache") {
+    lines.push(`    network_mode: "service:cloister-router"`);
+  }
+
   // Port forwards (only for bundles with TCP listeners)
-  if (ext.httpPort > 0) {
+  if (ext.httpPort > 0 && b.name !== "mache") {
     lines.push(`    ports:`);
     lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
   }
@@ -116,7 +121,11 @@ for (const b of cluster.bundles) {
     if (target && "external" in target.kind && target.kind.external.ipcSocket) {
       envVars.push(`${w.binding}=${target.kind.external.ipcSocket}`);
     } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
-      envVars.push(`${w.binding}=http://${w.to}:${target.kind.external.httpPort}`);
+      if (w.to === "mache") {
+        envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
+      } else {
+        envVars.push(`${w.binding}=http://${w.to}:${target.kind.external.httpPort}`);
+      }
     }
   }
   for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);

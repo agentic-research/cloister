@@ -57,9 +57,9 @@ const cluster :Cluster.Cluster = (
       tier = cluster,
       kind = (external = (
         image     = "mache:0.8.0",
-        ipcSocket = "/run/cloister-uds/mache.sock",
-        httpPort  = 0,                        # UDS only (cluster-internal)
-        args      = ["serve", "--http", "unix:/run/cloister-uds/mache.sock"],
+        ipcSocket = "",
+        httpPort  = 7532,                     # Binds localhost (shared net namespace)
+        args      = ["serve", "--http", "localhost:7532"],
         env       = [],
       )),
     ),
