@@ -1,17 +1,17 @@
 # cloister
 
-A **v8-isolate hypervisor** that hosts workerd Workers, wires them into
-clusters via service bindings, mediates their access to identity and
-credentials, and routes external traffic to them. The same TypeScript
-bundle runs locally on `workerd` and on Cloudflare Workers in
-production — one HTTP port, one declarative route table, capability-
-shaped capabilities through it.
+**cloister** is a v8-isolate hypervisor for zero-trust agentic workflows.
+It hosts `workerd` Workers, wires them into secure clusters via service
+bindings, and acts as the absolute boundary for identity and credentials.
+The same TypeScript bundle runs locally on `workerd` and on Cloudflare
+Workers in production — one HTTP port, one declarative route table,
+capability-shaped capabilities through it.
 
-The MCP/JSON-RPC face most consumers see today is **one tenant** of the
-public pipe — bead state, code intelligence, and an Interlace-discoverable
-identity surface ride on the same routing fabric. Future tenants (gRPC,
-WebSocket, anything HTTP-shaped) plug into the same `EdgeRoute` table
-without touching the substrate.
+The Model Context Protocol (MCP) face most consumers see today is **one
+tenant** of the public pipe — bead state, code intelligence, and an
+Interlace-discoverable identity surface ride on the same routing fabric.
+Future tenants (gRPC, WebSocket, anything HTTP-shaped) plug into the same
+`EdgeRoute` table without touching the substrate.
 
 ## Load-bearing claims (and how they're defended)
 
@@ -450,4 +450,14 @@ excluded from `task lint` / `task test`.
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
+**AGPL-3.0** — see [LICENSE](LICENSE).
+
+The Interlace protocol specification ([`interlace-spec/`](interlace-spec/))
+and the `notme` / `signet` identity layers (sibling repos) are
+permissively licensed (Apache 2.0). This **hypervisor substrate** is
+copyleft to protect the ecosystem from proprietary enclosure: integrate
+freely over the wire, run it as a service, build commercial products
+on top — but if you fork the substrate and ship a modified version as
+a managed service, the AGPL requires you to publish your modifications.
+Identity primitives stay open for universal adoption; the operational
+boundary stays open for everyone who uses it.
