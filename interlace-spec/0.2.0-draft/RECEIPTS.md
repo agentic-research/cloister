@@ -33,7 +33,11 @@ mathematically defensible.
 The detailed adversarial argument is in
 [`PROBLEM-STATEMENT-NON-REPUDIATION.md`](PROBLEM-STATEMENT-NON-REPUDIATION.md).
 
-## 2. Specification (proposed normative text for §13.5)
+## 2. Specification (proposed normative text for §13.6)
+
+(Math-friend N3 second-pass review: an earlier draft labeled this §13.5
+but threat-model §13.5 is already occupied by the MCP sessionless
+protocol notes from SEP-2575. Relabeled to §13.6 to avoid collision.)
 
 ### 2.1 Receipt construction
 
@@ -60,15 +64,33 @@ response_headers    := A's response header map
 # sorted bytewise lexicographic, length-prefixed canonical encoding).
 # Headers not in this list are NOT attested; A can rewrite them at will.
 HEADER_ALLOWLIST := [
+  # Content shape
   "content-type",
   "content-encoding",
   "content-language",
+  "content-length",          # tightens parser-confusion vectors
+  # Caching / freshness
   "cache-control",
+  "etag",                    # cache validators
+  "last-modified",           # cache validators
+  # Redirects + relationships
   "location",
   "link",
+  # Auth-shape
   "www-authenticate",
   "retry-after",
+  # CORS — affects whether a browser consumes the response at all
+  "access-control-allow-origin",
+  "access-control-allow-credentials",
+  # OCI registry — included for the OCI tenant under cloister
+  "docker-distribution-api-version",
+  "docker-content-digest",
 ]
+
+# This list is a defined-by-the-spec set. Future extensions MUST
+# extend by SEP amendment, not at deploy time. Adding a header
+# at deploy time would silently change canonical receipt bytes
+# across the ecosystem.
 
 headers_canon := canonical_cbor(map_sorted({
   h: <bytes; the value of header `h` in A's response>
@@ -186,11 +208,35 @@ A **MAY** archive retired entries to a separate
 immediately-previous epochs and the archive endpoint is referenced
 from `index.json`.
 
-A **MUST NOT** delete retired entries while any receipt signed under
-that epoch could plausibly still be in audit. A SHOULD retain entries
-for at least 7 years (typical compliance horizon); operators with
-shorter retention policies SHOULD publish their CA-decommission
-timeline in `index.json`.
+A **MUST** retain retired CA-bundle entries until the operator's
+published decommission timeline (declared in `index.json` under
+`ca_decommission_after`) elapses; absent a published timeline, A
+**MUST** retain entries indefinitely. The previous draft's "SHOULD
+retain for 7 years" was per-RFC-2119 permissibly waivable, which
+made retention operator-discretionary — incompatible with §13.2 being
+a load-bearing soundness property (math-friend second-pass review).
+Operators wanting a shorter retention horizon publish their
+`ca_decommission_after` so V can plan its receipt-retention policy
+accordingly.
+
+**Lost-bundle recovery defense.** If A's CA bundle is lost (operator
+data-loss event), receipts signed under retired epochs become
+unverifiable through A's authoritative bundle. To preserve audit
+soundness against this:
+
+1. A **SHOULD** publish each per-epoch master pubkey to an
+   independent anchor at minting time — Sigstore root, Certificate
+   Transparency log, IPFS, or any append-only registry V can
+   independently resolve. The anchor reference goes into the
+   CA bundle entry as `external_anchor_uri`.
+2. V **SHOULD** archive snapshots of A's CA bundle at receipt-witness
+   time, so V can verify receipts against its own snapshot even if
+   A's bundle is later lost.
+
+These defenses are SHOULDs (not MUSTs) because the spec cannot
+mandate behavior of independent anchors or V-side storage. But
+operators planning long-horizon audit should treat them as
+deployment requirements.
 
 ### 2.4 Streaming / SSE responses
 
@@ -223,21 +269,44 @@ Interlace-Receipt: <base64url(canonical_cbor({
 }))>
 
 # For each SSE event A emits, A also emits an event hash anchored to the
-# previous link (or stream_open_commitment hash for the first event):
+# previous link.
+#
+# SSE comments (lines starting with `:` per the SSE spec — used for
+# keepalives) are NOT events and MUST NOT be included in the hash chain.
+# Only event-block data lines are chained.
 event_hash[n] = SHA-256(canonical_cbor({
-  "prev":       <bytes-32; event_hash[n-1] or SHA-256(stream_open_commitment) if n=0>,
+  "prev":       <bytes-32; event_hash[n-1], or open_commitment_hash if n=0>,
   "event_data": <bytes; the event payload bytes>,
   "seq":        <uint; n>,
 }))
 
-# At stream close, A signs the final commitment to the full chain:
+# Where open_commitment_hash is the SHA-256 of the open commitment:
+open_commitment_hash = SHA-256(stream_open_commitment)
+
+# At stream close, A signs the final commitment, cryptographically
+# pairing close to open via `open_commitment_hash`. This closes
+# math-friend N1 (HIGH, second-pass review): without binding the close
+# to the open by hash, an actor who signs both can swap close
+# commitments between streams that share a stream_id — A retains
+# repudiation latitude over which open a given close belongs to.
 stream_close_commitment = canonical_cbor({
-  "stream_id":     <bytes-16; matches stream_open>,
-  "tip_hash":      <bytes-32; event_hash[last]>,
-  "event_count":   <uint; n+1>,
-  "close_status":  "ok" | "client-disconnect" | "server-shutdown",
-  "timestamp_ms":  <uint>,
+  "stream_id":            <bytes-16; matches stream_open>,
+  "open_commitment_hash": <bytes-32; SHA-256(stream_open_commitment)>,
+  "tip_hash":             <bytes-32; event_hash[last], or open_commitment_hash if event_count=0>,
+  "event_count":          <uint; n+1>,
+  "close_status":         "ok" | "client-disconnect" | "server-shutdown",
+  "timestamp_ms":         <uint>,
 })
+
+# Empty-stream edge case: when event_count = 0 (stream opened and
+# immediately closed with no events), tip_hash equals open_commitment_hash
+# by definition. The chain has a single node (the open) and the close
+# closes over it.
+#
+# `seq` in event_hash is not strictly security-load-bearing — `prev`
+# already forces ordering under SHA-256 collision-resistance — but is
+# useful for sparse-archive chain reconstruction and is normatively
+# required for unambiguous reproduction across implementations.
 
 stream_close_sig = Ed25519_Sign(A.master_sk, stream_close_commitment)
 
@@ -281,6 +350,21 @@ Ed25519 sign.
 > For streaming responses, the streams's open commitment is the
 > non-repudiable admission; the close commitment plus event chain
 > establishes the response content.
+>
+> A stream that ends WITHOUT a close commitment (e.g., TCP RST,
+> server crash, transport drop) does NOT establish non-repudiable
+> end-of-stream. P holding only an open commitment cannot file a
+> chain-absence complaint about events that were never sealed.
+> The absence of a close commitment is itself the signal that
+> admission was not completed; this is distinct from a §13.2
+> "silence is evidence" claim.
+>
+> A close commitment with `close_status = "client-disconnect"` is
+> semantically downgraded: A's word about why the stream ended is
+> not non-repudiable (P signing a matching close-ack would close
+> this, see §11.4). For audit purposes, `client-disconnect` chains
+> are evidence A processed up through `tip_hash`, but not evidence
+> A would have stopped there absent the disconnect claim.
 
 ### 2.6 Mandatory emission
 
@@ -297,9 +381,32 @@ A **MAY** omit receipts on unauthenticated endpoints (e.g., `/health`,
 those operations are public and non-stateful; the §13.2 invariant does
 not apply.
 
+A **MUST NOT** owe a receipt for a constant-time 404 emitted under
+§9.4 (disclosure-endpoint error-collapse pattern). The 404 is not an
+admission; P expecting 2xx and receiving 404 has no §13.2 grievance
+against the actor — only an out-of-band debugging concern. This
+closes math-friend N5 (LOW, second-pass review).
+
 Authenticated reads (e.g., authenticated `GET /interlace/peers/<fp>`)
 **MUST** still emit receipts — V auditing such reads relies on the
 same chain-completeness property.
+
+**Authenticated-read chain-recursion carve-out.** Per ADR-0012, $D_A$
+chain entries are written only for state-boundary writes (the §13.4
+audit pattern). An authenticated *read* emits a receipt but does
+NOT advance the chain. V auditing therefore evaluates read-receipts
+against the read-receipt log (a parallel structure), not against
+the state-write chain. This prevents the audit-of-audit recursion
+math-friend N2 (MEDIUM, second-pass review) flagged: V reading the
+disclosure endpoint receives a receipt and no chain entry is owed,
+so no second-order chain expansion occurs.
+
+The read-receipt log is published alongside the state-write chain
+in `.well-known/interlace/read-receipts/` (separate namespace; same
+batch / per-request mode capability as the main chain). Implementation
+detail: cloister stores read-receipts in TrustStore's `peer_attestations`
+table with a `kind: "read"` column; the disclosure endpoint serves
+both kinds, distinguishable by query parameter.
 
 ## 3. Receipt format details
 
@@ -332,6 +439,43 @@ test vectors (§7) **MUST** exercise each:
 - **Empty container encoding**. Definite-length empty maps and arrays
   have a canonical 1-byte encoding (`0xA0` or `0x80`); indefinite-length
   forms are forbidden under §4.2.
+
+- **Definite-length forms only**. Restated normatively here (the rule
+  appears in §2.1 too but belongs in the landmines list): indefinite-
+  length encoding for any map, array, byte string, or text string
+  **MUST NOT** appear in canonical receipt bytes. CBOR allows
+  indefinite-length encodings; canonical form forbids them.
+
+- **Map keys MUST be text strings only**. All schemas in this spec
+  use text-string keys. Integer-keyed maps are forbidden in canonical
+  receipt bytes even though RFC 8949 allows them — they introduce
+  sort-order ambiguity (text "5" vs uint 5) and decoder-confusion
+  surface. Implementations using integer keys for "efficiency" would
+  break cross-implementation byte-equality.
+
+- **Floats and NaN are forbidden**. RFC 8949 §4.2.2 specifies that
+  canonical encoders MUST emit floats in the shortest form, but
+  canonical receipt schemas in this spec contain **no float fields**
+  at all. An implementer adding floats (e.g., a future latency
+  field) would hit this landmine; the recommended approach is to
+  always use uint milliseconds rather than float seconds.
+
+- **CBOR tags are forbidden**. RFC 8949 §3.4 (major type 6) provides
+  semantic tagging — none used in this spec. Implementations
+  **MUST NOT** emit tagged values; decoders **MUST** reject them.
+
+- **Byte-string values for header values**. §2.1 `headers_hash`
+  encodes header values as byte strings (CBOR major type 2), not
+  text strings (major type 3). This is the canonical choice because
+  HTTP header values are byte sequences per RFC 9110 §5.5 (not
+  guaranteed UTF-8); some headers (e.g., `WWW-Authenticate` with
+  binary parameters) require byte semantics. Implementations
+  **MUST** encode header values as major type 2.
+
+- **No NFC normalization**. Field names and enum labels are ASCII-
+  only. Strings within values are passed through unchanged (no
+  Unicode normalization, no case folding). An implementer applying
+  NFC to receipt content would break byte-equality.
 
 ### 3.2 Header naming
 
@@ -407,9 +551,15 @@ root_commitment = canonical_cbor({
   "batch_id":     <bytes-16; A's per-batch identifier>,
   "leaf_count":   <uint>,
   "timestamp_ms": <uint>,
-  "prev_batch":   <bytes-32; signature of the previous batch's root_commitment>,
+  "prev_batch":   <bytes-32; SHA-256 of the previous batch's signed root envelope>,
 })
 ```
+
+(Math-friend N4 second-pass review: an earlier draft of this field
+specified Ed25519 *signature* bytes (64 bytes) but typed them as
+`bytes-32`. Corrected to SHA-256 of the previous signed envelope,
+matching CT-style log integrity convention — hash-chain over
+already-signed material, not signature-chain.)
 
 The `prev_batch` field chains batches together, providing CT-style log
 consistency: V can verify A maintains a single consistent view of the
@@ -563,26 +713,86 @@ this revision:
 - **Receipt-replay clarification.** Not a capability (§2.5 footnote).
   From the review's minor items.
 
+**Resolved in second-pass review (math-friend 2026-05-11 round 2):**
+
+- **N1 (HIGH) — `stream_close` not bound to `stream_open`.** Added
+  `open_commitment_hash` to the close commitment (§2.4). Close is
+  now cryptographically paired to open.
+- **N2 (MEDIUM) — Authenticated-read chain recursion.** Added carve-
+  out (§2.6): authenticated reads emit receipts but do NOT advance
+  the state-write chain; read-receipts live in a parallel log.
+- **N3 (MEDIUM) — Threat-model section collision.** Relabeled the
+  receipt section to threat-model §13.6 (§13.5 is MCP-sessionless
+  from SEP-2575).
+- **N4 (MEDIUM) — `prev_batch` field type.** Corrected from
+  `<bytes-32; signature ...>` (impossible — Ed25519 sigs are 64 B)
+  to `<bytes-32; SHA-256 of the previous signed envelope>` (§6.1).
+  Hash-chain-over-signed-material matches CT-style log integrity.
+- **N5 (LOW) — Receipt obligation on constant-time 404.** Added §2.6
+  carve-out: no receipt owed on §9.4 constant-time 404s; P expecting
+  2xx and receiving 404 has no §13.2 grievance.
+- **Empty-stream `tip_hash` base case.** Defined explicitly (§2.4):
+  when `event_count = 0`, `tip_hash = open_commitment_hash`.
+- **TCP-RST mid-stream semantics.** Documented (§2.5): absence of
+  close commitment is NOT a §13.2 chain-absence claim; the open
+  alone does not establish non-repudiable end-of-stream.
+- **`close_status = "client-disconnect"` downgrade.** Documented
+  (§2.5): A's word about why the stream ended is not non-repudiable
+  end-of-stream; P-side close-ack (deferred §11.4 below) would
+  close this gap.
+- **Header allowlist expansion.** Added etag, last-modified,
+  content-length, access-control-* (CORS), docker-distribution-api-
+  version, docker-content-digest (OCI). List is now defined-by-spec;
+  extensions require SEP amendment, not deploy-time changes (§2.1).
+- **CBOR landmines completeness.** Added: definite-length restatement,
+  map-keys-must-be-text-only, no-floats-no-NaN, no-tags, header-value
+  major-type-2 (bytes), no-NFC (§3.1).
+- **Retention SHOULD → MUST.** Tightened §2.3: retention is now MUST
+  until published `ca_decommission_after`; SHOULD was too weak for a
+  soundness property.
+- **Lost-bundle recovery defenses.** Added §2.3 paragraph on external
+  anchors + V-side bundle snapshotting (both SHOULDs — spec can't
+  mandate independent-anchor behavior).
+- **`seq` field rationale.** Documented (§2.4): not security-load-
+  bearing under `prev` collision-resistance; required for sparse-
+  archive chain reconstruction.
+
 ## 11. Open questions for further review
 
-Math-friend's review surfaced several questions that remain open and
-should be resolved before this draft is submitted upstream:
+Math-friend's first-pass review surfaced these, still open:
 
-1. **Scope of receipts on authenticated reads** (§2.6) — confirmed
-   they're required; relevant for cloister's disclosure endpoint
-   circularity (receipts about reads of the receipt chain). Verify
-   this doesn't create infinite recursion in audit.
-2. **`actor_fp` redundancy** — kept in the commitment as cross-actor
+1. **`actor_fp` redundancy** — kept in the commitment as cross-actor
    disambiguator. Drop to save 32 bytes per receipt? Trade-off
    undecided.
-3. **COSE_Sign1 envelope vs custom envelope** — RFC 9052 provides a
+2. **COSE_Sign1 envelope vs custom envelope** — RFC 9052 provides a
    standardized CBOR signature envelope with off-the-shelf library
    support. Considered, rejected as more bytes for less benefit in
    this draft. Worth revisiting if implementations push back.
-4. **Stream commitment for client-disconnect cases** — does P need to
-   sign its own close acknowledgment to make stream-close mutual?
-   Probably not (this is non-repudiation of *A's* response, not
-   of *P's* receipt); deferred.
+3. **P-signed close-ack for `client-disconnect`** — currently P
+   acceptance of the close is implicit. A mutual-signed close (P
+   counter-signs A's close commitment) would make
+   `close_status = "client-disconnect"` non-repudiable end-of-stream
+   from A's side. Deferred to a future 0.3.0 amendment unless math-
+   friend pushes it earlier.
+
+**New open from second-pass review (math-friend 2026-05-11 round 2):**
+
+4. **Master-key live compromise notice.** §2.3 covers natural rotation
+   and decommission; if `sk_A` *leaks while still active*, all extant
+   receipts under that epoch become forgeable post-hoc. Spec should
+   add a "compromise notice" mechanism: A publishes an
+   epoch-retired-as-compromised marker, V flags affected receipts
+   as untrustworthy retrospectively. Mechanism design: a separate
+   signed-by-the-next-epoch revocation field in `index.json`?
+   Cross-anchored compromise notices? Math-friend asked for this
+   in round 2; flagged for round 3 design.
+
+5. **SSE keepalive comments.** §2.4 says SSE comments are NOT events
+   and MUST NOT be in the hash chain. Implementers should confirm
+   their SSE library can distinguish data-line emission from comment
+   emission for the chain-step hook. Cloister's `src/routes/mcp.ts`
+   emits comments only on the keepalive path; verify before Phase 2
+   of receipts implementation.
 
 ## 12. Comparison to literature
 
