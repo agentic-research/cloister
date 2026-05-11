@@ -27,12 +27,13 @@ top-level docs describe *what*.
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
   numbered ADR before changing the substrate. The next free number is
-  ADR-0014 (0001–0013 taken). Status mix as of 2026-05-10: most are
+  ADR-0015 (0001–0014 taken). Status mix as of 2026-05-11: most are
   Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
   signal); ADR-0010 stays Proposed for the manifest-side vault wiring
   question, but ADR-0013 ratified the enforcement model (V8 isolate +
   service-binding-as-syscall) — the substrate-level security claim no
-  longer waits on ADR-0010 to land.
+  longer waits on ADR-0010 to land. ADR-0014 (pluggable vault KEK
+  source) ships the OS-keystore self-host story.
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.

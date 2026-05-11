@@ -89,10 +89,32 @@ export interface Env {
   // src/vault-store.ts header comment for the open options.
   VAULT_STORE?: DurableObjectNamespace;
   /// Secret used to derive the AES-GCM KEK that wraps per-credential
-  /// DEKs in CredentialVault. Required when VAULT_STORE is bound.
-  /// MUST be a high-entropy string (≥32 bytes); a leak compromises
-  /// every credential in the vault.
+  /// DEKs in CredentialVault. Legacy binding — kept for back-compat
+  /// when `VAULT_KEK_SOURCE` is unset; the DO behaves as if
+  /// `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Prefer setting
+  /// `VAULT_KEK_SOURCE` explicitly for new deployments. MUST be a
+  /// high-entropy string (≥32 bytes); a leak compromises every
+  /// credential in the vault.
   VAULT_KEK_SECRET?: string;
+  /// URL spec telling the vault DO where to resolve its KEK from.
+  /// Supports `env://NAME` (plaintext env binding, current default),
+  /// `file:///path` (workerd disk service binding KEK_DISK),
+  /// `keychain://service-name` (kek-helper sidecar, macOS Keychain),
+  /// `http(s)://...` (generic helper). When unset, falls back to
+  /// `env://VAULT_KEK_SECRET` for back-compat. See ADR-0014 +
+  /// `vault/src/kek-source.ts`.
+  VAULT_KEK_SOURCE?: string;
+  /// Workerd disk-service binding for `file://` KEK sources. The
+  /// bound directory holds the keyfile; `file:///kek.bin` resolves
+  /// to a GET against that disk service for `/kek.bin`. Optional —
+  /// only consulted when VAULT_KEK_SOURCE uses `file://`.
+  KEK_DISK?: Fetcher;
+  /// HTTP service binding for `keychain://` and `http(s)://` KEK
+  /// sources. Points at the kek-helper sidecar
+  /// (scripts/kek-helper.mjs) which translates these URLs to OS-
+  /// keystore calls. Optional — only consulted when VAULT_KEK_SOURCE
+  /// uses one of those schemes. See ADR-0014.
+  KEK_HELPER?: Fetcher;
 
   // Service bindings (workerd-native)
   NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs

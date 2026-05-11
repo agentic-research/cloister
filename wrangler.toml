@@ -101,4 +101,15 @@ MACHE_MCP_URL   = "http://localhost:7532/mcp"
 # deploy with this value. A leak compromises every credential the
 # vault holds. Set to empty to disable VAULT_STORE (its constructor
 # throws on first write if the secret is unset).
+#
+# Legacy: when `VAULT_KEK_SOURCE` is unset, the vault DO behaves as
+# if `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Per ADR-0014 the
+# self-host path uses `VAULT_KEK_SOURCE` with a `keychain://` URL
+# and a `KEK_HELPER` service binding pointed at scripts/kek-helper.mjs.
 VAULT_KEK_SECRET = "local-dev-only-CHANGE-IN-PRODUCTION-via-wrangler-secret-put"
+
+# CredentialVault KEK URL — picks the backend. Empty → legacy env://
+# fallback. See ADR-0014 + GETTING-STARTED §9 for the macOS Keychain
+# self-host walkthrough. Recognized schemes: env://, file:///,
+# keychain://, http(s)://.
+VAULT_KEK_SOURCE = ""

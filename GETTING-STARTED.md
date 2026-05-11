@@ -257,6 +257,55 @@ Other prod knobs (still ADR-0001 work items):
 - mTLS via notme-proxy in front of `LLO_MCP_URL`
 - mount `/data` as a persistent volume for the BeadStore DO SQLite files
 
+### Vault KEK — keep it out of plaintext bindings
+
+The credential vault DO derives its envelope-encryption KEK from a
+secret resolved at boot. The default path uses
+`env.VAULT_KEK_SECRET` — fine for CI and disposable dev, but you do
+NOT want a high-entropy production secret sitting in `config.capnp`
+or `wrangler.toml` on a self-hosted box.
+
+Per [ADR-0014](docs/adr/0014-pluggable-kek-source.md), the vault DO
+now reads `VAULT_KEK_SOURCE` (a URL) and picks a backend by scheme:
+
+| Scheme | Where the KEK lives |
+|---|---|
+| `env://NAME` | a workerd text binding (legacy default) |
+| `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
+| `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar |
+| `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` |
+
+The macOS-Keychain self-host flow:
+
+```sh
+# 1. Stash a high-entropy KEK in your login keychain (one-time setup).
+security add-generic-password \
+  -a cloister -s com.cloister/kek \
+  -w "$(openssl rand -hex 32)"
+
+# 2. Start the kek-helper sidecar (separate Node process — workerd
+#    can't shell to `security` because it's a sandboxed V8 isolate).
+node scripts/kek-helper.mjs --bind 127.0.0.1:8786 &
+
+# 3. Tell cloister to use it. Wire KEK_HELPER as a service binding
+#    in config.capnp / wrangler.toml pointed at the helper port,
+#    and set:
+export VAULT_KEK_SOURCE="keychain://com.cloister/kek"
+
+# 4. Launch.
+task dev
+```
+
+The helper refuses to bind to anything but loopback — it has no auth
+and trusts everything on its port. **Don't expose it remotely.**
+Linux libsecret (`secret-tool://`) is on the roadmap; today the
+helper returns 501 for that scheme.
+
+For OCI / Cloudflare deployments where "Keychain" isn't a thing,
+stick with `env://VAULT_KEK_SECRET` populated via `wrangler secret
+put` or a docker secret — the file/keychain backends are explicitly
+for bare-metal self-host.
+
 ### Off-platform peers (CF Tunnel / WARP)
 
 Cloister doesn't run a userspace WireGuard daemon — workerd has no kernel

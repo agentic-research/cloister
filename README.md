@@ -294,6 +294,16 @@ task image:check    # validate melange.yaml + apko.yaml without a real build
 - **Container** — `task image` produces a distroless OCI image
   (`cloister.tar`), workerd + bundle only, no shell/pkgmgr, runs as
   uid `65532`. Mount `/data` for DO SQLite persistence.
+- **`VAULT_KEK_SOURCE`** (env var, URL) — picks where the vault DO
+  resolves its envelope-encryption KEK from at boot. Schemes:
+  `env://NAME` (plaintext binding, legacy default), `file:///path`
+  (workerd `disk` service via `KEK_DISK`), `keychain://service-name`
+  (macOS Keychain via the `kek-helper` sidecar bound as `KEK_HELPER`),
+  or `http(s)://...` (generic helper). See
+  [ADR-0014](docs/adr/0014-pluggable-kek-source.md) +
+  [GETTING-STARTED §9](GETTING-STARTED.md#vault-kek--keep-it-out-of-plaintext-bindings)
+  for the self-host walkthrough. **Don't put a production KEK in a
+  plaintext `text` binding if you can avoid it.**
 
 ## Claude Code plugin
 
@@ -391,6 +401,7 @@ excluded from `task lint` / `task test`.
 - [docs/adr/0009-compute-substrate-portability.md](docs/adr/0009-compute-substrate-portability.md) — Linux / Firecracker / WASM / unikernel as deployment knob (Proposed)
 - [docs/adr/0010-vault-and-bundle-clusters.md](docs/adr/0010-vault-and-bundle-clusters.md) — **vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity** (Proposed)
 - [docs/adr/0011-hypervisor-bundle-boundary.md](docs/adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs bundle responsibilities, and what cloister's k8s analogy actually means** (Proposed)
+- [docs/adr/0014-pluggable-kek-source.md](docs/adr/0014-pluggable-kek-source.md) — **pluggable vault KEK source: env / file / OS keystore via kek-helper sidecar** (Accepted; ships the self-host story for r/mcp launch)
 - [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
 - [src/README.md](src/README.md) — worker source layout map (routes / manifest / wire / backends)
 - [manifest/README.md](manifest/README.md) — capnp schema for the gateway (the `Cloister.Gateway` type)

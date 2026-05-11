@@ -21,8 +21,9 @@
 //   from notme/vault/ per cloister-9ad9eb, AGPL-3.0). Those files are
 //   storage-and-runtime-agnostic — they take an injected `VaultStorage`
 //   interface. This DO supplies the SQLite-backed storage, derives the
-//   KEK from `env.VAULT_KEK_SECRET`, and exposes the methods callers
-//   need.
+//   KEK via `vault/src/kek-source.ts` (URL-driven; supports env://,
+//   file://, keychain://, http(s)://), and exposes the methods callers
+//   need. See ADR-0014 for the KEK-source design.
 //
 // What this file does NOT wrap (deliberate):
 //
@@ -127,6 +128,7 @@ import {
   encrypt,
   type SealedCredential,
 } from "../vault/src/crypto.js";
+import { buildKekSource, type KekSource } from "../vault/src/kek-source.js";
 
 /** SQLite row shape — sealed_headers is JSON-serialized SealedCredential. */
 interface StoredRow {
@@ -334,13 +336,46 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
   #getKEK(): Promise<CryptoKey> {
     if (!this.kekPromise) {
-      const secret = (this.env as Env & { VAULT_KEK_SECRET?: string }).VAULT_KEK_SECRET;
-      if (!secret) {
-        throw new Error("VAULT_KEK_SECRET binding is unset — vault cannot derive its key");
-      }
-      this.kekPromise = deriveKEK(secret);
+      this.kekPromise = this.#resolveKekSource().resolve().then(deriveKEK);
     }
     return this.kekPromise;
+  }
+
+  /**
+   * Resolve the KEK source URL for this DO. The order of precedence:
+   *
+   *   1. `env.VAULT_KEK_SOURCE` — explicit URL spec (env://NAME,
+   *      file:///path, keychain://service, http://helper/...). The
+   *      preferred path for new deployments.
+   *   2. Legacy fallback — `env.VAULT_KEK_SECRET` present → behave as
+   *      if `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Keeps existing
+   *      config.capnp / wrangler.toml / tests working unchanged.
+   *
+   * If neither is set, fail loudly — the DO refuses to operate with an
+   * unresolvable KEK.
+   */
+  #resolveKekSource(): KekSource {
+    // KekSourceEnv is a structural index-signature shape; widen via
+    // `unknown` so the cloudflare `Env` interface (which has no string
+    // index signature) flows through.
+    const env = this.env as Env & {
+      VAULT_KEK_SOURCE?: string;
+      VAULT_KEK_SECRET?: string;
+    };
+    const kekEnv = this.env as unknown as Record<string, unknown>;
+    const explicit = typeof env.VAULT_KEK_SOURCE === "string"
+      ? env.VAULT_KEK_SOURCE.trim()
+      : "";
+    if (explicit.length > 0) {
+      return buildKekSource(explicit, kekEnv);
+    }
+    if (typeof env.VAULT_KEK_SECRET === "string" && env.VAULT_KEK_SECRET.length > 0) {
+      return buildKekSource("env://VAULT_KEK_SECRET", kekEnv);
+    }
+    throw new Error(
+      "vault: neither VAULT_KEK_SOURCE nor VAULT_KEK_SECRET is set — " +
+        "vault cannot derive its key",
+    );
   }
 
   async #readRow(subjectFp: string, service: string): Promise<StoredCredential | null> {
