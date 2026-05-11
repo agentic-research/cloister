@@ -115,7 +115,24 @@ export type RouteKind =
    * Blob bytes flow from `BlobStore`; the tag → manifest mapping lives
    * in `TrustStore.registry_tags`. See `src/routes/oci-registry.ts`.
    */
-  | { ociRegistry:             null };
+  | { ociRegistry:             null }
+  /**
+   * MCP Registry OpenAPI surface — cloister as a private MCP Registry
+   * (ADR-0016, cloister-a30e40). One Route declaration covers all the
+   * v0.1 server-discovery sub-paths because the handler's URLPatterns
+   * match them internally:
+   *
+   *   - `GET /.well-known/mcp-registry/v0.1/servers`         (list)
+   *   - `GET /.well-known/mcp-registry/v0.1/servers/{name}`  (detail)
+   *
+   * The route's `path` is a sentinel marker — actual matching happens
+   * inside the handler. The server catalog is synthesized from the
+   * manifest's mcp routes (one server.json per externally-shaped
+   * backend; httpForward + leylineNet today). Read-only in this phase.
+   *
+   * See `src/routes/well-known-mcp-registry.ts`.
+   */
+  | { wellKnownMcpRegistry:    null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];

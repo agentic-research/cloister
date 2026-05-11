@@ -32,6 +32,7 @@ import { WellKnownInterlaceRoute } from "../routes/well-known.js";
 import { WellKnownIdentityBridgeRoute } from "../routes/well-known-identity.js";
 import { DisclosureRoute } from "../routes/disclosure.js";
 import { OciRegistryRoute } from "../routes/oci-registry.js";
+import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { HttpForwardToolBackend } from "./backends/http-forward.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -132,6 +133,17 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // to the identity bridge — both are non-MCP tenants on the same
     // ADR-0002 seam.
     return new OciRegistryRoute();
+  }
+  if ("wellKnownMcpRegistry" in k) {
+    // MCP Registry OpenAPI surface (ADR-0016, cloister-a30e40) — Phase 3
+    // of the MCP spec-alignment arc. One EdgeRoute handles the v0.1
+    // server discovery sub-paths under `/.well-known/mcp-registry/`. The
+    // server catalog is synthesized from the manifest's mcp routes at
+    // request time; the route's `path` is a sentinel marker — actual
+    // matching happens inside the handler's URLPatterns. Third
+    // metadata-surface route, sibling to wellKnownInterlace and
+    // wellKnownIdentityBridge.
+    return new WellKnownMcpRegistryRoute(manifest);
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

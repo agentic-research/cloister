@@ -372,6 +372,29 @@ Drafted in this repo and tracked for upstream submission:
 See [docs/mcp-seps/README.md](docs/mcp-seps/README.md) for the SEP workflow
 this repo follows.
 
+### Cloister as a private MCP Registry
+
+Cloister exposes its upstream catalog via the [MCP Registry OpenAPI
+surface](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml)
+at `/.well-known/mcp-registry/`. Host applications that already know how to
+consume the public [MCP Registry](https://modelcontextprotocol.io/registry/about)
+discover cloister's tenants the same way — no cloister-specific client
+path required.
+
+```sh
+# List all servers proxied through this cloister.
+curl -s http://localhost:8787/.well-known/mcp-registry/v0.1/servers | jq
+
+# Fetch a single server's metadata.
+curl -s "http://localhost:8787/.well-known/mcp-registry/v0.1/servers/art.agentic-research/cloister/mache" | jq
+```
+
+Names follow the reverse-DNS form
+`art.agentic-research/cloister/<backend-id>`. Each entry's `remotes` block
+points back at this cloister's `/mcp` endpoint. Read-only in this phase;
+publish endpoints are deferred. See [ADR-0016](docs/adr/0016-cloister-as-private-mcp-registry.md)
+for the design.
+
 ## Performance
 
 Per-surface latency + throughput — workerd-local numbers, not

@@ -85,6 +85,19 @@ const gateway :Cloister.Gateway = (
     ( path = "/v2",
       kind = (ociRegistry = void) ),
 
+    # ── MCP Registry OpenAPI surface (cloister-a30e40, ADR-0016) ───────────
+    # Phase 3 of the MCP spec-alignment arc (ADR-0015). One Route
+    # declaration covers the v0.1 server-discovery sub-paths because the
+    # handler's URLPatterns match them internally:
+    #   GET /.well-known/mcp-registry/v0.1/servers          — list
+    #   GET /.well-known/mcp-registry/v0.1/servers/{name}   — detail
+    # `path` below is a sentinel. The server catalog is synthesized
+    # from this manifest's mcp routes (one server.json per externally-
+    # shaped backend; httpForward + leylineNet today). Read-only in
+    # this phase. See src/routes/well-known-mcp-registry.ts.
+    ( path = "/.well-known/mcp-registry",
+      kind = (wellKnownMcpRegistry = void) ),
+
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
       kind = (serviceBindingProxy = (

@@ -162,6 +162,21 @@ struct Route {
     # protocol-agnostic seam holds. Auth posture is anonymous pulls
     # in Phase 1; Phase 2 will add an `oci:push:<repo>` scope for writes.
     ociRegistry             @8 :Void;
+
+    # MCP Registry OpenAPI surface — cloister as a private MCP Registry
+    # (ADR-0016, cloister-a30e40). The handler serves all v0.1 server
+    # discovery endpoints under one route declaration; `path` here is a
+    # sentinel marker. URLPatterns inside the handler match:
+    #
+    #   - `GET /.well-known/mcp-registry/v0.1/servers`        (list)
+    #   - `GET /.well-known/mcp-registry/v0.1/servers/{name}` (detail)
+    #
+    # The server catalog is synthesized from the manifest's mcp routes —
+    # one server.json per externally-shaped backend (httpForward and
+    # leylineNet today; DO-backed BeadStore is intra-cluster, omitted).
+    # Read-only in this phase; write endpoints (`/publish`) are deferred.
+    # See ADR-0016 + docs/integration/mcp-client.md §"Registry discovery".
+    wellKnownMcpRegistry    @9 :Void;
   }
 }
 

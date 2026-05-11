@@ -129,9 +129,89 @@ Tool input schemas are codegen'd from `src/tool-schemas/*.ts` and surfaced
 via `tools/list`. The schema is the contract — clients should consume it
 rather than hardcoding shapes.
 
+## Registry discovery — enumerate cloister's upstream surface
+
+Cloister implements the [MCP Registry OpenAPI](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml)
+read surface (ADR-0016) under `/.well-known/mcp-registry/`. Clients that
+already know how to consume an [MCP Registry](https://modelcontextprotocol.io/registry/about)
+can list cloister's tenants programmatically without bespoke integration.
+
+### List servers
+
+```sh
+curl -s http://localhost:8787/.well-known/mcp-registry/v0.1/servers | jq
+```
+
+Response shape (per the OpenAPI spec):
+
+```jsonc
+{
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://modelcontextprotocol.io/schemas/draft/2025-12-01/server.schema.json",
+        "name": "art.agentic-research/cloister/mache",
+        "description": "mache (mache_* tools) — proxied through cloister, dynamic tools",
+        "version": "0.0.0",
+        "remotes": [
+          { "type": "streamable-http", "url": "http://localhost:8787/mcp" }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "id": "cloister:art.agentic-research/cloister/mache",
+          "publishedAt": "1970-01-01T00:00:00Z",
+          "updatedAt":   "1970-01-01T00:00:00Z",
+          "isLatest":    true,
+          "status":      "active"
+        }
+      }
+    }
+  ],
+  "metadata": { "count": 1, "nextCursor": null }
+}
+```
+
+### Fetch one server
+
+```sh
+curl -s "http://localhost:8787/.well-known/mcp-registry/v0.1/servers/art.agentic-research/cloister/mache" | jq
+```
+
+Returns the same envelope object for the named server, or 404 if unknown.
+The 404 body is constant-shape — clients shouldn't gate on body content
+beyond `error: "not_found"`.
+
+### Client wiring
+
+The Registry endpoint tells you *what* tenants cloister proxies; the
+`/mcp` endpoint is where you actually call them. Typical flow:
+
+1. `GET /.well-known/mcp-registry/v0.1/servers` to enumerate the
+   upstream catalog at startup. Names are stable across deployments.
+2. Configure your MCP client to point at `/mcp` (per "Pick the right
+   URL" above).
+3. The tool list you get via `tools/list` on `/mcp` is the union of
+   the catalog's surfaces, namespaced per the manifest's `handlesPrefix`
+   (e.g. `mache_*`, `lsp_*`).
+
+### What's exposed and what isn't
+
+Only externally-shaped backends appear in the Registry surface:
+
+- **`httpForward`** (mache, ley-line-open, …) — yes
+- **`leylineNet`** (companion-mediated upstreams) — yes
+- **`durableObject`** (BeadStore) — no, intra-cluster
+- **`serviceBinding`** (notme) — no, workerd Fetcher binding
+
+This matches the spec's intent: a Registry entry should be something a
+host application could *reach* with the right network placement, not an
+implementation detail of the proxy.
+
 ## Where to go from here
 
 - [`GETTING-STARTED.md`](../../GETTING-STARTED.md) — full local-dev walkthrough.
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) — what the components are and how they fit.
 - [`docs/security/threat-model.md`](../security/threat-model.md) — auth model in detail; what `X-Interlace-Lease` actually proves.
+- [`docs/adr/0016-cloister-as-private-mcp-registry.md`](../adr/0016-cloister-as-private-mcp-registry.md) — registry-surface design.
 - [`interlace-spec/0.1.0/`](../../interlace-spec/0.1.0/README.md) — vendor-neutral wire spec if you're building a non-cloister implementation.
