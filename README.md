@@ -1,17 +1,19 @@
 # cloister
 
-**cloister** is a v8-isolate hypervisor for zero-trust agentic workflows.
-It hosts `workerd` Workers, wires them into secure clusters via service
-bindings, and acts as the absolute boundary for identity and credentials.
-The same TypeScript bundle runs locally on `workerd` and on Cloudflare
-Workers in production — one HTTP port, one declarative route table,
-capability-shaped capabilities through it.
+**Cloister composes MCP servers like Lego bricks.** Five typed backend
+kinds — `durableObject`, `mcpProxy`, `serviceBinding`, `udsForward`,
+`leylineNet` — snap together via a single capnp manifest. The result is
+one HTTP face with identity, audit, and per-bundle credential scoping
+wired through. The substrate is a v8-isolate hypervisor on `workerd` —
+same TypeScript bundle runs locally on `workerd serve` and on Cloudflare
+Workers in production.
 
-The Model Context Protocol (MCP) face most consumers see today is **one
-tenant** of the public pipe — bead state, code intelligence, and an
-Interlace-discoverable identity surface ride on the same routing fabric.
-Future tenants (gRPC, WebSocket, anything HTTP-shaped) plug into the same
-`EdgeRoute` table without touching the substrate.
+The interface is the manifest at [`cloister.capnp`](cloister.capnp),
+not the code. Adding a tenant is a declarative edit: pick a brick kind,
+declare its URL or binding, name its scopes. Today's hosted tenants are
+`bead_*`, `mache_*`, `lsp_*`, lifecycle (`reparse`/`enrich`/`status`),
+and the Interlace identity bridge — but anything HTTP-shaped plugs into
+the same `EdgeRoute` table without touching the substrate.
 
 ## Load-bearing claims (and how they're defended)
 
