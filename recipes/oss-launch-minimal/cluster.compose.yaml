@@ -1,0 +1,52 @@
+# Recipe: oss-launch-minimal
+#
+# Smallest cluster that demonstrates the substrate-as-MCP-proxy:
+# cloister-router (gateway + DO state) + mache (code intelligence).
+# No identity authority, no rosary orchestrator — those land in
+# `agent-cluster` and `rosary-dev` respectively.
+#
+# Hand-authored (NOT emitted from cluster.capnp). Regenerate by
+# editing this file directly when you change the topology.
+
+name: cloister-oss-minimal
+
+services:
+  cloister-router:
+    image: cloister:0.1.0
+    pull_policy: never
+    container_name: cloister-oss-router
+    labels:
+      - "cloister.bundle=cloister-router"
+      - "cloister.tier=hypervisor"
+      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+    ports:
+      - "8787:8787"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+      - cloister-do:/data/do
+    environment:
+      - "MACHE_BUNDLE=http://127.0.0.1:7532"
+
+  mache:
+    image: mache:0.8.0
+    pull_policy: never
+    container_name: cloister-oss-mache
+    labels:
+      - "cloister.bundle=mache"
+      - "cloister.tier=cluster"
+      - "cloister.description=mache:0.8.0 — Code intelligence — symbol search, definitions, callgraph"
+    command:
+      - "serve"
+      - "--http"
+      - "localhost:7532"
+    network_mode: "service:cloister-router"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+
+volumes:
+  cloister-uds:
+    driver: local
+    # tmpfs is fine — UDS sockets are ephemeral; recreated on container start
+  cloister-do:
+    driver: local
+    # SQLite DO storage — survives container restarts; backup target

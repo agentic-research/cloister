@@ -29,6 +29,9 @@
     "substrate"
   ],
   "packageManager": "pnpm@10.30.3",
+  "bin": {
+    "cloister": "./scripts/cli-init.mjs"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

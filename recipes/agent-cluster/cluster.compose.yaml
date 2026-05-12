@@ -1,0 +1,77 @@
+# Recipe: agent-cluster
+#
+# Full identity-on cluster: cloister-router + notme + mache + companion.
+# This is the topology you want when you care about signed lease certs
+# and bilateral attestation chains — i.e. the substrate as ART intends
+# it to be deployed, not the smallest demonstrator.
+#
+# Hand-authored (NOT emitted from cluster.capnp). Regenerate by
+# editing this file directly when you change the topology.
+
+name: cloister-agent-cluster
+
+services:
+  cloister-router:
+    image: cloister:0.1.0
+    pull_policy: never
+    container_name: cloister-agent-router
+    labels:
+      - "cloister.bundle=cloister-router"
+      - "cloister.tier=hypervisor"
+      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+    ports:
+      - "8787:8787"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+      - cloister-do:/data/do
+    environment:
+      - "MACHE_BUNDLE=http://127.0.0.1:7532"
+      - "NOTME=http://notme-identity:8788"
+      - "COMPANION_URL=http://127.0.0.1:9091"
+
+  notme-identity:
+    image: notme:0.1.0
+    pull_policy: never
+    container_name: cloister-agent-notme
+    labels:
+      - "cloister.bundle=notme-identity"
+      - "cloister.tier=hypervisor"
+      - "cloister.description=notme:0.1.0 — Identity authority — Signet master CA, lease cert mint"
+    ports:
+      - "8788:8788"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+
+  mache:
+    image: mache:0.8.0
+    pull_policy: never
+    container_name: cloister-agent-mache
+    labels:
+      - "cloister.bundle=mache"
+      - "cloister.tier=cluster"
+      - "cloister.description=mache:0.8.0 — Code intelligence — symbol search, definitions, callgraph"
+    command:
+      - "serve"
+      - "--http"
+      - "localhost:7532"
+    network_mode: "service:cloister-router"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+
+  companion:
+    image: cloister-companion:0.1.0
+    pull_policy: never
+    container_name: cloister-agent-companion
+    labels:
+      - "cloister.bundle=companion"
+      - "cloister.tier=cluster"
+      - "cloister.description=cloister-companion:0.1.0 — leyline-net upstream router (ADR-0005)"
+    network_mode: "service:cloister-router"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+
+volumes:
+  cloister-uds:
+    driver: local
+  cloister-do:
+    driver: local
