@@ -329,14 +329,29 @@ tasks:
       - manifest/cluster.capnp
       - scripts/lint-bundle-isolation.mjs
 
-  test:lint-scripts:
-    desc: "Run node:test suites for lint scripts (cloister-ac30e7). Lives under scripts/test/ — node-native, NOT vitest (lint scripts shell out via child_process which workerd doesn't have)."
+  lint:tenant-docs:
+    desc: "Drift gate for docs/tenants/ (cloister-c9df61) — asserts every tenant in cloister.capnp + every non-substrate service in cluster.compose.yaml has a matching docs/tenants/<name>.md page."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs
+      - node scripts/lint-tenant-docs.mjs
+    sources:
+      - cloister.capnp
+      - cluster.compose.yaml
+      - docs/tenants/*.md
+      - scripts/lint-tenant-docs.mjs
+
+  test:lint-scripts:
+    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
+    cmds:
+      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs
+
+  init:
+    desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
+    cmds:
+      - node scripts/cli-init.mjs {{.CLI_ARGS | default "--help"}}
 
   lint:
-    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, test:lint-scripts]
+    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
