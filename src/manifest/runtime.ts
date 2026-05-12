@@ -33,6 +33,7 @@ import { WellKnownIdentityBridgeRoute } from "../routes/well-known-identity.js";
 import { DisclosureRoute } from "../routes/disclosure.js";
 import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
+import { CaBundleRoute } from "../routes/ca-bundle.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { McpProxyToolBackend } from "./backends/mcp-proxy.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -148,6 +149,16 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // metadata-surface route, sibling to wellKnownInterlace and
     // wellKnownIdentityBridge.
     return new WellKnownMcpRegistryRoute(manifest);
+  }
+  if ("caBundle" in k) {
+    // Interlace 0.2.0 archival CA bundle endpoint (RECEIPTS.md §2.3, §2.7).
+    // Serves GET /interlace/ca-bundle (list of epochs) and
+    // GET /interlace/ca-bundle/<epoch> (per-epoch bundle + compromise notice).
+    // V-archival verifiers consume this to replay receipts after key
+    // rotation. Backed by TrustStore.actor_ca_bundle table.
+    // Sibling metadata-surface route to wellKnownInterlace; the route's
+    // `path` is a sentinel marker — actual matching is in the handler.
+    return new CaBundleRoute();
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

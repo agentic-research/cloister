@@ -93,6 +93,9 @@ const SUBSTRATE_ROUTE_KINDS = new Set([
   "serviceBindingProxy",   // `/identity/*` proxy — substrate seam, not a tenant
   "httpProxy",              // outer-layer HTTP forward; not currently used as a tenant
   "mcp",                    // the /mcp route itself — its backends are the tenants
+  "caBundle",               // Interlace 0.2.0 archival CA bundle endpoint
+                            // (cloister-ae713f) — substrate-side identity
+                            // surface, not a tenant. RECEIPTS.md §2.3, §2.7.
 ]);
 
 // Compose services that are SUBSTRATE bundles (hypervisor tier in

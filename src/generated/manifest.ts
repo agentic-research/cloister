@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit. Regenerate with `task manifest`.
  * Source: cloister.capnp
  * Schema: manifest/cloister.capnp
- * Built:  2026-05-12T18:43:29.442Z
+ * Built:  2026-05-12T19:58:09.780Z
  */
 import type { Gateway } from "../manifest/types.js";
 
@@ -46,6 +46,12 @@ export const manifest: Gateway = {
       "path": "/.well-known/mcp-registry",
       "kind": {
         "wellKnownMcpRegistry": null
+      }
+    },
+    {
+      "path": "/interlace/ca-bundle",
+      "kind": {
+        "caBundle": null
       }
     },
     {

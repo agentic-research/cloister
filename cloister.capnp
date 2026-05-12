@@ -98,6 +98,17 @@ const gateway :Cloister.Gateway = (
     ( path = "/.well-known/mcp-registry",
       kind = (wellKnownMcpRegistry = void) ),
 
+    # ── Interlace archival CA bundle (RECEIPTS.md §2.3, §2.7) ──────────────
+    # Serves the per-epoch CA bundle + compromise notices so V-archival
+    # verifiers can replay receipts after key rotation. One Route covers:
+    #   GET  /interlace/ca-bundle          — epoch index
+    #   GET  /interlace/ca-bundle/<epoch>  — per-epoch bundle bytes
+    # `path` below is a sentinel; URLPattern match in the handler.
+    # Backed by TrustStore.actor_ca_bundle table (cloister-ae713f, shipped
+    # 2026-05-12). Wired into the manifest via cloister-ae713f follow-up #1.
+    ( path = "/interlace/ca-bundle",
+      kind = (caBundle = void) ),
+
     # ── /identity/* → notme service binding ────────────────────────────────
     ( path = "/identity",
       kind = (serviceBindingProxy = (

@@ -186,6 +186,14 @@ struct Route {
     # Read-only in this phase; write endpoints (`/publish`) are deferred.
     # See ADR-0016 + docs/integration/mcp-client.md §"Registry discovery".
     wellKnownMcpRegistry    @9 :Void;
+
+    # Interlace 0.2.0 archival CA bundle endpoint (RECEIPTS.md §2.3, §2.7).
+    # Serves GET /interlace/ca-bundle (list) and
+    # GET /interlace/ca-bundle/<epoch> (per-epoch bundle).
+    # V-archival verifiers fetch retired-epoch pubkeys + compromise notices
+    # via this surface to replay receipts after key rotation.
+    # Backed by TrustStore.actor_ca_bundle table (cloister-ae713f).
+    caBundle                @10 :Void;
   }
 }
 

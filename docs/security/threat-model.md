@@ -801,3 +801,56 @@ the advertisement is gated by the lease pipeline. No oracle leak.
 - `_agent_log/theoretical-foundations-analyst_2026-05-09_agent_log.md`
   (gitignored) — full reasoning transcript.
 
+## 13.6 Cross-DO backup/restore atomicity
+
+Surfaced by math-friend #2's ADR-0018 review (`_agent_log/theoretical-foundations-analyst_2026-05-12_reviewer-operational_agent_log.md`). Tracking: `cloister-c1317c`.
+
+**Adversary capability:** operator restores cloister-router's `/data/do`
+volume in an inconsistent state — for example, identity DO state from
+snapshot T1 alongside bead DO state from snapshot T2.
+
+**Concrete failure mode:** post-ADR-0018 implementation, `SigningAuthority`
+DO storage lives in cloister-router's `/data/do` volume alongside
+BeadStore + TrustStore + BlobStore. An inconsistent restore produces a
+cluster that advertises the T1 master pubkey in `.well-known/interlace/index.json`
+while `peer_attestations` rows reference certs signed under a T2 master.
+External verifiers fail. Identity continuity breaks.
+
+**Defensive invariant the substrate currently provides:** ADR-0012's
+content-addressed handoff guarantees atomicity inside a **single live
+cluster** (`bead_create` orchestrator: BlobStore.put → BeadStore.bead_create
+→ TrustStore.applyAttestation, each step linked by content-hash). **It
+does NOT guarantee atomicity across snapshots.** A consistent backup
+captures the cluster at one moment; selective restore breaks the
+content-hash linkages.
+
+**Substrate cannot enforce.** Backup/restore happens at the operator's
+discretion via filesystem snapshots, volume-manager tools, or
+cloud-provider primitives. Cloister can't intercept those.
+
+**Operator playbook (documentation-only):**
+
+1. Backup `/data/do` as a single atomic filesystem snapshot. APFS / ZFS /
+   btrfs / EBS / GCS-pd all provide atomic-snapshot primitives. Use them.
+2. NEVER restore selectively. If recovery requires going back to a prior
+   snapshot, restore the ENTIRE `/data/do` volume, not a subset.
+3. If selective restore is operationally unavoidable (e.g., disk
+   corruption on one DO's SQLite file but not others), the only
+   defensible path is **identity rotation** afterward: rotate master_sk,
+   publish new epoch in `.well-known/interlace/index.json`, accept that
+   any prior peer_attestations rows referencing the old master are no
+   longer verifiable. Document this in the operator runbook.
+4. Backup verification: periodically restore a backup to a staging
+   cluster + run `task verify` end-to-end. This catches drift before
+   it matters in prod.
+
+**Status:** This §13.6 row satisfies ADR-0018 prerequisite gate #7.
+The mitigation is operator discipline + documentation, not a substrate
+property. ADR-0018 implementation proceeds with this disposition
+documented.
+
+**Related:**
+- ADR-0018 §"Threats and mitigations" — Recovery section cites this
+- ADR-0012 — content-addressed handoff that this section qualifies
+- Bead `cloister-c1317c` — closes when this section lands
+

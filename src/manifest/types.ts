@@ -140,7 +140,16 @@ export type RouteKind =
    *
    * See `src/routes/well-known-mcp-registry.ts`.
    */
-  | { wellKnownMcpRegistry:    null };
+  | { wellKnownMcpRegistry:    null }
+  /**
+   * Interlace 0.2.0 archival CA bundle endpoint (RECEIPTS.md §2.3, §2.7).
+   * Sentinel `path` marker — handler matches `GET /interlace/ca-bundle`
+   * and `GET /interlace/ca-bundle/<epoch>` internally via URLPattern.
+   * Backed by TrustStore.actor_ca_bundle table. Per cloister-ae713f.
+   *
+   * See `src/routes/ca-bundle.ts`.
+   */
+  | { caBundle:                null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];
