@@ -245,6 +245,12 @@ export function synthesizeAll(manifest: Gateway, base: string): readonly ServerE
 
 function synthesizeOne(backend: Backend, base: string): ServerDetail | null {
   const k = backend.kind;
+  // ADR-0015 Phase 1: `mcpProxy` is the spec-aligned name; `httpForward`
+  // is the deprecated alias. Both project to the same Registry envelope
+  // because the underlying backend shape (HttpForwardBackend) is the same.
+  if ("mcpProxy" in k) {
+    return buildDetailFromHttpForward(backend, k.mcpProxy, base);
+  }
   if ("httpForward" in k) {
     return buildDetailFromHttpForward(backend, k.httpForward, base);
   }

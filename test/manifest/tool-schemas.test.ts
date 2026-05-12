@@ -39,6 +39,10 @@ function manifestToolNames(): Set<string> {
       // regardless of which variant won.
       const inner =
         ("durableObject" in b.kind && b.kind.durableObject) ||
+        // ADR-0015 Phase 1: `mcpProxy` is the spec-aligned name for what
+        // used to be `httpForward`. Both variants accepted by the schema
+        // for one release.
+        ("mcpProxy"      in b.kind && b.kind.mcpProxy)      ||
         ("httpForward"   in b.kind && b.kind.httpForward)   ||
         ("serviceBinding" in b.kind && b.kind.serviceBinding) ||
         ("udsForward"    in b.kind && b.kind.udsForward)    ||

@@ -143,6 +143,10 @@ function backendCapabilities(backend: Backend): CapabilityDoc[] {
 function pickTools(backend: Backend): readonly McpToolSpec[] {
   const k = backend.kind;
   if ("durableObject"  in k) return k.durableObject.tools;
+  // ADR-0015 Phase 1: `mcpProxy` is the spec-aligned name for the
+  // backend kind previously called `httpForward`. Both accepted while
+  // the deprecation alias is live.
+  if ("mcpProxy"       in k) return k.mcpProxy.tools;
   if ("httpForward"    in k) return k.httpForward.tools;
   if ("serviceBinding" in k) return k.serviceBinding.tools;
   if ("udsForward"     in k) return k.udsForward.tools;

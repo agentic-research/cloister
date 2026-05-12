@@ -147,9 +147,11 @@ const gateway :Cloister.Gateway = (
           ),
 
           # lsp_*  → LLO_MCP_URL.
+          # ADR-0015 Phase 1: migrated from `httpForward` → `mcpProxy`
+          # (same shape, spec-aligned name).
           ( name          = "lsp",
             handlesPrefix = "lsp_",
-            kind = (httpForward = (
+            kind = (mcpProxy = (
               urlBinding = "LLO_MCP_URL",
               # Schemas in src/tool-schemas/lsp.ts; injected at build time.
               tools = [
@@ -175,9 +177,10 @@ const gateway :Cloister.Gateway = (
           # reparse | enrich | status — exact-match (handlesPrefix = "")
           # because the upstream LLO daemon exposes them as bare names, not
           # under a prefix. Routes to the same LLO_MCP_URL as lsp_*.
+          # ADR-0015 Phase 1: migrated from `httpForward` → `mcpProxy`.
           ( name          = "leyline-lifecycle",
             handlesPrefix = "",
-            kind = (httpForward = (
+            kind = (mcpProxy = (
               urlBinding = "LLO_MCP_URL",
               # Schemas in src/tool-schemas/lifecycle.ts; injected at build time.
               tools = [
@@ -201,9 +204,11 @@ const gateway :Cloister.Gateway = (
           # and strips the prefix on tools/call. Tools list is Derived
           # (ADR-0006) so mache evolving its catalog flows through without
           # manifest edits. Tracked in cloister-827d62.
+          # ADR-0015 Phase 1: migrated from `httpForward` → `mcpProxy`
+          # — this is the canonical example of an MCP-Proxy-Server upstream.
           ( name          = "mache",
             handlesPrefix = "mache_",
-            kind = (httpForward = (
+            kind = (mcpProxy = (
               urlBinding      = "MACHE_MCP_URL",
               tools           = [],
               dynamicTools    = true,

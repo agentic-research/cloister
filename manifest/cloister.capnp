@@ -209,6 +209,15 @@ struct Backend {
     durableObject  @2 :DoBackend;
 
     # HTTP forward via env-var-named URL (rosary, ley-line, mache).
+    #
+    # DEPRECATED (ADR-0015 Phase 1): The naming `httpForward` hid the fact
+    # that this is actually a full MCP-Proxy-Server client lifecycle.
+    # New manifests should use the `mcpProxy` variant below. This ordinal
+    # remains populated for one release for backward compatibility with
+    # manifests built against pre-Phase-1 schemas; the runtime treats
+    # `mcpProxy` and `httpForward` as the same backend kind. Will be
+    # retired in the release following Phase 1 (ordinal stays — capnp
+    # forbids reuse — but the field gets ignored).
     httpForward    @3 :HttpForwardBackend;
 
     # workerd Fetcher service binding (notme-bot, future internal Workers).
@@ -222,6 +231,19 @@ struct Backend {
     # to the upstream by `upstreamId`, and returns a capnp ToolResult.
     # cloister-5183bc / cloister-46fc1a — backend wired.
     leylineNet     @6 :LeylineNetBackend;
+
+    # MCP Proxy Server upstream (ADR-0015 Phase 1, SEP-XXXX).
+    #
+    # This is the spec-aligned form of the legacy `httpForward` variant.
+    # The shape of `HttpForwardBackend` is unchanged; only the name and
+    # the doc framing differ. Naming the kind `mcpProxy` makes the
+    # implementor's mental model (and code-review attention) align with
+    # the MCP Specification's Lifecycle and Security Best Practices
+    # documents — see ADR-0015 for the rationale.
+    #
+    # New manifests should use this variant. The `httpForward` field
+    # at ordinal @3 stays for one release as a deprecation alias.
+    mcpProxy       @7 :HttpForwardBackend;
   }
 }
 

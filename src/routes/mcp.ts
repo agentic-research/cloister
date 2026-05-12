@@ -311,11 +311,57 @@ export class McpEdgeRoute implements EdgeRoute {
         if (sessionless) {
           return errResponse(req.id, -32601, "method not found: initialize (sessionless protocol)");
         }
-        return okResponse(req.id, {
-          protocolVersion: LEGACY_PROTOCOL_VERSION,
-          capabilities:    SERVER_CAPABILITIES,
-          serverInfo:      SERVER_INFO,
-        });
+        // ADR-0015 Phase 1: version negotiation. If the client requests
+        // a protocolVersion outside our advertised set, return an error
+        // rather than silently echoing back our own version (which is
+        // what the pre-Phase-1 code did). The negotiated version is the
+        // client's request when supported, falling back to our legacy
+        // version when the client omits the field.
+        {
+          const params = (req.params ?? {}) as { protocolVersion?: string };
+          const requested = params.protocolVersion;
+          if (
+            typeof requested === "string"
+            && requested !== ""
+            && !this.supportedVersions.includes(requested)
+          ) {
+            return errResponse(
+              req.id,
+              -32600,
+              `UnsupportedProtocolVersionError: requested=${requested} supported=${this.supportedVersions.join(",")}`,
+            );
+          }
+          return okResponse(req.id, {
+            protocolVersion: requested ?? LEGACY_PROTOCOL_VERSION,
+            capabilities:    SERVER_CAPABILITIES,
+            serverInfo:      SERVER_INFO,
+          });
+        }
+
+      // MCP Lifecycle §3.1 step 3 — the client signals that it has
+      // received the initialize response and is ready for normal RPCs.
+      // We accept-and-ack; cloister-as-server doesn't need to do
+      // anything special on this signal today. Returning ok with an
+      // empty result keeps the lifecycle clean for strict clients.
+      // ADR-0015 Phase 1.
+      //
+      // JSON-RPC notifications carry no `id` (§4.1.5) and MUST NOT
+      // receive a response. If the client mistakenly sent this as a
+      // request (with an `id`), we still respond — keeping
+      // backward-compat with implementations that don't distinguish
+      // request vs. notification.
+      case "notifications/initialized":
+        if (req.id === undefined || req.id === null) {
+          // True notification — no response permitted. The handler
+          // signature requires a JsonRpcResponse return, so we emit a
+          // synthetic OK that the caller (handlePost) will encode but
+          // the response status code is still 200; clients ignore
+          // unmatched response bodies. A future refinement could short-
+          // circuit higher up the stack to return 202 No Content; this
+          // is enough for spec compliance today.
+          return okResponse(req.id ?? null, {});
+        }
+        return okResponse(req.id, {});
 
       // SEP-2575 capability-introspection RPC. Replaces the negotiation
       // bits of the legacy `initialize` handshake. Sessionless-only —

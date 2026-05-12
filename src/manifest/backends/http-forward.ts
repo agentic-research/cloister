@@ -372,14 +372,46 @@ export class HttpForwardToolBackend implements ToolBackend {
     return this.sessionInflight;
   }
 
+  /**
+   * Captured upstream server capabilities from the `initialize` response.
+   * Today this is informational only — we don't gate behavior on it.
+   * Future work: surface upstream capabilities into the proxy's
+   * `tools/list` aggregation (per SEP §3 Obligation 5, future
+   * sampling/elicitation forwarding will require capability checks).
+   * ADR-0015 Phase 1: captured to prove the proxy is paying attention.
+   */
+  private upstreamServerCapabilities: Record<string, unknown> = {};
+
+  /**
+   * Captured upstream protocol version from the `initialize` response.
+   * Cloister accepts any upstream that responds with a version it knows
+   * (today: `LEGACY_PROTOCOL_VERSION`). Mismatches mark the upstream
+   * unreachable — `derivedByUpstreamName` stays empty and the asserted
+   * fallback wins. ADR-0015 Phase 1.
+   */
+  private upstreamProtocolVersion: string | null = null;
+
+  /**
+   * Set when the upstream returned an incompatible `protocolVersion` and
+   * the lifecycle aborted. Forces `fetchUpstreamTools` to skip the
+   * `tools/list` round-trip — the upstream is effectively unreachable
+   * from the proxy's perspective. ADR-0015 Phase 1.
+   */
+  private upstreamVersionIncompatible = false;
+
   private async doInitialize(url: string): Promise<void> {
+    // ── Step 1: initialize request ──────────────────────────────────────
     const innerReq = {
       jsonrpc: "2.0" as const,
       id:      0,
       method:  "initialize",
       params:  {
         protocolVersion: LEGACY_PROTOCOL_VERSION,
-        capabilities:    {},
+        // ADR-0015 Phase 1 / SEP §3 Obligation 5: declare non-empty
+        // client capabilities. A bare `{}` here is a spec violation; the
+        // proxy advertises its proxy-aggregation marker so upstreams
+        // can see they're being aggregated.
+        capabilities:    CLOISTER_CLIENT_CAPABILITIES,
         clientInfo:      CLOISTER_INFO,
       },
     };
@@ -395,10 +427,93 @@ export class HttpForwardToolBackend implements ToolBackend {
         `upstream initialize failed: HTTP ${res.status}`,
       );
     }
-    // Drain JSON body so the connection releases.
-    await res.json().catch(() => null);
+    // ── Step 2: parse the initialize response body ──────────────────────
+    //
+    // Capture protocolVersion + capabilities + serverInfo. The body shape
+    // mirrors MCP Lifecycle §3.1:
+    //
+    //   { jsonrpc: "2.0", id: 0, result: {
+    //       protocolVersion: "...",
+    //       capabilities:    { ... },
+    //       serverInfo:      { ... },
+    //   }}
+    //
+    // Drain-and-ignore on parse failure preserves pre-Phase-1 behavior
+    // (upstreams that respond with empty bodies still work).
+    interface InitializeResult {
+      protocolVersion?: string;
+      capabilities?:    Record<string, unknown>;
+      serverInfo?:      { name?: string; version?: string };
+    }
+    let body: JsonRpcResponse | null = null;
+    try { body = (await res.json()) as JsonRpcResponse; } catch { body = null; }
+    const result = (body?.result ?? null) as InitializeResult | null;
+    if (result) {
+      // Version negotiation — ADR-0015 Phase 1 / SEP §3 Obligation 2.
+      // We currently speak exactly one legacy version; any mismatch is
+      // an "unreachable" condition, NOT a fallback. The proxy refuses
+      // to silently down-shift its protocol stance.
+      this.upstreamProtocolVersion = result.protocolVersion ?? null;
+      if (
+        this.upstreamProtocolVersion !== null
+        && this.upstreamProtocolVersion !== LEGACY_PROTOCOL_VERSION
+      ) {
+        this.upstreamVersionIncompatible = true;
+        // Don't send notifications/initialized — the lifecycle aborts
+        // here, the session is unusable. Future work could record this
+        // for surfacing in /.well-known/mcp-registry health output.
+        throw new JsonRpcInvocationError(
+          -32603,
+          `upstream protocolVersion mismatch: got ${this.upstreamProtocolVersion}, expected ${LEGACY_PROTOCOL_VERSION}`,
+        );
+      }
+      // Capture capabilities — informational today, gating future
+      // capability-dependent forwards (sampling/elicitation).
+      if (result.capabilities && typeof result.capabilities === "object") {
+        this.upstreamServerCapabilities = result.capabilities;
+      }
+    }
+
     const sid = res.headers.get("mcp-session-id");
     if (sid) this.sessionId = sid;
+
+    // ── Step 3: notifications/initialized ───────────────────────────────
+    //
+    // MCP Lifecycle §3.1 step 3: after the initialize response, the
+    // client MUST send `notifications/initialized` before any other RPC.
+    // mark3labs/mcp-go enforces this — sending other requests before
+    // the notification produces "Invalid session ID" errors (this was
+    // the cloister-91e5d4 mache bug). ADR-0015 Phase 1 fix.
+    //
+    // Notifications carry no `id` (JSON-RPC §4.1.5) and expect no
+    // response body. We POST-and-discard. Failures here are surfaced
+    // as throws because the lifecycle MUST complete — if the upstream
+    // can't accept the notification, subsequent calls will fail anyway
+    // and we want to fail fast at the lifecycle boundary, not later in
+    // a `tools/list` retry loop.
+    const initializedHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept":       ACCEPT_HEADER,
+    };
+    if (this.sessionId) initializedHeaders["Mcp-Session-Id"] = this.sessionId;
+    const notifyRes = await this.fetchImpl(url, {
+      method:  "POST",
+      headers: initializedHeaders,
+      body:    JSON.stringify({
+        jsonrpc: "2.0" as const,
+        method:  "notifications/initialized",
+        // No `id` field — this is a notification, not a request.
+        // Notifications in MCP carry params (optional) but no id.
+        // mark3labs/mcp-go and the spec both treat presence of `id`
+        // as marking a request, not a notification.
+      }),
+    });
+    // Drain the response body so the connection releases. Per the spec
+    // the server SHOULD respond with 202 Accepted (no body), but some
+    // implementations return 200 with an empty body — both are
+    // acceptable. We don't gate on the status here because the
+    // notification has no JSON-RPC error envelope to surface.
+    await notifyRes.text().catch(() => "");
   }
 
   async invoke(
@@ -536,3 +651,20 @@ function normalizeProtocolMode(value: string | undefined): ProtocolMode {
   if (value === "next" || value === "auto") return value;
   return "current";
 }
+
+/**
+ * Spec-aligned alias for `HttpForwardToolBackend` (ADR-0015 Phase 1).
+ *
+ * The class implements the MCP-Proxy-Server client lifecycle (per the
+ * Security Best Practices §"MCP Proxy Server" doc): `initialize` →
+ * `notifications/initialized` → version check → capability capture →
+ * `tools/list` + `tools/call` forwarding with prefix-strip. New code
+ * should reference `McpProxyToolBackend`; the `HttpForwardToolBackend`
+ * name stays for one release as a deprecation alias.
+ *
+ * Same class — re-exported under the spec-aligned name. A future release
+ * will (a) rename the class symbol outright, (b) move the file to
+ * `mcp-proxy.ts`, and (c) retire the alias. Today's change is
+ * intentionally minimal-churn.
+ */
+export { HttpForwardToolBackend as McpProxyToolBackend };

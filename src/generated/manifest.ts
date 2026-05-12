@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit. Regenerate with `task manifest`.
  * Source: cloister.capnp
  * Schema: manifest/cloister.capnp
- * Built:  2026-05-11T23:43:37.577Z
+ * Built:  2026-05-12T00:44:10.201Z
  */
 import type { Gateway } from "../manifest/types.js";
 
@@ -109,7 +109,7 @@ export const manifest: Gateway = {
               "name": "lsp",
               "handlesPrefix": "lsp_",
               "kind": {
-                "httpForward": {
+                "mcpProxy": {
                   "urlBinding": "LLO_MCP_URL",
                   "tools": [
                     {
@@ -147,7 +147,7 @@ export const manifest: Gateway = {
               "name": "leyline-lifecycle",
               "handlesPrefix": "",
               "kind": {
-                "httpForward": {
+                "mcpProxy": {
                   "urlBinding": "LLO_MCP_URL",
                   "tools": [
                     {
@@ -175,7 +175,7 @@ export const manifest: Gateway = {
               "name": "mache",
               "handlesPrefix": "mache_",
               "kind": {
-                "httpForward": {
+                "mcpProxy": {
                   "urlBinding": "MACHE_MCP_URL",
                   "tools": [],
                   "dynamicTools": true,

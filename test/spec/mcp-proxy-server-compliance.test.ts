@@ -73,7 +73,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   //
   // Current cloister implementation (http-forward.ts:doInitialize) does
   // NOT send this notification. The test fails today; Phase 1 work fixes it.
-  it.skip("[Phase 1] sends notifications/initialized after initialize (currently FAILS)", async () => {
+  it("[Phase 1] sends notifications/initialized after initialize (currently FAILS)", async () => {
     const fixture = new FixtureMcpServer({
       mode:  "current",
       tools: [{ name: "ping", description: "ping", inputSchema: { type: "object" } }],
@@ -101,7 +101,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   // Current implementation does no version check at all — it accepts
   // whatever the upstream returns and proceeds. Phase 1 work adds the
   // negotiation.
-  it.skip("[Phase 1] marks upstream unreachable on incompatible protocolVersion", async () => {
+  it("[Phase 1] marks upstream unreachable on incompatible protocolVersion", async () => {
     const fixture = new FixtureMcpServer({
       mode:                 "current",
       tools:                [{ name: "ping" }],
@@ -128,7 +128,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   //
   // Phase 1 work surfaces what cloister-as-client supports (at minimum, a
   // non-empty marker for "I am a proxy aggregating upstreams").
-  it.skip("[Phase 1] initialize request declares non-empty client capabilities", async () => {
+  it("[Phase 1] initialize request declares non-empty client capabilities", async () => {
     const fixture = new FixtureMcpServer({ mode: "current", tools: [] });
     await fixture.start();
     try {
@@ -155,7 +155,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   //     notifications/initialized) — not just retry the call with the
   //     old session ID. Current code resets sessionId and retries but
   //     skips notifications/initialized on the re-init. Phase 1 fix.
-  it.skip("[Phase 1] echoes Mcp-Session-Id on every call AND re-inits on session expiry", async () => {
+  it("[Phase 1] echoes Mcp-Session-Id on every call AND re-inits on session expiry", async () => {
     const fixture = new FixtureMcpServer({
       mode:                    "current",
       tools:                   [{ name: "ping" }],
@@ -200,7 +200,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   // Today cloister doesn't forward Authorization (the McpEdgeRoute call
   // path strips it), but there is no test asserting this property at the
   // upstream boundary. Phase 1 work adds the explicit check + assertion.
-  it.skip("[Phase 1] does not forward client-issued Authorization tokens to upstream", async () => {
+  it("[Phase 1] does not forward client-issued Authorization tokens to upstream", async () => {
     const marker = "CLIENT-TOKEN-MUST-NEVER-LEAK-9e3a";
     const fixture = new FixtureMcpServer({
       mode:              "current",
@@ -293,7 +293,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   // applied. Cloister already does this (handlesPrefix); the test locks
   // the behavior under the new fixture so the Phase 1 rename doesn't
   // regress it.
-  it.skip("[Phase 1] aggregates upstream tools/list under the configured prefix", async () => {
+  it("[Phase 1] aggregates upstream tools/list under the configured prefix", async () => {
     const fixture = new FixtureMcpServer({
       mode:  "current",
       tools: [

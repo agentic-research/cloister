@@ -154,7 +154,20 @@ export interface Backend {
 
 export type BackendKind =
   | { durableObject:  DoBackend }
+  /**
+   * DEPRECATED (ADR-0015 Phase 1): use `mcpProxy` instead — same shape,
+   * spec-aligned naming. Retained for one release for backward compatibility
+   * with manifests built against pre-Phase-1 schemas. The runtime treats
+   * `mcpProxy` and `httpForward` as the same backend kind.
+   */
   | { httpForward:    HttpForwardBackend }
+  /**
+   * MCP Proxy Server upstream (ADR-0015 Phase 1, SEP-XXXX). Same shape as
+   * the deprecated `httpForward` variant; the rename surfaces the MCP-spec
+   * obligations the implementor must satisfy (Lifecycle §3.1,
+   * Security Best Practices — token passthrough, redirect_uri validation).
+   */
+  | { mcpProxy:       HttpForwardBackend }
   | { serviceBinding: ServiceBindingBackend }
   | { udsForward:     UdsForwardBackend }
   | { leylineNet:     LeylineNetBackend };

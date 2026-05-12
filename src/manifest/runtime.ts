@@ -160,6 +160,12 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
 function toToolBackend(b: Backend): ToolBackend {
   const k = b.kind;
   if ("durableObject" in k)  return new DurableObjectToolBackend(k.durableObject, b.handlesPrefix);
+  // ADR-0015 Phase 1: `mcpProxy` and the deprecated `httpForward` alias
+  // both dispatch to `HttpForwardToolBackend` (the class will be renamed
+  // to `McpProxyToolBackend` in the release following Phase 1). The two
+  // variants are accepted by the schema for one release; new manifests
+  // should use `mcpProxy`.
+  if ("mcpProxy" in k)       return new HttpForwardToolBackend(k.mcpProxy, b.handlesPrefix);
   if ("httpForward" in k)    return new HttpForwardToolBackend(k.httpForward, b.handlesPrefix);
   if ("serviceBinding" in k) return new ServiceBindingToolBackend(k.serviceBinding, b.handlesPrefix);
   if ("udsForward" in k)     return new UdsForwardToolBackend(k.udsForward, b.handlesPrefix);
@@ -245,6 +251,7 @@ function validate(g: Gateway): void {
 
         const inner =
           ("durableObject"  in b.kind) ? b.kind.durableObject  :
+          ("mcpProxy"       in b.kind) ? b.kind.mcpProxy       :
           ("httpForward"    in b.kind) ? b.kind.httpForward    :
           ("serviceBinding" in b.kind) ? b.kind.serviceBinding :
           ("udsForward"     in b.kind) ? b.kind.udsForward     :
@@ -257,7 +264,12 @@ function validate(g: Gateway): void {
         // can dispatch upstream tools before the cache populates. An empty
         // prefix would leave handles() returning false until refreshTools()
         // runs, which races with the first tools/call from the client.
-        if ("httpForward" in b.kind && b.kind.httpForward.dynamicTools && b.handlesPrefix === "") {
+        // Applies to both `mcpProxy` (current) and `httpForward` (deprecated)
+        // variants — they share the same HttpForwardBackend shape.
+        const httpProxySpec =
+          ("mcpProxy"    in b.kind) ? b.kind.mcpProxy    :
+          ("httpForward" in b.kind) ? b.kind.httpForward : null;
+        if (httpProxySpec && httpProxySpec.dynamicTools && b.handlesPrefix === "") {
           throw new TypeError(
             `manifest: backend "${b.name}" has dynamicTools=true but empty handlesPrefix; dynamic tools require a non-empty prefix (see ADR-0006)`,
           );
