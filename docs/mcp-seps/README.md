@@ -1,49 +1,41 @@
-# MCP Specification Enhancement Proposals (SEPs) drafted in cloister
+# MCP Proxy Server design notes (internal)
 
-This directory holds draft Specification Enhancement Proposals against the
-[Model Context Protocol](https://modelcontextprotocol.io) that cloister
-intends to submit upstream. Each draft lives here until it has a sponsor
-(a Core Maintainer of the MCP spec repository); at that point the PR is
-opened against [modelcontextprotocol/modelcontextprotocol](https://github.com/modelcontextprotocol/modelcontextprotocol)
-and the file gets renumbered using the assigned PR number.
+This directory holds design documentation written in SEP format about
+shape changes cloister thinks could benefit the
+[Model Context Protocol](https://modelcontextprotocol.io). These are
+**internal design notes**, not submissions in flight.
 
-The cloister repo carries these drafts because:
+The MCP SEP process explicitly says cold spec drops don't work:
+protocol changes derive from working-group discussion, sponsor
+review, and community consensus — see
+[modelcontextprotocol.io/community/sep-guidelines](https://modelcontextprotocol.io/community/sep-guidelines).
+Cloister respects that. The drafts here exist so the design rationale
+survives in the repo if the conversation later becomes useful, not as
+a queue waiting to be submitted.
 
-1. **Cloister is the reference implementation** for proposals about MCP
-   Proxy Servers, gateway aggregation, and private-registry alignment.
-   Keeping the draft text next to the implementation makes both easier
-   to audit.
-2. **Drafts iterate in PRs against this repo first** before they're
-   submitted upstream — sponsor review is faster when there's working
-   code, tests, and a reasoned ADR backing the proposal.
-3. **Final / merged SEPs in the official repo** supersede the drafts
-   here. Once a SEP reaches `final` status upstream, the local draft
-   is deleted and replaced with a brief pointer to the upstream URL.
+The SEP-format structure (preamble / abstract / motivation / spec /
+rationale / backward compatibility / reference implementation /
+security implications) is used as a discipline for thinking, not as
+an implicit claim that the upstream MCP project is obligated to read
+these.
 
 ## Current drafts
 
-| Draft | Status | Notes |
-|---|---|---|
-| [SEP-XXXX: Formalize MCP Proxy Server as a First-Class Type](SEP-XXXX-mcp-proxy-server-formalization.md) | Draft, no sponsor yet | Formalizes the "MCP Proxy Server" pattern named in the Security Best Practices spec as a data-layer capability with normative obligations + introspection RPC. Cloister is the reference implementation. |
+| Draft | What it covers |
+|---|---|
+| [SEP-XXXX: Formalize MCP Proxy Server as a First-Class Type](SEP-XXXX-mcp-proxy-server-formalization.md) | The "MCP Proxy Server" pattern is named in the Security Best Practices spec but not modeled at the data layer. Note describes what a `proxy` capability + `proxy/upstreams` introspection RPC could look like. Cloister implements this shape as a working prototype. |
 
-## Process notes
+## If a draft here ever becomes relevant upstream
 
-The MCP SEP process is documented at
-[modelcontextprotocol.io/community/sep-guidelines](https://modelcontextprotocol.io/community/sep-guidelines).
-Drafts here follow that format:
+The proper path (per the SEP guidelines):
 
-1. Preamble (front-matter table)
-2. Abstract (~200 words)
-3. Motivation
-4. Specification (normative, using RFC 2119 MUST/SHOULD/MAY)
-5. Rationale (alternates considered, why this design)
-6. Backward Compatibility
-7. Reference Implementation
-8. Security Implications
+1. Discuss the idea in the relevant MCP Discord working/interest group
+   (or `#general` if no relevant group exists)
+2. Refine based on that discussion
+3. Find a sponsor (Core Maintainer or Maintainer)
+4. Submit the PR with the sponsor's blessing
 
-A SEP is only ready to submit upstream once:
-
-- A reference implementation exists and is testable (cloister fits).
-- A sponsor (Core Maintainer of the MCP spec repo) has agreed to champion it.
-- Community discussion (Discord working group, GitHub Discussion) has
-  surfaced and addressed the major objections.
+A draft here is not a substitute for any of those steps. If the
+community converges on something cloister already documented, the
+draft becomes useful input; otherwise it's just historical record of
+how cloister thought about the problem.

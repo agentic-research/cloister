@@ -1,19 +1,18 @@
 # cloister
 
-**Cloister composes MCP servers like Lego bricks.** Five typed backend
-kinds — `durableObject`, `mcpProxy`, `serviceBinding`, `udsForward`,
-`leylineNet` — snap together via a single capnp manifest. The result is
-one HTTP face with identity, audit, and per-bundle credential scoping
-wired through. The substrate is a v8-isolate hypervisor on `workerd` —
-same TypeScript bundle runs locally on `workerd serve` and on Cloudflare
-Workers in production.
+**Cloister hosts MCP servers behind one HTTP face.** Identity, audit,
+and per-bundle credential scoping are wired through the substrate, not
+bolted on per-tenant. It's offline-first: runs locally on `workerd`
+with no cloud account required. The same TypeScript bundle deploys to
+Cloudflare Workers when you want a public endpoint — cloud is optional,
+not load-bearing.
 
-The interface is the manifest at [`cloister.capnp`](cloister.capnp),
-not the code. Adding a tenant is a declarative edit: pick a brick kind,
-declare its URL or binding, name its scopes. Today's hosted tenants are
-`bead_*`, `mache_*`, `lsp_*`, lifecycle (`reparse`/`enrich`/`status`),
-and the Interlace identity bridge — but anything HTTP-shaped plugs into
-the same `EdgeRoute` table without touching the substrate.
+The interface is a declarative manifest at [`cloister.capnp`](cloister.capnp).
+Today's hosted tenants are `bead_*`, `mache_*`, `lsp_*`, lifecycle
+(`reparse`/`enrich`/`status`), and the Interlace identity bridge —
+anything HTTP-shaped plugs into the same route table without touching
+the substrate. Backend kinds and schema rules live in
+[ADR-0004](docs/adr/0004-manifest-as-build-time-config.md).
 
 ## Load-bearing claims (and how they're defended)
 
@@ -32,14 +31,18 @@ If any of those break, the substrate's claim breaks; the gate at
 [`docs/security/threat-model.md`](docs/security/threat-model.md) §11
 is where the test-vs-claim accounting lives.
 
-The protocol cloister implements is **specified standalone** at
-[`interlace-spec/0.1.0/`](interlace-spec/0.1.0/README.md) — vendor-
-neutral wire format, CDDL schemas, 27 test vectors derived from
-deterministic seeds. If you reach the same digests on the vectors
-in any language, you're conformant.
+Cloister's wire protocol is **documented standalone** at
+[`interlace-spec/0.1.0/`](interlace-spec/0.1.0/README.md) — formal CDDL
+schemas, 27 deterministic test vectors. The Python reference impl
+passes the same vectors as cloister's TypeScript runtime; that's the
+mechanism cloister uses to cross-check its own correctness. The spec
+exists for cloister's rigor, not as a campaign to standardize
+externally.
 
-**New here?** Start with [GETTING-STARTED.md](GETTING-STARTED.md) for
-the end-to-end setup, then come back here for the architectural map.
+**Three entry points depending on what you're here for:**
+- **Run it locally** → [GETTING-STARTED.md](GETTING-STARTED.md)
+- **Verify the security claims** → [Load-bearing claims](#load-bearing-claims-and-how-theyre-defended) below
+- **Understand the architecture** → keep reading
 
 > **Contents**
 > - [Load-bearing claims](#load-bearing-claims-and-how-theyre-defended) — what cloister actually defends
@@ -356,7 +359,7 @@ model as it stands today, then walk the ADRs in order. The ADRs are the
 source of truth for *why*; this README and ARCHITECTURE.md describe
 *what*.
 
-## MCP spec contributions
+## MCP Proxy Server framing
 
 Cloister is, in MCP-spec terms, an **MCP Proxy Server** — a pattern named
 in the [Security Best Practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
@@ -364,15 +367,17 @@ document but not yet modeled at the data layer. The conflation produces
 real failure modes (silent client-side lifecycle non-compliance, ad-hoc
 tool namespacing, no host-side proxy awareness).
 
-Drafted in this repo and tracked for upstream submission:
+The design note at [docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md](docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md)
+describes what a first-class data-layer representation could look like
+(a `proxy` capability with normative obligations + a `proxy/upstreams`
+introspection RPC). Cloister implements this shape today as a working
+prototype.
 
-- [**SEP-XXXX: Formalize MCP Proxy Server as a First-Class Type**](docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md)
-  — adds a `proxy` capability with normative obligations + a `proxy/upstreams`
-  introspection RPC. Cloister is the reference implementation. Draft, awaiting
-  sponsor.
-
-See [docs/mcp-seps/README.md](docs/mcp-seps/README.md) for the SEP workflow
-this repo follows.
+This is internal design documentation, not a campaign for upstream
+ratification. Per the [MCP SEP guidelines](https://modelcontextprotocol.io/community/sep-guidelines),
+spec changes derive from working-group consensus + sponsor review, not
+from cold spec drops. Kept here so the rationale survives if the
+conversation becomes useful later.
 
 ### Cloister as a private MCP Registry
 

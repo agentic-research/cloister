@@ -13,8 +13,8 @@ The substantive arcs in flight:
   lifecycle compliance + rename `httpForward` backend kind → `mcpProxy`. Closes
   the visible-on-fresh-clone `mache_*`/`lsp_*` empty `tools/list` bug
   (`cloister-91e5d4`).
-- **Interlace 0.2.0 receipts implementation** (`cloister-ae713f`) — spec text
-  is ratification-ready after three rounds of math-friend review. Cloister-side
+- **Interlace 0.2.0 receipts implementation** (`cloister-ae713f`) — internal
+  spec text complete after three rounds of math-friend review. Cloister-side
   implementation (server emit + client verify + DO storage + SSE stream chain +
   archival CA bundle + compromise-notice handling) decomposes into child beads.
 - **Notme co-location** (`cloister-db99cd`) — fold notme into cloister-router's
@@ -104,13 +104,18 @@ The substrate baseline. Everything below is in `main` and gated by CI's
 - **Interlace 0.2.0 draft** at `interlace-spec/0.2.0-draft/` — signed
   receipts amendment closing the §13.2 response-side non-repudiation gap;
   URL canonicalization (Option 5: sign path-suffix after operator-declared
-  prefix); paired test vectors. Three rounds of math-friend review;
-  ratification-ready pending sponsor for upstream submission.
+  prefix); paired test vectors. Three rounds of math-friend review.
+  Cloister's internal protocol — the rigor exists to make cloister itself
+  defensible, not as a campaign to standardize externally.
   (`cloister-ae713f` + `cloister-aecd26` + `cloister-770464`)
-- **SEP-XXXX draft** at `docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md` —
-  formalizes MCP Proxy Server as a first-class data-layer concept with a
-  `proxy` capability + `proxy/upstreams` introspection RPC. Cloister is the
-  reference implementation. Awaiting sponsor before upstream submission.
+- **MCP Proxy Server design note** at `docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md` —
+  internal design documentation. Describes what a first-class MCP Proxy
+  Server data-layer concept could look like (a `proxy` capability +
+  `proxy/upstreams` introspection RPC). Cloister implements this shape
+  as a working prototype. No upstream submission planned — per the MCP
+  SEP guidelines (modelcontextprotocol.io/community/sep-guidelines),
+  protocol changes derive from community + working-group consensus, not
+  from cold spec drops. Kept here so the design rationale survives.
 
 ### Substrate properties (load-bearing)
 
@@ -153,6 +158,8 @@ The substrate baseline. Everything below is in `main` and gated by CI's
   Phase 1 of the spec-alignment arc (`cloister-a3ae4c`).
 - **§13.2 chain-completeness** is currently honest-actor-at-admission only on
   the response side. interlace-spec 0.2.0 receipts close the gap; spec text
-  ratification-ready, cloister-side implementation in flight.
+  complete, cloister-side implementation in flight. (Self-attested via three
+  rounds of LLM adversarial review — no third-party cryptographic audit has
+  been performed.)
 - **Notme runs as a separate workerd process**. Co-location into
   cloister-router's workerd (`cloister-db99cd`) is in design phase.
