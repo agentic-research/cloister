@@ -47,21 +47,59 @@ Three things have changed since that decision:
 
 ## Decision
 
-**Co-locate notme as a workerd-bundle tenant inside cloister-router's
-workerd process.** Specifically:
+**Co-locate ONLY notme's cluster-internal surface as a workerd-bundle
+tenant inside cloister-router's workerd process. Keep notme's public
+surface as a separate Cloudflare Worker deploy unit.** This is
+"Alternative 4" from the §Alternatives section — selected as the
+decision rather than the fallback after the external-consumer survey
+(see `docs/research/notme-external-consumer-survey-2026-05-12.md`)
+found concrete consumers requiring notme's public surface up
+independently of cloister-router.
+
+Specifically:
 
 - A new bundle `notme-identity` declared in `cluster.capnp` at
-  `tier = hypervisor`.
-- notme's HTTP surface (`/exchange-token`, OIDC, bridge cert minting)
-  served from this bundle, addressable from cloister-router via the
-  existing `NOTME` service binding (which now resolves to a sibling
-  bundle, not an external Worker).
-- `master_sk` access mediated via the URL-spec resolver
-  (`cloister-127a3c` + the shared trust-anchor-helper `cloister-12b062`).
-  Key bytes stay in OS keystore / HSM.
-- Bundle-isolation lint (ADR-0013 Inv 2/3/4) updated to whitelist
-  the `notme-identity` bundle for the bindings master_sk access needs;
-  no other bundle may hold those bindings.
+  `tier = hypervisor`. This bundle serves **only the cluster-internal
+  paths**: `/internal/ca-bundle`, `/internal/sign-jwt`, and any
+  future paths consumed only by other in-process bundles.
+- **The public notme worker stays as a separate Cloudflare Worker**
+  at `auth.notme.bot`, serving `/cert`, `/cert/gha`, `/token`,
+  `/authorize`, `/auth/oidc/login`, `/auth/passkey/*`, `/invites`,
+  `/join`, `/connections`, `/.well-known/jwks.json`, and browser
+  assets. This preserves availability for the external consumers
+  the survey identified (signet-resign GHA, rig deploy, rig CF
+  Worker, browser passkey/OAuth users).
+- `NOTME` service binding in cloister-router resolves to the
+  `notme-identity` in-process bundle for `/internal/*` calls; the
+  public worker stays addressed at its own hostname.
+- `master_sk` access for the cluster-internal path mediated via the
+  URL-spec resolver + sign-only helper (`cloister-127a3c` + ADR-0019).
+  Key bytes stay in OS keystore / HSM; same shape applies to the
+  public worker's signing path.
+- Bundle-isolation lint (ADR-0013 Inv 2/3/4 + new Inv 5) updated to
+  whitelist the `notme-identity` bundle for the bindings master_sk
+  access needs; no other bundle may hold those bindings.
+
+### Why Alternative 4 (split surface), not Alternative 3 (full co-location)
+
+The external-consumer survey (ADR-0018 prerequisite gate #5,
+satisfied 2026-05-12) found four classes of external consumer that
+need notme's public surface up while cloister-router is restarting:
+
+1. **GHA workflows** (`signet-resign.yml`, `rig/deploy.yml`,
+   `signet/gha-identity.yml`, `notme/action/`) minting bridge certs
+   via `/cert/gha` during CI runs that can fire at any time
+2. **`rig` Cloudflare Worker** (rosary-dashboard) on its own zone
+   calling auth.notme.bot for cert minting, JWKS verification, and
+   authorize redirects
+3. **Browser passkey/OAuth users** at `auth.notme.bot/login`
+4. **301-redirect callers** from `auth.rosary.bot/*` →
+   `auth.notme.bot/*` (rig middleware)
+
+Full co-location would couple these consumers to cloister-router
+restart windows. Alternative 4 keeps the public surface independent
+while still landing the tier-alignment win for cluster-internal
+trust mediation.
 
 ## Rationale
 
@@ -85,14 +123,22 @@ Three load-bearing claims:
    process boundary's only remaining role is "isolate the routing
    logic" — which the V8 isolate also achieves.
 
-3. **Operational simplification compounds.** One workerd process to
-   deploy, observe, scale. One image to publish. The cluster compose
-   loses a service entry. Boot time drops. The "is notme up?"
-   monitoring question collapses into "is cloister-router up?" The
-   metavisor model (cloister hosting cloister-shaped substrates)
-   gets a real reference implementation — co-locating notme is
-   structurally the same as a child cloister hosting its own
-   identity bundle.
+3. **Operational simplification (reduced under Alternative 4).** Under
+   the original full-co-location framing, one workerd process to deploy
+   + observe + scale. **Under Alternative 4 (the actual decision after
+   the external-consumer survey), TWO deploy units remain** — the
+   in-process `notme-identity` bundle AND the public notme Cloudflare
+   Worker. The operational-simplification claim weakens: we save the
+   wrangler-dev/cluster-compose entry for the cluster-internal mediation
+   path only. The trade is: weaker simplification, but availability
+   decoupling for external consumers preserved. Per the survey, the
+   trade is the right one.
+
+   The metavisor model (cloister hosting cloister-shaped substrates)
+   still gets a reference implementation — the cluster-internal
+   `notme-identity` bundle is structurally a child substrate hosting
+   an in-process identity authority. The public-surface worker is a
+   sibling, not an alternative to the metavisor framing.
 
 ## Threats and mitigations
 
@@ -242,23 +288,28 @@ profile.
      but already in trust base for cloister-router; single-fault-domain
      for the notme surface.
 
-4. **Internal-only co-location (math-friend #2 alternative).** Move
-   only the cluster-internal paths (`/internal/ca-bundle`,
+4. **Internal-only co-location (math-friend #2 alternative). ← SELECTED**
+   Move only the cluster-internal paths (`/internal/ca-bundle`,
    `/internal/sign-jwt`) into the `notme-identity` bundle in-process;
-   keep the public notme surface (`/cert`, `/token`, `/authorize`,
-   `/.well-known/jwks.json`, passkey/OAuth web flows, browser assets
-   at `auth.notme.bot`) as a separate deploy unit.
+   keep the public notme surface (`/cert`, `/cert/gha`, `/token`,
+   `/authorize`, `/.well-known/jwks.json`, passkey/OAuth web flows,
+   browser assets at `auth.notme.bot`) as a separate Cloudflare Worker
+   deploy unit.
    - Pro: capability-mediation co-located (tier-alignment win);
      public notme availability decoupled from cloister-router; resource
      correlation reduced (only sign-jwt + ca-bundle compete with /mcp
      traffic).
    - Con: two notme deploy units in operations; operational-
      simplification claim weakens; `ll sign` and GHA CI workflows still
-     depend on the public-side deploy unit being up.
-   - **When to prefer:** if the external-consumer survey (see Status
-     section) finds consumers that need notme's public surface up while
-     cloister is restarting, this is the right answer. Otherwise (full)
-     option 3 is fine.
+     depend on the public-side deploy unit being up — but that's
+     unchanged from today.
+   - **Selected as the decision** per the external-consumer survey
+     (2026-05-12) which found four classes of external consumer
+     requiring availability independent of cloister-router: GHA
+     workflows (signet-resign, rig deploy, signet gha-identity),
+     rig CF Worker (rosary-dashboard), browser users at
+     auth.notme.bot/login, and 301-redirect callers from
+     auth.rosary.bot/*.
 
 ## Consequences
 
@@ -319,12 +370,13 @@ profile.
    `--use-rs-helper` flag works; sign-only path available as opt-in.
    (Phase F — full removal of JS helper — is NOT required for ADR-0018
    to unblock; Phase C is sufficient.)
-5. **External-consumer survey for notme's public surface.** Empirically
-   verify whether any external consumer (GHA workflows, `ll sign`
-   tooling, browser-side passkey/OAuth flows) needs notme's public
-   surface up while cloister-router is being restarted. If yes,
-   prefer Alternative 4 (split notme surface). If no, full
-   co-location (this ADR) proceeds. File as separate bead.
+5. **External-consumer survey for notme's public surface.** ✓
+   **Completed 2026-05-12.** Report at
+   `docs/research/notme-external-consumer-survey-2026-05-12.md`.
+   Finding: four classes of external consumer require notme's public
+   surface up independently of cloister-router. **Decision: Alternative
+   4 (split surface) — public worker stays separate; only cluster-
+   internal paths co-located.** ADR §Decision updated accordingly.
 6. **Joint benchmark.** bead_create burst + cert_mint on one workerd
    process. Resource-correlation characterization. File as separate
    bead; required to characterize the load profile before ADR-0018
