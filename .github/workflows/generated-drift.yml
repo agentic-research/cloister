@@ -78,18 +78,25 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Regenerate src/generated/*.ts
+        # `scripts/build-manifest.mjs` and `scripts/build-cluster.mjs`
+        # dynamically `import()` `.ts` files. Node 20 LTS (this CI runner)
+        # can't load .ts natively; `tsx` (in devDeps) provides the loader.
+        # Mirror the Taskfile `manifest` + `cluster:manifest` tasks
+        # (Taskfile.yml uses `pnpm exec tsx scripts/...` for the same
+        # reason). If a future Node bump enables native .ts loading,
+        # revert to bare `node` here in lockstep with Taskfile.
         run: |
           pnpm exec tsx scripts/build-tool-schemas.mjs
-          node scripts/build-manifest.mjs
-          node scripts/build-cluster.mjs
+          pnpm exec tsx scripts/build-manifest.mjs
+          pnpm exec tsx scripts/build-cluster.mjs
 
       - name: Assert no drift in src/generated/
         run: |
           if ! git diff --exit-code src/generated/; then
             echo "::error::src/generated/ has drift; regenerate locally + commit:" >&2
             echo "::error::  pnpm exec tsx scripts/build-tool-schemas.mjs" >&2
-            echo "::error::  node scripts/build-manifest.mjs" >&2
-            echo "::error::  node scripts/build-cluster.mjs" >&2
+            echo "::error::  pnpm exec tsx scripts/build-manifest.mjs" >&2
+            echo "::error::  pnpm exec tsx scripts/build-cluster.mjs" >&2
             echo "::error::  git add src/generated/ && git commit" >&2
             exit 1
           fi
