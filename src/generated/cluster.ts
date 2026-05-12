@@ -26,7 +26,13 @@ export const cluster: Cluster = {
           "env": []
         }
       },
-      "tier": "hypervisor"
+      "tier": "hypervisor",
+      "holdsCredential": [
+        "VAULT_KEK_SOURCE",
+        "VAULT_STORE"
+      ],
+      "workerdServiceName": "cloister",
+      "hypervisorRationale": "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011."
     },
     {
       "name": "notme-identity",
@@ -40,7 +46,10 @@ export const cluster: Cluster = {
           "env": []
         }
       },
-      "tier": "hypervisor"
+      "tier": "hypervisor",
+      "holdsCredential": [],
+      "workerdServiceName": "",
+      "hypervisorRationale": "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018."
     },
     {
       "name": "mache",
@@ -58,7 +67,10 @@ export const cluster: Cluster = {
           "env": []
         }
       },
-      "tier": "cluster"
+      "tier": "cluster",
+      "holdsCredential": [],
+      "workerdServiceName": "",
+      "hypervisorRationale": ""
     },
     {
       "name": "rosary",
@@ -76,7 +88,10 @@ export const cluster: Cluster = {
           "env": []
         }
       },
-      "tier": "cluster"
+      "tier": "cluster",
+      "holdsCredential": [],
+      "workerdServiceName": "",
+      "hypervisorRationale": ""
     }
   ],
   "wires": [

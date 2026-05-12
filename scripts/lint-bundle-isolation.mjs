@@ -14,24 +14,29 @@
 // manifest level so a misconfigured config.capnp can't silently widen
 // the sandbox.
 //
-// What this checks — for every workerd Worker declared in config.capnp,
-// cross-referenced with the bundle's tier in cluster.capnp:
+// ── Invariants checked ────────────────────────────────────────────────────
 //
-//   Inv 1 — NO globalOutbound to a network-bearing service unless
-//           tier=hypervisor. A cluster-tier Worker that wires
-//           globalOutbound to a `network` service (or doesn't override
-//           the default "internet") gets unrestricted egress, breaking
-//           the ADR-0013 sandbox.
+//   Inv 1 — NO globalOutbound to a network-bearing service OR to an
+//           `external` upstream unless tier=hypervisor. A cluster-tier
+//           Worker that wires globalOutbound to a `network` service
+//           (or doesn't override the default "internet") gets
+//           unrestricted egress, breaking the ADR-0013 sandbox.
+//           Extended per math-friend ADR-0018 review gap 4: external-
+//           server-backed globalOutbound is ALSO forbidden — otherwise
+//           a cluster-tier bundle could `globalOutbound = "mache-mcp"`
+//           and reach an in-cluster upstream the lint never blessed.
 //
 //   Inv 2 — Vault / credential bindings only on declared tenants.
-//           Bindings that grant credential material (VAULT_KEK_SOURCE,
-//           VAULT_STORE) MUST appear only on bundles explicitly allowed
-//           to hold them. Today that allow-list is hard-coded here;
-//           future ADR-0010 / ADR-0014 work can move it into the
-//           manifest.
+//           The allow-list is read from `cluster.capnp` bundles[].
+//           holdsCredential (per math-friend gap 2). NO hand-edited JS
+//           table — bindings that grant credential material live in
+//           the manifest, audited as part of the same review that
+//           tier-promotes a bundle.
 //
-//   Inv 3 — Every bundle in cluster.capnp MUST declare a tier. The
-//           capnp schema already enforces this; the lint restates it.
+//   Inv 3 — Every bundle in cluster.capnp MUST declare a tier AND, if
+//           tier=hypervisor, a non-empty hypervisorRationale per math-
+//           friend gap 1. The capnp schema enforces tier presence; the
+//           rationale gate makes tier promotion a code-review event.
 //
 //   Inv 4 — Cluster-tier bundles' service bindings MUST resolve to one
 //           of two legitimate targets:
@@ -49,11 +54,47 @@
 //           bundle on the other end (the upstream is a non-workerd
 //           process reachable at the declared address).
 //
+//   Inv 5 — Hypervisor-to-hypervisor service bindings MUST appear in
+//           cluster.capnp `wires[]`. Per math-friend ADR-0018 review
+//           gap 5: once notme-identity lands as a second hypervisor
+//           tier bundle, inter-hypervisor topology becomes the next
+//           ungoverned seam — a hypervisor bundle could grant itself
+//           a service binding to another hypervisor without ever
+//           appearing in the wire topology. Inv 5 closes that.
+//
 // Hypervisor-tier bundles get a pass on Inv 1, 2, 4 because they are
 // the bundles ADR-0011's three-criterion test puts in charge of
-// mediating trust. The whole point of the tier classification is that
-// hypervisor bundles legitimately hold the cross-cluster capabilities
-// the lint forbids elsewhere.
+// mediating trust. Inv 5 binds them — every hypervisor-to-hypervisor
+// edge must be on the wire diagram.
+//
+// ── Scope: structural, not semantic ───────────────────────────────────────
+//
+// Per math-friend ADR-0018 review gap 6: this lint inspects binding
+// NAMES + TARGET shapes, not VALUES. A text binding like
+//
+//     ( name = "INNOCUOUS_CONFIG", text = "keychain://com.cloister/master" )
+//
+// will pass this lint — there is no regex that reliably distinguishes
+// "innocuous URL" from "secret-shaped URL." Detecting secrets in text-
+// binding values is an arms race the lint deliberately stays out of;
+// REVIEWERS MUST inspect text-binding VALUES during human review of
+// config.capnp edits. The lint enforces the perimeter shape; humans
+// enforce the content.
+//
+// ── Scope: config-time bindings only ──────────────────────────────────────
+//
+// Per math-friend ADR-0018 review gap 7: this lint relies on the
+// property that all workerd bindings are declared in config.capnp at
+// process start and immutable thereafter. Today this is enforced by
+// the only two binding-injection paths:
+//
+//   - scripts/emit-workerd-config.mjs (the runtime config emitter)
+//   - scripts/build-cluster.mjs       (the cluster-manifest compiler)
+//
+// If a future runtime-binding-injection path is added (e.g. dynamic
+// `env.X = Y` assignment at request time, or a wasm-component-model
+// FFI that exposes binding mutation), THIS LINT MUST BE RE-VERIFIED.
+// The structural perimeter only works against config-time bindings.
 //
 // Exit codes:
 //   0 — invariants hold
@@ -66,22 +107,6 @@ import { resolve, dirname } from "node:path";
 
 const REPO = process.cwd();
 
-// ── Bindings that grant credential material — Inv 2 allow-list ──────────
-//
-// The values are bundle NAMES (matched against `services[].name` in
-// config.capnp and bundles[].name in cluster.capnp) allowed to hold the
-// keyed binding. cloister-router is the hypervisor bundle that holds
-// the CredentialVault DO today (per ADR-0013 amendment 2026-05-11 and
-// cloister-26546a). When db99cd lands, NOTME's allow-list expands to
-// include the notme-tenant bundle name.
-const CREDENTIAL_BINDINGS = {
-  // VAULT_KEK_SECRET removed per ADR-0014 v2 (cloister-125199) — the
-  // plaintext text binding no longer exists. VAULT_KEK_SOURCE (a URL
-  // spec) is the only KEK-related binding the lint guards now.
-  VAULT_KEK_SOURCE: ["cloister"],
-  VAULT_STORE:      ["cloister"],
-};
-
 // Network services in config.capnp that grant unrestricted egress — used
 // by Inv 1 to detect when a cluster-tier Worker's globalOutbound is
 // wired to one of them.
@@ -89,6 +114,14 @@ function isNetworkEgressService(serviceEntry) {
   if (!serviceEntry?.network) return false;
   const allow = serviceEntry.network.allow ?? [];
   return allow.includes("public") || allow.includes("private");
+}
+
+// Per math-friend gap 4: an external-server-backed service is also a
+// network-reachable target — wiring globalOutbound to one bypasses the
+// (a)/(b) discipline of Inv 4. Cluster-tier bundles must NOT name an
+// external service as their globalOutbound.
+function isExternalServerService(serviceEntry) {
+  return Boolean(serviceEntry?.external);
 }
 
 // Find the workerd schema dir (different pnpm hash per workerd version).
@@ -149,22 +182,74 @@ function evalConfig() {
   return JSON.parse(raw);
 }
 
+// ── Manifest-derived indexes (built once, consulted by all invariants) ───
+
+// Build the credential allow-list FROM the cluster manifest, not from a
+// hand-edited JS constant. Per math-friend gap 2. Output shape mirrors
+// the old CREDENTIAL_BINDINGS map: { bindingName: [bundleName, ...] }.
+function buildCredentialAllowList(cluster) {
+  const allow = Object.create(null);
+  for (const b of cluster.bundles ?? []) {
+    for (const bindingName of b.holdsCredential ?? []) {
+      if (!allow[bindingName]) allow[bindingName] = [];
+      allow[bindingName].push(b.name);
+    }
+  }
+  return allow;
+}
+
+// Build the workerd-service → bundle index FROM bundles[].workerdServiceName.
+// Per math-friend gap 3: the prior alias map { cloister: "cloister-router" }
+// was hand-edited and one rename away from silent mis-classification.
+function buildServiceToBundleIndex(cluster) {
+  const idx = Object.create(null);
+  for (const b of cluster.bundles ?? []) {
+    const svc = b.workerdServiceName;
+    if (svc && svc.length > 0) {
+      if (idx[svc]) {
+        // Duplicate workerdServiceName is itself a config error — two
+        // bundles claiming the same workerd service have ambiguous tier
+        // resolution. Lint flags this loudly rather than silently
+        // picking one.
+        throw new Error(
+          `duplicate workerdServiceName "${svc}" claimed by bundles ` +
+          `"${idx[svc]}" and "${b.name}" — each workerd service must ` +
+          `map to at most one cluster bundle`,
+        );
+      }
+      idx[svc] = b.name;
+    }
+  }
+  return idx;
+}
+
 // ── Walk: per-Worker analysis ────────────────────────────────────────────
 
 function workersIn(config) {
   return (config.services ?? []).filter((s) => s.worker);
 }
 
-function tierForWorker(workerName, cluster) {
-  // Convention: a config.capnp service named "cloister" is the
-  // cloister-router bundle declared in cluster.capnp. Future bundles
-  // SHOULD share their name across both files for traceability — see
-  // ADR-0011 §"Bundle responsibilities." If a Worker has no bundle
-  // match in cluster.capnp, treat it as cluster-tier (the strictest
-  // default — orphans don't get hypervisor privileges).
-  const aliases = { cloister: "cloister-router" };
-  const lookup = aliases[workerName] ?? workerName;
-  const bundle = (cluster.bundles ?? []).find((b) => b.name === lookup);
+function tierForWorker(workerName, cluster, serviceToBundle, warnings) {
+  // The workerdServiceName field in cluster.capnp is the canonical join
+  // key. A workerd service that isn't claimed by any bundle is treated
+  // as cluster-tier (the strictest default — orphans don't get
+  // hypervisor privileges), but a WARNING surfaces because that's the
+  // alias-miss case math-friend gap 3 highlighted: silent default is
+  // either an unmapped bundle or a typo.
+  const bundleName = serviceToBundle[workerName];
+  if (!bundleName) {
+    warnings.push(
+      `lint-bundle-isolation: workerd service "${workerName}" has no ` +
+      `matching bundle in cluster.capnp (no bundle declares ` +
+      `workerdServiceName = "${workerName}"). Treating as cluster-tier ` +
+      `(strict default). If this Worker IS a cluster bundle, add ` +
+      `workerdServiceName = "${workerName}" to its entry. If it's an ` +
+      `auxiliary service with no bundle counterpart, this warning is ` +
+      `informational.`,
+    );
+    return { tier: "cluster", bundleName: null };
+  }
+  const bundle = (cluster.bundles ?? []).find((b) => b.name === bundleName);
   return { tier: bundle?.tier ?? "cluster", bundleName: bundle?.name ?? null };
 }
 
@@ -183,7 +268,7 @@ function checkInvariant1(workerSvc, tier, services, violations) {
   const gob = globalOutboundOf(workerSvc);
   if (!gob) return; // no global outbound = no egress; fine
   // gob has shape {name: "...", props: ...} for a ServiceDesignator
-  const target = gob.name;
+  const target = typeof gob === "string" ? gob : gob.name;
   const svc = services.find((s) => s.name === target);
   if (!svc) {
     violations.push(
@@ -201,18 +286,51 @@ function checkInvariant1(workerSvc, tier, services, violations) {
       `Either re-tier the bundle to hypervisor or replace globalOutbound ` +
       `with a gated service binding.`,
     );
+    return;
+  }
+  // Per math-friend gap 4: an external-server-backed service is also a
+  // network-reachable upstream. A cluster-tier bundle pointing
+  // globalOutbound at one bypasses Inv 4's wire/external discipline by
+  // making ALL unbound fetch() egress reach that target.
+  if (isExternalServerService(svc)) {
+    violations.push(
+      `lint-bundle-isolation: Worker "${workerSvc.name}" (tier=${tier}) ` +
+      `wires globalOutbound to external-server service "${target}" — ` +
+      `cluster-tier bundles MUST route external upstreams through an ` +
+      `explicit service binding, not via globalOutbound (Inv 1, ADR-0013, ` +
+      `gap 4 of the ADR-0018 lint review). This shape would let unbound ` +
+      `fetch() in the worker reach "${target}" without an authorized ` +
+      `binding name on this bundle's manifest.`,
+    );
   }
 }
 
-function checkInvariant2(workerSvc, violations) {
+function checkInvariant2(workerSvc, bundleName, credentialAllowList, violations) {
   for (const b of bindingsOf(workerSvc)) {
-    const allow = CREDENTIAL_BINDINGS[b.name];
+    const allow = credentialAllowList[b.name];
     if (!allow) continue;
-    if (!allow.includes(workerSvc.name)) {
+    // Resolve the workerd service name back through the workerdServiceName
+    // index — but at this point the caller already has the bundle name in
+    // hand, so use it directly. If bundleName is null (no manifest match)
+    // the lint already flagged the orphan; treat null as a separate
+    // failure surface (orphan worker can't hold credentials).
+    if (bundleName === null) {
       violations.push(
-        `lint-bundle-isolation: Worker "${workerSvc.name}" has binding ` +
-        `"${b.name}" but is not on the credential-binding allow-list ` +
-        `(allowed: ${allow.join(", ")}) — Inv 2, ADR-0013.`,
+        `lint-bundle-isolation: Worker "${workerSvc.name}" has credential ` +
+        `binding "${b.name}" but is not mapped to any cluster bundle ` +
+        `(no bundle declares workerdServiceName = "${workerSvc.name}"). ` +
+        `Add the bundle to cluster.capnp with holdsCredential = [..., ` +
+        `"${b.name}", ...] OR remove the binding from the workerd config.`,
+      );
+      continue;
+    }
+    if (!allow.includes(bundleName)) {
+      violations.push(
+        `lint-bundle-isolation: Worker "${workerSvc.name}" (bundle ` +
+        `"${bundleName}") has binding "${b.name}" but is not on the ` +
+        `credential-binding allow-list (allowed: ${allow.join(", ")}) — ` +
+        `Inv 2, ADR-0013. To grant this binding, add "${b.name}" to the ` +
+        `bundle's holdsCredential list in cluster.capnp.`,
       );
     }
   }
@@ -225,11 +343,31 @@ function checkInvariant3(cluster, violations) {
         `lint-bundle-isolation: bundle "${b.name}" in cluster.capnp missing ` +
         `tier classification — Inv 3, ADR-0011.`,
       );
-    } else if (b.tier !== "hypervisor" && b.tier !== "cluster") {
+      continue;
+    }
+    if (b.tier !== "hypervisor" && b.tier !== "cluster") {
       violations.push(
         `lint-bundle-isolation: bundle "${b.name}" has unknown tier ` +
         `"${b.tier}" — must be "hypervisor" or "cluster" (Inv 3, ADR-0011).`,
       );
+      continue;
+    }
+    // Per math-friend gap 1: tier=hypervisor inherits Inv 1 / Inv 2 /
+    // Inv 4 exemptions, so promotion to hypervisor needs an explicit
+    // justification visible in code review.
+    if (b.tier === "hypervisor") {
+      const rationale = b.hypervisorRationale ?? "";
+      if (rationale.trim().length === 0) {
+        violations.push(
+          `lint-bundle-isolation: bundle "${b.name}" is tier=hypervisor ` +
+          `but hypervisorRationale is empty — Inv 3, ADR-0011 three-` +
+          `criterion test. Promotion to hypervisor inherits the Inv 1/2/4 ` +
+          `exemptions and must be explicitly justified in the manifest. ` +
+          `Add a non-empty hypervisorRationale = "..." field explaining ` +
+          `(a) the trust-mediation role, (b) the multi-bundle blast ` +
+          `radius, and (c) the singleton property.`,
+        );
+      }
     }
   }
 }
@@ -269,6 +407,57 @@ function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violati
   }
 }
 
+// Inv 5 — Hypervisor-to-hypervisor service bindings MUST appear in
+// cluster.capnp `wires[]`. Per math-friend ADR-0018 review gap 5.
+//
+// The check: for a hypervisor-tier Worker, every service binding whose
+// target maps to ANOTHER hypervisor-tier bundle (via workerdServiceName
+// or a `service` entry whose name matches a bundle) must have a
+// corresponding wire entry. External-server-backed bindings still get
+// the (b) carve-out — those don't address a bundle.
+function checkInvariant5(workerSvc, tier, bundleName, cluster, services, serviceToBundle, violations) {
+  if (tier !== "hypervisor") return;
+  if (!bundleName) return;
+  const externalServices = new Set(
+    services.filter((s) => s.external).map((s) => s.name),
+  );
+  // Build set of hypervisor-tier bundle names for quick lookup.
+  const hypervisorBundles = new Set(
+    (cluster.bundles ?? []).filter((b) => b.tier === "hypervisor").map((b) => b.name),
+  );
+  const wireBindings = new Set(
+    (cluster.wires ?? [])
+      .filter((w) => w.from === bundleName)
+      .map((w) => w.binding),
+  );
+  for (const b of bindingsOf(workerSvc)) {
+    if (!b.service) continue;
+    const target = typeof b.service === "string" ? b.service : b.service.name;
+    if (externalServices.has(target)) continue;  // external upstream, not a bundle
+    // Does this service binding's target name map to a hypervisor-tier
+    // bundle? Two paths:
+    //   (1) the target IS a workerdServiceName claimed by a hypervisor
+    //       bundle (e.g. service "cloister" → bundle "cloister-router")
+    //   (2) the target name EQUALS a hypervisor bundle's name directly
+    //       (e.g. a `service = "notme-identity"` binding)
+    const mappedBundle = serviceToBundle[target];
+    const targetBundle = mappedBundle ?? target;
+    if (!hypervisorBundles.has(targetBundle)) continue;
+    // Self-binding (hypervisor bundle binding to itself) — no wire
+    // required; intra-bundle plumbing.
+    if (targetBundle === bundleName) continue;
+    if (wireBindings.has(b.name)) continue;       // wired ✓
+    violations.push(
+      `lint-bundle-isolation: hypervisor-tier bundle "${bundleName}" has ` +
+      `service binding "${b.name}" (→ hypervisor "${targetBundle}") but no ` +
+      `matching wire in cluster.capnp — Inv 5, ADR-0018 review gap 5. ` +
+      `Inter-hypervisor topology must be on the wire diagram even when ` +
+      `both ends are hypervisor-tier. Add a wire from "${bundleName}" to ` +
+      `"${targetBundle}" with binding="${b.name}".`,
+    );
+  }
+}
+
 // ── Run ──────────────────────────────────────────────────────────────────
 
 let cluster, config;
@@ -281,14 +470,32 @@ try {
 }
 
 const violations = [];
+const warnings = [];
+
+let credentialAllowList;
+let serviceToBundle;
+try {
+  credentialAllowList = buildCredentialAllowList(cluster);
+  serviceToBundle = buildServiceToBundleIndex(cluster);
+} catch (e) {
+  console.error(`lint-bundle-isolation: ${e.message}`);
+  process.exit(1);
+}
+
 checkInvariant3(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
-  const { tier, bundleName } = tierForWorker(wsvc.name, cluster);
+  const { tier, bundleName } = tierForWorker(wsvc.name, cluster, serviceToBundle, warnings);
   checkInvariant1(wsvc, tier, services, violations);
-  checkInvariant2(wsvc, violations);
+  checkInvariant2(wsvc, bundleName, credentialAllowList, violations);
   checkInvariant4(wsvc, tier, bundleName, cluster, services, violations);
+  checkInvariant5(wsvc, tier, bundleName, cluster, services, serviceToBundle, violations);
+}
+
+if (warnings.length) {
+  for (const w of warnings) console.error(`  ⚠ ${w}`);
+  console.error("");
 }
 
 if (violations.length) {
@@ -308,4 +515,4 @@ const bundleCount = (cluster.bundles ?? []).length;
 console.log(`lint-bundle-isolation: clean ✓`);
 console.log(`  ${workerCount} workerd Worker(s) in config.capnp`);
 console.log(`  ${bundleCount} bundle(s) in cluster.capnp`);
-console.log(`  invariants 1–4 hold (ADR-0013 sandbox preserved)`);
+console.log(`  invariants 1–5 hold (ADR-0013 sandbox preserved)`);

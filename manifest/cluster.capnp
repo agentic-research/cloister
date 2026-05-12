@@ -79,6 +79,57 @@ struct Bundle {
   # The emitters treat both tiers identically at the runtime layer — the
   # classification is documentation + audit, not a runtime gate.
   tier @4 :Tier;
+
+  # Credential bindings this bundle is allowed to hold. Each entry is a
+  # workerd binding NAME (e.g. "VAULT_KEK_SOURCE", "VAULT_STORE",
+  # "MASTER_SK_SOURCE") declared on the matching workerd Worker in
+  # config.capnp. The bundle-isolation lint reads its credential allow-
+  # list from this field — NOT from a hand-edited JS table. A binding
+  # that grants credential material MUST appear here or the lint
+  # rejects it.
+  #
+  # Per math-friend review of ADR-0018 (gap 2): the closed-world
+  # CREDENTIAL_BINDINGS map in the lint script could silently de-protect
+  # the master key when a new credential binding name lands. Sourcing
+  # the allow-list from the manifest makes the trust boundary one
+  # cluster.capnp edit, not one lint-script edit, and renames the
+  # decision moment to "manifest review" instead of "lint review."
+  #
+  # Empty list (the common case) means this bundle holds no credentials.
+  # Hypervisor-tier bundles that DO hold credentials list them here;
+  # cluster-tier bundles MUST leave it empty (the lint enforces both).
+  holdsCredential @5 :List(Text);
+
+  # Workerd service name — the `services[].name` in config.capnp that
+  # corresponds to this bundle. Used by the bundle-isolation lint as
+  # the canonical join key between workerd-service-name (which has its
+  # own naming conventions like "cloister") and cluster-bundle-name
+  # (which has its own like "cloister-router"). The names usually
+  # differ; without this field the lint relied on a hand-maintained
+  # alias map (`{ cloister: "cloister-router" }`) that silently
+  # mis-classified bundles on rename collisions.
+  #
+  # Per math-friend review of ADR-0018 (gap 3). If a bundle has no
+  # corresponding workerd service (external-only bundle like mache or
+  # rosary that doesn't run inside cloister-router's workerd), leave
+  # this empty; the lint won't try to match it.
+  workerdServiceName @6 :Text;
+
+  # Free-form text rationale that explains WHY this bundle is hypervisor-
+  # tier (per ADR-0011's three-criterion test: mediates trust, multi-
+  # bundle blast, singleton). MUST be non-empty when `tier == "hypervisor"`
+  # — the lint refuses unjustified tier promotion.
+  #
+  # Per math-friend review of ADR-0018 (gap 1): without this gate,
+  # tier=hypervisor inherits all the lint's carve-outs (Inv 1 / Inv 2 /
+  # Inv 4 exemptions) and the only safeguard is human code review of
+  # the manifest. Surfacing the rationale in cluster.capnp forces the
+  # promotion to be reviewed as a separate decision, not buried in a
+  # one-line `tier = hypervisor` field change.
+  #
+  # Cluster-tier bundles may leave this empty; the field is required
+  # only on the promotion path.
+  hypervisorRationale @7 :Text;
 }
 
 enum Tier {

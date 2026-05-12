@@ -5,10 +5,19 @@ import { validateCluster, type Bundle, type Cluster, type Wire } from "../../src
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function bundle(name: string, over: Partial<Bundle> = {}): Bundle {
+  const tier = over.tier ?? "cluster";
   return {
     name,
     description: `${name} test bundle`,
-    tier: "cluster",
+    tier,
+    workerdServiceName: "",
+    holdsCredential: [],
+    // tier=hypervisor requires a non-empty rationale (validateCluster
+    // enforces this per math-friend ADR-0018 review gap 1). Default to
+    // a placeholder when the test promotes a bundle to hypervisor;
+    // tests that want to exercise the empty-rationale rejection
+    // override `hypervisorRationale: ""` explicitly via `over`.
+    hypervisorRationale: tier === "hypervisor" ? "test hypervisor rationale" : "",
     kind: { external: {
       image: `${name}:test`,
       ipcSocket: `/run/cloister-uds/${name}.sock`,
@@ -100,6 +109,26 @@ describe("validateCluster — bundles", () => {
     expect(() => validateCluster(cluster({
       bundles: [bundle("x", { tier: "magical" as unknown as "cluster" })],
     }))).toThrow(/unknown tier "magical"/);
+  });
+
+  it("rejects tier=hypervisor without hypervisorRationale (math-friend gap 1)", () => {
+    // Per ADR-0018 review: promotion to hypervisor inherits the lint's
+    // Inv 1/2/4 exemptions and must be justified explicitly. Empty
+    // hypervisorRationale on a hypervisor-tier bundle is a validation
+    // error at both the TS-side (validateCluster) and the lint-side
+    // (Inv 3, scripts/lint-bundle-isolation.mjs).
+    expect(() => validateCluster(cluster({
+      bundles: [bundle("hyper", { tier: "hypervisor", hypervisorRationale: "" })],
+    }))).toThrow(/hypervisorRationale/);
+  });
+
+  it("accepts tier=hypervisor with non-empty hypervisorRationale", () => {
+    expect(() => validateCluster(cluster({
+      bundles: [bundle("hyper", {
+        tier: "hypervisor",
+        hypervisorRationale: "mediates trust, multi-bundle blast, singleton",
+      })],
+    }))).not.toThrow();
   });
 });
 

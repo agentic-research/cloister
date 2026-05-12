@@ -57,6 +57,27 @@ export interface Bundle {
   tier:        Tier;
   /** Discriminated union: workerd (in-process) or external (subprocess). */
   kind:        BundleKind;
+  /**
+   * Workerd binding NAMES this bundle is allowed to hold as credential
+   * material (e.g. `["VAULT_KEK_SOURCE", "VAULT_STORE"]`). The bundle-
+   * isolation lint reads its allow-list from this field. Cluster-tier
+   * bundles MUST leave this empty (the lint enforces). Per math-friend
+   * review of ADR-0018, gap 2.
+   */
+  holdsCredential: readonly string[];
+  /**
+   * Workerd `services[].name` in config.capnp that corresponds to this
+   * bundle. Bridge between workerd-service-naming (e.g. "cloister") and
+   * cluster-bundle-naming (e.g. "cloister-router"). Empty for bundles
+   * with no workerd Worker (mache, rosary). Per math-friend gap 3.
+   */
+  workerdServiceName: string;
+  /**
+   * Free-form rationale for tier=hypervisor classification (ADR-0011
+   * three-criterion test). MUST be non-empty when `tier === "hypervisor"`;
+   * lint refuses unjustified tier promotion. Per math-friend gap 1.
+   */
+  hypervisorRationale: string;
 }
 
 export type BundleKind =
@@ -163,6 +184,16 @@ export function validateCluster(c: Cluster): void {
     names.add(b.name);
     if (b.tier !== "hypervisor" && b.tier !== "cluster") {
       throw new TypeError(`cluster.bundles["${b.name}"]: unknown tier "${b.tier}"`);
+    }
+    // Per math-friend ADR-0018 review gap 1: tier=hypervisor requires
+    // explicit rationale. validateCluster runs both at build time
+    // (build-cluster.mjs) and at runtime in the emitters, so this gate
+    // is independent of the lint script.
+    if (b.tier === "hypervisor" && !b.hypervisorRationale) {
+      throw new TypeError(
+        `cluster.bundles["${b.name}"]: tier=hypervisor requires non-empty ` +
+        `hypervisorRationale (ADR-0011 three-criterion test)`,
+      );
     }
   }
 

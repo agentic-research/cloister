@@ -24,6 +24,9 @@ const cluster :Cluster.Cluster = (
     ( name = "cloister-router",
       description = "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)",
       tier = hypervisor,
+      workerdServiceName = "cloister",
+      holdsCredential = ["VAULT_KEK_SOURCE", "VAULT_STORE"],
+      hypervisorRationale = "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011.",
       kind = (external = (
         image     = "cloister:0.1.0",
         ipcSocket = "/run/cloister-uds/router.sock",
@@ -40,6 +43,9 @@ const cluster :Cluster.Cluster = (
     ( name = "notme-identity",
       description = "Identity authority — Signet master CA, lease cert mint",
       tier = hypervisor,
+      workerdServiceName = "",                # Separate workerd process; no service entry in cloister's config.capnp.
+      holdsCredential = [],                   # master_sk binding name lands here when ADR-0018 co-location ships (cloister-127a3c prerequisite).
+      hypervisorRationale = "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018.",
       kind = (external = (
         image     = "notme:0.1.0",
         ipcSocket = "",                       # workerd Worker, HTTP-only
@@ -55,6 +61,9 @@ const cluster :Cluster.Cluster = (
     ( name = "mache",
       description = "Code intelligence — symbol search, definitions, callgraph",
       tier = cluster,
+      workerdServiceName = "",                # Non-workerd binary (Go), reached via external server entry.
+      holdsCredential = [],
+      hypervisorRationale = "",
       kind = (external = (
         image     = "mache:0.8.0",
         ipcSocket = "",
@@ -70,6 +79,9 @@ const cluster :Cluster.Cluster = (
     ( name = "rosary",
       description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch",
       tier = cluster,
+      workerdServiceName = "",                # Non-workerd binary (Rust), reached via UDS.
+      holdsCredential = [],
+      hypervisorRationale = "",
       kind = (external = (
         image     = "rosary:0.2.0",
         ipcSocket = "/run/cloister-uds/rosary.sock",
