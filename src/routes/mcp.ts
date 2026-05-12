@@ -44,6 +44,14 @@ import {
 } from "../storage/ca-bundle-cache.js";
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 import { runBeadCreateOrchestrator } from "./bead-create-orchestrator.js";
+import {
+  ANONYMOUS_PEER,
+  clearRoots,
+  setCapability,
+  setRoots,
+  type Root,
+} from "./roots-state.js";
+import { McpProxyToolBackend } from "../manifest/backends/mcp-proxy.js";
 
 /**
  * Legacy MCP protocol version — `initialize` + sessions path. Returned in
@@ -303,6 +311,7 @@ export class McpEdgeRoute implements EdgeRoute {
     nowMs:       number,
     sessionless: boolean,
   ): Promise<JsonRpcResponse> {
+    const peerFp = lease?.peerFp ?? ANONYMOUS_PEER;
     switch (req.method) {
       case "initialize":
         // Per SEP-2575 sessionless clients MUST NOT call `initialize`.
@@ -318,7 +327,11 @@ export class McpEdgeRoute implements EdgeRoute {
         // client's request when supported, falling back to our legacy
         // version when the client omits the field.
         {
-          const params = (req.params ?? {}) as { protocolVersion?: string };
+          const params = (req.params ?? {}) as {
+            protocolVersion?: string;
+            capabilities?:    { roots?: { listChanged?: boolean } };
+            roots?:           unknown;
+          };
           const requested = params.protocolVersion;
           if (
             typeof requested === "string"
@@ -331,6 +344,15 @@ export class McpEdgeRoute implements EdgeRoute {
               `UnsupportedProtocolVersionError: requested=${requested} supported=${this.supportedVersions.join(",")}`,
             );
           }
+          // ── MCP roots primitive (spec 2025-06-18) capture ───────────
+          //
+          // External clients declare `capabilities.roots` on initialize.
+          // Some clients also include an inline `roots: [...]` array on
+          // the initialize params (others wait for an upstream-initiated
+          // `roots/list` request). We capture both; either path leaves
+          // the per-peer cache populated for the reverse-RPC answerer
+          // in mcp-proxy.ts.
+          this.captureRootsFromInitialize(peerFp, params.capabilities?.roots, params.roots);
           return okResponse(req.id, {
             protocolVersion: requested ?? LEGACY_PROTOCOL_VERSION,
             capabilities:    SERVER_CAPABILITIES,
@@ -362,6 +384,19 @@ export class McpEdgeRoute implements EdgeRoute {
           return okResponse(req.id ?? null, {});
         }
         return okResponse(req.id, {});
+
+      // MCP roots primitive (spec 2025-06-18 §Client Features → Roots):
+      // the external client signals that its filesystem-roots set has
+      // changed. Invalidate the per-peer cache so the next upstream
+      // `roots/list` reverse-RPC re-reads it, and fan the notification
+      // out to upstreams that subscribed (advertised roots listChanged
+      // on cloister's outgoing `initialize`). Fire-and-forget per the
+      // JSON-RPC notification semantics; cloister returns its synthetic
+      // OK envelope so the dispatch shape stays uniform.
+      case "notifications/roots/list_changed":
+        clearRoots(peerFp);
+        this.fanOutRootsListChanged(env);
+        return okResponse(req.id ?? null, {});
 
       // SEP-2575 capability-introspection RPC. Replaces the negotiation
       // bits of the legacy `initialize` handshake. Sessionless-only —
@@ -473,14 +508,58 @@ export class McpEdgeRoute implements EdgeRoute {
 
     const backend = this.backends.find(b => b.handles(name));
     if (!backend) return errResponse(req.id, -32601, `unknown tool: ${name}`);
+    // Pass the calling peer's fingerprint so HttpForward backends can
+    // answer upstream `roots/list` reverse-RPCs from the per-peer cache
+    // (cloister-65a30f). Anonymous-mode tests get the sentinel key.
+    const peerFp = lease?.peerFp ?? ANONYMOUS_PEER;
     try {
-      const result = await backend.invoke(name, args, env);
+      const result = await backend.invoke(name, args, env, peerFp);
       return okResponse(req.id, {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       });
     } catch (e) {
       if (e instanceof JsonRpcInvocationError) return errResponse(req.id, e.code, e.message);
       return errResponse(req.id, -32603, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Pull the optional roots-capability declaration + optional inline
+   * roots list out of an `initialize` request and update the per-peer
+   * cache. No-op when neither is present; `setRoots` with an empty
+   * list is intentionally a no-op too so we don't clobber a previously
+   * populated cache with the absence of inline data.
+   */
+  private captureRootsFromInitialize(
+    peerFp: string,
+    rootsCapability: { listChanged?: boolean } | undefined,
+    inlineRoots: unknown,
+  ): void {
+    if (rootsCapability && typeof rootsCapability === "object") {
+      setCapability(peerFp, rootsCapability.listChanged === true);
+    }
+    const parsed = parseRootsArray(inlineRoots);
+    if (parsed !== null) {
+      setRoots(peerFp, parsed);
+    }
+  }
+
+  /**
+   * Fire `notifications/roots/list_changed` at every HttpForward
+   * (mcp-proxy) backend in the gateway. Non-mcp-proxy backends (e.g.
+   * durable-object beads) are skipped — they don't speak the proxy
+   * wire. Fire-and-forget: notifications carry no `id` and we do not
+   * await the result before returning to the caller. We use the
+   * inflight Promise via `waitUntil` if available (not exposed on Env
+   * today), otherwise the call simply runs in the background.
+   */
+  private fanOutRootsListChanged(env: Env): void {
+    for (const b of this.backends) {
+      if (b instanceof McpProxyToolBackend) {
+        // Fire-and-forget. Errors inside `notifyRootsChanged` are
+        // already swallowed at the backend boundary.
+        void b.notifyRootsChanged(env);
+      }
     }
   }
 }
@@ -562,4 +641,30 @@ function assertNoDuplicateToolNames(backends: readonly ToolBackend[]): void {
       seen.add(t.name);
     }
   }
+}
+
+/**
+ * Best-effort parse of the optional inline `roots` field on an
+ * external `initialize` request. Returns the parsed list (possibly
+ * empty) if the input is an array of `{ uri: "file://..." }` objects;
+ * returns `null` if the field is missing or malformed enough that we
+ * cannot trust it. Entries with non-string `uri` are skipped; entries
+ * whose `uri` doesn't start with `file://` are also skipped — the MCP
+ * 2025-06-18 spec restricts roots to filesystem URIs at this time, and
+ * silently storing other schemes would mask client bugs.
+ */
+function parseRootsArray(value: unknown): Root[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return null;
+  const out: Root[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as { uri?: unknown; name?: unknown };
+    if (typeof obj.uri !== "string") continue;
+    if (!obj.uri.startsWith("file://")) continue;
+    const root: Root = { uri: obj.uri };
+    if (typeof obj.name === "string") root.name = obj.name;
+    out.push(root);
+  }
+  return out;
 }

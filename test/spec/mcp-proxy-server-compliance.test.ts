@@ -41,11 +41,16 @@
 // - test/spec/fixture-mcp-server.ts — the fixture this file uses.
 // - src/manifest/backends/mcp-proxy.ts — the current implementation.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { McpProxyToolBackend } from "../../src/manifest/backends/mcp-proxy.js";
 import type { Env } from "../../src/types.js";
 import type { HttpForwardBackend } from "../../src/manifest/types.js";
 import { FixtureMcpServer } from "./fixture-mcp-server.js";
+import {
+  ANONYMOUS_PEER,
+  resetRootsStateForTests,
+  setRoots,
+} from "../../src/routes/roots-state.js";
 
 const FIXTURE_BINDING = "FIXTURE_URL";
 
@@ -65,6 +70,12 @@ function specFor(overrides: Partial<HttpForwardBackend> = {}): HttpForwardBacken
 }
 
 describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
+  afterEach(() => {
+    // Module-level roots cache leaks across tests otherwise. Reset
+    // after every case so we get clean isolation.
+    resetRootsStateForTests();
+  });
+
   // ── 1. Current-protocol lifecycle: notifications/initialized ────────────
   //
   // MCP Lifecycle §3.1 step 3: after the initialize response, the client
@@ -307,6 +318,131 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
       await backend.refreshTools(envFor(fixture.url));
       const names = backend.tools().map(t => t.name).sort();
       expect(names).toEqual(["fixture_alpha", "fixture_beta", "fixture_gamma"]);
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  // ── 9. Roots primitive: capability forwarded to upstream ────────────────
+  //
+  // MCP 2025-06-18 §Client Features → Roots: a proxy that exposes roots
+  // to its upstreams MUST declare `capabilities.roots = { listChanged: true }`
+  // on its outgoing `initialize`. Cloister announces this because it
+  // intermediates the external client's roots view and can fan
+  // list-changed notifications onward.
+  it("[Phase 1+] forwards roots capability on upstream initialize", async () => {
+    const fixture = new FixtureMcpServer({
+      mode:  "current",
+      tools: [{ name: "ping" }],
+    });
+    await fixture.start();
+    try {
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
+      await backend.refreshTools(envFor(fixture.url));
+      const initReq = fixture.requests.find(
+        r => (r.body as { method?: string } | null)?.method === "initialize",
+      );
+      expect(initReq, "fixture should have seen an initialize request").toBeDefined();
+      const params = (initReq!.body as { params?: { capabilities?: { roots?: { listChanged?: boolean } } } }).params;
+      expect(params?.capabilities?.roots).toEqual({ listChanged: true });
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  // ── 10. Roots primitive: upstream roots/list answered from peer cache ───
+  //
+  // The upstream emits a `roots/list` request mid-`tools/call`. Cloister
+  // reads the SSE multi-message stream, dispatches the reverse-RPC to its
+  // per-peer `RootsState` cache, and POSTs a response back to the upstream
+  // matching the request id. Then it picks the actual `tools/call`
+  // response off the stream and returns the tool result.
+  it("[Phase 1+] answers upstream roots/list with captured peer state", async () => {
+    setRoots(ANONYMOUS_PEER, [
+      { uri: "file:///workspace/project-a", name: "Project A" },
+      { uri: "file:///workspace/project-b", name: "Project B" },
+    ]);
+    const fixture = new FixtureMcpServer({
+      mode:                 "current",
+      tools:                [{ name: "ping" }],
+      emitRootsListMidCall: true,
+    });
+    await fixture.start();
+    try {
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
+      await backend.refreshTools(envFor(fixture.url));
+      // tools/call now triggers the SSE mid-call roots/list emission.
+      // The peerFp passed in is the anonymous sentinel because tests
+      // don't run the lease pipeline.
+      const out = await backend.invoke("fixture_ping", {}, envFor(fixture.url), ANONYMOUS_PEER);
+      expect(out).toEqual({ ok: true, tool: "ping" });
+
+      expect(
+        fixture.reverseRpcResponses.length,
+        "SUT must POST exactly one reverse-RPC response to roots/list",
+      ).toBe(1);
+      const reply = fixture.reverseRpcResponses[0]!;
+      expect(reply.error, "roots/list must answer with result, not error").toBeUndefined();
+      expect(reply.result).toEqual({
+        roots: [
+          { uri: "file:///workspace/project-a", name: "Project A" },
+          { uri: "file:///workspace/project-b", name: "Project B" },
+        ],
+      });
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  // ── 11. Roots primitive: empty list when peer has no state ──────────────
+  //
+  // Same flow as the previous test, but the peer never declared any
+  // roots. The reverse-RPC response must still arrive (the upstream is
+  // waiting on it), with an empty `roots: []` payload.
+  it("[Phase 1+] answers upstream roots/list with empty array when peer has none", async () => {
+    const fixture = new FixtureMcpServer({
+      mode:                 "current",
+      tools:                [{ name: "ping" }],
+      emitRootsListMidCall: true,
+    });
+    await fixture.start();
+    try {
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
+      await backend.refreshTools(envFor(fixture.url));
+      const out = await backend.invoke("fixture_ping", {}, envFor(fixture.url), ANONYMOUS_PEER);
+      expect(out).toEqual({ ok: true, tool: "ping" });
+
+      expect(fixture.reverseRpcResponses.length).toBe(1);
+      expect(fixture.reverseRpcResponses[0]!.result).toEqual({ roots: [] });
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  // ── 12. Roots primitive: list_changed notification fan-out ──────────────
+  //
+  // `notifyRootsChanged` POSTs `notifications/roots/list_changed` to the
+  // upstream. Notifications carry no `id` and expect no response; the
+  // assertion is purely on the outbound wire: the upstream saw the
+  // notification arrive on its endpoint.
+  it("[Phase 1+] fans notifications/roots/list_changed to upstream", async () => {
+    const fixture = new FixtureMcpServer({
+      mode:  "current",
+      tools: [{ name: "ping" }],
+    });
+    await fixture.start();
+    try {
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
+      // Prime the session so the notification can ride the upstream's
+      // initialized session table (legacy mode requires it).
+      await backend.refreshTools(envFor(fixture.url));
+      await backend.notifyRootsChanged(envFor(fixture.url));
+      const notify = fixture.requests.find(
+        r => (r.body as { method?: string } | null)?.method === "notifications/roots/list_changed",
+      );
+      expect(notify, "fixture must see notifications/roots/list_changed").toBeDefined();
+      // Notifications MUST NOT carry an `id` field per JSON-RPC §4.1.5.
+      expect((notify!.body as { id?: unknown }).id).toBeUndefined();
     } finally {
       await fixture.stop();
     }

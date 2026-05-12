@@ -58,6 +58,7 @@ import type { Env, JsonRpcResponse, McpTool } from "../../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../../backends.js";
 import type { HttpForwardBackend } from "../types.js";
 import { toolsFromSpecs } from "../spec.js";
+import { ANONYMOUS_PEER, getRoots } from "../../routes/roots-state.js";
 
 type FetchFn = typeof fetch;
 
@@ -149,6 +150,15 @@ const CLOISTER_CLIENT_CAPABILITIES = {
   // mandates "declare what you support", and what cloister supports
   // intrinsically is the proxy-aggregation pattern.
   experimental: { proxy: true },
+  // MCP roots primitive (spec 2025-06-18, §Client Features → Roots):
+  // cloister-as-client answers upstream `roots/list` reverse-RPCs from
+  // the per-peer cache populated by external `initialize` /
+  // `notifications/roots/list_changed`. `listChanged: true` lets the
+  // upstream subscribe to invalidation events; cloister fans them out
+  // from the external `notifications/roots/list_changed` handler. See
+  // src/routes/roots-state.ts + `handleReverseRpc`/`notifyRootsChanged`
+  // below for the integration points.
+  roots: { listChanged: true },
 } as const;
 
 /** SEP-2575 meta key for protocol version inside `_meta`. */
@@ -168,6 +178,22 @@ const ACCEPT_HEADER = "application/json, text/event-stream";
  * returns `UnsupportedProtocolVersionError`.
  */
 type ProtocolMode = "current" | "next" | "auto";
+
+/**
+ * A single JSON-RPC message read off an upstream Streamable HTTP response.
+ * Responses carry `result` or `error`; requests carry `method`. Notifications
+ * (from the server) carry `method` without an `id`. We discriminate on the
+ * presence of `method` — anything with `method` is a server-initiated
+ * request or notification; anything else is a response to an outgoing call.
+ */
+interface JsonRpcStreamMessage {
+  jsonrpc?: "2.0";
+  id?:     number | string | null;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+  error?:  { code: number; message: string; data?: unknown };
+}
 
 export class McpProxyToolBackend implements ToolBackend {
   private readonly assertedTools: McpTool[];
@@ -575,6 +601,7 @@ export class McpProxyToolBackend implements ToolBackend {
     toolName: string,
     args: Record<string, unknown>,
     env: Env,
+    peerFp?: string,
   ): Promise<unknown> {
     const up = this.resolveUpstream(env);
     if (!up) {
@@ -651,12 +678,48 @@ export class McpProxyToolBackend implements ToolBackend {
       );
     }
 
-    let body: JsonRpcResponse;
+    // Read the upstream response as a multi-message JSON-RPC stream. The
+    // upstream MAY return a single `application/json` body (legacy fast
+    // path) or `text/event-stream` interleaving reverse-RPC requests
+    // before the actual `tools/call` response. We drive the loop until
+    // we see a response message whose `id` matches the outgoing request
+    // id (which we fix as 0 above); reverse-RPC requests are answered
+    // inline on a separate POST to the same upstream URL.
+    let body: JsonRpcResponse | null = null;
     try {
-      body = (await res.json()) as JsonRpcResponse;
+      for await (const msg of readJsonRpcStream(res)) {
+        if (typeof msg.method === "string") {
+          // Server-initiated message. If it has an `id`, it's a request
+          // (reverse-RPC) that expects a response. Without an `id`, it's
+          // a notification — log and ignore today (cloister doesn't have
+          // primitives that consume upstream notifications yet).
+          if (msg.id !== undefined && msg.id !== null) {
+            await this.handleReverseRpc(
+              { jsonrpc: "2.0", id: msg.id, method: msg.method, params: msg.params },
+              up,
+              peerFp ?? ANONYMOUS_PEER,
+            );
+          }
+          continue;
+        }
+        if (msg.id === 0) {
+          body = {
+            jsonrpc: "2.0",
+            id:      msg.id,
+            ...(msg.result !== undefined ? { result: msg.result } : {}),
+            ...(msg.error  !== undefined ? { error:  msg.error  } : {}),
+          };
+          break;
+        }
+        // Unmatched id (rare — server replying to a different request).
+        // Ignore and continue reading the stream.
+      }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new JsonRpcInvocationError(-32603, `upstream response not JSON: ${msg}`);
+      const m = e instanceof Error ? e.message : String(e);
+      throw new JsonRpcInvocationError(-32603, `upstream response stream failed: ${m}`);
+    }
+    if (!body) {
+      throw new JsonRpcInvocationError(-32603, "upstream closed stream without responding");
     }
 
     if (body.error) {
@@ -695,6 +758,203 @@ export class McpProxyToolBackend implements ToolBackend {
 
     return parsed;
   }
+
+  /**
+   * Handle an upstream-initiated reverse-RPC request. Today the only
+   * supported method is `roots/list` (MCP 2025-06-18 §Client Features →
+   * Roots): the upstream is asking "what filesystem roots is the calling
+   * peer authorizing me to operate on?". We answer from the per-peer
+   * `RootsState` cache populated by external `initialize` /
+   * `notifications/roots/list_changed`.
+   *
+   * Anything else surfaces as a `-32601 method not found` so the upstream
+   * doesn't hang waiting for a response.
+   *
+   * The response is POSTed as a separate request on the same upstream
+   * URL (same session header in legacy mode) per the MCP Streamable HTTP
+   * bidirectional pattern. We fire-and-await but do not consume the
+   * server's response to the reverse-RPC POST (it should be 202 / empty).
+   */
+  private async handleReverseRpc(
+    msg:    { jsonrpc: "2.0"; id: number | string; method: string; params?: unknown },
+    up:     Upstream,
+    peerFp: string,
+  ): Promise<void> {
+    let result: unknown;
+    let error: { code: number; message: string } | undefined;
+    if (msg.method === "roots/list") {
+      const state = getRoots(peerFp);
+      result = { roots: state?.roots ?? [] };
+    } else {
+      error = { code: -32601, message: `method not found: ${msg.method}` };
+    }
+    const response: JsonRpcResponse = error
+      ? { jsonrpc: "2.0", id: msg.id, error }
+      : { jsonrpc: "2.0", id: msg.id, result };
+    try {
+      const replyRes = await up.fetch({
+        method:  "POST",
+        headers: this.requestHeaders(),
+        body:    JSON.stringify(response),
+      });
+      // Drain the body so the connection releases. We do not gate on
+      // status — the spec lets the server respond 200/202 with empty
+      // body. Surfacing a status error here would mask the
+      // original `tools/call` failure mode.
+      await replyRes.text().catch(() => "");
+    } catch {
+      // Swallow — reverse-RPC replies are best-effort. If the upstream
+      // really needs the response it will time out its own waiter, but
+      // we don't want to abort the outer `tools/call` over a transient
+      // reply failure.
+    }
+  }
+
+  /**
+   * Send `notifications/roots/list_changed` to the upstream. Fire-and-
+   * forget: notifications carry no `id` and expect no response. Called
+   * by `McpEdgeRoute.dispatch` when the external client signals its
+   * roots have changed.
+   *
+   * Skips the call entirely when no upstream transport is configured
+   * (e.g. dev manifests with the URL var unset).
+   */
+  async notifyRootsChanged(env: Env): Promise<void> {
+    const up = this.resolveUpstream(env);
+    if (!up) return;
+    if (this.effectiveMode() === "current" && this.spec.requiresSession) {
+      // The upstream's session-table check will reject the notification
+      // if we haven't gone through `initialize` yet. Best-effort: try to
+      // ensure a session, but swallow if even that fails — the upstream
+      // is unreachable and there is nothing to notify.
+      try { await this.ensureSession(up); } catch { return; }
+    }
+    const params: Record<string, unknown> = {};
+    if (this.effectiveMode() === "next") {
+      params._meta = this.sessionlessMeta();
+    }
+    try {
+      const res = await up.fetch({
+        method:  "POST",
+        headers: this.requestHeaders(),
+        body:    JSON.stringify({
+          jsonrpc: "2.0",
+          method:  "notifications/roots/list_changed",
+          ...(Object.keys(params).length > 0 ? { params } : {}),
+        }),
+      });
+      await res.text().catch(() => "");
+    } catch {
+      // Fire-and-forget — notifications are not on the hot path of a
+      // client request. Drop transient errors silently.
+    }
+  }
+}
+
+/**
+ * Read JSON-RPC messages off an upstream MCP Streamable HTTP response.
+ *
+ *   - `application/json` content-type: the body is a single JSON-RPC
+ *     envelope (or batch). Yield each envelope once and end.
+ *   - `text/event-stream` content-type: parse Server-Sent Events. Each
+ *     event with a `data:` payload is JSON-parsed and yielded.
+ *   - Other / missing content-type: best-effort JSON parse on the body
+ *     text. Backward-compat with upstreams that don't set the header.
+ *
+ * Parser is intentionally minimal — workerd has no built-in EventSource
+ * server-side, and the upstream side of MCP only uses the `data:` field
+ * (no `id:` / `event:` / `retry:` semantics). Lines starting with `:`
+ * are SSE comments and ignored. Records are terminated by a blank line
+ * (consecutive LF or CRLF).
+ */
+async function* readJsonRpcStream(res: Response): AsyncGenerator<JsonRpcStreamMessage> {
+  const ctype = (res.headers.get("content-type") ?? "").toLowerCase();
+
+  if (ctype.includes("text/event-stream")) {
+    if (!res.body) return;
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (value) buf += decoder.decode(value, { stream: true });
+        // Flush complete events. SSE record separator is a blank line
+        // (CRLF/LF + CRLF/LF). Normalize CRLF -> LF first so the split
+        // pattern is uniform.
+        buf = buf.replace(/\r\n/g, "\n");
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) >= 0) {
+          const rec = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const payload = extractSseData(rec);
+          if (payload === null) continue;
+          try {
+            yield JSON.parse(payload) as JsonRpcStreamMessage;
+          } catch {
+            // Malformed SSE payload — skip to the next event rather
+            // than aborting the whole stream. The outer caller will
+            // raise if no matched response ever arrives.
+          }
+        }
+        if (done) {
+          // Trailing record without a final blank line — flush it too.
+          const trailing = buf.trim();
+          if (trailing.length > 0) {
+            const payload = extractSseData(trailing);
+            if (payload !== null) {
+              try { yield JSON.parse(payload) as JsonRpcStreamMessage; } catch { /* skip */ }
+            }
+          }
+          return;
+        }
+      }
+    } finally {
+      // Best-effort release; if the consumer broke out of the loop
+      // early we want the underlying connection to free up.
+      try { reader.releaseLock(); } catch { /* ignore */ }
+    }
+  }
+
+  // JSON-only (or unknown) fast path — single body. The MCP spec
+  // permits both single envelopes and batches; we yield each item of a
+  // batch separately so the dispatch loop above can treat both shapes
+  // uniformly.
+  let text = "";
+  try { text = await res.text(); } catch { return; }
+  if (text === "") return;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); }
+  catch { return; }
+  if (Array.isArray(parsed)) {
+    for (const m of parsed) yield m as JsonRpcStreamMessage;
+    return;
+  }
+  yield parsed as JsonRpcStreamMessage;
+}
+
+/**
+ * Pull the joined `data:` payload from a single SSE event record.
+ * Per the SSE spec, a record may carry multiple `data:` lines; they
+ * concatenate with a single LF between them. Returns null if the
+ * record has no `data:` field (e.g. a keep-alive comment).
+ */
+function extractSseData(record: string): string | null {
+  const lines = record.split("\n");
+  const parts: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(":")) continue;          // comment
+    if (line.startsWith("data:")) {
+      // The spec strips a single leading space after the colon, if any.
+      let v = line.slice(5);
+      if (v.startsWith(" ")) v = v.slice(1);
+      parts.push(v);
+    }
+    // Other SSE fields (event:, id:, retry:) are ignored — MCP doesn't
+    // use them.
+  }
+  if (parts.length === 0) return null;
+  return parts.join("\n");
 }
 
 /**

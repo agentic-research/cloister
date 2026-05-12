@@ -104,6 +104,20 @@ export interface FixtureServerOptions {
    * re-initialize. Test toggles this to exercise session-reset retry.
    */
   expireSessionOnNextCall?: boolean;
+  /**
+   * If true, the fixture's reply to `tools/call` is sent as an SSE
+   * `text/event-stream` body that interleaves an upstream-initiated
+   * `roots/list` request BEFORE the actual `tools/call` response.
+   * Forces the client (cloister) to:
+   *   1. Read the response as a multi-message stream,
+   *   2. POST a `roots/list` JSON-RPC response back to the fixture
+   *      matching the upstream's request id,
+   *   3. Continue reading the stream and pluck out the `tools/call`
+   *      response keyed on its own outgoing id.
+   * Exercises the cloister-65a30f reverse-RPC + SSE-bidirectional
+   * machinery end-to-end.
+   */
+  emitRootsListMidCall?: boolean;
 }
 
 export interface FixtureViolation {
@@ -168,6 +182,20 @@ export class FixtureMcpServer {
   /** Recorded violations. Tests inspect this. */
   readonly violations: FixtureViolation[] = [];
 
+  /**
+   * Reverse-RPC responses the SUT POSTed back to the fixture (e.g. the
+   * client's answer to an upstream-initiated `roots/list`). Tests
+   * inspect this to verify the bidirectional flow completed.
+   */
+  readonly reverseRpcResponses: Array<{
+    id:     number | string | null;
+    result?: unknown;
+    error?:  { code: number; message: string };
+  }> = [];
+
+  /** Last server-chosen id used for a reverse-RPC request. */
+  private nextReverseRpcId = 1000;
+
   constructor(options: FixtureServerOptions) {
     this.opts = {
       mode:                  options.mode,
@@ -176,6 +204,7 @@ export class FixtureMcpServer {
       serverCapabilities:    options.serverCapabilities     ?? { tools: {} },
       initializedTimeoutMs:  options.initializedTimeoutMs   ?? 50,
       expireSessionOnNextCall: options.expireSessionOnNextCall ?? false,
+      emitRootsListMidCall:  options.emitRootsListMidCall   ?? false,
       passthroughMarker:     options.passthroughMarker,
       forceProtocolVersion:  options.forceProtocolVersion,
     };
@@ -261,8 +290,31 @@ export class FixtureMcpServer {
 
     // The MCP body is either a single request object or an array (batch).
     // For this fixture, single-request bodies are sufficient.
-    const req = parsedBody as { jsonrpc?: string; id?: number | string; method?: string; params?: unknown };
-    if (!req || typeof req !== "object" || typeof req.method !== "string") {
+    const req = parsedBody as {
+      jsonrpc?: string;
+      id?:      number | string | null;
+      method?:  string;
+      params?:  unknown;
+      result?:  unknown;
+      error?:   { code: number; message: string };
+    };
+    if (!req || typeof req !== "object") {
+      return jsonRpc(null, { code: -32600, message: "invalid request" });
+    }
+
+    // Reverse-RPC response from the SUT — no `method`, has `id` plus
+    // `result` or `error`. Record it for assertion and ACK with 202.
+    // This is the cloister-65a30f path: after we emitted a `roots/list`
+    // SSE event, the SUT POSTs back here with the response.
+    if (typeof req.method !== "string") {
+      if (req.id !== undefined && (req.result !== undefined || req.error !== undefined)) {
+        this.reverseRpcResponses.push({
+          id:     req.id ?? null,
+          result: req.result,
+          error:  req.error,
+        });
+        return new Response(null, { status: 202 });
+      }
       return jsonRpc(null, { code: -32600, message: "invalid request" });
     }
 
@@ -274,7 +326,7 @@ export class FixtureMcpServer {
 
   // ── current-protocol path (MCP 2025-11-25 lifecycle) ───────────────
   private async handleCurrent(
-    req: { id?: number | string; method?: string; params?: unknown },
+    req: { id?: number | string | null; method?: string; params?: unknown },
     headers: Record<string, string>,
     recorded: RecordedRequest,
   ): Promise<Response> {
@@ -368,7 +420,7 @@ export class FixtureMcpServer {
 
   // ── next-protocol path (SEP-2575 + SEP-2567 sessionless) ───────────
   private async handleNext(
-    req: { id?: number | string; method?: string; params?: unknown },
+    req: { id?: number | string | null; method?: string; params?: unknown },
     headers: Record<string, string>,
     recorded: RecordedRequest,
   ): Promise<Response> {
@@ -424,7 +476,7 @@ export class FixtureMcpServer {
   }
 
   // ── shared RPC body (tools/list, tools/call) ───────────────────────
-  private handleRpc(req: { id?: number | string; method?: string; params?: unknown }): Response {
+  private handleRpc(req: { id?: number | string | null; method?: string; params?: unknown }): Response {
     if (req.method === "tools/list") {
       return jsonRpcOk(req.id ?? 0, {
         tools: this.opts.tools.map(t => ({
@@ -441,9 +493,37 @@ export class FixtureMcpServer {
       if (!tool) {
         return jsonRpcErr(req.id ?? 0, -32602, `unknown tool: ${params.name}`, 200);
       }
-      return jsonRpcOk(req.id ?? 0, {
-        content: [{ type: "text", text: JSON.stringify({ ok: true, tool: tool.name }) }],
-      });
+      const callResponse = {
+        jsonrpc: "2.0" as const,
+        id:      req.id ?? 0,
+        result:  {
+          content: [{ type: "text", text: JSON.stringify({ ok: true, tool: tool.name }) }],
+        },
+      };
+      if (this.opts.emitRootsListMidCall) {
+        // Cloister-65a30f reverse-RPC exercise. We emit a `roots/list`
+        // request keyed on a server-chosen id BEFORE the actual
+        // tools/call response, both as SSE `data:` events in a single
+        // text/event-stream body. The SUT must:
+        //   1. Read the stream rather than `.json()`-ing the whole body.
+        //   2. POST a response back to the same URL with the matching
+        //      reverse-RPC id (recorded in `reverseRpcResponses`).
+        //   3. Pluck the tools/call response off the stream by id.
+        const reverseId = this.nextReverseRpcId++;
+        const rootsReq = {
+          jsonrpc: "2.0" as const,
+          id:      reverseId,
+          method:  "roots/list",
+        };
+        const body =
+          `data: ${JSON.stringify(rootsReq)}\n\n` +
+          `data: ${JSON.stringify(callResponse)}\n\n`;
+        return new Response(body, {
+          status:  200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }
+      return jsonRpcOk(callResponse.id, callResponse.result);
     }
 
     return jsonRpcErr(req.id ?? 0, -32601, `method not found: ${req.method}`, 404);

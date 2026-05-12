@@ -19,7 +19,14 @@ import type { Env, McpTool } from "./types.js";
 export interface ToolBackend {
   tools(): McpTool[];
   handles(toolName: string): boolean;
-  invoke(toolName: string, args: Record<string, unknown>, env: Env): Promise<unknown>;
+  /**
+   * Invoke a tool. The optional `peerFp` carries the calling peer's
+   * fingerprint from the verified lease (or the anonymous sentinel in
+   * dev/test mode). HttpForward backends thread this into the reverse-RPC
+   * handler so upstream `roots/list` requests answer with the right
+   * peer's filesystem-roots cache. Static / non-MCP backends ignore it.
+   */
+  invoke(toolName: string, args: Record<string, unknown>, env: Env, peerFp?: string): Promise<unknown>;
   /**
    * Optional pre-`tools/list` hook for backends with Derived schemas
    * (ADR-0006). The MCP edge calls this on every backend before
