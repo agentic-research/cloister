@@ -342,40 +342,37 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   }
 
   /**
-   * Resolve the KEK source URL for this DO. The order of precedence:
+   * Resolve the KEK source URL for this DO.
    *
-   *   1. `env.VAULT_KEK_SOURCE` — explicit URL spec (env://NAME,
-   *      file:///path, keychain://service, http://helper/...). The
-   *      preferred path for new deployments.
-   *   2. Legacy fallback — `env.VAULT_KEK_SECRET` present → behave as
-   *      if `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Keeps existing
-   *      config.capnp / wrangler.toml / tests working unchanged.
+   * Per ADR-0014 v2 (amendment 2026-05-12 / cloister-125199):
+   * `VAULT_KEK_SOURCE` MUST be a non-empty URL spec. The legacy
+   * `VAULT_KEK_SECRET` plaintext fallback has been removed — there is
+   * no path that reads a key value directly from a `text` binding
+   * anymore. Dev contributors run `task dev:bootstrap` to produce a
+   * `keychain://` (macOS) / `secret-tool://` (Linux) / `file://` (CI)
+   * source URL; production sets `VAULT_KEK_SOURCE` via
+   * `wrangler secret put` pointing at a `kms://` or `http(s)://`
+   * helper.
    *
-   * If neither is set, fail loudly — the DO refuses to operate with an
-   * unresolvable KEK.
+   * Empty / unset throws `KekSourceUnset` with an actionable message.
    */
   #resolveKekSource(): KekSource {
-    // KekSourceEnv is a structural index-signature shape; widen via
-    // `unknown` so the cloudflare `Env` interface (which has no string
-    // index signature) flows through.
-    const env = this.env as Env & {
-      VAULT_KEK_SOURCE?: string;
-      VAULT_KEK_SECRET?: string;
-    };
+    const env = this.env as Env & { VAULT_KEK_SOURCE?: string };
     const kekEnv = this.env as unknown as Record<string, unknown>;
     const explicit = typeof env.VAULT_KEK_SOURCE === "string"
       ? env.VAULT_KEK_SOURCE.trim()
       : "";
-    if (explicit.length > 0) {
-      return buildKekSource(explicit, kekEnv);
+    if (explicit.length === 0) {
+      throw new Error(
+        "vault: VAULT_KEK_SOURCE is unset — per ADR-0014 v2, the vault DO " +
+          "requires an explicit URL spec (env:// with age carrier, file://, " +
+          "keychain://, secret-tool://, or http(s)://helper). " +
+          "Dev setup: run `task dev:bootstrap`. " +
+          "Production: `wrangler secret put VAULT_KEK_SOURCE` pointing at " +
+          "your keystore / KMS / helper endpoint.",
+      );
     }
-    if (typeof env.VAULT_KEK_SECRET === "string" && env.VAULT_KEK_SECRET.length > 0) {
-      return buildKekSource("env://VAULT_KEK_SECRET", kekEnv);
-    }
-    throw new Error(
-      "vault: neither VAULT_KEK_SOURCE nor VAULT_KEK_SECRET is set — " +
-        "vault cannot derive its key",
-    );
+    return buildKekSource(explicit, kekEnv);
   }
 
   async #readRow(subjectFp: string, service: string): Promise<StoredCredential | null> {

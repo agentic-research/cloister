@@ -94,22 +94,15 @@ COMPANION_URL   = "http://localhost:8385/mcp"
 # mache (Go FUSE/MCP). Local dev: `mache serve --http :7532`.
 # Used by the mache_* backend with dynamicTools=true (ADR-0006).
 MACHE_MCP_URL   = "http://localhost:7532/mcp"
-# CredentialVault KEK secret — derives the AES-GCM KEK used to wrap
-# per-credential DEKs. Set to a high-entropy ≥32-char string in
-# production via `wrangler secret put VAULT_KEK_SECRET`. The local-dev
-# placeholder below is plain text for `task dev` ergonomics; do NOT
-# deploy with this value. A leak compromises every credential the
-# vault holds. Set to empty to disable VAULT_STORE (its constructor
-# throws on first write if the secret is unset).
+# CredentialVault KEK URL — picks where the vault DO resolves its KEK
+# from. MUST be a non-empty URL spec per ADR-0014 v2 (amendment
+# 2026-05-12, cloister-125199). The vault-DO constructor throws on
+# empty/missing with an actionable error pointing at `task dev:bootstrap`
+# for local work or `wrangler secret put VAULT_KEK_SOURCE` for prod.
 #
-# Legacy: when `VAULT_KEK_SOURCE` is unset, the vault DO behaves as
-# if `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Per ADR-0014 the
-# self-host path uses `VAULT_KEK_SOURCE` with a `keychain://` URL
-# and a `KEK_HELPER` service binding pointed at scripts/kek-helper.mjs.
-VAULT_KEK_SECRET = "local-dev-only-CHANGE-IN-PRODUCTION-via-wrangler-secret-put"
-
-# CredentialVault KEK URL — picks the backend. Empty → legacy env://
-# fallback. See ADR-0014 + GETTING-STARTED §9 for the macOS Keychain
-# self-host walkthrough. Recognized schemes: env://, file:///,
-# keychain://, http(s)://.
+# Schemes: keychain://, secret-tool://, file:///, env://?recipient=...
+# (age-encrypted carrier — never plaintext), http(s)://helper/.
+#
+# The legacy `VAULT_KEK_SECRET` text binding was removed in v2.
+# Plaintext key material is not representable in committed config.
 VAULT_KEK_SOURCE = ""

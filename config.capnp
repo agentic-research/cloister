@@ -138,24 +138,24 @@ const cloisterWorker :Workerd.Worker = (
       durableObjectNamespace = "CredentialVault",
     ),
 
-    # CredentialVault KEK secret — derives the AES-GCM key wrapping each
-    # credential's DEK. Local-dev placeholder; production sets via a
-    # workerd secret-binding mechanism. Empty disables vault writes
-    # (constructor throws on first putCredential when secret is unset).
-    #
-    # Legacy binding: when `VAULT_KEK_SOURCE` is unset the vault DO
-    # behaves as if `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Per
-    # ADR-0014 (pluggable KEK source), the self-host story uses
-    # `VAULT_KEK_SOURCE` with a `keychain://` / `file://` URL plus
-    # the kek-helper sidecar instead — see GETTING-STARTED §9.
-    ( name = "VAULT_KEK_SECRET",
-      text = "local-dev-only-CHANGE-IN-PRODUCTION",
-    ),
-
     # CredentialVault KEK URL — picks where the vault DO resolves its
-    # KEK from. Empty (the default) → legacy env:// path. Set to
-    # `keychain://com.cloister/kek` (with `KEK_HELPER` bound to the
-    # kek-helper sidecar) for macOS self-host. Per ADR-0014.
+    # KEK from. MUST be a non-empty URL spec per ADR-0014 v2
+    # (amendment 2026-05-12, cloister-125199). Empty throws at vault-DO
+    # construction time with an actionable error pointing at
+    # `task dev:bootstrap` (cloister-12e706).
+    #
+    # Supported schemes:
+    #   - keychain://name             (macOS, via trust-anchor-helper)
+    #   - secret-tool://name          (Linux libsecret, via helper)
+    #   - file:///path/to/file        (CI, ephemeral file)
+    #   - env://VAR?recipient=<URL>   (age-encrypted carrier; recipient
+    #                                  resolved via another scheme —
+    #                                  never plaintext)
+    #   - http(s)://helper/...        (any HTTP-reachable secret service)
+    #
+    # The legacy `env://VAR=<plaintext>` carrier is gone. Plaintext key
+    # material is not representable in committed config. The
+    # VAULT_KEK_SECRET text binding from v1 has been deleted.
     ( name = "VAULT_KEK_SOURCE",
       text = "",
     ),

@@ -209,7 +209,10 @@ test("Inv 1 — cluster-tier worker with internet-bound globalOutbound is reject
   }
 });
 
-test("Inv 2 — non-vault bundle with VAULT_KEK_SECRET is rejected", () => {
+test("Inv 2 — non-vault bundle with VAULT_KEK_SOURCE is rejected", () => {
+  // ADR-0014 v2 (cloister-125199): VAULT_KEK_SECRET was the v1 plaintext
+  // text binding; it's been deleted. VAULT_KEK_SOURCE (the URL spec) is
+  // the credential binding Inv 2 now guards.
   const scenario = makeScenario({
     clusterCapnp: clusterCapnp({
       bundles: [{ name: "rogue", tier: "cluster" }],
@@ -217,7 +220,7 @@ test("Inv 2 — non-vault bundle with VAULT_KEK_SECRET is rejected", () => {
     configCapnp: configCapnp({
       workers: [{
         name: "rogue",
-        bindings: [{ name: "VAULT_KEK_SECRET", text: "leaked" }],
+        bindings: [{ name: "VAULT_KEK_SOURCE", text: "keychain://leaked" }],
       }],
     }),
   });
@@ -225,7 +228,7 @@ test("Inv 2 — non-vault bundle with VAULT_KEK_SECRET is rejected", () => {
     const r = runLint(scenario.workDir, scenario.dir);
     assert.equal(r.status, 1, `expected violation, got status=${r.status}\nstderr:${r.stderr}`);
     assert.match(r.stderr, /Inv 2/);
-    assert.match(r.stderr, /VAULT_KEK_SECRET/);
+    assert.match(r.stderr, /VAULT_KEK_SOURCE/);
   } finally {
     scenario.cleanup();
   }

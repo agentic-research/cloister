@@ -4,13 +4,49 @@ import { cloudflarePool, cloudflareTest } from "@cloudflare/vitest-pool-workers"
 // cloudflareTest() → Vite plugin that resolves the cloudflare:test virtual module (SELF, env)
 // cloudflarePool() → pool runner that executes tests inside real workerd
 // Both must be used together.
+// Deterministic test KEK — committed because it's obviously not a real
+// secret. Tests exercise the same code path as production
+// (HelperKekSource → KEK_HELPER fetch → returns bytes) — only the
+// backend differs (real Keychain in prod, this stub in tests). Same
+// discipline either way: no plaintext env-binding shortcut.
+//
+// ADR-0014 v2 (cloister-125199): tests must use a real URL spec, not
+// VAULT_KEK_SECRET. The keychain:// scheme is the chosen test path
+// because it exercises the helper-mediated resolution that prod uses.
+const VITEST_KEK_BYTES = "vitest-deterministic-kek-32b-not-a-secret";
+
 const workerConfig = {
   wrangler: { configPath: "./wrangler.toml" },
   main: "./src/index.ts",
   miniflare: {
-    // Stub notme service binding — notme isn't running in unit tests.
     serviceBindings: {
+      // notme isn't running in unit tests.
       NOTME: async () => new Response("notme not available in test", { status: 503 }),
+      // KEK_HELPER stub — same wire shape as scripts/kek-helper.mjs.
+      // Responds to GET /resolve?url=keychain://vitest-kek with the
+      // deterministic test KEK bytes. Any other URL → 404 so tests
+      // that accidentally point at a real keychain entry fail loudly.
+      KEK_HELPER: async (req: Request) => {
+        const u = new URL(req.url);
+        if (u.pathname !== "/resolve") return new Response("not found", { status: 404 });
+        const spec = u.searchParams.get("url") ?? "";
+        if (spec === "keychain://vitest-kek") {
+          return new Response(VITEST_KEK_BYTES, {
+            status: 200,
+            headers: { "content-type": "application/octet-stream" },
+          });
+        }
+        return new Response(JSON.stringify({ error: "unknown spec", spec }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+    bindings: {
+      // Tests point at the stub via keychain:// — same URL spec shape
+      // production uses for macOS / Linux deployments. The miniflare
+      // KEK_HELPER above intercepts the resolve call.
+      VAULT_KEK_SOURCE: "keychain://vitest-kek",
     },
   },
 } as const;

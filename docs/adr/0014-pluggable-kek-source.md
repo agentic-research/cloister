@@ -182,3 +182,141 @@ Listed elsewhere; tracked separately:
 Dogfood-validated 2026-05-11 on macOS: end-to-end round-trip from
 `security add-generic-password` → kek-helper → curl reads the bytes
 back verbatim.
+
+---
+
+## Amendment 2026-05-12 (v2): env-fallback dropped; env:// carrier semantics
+
+### Why the v1 contract has to change
+
+The v1 contract preserved the legacy `env://VAULT_KEK_SECRET=<plaintext>`
+path "for backward compatibility with manifests built against pre-0014
+schemas." Live cloister deployments today still ship this:
+
+```capnp
+( name = "VAULT_KEK_SECRET",
+  text = "local-dev-only-CHANGE-IN-PRODUCTION",
+),
+```
+
+Three concrete harms:
+
+1. **Dev/prod path divergence.** Dev exercises one code path (read
+   plaintext from a workerd `text` binding). Prod exercises another
+   (`keychain://` → kek-helper → OS keystore). Bugs that surface only
+   in prod become real.
+2. **Plaintext-in-config drift.** A reviewer doesn't notice the
+   placeholder. A contributor copies the binding shape for some other
+   credential. Eventually a real secret lands in a `text` binding and
+   gets committed.
+3. **The metavisor / airgapped story breaks symmetry with signet.**
+   Once signet's master_sk also adopts the URL-spec resolver
+   (`cloister-127a3c`), both cloister + signet must enforce the same
+   non-empty-source discipline, or one repo becomes the soft-underbelly
+   the other depends on.
+
+### The v2 contract
+
+Staged in two parts:
+
+**v2a (this amendment, shipped today):**
+
+- `VAULT_KEK_SECRET` text binding is **removed** from config.capnp +
+  wrangler.toml.
+- `VAULT_KEK_SOURCE` MUST be a non-empty URL spec. Empty/unset throws at
+  vault-DO construction with an actionable error pointing at
+  `task dev:bootstrap`.
+- The legacy fallback path (`VAULT_KEK_SECRET present → behave as if
+  VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`) is gone.
+
+**v2b (future bead, separate):**
+
+- `env://VAR` semantic tightens: `env[VAR]` MUST carry an age-encrypted
+  ciphertext; the decryption recipient is resolved via a query-param URL
+  spec (`env://VAR?recipient=keychain://...`). Plaintext env values get
+  rejected at resolver entry. Requires age library integration and a
+  recipient-resolution chain that doesn't exist today.
+
+In v2a, `env://VAR` still returns the env value as-is — this is a
+deliberate staging boundary, not an oversight. The discipline change
+that matters NOW is "no plaintext key material in committed config"
+(v2a's deletion of the `VAULT_KEK_SECRET` binding makes that
+unrepresentable). The "no plaintext in env at runtime either" property
+(v2b) is a stricter follow-up that requires separate implementation
+work.
+
+| Scheme | v1 semantic | v2a semantic (today) | v2b future |
+|---|---|---|---|
+| `env://VAR` | Plaintext bytes in `env[VAR]`. Default fallback. | Plaintext bytes in `env[VAR]`. **Not the default — explicit URL spec required.** | age-encrypted ciphertext with `?recipient=` resolution. Plaintext rejected. |
+| `file://path` | unchanged | unchanged | unchanged |
+| `keychain://name` | unchanged | unchanged | unchanged |
+| `secret-tool://name` | unchanged | unchanged | unchanged |
+| `http(s)://...` | unchanged | unchanged | unchanged |
+| (unset) | Falls back to `env://VAULT_KEK_SECRET`. | **Throws.** `buildKekSource()` errors with an actionable message. | unchanged from v2a |
+
+Tests, CI, and disposable dev use `env://VAR` with a non-secret known
+value in the test/CI env. Production uses `keychain://`, `secret-tool://`,
+`file://` (with a real keystore-backed file), or a remote `http(s)://`
+helper. The v2b enforcement applies the same in either environment,
+but tests will switch to using `file://` ephemeral paths when v2b lands.
+
+### What disappears from the codebase
+
+- `config.capnp`: the `VAULT_KEK_SECRET` text binding is **deleted**.
+  The `VAULT_KEK_SOURCE` binding stays, with comment-block tightening
+  that "empty means throw, not fall back."
+- `wrangler.toml`: same — the `[vars]` entry for `VAULT_KEK_SECRET`
+  is **deleted**. CF prod sets `VAULT_KEK_SOURCE` via
+  `wrangler secret put`, pointing at a `kms://` or `http(s)://` helper
+  reachable from the Worker.
+- `vault/src/kek-source.ts:buildKekSource()`: the empty-source branch
+  throws `KekSourceUnset` (new error type) instead of falling back.
+  Existing callers handle by surfacing the actionable message.
+- `scripts/lint-bundle-isolation.mjs` `CREDENTIAL_BINDINGS`: drop
+  `VAULT_KEK_SECRET` from the allow-list (the binding no longer exists).
+
+### Migration window
+
+None. There are no external consumers of cloister's vault DO; the only
+deployments are this repo + the cluster compose stack. `task dev:bootstrap`
+(separate bead, `cloister-12e706`) lands alongside the v2 contract so
+new contributors have a frictionless path to a real keystore-backed dev
+setup.
+
+### Security properties (delta vs v1)
+
+v2 preserves all v1 properties and adds:
+
+- **Plaintext key material is not representable in committed config.**
+  The schema doesn't have a place to put it. Reviewers don't need to
+  catch "is this a real secret or a placeholder" — the question can't
+  arise.
+- **`env://` no longer means "the secret is the env value."** It means
+  "the env value is a ciphertext, decrypted via the recipient resolved
+  from the query param." Same `env://` scheme, fundamentally different
+  trust assumption — the secret of last resort is whatever holds the
+  recipient key, never the env value itself.
+- **Dev/prod code-path parity.** Both environments run the same URL-spec
+  resolver. The only difference is which scheme is configured, not
+  whether the resolver path is exercised at all.
+
+### Coordinated with
+
+- `cloister-127a3c` — signet master_sk adopts the same URL-spec
+  resolver (cross-repo work in `~/github/art/signet`).
+- `cloister-12b062` — the kek-helper sidecar generalizes to a shared
+  trust-anchor-helper consumed by both cloister + signet.
+- `cloister-12e706` — `task dev:bootstrap` + CI ephemeral-keystore
+  integration so the no-fallback contract is ergonomic to live with.
+
+Together these four beads form the "trust-anchor discipline" workstream:
+no long-term key material in process heaps, no plaintext in committed
+config, dev/prod path parity, both cloister + signet aligned on the
+same model.
+
+### Status (v2 delta)
+
+- ADR-0014 amended (this section).
+- `cloister-125199` tracks the implementation: config.capnp edits,
+  vault DO error path, lint update, GETTING-STARTED rewrite.
+- The other three beads track dependent + cross-repo work.

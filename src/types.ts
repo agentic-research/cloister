@@ -88,21 +88,14 @@ export interface Env {
   // unresolved until the first workerd-bundle Worker ships — see
   // src/vault-store.ts header comment for the open options.
   VAULT_STORE?: DurableObjectNamespace;
-  /// Secret used to derive the AES-GCM KEK that wraps per-credential
-  /// DEKs in CredentialVault. Legacy binding — kept for back-compat
-  /// when `VAULT_KEK_SOURCE` is unset; the DO behaves as if
-  /// `VAULT_KEK_SOURCE=env://VAULT_KEK_SECRET`. Prefer setting
-  /// `VAULT_KEK_SOURCE` explicitly for new deployments. MUST be a
-  /// high-entropy string (≥32 bytes); a leak compromises every
-  /// credential in the vault.
-  VAULT_KEK_SECRET?: string;
-  /// URL spec telling the vault DO where to resolve its KEK from.
-  /// Supports `env://NAME` (plaintext env binding, current default),
-  /// `file:///path` (workerd disk service binding KEK_DISK),
-  /// `keychain://service-name` (kek-helper sidecar, macOS Keychain),
-  /// `http(s)://...` (generic helper). When unset, falls back to
-  /// `env://VAULT_KEK_SECRET` for back-compat. See ADR-0014 +
-  /// `vault/src/kek-source.ts`.
+  /// URL spec telling the vault DO where to resolve its KEK from. MUST
+  /// be a non-empty URL spec per ADR-0014 v2 (cloister-125199). Schemes:
+  /// `env://NAME` (today: plaintext env binding; v2b will require
+  /// age-encrypted carrier), `file:///path` (via KEK_DISK binding),
+  /// `keychain://service-name` (via KEK_HELPER sidecar, macOS),
+  /// `secret-tool://name` (Linux libsecret, future), `http(s)://...`
+  /// (generic helper). Empty/unset throws at vault-DO construction.
+  /// See ADR-0014 + `vault/src/kek-source.ts`.
   VAULT_KEK_SOURCE?: string;
   /// Workerd disk-service binding for `file://` KEK sources. The
   /// bound directory holds the keyfile; `file:///kek.bin` resolves

@@ -24,7 +24,7 @@
 //           the ADR-0013 sandbox.
 //
 //   Inv 2 — Vault / credential bindings only on declared tenants.
-//           Bindings that grant credential material (VAULT_KEK_SECRET,
+//           Bindings that grant credential material (VAULT_KEK_SOURCE,
 //           VAULT_STORE) MUST appear only on bundles explicitly allowed
 //           to hold them. Today that allow-list is hard-coded here;
 //           future ADR-0010 / ADR-0014 work can move it into the
@@ -75,7 +75,9 @@ const REPO = process.cwd();
 // cloister-26546a). When db99cd lands, NOTME's allow-list expands to
 // include the notme-tenant bundle name.
 const CREDENTIAL_BINDINGS = {
-  VAULT_KEK_SECRET: ["cloister"],
+  // VAULT_KEK_SECRET removed per ADR-0014 v2 (cloister-125199) — the
+  // plaintext text binding no longer exists. VAULT_KEK_SOURCE (a URL
+  // spec) is the only KEK-related binding the lint guards now.
   VAULT_KEK_SOURCE: ["cloister"],
   VAULT_STORE:      ["cloister"],
 };
