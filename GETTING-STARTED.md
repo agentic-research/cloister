@@ -33,14 +33,25 @@ Optional, only needed if you want the relevant backends working:
 git clone https://github.com/agentic-research/cloister
 cd cloister
 pnpm install
+task dev:bootstrap    # generates .env.local with DEV_VAULT_KEK (gitignored)
 ```
 
-Run the test suite once to confirm everything compiles:
+The bootstrap step is one-time and idempotent. It writes a per-user
+dev KEK to `.env.local` per [ADR-0014 v2](docs/adr/0014-pluggable-kek-source.md);
+without it `task dev` will refuse to start (the vault DO requires
+`VAULT_KEK_SOURCE` to resolve to real key material — no plaintext
+fallback in committed config). The file stays out of git.
+
+Run the test suite to confirm everything compiles:
 
 ```sh
 task lint            # tsc + worker tests + plugin tests (fast — ≤2s)
 task verify          # lint + external-process harnesses (slower, CI gate)
 ```
+
+Tests don't read `.env.local` — `vitest.config.ts` wires its own
+`KEK_HELPER` stub. So you can run `task lint` without bootstrap; only
+`task dev` / `task serve:local` need it.
 
 `lint` is the inner-loop gate; `verify` adds:
 - `wire:verify-roundtrip` — substrate equivalence vs the capnp CLI (requires `capnp` on PATH)
@@ -257,22 +268,28 @@ Other prod knobs (still ADR-0001 work items):
 - mTLS via notme-proxy in front of `LLO_MCP_URL`
 - mount `/data` as a persistent volume for the BeadStore DO SQLite files
 
-### Vault KEK — keep it out of plaintext bindings
+### Vault KEK — never in committed config
 
 The credential vault DO derives its envelope-encryption KEK from a
-secret resolved at boot. The default path uses
-`env.VAULT_KEK_SECRET` — fine for CI and disposable dev, but you do
-NOT want a high-entropy production secret sitting in `config.capnp`
-or `wrangler.toml` on a self-hosted box.
+secret resolved at boot. Per [ADR-0014 v2](docs/adr/0014-pluggable-kek-source.md)
+(amendment 2026-05-12, `cloister-125199`), `VAULT_KEK_SOURCE` MUST be
+a non-empty URL spec — empty/unset throws at vault-DO construction.
+The legacy `VAULT_KEK_SECRET` plaintext text binding has been deleted.
 
-Per [ADR-0014](docs/adr/0014-pluggable-kek-source.md), the vault DO
-now reads `VAULT_KEK_SOURCE` (a URL) and picks a backend by scheme:
+For **local dev**: `task dev:bootstrap` writes a per-user KEK to
+`.env.local` (gitignored) with `VAULT_KEK_SOURCE=env://DEV_VAULT_KEK`.
+That's it — no Keychain setup needed, no sidecar to run. The future
+v2b amendment will tighten `env://` to require an age-encrypted carrier;
+for now plain hex bytes in `.env.local` is the dev path.
+
+For **self-host / production**, the vault DO supports these schemes:
 
 | Scheme | Where the KEK lives |
 |---|---|
-| `env://NAME` | a workerd text binding (legacy default) |
+| `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
 | `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar |
+| `secret-tool://service-name` | Linux libsecret — via the kek-helper sidecar (returns 501 today, roadmap) |
 | `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` |
 
 The macOS-Keychain self-host flow:

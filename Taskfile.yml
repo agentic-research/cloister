@@ -262,11 +262,28 @@ tasks:
     cmds:
       - pnpm exec tsc --noEmit
 
+  dev:bootstrap:
+    desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent."
+    cmds:
+      - node scripts/dev-bootstrap.mjs
+
   dev:
-    desc: Start local dev server on :8787
+    desc: Start local dev server on :8787 (sources .env.local for VAULT_KEK_SOURCE)
     deps: [manifest]
     cmds:
-      - pnpm exec wrangler dev
+      # Source .env.local so VAULT_KEK_SOURCE + DEV_VAULT_KEK flow into
+      # wrangler's env. ADR-0014 v2 (cloister-125199) requires non-empty
+      # VAULT_KEK_SOURCE; the vault DO throws otherwise. Run
+      # `task dev:bootstrap` once to generate .env.local.
+      - |
+        if [ ! -f .env.local ]; then
+          echo "✗ .env.local missing — run \`task dev:bootstrap\` first" >&2
+          exit 1
+        fi
+        set -a
+        . ./.env.local
+        set +a
+        pnpm exec wrangler dev
 
   serve:local:
     desc: Run via workerd directly (requires build:local first)
