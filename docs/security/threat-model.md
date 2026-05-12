@@ -68,10 +68,23 @@ the trust-state machinery that enforces §13.2 of the Interlace spec
 | `INTERLACE_MASTER_PUBKEY` env binding | Used as initial pin for verifier bootstrap | wrangler / config.capnp |
 | Notme CA bundle | Identifies the live `(epoch, keyId)` pair plus rotation prevKey | `env.NOTME` service binding (intra-platform, unforgeable) |
 | Cloister actor fingerprint in `cloister.capnp` | What we publish in `.well-known/interlace/index.json` | The build-pinned manifest |
+| **leyline-sign-helper binary** (ADR-0019, post-cloister-99165e) | Signs payloads using OS-keystore-resident keys; never returns key bytes | Host filesystem at operator-owned path; supervisor-managed (launchd / systemd user unit); loopback-bound at `127.0.0.1:8786` |
 
 A compromise of the master key, a compromise of the notme worker, or a
 compromise of the build pipeline (modifying `cloister.capnp` or the env
 bindings before deploy) all defeat the model. None are addressed here.
+
+**leyline-sign-helper trust boundary (per ADR-0019):** anyone with
+access to UID:port on the host is in the trust base. Mitigations:
+loopback-only bind; sign-only protocol (no key bytes traverse the
+wire); rate-limit default 1000 sigs/sec; per-call keystore re-read
+with parsed-key cache invalidated by byte-hash mismatch (automatic
+rotation propagation); `/healthz` does not expose per-entry presence
+(no oracle); constant-time error shape for 404/500 (`not_found` and
+`internal` byte-identical). Compromise of the helper binary defeats
+the heap-isolation property ADR-0018 leans on; mitigation is
+supervisor-unit hardening (sandbox-exec on macOS, systemd `ProtectHome=
+ProtectSystem= NoNewPrivileges= PrivateNetwork=...` on Linux).
 
 ## 3. Pipeline (current and planned)
 
