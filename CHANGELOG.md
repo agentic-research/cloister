@@ -7,23 +7,61 @@ so we batch changes by month rather than ratcheting semver per release.
 ## [Unreleased]
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
-The substantive arcs in flight:
 
-- **Phase 1 of the MCP spec-alignment arc** (`cloister-a3ae4c`) — current-spec
-  lifecycle compliance + rename `httpForward` backend kind → `mcpProxy`. Closes
-  the visible-on-fresh-clone `mache_*`/`lsp_*` empty `tools/list` bug
-  (`cloister-91e5d4`).
-- **Interlace 0.2.0 receipts implementation** (`cloister-ae713f`) — internal
-  spec text complete after three rounds of math-friend review. Cloister-side
-  implementation (server emit + client verify + DO storage + SSE stream chain +
-  archival CA bundle + compromise-notice handling) decomposes into child beads.
-- **Notme co-location** (`cloister-db99cd`) — fold notme into cloister-router's
-  workerd process as a tenant Worker; master_sk isolation via V8 boundary per
-  ADR-0013 rather than process boundary.
-- **MCP `roots` primitive** (`cloister-65a30f`) — thread client-declared
-  filesystem scope through cloister to upstream MCP servers.
-- **TOML-derived config DX** (`cloister-277ae7`) — generate the three capnp
-  files (cloister.capnp, cluster.capnp, config.capnp) from extended wrangler.toml.
+### Shipped 2026-05-12
+
+- **Interlace 0.2.0 receipts (Phase 1)** (`cloister-ae713f`) — full
+  TypeScript implementation of the six-piece arc. Server emit
+  (Interlace-Receipt header on every authenticated 2xx), P-live verify,
+  V-archival verify, SSE stream chain (open/close commitments with
+  cryptographic pairing via `open_commitment_hash`), archival CA bundle
+  endpoint, compromise notice mechanism. 104 new tests. Phase 1
+  semantics: `RECEIPT_SIGNING_KEY` unset → no emission; peers verify-
+  but-don't-enforce. Phase 2 cutover (peers fail-closed on missing
+  receipts) is a future operator action, not a code change.
+- **ADR-0018 Accepted** (`cloister-db99cd`) — notme co-location design
+  with math-friend dual review synthesis. V8 isolate boundary trades
+  memory-isolation for finer-grained policy expression; full
+  prerequisite gate chain documented. Implementation gated on
+  cloister-99165e + cloister-988589 + cloister-993bef Phase C.
+- **ADR-0019 Accepted** (`cloister-98b693`) — sign-only trust-anchor-
+  helper protocol. Cross-cutting prerequisite for ADR-0018 + ADR-0014
+  v2b. Math-friend dual review synthesized: alg-substitution defense,
+  opt-in pubkey return, base64url, 64 KiB MUST, 5s timeout, rate
+  limit, ed25519-dalek pin, constant-time error shape, byte-hash-keyed
+  SigningKey cache for zero-operator-action rotation propagation.
+- **Lint-bundle-isolation gaps closed** (`cloister-988589`) — math-
+  friend's 7 specific gaps fixed. New manifest fields
+  (`holdsCredential`, `workerdServiceName`, `hypervisorRationale`),
+  new Inv 5 (hypervisor-to-hypervisor wires must appear in
+  cluster.capnp), Inv 1 extended to flag external-server-backed
+  globalOutbound, Inv 3 requires non-empty hypervisorRationale for
+  hypervisor-tier bundles. 9 new tests.
+- **Threat model §2** — new row for the leyline-sign-helper binary
+  trust root (per ADR-0019).
+
+### Arcs in flight
+
+- **leyline-sign-helper Rust binary** (`cloister-99165e`) — implements
+  ADR-0019 wire spec; extends existing `rs/crates/sign/` with a host-
+  binary target. Multi-day Rust work; produces a PR.
+- **kek-helper.mjs → leyline-sign-helper migration** (`cloister-993bef`)
+  — depends on 99165e. Phase B (golden-vector parity tests) is the
+  load-bearing gate; without byte-exact `/resolve` equivalence,
+  derived KEKs drift → unrecoverable wrapped DEKs.
+- **Cloister CLI in `rs/crates/cli/`** (`cloister-999532`) — Rust
+  binary subsumes `scripts/cli-init.mjs`. Install/bundles/init/status
+  subcommands. OCI-annotation-based tool installation per
+  cloister-3a3b0d's CAS substrate.
+- **External-consumer survey for notme's public surface** — ADR-0018
+  prerequisite gate #5. Determines whether full co-location (this ADR)
+  or Alternative 4 (split notme surface) is the right shape.
+- **Joint benchmark** — `bead_create` burst + `cert_mint` on one
+  workerd process. ADR-0018 prerequisite gate #6.
+- **Receipts crypto TS → Rust-wasm port** (`cloister-9a1b72`) —
+  attack-surface reduction follow-up to ae713f. P2; non-blocking.
+- **TOML-derived config DX** (`cloister-277ae7`) — generate the three
+  capnp files from extended wrangler.toml.
 
 ## [0.1.0] — 2026-05 (current)
 
@@ -158,8 +196,15 @@ The substrate baseline. Everything below is in `main` and gated by CI's
   Phase 1 of the spec-alignment arc (`cloister-a3ae4c`).
 - **§13.2 chain-completeness** is currently honest-actor-at-admission only on
   the response side. interlace-spec 0.2.0 receipts close the gap; spec text
-  complete, cloister-side implementation in flight. (Self-attested via three
-  rounds of LLM adversarial review — no third-party cryptographic audit has
-  been performed.)
+  complete, **cloister-side implementation Phase 1 shipped 2026-05-12**
+  (`cloister-ae713f`, commit `a0d3fd3`) — emit-but-don't-enforce mode.
+  Phase 2 cutover (peers fail-closed on missing receipts) is an operator
+  action (flip `RECEIPT_SIGNING_KEY` env), not a code change. (Self-attested
+  via three rounds of LLM adversarial review — no third-party cryptographic
+  audit has been performed.)
 - **Notme runs as a separate workerd process**. Co-location into
-  cloister-router's workerd (`cloister-db99cd`) is in design phase.
+  cloister-router's workerd (`cloister-db99cd`) — ADR-0018 **Accepted
+  2026-05-12** with math-friend dual review synthesized. Implementation
+  gated on `cloister-99165e` (Rust helper binary) + `cloister-988589`
+  (lint gaps, shipped) + `cloister-993bef` Phase C (sign-only helper
+  available as opt-in) + external-consumer survey.

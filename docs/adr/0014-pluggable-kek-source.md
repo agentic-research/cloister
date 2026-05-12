@@ -237,6 +237,15 @@ Staged in two parts:
   rejected at resolver entry. Requires age library integration and a
   recipient-resolution chain that doesn't exist today.
 
+**v2b prerequisite — sign-only helper protocol (ADR-0019).** The age-
+encrypted carrier path requires that recipient-key bytes never re-enter
+workerd's V8 heap during age-decryption. This means the trust-anchor-
+helper must perform decryption operations host-side (analogous to the
+sign-only protocol). See [ADR-0019](0019-sign-only-helper-protocol.md)
+for the wire spec; the helper protocol extends naturally to support
+`POST /decrypt` alongside the `POST /sign` op v2b's master_sk consumers
+will use.
+
 In v2a, `env://VAR` still returns the env value as-is — this is a
 deliberate staging boundary, not an oversight. The discipline change
 that matters NOW is "no plaintext key material in committed config"

@@ -288,9 +288,19 @@ For **self-host / production**, the vault DO supports these schemes:
 |---|---|
 | `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
-| `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar |
+| `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar (today) / `leyline-sign-helper` Rust binary (post-`cloister-99165e`) |
 | `secret-tool://service-name` | Linux libsecret — via the kek-helper sidecar (returns 501 today, roadmap) |
 | `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` |
+
+> **Migration in flight:** `scripts/kek-helper.mjs` (the JS sidecar
+> documented in this section) is being replaced by the
+> `leyline-sign-helper` Rust binary per [ADR-0019](docs/adr/0019-sign-only-helper-protocol.md).
+> The Rust helper performs Ed25519 signing host-side and returns only
+> signatures, never key bytes — closing the heap-isolation gap
+> [ADR-0018](docs/adr/0018-notme-co-location.md) requires. Tracking:
+> `cloister-99165e` (binary build) + `cloister-993bef` (kek-helper
+> migration). The wire-level contract for `/resolve` is unchanged;
+> golden-vector parity tests are the load-bearing migration gate.
 
 The macOS-Keychain self-host flow:
 
