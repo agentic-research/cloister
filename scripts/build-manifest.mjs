@@ -82,12 +82,14 @@ validate(json);
 
 // ── Emit the typed TS module ──────────────────────────────────────────────
 
+// No `Built:` timestamp in the banner — the generated file is checked
+// in, and a wall-clock stamp would force every regen to diff (which
+// breaks the `generated-drift` CI gate).
 const banner = [
   "/**",
   " * AUTO-GENERATED — do not edit. Regenerate with `task manifest`.",
   ` * Source: ${relPath(MANIFEST_FILE)}`,
   ` * Schema: ${relPath(SCHEMA_FILE)}`,
-  ` * Built:  ${new Date().toISOString()}`,
   " */",
   "",
 ].join("\n");

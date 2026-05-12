@@ -204,14 +204,19 @@ tasks:
       - dist/config.capnp
 
   test:
+    # `rs:sign:wasm` is required because src/wire/signet-verify.ts imports
+    # rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm; without
+    # it vitest-pool-workers fails every test file at module init. The
+    # rs:sign:wasm task has sources/generates declared, so it's a no-op
+    # on rebuilds.
     desc: Run tests inside workerd (real DOs, real SQLite)
-    deps: [manifest]
+    deps: [manifest, rs:sign:wasm]
     cmds:
       - pnpm exec vitest run
 
   test:watch:
     desc: Watch mode
-    deps: [manifest]
+    deps: [manifest, rs:sign:wasm]
     cmds:
       - pnpm exec vitest
 

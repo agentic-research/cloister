@@ -56,6 +56,30 @@ jobs:
         # src/generated/manifest.ts at build time, per ADR-0004).
         run: sudo apt-get update && sudo apt-get install -y capnproto
 
+      - name: Install Rust + wasm32 target
+        # Required by `task rs:sign:wasm`, a dep of `task test` (and
+        # therefore `task lint`). The wasm artifact is loaded by
+        # src/wire/signet-verify.ts; without it, vitest-pool-workers
+        # fails every test file at module init (cloister-bd5241).
+        # Stable channel is enough — leyline-sign uses no nightly features.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry + git
+        # Cuts ~30s off cold runs. Keyed on Cargo.lock so an rs/ deps
+        # bump invalidates cleanly.
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rs/target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
       - name: Cache pnpm store
         # Same cache action ley-line uses; SHA-pinned to v5. Keyed on the
         # lockfile so a deps change invalidates the cache cleanly.
@@ -70,8 +94,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint (the inner-loop gate)
-        # `task lint` chains: task manifest → tsc --noEmit → vitest in
-        # workerd → CC plugin's node:test suite. ~2s on dev hardware.
+        # `task lint` chains: task manifest → task rs:sign:wasm → tsc
+        # --noEmit → vitest in workerd → CC plugin's node:test suite.
         run: task lint
 
   verify:
@@ -100,6 +124,23 @@ jobs:
 
       - name: Install capnp
         run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Install Rust + wasm32 target
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry + git
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rs/target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
 
       - name: Cache pnpm store
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
