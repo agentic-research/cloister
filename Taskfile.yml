@@ -244,6 +244,12 @@ tasks:
     cmds:
       - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/disclosure-endpoint.test.ts
 
+  bench:registry:
+    desc: "OCI registry push/pull bench (cloister-3a3b0d). Monolithic + chunked upload, manifest PUT/GET, blob GET — small/medium/large sizes. Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/oci-registry.test.ts
+
   bench:cold-start:
     desc: "Cold-start cluster boot bench (cloister-e4daae surface 4). External probe — spawns wrangler dev, polls /health."
     cmds:
