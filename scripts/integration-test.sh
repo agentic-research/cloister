@@ -83,6 +83,23 @@ human_secs() {
   fi
 }
 
+# Portable millisecond epoch timestamp. macOS `date` lacks %N; prefer
+# gdate (coreutils) if present, then GNU date, then python3 fallback.
+epoch_ms() {
+  if command -v gdate >/dev/null 2>&1; then
+    gdate +%s%3N
+  else
+    # Probe GNU date by checking the format expands (BSD date emits a
+    # literal "N" suffix when %N is unsupported).
+    local out
+    out=$(date +%s%3N 2>/dev/null)
+    case "$out" in
+      *N) python3 -c 'import time; print(int(time.time()*1000))' ;;
+      *)  printf '%s\n' "$out" ;;
+    esac
+  fi
+}
+
 cleanup_smoke_containers() {
   docker rm -f cloister-smoke-notme cloister-smoke-llo 2>/dev/null || true
 }
@@ -382,6 +399,10 @@ if [ "${SKIP_PHASE_B:-0}" != "1" ]; then
     fail_total
   else
     log "starting cluster (background)"
+    # Capture t0 immediately before `task cluster:up` invocation. This
+    # is the baseline for the boot-time-to-/health-200 metric reported
+    # alongside the 4/4-services-Up timing.
+    boot_t0_ms=$(epoch_ms)
     (cd "$CLOISTER_DIR" && task cluster:up) >"$LOG_DIR/cluster-up.log" 2>&1 &
     CLUSTER_PID=$!
 
@@ -424,27 +445,37 @@ if [ "${SKIP_PHASE_B:-0}" != "1" ]; then
     fi
 
     # Step B-3: /health on cloister-router
+    # Poll at 200ms intervals (≤60s budget) so the first-200 timestamp
+    # is fine-grained enough to be useful as a boot-time metric. The
+    # boot_ms reported below is wall-clock from `task cluster:up` to
+    # the first 200 OK on /health.
     if [ "$all_up" = "1" ]; then
       # Give workerd a beat to bind after the container reports Up.
       health_ok=0
-      for i in $(seq 1 20); do
+      boot_t1_ms=0
+      # 300 * 200ms = 60s budget
+      for i in $(seq 1 300); do
         if curl -sf -m 2 "http://localhost:8787/health" >"$LOG_DIR/cluster-health.log" 2>&1; then
+          boot_t1_ms=$(epoch_ms)
           health_ok=1; break
         fi
-        sleep 0.5
+        sleep 0.2
       done
       if [ "$health_ok" = "1" ]; then
+        boot_ms=$((boot_t1_ms - boot_t0_ms))
         body=$(cat "$LOG_DIR/cluster-health.log")
         if echo "$body" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d.get('ok', True) is not False else 1)" 2>/dev/null; then
-          step "B-03" "OK" "/health returned 200 with JSON"
+          step "B-03" "OK" "/health returned 200 with JSON (${boot_ms}ms from cluster:up)"
           CLUSTER_ROWS+=("/health|OK|200 with JSON")
         else
-          step "B-03" "OK" "/health returned 200 (body: ${body:0:80})"
+          step "B-03" "OK" "/health returned 200 (body: ${body:0:80}; ${boot_ms}ms from cluster:up)"
           CLUSTER_ROWS+=("/health|OK|200 (non-JSON or no 'ok' field)")
         fi
+        CLUSTER_ROWS+=("/health 200 first reached|OK|${boot_ms}ms from cluster:up")
       else
-        step "B-03" "FAIL" "/health no 200 after 10s"
-        CLUSTER_ROWS+=("/health|FAIL|no 200 after 10s; see $LOG_DIR/cluster-health.log")
+        step "B-03" "FAIL" "/health no 200 after 60s"
+        CLUSTER_ROWS+=("/health|FAIL|no 200 after 60s; see $LOG_DIR/cluster-health.log")
+        CLUSTER_ROWS+=("/health 200 first reached|FAIL|never reached within 60s")
         fail_total
       fi
 
@@ -461,6 +492,7 @@ if [ "${SKIP_PHASE_B:-0}" != "1" ]; then
     else
       step "B-03" "SKIP" "/health (cluster not up)"
       step "B-04" "SKIP" "/.well-known (cluster not up)"
+      CLUSTER_ROWS+=("/health 200 first reached|SKIP|cluster did not reach 4/4")
     fi
 
     # Step B-5: cluster:down (also covered by trap; this catches the
