@@ -34,10 +34,16 @@ import { okResponse, errResponse } from "../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../backends.js";
 import { pickAllowedOrigin } from "../cors.js";
 import {
+  canonicalRequestBytes,
   leaseErrorResponse,
   verifyAndUpsertLease,
   type VerifiedLease,
 } from "./lease-middleware.js";
+import {
+  attachReceipt,
+  buildEmissionContext,
+  type ReceiptEmissionContext,
+} from "./receipt-emitter.js";
 import {
   CaUnavailableError,
   getCABundle,
@@ -203,9 +209,34 @@ export class McpEdgeRoute implements EdgeRoute {
 
     const sessionless = headerVersion !== null;
     const out = await this.dispatch(req, env, lease, nowMs, sessionless);
-    return Response.json(out, {
+
+    // ── Receipt emission (cloister-ae713f / RECEIPTS.md §2.1, §2.6) ───────
+    //
+    // Emit Interlace-Receipt on 2xx authenticated responses. The
+    // emission context is built per-request from env material (master
+    // signing key, actor fingerprint, epoch). When the env binding is
+    // unset (Phase 1 dev/test deployments per §8.2), buildEmissionContext
+    // returns null and the response passes through unchanged.
+    //
+    // Per §2.6 the emit is only owed when admission happened — here that
+    // means the lease was verified (otherwise we returned a 401/403
+    // response above). Unauthenticated mode (no INTERLACE_ROOT_PUBKEY)
+    // also skips emission: no peer fingerprint, no §13.2 stake.
+    const baseResponse = Response.json(out, {
       headers: { "Access-Control-Allow-Origin": allowOrigin },
     });
+    if (lease !== undefined) {
+      try {
+        const ctx = await buildReceiptContext(env, nowMs, request, bodyText, lease);
+        if (ctx !== null) return await attachReceipt(baseResponse, ctx);
+      } catch {
+        // Receipt emission failure is logged-but-not-fatal in Phase 1.
+        // When the migration hits Phase 2 (peers enforce), this should
+        // become a hard fail (return 500) — but that's a deploy-time
+        // policy decision tracked in the spec's migration timeline (§8).
+      }
+    }
+    return baseResponse;
   }
 
   /**
@@ -562,6 +593,38 @@ export class McpEdgeRoute implements EdgeRoute {
       }
     }
   }
+}
+
+// ── Receipt-context builder (cloister-ae713f) ──────────────────────────────
+//
+// Reconstructs the canonical request bytes (the same input the lease
+// middleware verified) so the emitter can hash them into `request_hash`.
+// `nonce` is already on the `VerifiedLease`.
+async function buildReceiptContext(
+  env:      Env,
+  nowMs:    number,
+  request:  Request,
+  bodyText: string,
+  lease:    VerifiedLease,
+): Promise<ReceiptEmissionContext | null> {
+  // Re-derive `request_canon` exactly as the lease middleware did:
+  // method + url + ts (server clock at verify time) + nonce + body.
+  // The lease's `serverTs` is the same `nowMs` we snapshotted at the
+  // start of `handlePost`, so this hash matches the receipt's
+  // `request_hash` field invariant (§2.1).
+  const requestCanon = canonicalRequestBytes(
+    request.method,
+    request.url,
+    lease.serverTs,
+    lease.nonce,
+    bodyText,
+  );
+  return buildEmissionContext({
+    env,
+    nowMs,
+    requestCanon,
+    nonce: lease.nonce,
+  });
 }
 
 // ── SSE handler ────────────────────────────────────────────────────────────

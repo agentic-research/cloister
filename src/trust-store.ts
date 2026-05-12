@@ -91,6 +91,21 @@ import {
   listTagsForRepo as listTagsForRepoHelper,
   upsertTag as upsertTagHelper,
 } from "./storage/registry-tags.js";
+import {
+  SCHEMA_PEER_RECEIPTS,
+  findPeerReceipt as findPeerReceiptHelper,
+  listReceiptsForActorEpoch as listReceiptsForActorEpochHelper,
+  upsertPeerReceipt as upsertPeerReceiptHelper,
+  type PeerReceiptRow,
+} from "./storage/peer-receipts.js";
+import {
+  SCHEMA_ACTOR_CA_BUNDLE,
+  attachCompromiseNotice as attachCompromiseNoticeHelper,
+  getActorCaBundle as getActorCaBundleHelper,
+  listActorCaBundleEpochs as listActorCaBundleEpochsHelper,
+  upsertActorCaBundle as upsertActorCaBundleHelper,
+  type ActorCaBundleEntry,
+} from "./storage/actor-ca-bundle.js";
 
 const SCHEMA = `
 ${SCHEMA_PEER_LEASE_COUNTERS}
@@ -98,6 +113,8 @@ ${SCHEMA_SEEN_NONCES}
 ${SCHEMA_PENDING_ATTESTATIONS}
 ${SCHEMA_PEER_ATTESTATIONS}
 ${SCHEMA_REGISTRY_TAGS}
+${SCHEMA_PEER_RECEIPTS}
+${SCHEMA_ACTOR_CA_BUNDLE}
 `;
 
 /**
@@ -599,6 +616,66 @@ export class TrustStore extends DurableObject {
   listRegistryRepos(): string[] {
     return listReposHelper(this.db);
   }
+
+  // ── Receipts (cloister-ae713f / RECEIPTS.md §2.2.2 + §2.3) ──────────────
+  //
+  // peer_receipts holds the receipt envelopes for both directions:
+  // receipts cloister observed as a CLIENT (direction='in') and receipts
+  // cloister emitted as the actor (direction='out'). The audit (V) path
+  // walks `actor_fp + epoch` to re-verify against the archived CA bundle
+  // entry below.
+
+  /** Idempotent UPSERT — re-observation of the same receipt is a no-op. */
+  upsertReceipt(row: PeerReceiptRow): void {
+    upsertPeerReceiptHelper(this.db, row);
+  }
+
+  /** Lookup a stored receipt — returns null if not found. */
+  getReceipt(
+    actorFp: string,
+    requestHash: string,
+    direction: "in" | "out",
+  ): PeerReceiptRow | null {
+    return findPeerReceiptHelper(this.db, actorFp, requestHash, direction);
+  }
+
+  /** List receipts for an actor+epoch (audit sweep). */
+  listReceiptsForActorEpoch(actorFp: string, epoch: number, limit = 100): PeerReceiptRow[] {
+    return listReceiptsForActorEpochHelper(this.db, actorFp, epoch, limit);
+  }
+
+  // ── Actor CA bundle archive (RECEIPTS.md §2.3 + §2.7) ───────────────────
+  //
+  // Each epoch's master signing key + cert + status (active/retired) +
+  // any compromise notice live here. The well-known endpoint /interlace/
+  // ca-bundle/<epoch> projects this table; the well-known/interlace/
+  // index.json synthesis reads `status='active'` + previous to build the
+  // epoch index.
+
+  /** Insert/update a CA bundle entry. Idempotent on (epoch). */
+  upsertCaBundle(row: ActorCaBundleEntry): void {
+    upsertActorCaBundleHelper(this.db, row);
+  }
+
+  /** Look up the bundle for an epoch; null if not present. */
+  getCaBundle(epoch: number): ActorCaBundleEntry | null {
+    return getActorCaBundleHelper(this.db, epoch);
+  }
+
+  /** List every archived epoch entry, most-recent first. */
+  listCaBundleEpochs(): ActorCaBundleEntry[] {
+    return listActorCaBundleEpochsHelper(this.db);
+  }
+
+  /**
+   * Attach a compromise notice to an existing epoch row. Returns false
+   * if the row doesn't exist (caller MUST upsert the bundle entry
+   * first).
+   */
+  attachCompromiseNoticeToEpoch(compromisedEpoch: number, noticeB64u: string): boolean {
+    return attachCompromiseNoticeHelper(this.db, compromisedEpoch, noticeB64u);
+  }
 }
 
 export { AttestationIntegrityError };
+export type { PeerReceiptRow, ActorCaBundleEntry };

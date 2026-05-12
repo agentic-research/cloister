@@ -137,4 +137,25 @@ export interface Env {
   /// Empty disables disclosure responses (dev only — production MUST
   /// have it set).
   INTERLACE_DISCLOSURE_HMAC_KEY?: string;
+  /// Receipt signing keypair (base64-standard, 64 bytes = seed||pub),
+  /// used to emit Interlace 0.2.0 signed receipts (cloister-ae713f /
+  /// RECEIPTS.md §2.1, §2.4). The matching 32-byte raw pubkey MUST
+  /// match what `.well-known/interlace/index.json` advertises as the
+  /// signing key for the current epoch. Production deployments
+  /// delegate signing to notme — when this binding is unset and
+  /// `env.NOTME` is configured, the receipt emitter forwards to
+  /// notme's `/internal/sign-receipt` endpoint (followup bead to
+  /// land the notme-side handler). Empty AND no NOTME binding means
+  /// receipts are NOT emitted (dev/test mode; the 0.2.0 spec Phase 1
+  /// migration allows this — see RECEIPTS.md §8.2).
+  RECEIPT_SIGNING_KEY?: string;
+  /// Current key epoch for this actor (decimal uint). Defaults to 1
+  /// when unset. Increments when the master signing key rotates; old
+  /// epochs remain resolvable via TrustStore's actor_ca_bundle table.
+  RECEIPT_EPOCH?: string;
+  /// Actor fingerprint (SHA-256 of master pubkey, hex). Committed to
+  /// every receipt's `actor_fp` field. When unset, derived from the
+  /// pubkey at startup. Pinning it via binding lets the operator
+  /// publish a stable fingerprint across pubkey reloads in dev.
+  RECEIPT_ACTOR_FP?: string;
 }
