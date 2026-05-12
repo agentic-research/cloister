@@ -6,6 +6,38 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+# `leyline-sign-helper` — sign-only trust-anchor-helper daemon (ADR-0019).
+#
+# Native-only binary; gated behind the `host` feature to keep
+# `cargo build --target wasm32-unknown-unknown -p leyline-sign` building
+# the wasm verifier byte-identically to before (see Taskfile rs:sign:wasm).
+# Per ADR-0019 §"Implementation language and location" + cloister-99165e.
+[[bin]]
+name = "leyline-sign-helper"
+path = "src/bin/helper.rs"
+required-features = ["host"]
+
+[features]
+default = []
+# Host-side feature — pulls in the HTTP server, OS-keystore client, signing
+# pipeline, rate limiter, and CLI. Disabled on wasm32 builds; gated by
+# `#[cfg(all(feature = "host", not(target_arch = "wasm32")))]` at every
+# module boundary so toggling this feature does not change the wasm
+# artifact (cloister-99165e Taskfile rs:sign:wasm contract).
+host = [
+  "dep:keyring",
+  "dep:axum",
+  "dep:tokio",
+  "dep:tower",
+  "dep:tower-http",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:base64ct",
+  "dep:clap",
+  "dep:tracing",
+  "dep:tracing-subscriber",
+]
+
 [dependencies]
 cms = { version = "0.2", default-features = false }
 der = { version = "0.7", features = ["derive", "oid", "alloc"] }
@@ -18,7 +50,26 @@ thiserror = "1.0"
 log = "0.4"
 libc = "0.2"
 
+# Host-feature deps. Each is `optional = true` so the wasm32 build does
+# NOT pull them in (the wasm artifact must remain byte-identical when
+# the host feature is added — verified by `task rs:sign:wasm`).
+keyring             = { version = "3", optional = true }
+axum                = { version = "0.7", optional = true, default-features = false, features = ["http1", "tokio", "macros", "json", "query"] }
+tokio               = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
+tower               = { version = "0.5", optional = true, default-features = false, features = ["util"] }
+tower-http          = { version = "0.6", optional = true, default-features = false, features = ["limit", "timeout"] }
+serde               = { version = "1", optional = true, features = ["derive"] }
+serde_json          = { version = "1", optional = true }
+base64ct            = { version = "1", optional = true, features = ["alloc"] }
+clap                = { version = "4", optional = true, features = ["derive"] }
+tracing             = { version = "0.1", optional = true }
+tracing-subscriber  = { version = "0.3", optional = true, features = ["env-filter", "fmt"] }
+
 [dev-dependencies]
 rand = "0.8"
 hex = "0.4"
 base64 = "0.22"
+# Host-side tests use reqwest + tokio; cfg-gated so wasm build doesn't drag them.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
+tempfile = "3"
