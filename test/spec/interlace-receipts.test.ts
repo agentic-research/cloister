@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { env, runInDurableObject } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpEdgeRoute } from "../../src/routes/mcp.js";
 import type { Env, McpTool } from "../../src/types.js";
 import type { ToolBackend } from "../../src/backends.js";
@@ -44,6 +44,12 @@ beforeEach(async () => {
     state.storage.sql.exec("DELETE FROM seen_nonces");
     state.storage.sql.exec("DELETE FROM peer_lease_counters");
   });
+});
+
+afterEach(() => {
+  // Belt-and-braces: any test that calls vi.useFakeTimers() in this
+  // file must not leak frozen time into the next test.
+  vi.useRealTimers();
 });
 
 async function makeRootKey(): Promise<{ privateKey: CryptoKey; publicKeyB64: string }> {
@@ -187,6 +193,14 @@ describe("integration: receipt emission on POST /mcp", () => {
       RECEIPT_EPOCH:         "1",
     }, responder);
 
+    // Freeze the clock for the whole request/verify cycle. The route's
+    // `lease.serverTs` (= Date.now() inside handlePost) is hashed into
+    // request_canon; the test reconstructs request_canon from the
+    // request's `x-signet-ts` header. Without a freeze, the two
+    // Date.now() reads can fall in different milliseconds (~20% on dev
+    // hardware), producing a request_hash mismatch and a flaky P-live
+    // assertion. shouldAdvanceTime=false keeps both reads identical.
+    vi.useFakeTimers({ shouldAdvanceTime: false, now: 1_700_000_000_000 });
     const route = new McpEdgeRoute([NOOP_BACKEND]);
     const nowMs = Date.now();
     const { request } = await signedMcpRequest({
@@ -234,7 +248,10 @@ describe("integration: receipt emission on POST /mcp", () => {
       responseHeaders: resp.headers,
       nowMs,
     });
-    expect(v.ok).toBe(true);
+    vi.useRealTimers();
+    // Include reason in the assertion so a future regression is debuggable
+    // from the first failure rather than requiring a re-run with logging.
+    expect(v.ok, v.ok ? undefined : `verify failed: ${v.reason}`).toBe(true);
   });
 
   it("V-archival audit: stored receipt re-verifies later against archived pubkey", async () => {
