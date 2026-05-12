@@ -1,6 +1,6 @@
 ---
 title: "ADR-0018: Co-locate notme as a workerd-bundle tenant inside cloister-router"
-status: Proposed (2026-05-12) — pending math-friend dual review (cloister-db99cd)
+status: Accepted (2026-05-12) — Alternative 4 (split surface) selected; external-consumer survey decisive (cloister-db99cd)
 date: 2026-05-12
 tags: [identity, notme, trust-root, tier-classification, slice-grant, metavisor]
 threat_model: docs/security/threat-model.md

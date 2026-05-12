@@ -444,12 +444,19 @@ excluded from `task lint` / `task test`.
 - [docs/adr/0004-capnp-manifest.md](docs/adr/0004-capnp-manifest.md) — Cap'n Proto manifest for declarative route + backend registration
 - [docs/adr/0005-internal-wire-leyline-net.md](docs/adr/0005-internal-wire-leyline-net.md) — internal wire = leyline-net (signed capnp); MCP only at the public face
 - [docs/adr/0006-derived-tool-schemas.md](docs/adr/0006-derived-tool-schemas.md) — dynamic tools/list passthrough with TTL cache
-- [docs/adr/0007-interlace-substrate.md](docs/adr/0007-interlace-substrate.md) — **Interlace identity + attestation + discovery** (Proposed; lease ≠ state, offline verification, audit-amended 2026-05-08)
-- [docs/adr/0008-companion-pool.md](docs/adr/0008-companion-pool.md) — companion pool / load balancing (Proposed; orthogonal to Interlace)
-- [docs/adr/0009-compute-substrate-portability.md](docs/adr/0009-compute-substrate-portability.md) — Linux / Firecracker / WASM / unikernel as deployment knob (Proposed)
-- [docs/adr/0010-vault-and-bundle-clusters.md](docs/adr/0010-vault-and-bundle-clusters.md) — **vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity** (Proposed)
-- [docs/adr/0011-hypervisor-bundle-boundary.md](docs/adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs bundle responsibilities, and what cloister's k8s analogy actually means** (Proposed)
+- [docs/adr/0007-interlace-substrate.md](docs/adr/0007-interlace-substrate.md) — **Interlace identity + attestation + discovery** (Accepted; substrate shipped 2026-05-09; spec extracted to `interlace-spec/0.1.0/` on 2026-05-10)
+- [docs/adr/0008-companion-pool.md](docs/adr/0008-companion-pool.md) — companion pool / load balancing (Deferred; multi-companion scale not yet a real signal)
+- [docs/adr/0009-compute-substrate-portability.md](docs/adr/0009-compute-substrate-portability.md) — Linux / Firecracker / WASM / unikernel as deployment knob (Accepted; Phase 1: OCI + workerd)
+- [docs/adr/0010-vault-and-bundle-clusters.md](docs/adr/0010-vault-and-bundle-clusters.md) — **vault as scoped slices, bundles as the unit of trust, clusters as the unit of identity** (Proposed; manifest-side wiring still open — enforcement model ratified by ADR-0013)
+- [docs/adr/0011-hypervisor-bundle-boundary.md](docs/adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs bundle responsibilities, and what cloister's k8s analogy actually means** (Accepted)
+- [docs/adr/0012-truststore-vs-beadstore.md](docs/adr/0012-truststore-vs-beadstore.md) — TrustStore vs BeadStore DO classification (Accepted)
+- [docs/adr/0013-slice-grant-enforcement.md](docs/adr/0013-slice-grant-enforcement.md) — **slice-grant enforcement via V8 isolate + service-binding-as-syscall** (Accepted; the substrate-level security claim no longer waits on ADR-0010 to land)
 - [docs/adr/0014-pluggable-kek-source.md](docs/adr/0014-pluggable-kek-source.md) — **pluggable vault KEK source: env / file / OS keystore via kek-helper sidecar** (Accepted; ships the self-host story for r/mcp launch)
+- [docs/adr/0015-mcp-spec-alignment.md](docs/adr/0015-mcp-spec-alignment.md) — MCP-Proxy-Server framing alignment with the upstream spec (Accepted)
+- [docs/adr/0016-cloister-as-private-mcp-registry.md](docs/adr/0016-cloister-as-private-mcp-registry.md) — cloister as a private MCP registry surface (Accepted)
+- [docs/adr/0017-emit-workerd-config-generator.md](docs/adr/0017-emit-workerd-config-generator.md) — `scripts/emit-workerd-config.mjs` generator rationale (Accepted)
+- [docs/adr/0018-notme-co-location.md](docs/adr/0018-notme-co-location.md) — **notme co-location (Alternative 4 split surface — internal in-process, public separate Worker)** (Accepted 2026-05-12; external-consumer survey decisive)
+- [docs/adr/0019-sign-only-helper-protocol.md](docs/adr/0019-sign-only-helper-protocol.md) — **sign-only trust-anchor-helper protocol** (Accepted 2026-05-12; POST /sign returns sig+kid, never key bytes — cross-cutting prerequisite for ADR-0018 + ADR-0014 v2b)
 - [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
 - [src/README.md](src/README.md) — worker source layout map (routes / manifest / wire / backends)
 - [manifest/README.md](manifest/README.md) — capnp schema for the gateway (the `Cloister.Gateway` type)

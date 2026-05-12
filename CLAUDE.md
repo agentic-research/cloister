@@ -27,7 +27,7 @@ top-level docs describe *what*.
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
   numbered ADR before changing the substrate. The next free number is
-  ADR-0018 (0001–0017 taken). Status mix as of 2026-05-11: most are
+  ADR-0020 (0001–0019 taken). Status mix as of 2026-05-12: most are
   Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
   signal); ADR-0010 stays Proposed for the manifest-side vault wiring
   question, but ADR-0013 ratified the enforcement model (V8 isolate +
@@ -36,7 +36,9 @@ top-level docs describe *what*.
   source) ships the OS-keystore self-host story. ADR-0015 + ADR-0016
   align cloister with the MCP-Proxy-Server framing + private MCP
   registry surface. ADR-0017 documents the workerd-config generator
-  rationale.
+  rationale. ADR-0018 (notme co-location, Alternative 4 split surface)
+  + ADR-0019 (sign-only trust-anchor-helper protocol) ship the
+  2026-05-12 identity-co-location arc.
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
@@ -128,7 +130,7 @@ sufficient.
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
 
-## In-flight substrate work (ADRs 0007–0013)
+## In-flight substrate work (ADRs 0007–0019)
 
 | ADR | Status | Decade thread |
 |---|---|---|
@@ -140,6 +142,8 @@ sufficient.
 | 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
 | 0013 — slice-grant enforcement (V8 isolate + service-binding-as-syscall) | Accepted | `interlace-substrate/vault` |
 | 0014 — pluggable KEK source (Keychain / libsecret / file / env) | Accepted | `interlace-substrate/vault` |
+| 0018 — notme co-location (Alternative 4: split surface — internal in-process, public separate Worker) | Accepted | `interlace-substrate/vault` |
+| 0019 — sign-only trust-anchor-helper protocol (POST /sign returns sig+kid, never key bytes) | Accepted | `interlace-substrate/vault` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
