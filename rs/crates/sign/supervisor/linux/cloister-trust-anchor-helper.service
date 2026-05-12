@@ -1,0 +1,57 @@
+# systemd user unit for leyline-sign-helper (ADR-0019, cloister-99165e).
+#
+# Install (per-user; libsecret access requires user-session D-Bus):
+#   mkdir -p ~/.config/systemd/user/
+#   cp cloister-trust-anchor-helper.service ~/.config/systemd/user/
+#   # Edit ExecStart= to point at the installed binary path.
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now cloister-trust-anchor-helper.service
+#
+# Verify:
+#   curl -fsS http://127.0.0.1:8786/healthz
+#   systemctl --user status cloister-trust-anchor-helper.service
+#
+# Uninstall:
+#   systemctl --user disable --now cloister-trust-anchor-helper.service
+#   rm ~/.config/systemd/user/cloister-trust-anchor-helper.service
+#
+# ADR-0019 normative req. 2: bind is HARDCODED 127.0.0.1:8786. Do not
+# override via --bind. Workerd's KEK_HELPER binding wouldn't find a
+# different port.
+#
+# ADR-0019 ops §5: headless Linux self-host should prefer file:// over
+# secret-tool:// (libsecret needs an unlocked D-Bus session keyring).
+# This unit lives under --user so a desktop session's keyring is in
+# scope; headless servers should switch to file:// in the URL spec.
+
+[Unit]
+Description=cloister trust-anchor sign-only helper (ADR-0019)
+Documentation=https://github.com/agentic-research/cloister/blob/main/docs/adr/0019-sign-only-helper-protocol.md
+After=default.target
+
+[Service]
+Type=simple
+# EDIT THIS — point at the installed binary path.
+ExecStart=%h/.cargo/bin/leyline-sign-helper --bind 127.0.0.1:8786 --foreground
+
+# ADR-0019 ops §1: Restart with bounded backoff.
+Restart=on-failure
+RestartSec=1
+StartLimitBurst=5
+StartLimitIntervalSec=10
+
+# Stop accepting new requests on SIGTERM; helper drains in-flight up to 5s.
+KillSignal=SIGTERM
+TimeoutStopSec=6
+
+# Per-user keystore access — don't grant additional capabilities.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+# stdout/stderr go to journal; the helper writes structured tracing
+# events with `op` + `scheme` + `outcome` keys (ADR-0019 req. 11).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

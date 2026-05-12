@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd template for leyline-sign-helper (ADR-0019, cloister-99165e).
+
+  Install:
+    cp com.cloister.trust-anchor-helper.plist ~/Library/LaunchAgents/
+    # Edit the ProgramArguments path below to point at the binary
+    # (e.g. /opt/homebrew/bin/leyline-sign-helper or $HOME/.cargo/bin/...)
+    launchctl load ~/Library/LaunchAgents/com.cloister.trust-anchor-helper.plist
+
+  Verify:
+    curl -fsS http://127.0.0.1:8786/healthz
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.cloister.trust-anchor-helper.plist
+    rm ~/Library/LaunchAgents/com.cloister.trust-anchor-helper.plist
+
+  ADR-0019 ops §1: Restart=on-failure with bounded backoff. The
+  KeepAlive + ThrottleInterval combination below approximates
+  RestartSec=1, StartLimitBurst=5, StartLimitIntervalSec=10.
+
+  ADR-0019 normative req. 2: bind is HARDCODED 127.0.0.1:8786. Do not
+  override — workerd's binding wouldn't find a different port.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.cloister.trust-anchor-helper</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/leyline-sign-helper</string>
+      <string>--bind</string>
+      <string>127.0.0.1:8786</string>
+      <string>--foreground</string>
+    </array>
+
+    <!-- Restart on crash with bounded backoff. -->
+    <key>KeepAlive</key>
+    <dict>
+      <key>SuccessfulExit</key>
+      <false/>
+      <key>Crashed</key>
+      <true/>
+    </dict>
+
+    <!-- Don't restart more than once every 10s on rapid crashes. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- stderr → log file (helper writes structured tracing here). -->
+    <key>StandardErrorPath</key>
+    <string>/tmp/leyline-sign-helper.log</string>
+
+    <!-- Stay in user's keychain ACL — do NOT run as root. -->
+    <key>SessionCreate</key>
+    <true/>
+  </dict>
+</plist>

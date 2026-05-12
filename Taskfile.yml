@@ -142,6 +142,30 @@ tasks:
     generates:
       - target/wasm32-unknown-unknown/release/leyline_sign.wasm
 
+  rs:sign:host:
+    desc: "Test the leyline-sign crate with the host feature enabled (cloister-99165e). Includes the sign-only helper integration tests."
+    dir: rs
+    cmds:
+      - cargo test -p leyline-sign --features host
+
+  rs:sign:helper:
+    desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target, host feature enabled."
+    dir: rs
+    cmds:
+      - cargo build --release --features host --bin leyline-sign-helper
+      - 'echo "binary: $(pwd)/target/release/leyline-sign-helper ($(wc -c < target/release/leyline-sign-helper) bytes)"'
+
+  helper:start:
+    desc: "Start the leyline-sign-helper in the foreground on 127.0.0.1:8786 (cloister-99165e, ADR-0019). Builds first if needed."
+    deps: [rs:sign:helper]
+    cmds:
+      - rs/target/release/leyline-sign-helper --bind 127.0.0.1:8786 --foreground
+
+  helper:status:
+    desc: "Probe GET /healthz to confirm the leyline-sign-helper is reachable (cloister-99165e)."
+    cmds:
+      - curl -fsS http://127.0.0.1:8786/healthz | jq .
+
   rs:sign:fixtures:
     desc: "Mint cert-chain test fixtures (cloister-9d49eb). Generates test/wire/fixtures/cert-chain.ts from a fixed RNG seed for stable test output."
     dir: rs
