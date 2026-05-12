@@ -14,8 +14,8 @@ edge.
 | File | `kind` | Transport | Notes |
 |------|--------|-----------|-------|
 | `durable-object.ts` | `durableObject` | DO RPC | Forwards JSON-RPC inner call to a DO derived from a key argument (e.g. `repo`, `session_id`). Used for BeadStore and other per-key state. |
-| `http-forward.ts` | `httpForward` | HTTP fetch | POST `tools/call` JSON-RPC to an upstream MCP HTTP endpoint via the global `fetch`. Supports MCP Streamable HTTP session handshake (`requiresSession`) and ADR-0006 derived tools (`dynamicTools`). |
-| `service-binding.ts` | `serviceBinding` | workerd `Fetcher` | Same wire shape as `httpForward`, but the upstream is another Worker exposed as a service binding — no network hop. |
+| `mcp-proxy.ts` | `mcpProxy` | HTTP fetch | POST `tools/call` JSON-RPC to an upstream MCP HTTP endpoint via the global `fetch`. Supports MCP Streamable HTTP session handshake (`requiresSession`) and ADR-0006 derived tools (`dynamicTools`). |
+| `service-binding.ts` | `serviceBinding` | workerd `Fetcher` | Same wire shape as `mcpProxy`, but the upstream is another Worker exposed as a service binding — no network hop. |
 | `uds-forward.ts` | `udsForward` | capnp over loopback HTTP → companion → UDS | Workerd cannot dial `AF_UNIX`; sends the capnp `ToolCall` to cloister-companion with `X-Cloister-Transport: uds` + `X-Cloister-Socket-Path` and companion opens the UDS. Per ADR-0005 amendment 2026-04-30. |
 | `leyline-net.ts` | `leylineNet` | capnp over loopback HTTP → companion | The cloister↔companion IPC seam: encode `ToolCall` via `src/wire/tool-call.ts`, POST to `env[companionUrlBinding]`, decode `ToolResult` via `src/wire/tool-result.ts`. AEAD / signing live at companion's egress face — see [ADR-0005](../../../docs/adr/0005-internal-wire-leyline-net.md). |
 
@@ -25,7 +25,7 @@ edge.
 flowchart LR
     MCP["McpEdgeRoute<br/>(src/routes/mcp.ts)"]
     DO["DurableObjectToolBackend"]
-    HTTP["HttpForwardToolBackend"]
+    HTTP["McpProxyToolBackend"]
     SVC["ServiceBindingToolBackend"]
     UDS["UdsForwardToolBackend"]
     LN["LeylineNetToolBackend"]

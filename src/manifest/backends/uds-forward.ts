@@ -156,7 +156,7 @@ export class UdsForwardToolBackend implements ToolBackend {
     }
 
     // Single-text fast path: parse-as-JSON-or-raw-text. Mirrors
-    // HttpForwardToolBackend + LeylineNetToolBackend so callers see the
+    // McpProxyToolBackend + LeylineNetToolBackend so callers see the
     // same shape regardless of backend kind.
     if (result.content.length === 1 && result.content[0]!.kind === "text") {
       const text = (result.content[0] as { kind: "text"; text: string }).text;

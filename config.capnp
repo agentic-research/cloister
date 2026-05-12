@@ -19,28 +19,50 @@ const config :Workerd.Config = (
       worker = .cloisterWorker,
     ),
 
-    # Internet access — for proxying to rosary (ROSARY_MCP_URL), ley-line-open
-    # (LLO_MCP_URL — usually via notme-proxy in prod), and signet.
-    #
-    # workerd's `network.allow` defaults to deny-private when `allow` is
-    # specified. The shared-netns cluster topology (mache, ley-line-open,
-    # rosary all on `network_mode: service:cloister-router` per
-    # cluster.compose.yaml) means upstreams live at 127.0.0.0/8 from
-    # cloister-router's vantage point. Without explicit loopback allow,
-    # outbound `fetch()` to `localhost:7532` (mache) silently fails with
-    # `connect() blocked by restrictPeers()` and dynamic-tools discovery
-    # comes back empty. Caught by `cloister-91e5d4` e2e regression
-    # 2026-05-11; the Phase 1 lifecycle fix (`cloister-a3ae4c`) was
-    # correct but never got a chance to run because the connection was
-    # blocked one layer below.
-    #
-    # Production deployments that put cluster bundles on real internal
-    # networks (not loopback) should narrow / replace this — loopback
-    # is correct ONLY for the shared-netns topology.
+    # Internet egress — used by Workers as `globalOutbound` for any
+    # outbound fetch() that does NOT route through a named service
+    # binding. Per ADR-0013, cluster-tier bundles MUST NOT have
+    # unrestricted egress; this entry stays public-only (the workerd
+    # SSRF default) so the only way to reach an in-cluster upstream is
+    # through an explicit ExternalServer + Service binding declared
+    # below. Loopback / private-network egress is intentionally absent
+    # — earlier shared-netns deployments needed `127.0.0.0/8` here to
+    # reach localhost upstreams; cloister-b65a20 replaced that with
+    # named-service routing so the ACL can stay tight.
     ( name = "internet",
       network = (
-        allow = ["public", "127.0.0.0/8"],
+        allow = ["public"],
       ),
+    ),
+
+    # ── External upstreams (workerd-native, ExternalServer) ────────────────
+    # Each entry routes a Service binding (below, on cloisterWorker) to a
+    # specific back-end on the shared loopback network. workerd dispatches
+    # `env[BINDING].fetch(req)` directly to `address`, ignoring `internet`
+    # egress entirely — so the `internet` ACL can stay tight (`["public"]`)
+    # without breaking in-cluster MCP traffic. Per ADR-0013 (the
+    # service-binding-as-syscall enforcement model) and cloister-b65a20
+    # (the refactor that adopted this shape).
+    #
+    # Addresses match cluster.compose.yaml's `network_mode:
+    # service:cloister-router` topology — every cluster-tier bundle binds
+    # to `localhost` on its declared port. To repoint at a different
+    # transport (a private CIDR, a UDS path), change only the `address`
+    # field on the relevant entry; the Worker-side binding stays
+    # unchanged. The `http = ()` form selects unencrypted HTTP/1.1; use
+    # `https = (...)` for TLS upstreams. See node_modules/workerd's
+    # `workerd.capnp` ExternalServer struct.
+    ( name = "mache-mcp",
+      external = ( address = "127.0.0.1:7532", http = () ),
+    ),
+    ( name = "llo-mcp",
+      external = ( address = "127.0.0.1:8384", http = () ),
+    ),
+    ( name = "rosary-mcp",
+      external = ( address = "127.0.0.1:8383", http = () ),
+    ),
+    ( name = "companion-mcp",
+      external = ( address = "127.0.0.1:8385", http = () ),
     ),
 
     # Local disk for DO SQLite storage (one DB file per BeadStore instance)
@@ -143,7 +165,33 @@ const cloisterWorker :Workerd.Worker = (
       service = "notme-bot",
     ),
 
-    # Non-workerd backends — HTTP URL vars
+    # ── MCP upstream Service bindings (workerd-native) ─────────────────────
+    # Each of these targets an ExternalServer declared above. The
+    # HttpForwardBackend runtime prefers these over the matching `*_URL`
+    # text var when both are set — config.capnp wins locally
+    # (workerd-native shape), wrangler.toml's URL vars win on CF prod
+    # (which can't declare external services). Per cloister-b65a20.
+    ( name = "MACHE_MCP",
+      service = "mache-mcp",
+    ),
+    ( name = "LSP_MCP",
+      service = "llo-mcp",
+    ),
+    ( name = "ROSARY_MCP",
+      service = "rosary-mcp",
+    ),
+    ( name = "COMPANION_MCP",
+      service = "companion-mcp",
+    ),
+
+    # Non-workerd backends — HTTP URL vars. These remain populated as the
+    # CF-prod fallback: on Cloudflare Workers, `external` services do not
+    # exist, so the manifest's `urlBinding` path takes over (see
+    # `wrangler.toml` for the prod story). Local workerd uses the Service
+    # bindings above and ignores these for `mcpProxy` backends; they're
+    # also still read by `httpProxy` outer-layer routes (which haven't
+    # been migrated to the Service-binding shape yet).
+    # TODO(b65a20-phase2): unify prod + dev under one binding shape.
     ( name = "ROSARY_MCP_URL",
       text = "http://localhost:8383/mcp",
     ),

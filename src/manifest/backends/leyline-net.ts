@@ -23,7 +23,7 @@
  *        - single text item        → JSON.parse(text) || raw text
  *        - other shapes            → return the content array verbatim
  *      (the edge wraps the return value as MCP content[0].text by default;
- *       single-text fast-path matches HttpForwardToolBackend's behavior so
+ *       single-text fast-path matches McpProxyToolBackend's behavior so
  *       leyline-net and HTTP backends look identical to clients)
  */
 
@@ -125,7 +125,7 @@ export class LeylineNetToolBackend implements ToolBackend {
     }
 
     // Single text content → parse-as-JSON-or-raw-text fast path.
-    // Mirrors HttpForwardToolBackend's behavior so the same upstream surfaces
+    // Mirrors McpProxyToolBackend's behavior so the same upstream surfaces
     // identically to clients regardless of which backend kind cloister uses.
     if (result.content.length === 1 && result.content[0]!.kind === "text") {
       const text = (result.content[0] as { kind: "text"; text: string }).text;

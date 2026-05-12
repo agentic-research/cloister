@@ -28,7 +28,7 @@ src/
 │   ├── spec.ts          # inputSchemaJson → parsed JSON Schema
 │   └── backends/        # ToolBackend factories per kind
 │       ├── durable-object.ts
-│       ├── http-forward.ts
+│       ├── mcp-proxy.ts
 │       ├── service-binding.ts
 │       ├── uds-forward.ts    # placeholder, not wired
 │       └── leyline-net.ts    # IPC to cloister-companion
@@ -57,7 +57,7 @@ flowchart TB
     W["WellKnownInterlaceRoute<br/>routes/well-known.ts"]
 
     B["DurableObjectToolBackend<br/>bead_*"]
-    L["HttpForwardToolBackend<br/>lsp_*, mache_*, reparse|enrich|status"]
+    L["McpProxyToolBackend<br/>lsp_*, mache_*, reparse|enrich|status"]
     LN["LeylineNetToolBackend<br/>(via cloister-companion)"]
 
     REQ --> R

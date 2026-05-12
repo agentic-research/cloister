@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 /**
- * Tests for HttpForwardToolBackend's dynamic tools/list path (ADR-0006).
+ * Tests for McpProxyToolBackend's dynamic tools/list path (ADR-0006).
  *
  * Scope:
  *   - Static behavior unchanged when dynamicTools is falsy
@@ -13,7 +13,7 @@
  *   - Runtime validation rejects dynamicTools + empty handlesPrefix
  */
 import { describe, it, expect } from "vitest";
-import { HttpForwardToolBackend } from "../../src/manifest/backends/http-forward.js";
+import { McpProxyToolBackend } from "../../src/manifest/backends/mcp-proxy.js";
 import { instantiate } from "../../src/manifest/runtime.js";
 import type { Env } from "../../src/types.js";
 import type { Gateway, HttpForwardBackend } from "../../src/manifest/types.js";
@@ -65,7 +65,7 @@ function mockFetch(respond: (method: string, body: unknown) => Response | Promis
 
 // ── Static behavior unchanged ─────────────────────────────────────────────
 
-describe("HttpForwardToolBackend — static (dynamicTools=false)", () => {
+describe("McpProxyToolBackend — static (dynamicTools=false)", () => {
   it("does not fetch tools/list and returns only the Asserted catalog", async () => {
     const spec: HttpForwardBackend = {
       urlBinding: "MACHE_MCP_URL",
@@ -74,7 +74,7 @@ describe("HttpForwardToolBackend — static (dynamicTools=false)", () => {
       ],
     };
     const { fetcher, calls } = mockFetch(() => jsonResponse(TOOLS_LIST_RESULT));
-    const b = new HttpForwardToolBackend(spec, "lsp_", fetcher);
+    const b = new McpProxyToolBackend(spec, "lsp_", fetcher);
 
     await b.refreshTools(envWith("http://stub/")); // should be a no-op
     expect(calls.length).toBe(0);
@@ -86,7 +86,7 @@ describe("HttpForwardToolBackend — static (dynamicTools=false)", () => {
 
 // ── Derived catalog ───────────────────────────────────────────────────────
 
-describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
+describe("McpProxyToolBackend — dynamic (dynamicTools=true)", () => {
   it("fetches tools/list and re-prefixes names with handlesPrefix", async () => {
     const spec: HttpForwardBackend = {
       urlBinding: "MACHE_MCP_URL",
@@ -95,7 +95,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
       stripPrefix:  "mache_",
     };
     const { fetcher, calls } = mockFetch(() => jsonResponse(TOOLS_LIST_RESULT));
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     expect(b.tools()).toEqual([]); // empty before refresh
 
@@ -120,7 +120,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
       callCount++;
       return jsonResponse(TOOLS_LIST_RESULT);
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     await b.refreshTools(envWith("http://mache.stub/"));
     await b.refreshTools(envWith("http://mache.stub/"));
@@ -141,7 +141,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
       callCount++;
       return await respPromise;
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     // Kick off three concurrent refreshes before the first one resolves.
     const r1 = b.refreshTools(envWith("http://x/"));
@@ -171,7 +171,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
       stripPrefix:  "mache_",
     };
     const { fetcher } = mockFetch(() => jsonResponse(TOOLS_LIST_RESULT));
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     await b.refreshTools(envWith("http://x/"));
     const overview = b.tools().find(t => t.name === "mache_get_overview")!;
@@ -190,7 +190,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
       stripPrefix:  "mache_",
     };
     const fetcher: typeof fetch = async () => new Response("bad gateway", { status: 502 });
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     // Should not throw; cache stays empty, Asserted fallback wins.
     await expect(b.refreshTools(envWith("http://x/"))).resolves.toBeUndefined();
@@ -210,7 +210,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
         content: [{ type: "text", text: JSON.stringify({ wireName: params.name, args: params.arguments }) }],
       });
     });
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     const result = await b.invoke("mache_get_overview", { repo: "x" }, envWith("http://stub/"));
     const callBody = calls.find(c => (c.body as { method: string }).method === "tools/call")!;
@@ -222,7 +222,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
     const spec: HttpForwardBackend = {
       urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true, stripPrefix: "mache_",
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", (() => { throw new Error("nope"); }) as unknown as typeof fetch);
+    const b = new McpProxyToolBackend(spec, "mache_", (() => { throw new Error("nope"); }) as unknown as typeof fetch);
     expect(b.handles("mache_get_overview")).toBe(true);
     expect(b.handles("rsry_status")).toBe(false);
   });
@@ -230,7 +230,7 @@ describe("HttpForwardToolBackend — dynamic (dynamicTools=true)", () => {
 
 // ── MCP Streamable HTTP session-id handshake ─────────────────────────────
 
-describe("HttpForwardToolBackend — requiresSession", () => {
+describe("McpProxyToolBackend — requiresSession", () => {
   function sessionResponseWithId(id: string, body: unknown): Response {
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 0, result: body }), {
       status:  200,
@@ -264,7 +264,7 @@ describe("HttpForwardToolBackend — requiresSession", () => {
       stripPrefix:     "mache_",
       requiresSession: true,
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     await b.refreshTools(envWith("http://stub/mcp"));
 
@@ -316,7 +316,7 @@ describe("HttpForwardToolBackend — requiresSession", () => {
       stripPrefix:     "",
       requiresSession: true,
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     const result = await b.invoke("mache_x", {}, envWith("http://stub/mcp"));
     expect(result).toEqual({ ok: true });
@@ -343,7 +343,7 @@ describe("HttpForwardToolBackend — requiresSession", () => {
       stripPrefix:     "mache_",
       requiresSession: false,
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     await b.refreshTools(envWith("http://stub/mcp"));
     expect(calls.find(c => c.method === "initialize")).toBeUndefined();
@@ -373,7 +373,7 @@ describe("HttpForwardToolBackend — requiresSession", () => {
       stripPrefix:     "mache_",
       requiresSession: true,
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
 
     const r1 = b.refreshTools(envWith("http://stub/mcp"));
     const r2 = b.refreshTools(envWith("http://stub/mcp"));
@@ -391,9 +391,12 @@ describe("manifest runtime: dynamicTools validation", () => {
   it("rejects dynamicTools=true with empty handlesPrefix", () => {
     const m: Gateway = {
       metadata: { name: "t", version: "0.0.0" },
+      actor:    { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
+      policy:   { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
+      supportedProtocolVersions: [],
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "x", handlesPrefix: "", kind: { httpForward: {
+          { name: "x", handlesPrefix: "", kind: { mcpProxy: {
             urlBinding: "U", tools: [], dynamicTools: true, stripPrefix: "",
           } } },
         ]}}},
@@ -405,9 +408,12 @@ describe("manifest runtime: dynamicTools validation", () => {
   it("accepts dynamicTools=true with non-empty prefix and empty Asserted tools", () => {
     const m: Gateway = {
       metadata: { name: "t", version: "0.0.0" },
+      actor:    { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
+      policy:   { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
+      supportedProtocolVersions: [],
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "mache", handlesPrefix: "mache_", kind: { httpForward: {
+          { name: "mache", handlesPrefix: "mache_", kind: { mcpProxy: {
             urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true, stripPrefix: "mache_",
           } } },
         ]}}},
@@ -424,7 +430,7 @@ describe("manifest runtime: dynamicTools validation", () => {
 // level properties of the sessionless client (header presence, _meta
 // shape, no initialize, server/discover precedes tools/list).
 
-describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => {
+describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
   it("sends MCP-Protocol-Version header on every request and inline _meta", async () => {
     const recorded: Array<{ method: string; headers: Record<string, string>; body: { params?: { _meta?: Record<string, unknown> } } }> = [];
     const fetcher: typeof fetch = async (_input, init) => {
@@ -450,7 +456,7 @@ describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => 
       requiresSession: false,
       protocolMode:    "next",
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
     await b.refreshTools(envWith("http://stub/mcp"));
 
     // Every outbound request carries MCP-Protocol-Version + _meta.
@@ -483,7 +489,7 @@ describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => 
       requiresSession: false,
       protocolMode:    "next",
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
     await b.refreshTools(envWith("http://stub/mcp"));
 
     expect(seenMethods).toContain("server/discover");
@@ -523,7 +529,7 @@ describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => 
       requiresSession: false,
       protocolMode:    "next",
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
     await b.refreshTools(envWith("http://stub/mcp"));
     await b.invoke("mache_get_overview", { repo: "x" }, envWith("http://stub/mcp"));
 
@@ -534,7 +540,7 @@ describe("HttpForwardToolBackend — protocolMode: 'next' (sessionless)", () => 
   });
 });
 
-describe("HttpForwardToolBackend — protocolMode: 'auto' downgrade", () => {
+describe("McpProxyToolBackend — protocolMode: 'auto' downgrade", () => {
   it("downgrades to current-spec when upstream rejects sessionless on server/discover", async () => {
     let discoverCount = 0;
     let initializeCount = 0;
@@ -563,7 +569,7 @@ describe("HttpForwardToolBackend — protocolMode: 'auto' downgrade", () => {
       requiresSession: true,
       protocolMode:    "auto",
     };
-    const b = new HttpForwardToolBackend(spec, "mache_", fetcher);
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
     await b.refreshTools(envWith("http://stub/mcp"));
 
     expect(discoverCount).toBe(1);

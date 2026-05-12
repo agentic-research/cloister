@@ -42,7 +42,7 @@ Top-level files cover cross-cutting surfaces:
 | File | What it asserts |
 |------|----------------|
 | `fixture-mcp-server.ts` | A strict-assert MCP server fixture that surfaces spec violations as recorded assertion targets. Phase 0 of ADR-0015. |
-| `mcp-proxy-server-compliance.test.ts` | The Phase 1/2/3 acceptance contract for cloister-as-MCP-Proxy-Server. All tests are `.skip` intentionally — they encode obligations the current `HttpForwardToolBackend` does not yet satisfy. Per `cloister-a2b76f`. |
+| `mcp-proxy-server-compliance.test.ts` | The Phase 1/2/3 acceptance contract for cloister-as-MCP-Proxy-Server. All tests are `.skip` intentionally — they encode obligations the current `McpProxyToolBackend` does not yet satisfy. Per `cloister-a2b76f`. |
 
 ### `routes/` — per-route handler tests
 
@@ -57,7 +57,7 @@ suites are at the top level because they touch multiple surfaces).
 `runtime.test.ts` (the `instantiate()` pipeline), `cluster.test.ts`
 (cluster-manifest validation), and one suite per backend kind:
 `leyline-net-backend.test.ts`, `uds-forward-backend.test.ts`,
-`http-forward-dynamic.test.ts`, `leyline-net-edge-integration.test.ts`,
+`mcp-proxy-dynamic.test.ts`, `leyline-net-edge-integration.test.ts`,
 `tool-schemas.test.ts`.
 
 ### `wire/` — codec tests

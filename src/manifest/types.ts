@@ -155,17 +155,16 @@ export interface Backend {
 export type BackendKind =
   | { durableObject:  DoBackend }
   /**
-   * DEPRECATED (ADR-0015 Phase 1): use `mcpProxy` instead — same shape,
-   * spec-aligned naming. Retained for one release for backward compatibility
-   * with manifests built against pre-Phase-1 schemas. The runtime treats
-   * `mcpProxy` and `httpForward` as the same backend kind.
-   */
-  | { httpForward:    HttpForwardBackend }
-  /**
-   * MCP Proxy Server upstream (ADR-0015 Phase 1, SEP-XXXX). Same shape as
-   * the deprecated `httpForward` variant; the rename surfaces the MCP-spec
-   * obligations the implementor must satisfy (Lifecycle §3.1,
-   * Security Best Practices — token passthrough, redirect_uri validation).
+   * MCP Proxy Server upstream (ADR-0015 Phase 1). Implemented by
+   * `McpProxyToolBackend` at `src/manifest/backends/mcp-proxy.ts`.
+   * Surfaces the MCP-spec obligations the implementor must satisfy
+   * (Lifecycle §3.1, Security Best Practices — token passthrough,
+   * redirect_uri validation).
+   *
+   * Note: the capnp schema retains the `httpForward @3` ordinal as
+   * permanently reserved (capnp evolution rule — ordinals never reused).
+   * The TS BackendKind no longer accepts that variant; manifests
+   * declaring `httpForward = (...)` fail to compile against generated TS.
    */
   | { mcpProxy:       HttpForwardBackend }
   | { serviceBinding: ServiceBindingBackend }
@@ -181,6 +180,16 @@ export interface DoBackend {
 }
 
 export interface HttpForwardBackend {
+  /**
+   * Name of the text-var binding holding the upstream URL (e.g.
+   * `"MACHE_MCP_URL"`). Precedence: when `serviceBinding` (below) is
+   * non-empty AND the corresponding env binding is a workerd `Fetcher`,
+   * the runtime uses `env[serviceBinding].fetch(...)` instead and
+   * `urlBinding` is unused for this request. Both fields are typically
+   * populated so the same manifest works locally (Service binding →
+   * `external` server in config.capnp) and on CF prod (URL var → public
+   * internet fetch).
+   */
   urlBinding:    string;
   tools:         readonly McpToolSpec[];
   /**
@@ -220,6 +229,22 @@ export interface HttpForwardBackend {
    *     of the binding.
    */
   protocolMode?: string;
+  /**
+   * Name of a workerd `Fetcher` Service binding that resolves to this
+   * upstream (e.g. `"MACHE_MCP"`). When non-empty and bound, the runtime
+   * calls `env[serviceBinding].fetch(...)` instead of routing through
+   * `fetch(env[urlBinding] + path)`. This is the workerd-native shape:
+   * the upstream lives behind an `external = (address = "...", http = ())`
+   * service entry in `config.capnp`, and outbound traffic skips the
+   * catch-all `internet` egress (so the ACL stays `["public"]` without
+   * needing loopback / private allow-listing).
+   *
+   * Precedence: `serviceBinding` wins when set AND its env binding is a
+   * `Fetcher`; otherwise the runtime falls back to `urlBinding`.
+   * Introduced by cloister-b65a20 — append-only schema field at
+   * ordinal `@6` in `HttpForwardBackend`.
+   */
+  serviceBinding?: string;
 }
 
 export interface ServiceBindingBackend {

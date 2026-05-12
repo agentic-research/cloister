@@ -3,6 +3,18 @@
  *
  * Spec fields (from manifest/cloister.capnp):
  *   - `urlBinding`      — name of the text-var binding holding the upstream URL
+ *   - `serviceBinding`  — name of a workerd `Fetcher` Service binding that
+ *                         resolves to this upstream. When non-empty AND the
+ *                         env binding is a Fetcher, the runtime calls
+ *                         `env[serviceBinding].fetch(...)` instead of
+ *                         `fetch(env[urlBinding] + path)`. This is the
+ *                         workerd-native shape (config.capnp `external =
+ *                         (address = "...", http = ())` + a `service`
+ *                         binding on the Worker); it sidesteps the
+ *                         catch-all `internet` egress and keeps that ACL
+ *                         tight (`["public"]`, no loopback). Empty / unset
+ *                         falls back to the URL-var path. Per
+ *                         cloister-b65a20.
  *   - `tools`           — Asserted catalog (overrides Derived on collision)
  *   - `dynamicTools`    — when true, fetch `tools/list` from upstream and
  *                         merge with Asserted (ADR-0006). Cached with 60s TTL.
@@ -33,8 +45,14 @@
  * prose. isError responses surface as -32000.
  *
  * Fetch-injection pattern: tests pass a stub fetcher; production uses the
- * global `fetch` wrapped to preserve `this` binding under workerd.
+ * global `fetch` wrapped to preserve `this` binding under workerd. The
+ * Service-binding code path resolves the upstream `Fetcher` from `env`
+ * inside the request resolver — tests that drive the URL-var path
+ * (leaving `serviceBinding` unset, or passing an `env` without a
+ * matching Fetcher) keep their existing fetch-injection behavior.
  */
+
+import { z } from "zod";
 
 import type { Env, JsonRpcResponse, McpTool } from "../../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../../backends.js";
@@ -42,6 +60,59 @@ import type { HttpForwardBackend } from "../types.js";
 import { toolsFromSpecs } from "../spec.js";
 
 type FetchFn = typeof fetch;
+
+/**
+ * MCP Lifecycle §3.1 `initialize` response shape. Validated at the wire
+ * boundary so the rest of `doInitialize` works with parsed, typed data —
+ * no `as JsonRpcResponse` casts hiding malformed upstream responses.
+ *
+ * `.passthrough()` on both layers because:
+ *  - SDK upstreams add extra envelope fields (e.g., `_meta`)
+ *  - the spec only fixes the named fields; extras are permitted
+ *
+ * Anything not in `result` shape (or `result` missing entirely) falls back
+ * to the "no version negotiation possible" branch — same as pre-Phase-1
+ * behavior, just no longer silently mis-typed.
+ */
+const InitializeResultSchema = z.object({
+  protocolVersion: z.string().optional(),
+  capabilities:    z.record(z.string(), z.unknown()).optional(),
+  serverInfo:      z.object({
+    name:    z.string().optional(),
+    version: z.string().optional(),
+  }).passthrough().optional(),
+}).passthrough();
+
+const InitializeResponseSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  id:      z.union([z.number(), z.string(), z.null()]),
+  result:  InitializeResultSchema.optional(),
+  error:   z.unknown().optional(),
+}).passthrough();
+
+/**
+ * Per-request upstream transport. The runtime resolves one of these from
+ * `env` at the start of each refresh/invoke; downstream code calls
+ * `up.fetch(init)` and gets a Response regardless of whether bytes flow
+ * through a workerd Service binding (`env[serviceBinding].fetch`) or the
+ * global `fetch()` keyed by a URL var.
+ *
+ * URL-var path: `fetch(init)` calls `this.fetchImpl(env[urlBinding], init)`
+ * — same call shape as before this refactor, so existing test stubs that
+ * read `init?.method` / `init?.body` keep working without changes.
+ *
+ * Service-binding path: `fetch(init)` constructs a `Request` against a
+ * synthetic absolute URL (`http://upstream/mcp`) and dispatches via
+ * `env[serviceBinding].fetch(req)`. workerd's Service binding ignores
+ * the hostname (the upstream is decided by the binding) but `Request`
+ * still requires an absolute URL.
+ */
+interface Upstream {
+  fetch: (init: RequestInit) => Promise<Response>;
+}
+
+/** Synthetic absolute URL used when an upstream lives behind a Service binding. */
+const SERVICE_BINDING_SYNTHETIC_HOST = "http://upstream";
 
 interface UpstreamMcpResult {
   content: Array<{ type: string; text?: string }>;
@@ -98,7 +169,7 @@ const ACCEPT_HEADER = "application/json, text/event-stream";
  */
 type ProtocolMode = "current" | "next" | "auto";
 
-export class HttpForwardToolBackend implements ToolBackend {
+export class McpProxyToolBackend implements ToolBackend {
   private readonly assertedTools: McpTool[];
 
   private readonly assertedNames: Set<string>;
@@ -141,6 +212,38 @@ export class HttpForwardToolBackend implements ToolBackend {
     this.assertedTools = toolsFromSpecs(spec.tools);
     this.assertedNames = new Set(this.assertedTools.map(t => t.name));
     this.protocolMode = normalizeProtocolMode(spec.protocolMode);
+  }
+
+  /**
+   * Resolve the upstream transport for this request. When the manifest
+   * declares a non-empty `serviceBinding` AND the env binding is a
+   * workerd `Fetcher` (duck-typed by the presence of `.fetch`), return
+   * the Service-binding transport: a synthetic absolute URL plus a
+   * fetcher that delegates to `binding.fetch(req)`. Otherwise fall back
+   * to the URL-var path — `env[urlBinding]` resolves to a real upstream
+   * URL and bytes flow through `this.fetchImpl`. Returns null when
+   * neither route is configured (binding empty AND URL var empty).
+   */
+  private resolveUpstream(env: Env): Upstream | null {
+    const envAny = env as unknown as Record<string, unknown>;
+    const bindingName = this.spec.serviceBinding ?? "";
+    if (bindingName !== "") {
+      const binding = envAny[bindingName];
+      if (binding && typeof binding === "object" && typeof (binding as { fetch?: unknown }).fetch === "function") {
+        const fetcher = binding as { fetch: (req: Request) => Promise<Response> };
+        const syntheticUrl = `${SERVICE_BINDING_SYNTHETIC_HOST}/mcp`;
+        return {
+          fetch: (init) => fetcher.fetch(new Request(syntheticUrl, init)),
+        };
+      }
+    }
+    const url = envAny[this.spec.urlBinding];
+    if (typeof url !== "string" || url === "") return null;
+    return {
+      // URL-var path — same call shape as the pre-cloister-b65a20
+      // implementation so existing fetch-injection tests are unchanged.
+      fetch: (init) => this.fetchImpl(url, init),
+    };
   }
 
   tools(): McpTool[] {
@@ -228,8 +331,8 @@ export class HttpForwardToolBackend implements ToolBackend {
   }
 
   private async fetchUpstreamTools(env: Env): Promise<void> {
-    const url = (env as unknown as Record<string, string>)[this.spec.urlBinding];
-    if (!url) return;
+    const up = this.resolveUpstream(env);
+    if (!up) return;
 
     // Sessionless path — no initialize handshake, no session header.
     // `server/discover` is the SEP-2575 catalog-introspection RPC; we
@@ -238,7 +341,7 @@ export class HttpForwardToolBackend implements ToolBackend {
     // surface through `/.well-known/mcp-registry/` once Phase 3 lands).
     // Then we POST `tools/list` with the same per-request `_meta`.
     if (this.effectiveMode() === "next") {
-      const discoverOk = await this.doDiscover(url);
+      const discoverOk = await this.doDiscover(up);
       if (!discoverOk && this.protocolMode === "auto") {
         // Sticky downgrade. Re-enter via the current-spec path.
         this.sessionlessDowngraded = true;
@@ -252,11 +355,7 @@ export class HttpForwardToolBackend implements ToolBackend {
         method:  "tools/list",
         params:  this.withMeta(undefined as undefined) as Record<string, unknown>,
       };
-      const res = await this.fetchImpl(url, {
-        method:  "POST",
-        headers: this.requestHeaders(),
-        body:    JSON.stringify(innerReq),
-      });
+      const res = await this.postJson(up, innerReq);
       if (!res.ok) return;
       let body: JsonRpcResponse;
       try { body = await res.json() as JsonRpcResponse; } catch { return; }
@@ -268,13 +367,9 @@ export class HttpForwardToolBackend implements ToolBackend {
     // Legacy path — initialize handshake (when requiresSession set), then
     // tools/list. Unchanged from pre-Phase-2 behavior.
     const tryFetch = async (): Promise<{ status: number; body: JsonRpcResponse | null } | null> => {
-      if (this.spec.requiresSession) await this.ensureSession(url);
+      if (this.spec.requiresSession) await this.ensureSession(up);
       const innerReq = { jsonrpc: "2.0" as const, id: 0, method: "tools/list" };
-      const res = await this.fetchImpl(url, {
-        method:  "POST",
-        headers: this.requestHeaders(),
-        body:    JSON.stringify(innerReq),
-      });
+      const res = await this.postJson(up, innerReq);
       if (!res.ok) {
         await res.text().catch(() => "");
         return { status: res.status, body: null };
@@ -293,6 +388,20 @@ export class HttpForwardToolBackend implements ToolBackend {
     }
     if (!result?.body || result.body.error) return;
     this.captureDerivedTools(result.body.result);
+  }
+
+  /**
+   * Build the standard JSON-POST init with the current per-protocol
+   * headers and dispatch it through the upstream transport. Wraps the
+   * init-shape so the Service-binding and URL-var code paths share one
+   * shape.
+   */
+  private postJson(up: Upstream, body: unknown): Promise<Response> {
+    return up.fetch({
+      method:  "POST",
+      headers: this.requestHeaders(),
+      body:    JSON.stringify(body),
+    });
   }
 
   /**
@@ -327,7 +436,7 @@ export class HttpForwardToolBackend implements ToolBackend {
    * swallowed and surface as `false` so the caller can decide whether
    * to retry or fall back.
    */
-  private async doDiscover(url: string): Promise<boolean> {
+  private async doDiscover(up: Upstream): Promise<boolean> {
     const innerReq = {
       jsonrpc: "2.0" as const,
       id:      0,
@@ -336,11 +445,7 @@ export class HttpForwardToolBackend implements ToolBackend {
     };
     let res: Response;
     try {
-      res = await this.fetchImpl(url, {
-        method:  "POST",
-        headers: this.requestHeaders(),
-        body:    JSON.stringify(innerReq),
-      });
+      res = await this.postJson(up, innerReq);
     } catch {
       return false;
     }
@@ -363,43 +468,16 @@ export class HttpForwardToolBackend implements ToolBackend {
    *
    * Legacy-only — sessionless mode skips this entirely.
    */
-  private async ensureSession(url: string): Promise<void> {
+  private async ensureSession(up: Upstream): Promise<void> {
     if (this.sessionId !== null) return;
     if (this.sessionInflight) return this.sessionInflight;
 
-    this.sessionInflight = this.doInitialize(url)
+    this.sessionInflight = this.doInitialize(up)
       .finally(() => { this.sessionInflight = null; });
     return this.sessionInflight;
   }
 
-  /**
-   * Captured upstream server capabilities from the `initialize` response.
-   * Today this is informational only — we don't gate behavior on it.
-   * Future work: surface upstream capabilities into the proxy's
-   * `tools/list` aggregation (per SEP §3 Obligation 5, future
-   * sampling/elicitation forwarding will require capability checks).
-   * ADR-0015 Phase 1: captured to prove the proxy is paying attention.
-   */
-  private upstreamServerCapabilities: Record<string, unknown> = {};
-
-  /**
-   * Captured upstream protocol version from the `initialize` response.
-   * Cloister accepts any upstream that responds with a version it knows
-   * (today: `LEGACY_PROTOCOL_VERSION`). Mismatches mark the upstream
-   * unreachable — `derivedByUpstreamName` stays empty and the asserted
-   * fallback wins. ADR-0015 Phase 1.
-   */
-  private upstreamProtocolVersion: string | null = null;
-
-  /**
-   * Set when the upstream returned an incompatible `protocolVersion` and
-   * the lifecycle aborted. Forces `fetchUpstreamTools` to skip the
-   * `tools/list` round-trip — the upstream is effectively unreachable
-   * from the proxy's perspective. ADR-0015 Phase 1.
-   */
-  private upstreamVersionIncompatible = false;
-
-  private async doInitialize(url: string): Promise<void> {
+  private async doInitialize(up: Upstream): Promise<void> {
     // ── Step 1: initialize request ──────────────────────────────────────
     const innerReq = {
       jsonrpc: "2.0" as const,
@@ -415,7 +493,7 @@ export class HttpForwardToolBackend implements ToolBackend {
         clientInfo:      CLOISTER_INFO,
       },
     };
-    const res = await this.fetchImpl(url, {
+    const res = await up.fetch({
       method:  "POST",
       headers: { "Content-Type": "application/json", "Accept": ACCEPT_HEADER },
       body:    JSON.stringify(innerReq),
@@ -427,51 +505,28 @@ export class HttpForwardToolBackend implements ToolBackend {
         `upstream initialize failed: HTTP ${res.status}`,
       );
     }
-    // ── Step 2: parse the initialize response body ──────────────────────
+    // ── Step 2: validate the initialize response body ───────────────────
     //
-    // Capture protocolVersion + capabilities + serverInfo. The body shape
-    // mirrors MCP Lifecycle §3.1:
-    //
-    //   { jsonrpc: "2.0", id: 0, result: {
-    //       protocolVersion: "...",
-    //       capabilities:    { ... },
-    //       serverInfo:      { ... },
-    //   }}
-    //
-    // Drain-and-ignore on parse failure preserves pre-Phase-1 behavior
-    // (upstreams that respond with empty bodies still work).
-    interface InitializeResult {
-      protocolVersion?: string;
-      capabilities?:    Record<string, unknown>;
-      serverInfo?:      { name?: string; version?: string };
-    }
-    let body: JsonRpcResponse | null = null;
-    try { body = (await res.json()) as JsonRpcResponse; } catch { body = null; }
-    const result = (body?.result ?? null) as InitializeResult | null;
-    if (result) {
-      // Version negotiation — ADR-0015 Phase 1 / SEP §3 Obligation 2.
-      // We currently speak exactly one legacy version; any mismatch is
-      // an "unreachable" condition, NOT a fallback. The proxy refuses
-      // to silently down-shift its protocol stance.
-      this.upstreamProtocolVersion = result.protocolVersion ?? null;
-      if (
-        this.upstreamProtocolVersion !== null
-        && this.upstreamProtocolVersion !== LEGACY_PROTOCOL_VERSION
-      ) {
-        this.upstreamVersionIncompatible = true;
-        // Don't send notifications/initialized — the lifecycle aborts
-        // here, the session is unusable. Future work could record this
-        // for surfacing in /.well-known/mcp-registry health output.
-        throw new JsonRpcInvocationError(
-          -32603,
-          `upstream protocolVersion mismatch: got ${this.upstreamProtocolVersion}, expected ${LEGACY_PROTOCOL_VERSION}`,
-        );
-      }
-      // Capture capabilities — informational today, gating future
-      // capability-dependent forwards (sampling/elicitation).
-      if (result.capabilities && typeof result.capabilities === "object") {
-        this.upstreamServerCapabilities = result.capabilities;
-      }
+    // Wire-level schema check before trusting any field. Drain-and-ignore
+    // on parse failure preserves pre-Phase-1 behavior (upstreams that
+    // respond with empty bodies still work — they just skip the version
+    // check and rely on the assertion fallback at line ~150).
+    const rawText = await res.text().catch(() => "");
+    let rawJson: unknown = null;
+    try { rawJson = rawText.length ? JSON.parse(rawText) : null; } catch { rawJson = null; }
+    const parsed = rawJson === null ? null : InitializeResponseSchema.safeParse(rawJson);
+    const result = parsed && parsed.success ? parsed.data.result ?? null : null;
+
+    // Version negotiation — ADR-0015 Phase 1 / SEP §3 Obligation 2.
+    // Cloister speaks exactly one legacy version today; any mismatch is
+    // an "unreachable" condition, NOT a silent fallback. Throwing here
+    // aborts ensureSession; the session is unusable and downstream
+    // callers see the throw, which is the explicit failure mode we want.
+    if (result?.protocolVersion && result.protocolVersion !== LEGACY_PROTOCOL_VERSION) {
+      throw new JsonRpcInvocationError(
+        -32603,
+        `upstream protocolVersion mismatch: got ${result.protocolVersion}, expected ${LEGACY_PROTOCOL_VERSION}`,
+      );
     }
 
     const sid = res.headers.get("mcp-session-id");
@@ -496,7 +551,7 @@ export class HttpForwardToolBackend implements ToolBackend {
       "Accept":       ACCEPT_HEADER,
     };
     if (this.sessionId) initializedHeaders["Mcp-Session-Id"] = this.sessionId;
-    const notifyRes = await this.fetchImpl(url, {
+    const notifyRes = await up.fetch({
       method:  "POST",
       headers: initializedHeaders,
       body:    JSON.stringify({
@@ -521,11 +576,17 @@ export class HttpForwardToolBackend implements ToolBackend {
     args: Record<string, unknown>,
     env: Env,
   ): Promise<unknown> {
-    const url = (env as unknown as Record<string, string>)[this.spec.urlBinding];
-    if (!url) {
+    const up = this.resolveUpstream(env);
+    if (!up) {
+      // Distinguish the two failure modes in the error message so an
+      // operator can tell which binding wasn't wired.
+      const bindingName = this.spec.serviceBinding ?? "";
+      const missing = bindingName !== ""
+        ? `neither service binding "${bindingName}" nor URL var "${this.spec.urlBinding}"`
+        : `URL var "${this.spec.urlBinding}"`;
       throw new JsonRpcInvocationError(
         -32603,
-        `manifest: ${this.spec.urlBinding} not configured — cannot route ${this.handlesPrefix}* calls`,
+        `manifest: ${missing} configured — cannot route ${this.handlesPrefix}* calls`,
       );
     }
 
@@ -548,13 +609,9 @@ export class HttpForwardToolBackend implements ToolBackend {
 
     const tryCall = async (): Promise<Response> => {
       if (this.effectiveMode() === "current" && this.spec.requiresSession) {
-        await this.ensureSession(url);
+        await this.ensureSession(up);
       }
-      return this.fetchImpl(url, {
-        method:  "POST",
-        headers: this.requestHeaders(),
-        body:    JSON.stringify(innerReq),
-      });
+      return this.postJson(up, innerReq);
     };
 
     let res: Response;
@@ -652,19 +709,3 @@ function normalizeProtocolMode(value: string | undefined): ProtocolMode {
   return "current";
 }
 
-/**
- * Spec-aligned alias for `HttpForwardToolBackend` (ADR-0015 Phase 1).
- *
- * The class implements the MCP-Proxy-Server client lifecycle (per the
- * Security Best Practices §"MCP Proxy Server" doc): `initialize` →
- * `notifications/initialized` → version check → capability capture →
- * `tools/list` + `tools/call` forwarding with prefix-strip. New code
- * should reference `McpProxyToolBackend`; the `HttpForwardToolBackend`
- * name stays for one release as a deprecation alias.
- *
- * Same class — re-exported under the spec-aligned name. A future release
- * will (a) rename the class symbol outright, (b) move the file to
- * `mcp-proxy.ts`, and (c) retire the alias. Today's change is
- * intentionally minimal-churn.
- */
-export { HttpForwardToolBackend as McpProxyToolBackend };

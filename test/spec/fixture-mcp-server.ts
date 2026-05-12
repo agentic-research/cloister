@@ -13,10 +13,10 @@
 //
 // Workerd's vitest-pool-workers environment does not expose `node:http`,
 // so the fixture cannot bind to a real TCP port. Instead it exposes a
-// `fetcher: typeof fetch` that the system-under-test (HttpForwardToolBackend
+// `fetcher: typeof fetch` that the system-under-test (McpProxyToolBackend
 // in Phase 0, the renamed McpProxyToolBackend in Phase 1+) consumes via
 // its existing fetch-injection seam. This is consistent with the unit-
-// test pattern already used in `test/manifest/http-forward-dynamic.test.ts`
+// test pattern already used in `test/manifest/mcp-proxy-dynamic.test.ts`
 // and avoids fighting the runtime.
 //
 // `fixture.url` returns a stable symbolic origin (https://fixture.test/mcp);
@@ -140,7 +140,7 @@ export interface RecordedRequest {
  *   const fixture = new FixtureMcpServer({ mode: "current", tools: [...] });
  *   await fixture.start();
  *   try {
- *     const backend = new HttpForwardToolBackend(spec, "fixture_", fixture.fetcher);
+ *     const backend = new McpProxyToolBackend(spec, "fixture_", fixture.fetcher);
  *     await backend.refreshTools({ FIXTURE_URL: fixture.url } as Env);
  *     expect(fixture.violations).toEqual([]);
  *   } finally {

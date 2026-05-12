@@ -69,7 +69,7 @@ function makeManifest(overrides: Partial<Gateway> = {}): Gateway {
                 name:          "lsp",
                 handlesPrefix: "lsp_",
                 kind: {
-                  httpForward: {
+                  mcpProxy: {
                     urlBinding: "LLO_MCP_URL",
                     tools: [
                       { name: "lsp_hover", description: "Hover", inputSchemaJson: "{}" },
@@ -82,7 +82,7 @@ function makeManifest(overrides: Partial<Gateway> = {}): Gateway {
                 name:          "mache",
                 handlesPrefix: "mache_",
                 kind: {
-                  httpForward: {
+                  mcpProxy: {
                     urlBinding:      "MACHE_MCP_URL",
                     tools:           [],
                     dynamicTools:    true,
@@ -273,17 +273,17 @@ describe("WellKnownMcpRegistryRoute — list endpoint", () => {
                 {
                   name:          "a",
                   handlesPrefix: "a_",
-                  kind: { httpForward: { urlBinding: "A_URL", tools: [] } },
+                  kind: { mcpProxy: { urlBinding: "A_URL", tools: [] } },
                 },
                 {
                   name:          "b",
                   handlesPrefix: "b_",
-                  kind: { httpForward: { urlBinding: "B_URL", tools: [] } },
+                  kind: { mcpProxy: { urlBinding: "B_URL", tools: [] } },
                 },
                 {
                   name:          "c",
                   handlesPrefix: "c_",
-                  kind: { httpForward: { urlBinding: "C_URL", tools: [] } },
+                  kind: { mcpProxy: { urlBinding: "C_URL", tools: [] } },
                 },
               ],
             },
@@ -490,17 +490,17 @@ describe("WellKnownMcpRegistryRoute — detail endpoint", () => {
                 {
                   name:          "lsp",   // httpForward — included
                   handlesPrefix: "lsp_",
-                  kind: { httpForward: { urlBinding: "LLO_MCP_URL", tools: [] } },
+                  kind: { mcpProxy: { urlBinding: "LLO_MCP_URL", tools: [] } },
                 },
                 {
                   name:          "leyline-lifecycle", // httpForward — included
                   handlesPrefix: "",
-                  kind: { httpForward: { urlBinding: "LLO_MCP_URL", tools: [] } },
+                  kind: { mcpProxy: { urlBinding: "LLO_MCP_URL", tools: [] } },
                 },
                 {
                   name:          "mache", // httpForward dynamic — included
                   handlesPrefix: "mache_",
-                  kind: { httpForward: { urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true } },
+                  kind: { mcpProxy: { urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true } },
                 },
               ],
             },

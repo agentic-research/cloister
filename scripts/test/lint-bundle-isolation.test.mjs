@@ -232,6 +232,10 @@ test("Inv 2 — non-vault bundle with VAULT_KEK_SECRET is rejected", () => {
 });
 
 test("Inv 4 — cluster-tier worker with service binding but no wire is rejected (orphan)", () => {
+  // Orphan scenario: the binding's target is a network-egress service —
+  // NOT a wire in cluster.capnp AND NOT an `external` service (which the
+  // cloister-b65a20 carve-out would otherwise treat as legitimate). This
+  // is the "neither (a) nor (b)" footgun that Inv 4 exists to catch.
   const scenario = makeScenario({
     clusterCapnp: clusterCapnp({
       bundles: [
@@ -245,7 +249,7 @@ test("Inv 4 — cluster-tier worker with service binding but no wire is rejected
         name: "tool-y",
         bindings: [{ name: "OTHER_BINDING", service: "other-svc" }],
       }],
-      services: [{ name: "other-svc", external: true }],
+      services: [{ name: "other-svc", network: { allow: ["public"] } }],
     }),
   });
   try {
@@ -273,6 +277,32 @@ test("Inv 4 — cluster-tier worker with wired service binding passes", () => {
         bindings: [{ name: "OTHER_BINDING", service: "other-svc" }],
       }],
       services: [{ name: "other-svc", external: true }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.dir);
+    assert.equal(r.status, 0, `expected clean lint, got status=${r.status}\nstderr:${r.stderr}\nstdout:${r.stdout}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 4 — cluster-tier worker with external-server-backed binding passes (cloister-b65a20)", () => {
+  // The cloister-b65a20 carve-out: a service binding whose target has an
+  // `external = (...)` entry in config.capnp is legitimate — it
+  // terminates at a workerd-declared address inside the same bundle,
+  // not at another bundle, so no cluster.capnp wire is required.
+  const scenario = makeScenario({
+    clusterCapnp: clusterCapnp({
+      bundles: [{ name: "tool-w", tier: "cluster" }],
+      wires: [],
+    }),
+    configCapnp: configCapnp({
+      workers: [{
+        name: "tool-w",
+        bindings: [{ name: "MACHE_MCP", service: "mache-mcp" }],
+      }],
+      services: [{ name: "mache-mcp", external: true }],
     }),
   });
   try {

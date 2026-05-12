@@ -33,10 +33,21 @@
 //   Inv 3 — Every bundle in cluster.capnp MUST declare a tier. The
 //           capnp schema already enforces this; the lint restates it.
 //
-//   Inv 4 — Cluster-tier bundles' bindings MUST appear in cluster.capnp
-//           wires. Orphan bindings (declared in config.capnp but not
-//           wired) are footguns — they grant capability the topology
-//           never authorized.
+//   Inv 4 — Cluster-tier bundles' service bindings MUST resolve to one
+//           of two legitimate targets:
+//             (a) a wire in cluster.capnp (cross-bundle topology), or
+//             (b) an `external` service entry in config.capnp (workerd
+//                 ExternalServer — terminates at a workerd-declared
+//                 address inside the same bundle, not a cluster wire).
+//           Orphan bindings — those that resolve to neither — are
+//           footguns: they grant capability the topology never
+//           authorized. The (b) carve-out was added by cloister-b65a20
+//           when the MCP upstreams moved from URL vars to
+//           `external`-backed Service bindings; those bindings live
+//           entirely inside config.capnp's `services[]` list and
+//           don't need a cluster.capnp wire because there's no other
+//           bundle on the other end (the upstream is a non-workerd
+//           process reachable at the declared address).
 //
 // Hypervisor-tier bundles get a pass on Inv 1, 2, 4 because they are
 // the bundles ADR-0011's three-criterion test puts in charge of
@@ -221,7 +232,7 @@ function checkInvariant3(cluster, violations) {
   }
 }
 
-function checkInvariant4(workerSvc, tier, bundleName, cluster, violations) {
+function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violations) {
   if (tier !== "cluster") return;
   if (!bundleName) return; // already flagged by tier defaulting + Inv 3
   const wireBindings = new Set(
@@ -229,19 +240,30 @@ function checkInvariant4(workerSvc, tier, bundleName, cluster, violations) {
       .filter((w) => w.from === bundleName)
       .map((w) => w.binding),
   );
+  // External-server-backed bindings (cloister-b65a20). A service binding
+  // whose target is a config.capnp service with `external = (...)` lands
+  // entirely inside this workerd config — no cluster wire is required
+  // because no other bundle is on the other end. Build the allow-set
+  // once for every service binding scan below.
+  const externalServices = new Set(
+    services.filter((s) => s.external).map((s) => s.name),
+  );
   for (const b of bindingsOf(workerSvc)) {
     // Only service bindings need wires — text / DO-namespace / kv bindings
     // are intra-bundle declarations, not cross-bundle topology.
     if (!b.service) continue;
-    if (!wireBindings.has(b.name)) {
-      violations.push(
-        `lint-bundle-isolation: Worker "${workerSvc.name}" (cluster-tier ` +
-        `bundle "${bundleName}") has service binding "${b.name}" but no ` +
-        `matching wire in cluster.capnp — orphan binding (Inv 4, ADR-0013). ` +
-        `Add a wire from "${bundleName}" with binding="${b.name}", or ` +
-        `remove the binding from config.capnp.`,
-      );
-    }
+    if (wireBindings.has(b.name)) continue;                // (a) wired
+    const target = typeof b.service === "string" ? b.service : b.service.name;
+    if (externalServices.has(target)) continue;            // (b) external
+    violations.push(
+      `lint-bundle-isolation: Worker "${workerSvc.name}" (cluster-tier ` +
+      `bundle "${bundleName}") has service binding "${b.name}" (→ "${target}") ` +
+      `but no matching wire in cluster.capnp AND no \`external\` service ` +
+      `entry in config.capnp — orphan binding (Inv 4, ADR-0013). ` +
+      `Either add a wire from "${bundleName}" with binding="${b.name}", ` +
+      `declare an external service named "${target}" in config.capnp, ` +
+      `or remove the binding.`,
+    );
   }
 }
 
@@ -264,7 +286,7 @@ for (const wsvc of workersIn(config)) {
   const { tier, bundleName } = tierForWorker(wsvc.name, cluster);
   checkInvariant1(wsvc, tier, services, violations);
   checkInvariant2(wsvc, violations);
-  checkInvariant4(wsvc, tier, bundleName, cluster, violations);
+  checkInvariant4(wsvc, tier, bundleName, cluster, services, violations);
 }
 
 if (violations.length) {

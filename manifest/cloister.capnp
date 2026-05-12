@@ -208,16 +208,20 @@ struct Backend {
     # bead_*-style: stub.fetch keyed by an arg (typically `repo`).
     durableObject  @2 :DoBackend;
 
-    # HTTP forward via env-var-named URL (rosary, ley-line, mache).
+    # OBSOLETE — ordinal @3 permanently reserved.
     #
-    # DEPRECATED (ADR-0015 Phase 1): The naming `httpForward` hid the fact
-    # that this is actually a full MCP-Proxy-Server client lifecycle.
-    # New manifests should use the `mcpProxy` variant below. This ordinal
-    # remains populated for one release for backward compatibility with
-    # manifests built against pre-Phase-1 schemas; the runtime treats
-    # `mcpProxy` and `httpForward` as the same backend kind. Will be
-    # retired in the release following Phase 1 (ordinal stays — capnp
-    # forbids reuse — but the field gets ignored).
+    # Was the original `httpForward` MCP-Proxy-Server lifecycle binding
+    # before ADR-0015 Phase 1 renamed it to `mcpProxy` at ordinal @7.
+    # Capnp's wire-evolution rule forbids ordinal reuse, so this slot is
+    # permanently held (the symbolic name is allowed to change but the
+    # ordinal isn't). The runtime no longer dispatches this variant and
+    # the TS BackendKind no longer accepts it — a manifest declaring
+    # `httpForward = (...)` fails at the TS compilation step, not
+    # silently at runtime.
+    #
+    # DO NOT REUSE @3 for any other field. DO NOT remove this declaration
+    # without leaving an equivalent reserved-marker — capnp clients would
+    # treat the slot as available otherwise.
     httpForward    @3 :HttpForwardBackend;
 
     # workerd Fetcher service binding (notme-bot, future internal Workers).
@@ -264,6 +268,15 @@ struct DoBackend {
 
 struct HttpForwardBackend {
   # Name of the text-var binding holding the URL (e.g. "LLO_MCP_URL").
+  #
+  # Precedence: when `serviceBinding` (ordinal @6) is non-empty AND the
+  # corresponding env binding is a workerd Fetcher (i.e. resolves via the
+  # ServiceBinding-as-syscall path declared in config.capnp), the runtime
+  # uses `env[serviceBinding].fetch(...)` and ignores `urlBinding`.
+  # Otherwise it falls back to `fetch(env[urlBinding] + path)`. Both
+  # fields are populated in the standard ART manifest so the same shape
+  # works locally (Service binding → external server) and on CF prod
+  # (URL var → public-internet fetch).
   urlBinding @0 :Text;
 
   # Asserted catalog. With `dynamicTools = false` (default) this is the full
@@ -308,6 +321,25 @@ struct HttpForwardBackend {
   # Field is optional/append-only for back-compat with manifests built
   # against older schemas; absent ⇒ "current".
   protocolMode @5 :Text;
+
+  # Name of a workerd Service binding (Fetcher) that resolves to this
+  # backend (e.g. "MACHE_MCP"). When non-empty, the runtime calls
+  # `env[serviceBinding].fetch(req)` instead of `fetch(env[urlBinding] + path)`.
+  # This is the workerd-native shape: config.capnp declares an
+  # `external = (address = "...", http = ())` service entry, and a Worker
+  # `service` binding that points at it; the upstream traffic flows
+  # through that named service rather than through the catch-all
+  # `internet` egress (which would otherwise need to allow loopback or
+  # private CIDRs to reach in-cluster bundles).
+  #
+  # When empty or unset, the runtime falls back to the legacy
+  # `urlBinding`-based `fetch()`. Both fields are populated by the
+  # standard ART manifest — the workerd-local config picks the Service
+  # binding path; CF-prod (which can't declare `external` services)
+  # picks the URL-var path. Append-only ordinal; introduced by
+  # cloister-b65a20 alongside `external` service entries in
+  # config.capnp.
+  serviceBinding @6 :Text;
 }
 
 struct ServiceBindingBackend {

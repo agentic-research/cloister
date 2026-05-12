@@ -6,7 +6,7 @@
 // ── Why every test in this file is `.skip` ─────────────────────────────────
 //
 // These tests intentionally exercise spec obligations that the CURRENT
-// implementation of HttpForwardToolBackend does NOT satisfy. They are the
+// implementation of McpProxyToolBackend does NOT satisfy. They are the
 // contract Phase 1 (current-spec compliance) and Phase 2 (sessionless
 // protocol per SEP-2575/2567) must satisfy when those phases land.
 //
@@ -25,7 +25,7 @@
 // ── How the fixture is wired ───────────────────────────────────────────────
 //
 // `FixtureMcpServer` exposes a `fetcher: typeof fetch` and a stable URL
-// (`https://fixture.test/mcp`). The system-under-test is an HttpForwardToolBackend
+// (`https://fixture.test/mcp`). The system-under-test is an McpProxyToolBackend
 // configured with `urlBinding: "FIXTURE_URL"` (env-injected to that URL) and
 // constructed with `fixture.fetcher` as its fetch implementation. The fixture
 // records every inbound request and every spec violation.
@@ -39,11 +39,10 @@
 // - SEP-XXXX (docs/mcp-seps/SEP-XXXX-mcp-proxy-server-formalization.md) —
 //   the normative obligations these tests assert.
 // - test/spec/fixture-mcp-server.ts — the fixture this file uses.
-// - src/manifest/backends/http-forward.ts — the current implementation
-//   (Phase 1 work will rename this to `mcp-proxy.ts`).
+// - src/manifest/backends/mcp-proxy.ts — the current implementation.
 
 import { describe, expect, it } from "vitest";
-import { HttpForwardToolBackend } from "../../src/manifest/backends/http-forward.js";
+import { McpProxyToolBackend } from "../../src/manifest/backends/mcp-proxy.js";
 import type { Env } from "../../src/types.js";
 import type { HttpForwardBackend } from "../../src/manifest/types.js";
 import { FixtureMcpServer } from "./fixture-mcp-server.js";
@@ -71,7 +70,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   // MCP Lifecycle §3.1 step 3: after the initialize response, the client
   // MUST send `notifications/initialized` before any other RPC.
   //
-  // Current cloister implementation (http-forward.ts:doInitialize) does
+  // Current cloister implementation (mcp-proxy.ts:doInitialize) does
   // NOT send this notification. The test fails today; Phase 1 work fixes it.
   it("[Phase 1] sends notifications/initialized after initialize (currently FAILS)", async () => {
     const fixture = new FixtureMcpServer({
@@ -80,7 +79,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
       // Wait long enough that the initialized-window timer fires if the
       // notification never arrives.
@@ -109,7 +108,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
       // After version mismatch, the backend should not have populated
       // any derived tools (the upstream is effectively unreachable from
@@ -132,7 +131,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     const fixture = new FixtureMcpServer({ mode: "current", tools: [] });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
       const empty = fixture.violations.filter(v => v.kind === "emptyCapabilities");
       expect(empty, "initialize must declare non-empty capabilities").toEqual([]);
@@ -147,7 +146,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
   //
   // (a) After initialize, every subsequent request MUST carry the
   //     `Mcp-Session-Id` header echoed back by the upstream. Current code
-  //     does echo (requestHeaders() in http-forward.ts). This assertion is
+  //     does echo (requestHeaders() in mcp-proxy.ts). This assertion is
   //     here to lock that property under the new fixture.
   //
   // (b) If the upstream returns a 4xx "session expired" response, the
@@ -163,7 +162,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
 
       // First refresh completed; now force the next call to see
@@ -213,7 +212,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
       // The backend, fetching upstream tools/list, MUST NOT forward that.
       // (In production code path the env wouldn't carry the client's bearer
       // token, but the fixture asserts the outbound shape regardless of source.)
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
       const leaks = fixture.violations.filter(v => v.kind === "tokenPassthrough");
       expect(leaks, "client-issued token must not reach upstream").toEqual([]);
@@ -237,7 +236,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(
+      const backend = new McpProxyToolBackend(
         // Phase 2 (cloister-a35fdb): `protocolMode: "next"` flips the
         // backend into the sessionless code path (SEP-2575 + SEP-2567).
         specFor({ requiresSession: false, protocolMode: "next" }),
@@ -267,7 +266,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(
+      const backend = new McpProxyToolBackend(
         specFor({ requiresSession: false, protocolMode: "next" }),
         "fixture_",
         fixture.fetcher,
@@ -304,7 +303,7 @@ describe("MCP Proxy Server compliance (ADR-0015 Phase 1/2/3 contract)", () => {
     });
     await fixture.start();
     try {
-      const backend = new HttpForwardToolBackend(specFor(), "fixture_", fixture.fetcher);
+      const backend = new McpProxyToolBackend(specFor(), "fixture_", fixture.fetcher);
       await backend.refreshTools(envFor(fixture.url));
       const names = backend.tools().map(t => t.name).sort();
       expect(names).toEqual(["fixture_alpha", "fixture_beta", "fixture_gamma"]);

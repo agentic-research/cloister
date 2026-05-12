@@ -2,7 +2,7 @@
  * Generic service-binding ToolBackend — for MCP tools whose upstream is
  * another workerd Worker exposed via a Fetcher binding.
  *
- * Same wire shape as HttpForwardToolBackend (POST tools/call JSON-RPC, unwrap
+ * Same wire shape as McpProxyToolBackend (POST tools/call JSON-RPC, unwrap
  * MCP content), but the upstream is a workerd `Fetcher`, so the call goes
  * through the service-binding RPC path with no network hop.
  */

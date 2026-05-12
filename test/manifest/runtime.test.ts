@@ -30,8 +30,8 @@ describe("manifest runtime: validation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "a", handlesPrefix: "x_", kind: { httpForward: { urlBinding: "U", tools: [mkTool("x_one")] } } },
-          { name: "b", handlesPrefix: "x_", kind: { httpForward: { urlBinding: "U", tools: [mkTool("x_two")] } } },
+          { name: "a", handlesPrefix: "x_", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("x_one")] } } },
+          { name: "b", handlesPrefix: "x_", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("x_two")] } } },
         ]}}},
       ],
     };
@@ -46,8 +46,8 @@ describe("manifest runtime: validation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "a", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [mkTool("dup")] } } },
-          { name: "b", handlesPrefix: "x_", kind: { httpForward: { urlBinding: "U", tools: [mkTool("dup")] } } },
+          { name: "a", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("dup")] } } },
+          { name: "b", handlesPrefix: "x_", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("dup")] } } },
         ]}}},
       ],
     };
@@ -61,7 +61,7 @@ describe("manifest runtime: validation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "a", handlesPrefix: "lsp_", kind: { httpForward: { urlBinding: "U", tools: [mkTool("oops_one")] } } },
+          { name: "a", handlesPrefix: "lsp_", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("oops_one")] } } },
         ]}}},
       ],
     };
@@ -73,7 +73,7 @@ describe("manifest runtime: validation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "lifecycle", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [
+          { name: "lifecycle", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "U", tools: [
             mkTool("reparse"), mkTool("status"),
           ] } } },
         ]}}},
@@ -143,10 +143,10 @@ describe("manifest runtime: instantiation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "lifecycle", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [
+          { name: "lifecycle", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "U", tools: [
             mkTool("reparse"), mkTool("status"),
           ] } } },
-          { name: "ops", handlesPrefix: "", kind: { httpForward: { urlBinding: "V", tools: [
+          { name: "ops", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "V", tools: [
             mkTool("snapshot"),
           ] } } },
         ]}}},
@@ -160,8 +160,8 @@ describe("manifest runtime: instantiation", () => {
       metadata: { name: "t", version: "0.0.0" },
       routes: [
         { path: "/mcp", kind: { mcp: { backends: [
-          { name: "a", handlesPrefix: "", kind: { httpForward: { urlBinding: "U", tools: [mkTool("dup")] } } },
-          { name: "b", handlesPrefix: "", kind: { httpForward: { urlBinding: "V", tools: [mkTool("dup")] } } },
+          { name: "a", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "U", tools: [mkTool("dup")] } } },
+          { name: "b", handlesPrefix: "", kind: { mcpProxy: { urlBinding: "V", tools: [mkTool("dup")] } } },
         ]}}},
       ],
     };
@@ -176,7 +176,7 @@ describe("manifest runtime: instantiation", () => {
           { name: "do", handlesPrefix: "do_", kind: { durableObject: {
             binding: "BEAD_STORE", keyArg: "repo", tools: [mkTool("do_one")],
           }}},
-          { name: "http", handlesPrefix: "http_", kind: { httpForward: {
+          { name: "http", handlesPrefix: "http_", kind: { mcpProxy: {
             urlBinding: "LLO_MCP_URL", tools: [mkTool("http_one")],
           }}},
           { name: "svc", handlesPrefix: "svc_", kind: { serviceBinding: {

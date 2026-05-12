@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit. Regenerate with `task manifest`.
  * Source: cloister.capnp
  * Schema: manifest/cloister.capnp
- * Built:  2026-05-12T00:44:10.201Z
+ * Built:  2026-05-12T16:02:41.246Z
  */
 import type { Gateway } from "../manifest/types.js";
 
@@ -139,7 +139,8 @@ export const manifest: Gateway = {
                     }
                   ],
                   "dynamicTools": false,
-                  "requiresSession": false
+                  "requiresSession": false,
+                  "serviceBinding": "LSP_MCP"
                 }
               }
             },
@@ -167,7 +168,8 @@ export const manifest: Gateway = {
                     }
                   ],
                   "dynamicTools": false,
-                  "requiresSession": false
+                  "requiresSession": false,
+                  "serviceBinding": "LSP_MCP"
                 }
               }
             },
@@ -180,7 +182,8 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "stripPrefix": "mache_",
-                  "requiresSession": true
+                  "requiresSession": true,
+                  "serviceBinding": "MACHE_MCP"
                 }
               }
             }
