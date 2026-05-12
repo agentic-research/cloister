@@ -602,23 +602,56 @@ is O(events) but each step is sub-microsecond.
 ## 5. Interaction with URL canonicalization (`cloister-aecd26`)
 
 The `request_hash` field is computed by P over P's outgoing
-`request_canon`. If reverse proxies rewrite the URL between P and A,
-P's hash and A's hash diverge, breaking verification.
+`request_canon`. The byte source for `request_canon` is the canonical
+signing input defined in
+[`URL-CANONICALIZATION.md`](URL-CANONICALIZATION.md) §3.2 — the
+**normative source** for this spec. Receipts do not redefine the
+canonical bytes; they consume URL-CANONICALIZATION.md's definition
+verbatim:
 
-This spec mandates that `request_hash` is computed over the **URL P
-signed** (pre-rewrite), and that proxies preserve a way for A to
-reconstruct the original URL form (e.g., via `X-Forwarded-Uri` or
-equivalent — A's deployment is responsible for this).
+```
+request_canon  := UTF-8(method LF path-suffix LF ts LF nonce_b64 LF body)
+                  per URL-CANONICALIZATION.md §3.2
+request_hash   := SHA-256(request_canon)
+```
 
-If A receives a request via a reverse proxy that does not preserve the
-original URL, A **MUST** reject the request as
-"un-canonicalizable" rather than emit a receipt over the rewritten URL
-that P cannot verify. This forces operators to configure URL
-preservation correctly, rather than silently producing receipts P
-cannot verify.
+The earlier draft of this section referenced "the URL P signed
+(pre-rewrite)" plus an `X-Forwarded-Uri`-style reconstruction at A's
+side. That framing is **superseded** by Option 5 in
+URL-CANONICALIZATION.md: host, scheme, and the operator-declared
+prefix are never part of the signature in the first place, so there
+is no "original URL" to reconstruct. The path-suffix is signed; both
+P and A derive it deterministically per URL-CANONICALIZATION.md §3.3.
 
-The interlace-spec 0.2.0 release ratifies this requirement alongside
-`cloister-aecd26`'s URL-canonicalization fix.
+**Un-canonicalizable-reject contract.** When A cannot apply the
+operator-declared prefix to an incoming request (path does not start
+with `prefix + "/"` or equal `prefix`, URL fails RFC 3986 parsing,
+etc. — see URL-CANONICALIZATION.md §3.3.3 and §4.5), A **MUST**
+reject at the lease layer with `bad_request_sig`. **No receipt is
+emitted** — admission did not occur, so there is nothing to commit
+to. Per §2.6 (receipts are owed only on 2xx authenticated responses)
+and §13.2 (chain entries are owed only on admitted requests), P
+holding no receipt for an un-canonicalizable request has no §13.2
+grievance against A.
+
+**Cross-spec invariant.** Receipts inherit URL-CANONICALIZATION.md's
+canonicalization invariants: P and A reach byte-identical
+`request_canon` (and therefore byte-identical `request_hash`) for any
+canonicalizable request, under Option 5's path-suffix derivation. V
+recomputing `request_hash` at audit time (§2.2.2 step 5) uses the
+same canonical bytes that verified P's lease signature; a divergence
+between the two specs' definitions would render the 0.2.0 spec
+internally inconsistent. URL-CANONICALIZATION.md §6 locks this
+invariant: any future amendment that changes the canonical bytes
+MUST update both documents in the same SEP.
+
+**Conformance check.** Test vectors in
+[`test-vectors/url-canonicalization/`](test-vectors/url-canonicalization/)
+pin `receipts_request_hash_hex == canonical_bytes_sha256_hex` as a
+cross-spec conformance assertion — a conforming receipts
+implementation that consumes the canonical bytes from a conforming
+URL-canonicalization implementation MUST reach the same
+`request_hash` value byte-for-byte.
 
 ## 6. Merkle-batched receipts (normative-optional)
 
@@ -887,6 +920,15 @@ this revision:
   design landed as §2.7. Next-epoch key signs a `compromise_notice`;
   V's verification procedure adds a timestamp check against
   `compromised_at_ms` before trusting receipts.
+- **URL-canonicalization cross-spec invariant (round-2/round-3
+  follow-up).** §5 now defers to `URL-CANONICALIZATION.md` §3.2 as
+  the normative source for `request_canon`'s bytes; the
+  `X-Forwarded-Uri`-style reconstruction framing is dropped. Test
+  vectors in `test-vectors/url-canonicalization/` pin
+  `receipts_request_hash_hex == canonical_bytes_sha256_hex` as the
+  cross-spec conformance check, ensuring P, A, and V compute
+  byte-identical `request_hash` values under Option 5's path-suffix
+  canonicalization. Tracking bead `cloister-770464`.
 
 ## 11. Open questions for further review
 
