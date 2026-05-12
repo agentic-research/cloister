@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// OCI Distribution Spec (v1.1) registry — Phase 1: READ-ONLY pull path.
-// Per cloister-cabd57. The endpoints below are exactly what `docker pull`
-// + `nerdctl pull` + `podman pull` exercise against the v2 API; the
-// upload surface (`POST/PATCH/PUT /v2/<name>/blobs/uploads/*`) is
-// deferred to a follow-up bead.
+// OCI Distribution Spec (v1.1) registry — Phase 1 (pull) + Phase 2 (push).
+//
+// Phase 1 (cloister-cabd57): the read-only `/v2/` pull surface — exactly
+// what `docker pull` / `nerdctl pull` / `podman pull` exercise against
+// the v2 API.
+//
+// Phase 2 (cloister-3a3b0d): the upload surface — `POST/PATCH/PUT
+// /v2/<name>/blobs/uploads/*` plus `PUT /v2/<name>/manifests/<reference>`.
+// External tools (oras, cosign, Zarf, `docker push`, `crane push`) can
+// push artifacts INTO cloister's BlobStore using the standard OCI
+// Distribution Spec v1.1 wire shape.
 //
 // Substrate map:
 //   - Blobs (manifests + configs + layer tarballs) are content-addressed
@@ -22,37 +28,65 @@
 //     the proof. Sibling to the identity bridge (cloister-c9922f) — two
 //     non-MCP tenants now ride the same seam.
 //
-// Endpoint catalog (Phase 1):
-//   - GET /v2/                                  -> version handshake
-//   - GET /v2/_catalog                          -> repo listing
-//   - GET /v2/<name>/tags/list                  -> tag listing for repo
-//   - HEAD /v2/<name>/manifests/<reference>     -> existence check
-//   - GET  /v2/<name>/manifests/<reference>     -> manifest bytes
-//   - HEAD /v2/<name>/blobs/<digest>            -> blob existence check
-//   - GET  /v2/<name>/blobs/<digest>            -> blob bytes
+// Endpoint catalog (Phase 1 + Phase 2):
+//   - GET    /v2/                                       -> version handshake
+//   - GET    /v2/_catalog                               -> repo listing
+//   - GET    /v2/<name>/tags/list                       -> tag listing for repo
+//   - HEAD   /v2/<name>/manifests/<reference>           -> existence check
+//   - GET    /v2/<name>/manifests/<reference>           -> manifest bytes
+//   - PUT    /v2/<name>/manifests/<reference>           -> store manifest + tag
+//   - HEAD   /v2/<name>/blobs/<digest>                  -> blob existence check
+//   - GET    /v2/<name>/blobs/<digest>                  -> blob bytes
+//   - POST   /v2/<name>/blobs/uploads/                  -> begin blob upload session
+//   - POST   /v2/<name>/blobs/uploads/?digest=...       -> single-shot (monolithic) blob upload
+//   - PATCH  /v2/<name>/blobs/uploads/<uuid>            -> append chunk to upload
+//   - PUT    /v2/<name>/blobs/uploads/<uuid>?digest=... -> finalize + verify digest
 //
 // `<reference>` may be a tag (e.g. "0.1.0", "latest") OR a digest in the
 // `sha256:<hex>` form. The route disambiguates by prefix.
 //
-// Auth posture (Phase 1):
-//   Reads are anonymous. The single-deploy story is "stand up a cluster,
-//   `task registry:import cloister.tar`, `docker pull localhost:8787/cloister:0.1.0`
-//   works." Phase 2 adds an `oci:push:<repo>` scope on the lease for
-//   writes; gating reads behind `oci:pull` is a Phase-2 opt-in.
+// Auth posture:
+//   Reads are anonymous. Writes are lease-gated when `INTERLACE_ROOT_PUBKEY`
+//   is set (deployment-binding granularity, parallel to the disclosure
+//   endpoint pattern in `src/routes/disclosure.ts`). The required scope
+//   is `oci:write:<name>` — derived from the repo path. When the env is
+//   unset (dev mode), writes proceed without auth so `task registry:import`
+//   and local `docker push localhost:8787/...` keep working without
+//   minting a cert.
+//
+// Upload session state (Phase 2, v0.1):
+//   Sessions live in an instance-local `Map<uuid, {name, chunks}>` —
+//   ephemeral, no cross-instance resumability. The OCI spec ALLOWS this
+//   (resumable uploads are a SHOULD, not a MUST) and the workerd model
+//   means a single isolate handles each push in practice. A future phase
+//   can promote this to a Durable Object if multi-isolate resume becomes
+//   a real signal.
 //
 // Error shape:
 //   The OCI spec mandates a specific JSON error envelope:
 //     { "errors": [ { "code": "<CODE>", "message": "..." } ] }
 //   Standard codes used here:
-//     - BLOB_UNKNOWN     - blob digest not in BlobStore
-//     - MANIFEST_UNKNOWN - manifest digest / tag not resolvable
-//     - NAME_INVALID     - repo name failed validation
-//     - NAME_UNKNOWN     - repo has no tags
-//     - UNSUPPORTED      - method/path under /v2 we don't implement yet
+//     - BLOB_UNKNOWN          - blob digest not in BlobStore
+//     - BLOB_UPLOAD_UNKNOWN   - upload UUID not in the session table
+//     - BLOB_UPLOAD_INVALID   - upload request malformed (Phase 2)
+//     - DIGEST_INVALID        - client-claimed digest disagrees with bytes (Phase 2)
+//     - MANIFEST_UNKNOWN      - manifest digest / tag not resolvable
+//     - MANIFEST_INVALID      - manifest body malformed (Phase 2)
+//     - NAME_INVALID          - repo name failed validation
+//     - NAME_UNKNOWN          - repo has no tags
+//     - DENIED                - request was denied (auth failure on a write)
+//     - UNSUPPORTED           - method/path under /v2 we don't implement yet
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import { type Digest, asDigest, isDigest } from "../storage/types.js";
+import { digestBytes } from "../storage/canonical.js";
+import { verifyAndUpsertLease } from "./lease-middleware.js";
+import {
+  CaUnavailableError,
+  getCABundle,
+} from "../storage/ca-bundle-cache.js";
+import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 
 // ── URLPatterns (built once per instance) ─────────────────────────────────
 //
@@ -71,6 +105,14 @@ const PATTERN_CATALOG  = new URLPattern({ pathname: "/v2/_catalog" });
 const PATTERN_TAGS     = new URLPattern({ pathname: "/v2/:name+/tags/list" });
 const PATTERN_MANIFEST = new URLPattern({ pathname: "/v2/:name+/manifests/:reference" });
 const PATTERN_BLOB     = new URLPattern({ pathname: "/v2/:name+/blobs/:digest" });
+// Phase 2 upload-session paths. The trailing-slash variant is what
+// `docker push` + `oras push` use to BEGIN an upload; the `:uuid`
+// variant is what subsequent PATCH/PUT requests target. URLPattern
+// disambiguates: `/v2/foo/blobs/uploads/` (literal trailing slash)
+// matches PATTERN_UPLOAD_BEGIN; `/v2/foo/blobs/uploads/abc-123`
+// matches PATTERN_UPLOAD_SESSION.
+const PATTERN_UPLOAD_BEGIN   = new URLPattern({ pathname: "/v2/:name+/blobs/uploads/" });
+const PATTERN_UPLOAD_SESSION = new URLPattern({ pathname: "/v2/:name+/blobs/uploads/:uuid" });
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -115,28 +157,90 @@ interface TrustStoreRpc {
   getRegistryManifestDigestForTag(repo: string, tag: string): Promise<string | null>;
   listRegistryTagsForRepo(repo: string): Promise<string[]>;
   listRegistryRepos(): Promise<string[]>;
+  upsertRegistryTag(
+    repo: string, tag: string, manifestDigest: string, nowMs: number,
+  ): Promise<void>;
+}
+
+// ── Upload sessions (Phase 2) ─────────────────────────────────────────────
+//
+// Holds in-flight chunked uploads keyed by an ephemeral UUID. The session
+// table is INSTANCE-LOCAL — a worker restart drops all open sessions, and
+// resumability is best-effort only. Per the bead acceptance criteria, this
+// is fine for v0.1; tighter durability lives behind a future DO-backed
+// session table.
+//
+// Each session accumulates Uint8Array chunks; the final PUT concatenates
+// them, hashes once, verifies against the client-claimed digest, and
+// hands the bytes to BlobStore. Memory footprint is bounded by the
+// caller's push size (no global cap today — push of >100MB during dev
+// would exceed workerd's per-isolate budget, that's the existing limit).
+
+interface UploadSession {
+  /** Repo name the upload was opened against. PUT must match. */
+  name:    string;
+  /** Accumulated chunks in arrival order. */
+  chunks:  Uint8Array[];
+  /** Total bytes written so far — kept current to avoid recomputing. */
+  size:    number;
 }
 
 // ── Public route ──────────────────────────────────────────────────────────
 
 export class OciRegistryRoute implements EdgeRoute {
+  /**
+   * Open upload sessions, keyed by an ephemeral UUID. Instance-local.
+   * Cleared when the worker isolate restarts.
+   */
+  private readonly uploads = new Map<string, UploadSession>();
+
   match(request: Request): boolean {
     const m = request.method;
-    if (m !== "GET" && m !== "HEAD") return false;
-    return (
-      PATTERN_VERSION.test(request.url) ||
-      PATTERN_VERSION_NO_SLASH.test(request.url) ||
-      PATTERN_CATALOG.test(request.url) ||
-      PATTERN_TAGS.test(request.url) ||
-      PATTERN_MANIFEST.test(request.url) ||
-      PATTERN_BLOB.test(request.url)
-    );
+    // Reads (Phase 1).
+    if (m === "GET" || m === "HEAD") {
+      return (
+        PATTERN_VERSION.test(request.url) ||
+        PATTERN_VERSION_NO_SLASH.test(request.url) ||
+        PATTERN_CATALOG.test(request.url) ||
+        PATTERN_TAGS.test(request.url) ||
+        PATTERN_MANIFEST.test(request.url) ||
+        PATTERN_BLOB.test(request.url)
+      );
+    }
+    // Writes (Phase 2). Manifest PUT lives on the same pattern matrix as
+    // manifest GET — method dispatch in handle() picks the branch.
+    if (m === "POST") return PATTERN_UPLOAD_BEGIN.test(request.url);
+    if (m === "PATCH" || m === "PUT") {
+      return (
+        PATTERN_UPLOAD_SESSION.test(request.url) ||
+        (m === "PUT" && PATTERN_MANIFEST.test(request.url))
+      );
+    }
+    return false;
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
     const url    = request.url;
     const method = request.method;
     const isHead = method === "HEAD";
+
+    // ── Phase 2 push dispatch (POST/PATCH/PUT) ───────────────────────────
+    //
+    // Handled before the read-path matrix so the GET handlers below stay
+    // method-untouched. Each push handler internally lease-gates on
+    // `INTERLACE_ROOT_PUBKEY` (parallel to disclosure.ts).
+    if (method === "POST" && PATTERN_UPLOAD_BEGIN.test(url)) {
+      return this.handleUploadBegin(request, env);
+    }
+    if (method === "PATCH" && PATTERN_UPLOAD_SESSION.test(url)) {
+      return this.handleUploadPatch(request, env);
+    }
+    if (method === "PUT" && PATTERN_UPLOAD_SESSION.test(url)) {
+      return this.handleUploadFinalize(request, env);
+    }
+    if (method === "PUT" && PATTERN_MANIFEST.test(url)) {
+      return this.handleManifestPut(request, env);
+    }
 
     // ── /v2/ - version handshake ─────────────────────────────────────────
     if (PATTERN_VERSION.test(url) || PATTERN_VERSION_NO_SLASH.test(url)) {
@@ -265,6 +369,295 @@ export class OciRegistryRoute implements EdgeRoute {
     // Unreachable: match() already gated. Belt-and-braces 404 in spec shape.
     return ociError(404, "UNSUPPORTED", "endpoint not implemented");
   }
+
+  // ── Phase 2 push handlers ──────────────────────────────────────────────
+
+  /**
+   * `POST /v2/<name>/blobs/uploads/`
+   *
+   * Two shapes:
+   *   1. Without `?digest=` — open an upload session. Allocate a UUID,
+   *      seed a session with the request body (if any), return 202 Accepted
+   *      with `Location: /v2/<name>/blobs/uploads/<uuid>` and `Range: 0-N`.
+   *   2. With `?digest=sha256:...` — monolithic single-shot upload. Hash
+   *      the body, verify against the claimed digest, BlobStore.put, and
+   *      return 201 Created with `Location: /v2/<name>/blobs/<digest>`.
+   */
+  private async handleUploadBegin(request: Request, env: Env): Promise<Response> {
+    const m = PATTERN_UPLOAD_BEGIN.exec(request.url);
+    const name = m?.pathname.groups.name ?? "";
+    if (!REPO_NAME_RE.test(name)) {
+      return ociError(400, "NAME_INVALID", `invalid repository name: ${name}`);
+    }
+
+    const authResult = await this.gateWrite(request, env, name);
+    if (authResult !== null) return authResult;
+
+    const url = new URL(request.url);
+    const claimedDigest = url.searchParams.get("digest");
+
+    // Monolithic upload: the entire blob is in this request body and the
+    // client claims the digest up front. We hash + verify + persist in one
+    // shot — no session bookkeeping needed.
+    if (claimedDigest !== null) {
+      const parsed = parseSha256Param(claimedDigest);
+      if (parsed === null) {
+        return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
+      }
+      const body = new Uint8Array(await request.arrayBuffer());
+      const computed = await digestBytes(body);
+      if (computed !== parsed) {
+        return ociError(
+          400,
+          "DIGEST_INVALID",
+          `digest mismatch: client=${claimedDigest} computed=sha256:${computed}`,
+        );
+      }
+      const blob = blobStoreStub(env);
+      await blob.put(body);
+      return blobCreatedResponse(name, asDigest(parsed));
+    }
+
+    // Otherwise: open a session. Per the spec, the body MAY contain initial
+    // bytes (rare in practice — most clients send an empty POST, then one
+    // or more PATCHes). We accept either.
+    const uuid = newUploadId();
+    const seed = await request.arrayBuffer();
+    const seedBytes = new Uint8Array(seed);
+    this.uploads.set(uuid, {
+      name,
+      chunks: seedBytes.byteLength > 0 ? [seedBytes] : [],
+      size:   seedBytes.byteLength,
+    });
+    return uploadAcceptedResponse(name, uuid, seedBytes.byteLength);
+  }
+
+  /**
+   * `PATCH /v2/<name>/blobs/uploads/<uuid>`
+   *
+   * Append the request body to the session. Per spec we return 202
+   * Accepted with `Range: 0-N` reflecting the new size. We do NOT enforce
+   * `Content-Range` strictly — Phase 2 v0.1 treats every PATCH as
+   * append-only; out-of-order writes simply concat. (Adding strict
+   * Content-Range checks is a follow-up bead — most clients send chunks
+   * sequentially anyway.)
+   */
+  private async handleUploadPatch(request: Request, env: Env): Promise<Response> {
+    const m = PATTERN_UPLOAD_SESSION.exec(request.url);
+    const name = m?.pathname.groups.name ?? "";
+    const uuid = m?.pathname.groups.uuid ?? "";
+    if (!REPO_NAME_RE.test(name)) {
+      return ociError(400, "NAME_INVALID", `invalid repository name: ${name}`);
+    }
+
+    const authResult = await this.gateWrite(request, env, name);
+    if (authResult !== null) return authResult;
+
+    const sess = this.uploads.get(uuid);
+    if (sess === undefined || sess.name !== name) {
+      return ociError(404, "BLOB_UPLOAD_UNKNOWN", `upload not found: ${uuid}`);
+    }
+    const chunk = new Uint8Array(await request.arrayBuffer());
+    if (chunk.byteLength > 0) {
+      sess.chunks.push(chunk);
+      sess.size += chunk.byteLength;
+    }
+    return uploadAcceptedResponse(name, uuid, sess.size);
+  }
+
+  /**
+   * `PUT /v2/<name>/blobs/uploads/<uuid>?digest=sha256:...`
+   *
+   * Finalize: append any trailing body, hash the concatenated bytes,
+   * verify against the client-claimed digest, BlobStore.put, drop the
+   * session. The OCI spec REQUIRES the `digest` query parameter on the
+   * finalize PUT — we reject 400 if it's absent.
+   */
+  private async handleUploadFinalize(request: Request, env: Env): Promise<Response> {
+    const m = PATTERN_UPLOAD_SESSION.exec(request.url);
+    const name = m?.pathname.groups.name ?? "";
+    const uuid = m?.pathname.groups.uuid ?? "";
+    if (!REPO_NAME_RE.test(name)) {
+      return ociError(400, "NAME_INVALID", `invalid repository name: ${name}`);
+    }
+
+    const authResult = await this.gateWrite(request, env, name);
+    if (authResult !== null) return authResult;
+
+    const sess = this.uploads.get(uuid);
+    if (sess === undefined || sess.name !== name) {
+      return ociError(404, "BLOB_UPLOAD_UNKNOWN", `upload not found: ${uuid}`);
+    }
+
+    const url = new URL(request.url);
+    const claimedDigest = url.searchParams.get("digest");
+    if (claimedDigest === null) {
+      return ociError(400, "DIGEST_INVALID", "finalize PUT requires ?digest=sha256:<hex>");
+    }
+    const parsed = parseSha256Param(claimedDigest);
+    if (parsed === null) {
+      return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
+    }
+
+    // Append any trailing body — some clients (older docker) ship the
+    // final chunk on the PUT itself rather than via a separate PATCH.
+    const trailing = new Uint8Array(await request.arrayBuffer());
+    if (trailing.byteLength > 0) {
+      sess.chunks.push(trailing);
+      sess.size += trailing.byteLength;
+    }
+
+    // Concat → hash → verify.
+    const full = concatChunks(sess.chunks, sess.size);
+    const computed = await digestBytes(full);
+    if (computed !== parsed) {
+      // Don't drop the session — let the client retry the finalize (it
+      // may have sent the wrong digest claim against the right bytes,
+      // or vice versa). The OCI spec doesn't require we keep it, but
+      // dropping it would force a full re-push.
+      return ociError(
+        400,
+        "DIGEST_INVALID",
+        `digest mismatch: client=${claimedDigest} computed=sha256:${computed}`,
+      );
+    }
+
+    const blob = blobStoreStub(env);
+    await blob.put(full);
+    this.uploads.delete(uuid);
+    return blobCreatedResponse(name, asDigest(parsed));
+  }
+
+  /**
+   * `PUT /v2/<name>/manifests/<reference>`
+   *
+   * Store the manifest body in BlobStore + (if reference is a tag)
+   * update the tag → digest mapping in TrustStore.registry_tags. If a
+   * client-provided `Docker-Content-Digest` header is present, verify it
+   * against the computed digest.
+   *
+   * The `<reference>` may be either a tag or a digest. If it's a digest,
+   * we just verify the body hashes to it and skip the tag write.
+   */
+  private async handleManifestPut(request: Request, env: Env): Promise<Response> {
+    const m = PATTERN_MANIFEST.exec(request.url);
+    const name      = m?.pathname.groups.name      ?? "";
+    const reference = m?.pathname.groups.reference ?? "";
+    if (!REPO_NAME_RE.test(name)) {
+      return ociError(400, "NAME_INVALID", `invalid repository name: ${name}`);
+    }
+
+    const authResult = await this.gateWrite(request, env, name);
+    if (authResult !== null) return authResult;
+
+    const body = new Uint8Array(await request.arrayBuffer());
+    if (body.byteLength === 0) {
+      return ociError(400, "MANIFEST_INVALID", "empty manifest body");
+    }
+    const computed = await digestBytes(body);
+    const computedRef = `sha256:${computed}`;
+
+    // If the reference itself is a digest, it MUST match the body hash.
+    if (reference.startsWith("sha256:")) {
+      if (reference !== computedRef) {
+        return ociError(
+          400,
+          "DIGEST_INVALID",
+          `manifest digest mismatch: ref=${reference} computed=${computedRef}`,
+        );
+      }
+    } else {
+      // Tag reference — validate the tag grammar before persisting.
+      if (!TAG_RE.test(reference)) {
+        return ociError(400, "MANIFEST_INVALID", `invalid tag: ${reference}`);
+      }
+    }
+
+    // Cross-check the client's optional `Docker-Content-Digest` header.
+    const headerDigest = request.headers.get("docker-content-digest");
+    if (headerDigest !== null && headerDigest !== computedRef) {
+      return ociError(
+        400,
+        "DIGEST_INVALID",
+        `header digest mismatch: header=${headerDigest} computed=${computedRef}`,
+      );
+    }
+
+    // Persist bytes + tag. BlobStore.put is idempotent so re-pushing the
+    // same manifest is a no-op at the blob level; the tag UPSERT replaces
+    // any existing mapping for (repo, tag).
+    const blob  = blobStoreStub(env);
+    const trust = trustStoreStub(env);
+    await blob.put(body);
+    if (!reference.startsWith("sha256:")) {
+      await trust.upsertRegistryTag(name, reference, computedRef, Date.now());
+    }
+    return manifestCreatedResponse(name, reference, asDigest(computed));
+  }
+
+  /**
+   * Lease-gate a write. Returns `null` when the write is allowed (no
+   * pubkey set, or lease verified successfully). Returns a 401 OCI-spec
+   * error response otherwise.
+   *
+   * Scope grammar: `oci:write:<name>` — parallel to `disclosure:<fp>`
+   * in src/routes/disclosure.ts. The `<name>` segment is the repo path
+   * (which may contain `/`), so the scope-match grammar must accept
+   * `oci:write:cloister/router` as a sibling to `oci:write:notme`.
+   * Glob containment (`scopeAllows`) handles `oci:write:*` for the
+   * cluster-wide push role.
+   */
+  private async gateWrite(
+    request: Request,
+    env:     Env,
+    name:    string,
+  ): Promise<Response | null> {
+    if (!env.INTERLACE_ROOT_PUBKEY) {
+      return null; // dev mode: no gate
+    }
+    // Read the body once and stash it on the request via a cloned-body
+    // approach — actually, we DON'T read the body here. The signature
+    // pipeline reads from a clone via `await request.arrayBuffer()` only
+    // when canonicalRequestBytes needs it. To avoid double-consuming the
+    // body in the handler, we pass the body bytes through. But for
+    // simplicity at v0.1, the handlers above read the body AFTER the
+    // gate, and the gate reads the body via `request.clone()` here.
+    // verifyAndUpsertLease signs over the body, so we MUST hand it the
+    // exact bytes the client sent.
+    const bodyText = await request.clone().text();
+    const nowMs = Date.now();
+    let bundle;
+    try {
+      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
+        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
+      });
+    } catch (err) {
+      if (err instanceof CaUnavailableError) {
+        return ociError(401, "DENIED", "CA bundle unavailable");
+      }
+      throw err;
+    }
+    const verdict = await verifyAndUpsertLease({
+      req:    request,
+      body:   bodyText,
+      id:     null,
+      method: "oci-write",
+      params: undefined,
+      env,
+      bundle,
+      nowMs,
+      requestedScope: `oci:write:${name}`,
+    });
+    if ("code" in verdict) {
+      // Collapse every lease-pipeline failure to a generic 401 DENIED.
+      // The OCI spec doesn't distinguish among auth failure modes; a
+      // detailed message (cert expired, scope denied, etc.) would help
+      // operators but also gives an attacker the same precise oracle
+      // disclosure.ts works to suppress. Keep it terse.
+      return ociError(401, "DENIED", "authentication required");
+    }
+    return null;
+  }
 }
 
 // ── Response builders ─────────────────────────────────────────────────────
@@ -371,11 +764,117 @@ function ociError(status: number, code: string, message: string): Response {
   });
 }
 
+// ── Phase 2 response builders ─────────────────────────────────────────────
+
+/**
+ * `202 Accepted` for opened / appended upload sessions.
+ *
+ * The spec requires:
+ *   Location: /v2/<name>/blobs/uploads/<uuid>
+ *   Range:    0-<bytes-written>           (closed range, inclusive)
+ *   Docker-Upload-UUID: <uuid>            (legacy header; docker push reads it)
+ *
+ * `Range` reports the bytes already written, so the client knows where
+ * to start the next PATCH. Empty session → "0-0" per common practice
+ * (some clients want a Range even on an empty session).
+ */
+function uploadAcceptedResponse(name: string, uuid: string, size: number): Response {
+  // Range is inclusive; for an empty session we emit "0-0" rather than
+  // a degenerate "0--1" — matches what go-containerregistry/registry/v2
+  // returns on a freshly-opened session.
+  const rangeEnd = size === 0 ? 0 : size - 1;
+  return new Response(null, {
+    status: 202,
+    headers: {
+      "location":            `/v2/${name}/blobs/uploads/${uuid}`,
+      "range":               `0-${rangeEnd}`,
+      "content-length":      "0",
+      "docker-upload-uuid":  uuid,
+      [API_VERSION_HEADER]:  API_VERSION_VALUE,
+    },
+  });
+}
+
+/**
+ * `201 Created` for a finalized blob upload.
+ *
+ *   Location: /v2/<name>/blobs/<digest>
+ *   Docker-Content-Digest: sha256:<hex>
+ */
+function blobCreatedResponse(name: string, digest: Digest): Response {
+  return new Response(null, {
+    status: 201,
+    headers: {
+      "location":              `/v2/${name}/blobs/sha256:${digest}`,
+      "docker-content-digest": `sha256:${digest}`,
+      "content-length":        "0",
+      [API_VERSION_HEADER]:    API_VERSION_VALUE,
+    },
+  });
+}
+
+/**
+ * `201 Created` for a stored manifest. The Location echoes the
+ * reference the client used (tag or digest); the Docker-Content-Digest
+ * always echoes the computed digest so the client can address the
+ * manifest by content even if it was pushed by tag.
+ */
+function manifestCreatedResponse(name: string, reference: string, digest: Digest): Response {
+  return new Response(null, {
+    status: 201,
+    headers: {
+      "location":              `/v2/${name}/manifests/${reference}`,
+      "docker-content-digest": `sha256:${digest}`,
+      "content-length":        "0",
+      [API_VERSION_HEADER]:    API_VERSION_VALUE,
+    },
+  });
+}
+
+// ── Phase 2 helpers ───────────────────────────────────────────────────────
+
+/**
+ * Parse a `sha256:<64-hex>` value (from a query param or header).
+ * Returns the bare hex on success, `null` on any malformed input.
+ */
+function parseSha256Param(value: string): string | null {
+  if (!value.startsWith("sha256:")) return null;
+  const hex = value.slice("sha256:".length);
+  return isDigest(hex) ? hex : null;
+}
+
+/**
+ * Concatenate accumulated chunks into one contiguous Uint8Array.
+ *
+ * Bounded by `size` (precomputed across PATCHes) so we don't have to
+ * walk the chunk list twice. Single allocation, single copy.
+ */
+function concatChunks(chunks: readonly Uint8Array[], size: number): Uint8Array {
+  const out = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Allocate an upload UUID. We use `crypto.randomUUID()` (workerd-native,
+ * Web Platform standard). The UUIDs are ephemeral, instance-local, and
+ * not security-bearing — the lease scope handles authorization. We use
+ * a UUID anyway so an attacker can't enumerate active sessions cheaply.
+ */
+function newUploadId(): string {
+  return crypto.randomUUID();
+}
+
 // ── Stub helpers ──────────────────────────────────────────────────────────
 
 interface BlobStoreRpc {
   has(digest: Digest): Promise<boolean>;
   get(digest: Digest): Promise<Uint8Array | null>;
+  put(bytes: Uint8Array): Promise<Digest>;
 }
 
 function blobStoreStub(env: Env): DurableObjectStub & BlobStoreRpc {
