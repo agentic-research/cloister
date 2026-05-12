@@ -489,9 +489,51 @@ if [ "${SKIP_PHASE_B:-0}" != "1" ]; then
         CLUSTER_ROWS+=("/.well-known/interlace/index.json|FAIL|invalid JSON")
         fail_total
       fi
+
+      # Step B-4b: /mcp tools/list contains mache_* and lsp_* — the
+      # dynamic-tools discovery regression guard. Filed as cloister-91e5d4
+      # (mache empty) + caught 2026-05-11 after Phase 1's lifecycle fix
+      # appeared to pass in fixture tests but the workerd network
+      # restriction silently blocked the real outbound. This step probes
+      # the LIVE MCP face and asserts the dynamic catalog is non-empty
+      # for both upstream MCP servers. Without this guard, future
+      # regressions in the lifecycle / network-allow / session-handshake
+      # paths would only surface to end users running `task cluster:up`.
+      tools_body=$(curl -s -m 5 -X POST "http://localhost:8787/mcp" \
+        -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' 2>/dev/null || true)
+      mache_count=$(echo "$tools_body" | python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    tools = d.get('result', {}).get('tools', [])
+    print(sum(1 for t in tools if t.get('name', '').startswith('mache_')))
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0")
+      lsp_count=$(echo "$tools_body" | python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    tools = d.get('result', {}).get('tools', [])
+    print(sum(1 for t in tools if t.get('name', '').startswith('lsp_')))
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0")
+      if [ "$mache_count" -gt 0 ] && [ "$lsp_count" -gt 0 ]; then
+        step "B-04b" "OK" "/mcp tools/list — $mache_count mache_* + $lsp_count lsp_* tools advertised"
+        CLUSTER_ROWS+=("/mcp tools/list mache_*|OK|$mache_count tools")
+        CLUSTER_ROWS+=("/mcp tools/list lsp_*|OK|$lsp_count tools")
+      else
+        step "B-04b" "FAIL" "/mcp tools/list — mache_*=$mache_count lsp_*=$lsp_count (one or both empty)"
+        CLUSTER_ROWS+=("/mcp tools/list mache_*|FAIL|$mache_count tools (expected >0); see cloister-91e5d4")
+        CLUSTER_ROWS+=("/mcp tools/list lsp_*|FAIL|$lsp_count tools (expected >0)")
+        fail_total
+      fi
     else
       step "B-03" "SKIP" "/health (cluster not up)"
       step "B-04" "SKIP" "/.well-known (cluster not up)"
+      step "B-04b" "SKIP" "/mcp tools/list (cluster not up)"
       CLUSTER_ROWS+=("/health 200 first reached|SKIP|cluster did not reach 4/4")
     fi
 

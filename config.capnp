@@ -21,9 +21,25 @@ const config :Workerd.Config = (
 
     # Internet access — for proxying to rosary (ROSARY_MCP_URL), ley-line-open
     # (LLO_MCP_URL — usually via notme-proxy in prod), and signet.
+    #
+    # workerd's `network.allow` defaults to deny-private when `allow` is
+    # specified. The shared-netns cluster topology (mache, ley-line-open,
+    # rosary all on `network_mode: service:cloister-router` per
+    # cluster.compose.yaml) means upstreams live at 127.0.0.0/8 from
+    # cloister-router's vantage point. Without explicit loopback allow,
+    # outbound `fetch()` to `localhost:7532` (mache) silently fails with
+    # `connect() blocked by restrictPeers()` and dynamic-tools discovery
+    # comes back empty. Caught by `cloister-91e5d4` e2e regression
+    # 2026-05-11; the Phase 1 lifecycle fix (`cloister-a3ae4c`) was
+    # correct but never got a chance to run because the connection was
+    # blocked one layer below.
+    #
+    # Production deployments that put cluster bundles on real internal
+    # networks (not loopback) should narrow / replace this — loopback
+    # is correct ONLY for the shared-netns topology.
     ( name = "internet",
       network = (
-        allow = ["public"],
+        allow = ["public", "127.0.0.0/8"],
       ),
     ),
 
