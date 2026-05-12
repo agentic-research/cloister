@@ -375,6 +375,154 @@ describe("WellKnownMcpRegistryRoute — detail endpoint", () => {
     expect(res.status).toBe(404);
   });
 
+  // ── Filtered-out backend kinds (cloister-ec7a52) ─────────────────────────
+  //
+  // The list endpoint excludes `durableObject` / `serviceBinding` /
+  // `udsForward` backends — they're intra-cluster compute, not externally-
+  // shaped MCP servers. The single-server lookup MUST apply the SAME
+  // filter: a request for a filtered-out backend's name must return the
+  // constant-time 404, NOT a 200 envelope with null fields (which would
+  // both leak the intra-cluster name AND violate the spec's server.json
+  // required-fields contract).
+
+  it("returns 404 for a durableObject backend name (intra-cluster, filtered)", async () => {
+    // `bead` is the canonical durableObject in the fixture — the regression
+    // probe from cloister-ec7a52 used this exact name.
+    const res = await route.handle(
+      new Request(`http://x${BASE_PATH}/${NAME_PREFIX}bead`),
+      fakeEnv(),
+    );
+    expect(res.status).toBe(404);
+    // Critical: NOT 200-with-nulls. Confirm the body is the error
+    // envelope, not a server.json with null fields.
+    const body = await res.json() as { error?: string; server?: unknown };
+    expect(body.error).toBe("not_found");
+    expect(body.server).toBeUndefined();
+  });
+
+  it("filtered-backend 404 is byte-equal to unknown-name 404 (constant-time)", async () => {
+    // Probing for "this name exists but is internal" via response body
+    // or size must not work. Compare bead (real durableObject backend)
+    // against an unknown name of similar shape.
+    const r1 = await route.handle(
+      new Request(`http://x${BASE_PATH}/${NAME_PREFIX}bead`),
+      fakeEnv(),
+    );
+    const r2 = await route.handle(
+      new Request(`http://x${BASE_PATH}/${NAME_PREFIX}does-not-exist`),
+      fakeEnv(),
+    );
+    const b1 = await r1.text();
+    const b2 = await r2.text();
+    expect(r1.status).toBe(r2.status);
+    expect(b1.length).toBe(b2.length);
+    expect(b1).toBe(b2);
+  });
+
+  it("returns 404 for serviceBinding + udsForward backend names (intra-cluster, filtered)", async () => {
+    // Construct a manifest where the only backends are intra-cluster
+    // kinds. Every detail lookup against them must 404, never 200.
+    const m: Gateway = {
+      ...makeManifest(),
+      routes: [
+        {
+          path: "/mcp",
+          kind: {
+            mcp: {
+              backends: [
+                {
+                  name:          "notme",
+                  handlesPrefix: "",
+                  kind: {
+                    serviceBinding: {
+                      binding: "NOTME",
+                      tools:   [],
+                    },
+                  },
+                },
+                {
+                  name:          "uds-thing",
+                  handlesPrefix: "",
+                  kind: {
+                    udsForward: {
+                      socketPath: "/tmp/x.sock",
+                      tools:      [],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const r = new WellKnownMcpRegistryRoute(m);
+    for (const name of ["notme", "uds-thing"]) {
+      const res = await r.handle(
+        new Request(`http://x${BASE_PATH}/${NAME_PREFIX}${name}`),
+        fakeEnv(),
+      );
+      expect(res.status).toBe(404);
+      const body = await res.json() as { error?: string; server?: unknown };
+      expect(body.error).toBe("not_found");
+      expect(body.server).toBeUndefined();
+    }
+  });
+
+  it("filter-included backends (lsp, leyline-lifecycle, mache) still return 200 with full server.json", async () => {
+    // Lock the positive path: the fix must NOT regress the included
+    // backend kinds. Use the realistic-shape fixture from the top of
+    // this file (lsp + mache are httpForward) plus a leyline-net entry
+    // to cover both included kinds.
+    const m: Gateway = {
+      ...makeManifest(),
+      routes: [
+        {
+          path: "/mcp",
+          kind: {
+            mcp: {
+              backends: [
+                {
+                  name:          "bead",  // filtered
+                  handlesPrefix: "bead_",
+                  kind: { durableObject: { binding: "BEAD_STORE", keyArg: "repo", tools: [] } },
+                },
+                {
+                  name:          "lsp",   // httpForward — included
+                  handlesPrefix: "lsp_",
+                  kind: { httpForward: { urlBinding: "LLO_MCP_URL", tools: [] } },
+                },
+                {
+                  name:          "leyline-lifecycle", // httpForward — included
+                  handlesPrefix: "",
+                  kind: { httpForward: { urlBinding: "LLO_MCP_URL", tools: [] } },
+                },
+                {
+                  name:          "mache", // httpForward dynamic — included
+                  handlesPrefix: "mache_",
+                  kind: { httpForward: { urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true } },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const r = new WellKnownMcpRegistryRoute(m);
+    for (const included of ["lsp", "leyline-lifecycle", "mache"]) {
+      const res = await r.handle(
+        new Request(`http://x${BASE_PATH}/${NAME_PREFIX}${included}`),
+        fakeEnv(),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json() as { server: { name: string; description: string; version: string } };
+      expect(body.server.name).toBe(`${NAME_PREFIX}${included}`);
+      expect(typeof body.server.description).toBe("string");
+      expect(body.server.description.length).toBeGreaterThan(0);
+      expect(body.server.version).toMatch(/^\d+\.\d+\.\d+/);
+    }
+  });
+
   it("detail entries carry $schema, name, description, version, remotes", async () => {
     const listRes  = await route.handle(new Request(`http://x${BASE_PATH}`), fakeEnv());
     const listBody = await listRes.json() as {

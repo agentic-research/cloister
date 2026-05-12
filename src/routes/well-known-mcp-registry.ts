@@ -330,6 +330,15 @@ function findByName(
   // Catalog is small (≤20 entries) — linear scan is fine, and a Map
   // would be premature optimization. The synthesize path is what
   // tests assert against; reusing it here keeps the two paths in lockstep.
+  //
+  // Defense-in-depth: `synthesizeAll` already filters out backend kinds
+  // that aren't externally-shaped (durableObject / serviceBinding /
+  // udsForward — see synthesizeOne), so any name belonging to such a
+  // backend is absent from the catalog and `find` returns undefined,
+  // collapsing to the constant-time 404 in the caller. Even if a future
+  // refactor decouples this lookup from synthesizeAll, the same kind
+  // filter must apply — the single-server endpoint MUST NOT leak
+  // intra-cluster backends as 200-with-nulls (cloister-ec7a52).
   const all = synthesizeAll(manifest, base);
   return all.find((e) => e.server.name === name) ?? null;
 }
