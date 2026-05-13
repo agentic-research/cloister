@@ -163,93 +163,164 @@ pub fn parse_spec(spec: &str) -> Result<ParsedSpec, HelperError> {
 }
 
 /// Resolve the URL spec to raw key bytes, off the tokio worker thread,
-/// with **request coalescing**: N concurrent callers for the same `spec`
-/// share one keystore round-trip. Closes 2026-05-13 cycle dos-friend F2
-/// / `cloister-8d4dd7` — the keychain dogfood surfaced a hang on 4
-/// parallel `/resolve` calls hitting the same macOS Keychain entry
-/// (per-call re-authorization on parallel access).
+/// with **request coalescing** AND a **per-scheme TTL cache**:
+///
+///   - Concurrent callers for the same `spec` share one keystore round-
+///     trip via per-spec singleflight (closes the dogfood-observed
+///     concurrent-keychain hang).
+///   - For subprocess-spawning schemes (`op://`, `apple-password://`),
+///     successful read results are cached for `LEYLINE_SIGN_RESOLVE_TTL_MS`
+///     ms (default 60_000). Within the TTL window, subsequent callers
+///     get the cached bytes without re-spawning the CLI subprocess /
+///     re-prompting FaceID. Rotation latency is TTL-bounded.
+///   - For all other schemes (`keychain://`, `secret-tool://`,
+///     `keyring://`, `file://`), TTL defaults to 0 — every call re-reads
+///     the keystore (preserves ADR-0019 req 9 rotation detection).
+///   - Operators can override the default for ALL schemes via
+///     `LEYLINE_SIGN_RESOLVE_TTL_MS=<ms>`; set to 0 to opt out of TTL
+///     caching for subprocess schemes too.
+///
+/// Closes 2026-05-13 cycle dos-friend F2 / `cloister-8d4dd7`
+/// (singleflight) + dos-friend F3 / `cloister-8d675a` (TTL cache).
 pub async fn resolve_bytes(spec: &str) -> Result<Vec<u8>, HelperError> {
-    RESOLVE_SINGLEFLIGHT
-        .get_or_init(ResolveSingleflight::new)
+    RESOLVE_CACHE
+        .get_or_init(ResolveCache::new)
         .resolve(spec)
         .await
 }
 
-// ── Resolve-time singleflight ──────────────────────────────────────────────
+// ── Resolve-time cache (singleflight + TTL) ────────────────────────────────
 //
-// Per-spec request coalescer. When N concurrent callers arrive with the
-// same `spec` before any has completed the keystore read, only the FIRST
-// caller actually reads the keystore; the other N-1 wait on the result
-// and clone it. After the in-flight read completes, the cell is removed
-// so the NEXT cycle of callers does a fresh keystore read (preserving
-// ADR-0019 req 9: byte-hash-driven rotation detection — singleflight
-// coalesces only WITHIN one read; cross-read caching is the `host::cache`
-// layer's job, not ours).
+// Two-phase per-spec entry:
+//   1. Cell-created, no value yet → in-flight. Followers await the value.
+//   2. Cell-set, value cached → followers get cached value if within TTL,
+//      else the entry is dropped and a fresh read is started.
 //
 // Cached Err is intentional: all coalesced callers see the same outcome,
 // so a transient keystore failure doesn't silently retry for some
 // callers (which would muddle the operator log + the §17.10 constant-
-// time wire semantic).
+// time wire semantic). Err entries respect TTL too — a fresh read is
+// only attempted after TTL elapses.
+
+type CachedValue = (Result<Vec<u8>, HelperError>, std::time::Instant);
 
 #[derive(Default)]
-struct ResolveSingleflight {
+struct ResolveCache {
     cells: tokio::sync::Mutex<
         std::collections::HashMap<
             String,
-            std::sync::Arc<tokio::sync::OnceCell<Result<Vec<u8>, HelperError>>>,
+            std::sync::Arc<tokio::sync::OnceCell<CachedValue>>,
         >,
     >,
 }
 
-impl ResolveSingleflight {
+impl ResolveCache {
     fn new() -> Self {
         Self::default()
     }
 
     async fn resolve(&self, spec: &str) -> Result<Vec<u8>, HelperError> {
-        // Phase 1: grab or create the cell under the map lock.
+        let scheme = scheme_label(spec);
+        let ttl = ttl_for_scheme(scheme);
+
+        // Phase 1: under the map lock, decide the role.
+        //   - cache hit (fresh result, age < TTL)         → return cached
+        //   - in-flight (cell exists, value not yet set)  → follower path
+        //   - cache stale (age >= TTL)                    → evict + leader
+        //   - miss                                        → leader
         let cell = {
             let mut map = self.cells.lock().await;
+            if let Some(existing) = map.get(spec) {
+                if let Some((result, fetched_at)) = existing.get() {
+                    if fetched_at.elapsed() < ttl {
+                        return result.clone();
+                    }
+                    // Stale — evict so a fresh read happens below.
+                    map.remove(spec);
+                } else {
+                    // In-flight; await it.
+                    let cell = existing.clone();
+                    drop(map);
+                    let (result, _) = cell
+                        .get_or_init(|| async {
+                            // Unreachable in practice: the leader's closure
+                            // is already initializing the cell. `OnceCell`
+                            // semantics: only the first caller's closure
+                            // runs. We're a follower; we just await.
+                            unreachable!("follower closure must not run — cell is in-flight")
+                        })
+                        .await;
+                    return result.clone();
+                }
+            }
             map.entry(spec.to_string())
                 .or_insert_with(|| std::sync::Arc::new(tokio::sync::OnceCell::new()))
                 .clone()
         };
-        // Phase 2: only the leader's closure runs; followers await the
-        // cached value. `OnceCell::get_or_init` is the contract:
-        // first-into-the-init wins; everyone else waits.
-        let result_ref = cell
+
+        // Phase 2: leader (or a coalesced follower of a brand-new cell)
+        // drives the read.
+        let (result, _) = cell
             .get_or_init(|| {
                 let spec_owned = spec.to_owned();
                 async move {
-                    tokio::task::spawn_blocking(move || resolve_bytes_blocking(&spec_owned))
-                        .await
-                        .unwrap_or_else(|join_err| {
-                            tracing::error!(
-                                target: "leyline_sign_helper",
-                                op = "resolve_blocking",
-                                outcome = "join_error",
-                                err = %join_err,
-                            );
-                            Err(HelperError::Internal)
-                        })
+                    let r = tokio::task::spawn_blocking(move || {
+                        resolve_bytes_blocking(&spec_owned)
+                    })
+                    .await
+                    .unwrap_or_else(|join_err| {
+                        tracing::error!(
+                            target: "leyline_sign_helper",
+                            op = "resolve_blocking",
+                            outcome = "join_error",
+                            err = %join_err,
+                        );
+                        Err(HelperError::Internal)
+                    });
+                    (r, std::time::Instant::now())
                 }
             })
             .await;
-        let result = result_ref.clone();
-        // Phase 3: drop the cell so the NEXT batch of callers does a
-        // fresh keystore read. Concurrent callers each run this — the
-        // first one removes; the rest are no-ops on the missing key.
-        // New callers arriving in the microseconds-wide cleanup window
-        // either find the cell (still in-flight semantically — they
-        // share the result) or miss it (start a fresh resolve). Both
-        // outcomes are correct.
-        self.cells.lock().await.remove(spec);
+        let result = result.clone();
+
+        // Phase 3: eviction policy.
+        //   - TTL == 0 (default for keychain/keyring/file): remove the cell
+        //     so the NEXT call does a fresh read.
+        //   - TTL > 0 (subprocess schemes): KEEP the cell. Followers within
+        //     the TTL window get the cached value in Phase 1; after TTL
+        //     elapses, the next caller evicts and re-fetches.
+        if ttl.is_zero() {
+            self.cells.lock().await.remove(spec);
+        }
         result
     }
 }
 
-static RESOLVE_SINGLEFLIGHT: std::sync::OnceLock<ResolveSingleflight> =
-    std::sync::OnceLock::new();
+/// Per-scheme TTL for cached keystore reads.
+///
+/// Default: 60s for `op://` + `apple-password://` (subprocess-shelling
+/// schemes — FaceID prompts and `op` CLI spawns are too expensive to pay
+/// per-request). 0s for everything else (preserves ADR-0019 req 9
+/// "re-read every call" rotation semantics for the cheap-read schemes).
+///
+/// Override via `LEYLINE_SIGN_RESOLVE_TTL_MS=<u64 ms>`: the env value
+/// applies to ALL schemes uniformly. Operators wanting per-scheme tuning
+/// have to rebuild with custom logic — by design (one knob is easier to
+/// audit than five). Set to 0 to opt OUT of subprocess caching entirely.
+fn ttl_for_scheme(scheme: &str) -> std::time::Duration {
+    if let Ok(s) = std::env::var("LEYLINE_SIGN_RESOLVE_TTL_MS") {
+        if let Ok(ms) = s.parse::<u64>() {
+            return std::time::Duration::from_millis(ms);
+        }
+    }
+    if matches!(scheme, "op://" | "apple-password://") {
+        std::time::Duration::from_millis(60_000)
+    } else {
+        std::time::Duration::ZERO
+    }
+}
+
+static RESOLVE_CACHE: std::sync::OnceLock<ResolveCache> = std::sync::OnceLock::new();
 
 /// Synchronous dispatch used inside `spawn_blocking`.
 pub fn resolve_bytes_blocking(spec: &str) -> Result<Vec<u8>, HelperError> {

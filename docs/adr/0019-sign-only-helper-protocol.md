@@ -292,7 +292,9 @@ preserve "OS keystore IS the source of truth" semantics.
 - Helper MAY cache the parsed `SigningKey` object in memory, indexed
   by `byte_hash = SHA-256(keystore_bytes)`.
 - Helper MUST re-read the raw bytes from the OS keystore on every
-  `POST /sign` call (no byte-level caching).
+  `POST /sign` call **for cheap-read schemes** (`keychain://`,
+  `secret-tool://`, `keyring://`, `file://`) — no byte-level caching;
+  rotation latency is zero.
 - If `SHA-256(re-read bytes) == cached_byte_hash`, reuse the parsed
   `SigningKey` from cache (saves Ed25519-key parsing, which IS the
   cache-timing hot path; raw bytes are already in memory either way).
@@ -303,6 +305,46 @@ preserve "OS keystore IS the source of truth" semantics.
 Result: per-call keystore boundary check (ops invariant satisfied) +
 cached parsing (crypto invariant satisfied) + zero-operator-action
 rotation (both invariants satisfied).
+
+### Subprocess-scheme TTL cache amendment (2026-05-13, cloister-2a0faa)
+
+The "re-read every call" invariant above predates the `op://` (1Password
+CLI) and `apple-password://` (macOS `security` CLI) schemes. Both spawn
+a subprocess per read; both can trigger interactive auth (op signin,
+FaceID prompt). Re-reading EVERY call would mean every `/sign`
+re-prompts the user — a non-starter for production deploys (the
+2026-05-13 adversarial cycle's dos-friend F2 + threat-model §17.7).
+
+**Amendment for subprocess-shelling schemes:**
+
+- Helper MAY cache the read-result (bytes OR error) for these schemes
+  for up to `LEYLINE_SIGN_RESOLVE_TTL_MS` milliseconds (default
+  **60_000ms = 60s**, configurable via env var).
+- During the TTL window, subsequent callers receive the cached value
+  without spawning a fresh subprocess. Successful AND failed reads are
+  both cached (so a transient `op` outage doesn't cause partial-cache
+  inconsistency among concurrent callers).
+- Per-spec singleflight ensures only ONE in-flight read regardless of
+  how many concurrent callers arrive while a read is pending.
+- After TTL elapses, the next caller's read evicts the cached entry
+  and starts fresh.
+
+**Trade-off acknowledged:**
+
+- Rotation latency for `op://` / `apple-password://` is bounded by TTL.
+  Default 60s = operator who rotates a 1Password secret sees the new
+  bytes within 60s.
+- Operators requiring tighter rotation can set
+  `LEYLINE_SIGN_RESOLVE_TTL_MS=0`, which makes ALL schemes follow the
+  "re-read every call" invariant (matching pre-2026-05-13 behavior).
+  This trades latency for prompt cost.
+- The env var applies to all schemes uniformly; per-scheme tuning
+  requires a code change. One knob is easier to audit than five.
+
+This amendment IS NOT a deviation from the math-friend #2 ops
+invariant for cheap-read schemes — those still re-read on every call.
+It's a new policy for the new schemes, designed so the rotation
+latency is bounded + operator-tunable.
 
 ### Implementation pins
 

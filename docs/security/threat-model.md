@@ -1210,20 +1210,19 @@ via `--features host,host-extras`. Full cycle artifact:
 |---|---|
 | **Adversary capability** | N concurrent `/sign` or `/resolve` against the same URL (any backend: `keychain://`, `apple-password://`, `op://`, `keyring://`). Each request spawns an independent keystore read. macOS `securityd` re-evaluates per-thread authorization on parallel access, causing some callers to hang (real keychain dogfood observed 4 concurrent /resolve hanging indefinitely). For `apple-password://` specifically: FaceID prompt fires per call. Effective DoS via legal traffic volume. |
 | **Invariant** | Concurrent requests for the same URL MUST coalesce into one in-flight keystore read (singleflight). All callers share the result, success or failure. |
-| **Status** | **CLOSED for the coalescing axis** — `keystore::resolve_bytes` uses a per-spec `OnceCell` singleflight: first caller does the keystore read, N-1 followers share the cached `Result`. After the in-flight read completes, the cell is removed so the next cycle of callers does a fresh read (preserves ADR-0019 req 9 rotation detection). Pinned by `concurrent_resolve_for_same_spec_coalesces` (synthetic file://) + real macOS Keychain dogfood (8 concurrent /resolve against the same entry, 5.18s wall time dominated by one Touch ID prompt, all 8 callers byte-identical). **`cloister-8d4dd7` scope reduced** to the TTL-bounded positive-cache axis (cache the read result for N seconds across separate request cycles, not just within one in-flight read) — that still requires an ADR amendment deviating from "re-read every call." |
-| **Closing playbook** | Done for coalescing. TTL-cache follow-up: see `cloister-8d4dd7`.|
-| **Closing playbook** | Per-spec in-flight singleflight in `KeyCache`; positive-cache TTL for `apple-password://` / `op://` (60s recommended; needs ADR amendment for the "re-read every call" deviation). Pin with `apple_password_resolution_must_not_starve_other_callers` test against a `security` shim. |
-| **Tracking** | `cloister-8d4dd7`. |
+| **Status** | **FULLY CLOSED.** `keystore::resolve_bytes` uses a per-spec `tokio::sync::OnceCell` cache that combines (a) singleflight (concurrent same-spec readers share one in-flight keystore call) and (b) TTL caching (cache the result for `LEYLINE_SIGN_RESOLVE_TTL_MS` ms, default 60s for `op://` / `apple-password://`, 0s for cheap-read schemes). Pinned by `concurrent_resolve_for_same_spec_coalesces` + `resolve_ttl_cache_serves_cached_bytes_within_window`. Real-keychain dogfood: 8 concurrent /resolve against one Keychain entry completes in 5.18s (dominated by ONE Touch ID prompt — all 8 callers coalesced + got byte-identical bytes). |
+| **Closing playbook** | Done. ADR-0019 amended with the "Subprocess-scheme TTL cache amendment" section documenting the rotation-latency trade-off. |
+| **Tracking** | `cloister-8d4dd7` (CLOSED). |
 
-### Row 17.8 — Keychain daemon serialization (FOLLOW-UP)
+### Row 17.8 — Keychain daemon serialization (CLOSED via opt-in cache)
 
 | | |
 |---|---|
 | **Adversary capability** | At rate-limit ceiling (1000 sigs/sec per caller × 2 callers = 2000 req/sec), macOS `securityd` IPC becomes the bottleneck (~500-1000 req/sec ceiling per the keyring crate's bench data). The §15.3 per-caller rate-limit holds at the token-bucket layer but is bottlenecked downstream. |
 | **Invariant** | Per-caller rate-limit MUST be meaningful, not bottlenecked on a shared resource that re-introduces global serialization. |
-| **Status** | **ACTIVE follow-up bead `cloister-8d675a`.** Needs ADR amendment to permit a short positive-cache window (deviation from ADR-0019's "re-read every call"). |
-| **Closing playbook** | TTL-bounded positive cache (1s window proposed) keyed on byte-hash mismatch detection. Pin with concurrent-caller bench. |
-| **Tracking** | `cloister-8d675a`. |
+| **Status** | **CLOSED (operator-opt-in mitigation).** ADR-0019 amended with §"Subprocess-scheme TTL cache amendment". For `keychain://`/`secret-tool://`/`keyring://` (the schemes that hit `securityd`), the **default** policy remains "re-read every call" (TTL=0) to preserve zero-latency rotation detection. Operators who hit the `securityd` ceiling can set `LEYLINE_SIGN_RESOLVE_TTL_MS=<ms>` to cache reads across all schemes uniformly — this trades rotation latency (≤TTL) for `securityd` throughput. The mechanism is implemented + tested (see §17.7 close); §17.8 is closed in the sense that the mitigation now EXISTS and is configurable, not that the default behavior changed. |
+| **Closing playbook** | Done. Operators wanting `securityd` throughput beyond the bench ceiling set the env var explicitly with a documented rotation-latency budget. |
+| **Tracking** | `cloister-8d675a` (CLOSED). |
 
 ### Row 17.9 — /resolve allow-list iteration before rate-limit (CLOSED this cycle)
 
