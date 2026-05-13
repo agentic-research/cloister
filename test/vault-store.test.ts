@@ -28,7 +28,7 @@
 //     per src/vault-store.ts header — gated on the first workerd-bundle
 //     Worker landing.
 
-import { env } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 // A stable fixture cert fingerprint — what `VerifiedLease.peerFp`
@@ -318,4 +318,63 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
   // happy-path test passes a real fingerprint, and the schema-level
   // subject_fp filter (above) is the load-bearing defense; the
   // assertSubjectFp guard is belt-and-braces for caller bugs.
+});
+
+// ── F1: per-DO token-bucket budget (cloister-211b68 / dos-friend) ───────────
+//
+// Each test uses a distinct subject_fp so its bucket starts full at
+// RATE_LIMITS.CAPACITY tokens — no cross-test interference. The DO is the
+// same singleton (`idFromName("cluster")`), only the bucket key differs.
+//
+// Test costs: read = 1, write = 3, proxy = 5. At CAPACITY = 100 a fresh
+// bucket supports 100 reads / 33 writes / 20 proxies before refill kicks in.
+
+// ── F1 integration coverage notes ──────────────────────────────────────────
+//
+// The token-bucket math is tested exhaustively as pure functions in
+// vault/src/__tests__/rate-bucket.test.ts (no RPC, no harness errors).
+// Here we only cover the DO's persistence + dispatch shim, and only via
+// non-throwing paths — workerd's vitest pool surfaces DO-side throws as
+// "errors" even when caught, so we use proxyRequest's 429 Response
+// (Response-shaped reject) and a realistic-load happy path.
+
+describe("CredentialVault DO — F1 rate budget (Response-shaped paths only)", () => {
+  const fpFor = (slot: string) =>
+    `f1${slot.replace(/[^a-f0-9]/g, "0")}`.padEnd(64, "0").slice(0, 64);
+
+  async function seedBucket(fp: string, tokens: number, lastRefillMs: number) {
+    const stub = env.VAULT_STORE!.get(env.VAULT_STORE!.idFromName("cluster"));
+    await runInDurableObject(stub, async (_inst, state) => {
+      state.storage.sql.exec(
+        "INSERT INTO rate_buckets (subject_fp, tokens, last_refill_ms) VALUES (?, ?, ?) ON CONFLICT(subject_fp) DO UPDATE SET tokens = excluded.tokens, last_refill_ms = excluded.last_refill_ms",
+        fp, tokens, lastRefillMs,
+      );
+    });
+  }
+
+  it("proxyRequest rejects with 429 Response when bucket is empty", async () => {
+    const v = vaultStub();
+    const fp = fpFor("proxy429");
+    await v.putCredential(fp, "test-svc", {
+      upstream: "https://example.test/api",
+      headers: { authorization: "Bearer x" },
+      allowedSubs: ["*"],
+    });
+    await seedBucket(fp, 0, Date.now());
+    const probe = new Request("https://example.test/proxy/endpoint", { method: "GET" });
+    const resp = await v.proxyRequest(fp, "test-svc", "anybody", probe);
+    expect(resp.status).toBe(429);
+    expect(resp.headers.get("retry-after")).toBeTruthy();
+    const body = await resp.json() as { error: string; service: string };
+    expect(body).toEqual({ error: "rate_limited", service: "test-svc" });
+  });
+
+  it("realistic legitimate load (10 reads) stays well under the limit", async () => {
+    const v = vaultStub();
+    const fp = fpFor("realistic");
+    for (let i = 0; i < 10; i++) {
+      const result = await v.getCredentialMetadata(fp, "no-such-service");
+      expect(result).toBeNull();
+    }
+  });
 });

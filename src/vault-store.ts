@@ -130,6 +130,7 @@ import {
   type SealedCredential,
 } from "../vault/src/crypto.js";
 import { buildKekSource, type KekSource } from "../vault/src/kek-source.js";
+import { RATE_LIMITS, refillBucket, tryConsume } from "../vault/src/rate-bucket.js";
 
 /** SQLite row shape — sealed_headers is JSON-serialized SealedCredential. */
 interface StoredRow {
@@ -178,11 +179,29 @@ export interface VaultStoreRpc {
   ): Promise<Response>;
 }
 
+// Per-caller rate budget (cloister-211b68 / dos-friend F1). The bucket
+// math is pure and lives in vault/src/rate-bucket.ts so it can be tested
+// exhaustively without going through the workerd RPC harness. This DO
+// is the persistence + dispatch layer: load state from SQL, call refill
+// + tryConsume, persist updated state back, gate the RPC.
+
 export class CredentialVault extends DurableObject implements VaultStoreRpc {
   private kekPromise: Promise<CryptoKey> | null = null;
+  private inflight = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+
+    // Rate-bucket table provisioned alongside credentials. Same SQL
+    // Storage API; idempotent CREATE. tokens stored as REAL because
+    // refill is sub-token-precise (10/sec means each ms is 0.01 token).
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS rate_buckets (
+        subject_fp     TEXT    PRIMARY KEY,
+        tokens         REAL    NOT NULL,
+        last_refill_ms INTEGER NOT NULL
+      )
+    `);
 
     // Provision the credentials table once per DO lifetime. Composite PK
     // is `(subject_fp, service)` — every row is namespaced by the
@@ -232,6 +251,81 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   }
 
   /**
+   * Token-bucket budget consume. Per-subject_fp, persisted in SQL so a
+   * DO eviction doesn't reset an attacker's budget. Workerd serializes
+   * RPC handlers per DO id, so the SELECT/UPSERT pair is atomic without
+   * a transaction. Math lives in vault/src/rate-bucket.ts as pure
+   * functions (refillBucket + tryConsume); this method is the
+   * persistence + log-emit shim.
+   *
+   * Open: the rate_buckets table grows with unique subject_fps. Pre-1.0
+   * this is bounded by notme's cert-mint rate (itself rate-limited).
+   * Filed as future cleanup: LRU eviction or TTL sweep, mirror the
+   * seen_nonces retention sweep playbook.
+   */
+  #consumeBudget(
+    subjectFp: string,
+    cost: number,
+  ): { ok: true } | { ok: false; retryAfterSec: number } {
+    const now = Date.now();
+    const rows = this.ctx.storage.sql.exec(
+      "SELECT tokens, last_refill_ms FROM rate_buckets WHERE subject_fp = ?",
+      subjectFp,
+    ).toArray() as unknown as Array<{ tokens: number; last_refill_ms: number }>;
+
+    const prev = rows.length === 0
+      ? null
+      : { tokens: rows[0]!.tokens, lastRefillMs: rows[0]!.last_refill_ms };
+    const refilled = refillBucket(prev, now);
+    const result = tryConsume(refilled, cost);
+
+    // Persist updated bucket state regardless of accept/reject so the
+    // refill timestamp advances (attacker can't "freeze time" by hammering
+    // a depleted bucket).
+    this.ctx.storage.sql.exec(
+      "INSERT INTO rate_buckets (subject_fp, tokens, last_refill_ms) VALUES (?, ?, ?) ON CONFLICT(subject_fp) DO UPDATE SET tokens = excluded.tokens, last_refill_ms = excluded.last_refill_ms",
+      subjectFp,
+      result.next.tokens,
+      result.next.lastRefillMs,
+    );
+
+    if (!result.ok) {
+      // Structured emit so silence-friend's future audit can pick this up
+      // without re-parsing the message. Keep the shape stable.
+      console.warn(
+        JSON.stringify({
+          event: "vault.rate_limit_reject",
+          subjectFp,
+          cost,
+          tokensAvailable: Number(refilled.tokens.toFixed(3)),
+          retryAfterSec: result.retryAfterSec,
+        }),
+      );
+      return { ok: false, retryAfterSec: result.retryAfterSec };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Burst gate: workerd serializes handler dispatch per DO, but proxy's
+   * upstream await yields, letting more handlers queue. Cap concurrent
+   * in-flight RPCs so a slow-upstream attack can't pile up.
+   */
+  #checkInflight(): { ok: true } | { ok: false } {
+    if (this.inflight >= RATE_LIMITS.MAX_INFLIGHT) {
+      console.warn(
+        JSON.stringify({
+          event: "vault.inflight_reject",
+          inflight: this.inflight,
+          cap: RATE_LIMITS.MAX_INFLIGHT,
+        }),
+      );
+      return { ok: false };
+    }
+    return { ok: true };
+  }
+
+  /**
    * Build the storage adapter the pure `vault/` library expects, bound
    * to a specific verified subject fingerprint. Every (subjectFp,
    * service) tuple is its own row; the adapter scopes all CRUD to that
@@ -253,10 +347,13 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
   ): Promise<void> {
     assertSubjectFp(subjectFp);
-    // Reject oversized payloads before they touch encrypt + SQL write
-    // (cloister-21b5eb / dos-friend F4). Without this gate, a single
-    // putCredential with megabyte headers blocks the single-threaded DO
-    // on AES-GCM + SQLite write while queueing every co-resident call.
+    // F1 gate: token-bucket budget. Write cost (3) — encrypt + SQL.
+    const b = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.write);
+    if (!b.ok) throw new Error(`vault: rate limited — retry after ${b.retryAfterSec}s`);
+    // F4 gate: reject oversized payloads before they touch encrypt + SQL write
+    // (cloister-21b5eb). Without this gate, a single putCredential with
+    // megabyte headers blocks the single-threaded DO on AES-GCM + SQLite
+    // write while queueing every co-resident call.
     const v = validateCredentialPayload(cred);
     if (!v.ok) throw new Error(`vault: rejected credential — ${v.reason}`);
     await this.#storageFor(subjectFp).put(service, cred);
@@ -270,6 +367,8 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     allowedSubs: string[];
   } | null> {
     assertSubjectFp(subjectFp);
+    const b = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.read);
+    if (!b.ok) throw new Error(`vault: rate limited — retry after ${b.retryAfterSec}s`);
     const row = await this.#readRow(subjectFp, service);
     if (!row) return null;
     return { upstream: row.upstream, allowedSubs: row.allowedSubs };
@@ -277,11 +376,15 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
   async deleteCredential(subjectFp: string, service: string): Promise<boolean> {
     assertSubjectFp(subjectFp);
+    const b = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.read);
+    if (!b.ok) throw new Error(`vault: rate limited — retry after ${b.retryAfterSec}s`);
     return this.#deleteRow(subjectFp, service);
   }
 
   async listServices(subjectFp: string): Promise<string[]> {
     assertSubjectFp(subjectFp);
+    const b = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.read);
+    if (!b.ok) throw new Error(`vault: rate limited — retry after ${b.retryAfterSec}s`);
     return this.#listRows(subjectFp);
   }
 
@@ -293,6 +396,54 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   ): Promise<Response> {
     assertSubjectFp(subjectFp);
 
+    // F1 burst gate: concurrent in-flight proxies are capped because
+    // each one holds the DO during upstream fetch. Reject overflow with
+    // a 429 (web-shaped — proxyRequest returns Response, unlike the
+    // other RPC methods which throw).
+    const inflight = this.#checkInflight();
+    if (!inflight.ok) {
+      return new Response(
+        JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "1",
+          },
+        },
+      );
+    }
+
+    // F1 sustained gate: token-bucket budget. Proxy cost (5) is the
+    // highest — it does encrypt + SQL read + upstream fetch.
+    const budget = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.proxy);
+    if (!budget.ok) {
+      return new Response(
+        JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(budget.retryAfterSec),
+          },
+        },
+      );
+    }
+
+    this.inflight++;
+    try {
+      return await this.#proxyRequestInner(subjectFp, service, callerSub, incomingRequest);
+    } finally {
+      this.inflight--;
+    }
+  }
+
+  async #proxyRequestInner(
+    subjectFp: string,
+    service: string,
+    callerSub: string,
+    incomingRequest: Request,
+  ): Promise<Response> {
     const row = this.ctx.storage.sql.exec(
       "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
       subjectFp,
