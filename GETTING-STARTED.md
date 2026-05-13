@@ -136,8 +136,12 @@ curl -s -X POST http://localhost:8787/mcp \
   }' | jq
 ```
 
-You should see 14 tools: 6 `bead_*`, 5 `lsp_*`, and 3 lifecycle (`reparse`,
-`enrich`, `status`).
+You should see ~31 tools: 6 `bead_*`, 5 `lsp_*`, 3 lifecycle (`reparse`,
+`enrich`, `status`), plus the mache tool family (dynamic — count varies
+with the mache build, typically 17 `mache_*` tools). Mache requires
+its sibling binary to be reachable at `MACHE_MCP_URL` (default
+`http://localhost:7532/mcp`); without it the `mache_*` family is
+absent from the list and other tools still work.
 
 ## 5. Wire upstreams (only what you need)
 
@@ -275,10 +279,35 @@ When you move past local dev, set:
 ALLOWED_ORIGINS="https://app.example.com,http://localhost:*"
 ```
 
-Other prod knobs (still ADR-0001 work items):
-- notme JWT middleware on `POST /mcp`
-- mTLS via notme-proxy in front of `LLO_MCP_URL`
-- mount `/data` as a persistent volume for the BeadStore DO SQLite files
+**Activate the Interlace lease gate** (ADR-0007). The lease pipeline
+runs when `INTERLACE_ROOT_PUBKEY` is set; unset (the default) leaves
+cloister in dev-mode where `/mcp` accepts unauthenticated requests.
+Wrangler uses `.dev.vars` for local-dev overrides:
+
+```sh
+# .dev.vars (gitignored by default; create if you don't have one)
+INTERLACE_ROOT_PUBKEY=<base64-of-master-pubkey>
+INTERLACE_MASTER_PUBKEY=<same>
+INTERLACE_DISCLOSURE_HMAC_KEY=<random-hmac-key>
+# Interlace 0.2.0 receipts (optional Phase 1 emit; Phase 2 cutover is operator action)
+RECEIPT_SIGNING_KEY=<base64-of-receipt-signer-64-byte-keypair>
+RECEIPT_EPOCH=1
+```
+
+Production deploys use `wrangler secret put <NAME>` instead of
+`.dev.vars`. With the gate active, `POST /mcp` requires a Signet lease
+cert; bundles like notme issue them.
+
+**Other prod knobs:**
+- mount `/data` as a persistent volume for the DO SQLite files (the
+  apko image expects `/data/do` writable; the local self-host workflow
+  in Path B above mkdirs this)
+- run the `leyline-sign-helper` (`task helper:start` or the systemd /
+  launchd unit at `rs/crates/sign/supervisor/`) with
+  `LEYLINE_SIGN_CALLER_TOKENS` populated + `--require-auth` (templates
+  pass the flag; ADR-0019 + threat-model §15)
+- terminate TLS at a reverse proxy (cloister speaks HTTP at the
+  workerd boundary; TLS is upstream of the substrate)
 
 ### Vault KEK — never in committed config
 
@@ -335,10 +364,14 @@ export VAULT_KEK_SOURCE="keychain://com.cloister/kek"
 task dev
 ```
 
-The helper refuses to bind to anything but loopback — it has no auth
-and trusts everything on its port. **Don't expose it remotely.**
-Linux libsecret (`secret-tool://`) is on the roadmap; today the
-helper returns 501 for that scheme.
+The helper refuses to bind to anything but loopback. The legacy
+`scripts/kek-helper.mjs` had no auth and trusted everything on its
+port; the replacement `leyline-sign-helper` Rust binary (ADR-0019,
+merged 2026-05-12) adds bearer-token auth via
+`LEYLINE_SIGN_CALLER_TOKENS` and refuses to start under `--require-auth`
+without it. Either way: **don't expose the helper remotely.** Linux
+libsecret (`secret-tool://`) is on the roadmap; today the helper
+returns 501 for that scheme.
 
 **Round-trip dogfood check** (proves Keychain → helper → bytes works
 end-to-end on your machine):
@@ -360,9 +393,12 @@ Validated end-to-end on macOS 2026-05-11 (cloister-268a01). If you see
 bind (port in use) or the `security` CLI isn't on PATH.
 
 For OCI / Cloudflare deployments where "Keychain" isn't a thing,
-stick with `env://VAULT_KEK_SECRET` populated via `wrangler secret
-put` or a docker secret — the file/keychain backends are explicitly
-for bare-metal self-host.
+use `env://NAME` populated via `wrangler secret put` (for CF Workers)
+or a docker secret mounted into the container env (for the apko
+image) — the file/keychain backends are explicitly for bare-metal
+self-host. The legacy plaintext `VAULT_KEK_SECRET` text binding is
+gone per ADR-0014 v2; production paths use the URL-spec resolver
+end-to-end.
 
 ### Off-platform peers (CF Tunnel / WARP)
 
