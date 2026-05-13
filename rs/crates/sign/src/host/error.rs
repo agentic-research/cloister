@@ -41,7 +41,10 @@ pub const CODE_UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
 /// Per ADR-0019 §"Constant-time error shape" + threat-model §9.4.
 const CONST_TIME_REASON: &str = "keystore entry or internal error";
 
-#[derive(Debug, Error)]
+// Clone derived so the resolve-time singleflight in `host::keystore` can
+// fan out one keystore call's result to N concurrent callers. All
+// variants carry either no data or `&'static str` — Clone is trivial.
+#[derive(Debug, Error, Clone)]
 pub enum HelperError {
     #[error("bad_request: {0}")]
     BadRequest(&'static str),

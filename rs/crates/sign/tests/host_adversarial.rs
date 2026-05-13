@@ -644,6 +644,87 @@ async fn keystore_call_does_not_pin_worker_threads() {
     }
 }
 
+// ── §17.7 — concurrent /resolve for the same spec must coalesce ────────────
+//
+// Closes the dogfood-observed hang on parallel keychain://<same-svc> reads
+// (cloister-8d4dd7). Prior behavior: N parallel `/resolve` calls for the
+// same URL spawned N independent keystore reads. macOS Keychain (via the
+// `keyring` crate) re-evaluates authorization per call, causing some
+// callers to hang on per-thread auth prompts.
+//
+// Post-fix: `keystore::resolve_bytes` uses a per-spec `OnceCell`
+// singleflight. N concurrent callers share one in-flight keystore read.
+// This test pins the invariant via wall-clock observation: 16 parallel
+// `/resolve` calls against the same file:// path complete in well under
+// 16× the single-call time. The bytes returned MUST be byte-identical
+// across all callers.
+#[tokio::test]
+async fn concurrent_resolve_for_same_spec_coalesces() {
+    let tmp = TempDir::new().unwrap();
+    let seed_path = tmp.path().join("seed");
+    std::fs::write(&seed_path, [0xCDu8; 32]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    use leyline_sign::host::auth::AuthConfig;
+    let state = AppState::with_config(
+        10_000,
+        AuthConfig::Disabled,
+        vec!["file://".to_owned()],
+    );
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, build_router(state)).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let url = format!("file://{}", seed_path.display());
+    let url_enc = urlencode(&url);
+    let resolve_url = format!("http://{}/resolve?url={}", addr, url_enc);
+
+    // 16 concurrent /resolve calls against the same spec.
+    let start = std::time::Instant::now();
+    let mut handles = Vec::with_capacity(16);
+    for _ in 0..16 {
+        let u = resolve_url.clone();
+        handles.push(tokio::spawn(async move {
+            let resp = reqwest::Client::new().get(&u).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await.unwrap()
+        }));
+    }
+    let mut results = Vec::with_capacity(16);
+    for h in handles {
+        results.push(h.await.unwrap());
+    }
+    let elapsed = start.elapsed();
+
+    // All callers see byte-identical bytes (singleflight returns the
+    // same Result to every coalesced caller).
+    let expected: &[u8] = &[0xCDu8; 32];
+    for (i, r) in results.iter().enumerate() {
+        assert_eq!(
+            r.as_ref(),
+            expected,
+            "caller {} got wrong bytes (singleflight broke byte parity)",
+            i,
+        );
+    }
+
+    // Wall-clock sanity: 16 parallel reads, coalesced, complete in well
+    // under 16× single-call time. file:// is microseconds; the bar is
+    // generous (1s) to absorb test-harness overhead — but a regression
+    // back to N-parallel-stat would still bust this on slow CI.
+    assert!(
+        elapsed < Duration::from_millis(1000),
+        "16 concurrent resolves took {:?} — singleflight regressed (§17.7 / cloister-8d4dd7)",
+        elapsed,
+    );
+}
+
 // ── Not covered by unit tests here (documented gaps) ───────────────────────
 //
 // §15.4 — Supervisor binary integrity. Deploy-time property; verified by

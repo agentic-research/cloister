@@ -162,21 +162,94 @@ pub fn parse_spec(spec: &str) -> Result<ParsedSpec, HelperError> {
     Err(HelperError::BadRequest("unsupported scheme"))
 }
 
-/// Resolve the URL spec to raw key bytes, off the tokio worker thread.
+/// Resolve the URL spec to raw key bytes, off the tokio worker thread,
+/// with **request coalescing**: N concurrent callers for the same `spec`
+/// share one keystore round-trip. Closes 2026-05-13 cycle dos-friend F2
+/// / `cloister-8d4dd7` — the keychain dogfood surfaced a hang on 4
+/// parallel `/resolve` calls hitting the same macOS Keychain entry
+/// (per-call re-authorization on parallel access).
 pub async fn resolve_bytes(spec: &str) -> Result<Vec<u8>, HelperError> {
-    let spec_owned = spec.to_owned();
-    tokio::task::spawn_blocking(move || resolve_bytes_blocking(&spec_owned))
+    RESOLVE_SINGLEFLIGHT
+        .get_or_init(ResolveSingleflight::new)
+        .resolve(spec)
         .await
-        .map_err(|join_err| {
-            tracing::error!(
-                target: "leyline_sign_helper",
-                op = "resolve_blocking",
-                outcome = "join_error",
-                err = %join_err,
-            );
-            HelperError::Internal
-        })?
 }
+
+// ── Resolve-time singleflight ──────────────────────────────────────────────
+//
+// Per-spec request coalescer. When N concurrent callers arrive with the
+// same `spec` before any has completed the keystore read, only the FIRST
+// caller actually reads the keystore; the other N-1 wait on the result
+// and clone it. After the in-flight read completes, the cell is removed
+// so the NEXT cycle of callers does a fresh keystore read (preserving
+// ADR-0019 req 9: byte-hash-driven rotation detection — singleflight
+// coalesces only WITHIN one read; cross-read caching is the `host::cache`
+// layer's job, not ours).
+//
+// Cached Err is intentional: all coalesced callers see the same outcome,
+// so a transient keystore failure doesn't silently retry for some
+// callers (which would muddle the operator log + the §17.10 constant-
+// time wire semantic).
+
+#[derive(Default)]
+struct ResolveSingleflight {
+    cells: tokio::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            std::sync::Arc<tokio::sync::OnceCell<Result<Vec<u8>, HelperError>>>,
+        >,
+    >,
+}
+
+impl ResolveSingleflight {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    async fn resolve(&self, spec: &str) -> Result<Vec<u8>, HelperError> {
+        // Phase 1: grab or create the cell under the map lock.
+        let cell = {
+            let mut map = self.cells.lock().await;
+            map.entry(spec.to_string())
+                .or_insert_with(|| std::sync::Arc::new(tokio::sync::OnceCell::new()))
+                .clone()
+        };
+        // Phase 2: only the leader's closure runs; followers await the
+        // cached value. `OnceCell::get_or_init` is the contract:
+        // first-into-the-init wins; everyone else waits.
+        let result_ref = cell
+            .get_or_init(|| {
+                let spec_owned = spec.to_owned();
+                async move {
+                    tokio::task::spawn_blocking(move || resolve_bytes_blocking(&spec_owned))
+                        .await
+                        .unwrap_or_else(|join_err| {
+                            tracing::error!(
+                                target: "leyline_sign_helper",
+                                op = "resolve_blocking",
+                                outcome = "join_error",
+                                err = %join_err,
+                            );
+                            Err(HelperError::Internal)
+                        })
+                }
+            })
+            .await;
+        let result = result_ref.clone();
+        // Phase 3: drop the cell so the NEXT batch of callers does a
+        // fresh keystore read. Concurrent callers each run this — the
+        // first one removes; the rest are no-ops on the missing key.
+        // New callers arriving in the microseconds-wide cleanup window
+        // either find the cell (still in-flight semantically — they
+        // share the result) or miss it (start a fresh resolve). Both
+        // outcomes are correct.
+        self.cells.lock().await.remove(spec);
+        result
+    }
+}
+
+static RESOLVE_SINGLEFLIGHT: std::sync::OnceLock<ResolveSingleflight> =
+    std::sync::OnceLock::new();
 
 /// Synchronous dispatch used inside `spawn_blocking`.
 pub fn resolve_bytes_blocking(spec: &str) -> Result<Vec<u8>, HelperError> {
