@@ -997,3 +997,58 @@ merge-blocking) once the helper's `/sign` surface is locked down.
   `cloister-7bb456`, `cloister-7c2179`, `cloister-7c737a`,
   `cloister-7cd202` — one per row
 - Parent: `cloister-1f249f` (adversarial team rotation)
+
+## 15.A. Verification cycle 2026-05-12 (cycle 2)
+
+trust-root-friend's second cycle on PR #1 verified the cycle-1 fixes
+landed in commit `de51d86`. Six rows (15.1, 15.2, 15.3, 15.5, 15.6,
+15.7) checked; five closed code-side, one deferred (15.4), three new
+findings filed. NEW-1 was a P1 deployment-shape regression that
+re-opened §15.2 verbatim for any operator following the supervisor
+templates verbatim — closed in commit `af794fb`.
+
+### Per-row status
+
+| Row | Cycle-2 verdict | Notes |
+|---|---|---|
+| 15.1 | **VERIFIED CLOSED** (code-side) + **NEW-2** (P2, follow-up) | Allow-list deny-all works; string-prefix match has the operator-naming-hygiene caveat → NEW-2. |
+| 15.2 | **VERIFIED CLOSED** (cycle-1 code + cycle-2 deploy) | Cycle-1 added bearer-token auth. Cycle-2 added `--require-auth` flag + supervisor templates pin the env (`cloister-9bd96c`). Operators get fail-stop at startup if env is unset. |
+| 15.3 | **VERIFIED CLOSED** | Per-caller rate-limit working at both unit-test and integration layer. |
+| 15.4 | **DEFERRED** (P2; cloister-7bb456) | Supervisor binary integrity remains as documented follow-up. Phase-D binary-attestation design is the proper closing playbook. |
+| 15.5 | **VERIFIED CLOSED** | Strict Content-Type rejects all variants of CSRF simple-POST (text/plain, form-urlencoded, multipart, mismatched case). |
+| 15.6 | **VERIFIED CLOSED** | Chunked-transfer 128 KiB body returns 413 via `RequestBodyLimitLayer`. |
+| 15.7 | **PARTIALLY CLOSED** + **NEW-3** (P3) | Cargo.toml pinned `~2.1`, Cargo.lock at `2.1.1`. CI lint to prevent drift not added → NEW-3 follow-up bead. |
+
+### New findings (filed this cycle)
+
+| # | Severity | Status | Bead | Summary |
+|---|---|---|---|---|
+| NEW-1 | P1 | **SHIPPED 2026-05-12** | `cloister-9bd96c` | Supervisor templates wired `--require-auth` + env-file. Operator-skip-token path now fail-stops at startup with a structured error pointing at the env var. |
+| NEW-2 | P2 | DOCUMENTED; code follow-up filed | `cloister-9bee1f` | `/resolve` allow-list is string-prefix match. Loud warning in supervisor template headers; code-side namespace-partition is the proper close, deferred. |
+| NEW-3 | P3 | FILED | `cloister-9bfbf6` | No CI lint for ed25519-dalek pin drift. `scripts/lint-ed25519-pin.sh` + wire into `task verify` is the close. |
+
+### Pre-merge disposition
+
+PR #1 is now **MERGE OK** for the security surface trust-root-friend
+covers. Final pre-merge checklist before squash-merge:
+
+- [x] All 5 cycle-1 P1/P2 code findings closed (15.1, 15.2, 15.3, 15.5, 15.6, 15.7).
+- [x] Cycle-2 NEW-1 (deployment shape) closed.
+- [x] Adversarial test suite (`tests/host_adversarial.rs`) green.
+- [x] Existing host integration suite green.
+- [ ] NEW-2 + NEW-3 land as follow-up beads (not merge-blocking).
+- [ ] §15.4 supervisor binary-attestation remains follow-up.
+- [ ] Other red-team specialists (oracle, isolation, replay, silence)
+  not yet dispatched on this PR — their findings, if any, can land in
+  follow-up cycles.
+
+Lifecycle going forward: when the helper rotates to add features or
+when keystore-source schemes change, re-dispatch trust-root-friend.
+Other specialists rotate per the ADR-0020 cadence.
+
+**Related:**
+- `docs/security/adversarial-cycles/2026-05-12.md` — full cycle report
+- Beads: `cloister-7aaab1` `cloister-7afedc` `cloister-7b5b9d`
+  `cloister-7c2179` `cloister-7c737a` `cloister-7cd202` (cycle 1) +
+  `cloister-9bd96c` `cloister-9bee1f` `cloister-9bfbf6` (cycle 2).
+- Parent: `cloister-1f249f` (adversarial-team rotation).
