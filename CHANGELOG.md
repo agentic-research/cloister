@@ -83,8 +83,28 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   closing playbook. Adversarial-cycle report at
   `docs/security/adversarial-cycles/2026-05-12.md`.
 - **Failing tests on PR #1 branch** (`rs/crates/sign/tests/host_adversarial.rs`)
-  — 5 tests that RED today, each panic message points to a bead +
+  — 5 tests that RED initially, each panic message points to a bead +
   threat-model row. PR CI now blocks the merge until they go green.
+- **trust-root-friend cycle 1 fixes shipped on PR #1** (commits
+  `de51d86` + `cb7ff50`): 5 of 7 findings closed code-side
+  (§15.1 `/resolve` allow-list, §15.2 bearer-token auth, §15.3
+  per-caller rate-limit, §15.5 strict Content-Type, §15.6
+  RequestBodyLimitLayer, §15.7 ed25519-dalek pin). §15.4 (supervisor
+  binary integrity) deferred as P2.
+- **trust-root-friend cycle 2 verification** — re-dispatched after
+  cycle-1 fixes. Headline NEW-1 (`cloister-9bd96c`, P1): supervisor
+  templates were dropping operators into `AuthConfig::Disabled` =
+  §15.2 restored for any operator following the install instructions
+  verbatim. Closed same-cycle in commit `af794fb` via `--require-auth`
+  fail-stop flag + `EnvironmentFile=`/`EnvironmentVariables` block in
+  launchd plist and systemd unit. NEW-2 (P2, `cloister-9bee1f`) and
+  NEW-3 (P3, `cloister-9bfbf6`) filed as non-blocking follow-ups.
+- **Threat model §15.A** — cycle-2 per-row verification status +
+  NEW-1/2/3 rows + "fix isn't done when code lands; done when the
+  artifact operators follow enforces it" lesson captured.
+- **PR #1 disposition: MERGE OK** for the trust-root surface. Other
+  red-team specialists (oracle, isolation, replay, silence) queued
+  for follow-up cycles.
 
 ### Arcs in flight
 
