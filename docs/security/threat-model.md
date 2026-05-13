@@ -1052,3 +1052,74 @@ Other specialists rotate per the ADR-0020 cadence.
   `cloister-7c2179` `cloister-7c737a` `cloister-7cd202` (cycle 1) +
   `cloister-9bd96c` `cloister-9bee1f` `cloister-9bfbf6` (cycle 2).
 - Parent: `cloister-1f249f` (adversarial-team rotation).
+
+## 16. Oracle audit (oracle-friend cycle 2026-05-12)
+
+oracle-friend's first dispatch. Targets: vault DO 403/404 distinguishability
+(noted in passing by dos-friend's pilot; never formally filed) +
+disclosure endpoint §9.4.b CLOSED-claim re-verification.
+
+### Row 16.1 — Vault DO 403/404 status-code enumeration oracle (DORMANT today)
+
+| | |
+|---|---|
+| **Adversary capability** | A bundle that can call vault via DO RPC with a valid `subjectFp` (i.e., the gateway-internal contract). DORMANT today because only `cloister-router` calls vault. ACTIVATES with the first non-router bundle (ADR-0021 implementation). |
+| **Invariant** | The vault RPC surface MUST NOT distinguish "credential row exists but caller_sub does not match `allowedSubs`" from "no credential row." Both cases collapse to a single 404 with a constant-shape body. Mirrors §9.4.b's disclosure-endpoint playbook. |
+| **Status** | **OPEN** (dormant — status-code distinguishability is in code today but unreachable from any current caller). Tests `test/vault-store.test.ts:140-156` pin the 404-vs-403 split as "intentional because vault is gateway-internal"; the same file's header anticipates the contract-flip when bundle Workers ship. |
+| **Detection** | Probe enumeration would saturate the F1 rate-limit budget (cost 5/proxy → ~12 probes/sec) and emit `vault.rate_limit_reject` events. Silent until cumulative-RPS-anomaly alerts wire (`red-team:silence` queue). |
+| **Recovery** | None needed if closed before bundle Workers ship. If shipped with the oracle live: rotate any credential a compromised bundle could enumerate (bundle-namespace-wide). |
+| **Closing playbook** | Collapse 403 → 404 in `src/vault-store.ts` `#proxyRequestInner`. Always run the same SELECT + parse + `checkAccess` work regardless of outcome (no early-return on no-row). Structured logs preserve the reason; wire response is byte-identical. ~30 LOC + reversed assertion in `test/vault-store.test.ts:140-156`. |
+| **Tracking** | Bead `cloister-aa9376` (P2; escalates to P1 with bundle Worker rollout). |
+
+### Row 16.2 — `checkAccess` glob-loop timing sub-oracle (DEFERRED)
+
+| | |
+|---|---|
+| **Adversary capability** | Same as 16.1; sub-oracle becomes the dominant variance once 16.1's status-code distinguishability is closed. |
+| **Invariant** | Glob-match wall-clock cost MUST NOT leak `allowedSubs` structure. |
+| **Status** | DEFERRED. Sub-ms variance below workerd's 1ms `performance.now()` quantization floor; not standalone-exploitable today. Re-evaluate after 16.1 closes. |
+| **Closing playbook** | Constant-time glob-match (run all patterns to completion regardless of any early `return true`). Same shape as the byte-equality scan in `host/auth.rs::ct_eq`. |
+| **Tracking** | Paragraphed in `cloister-aa9376`; not separately filed. |
+
+### §9.4.b verification — REMAINS CLOSED
+
+oracle-friend's code-path audit on `src/routes/disclosure.ts` confirmed
+every 404-emitting branch flows through:
+
+  - `peerHasChain` at line 219 (constant-cost SELECT 1 ... LIMIT 1)
+  - `constantTimeErrorResponse` (fixed 256-byte body, three-header set)
+
+Pinned by `test/routes/disclosure.test.ts:312-368` (byte-identity across
+`not_found` / `denied` / `bad_cursor`) + `test/storage/disclosure-cursor.test.ts:108-134`
++ `test/trust-store.test.ts:425-480` (peerHasChain row-count
+independence). Empirical bench at `docs/perf/2026-05-10-disclosure-endpoint.md`
+records delta = 0.060 ms inside workerd's 1ms quantization floor.
+
+**§9.4.b REMAINS CLOSED.** No response-shape, header, or pagination
+side-channel surfaced that the bench misses.
+
+### Vectors checked and cleared (oracle-friend audit trail)
+
+For the next cycle's reviewer:
+
+- **Disclosure response-size leak.** Constant 256-byte body via
+  `constantTimeErrorResponse`. Cleared.
+- **Disclosure header leak.** Fixed three-header set on 404. Cleared.
+- **Disclosure pagination past-end-of-chain oracle.** `from_seq = N`
+  past chain end falls through to the same 404 as no-peer
+  (`src/routes/disclosure.ts:251-253`). Cleared.
+- **Disclosure auth-fail vs no-peer.** Lease gate's `rejectReason`
+  merges into the constant-time path after `peerHasChain` runs on
+  every branch. Cleared.
+- **Disclosure bad-cursor vs no-peer.** Same `rejectReason` merge.
+  Cleared.
+- **`peerHasChain` row-count proportionality.** Two `SELECT 1 ... LIMIT 1`
+  queries; SQLite short-circuits. Constant RPC marshaling cost. Cleared.
+- **Vault response body credential leak across 403 path.** `buildErrorResponse`
+  suppresses `_cred`; pinned by `test/vault-store.test.ts:115-138`.
+  Cleared.
+
+**Related:**
+- ADR-0020 — adversarial-team charter
+- `docs/security/adversarial-cycles/2026-05-12.md` — cycle 1 + cycle 2 + oracle-friend cycle report
+- Beads: `cloister-aa9376` (16.1), parent `cloister-1f249f`
