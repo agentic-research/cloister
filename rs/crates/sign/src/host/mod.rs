@@ -24,6 +24,7 @@
 // at the crate root in `lib.rs`; nothing inside this directory compiles on
 // the wasm verifier path (Taskfile `rs:sign:wasm`).
 
+pub mod allowlist;
 pub mod auth;
 pub mod cache;
 pub mod error;

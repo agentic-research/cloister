@@ -37,6 +37,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Serialize};
 use tower_http::limit::RequestBodyLimitLayer;
 
+use crate::host::allowlist::SignAllowList;
 use crate::host::auth::{AuthConfig, authenticate};
 use crate::host::cache::KeyCache;
 use crate::host::error::HelperError;
@@ -60,11 +61,17 @@ pub struct AppState {
     /// hand bytes back for. Default empty = deny all (threat-model §15.1).
     /// Production deploys set this via LEYLINE_SIGN_RESOLVE_ALLOW env.
     pub resolve_allow: Arc<Vec<String>>,
+    /// Per-caller URL allow-list for `/sign`. Empty = no gate (back-compat
+    /// for existing integration tests). Production deploys set this via
+    /// `LEYLINE_SIGN_SIGN_ALLOW` env and pass `--require-sign-allow` to
+    /// refuse-on-empty at startup. Closes 2026-05-13 cycle Cross-cut A
+    /// (trust-root F2 + isolation F-iso-1).
+    pub sign_allow: Arc<SignAllowList>,
 }
 
 impl AppState {
-    /// Construct AppState with auth disabled and /resolve closed. The
-    /// historical signature — preserved for back-compat with existing
+    /// Construct AppState with auth disabled and both allow-lists empty.
+    /// The historical signature — preserved for back-compat with existing
     /// integration tests that pass `AppState::new(rate)` and expect
     /// unauthenticated /sign to succeed.
     ///
@@ -76,14 +83,28 @@ impl AppState {
             started: Instant::now(),
             auth: Arc::new(AuthConfig::Disabled),
             resolve_allow: Arc::new(Vec::new()),
+            sign_allow: Arc::new(SignAllowList::empty()),
         }
     }
 
-    /// Production-shape constructor. Auth + /resolve allow-list explicit.
+    /// Production-shape constructor. Auth + /resolve allow-list explicit;
+    /// `/sign` allow-list defaults to empty (no gate). Use
+    /// `with_full_config` to pin a sign allow-list.
     pub fn with_config(
         rate_per_sec: u32,
         auth: AuthConfig,
         resolve_allow: Vec<String>,
+    ) -> Self {
+        Self::with_full_config(rate_per_sec, auth, resolve_allow, SignAllowList::empty())
+    }
+
+    /// Full production-shape constructor including the `/sign` per-caller
+    /// allow-list. Closes 2026-05-13 cycle Cross-cut A.
+    pub fn with_full_config(
+        rate_per_sec: u32,
+        auth: AuthConfig,
+        resolve_allow: Vec<String>,
+        sign_allow: SignAllowList,
     ) -> Self {
         Self {
             cache: KeyCache::new(),
@@ -91,6 +112,7 @@ impl AppState {
             started: Instant::now(),
             auth: Arc::new(auth),
             resolve_allow: Arc::new(resolve_allow),
+            sign_allow: Arc::new(sign_allow),
         }
     }
 }
@@ -188,6 +210,20 @@ async fn post_sign(
         }
     };
     let scheme = keystore::scheme_label(&req.url);
+    // 2026-05-13 Cross-cut A: per-caller URL allow-list gate. Empty
+    // allow-list = no gate (back-compat); supervisor units that pass
+    // `--require-sign-allow` refuse to start on empty so this branch
+    // only runs in dev mode without it.
+    if !state.sign_allow.is_empty() && !state.sign_allow.is_allowed(&caller, &req.url) {
+        tracing::warn!(
+            target: "leyline_sign_helper",
+            op = "sign",
+            scheme = scheme,
+            caller = %caller,
+            outcome = "forbidden",
+        );
+        return HelperError::Forbidden.into_response();
+    }
     let payload = match Base64UrlUnpadded::decode_vec(&req.payload_b64) {
         Ok(p) => p,
         Err(_) => {
@@ -275,6 +311,19 @@ async fn get_resolve(
             return e.into_response();
         }
     };
+    // Per-caller rate-limit applies to /resolve too. 2026-05-13 cycle
+    // dos-friend F4: rate-limit BEFORE allow-list iteration so an attacker
+    // with a long URL can't amplify CPU via the O(N) prefix scan.
+    if !state.limiter.check(&caller).await {
+        tracing::warn!(
+            target: "leyline_sign_helper",
+            op = "resolve",
+            scheme = scheme,
+            caller = %caller,
+            outcome = "rate_limited",
+        );
+        return HelperError::RateLimited.into_response();
+    }
     // Threat-model §15.1: check allow-list BEFORE touching keystore. Empty
     // allow-list = deny-all. Match by URL prefix (operator declares which
     // URL families /resolve may emit).
@@ -289,18 +338,7 @@ async fn get_resolve(
         );
         return HelperError::Forbidden.into_response();
     }
-    // Per-caller rate-limit applies to /resolve too.
-    if !state.limiter.check(&caller).await {
-        tracing::warn!(
-            target: "leyline_sign_helper",
-            op = "resolve",
-            scheme = scheme,
-            caller = %caller,
-            outcome = "rate_limited",
-        );
-        return HelperError::RateLimited.into_response();
-    }
-    match keystore::resolve_bytes(&q.url) {
+    match keystore::resolve_bytes(&q.url).await {
         Ok(bytes) => {
             tracing::info!(
                 target: "leyline_sign_helper",

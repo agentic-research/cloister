@@ -36,6 +36,7 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use clap::Parser;
+use leyline_sign::host::allowlist::SignAllowList;
 use leyline_sign::host::auth::AuthConfig;
 use leyline_sign::host::server::{AppState, SIGN_TIMEOUT, build_router};
 use tokio::net::TcpListener;
@@ -72,6 +73,16 @@ struct Args {
     /// — the helper will warn loudly and accept unauthenticated calls.
     #[arg(long, default_value_t = false)]
     require_auth: bool,
+
+    /// Require a non-empty `/sign` URL allow-list at startup. Closes
+    /// trust-root-friend F2 + isolation-friend F-iso-1 from the 2026-05-13
+    /// adversarial cycle: a bearer-token holder can otherwise ask the
+    /// helper to sign with an attacker-supplied URL (e.g.,
+    /// `op://attacker-vault/their-key/field`). The supervisor unit MUST
+    /// set `LEYLINE_SIGN_SIGN_ALLOW=<caller>=<prefix>[;...]` and pass
+    /// this flag.
+    #[arg(long, default_value_t = false)]
+    require_sign_allow: bool,
 }
 
 #[tokio::main]
@@ -196,6 +207,61 @@ async fn main() -> ExitCode {
         );
     }
 
+    // 2026-05-13 cycle Cross-cut A: per-caller `/sign` URL allow-list.
+    // Grammar documented in `host::allowlist::SignAllowList::parse`.
+    let sign_allow_env = std::env::var("LEYLINE_SIGN_SIGN_ALLOW").unwrap_or_default();
+    let sign_allow = match SignAllowList::parse(&sign_allow_env) {
+        Ok(a) => a,
+        Err(e) => {
+            error!(target: "leyline_sign_helper", "LEYLINE_SIGN_SIGN_ALLOW parse failed: {}", e);
+            return ExitCode::from(2);
+        }
+    };
+    if sign_allow.is_empty() {
+        if args.require_sign_allow {
+            error!(
+                target: "leyline_sign_helper",
+                op = "start",
+                outcome = "sign_allow_required_but_unset",
+                "--require-sign-allow is set but LEYLINE_SIGN_SIGN_ALLOW is unset/empty. \
+                 Refusing to start. Set the env to `caller=prefix[,prefix...][;...]`. \
+                 Closes 2026-05-13 cycle Cross-cut A (trust-root F2 + iso F-iso-1)."
+            );
+            return ExitCode::from(2);
+        }
+        warn!(
+            target: "leyline_sign_helper",
+            op = "start",
+            outcome = "sign_allow_disabled",
+            "LEYLINE_SIGN_SIGN_ALLOW unset — /sign accepts ANY URL the keystore can resolve. \
+             Production deployments MUST pass --require-sign-allow AND set this env."
+        );
+    } else {
+        info!(
+            target: "leyline_sign_helper",
+            op = "start",
+            outcome = "sign_allow_enabled",
+            caller_count = sign_allow.caller_count(),
+            "/sign per-caller URL allow-list configured"
+        );
+    }
+
+    // 2026-05-13 cycle silence-friend Gap 1: log presence of the pinned
+    // `op` + `security` CLI paths at startup. Not a hard fail — deploy
+    // may not use those schemes — but makes the gap operator-visible.
+    log_subprocess_pin("LEYLINE_SIGN_OP_BIN", "op", "op://");
+    log_subprocess_pin("LEYLINE_SIGN_SECURITY_BIN", "security", "apple-password://");
+
+    // 2026-05-13 cycle silence-friend bonus: log effective KEYCHAIN_ACCOUNT.
+    // Helps an operator notice the `KEYCHAIN_ACCOUNTS` typo class of bug.
+    let effective_account = std::env::var("KEYCHAIN_ACCOUNT").unwrap_or_else(|_| "cloister".into());
+    info!(
+        target: "leyline_sign_helper",
+        op = "start",
+        keychain_account = %effective_account,
+        "keychain account resolved (KEYCHAIN_ACCOUNT env or default 'cloister')"
+    );
+
     info!(
         target: "leyline_sign_helper",
         op = "start",
@@ -204,10 +270,12 @@ async fn main() -> ExitCode {
         rate_limit = args.rate_limit,
         auth = auth_mode,
         resolve_allow_count = resolve_allow.len(),
+        sign_allow_caller_count = sign_allow.caller_count(),
         "leyline-sign-helper listening"
     );
 
-    let state = AppState::with_config(args.rate_limit, auth, resolve_allow);
+    let state =
+        AppState::with_full_config(args.rate_limit, auth, resolve_allow, sign_allow);
     let app = build_router(state);
 
     // Graceful shutdown — SIGTERM / SIGINT drain up to SIGN_TIMEOUT
@@ -267,13 +335,68 @@ fn init_tracing() {
     // RUST_LOG > default. Default level info; per ADR-0019 req. 11, the
     // formatters never emit URL paths or payload bytes (we feed log
     // events only with `scheme` + `outcome` + numeric `payload_len`).
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    //
+    // 2026-05-13 cycle oracle-friend F4: clamp `nono::keystore` to INFO
+    // unconditionally. nono's debug lines emit redacted-but-correlatable
+    // URIs (service / vault / item names) that ADR-0019 req 11 wants
+    // out of logs. Operators running `RUST_LOG=debug` to chase an
+    // unrelated bug would otherwise inherit nono's leakage.
+    let base = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = base
+        .add_directive("nono::keystore=info".parse().expect("static directive parses"))
+        .add_directive("nono=info".parse().expect("static directive parses"));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(true)
         .with_writer(std::io::stderr)
         .try_init();
+}
+
+/// 2026-05-13 cycle silence-friend Gap 1: surface whether the subprocess
+/// shim has a usable pinned binary. Logs the resolved state at startup
+/// instead of letting it silently surface as a 503 keystore_locked.
+fn log_subprocess_pin(env_var: &str, bin_name: &str, scheme: &str) {
+    match std::env::var(env_var) {
+        Err(_) => {
+            info!(
+                target: "leyline_sign_helper",
+                op = "start",
+                env_var = env_var,
+                scheme = scheme,
+                bin = bin_name,
+                pinned = false,
+                "subprocess CLI not pinned; this scheme will refuse with 404 if requested"
+            );
+        }
+        Ok(path) => {
+            let trimmed = path.trim();
+            let exists = std::path::Path::new(trimmed).is_file()
+                && std::path::Path::new(trimmed).is_absolute();
+            if exists {
+                info!(
+                    target: "leyline_sign_helper",
+                    op = "start",
+                    env_var = env_var,
+                    scheme = scheme,
+                    bin = bin_name,
+                    pinned = true,
+                    path = %trimmed,
+                    "subprocess CLI pinned to absolute path"
+                );
+            } else {
+                warn!(
+                    target: "leyline_sign_helper",
+                    op = "start",
+                    env_var = env_var,
+                    scheme = scheme,
+                    bin = bin_name,
+                    pinned = false,
+                    path = %trimmed,
+                    "subprocess CLI path does not exist or is not absolute; this scheme will refuse with 404"
+                );
+            }
+        }
+    }
 }
 
 fn is_loopback(addr: &SocketAddr) -> bool {

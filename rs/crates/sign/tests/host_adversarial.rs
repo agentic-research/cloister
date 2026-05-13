@@ -351,6 +351,277 @@ async fn sign_must_enforce_body_size_cap() {
     );
 }
 
+// ── §17 — 2026-05-13 nono-swap cycle invariants ─────────────────────────────
+//
+// Helper subset for §17 tests: production-posture AdvHelper with a
+// configurable `/sign` allow-list. The fixture file:// seed lives at
+// `seed_path`, and the allow-list permits *exactly* `file://<seed_path>`
+// for the `router` caller (no other URL). Other tests in this block
+// vary the allow-list to probe the gate.
+
+fn allow_only_seed(seed_path: &str) -> leyline_sign::host::allowlist::SignAllowList {
+    leyline_sign::host::allowlist::SignAllowList::from_pairs([(
+        "router".to_owned(),
+        format!("file://{}", seed_path),
+    )])
+}
+
+async fn start_adv_with_sign_allow(
+    sign_allow: leyline_sign::host::allowlist::SignAllowList,
+) -> AdvHelper {
+    let tmp = TempDir::new().unwrap();
+    let seed_path = tmp.path().join("seed");
+    std::fs::write(&seed_path, [0xAAu8; 32]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = AppState::with_full_config(1000, default_auth(), Vec::new(), sign_allow);
+    let app = build_router(state);
+    let task = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    AdvHelper {
+        addr,
+        _tmp: tmp,
+        seed_path: seed_path.to_string_lossy().into_owned(),
+        _server_task: task,
+    }
+}
+
+// ── §17.2 — POST /sign MUST consult the per-caller URL allow-list ──────────
+//
+// 2026-05-13 cycle Cross-cut A (trust-root F2 + isolation F-iso-1). A
+// bearer-token holder could otherwise send `{url: "op://attacker/..."}`
+// and the helper would sign with attacker-supplied bytes.
+#[tokio::test]
+async fn sign_must_reject_url_not_in_allow_list() {
+    let h = start_adv_with_sign_allow(allow_only_seed("/this/path/does/not/exist/intentionally")).await;
+    // The seed_url is `file://<actual seed_path>`, NOT the configured
+    // allow-list prefix. So even though /sign would otherwise succeed,
+    // the gate fires.
+    let body = sign_body(&h.seed_url(), TEST_PAYLOAD);
+    let resp = client()
+        .post(h.url("/sign"))
+        .bearer_auth(ROUTER_TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "/sign accepted a URL not on the per-caller allow-list. Cross-cut A, threat-model §17.2."
+    );
+    let j: Value = resp.json().await.unwrap();
+    assert_eq!(j["error"], "forbidden");
+}
+
+#[tokio::test]
+async fn sign_allows_url_matching_caller_prefix() {
+    // Pre-condition: with the allow-list set to the real seed_path,
+    // /sign succeeds for the matching URL.
+    let tmp = TempDir::new().unwrap();
+    let seed_path = tmp.path().join("seed");
+    std::fs::write(&seed_path, [0xAAu8; 32]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seed_url = format!("file://{}", seed_path.display());
+    let sign_allow = leyline_sign::host::allowlist::SignAllowList::from_pairs([(
+        "router".to_owned(),
+        seed_url.clone(),
+    )]);
+    let state = AppState::with_full_config(1000, default_auth(), Vec::new(), sign_allow);
+    let app = build_router(state);
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let body = sign_body(&seed_url, TEST_PAYLOAD);
+    let resp = client()
+        .post(format!("http://{}/sign", addr))
+        .bearer_auth(ROUTER_TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "allow-listed URL should sign successfully");
+}
+
+#[tokio::test]
+async fn sign_allow_is_per_caller_not_global() {
+    // router can sign URL-A but notme cannot — proves the per-caller
+    // binding is enforced (vs. a global allow-list).
+    let tmp = TempDir::new().unwrap();
+    let seed_path = tmp.path().join("seed");
+    std::fs::write(&seed_path, [0xAAu8; 32]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let seed_url = format!("file://{}", seed_path.display());
+    let sign_allow = leyline_sign::host::allowlist::SignAllowList::from_pairs([(
+        "router".to_owned(),
+        seed_url.clone(),
+    )]);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = AppState::with_full_config(1000, default_auth(), Vec::new(), sign_allow);
+    let app = build_router(state);
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let body = sign_body(&seed_url, TEST_PAYLOAD);
+    // notme caller is authenticated (passes 15.2) but is NOT in the
+    // sign_allow map → should get 403.
+    let resp = client()
+        .post(format!("http://{}/sign", addr))
+        .bearer_auth(NOTME_TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "notme caller signed a URL only router has access to — cross-cut A breach"
+    );
+}
+
+// ── §17.10 — Wire collapse to 404 across all keystore failure shapes ────────
+//
+// 2026-05-13 cycle oracle-friend F1 + F2 + silence Gap 3 (Cross-cut C).
+// Probing a malformed nono URI (well-formed scheme, invalid remainder)
+// must return 404 — NOT 400 (BadRequest), NOT 503 (KeystoreLocked).
+// Otherwise the wire distinguishes "shape-wrong" / "locked" / "absent".
+#[tokio::test]
+async fn nono_dispatch_collapses_to_constant_time_404() {
+    // /resolve gate with the allow-list configured to permit `keyring://`
+    // so we can probe nono-side error paths. The keyring URI shape
+    // requires `<service>/<account>` — providing only a service triggers
+    // nono's `ConfigParse` error, which used to map to BadRequest (400)
+    // and now collapses to NotFound (404).
+    let tmp = TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    use leyline_sign::host::auth::AuthConfig;
+    let state = AppState::with_config(
+        1000,
+        AuthConfig::Disabled,
+        vec!["keyring://".to_owned()],
+    );
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, build_router(state)).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    // Malformed: no account segment. Nono returns ConfigParse.
+    let malformed = "keyring://just-a-service";
+    let url = format!(
+        "http://{}/resolve?url={}",
+        addr,
+        urlencode(malformed),
+    );
+    let resp = client().get(&url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "malformed nono URI must collapse to 404 (got {}), oracle-friend F2 / §17.10",
+        resp.status(),
+    );
+    // Body must be constant-time-shaped (matches the existing 404 body
+    // used by NotFound elsewhere).
+    let body = resp.text().await.unwrap();
+    let (_, expected_body) =
+        leyline_sign::host::error::HelperError::NotFound.into_response_parts();
+    let expected = serde_json::to_string(&expected_body).unwrap();
+    assert_eq!(body, expected, "404 body diverged from canonical NotFound shape");
+
+    // Drop tempdir reference.
+    drop(tmp);
+}
+
+// ── §17.x — parse_spec rejects query strings + fragments ───────────────────
+//
+// 2026-05-13 cycle trust-root F5 + replay F1. Nono's `?decode=go-keyring`
+// reaches into nono's trust module (sigstore-verify et al). Cloister
+// rejects query strings at parse time so the kid-determinism invariant
+// holds and the trust-module link is not reachable.
+#[tokio::test]
+async fn sign_rejects_url_with_query_string() {
+    let h = AdvHelper::start().await;
+    let body = sign_body("keyring://svc/acct?decode=go-keyring", TEST_PAYLOAD);
+    let resp = client()
+        .post(h.url("/sign"))
+        .bearer_auth(ROUTER_TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "query strings must be rejected at parse — trust-root F5 / §17.x"
+    );
+    let j: Value = resp.json().await.unwrap();
+    assert_eq!(j["error"], "bad_request");
+}
+
+// ── §17.6 — Blocking keystore call MUST NOT pin tokio workers ──────────────
+//
+// 2026-05-13 cycle dos F1 / silence Gap 2 (Cross-cut B). The keystore
+// dispatch now runs on the spawn_blocking pool. Concurrent /sign calls
+// + a /healthz probe must complete without the /healthz request
+// queueing behind the keystore I/O.
+#[tokio::test]
+async fn keystore_call_does_not_pin_worker_threads() {
+    // 16 concurrent /sign calls each hitting the file:// path
+    // (microsecond cost, but the dispatch goes through spawn_blocking).
+    // While they're in flight, a /healthz request must return promptly.
+    let h = AdvHelper::start_with_rate(10_000).await;
+    let body = sign_body(&h.seed_url(), TEST_PAYLOAD);
+    let mut sign_tasks = Vec::new();
+    let sign_url = h.url("/sign");
+    for _ in 0..16 {
+        let b = body.clone();
+        let u = sign_url.clone();
+        sign_tasks.push(tokio::spawn(async move {
+            let resp = reqwest::Client::new()
+                .post(&u)
+                .bearer_auth(ROUTER_TOKEN)
+                .json(&b)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+        }));
+    }
+    // While the burst is in flight, /healthz should still return ≤100 ms.
+    let healthz_url = h.url("/healthz");
+    let healthz_start = std::time::Instant::now();
+    let healthz_resp = reqwest::Client::new().get(&healthz_url).send().await.unwrap();
+    let healthz_elapsed = healthz_start.elapsed();
+    assert_eq!(healthz_resp.status(), 200);
+    assert!(
+        healthz_elapsed < Duration::from_millis(500),
+        "healthz took {:?} during sign burst — keystore is pinning workers (dos F1 / §17.6)",
+        healthz_elapsed,
+    );
+    for t in sign_tasks {
+        t.await.unwrap();
+    }
+}
+
 // ── Not covered by unit tests here (documented gaps) ───────────────────────
 //
 // §15.4 — Supervisor binary integrity. Deploy-time property; verified by
@@ -363,3 +634,12 @@ async fn sign_must_enforce_body_size_cap() {
 //          vs ADR declaration). Tracked by `cloister-7cd202`. Add a CI
 //          lint that parses Cargo.lock and asserts the version against
 //          a pinned constant; not a runtime test.
+//
+// §17.7 — FaceID singleflight (dos F2). Requires `apple-password://`
+//          subprocess mocking; tracked by `cloister-future-faceid-singleflight`.
+//
+// §17.8 — Keychain daemon serialization fairness (dos F3). Tracked by
+//          `cloister-future-keychain-cache-ttl`.
+//
+// §17.11 — `/healthz` deep probe (silence Gap 4 + oracle F3). Tracked by
+//          `cloister-future-deep-healthz`.
