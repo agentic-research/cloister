@@ -147,7 +147,11 @@ impl HelperError {
             ),
             HelperError::Forbidden => (
                 StatusCode::FORBIDDEN,
-                ErrorBody { error: CODE_FORBIDDEN, reason: "URL not on /resolve allow-list" },
+                // Neutral reason — same string for /resolve and /sign
+                // gates so the wire doesn't distinguish which gate fired
+                // (oracle-friend discipline). Distinct outcome labels in
+                // tracing carry the operator-side signal.
+                ErrorBody { error: CODE_FORBIDDEN, reason: "URL not on allow-list" },
             ),
             HelperError::UnsupportedMediaType => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
