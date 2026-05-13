@@ -1204,13 +1204,14 @@ via `--features host,host-extras`. Full cycle artifact:
 | **Closing playbook** | Done. Long-tail recommendation in cycle synthesis: add `clippy::await_holding_lock` + custom blocking-on-tokio lints. |
 | **Tracking** | `cloister-2a0faa` (closed). |
 
-### Row 17.7 — FaceID prompt head-of-line blocking (FOLLOW-UP)
+### Row 17.7 — Concurrent same-URL keystore reads (CLOSED for coalescing this cycle; TTL-cache FOLLOW-UP)
 
 | | |
 |---|---|
-| **Adversary capability** | First `/sign` against `apple-password://...` triggers FaceID; user takes 10s to authenticate. 50 concurrent callers' requests for the same URL each spawn an independent `security` subprocess — keychain daemon serializes prompts. Effective DoS ~5-10 minutes per FaceID slowness. |
-| **Invariant** | Concurrent requests for the same URL MUST coalesce into one in-flight resolution (singleflight). |
-| **Status** | **ACTIVE follow-up bead `cloister-8d4dd7`.** Mitigated short-term by 17.6 (spawn_blocking moves the wait to the dedicated pool, so it doesn't starve the tokio runtime), but the keychain daemon serialization remains. |
+| **Adversary capability** | N concurrent `/sign` or `/resolve` against the same URL (any backend: `keychain://`, `apple-password://`, `op://`, `keyring://`). Each request spawns an independent keystore read. macOS `securityd` re-evaluates per-thread authorization on parallel access, causing some callers to hang (real keychain dogfood observed 4 concurrent /resolve hanging indefinitely). For `apple-password://` specifically: FaceID prompt fires per call. Effective DoS via legal traffic volume. |
+| **Invariant** | Concurrent requests for the same URL MUST coalesce into one in-flight keystore read (singleflight). All callers share the result, success or failure. |
+| **Status** | **CLOSED for the coalescing axis** — `keystore::resolve_bytes` uses a per-spec `OnceCell` singleflight: first caller does the keystore read, N-1 followers share the cached `Result`. After the in-flight read completes, the cell is removed so the next cycle of callers does a fresh read (preserves ADR-0019 req 9 rotation detection). Pinned by `concurrent_resolve_for_same_spec_coalesces` (synthetic file://) + real macOS Keychain dogfood (8 concurrent /resolve against the same entry, 5.18s wall time dominated by one Touch ID prompt, all 8 callers byte-identical). **`cloister-8d4dd7` scope reduced** to the TTL-bounded positive-cache axis (cache the read result for N seconds across separate request cycles, not just within one in-flight read) — that still requires an ADR amendment deviating from "re-read every call." |
+| **Closing playbook** | Done for coalescing. TTL-cache follow-up: see `cloister-8d4dd7`.|
 | **Closing playbook** | Per-spec in-flight singleflight in `KeyCache`; positive-cache TTL for `apple-password://` / `op://` (60s recommended; needs ADR amendment for the "re-read every call" deviation). Pin with `apple_password_resolution_must_not_starve_other_callers` test against a `security` shim. |
 | **Tracking** | `cloister-8d4dd7`. |
 
