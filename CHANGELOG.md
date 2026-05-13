@@ -64,6 +64,27 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   per-call signature or workerd-caller-name machinery. Gated by
   ADR-0018 (notme-as-bundle) landing. Layered-defense follow-on (per-
   call sig via ADR-0019 helper) noted but out of scope.
+- **dos-friend F1 shipped** (commit `835816b`, `cloister-211b68`) —
+  per-caller token-bucket budget + concurrency cap in vault DO.
+  Math extracted as pure functions in `vault/src/rate-bucket.ts`
+  (16 unit tests). DO-integration tests for Response-shaped paths
+  in `test/vault-store.test.ts` (2 tests). Structured emit
+  `vault.rate_limit_reject` for silence-friend's future audit hook.
+- **trust-root-friend pre-merge gate** on PR #1 (cloister-99165e) —
+  adversarial cycle 2026-05-12 surfaced 3 P1s + 3 P2s in the
+  leyline-sign-helper. Merge held. Findings (one bead each):
+  cloister-7aaab1 (/resolve byte exfil), cloister-7afedc (cross-UID
+  loopback), cloister-7b5b9d (rate-limit wrong identity),
+  cloister-7bb456 (binary integrity), cloister-7c2179 (CSRF simple-
+  POST), cloister-7c737a (no-CL body cap bypass), cloister-7cd202
+  (ed25519-dalek pin drift).
+- **Threat model §15** — "Trust-anchor-helper attack surface" — 7
+  new rows (§15.1–15.7) documenting each finding's invariant and
+  closing playbook. Adversarial-cycle report at
+  `docs/security/adversarial-cycles/2026-05-12.md`.
+- **Failing tests on PR #1 branch** (`rs/crates/sign/tests/host_adversarial.rs`)
+  — 5 tests that RED today, each panic message points to a bead +
+  threat-model row. PR CI now blocks the merge until they go green.
 
 ### Arcs in flight
 

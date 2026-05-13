@@ -854,3 +854,146 @@ documented.
 - ADR-0012 — content-addressed handoff that this section qualifies
 - Bead `cloister-c1317c` — closes when this section lands
 
+
+## 15. Trust-anchor-helper attack surface (cloister-99165e / ADR-0019)
+
+Added 2026-05-12 by adversarial-cycle 2026-05-12 (see
+[`docs/security/adversarial-cycles/2026-05-12.md`](adversarial-cycles/2026-05-12.md)).
+trust-root-friend's pre-merge review of PR #1 surfaced seven findings
+against the leyline-sign-helper implementation. Three independent P1s
+together regressed the substrate's trust-root posture below the
+predecessor (`scripts/kek-helper.mjs`). PR #1 is held pending fixes.
+
+The helper's design is correct per ADR-0019. The findings are
+implementation gaps where the substrate does not yet enforce what the
+spec promises. Each row below names the adversary capability, the
+defensive invariant the spec claims, the implementation status today,
+and the closing playbook.
+
+### Row 15.1 — `GET /resolve` exfiltrates signing-key bytes
+
+| | |
+|---|---|
+| **Adversary capability** | Any local TCP caller on the helper's loopback port. |
+| **Invariant** (ADR-0019 normative req. 13) | Signing-key consumers MUST use `POST /sign`. Signing-key bytes MUST NOT leave the helper. |
+| **Status** | **OPEN** — the helper carries over the `kek-helper.mjs` `/resolve` endpoint with no path / scheme allow-list. `curl http://127.0.0.1:8786/resolve?url=keychain://com.cloister/master-sk` returns the raw 32-byte master signing seed. |
+| **Detection** | None today. Helper logs URL scheme only, not URL remainder. |
+| **Recovery** | Master rotation. Blast radius cluster-wide (master_sk forges every lease). |
+| **Closing playbook** | Delete `/resolve` outright, OR allow-list to non-signing-key URLs via a deploy-time `--allow-resolve=<scheme:keystore-prefix>` list, OR partition the keystore namespace such that `/resolve` cannot address the signing-key namespace. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::resolve_must_reject_signing_key_urls`. |
+| **Tracking** | Bead `cloister-7aaab1` (P1). |
+
+### Row 15.2 — Loopback bind is not UID-scoped
+
+| | |
+|---|---|
+| **Adversary capability** | Any local UID; any container co-tenant in host netns; any malicious page the operator visits (via simple-POST CSRF — see 15.5). |
+| **Invariant** (ADR-0019 §"Implementation pins" + helper module comment) | Cross-UID access blocked by OS process scoping when the helper runs as the user. |
+| **Status** | **OPEN** — claim is false on Linux and macOS. Loopback TCP has no UID scoping. The helper's own `ratelimit.rs:13-23` comment asserts the protection; the implementation provides none. |
+| **Detection** | None. |
+| **Recovery** | Master rotation. |
+| **Closing playbook** | One of: (a) UDS + peer-credential check (`SO_PEERCRED` on Linux, `getpeereid()` on macOS); (b) bearer-token auth where router and helper share a deploy-time secret; (c) mTLS. (a) is strongest; (b) is cheapest; (c) is over-engineered for same-host transport. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::sign_must_require_authentication`. |
+| **Tracking** | Bead `cloister-7afedc` (P1). |
+
+### Row 15.3 — Rate-limit identity is wrong
+
+| | |
+|---|---|
+| **Adversary capability** | Any caller reaching `/sign` (see 15.2). |
+| **Invariant** (ADR-0019 normative req. 10) | Rate-limit is per source UID. |
+| **Status** | **OPEN** — implementation keys the limiter HashMap on `current_uid()` of the helper's own process, not the caller. One global bucket. A single hostile caller saturates it and DoSes legitimate signing for everyone. |
+| **Detection** | Structured emit fires on rate-limit reject, but doesn't disambiguate caller identity (because there isn't one). |
+| **Recovery** | None during the attack — wait for the bucket to refill. |
+| **Closing playbook** | Add per-caller identity (lands with 15.2's auth fix) AND key the limiter on that identity. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::rate_limit_must_be_per_caller`. |
+| **Tracking** | Bead `cloister-7b5b9d` (P1). |
+
+### Row 15.4 — Supervisor does not verify binary at launch
+
+| | |
+|---|---|
+| **Adversary capability** | Same-UID write to the helper binary's path (`~/.cargo/bin/leyline-sign-helper` on Linux, `/usr/local/bin/leyline-sign-helper` on macOS — both user-writable). |
+| **Invariant** | Supervisor MUST refuse to launch a binary whose hash drifts from a pinned attestation. |
+| **Status** | **OPEN** — launchd plist + systemd unit launch the binary unconditionally. Same-UID-write attacker swaps the binary, supervisor relaunches it on next start (or after SIGHUP), keystore ACL extends to the impostor. Compounds with 15.1 (impostor uses `/resolve` to exfil). |
+| **Detection** | None unless operator manually `shasum`s the binary. |
+| **Recovery** | Reinstall + master rotation. |
+| **Closing playbook** | Supervisor-side `ExecCondition=` (systemd) / pre-launch script (launchd) that verifies a signed manifest. Or use the OS package manager's signing chain. Or add a `--require-build-sha=<sha>` flag the supervisor passes. Test pinned at the deploy layer, not the helper unit — note as "documented gap; supervisor-side test, not unit test." |
+| **Tracking** | Bead `cloister-7bb456` (P2). |
+
+### Row 15.5 — Localhost CSRF via simple-POST
+
+| | |
+|---|---|
+| **Adversary capability** | A page the operator visits in a browser. No special access needed. |
+| **Invariant** | The helper rejects requests not originating from cloister-router. |
+| **Status** | **OPEN** — `/sign` accepts any `Content-Type`. `text/plain` is CORS-safelisted → no preflight → cross-origin `fetch` from a malicious page POSTs JSON, helper parses regardless of declared content-type, master_sk signs attacker-chosen payload. Attacker doesn't need to *read* the response; the signature is the side effect. |
+| **Detection** | None. |
+| **Recovery** | Master rotation (the attacker can hold a valid signature on any payload of their choosing). |
+| **Closing playbook** | Strict `Content-Type: application/json` enforcement (returns 415 otherwise), OR a custom header (`X-Helper-Auth: ...`) that forces CORS preflight. Composes with 15.2's auth fix. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::sign_must_reject_csrf_content_types`. |
+| **Tracking** | Bead `cloister-7c2179` (P2). |
+
+### Row 15.6 — Content-Length cap bypassable
+
+| | |
+|---|---|
+| **Adversary capability** | Any authenticated caller (or any caller, today, given 15.2). |
+| **Invariant** (ADR-0019 normative req. 3) | Request body MUST be ≤ 64 KiB. |
+| **Status** | **OPEN** — `content_length_guard` enforces the cap when a `Content-Length` header is present, but the fallthrough on missing CL lets the request through to axum's 2 MiB default (30× the spec'd ceiling). Helper's own source comment admits the gap and points at the unhandled fix. |
+| **Detection** | None. |
+| **Recovery** | None needed (no key compromise), but allows amplifying request memory cost during DoS. |
+| **Closing playbook** | One-line fix: install `tower_http::limit::RequestBodyLimitLayer::new(64 * 1024)`. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::sign_must_enforce_body_size_cap`. |
+| **Tracking** | Bead `cloister-7c737a` (P2). |
+
+### Row 15.7 — ed25519-dalek pin drift
+
+| | |
+|---|---|
+| **Adversary capability** | None directly exploitable today. The defense being eroded is a defense-in-depth claim, not a load-bearing invariant. |
+| **Invariant** (ADR-0019 §"Implementation pins") | `ed25519-dalek` pinned at `2.1.x` for the constant-time guarantees + algorithmic-substitution defense documented in the math-friend dual review. |
+| **Status** | **OPEN** — `rs/crates/sign/Cargo.toml:15` declares `version = "2.1"` (caret-pin = `^2.1` = `>= 2.1.0, < 3.0.0`). `rs/Cargo.lock:142` resolves to `2.2.0`. Documented promise diverges from shipping artifact. |
+| **Detection** | Manual `cargo audit` / `cargo tree`. No CI gate today. |
+| **Recovery** | Bump to `2.2.x` and amend the ADR with a math-friend re-review, OR tighten the pin to `~2.1` / `=2.1.x` and let CI block 2.2 entries. |
+| **Closing playbook** | Two-line `Cargo.toml` fix (pin tightening) OR an ADR amendment. Pair with a CI check that asserts Cargo.lock's `ed25519-dalek` entry matches the ADR's documented version. Also wire `LEYLINE_SIGN_BUILD_SHA` (currently `option_env!` → `"unknown"` at `host/health.rs:35-38`) so `/healthz` exposes the binary identity for operator audit. |
+| **Tracking** | Bead `cloister-7cd202` (P2). |
+
+### Vectors checked and cleared (audit trail)
+
+trust-root-friend's cycle checked the following and found no exploitable
+vector under the documented threat model. Recording here so the next
+cycle doesn't re-discover them as "open":
+
+- **kid (SHA-256(pubkey)[:8]) collision.** 64-bit kid is used only as a
+  response field and rotation-detection signal, NOT as a cache lookup
+  key (cache is keyed by `(URL spec, SHA-256(bytes))`). Birthday-attack
+  irrelevant under this design.
+- **Cache poisoning race.** Concurrent requests that observe different
+  keystore bytes serialize correctly through the `Mutex<SigningKey>`;
+  each request signs with the bytes it observed at read time.
+- **Keystore-source switch via env mutation.** No env-var indirection
+  in the spec carrier; URL is in the request body at call time. The
+  attack surface is "who controls request bodies" (covered by 15.2 +
+  15.5), not "who controls env."
+- **macOS Keychain TTY-prompt blocking.** Helper uses the `keyring`
+  crate (not `security` CLI); first-use prompts go through the user
+  session under `SessionCreate`. Spec'd OK via supervisor README's
+  macOS partition-list section.
+- **Symlink-TOCTOU on `file://`.** `read_file_bytes` checks
+  `is_symlink()` then `std::fs::read`. A directory-write attacker
+  could in principle race. Practical exploitability is low (write to
+  the keystore directory is already in the trust-root surface).
+  Documented; not filed.
+
+### Status
+
+PR #1 (`cloister-99165e-leyline-sign-helper`) is held pending fixes for
+rows 15.1, 15.2, 15.3 (P1) at minimum. Row 15.6's fix is one line and
+trivially bundled. Row 15.5's fix is one line and trivially bundled.
+Row 15.4 and Row 15.7 are acceptable as immediate follow-ups (not
+merge-blocking) once the helper's `/sign` surface is locked down.
+
+**Related:**
+- ADR-0019 — the spec these rows hold accountable to
+- ADR-0020 — the adversarial-team charter that surfaced these
+- `docs/security/adversarial-cycles/2026-05-12.md` — the cycle report
+- Beads: `cloister-7aaab1`, `cloister-7afedc`, `cloister-7b5b9d`,
+  `cloister-7bb456`, `cloister-7c2179`, `cloister-7c737a`,
+  `cloister-7cd202` — one per row
+- Parent: `cloister-1f249f` (adversarial team rotation)
