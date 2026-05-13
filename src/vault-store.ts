@@ -119,6 +119,7 @@ import {
   buildProxyRequest,
   checkAccess,
   sanitizeResponse,
+  validateCredentialPayload,
   type StoredCredential,
   type VaultStorage,
 } from "../vault/src/vault.js";
@@ -252,6 +253,12 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
   ): Promise<void> {
     assertSubjectFp(subjectFp);
+    // Reject oversized payloads before they touch encrypt + SQL write
+    // (cloister-21b5eb / dos-friend F4). Without this gate, a single
+    // putCredential with megabyte headers blocks the single-threaded DO
+    // on AES-GCM + SQLite write while queueing every co-resident call.
+    const v = validateCredentialPayload(cred);
+    if (!v.ok) throw new Error(`vault: rejected credential — ${v.reason}`);
     await this.#storageFor(subjectFp).put(service, cred);
   }
 
@@ -336,7 +343,18 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
   #getKEK(): Promise<CryptoKey> {
     if (!this.kekPromise) {
-      this.kekPromise = this.#resolveKekSource().resolve().then(deriveKEK);
+      // Memoize the in-flight derive so concurrent callers share work.
+      // CRITICAL: clear the slot on rejection — otherwise a single
+      // transient helper flake at cold-start caches a rejected promise
+      // for the DO instance lifetime, turning a recoverable failure into
+      // a vault-wide outage with no retry path (cloister-2176e4 / dos-friend
+      // pilot finding F3). The `=== p` guard handles the race where
+      // another caller has already started a fresh derive.
+      const p = this.#resolveKekSource().resolve().then(deriveKEK);
+      p.catch(() => {
+        if (this.kekPromise === p) this.kekPromise = null;
+      });
+      this.kekPromise = p;
     }
     return this.kekPromise;
   }

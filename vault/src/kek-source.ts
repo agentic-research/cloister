@@ -199,31 +199,59 @@ class HelperKekSource implements KekSource {
     // error body on non-2xx. We never include the spec in error
     // messages that escape this module — the spec may be a path or
     // service name the operator considers sensitive.
+    //
+    // Bounded retry with jitter for transient helper flake (cloister-2176e4
+    // / dos-friend pilot finding F3). Retry network errors and 5xx; do
+    // NOT retry 4xx (permanent — bad spec, missing keystore entry).
+    // Paired with the vault DO `#getKEK` rejection clearing so a final
+    // failure here doesn't poison the DO's KEK slot for its instance
+    // lifetime.
     const url = `http://kek-helper/resolve?url=${encodeURIComponent(this.spec)}`;
-    let res: Response;
-    try {
-      res = await helper.fetch(new Request(url));
-    } catch (err) {
-      throw new Error(
-        `kek-source: KEK_HELPER fetch failed for ${schemeOf(this.spec)}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+    const ATTEMPTS = 3;
+    const BACKOFF_MS = [100, 250]; // index = attempt number after the first
+    let lastErr: string | null = null;
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await helper.fetch(new Request(url));
+      } catch (err) {
+        lastErr = `fetch: ${err instanceof Error ? err.message : String(err)}`;
+        if (attempt < ATTEMPTS - 1) {
+          const jitter = Math.floor(Math.random() * 50);
+          await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]! + jitter));
+          continue;
+        }
+        break;
+      }
+
+      if (res.ok) {
+        const text = stripTrailingNewlines(await res.text());
+        if (text.length === 0) {
+          throw new Error(
+            `kek-source: KEK_HELPER ${schemeOf(this.spec)} returned empty body`,
+          );
+        }
+        return text;
+      }
+
+      // 4xx is permanent — don't retry.
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(
+          `kek-source: KEK_HELPER ${schemeOf(this.spec)} lookup returned ${res.status}`,
+        );
+      }
+
+      // 5xx — retry if attempts remain.
+      lastErr = `status ${res.status}`;
+      if (attempt < ATTEMPTS - 1) {
+        const jitter = Math.floor(Math.random() * 50);
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]! + jitter));
+      }
     }
 
-    if (!res.ok) {
-      throw new Error(
-        `kek-source: KEK_HELPER ${schemeOf(this.spec)} lookup returned ${res.status}`,
-      );
-    }
-
-    const text = stripTrailingNewlines(await res.text());
-    if (text.length === 0) {
-      throw new Error(
-        `kek-source: KEK_HELPER ${schemeOf(this.spec)} returned empty body`,
-      );
-    }
-    return text;
+    throw new Error(
+      `kek-source: KEK_HELPER ${schemeOf(this.spec)} failed after ${ATTEMPTS} attempts (last: ${lastErr ?? "unknown"})`,
+    );
   }
 }
 

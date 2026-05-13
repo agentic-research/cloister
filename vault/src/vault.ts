@@ -114,6 +114,74 @@ export function validateUpstreamUrl(url: string): boolean {
   return true;
 }
 
+// ── Credential-payload size caps (cloister-21b5eb / dos-friend F4) ──────────
+//
+// Tight by design: real credentials carry 1–2 headers totalling well under
+// 1 KiB. These caps catch the DoS-via-large-payload vector at the input
+// boundary — without them, a single `putCredential` with megabyte headers
+// blocks the single-threaded vault DO on encrypt + SQL write while
+// queueing every co-resident call. Validation runs *before* the write
+// touches the DO (cheaper to reject).
+//
+// Numbers chosen as 10–100× typical headroom over real upstream APIs.
+// If a legitimate caller ever needs to lift one, do it via a manifest
+// declaration (per-service override) rather than by widening the global.
+
+export const CREDENTIAL_LIMITS = {
+  MAX_HEADER_COUNT:        32,
+  MAX_HEADER_KEY_BYTES:    256,
+  MAX_HEADER_VALUE_BYTES:  8 * 1024,    // 8 KiB
+  MAX_TOTAL_HEADERS_BYTES: 16 * 1024,   // 16 KiB serialized
+  MAX_ALLOWED_SUBS_COUNT:  64,
+  MAX_ALLOWED_SUB_BYTES:   512,
+} as const;
+
+/**
+ * Validate the size + shape of a credential payload. Pure function;
+ * caller decides what to do with the rejection (throw at the substrate
+ * boundary, return a typed error to the user, etc.).
+ *
+ * Cumulative size is measured in UTF-8 bytes (TextEncoder), not code
+ * units — matches what the encryption layer will actually serialize.
+ */
+export function validateCredentialPayload(
+  cred: { headers: Record<string, string>; allowedSubs: string[] },
+): { ok: true } | { ok: false; reason: string } {
+  const headers = cred.headers ?? {};
+  const subs = cred.allowedSubs ?? [];
+  const keys = Object.keys(headers);
+  const enc = new TextEncoder();
+
+  if (keys.length > CREDENTIAL_LIMITS.MAX_HEADER_COUNT) {
+    return { ok: false, reason: `too many headers (${keys.length} > ${CREDENTIAL_LIMITS.MAX_HEADER_COUNT})` };
+  }
+  let totalBytes = 0;
+  for (const k of keys) {
+    const kBytes = enc.encode(k).byteLength;
+    if (kBytes > CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES) {
+      return { ok: false, reason: `header key too long (${kBytes} > ${CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES} bytes)` };
+    }
+    const vBytes = enc.encode(headers[k] ?? "").byteLength;
+    if (vBytes > CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES) {
+      return { ok: false, reason: `header value too long (${vBytes} > ${CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES} bytes)` };
+    }
+    totalBytes += kBytes + vBytes;
+  }
+  if (totalBytes > CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES) {
+    return { ok: false, reason: `headers exceed total size (${totalBytes} > ${CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES} bytes)` };
+  }
+  if (subs.length > CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT) {
+    return { ok: false, reason: `too many allowedSubs (${subs.length} > ${CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT})` };
+  }
+  for (const s of subs) {
+    const sBytes = enc.encode(s).byteLength;
+    if (sBytes > CREDENTIAL_LIMITS.MAX_ALLOWED_SUB_BYTES) {
+      return { ok: false, reason: `allowedSubs entry too long (${sBytes} > ${CREDENTIAL_LIMITS.MAX_ALLOWED_SUB_BYTES} bytes)` };
+    }
+  }
+  return { ok: true };
+}
+
 // ── Error responses — never leak credentials ────────────────────────────────
 
 export function buildErrorResponse(

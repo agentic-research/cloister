@@ -350,3 +350,82 @@ describe("ATTACK: error message credential extraction", () => {
     expect(json).not.toContain(NVD_CRED.upstream);   // don't reveal upstream URL
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ATTACK 9: Credential-payload DoS via oversized headers (cloister-21b5eb)
+// Attacker's goal: putCredential with megabyte headers, blocking the
+// single-threaded vault DO on encrypt + SQL write while queueing every
+// co-resident call. Closed by validateCredentialPayload at the input
+// boundary. Per dos-friend pilot finding F4.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("ATTACK: credential-payload DoS", () => {
+  it("rejects oversized single header value", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    const oversized = "x".repeat(CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES + 1);
+    const v = validateCredentialPayload({ headers: { apiKey: oversized }, allowedSubs: [] });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/header value too long/);
+  });
+
+  it("rejects payloads that exceed total bytes via many medium-sized headers", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    // Each value is below the per-value cap; the cumulative total exceeds.
+    const v = validateCredentialPayload({
+      headers: Object.fromEntries(
+        Array.from({ length: 4 }, (_, i) => [`h${i}`, "y".repeat(5 * 1024)]),
+      ),
+      allowedSubs: [],
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/exceed total size/);
+    expect(4 * 5 * 1024).toBeGreaterThan(CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES);
+  });
+
+  it("rejects too many header entries", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    const headers = Object.fromEntries(
+      Array.from({ length: CREDENTIAL_LIMITS.MAX_HEADER_COUNT + 1 }, (_, i) => [`h${i}`, "v"]),
+    );
+    const v = validateCredentialPayload({ headers, allowedSubs: [] });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/too many headers/);
+  });
+
+  it("rejects too many allowedSubs", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    const subs = Array.from(
+      { length: CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT + 1 },
+      (_, i) => `repo:x/y${i}:*`,
+    );
+    const v = validateCredentialPayload({ headers: {}, allowedSubs: subs });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/too many allowedSubs/);
+  });
+
+  it("accepts realistic credential shapes (NVD-shaped)", async () => {
+    const { validateCredentialPayload } = await getVault();
+    const v = validateCredentialPayload(NVD_CRED);
+    expect(v.ok).toBe(true);
+  });
+
+  it("rejects oversized header key", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    const longKey = "k".repeat(CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES + 1);
+    const v = validateCredentialPayload({ headers: { [longKey]: "v" }, allowedSubs: [] });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/header key too long/);
+  });
+
+  it("counts bytes in UTF-8, not code units", async () => {
+    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
+    // 💀 is 4 bytes in UTF-8. ceil(MAX/4)+1 chars exceeds the cap.
+    const chars = Math.ceil(CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES / 4) + 1;
+    const v = validateCredentialPayload({
+      headers: { apiKey: "💀".repeat(chars) },
+      allowedSubs: [],
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.reason).toMatch(/header value too long/);
+  });
+});
