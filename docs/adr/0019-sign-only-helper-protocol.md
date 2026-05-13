@@ -201,6 +201,47 @@ counters, or last-error detail.
     receipts, anything in cloister-127a3c's scope) **MUST use
     `POST /sign`**.
 
+14. **Helper MUST refuse `POST /sign` for URLs not on a per-caller
+    allow-list when `--require-sign-allow` is set.** Grammar:
+    `LEYLINE_SIGN_SIGN_ALLOW=<caller>=<prefix>[,<prefix>...][;<caller>=<prefix>[,<prefix>...]]`
+    Wildcard caller `*` matches any authenticated caller (use sparingly).
+    Empty allow-list with `--require-sign-allow` set is fail-stop at
+    startup. Added by the 2026-05-13 adversarial cycle (threat-model
+    §17.2). Closes the gap where a bearer-token holder could otherwise
+    direct the helper to sign with an attacker-supplied URL (e.g.,
+    `op://attacker-vault/their-key/field`).
+
+15. **Helper MUST reject `POST /sign` URLs containing `?` or `#`** at
+    parse time. Cloister's signing-scheme grammar is fixed at the
+    cloister boundary; nono's `?decode=*` family reaches into nono's
+    trust module (which links sigstore-verify), and the kid-determinism
+    invariant (req 7) is cleaner without query-string aliasing. Added
+    by the 2026-05-13 cycle (threat-model §17.5).
+
+16. **Helper MUST run keystore I/O on a blocking-thread pool, not the
+    request runtime's worker threads.** The synchronous nono dispatch
+    (`keyring` crate IPC; `op` / `security` subprocess polling) goes
+    through `tokio::task::spawn_blocking` so a slow keystore call does
+    not pin a worker. Subprocess wall-clock is capped at 4500ms (under
+    the 5s `SIGN_TIMEOUT` of req 4) and the child is killed on
+    timeout. Closes 2026-05-13 cycle threat-model §17.6.
+
+17. **Helper MUST collapse all keystore-side failures to the
+    constant-time 404 wire shape.** `SecretNotFound`, `KeystoreAccess`
+    (e.g., "keychain locked", "op not signed in"), and `ConfigParse`
+    (malformed URI) MUST all return the byte-identical 404 body. The
+    distinct outcome labels (`not_found`, `keystore_locked`, `bad_uri`)
+    survive in tracing for operators, not on the wire. Closes
+    2026-05-13 cycle threat-model §17.10 (oracle-friend F1+F2).
+
+18. **Helper MUST clamp `nono::*` tracing targets to INFO max.** Nono's
+    own debug lines emit redacted-but-correlatable URIs (service /
+    vault / item names) that req 11 wants out of logs. Operators
+    running `RUST_LOG=debug` for unrelated debugging would otherwise
+    inherit nono's leakage. Implemented via an EnvFilter directive in
+    the helper's `init_tracing`. Closes 2026-05-13 cycle §17.10
+    (oracle-friend F4).
+
 ### Constant-time error shape
 
 Per the §9.4 constant-time-404 pattern from ADR-0007 / `disclosure.ts`:
@@ -272,7 +313,39 @@ rotation (both invariants satisfied).
   but untested in cloister CI today (see the "follow-up" note below).
 - **Toolchain pin:** `rust-toolchain.toml` at `rs/` pins channel
   `1.95.0` because nono 0.54 declares `rust-version = "1.95"`. Bump in
-  lockstep with the nono MSRV.
+  lockstep with the nono MSRV. `task rs:audit` (added by `cloister-2a0faa`,
+  folded into `task verify`) asserts the channel pin matches the
+  documented value and runs `cargo audit --deny warnings` +
+  `cargo deny check` over the supply-chain closure.
+
+- **Supply-chain trust base after the nono swap.** Nono 0.54 with
+  `features = ["system-keyring"]` pulls a substantial closure beyond the
+  `keyring` crate it nominally fronts: `sigstore-verify`,
+  `sigstore-trust-root`, `sigstore-crypto`, `sigstore-rekor`,
+  `sigstore-bundle`, `sigstore-tsa`, `sigstore-merkle`, `sigstore-types`,
+  `aws-lc-rs` (+ `aws-lc-sys` bindgen-into-C), `rustls-webpki`,
+  `rustls-pki-types`, `x509-cert`, `der`, plus `walkdir`, `ignore`,
+  `globset`, `regress`, `landlock` (Linux only), `nix`, `libc`. The
+  2026-05-13 adversarial cycle (trust-root-friend F1, threat-model §17.1)
+  classified this as a P1 supply-chain surface expansion that ADR-0019
+  must enumerate. Closing playbook landed: (a) supply-chain attestation
+  step in `task rs:audit`; (b) toolchain pin enforced via the same
+  Taskfile target. Long-tail recommendation (cargo-vet trust set,
+  cargo-crev, or vendored mirror) tracked under
+  `cloister-future-supply-chain-attestation`.
+
+- **Subprocess hardening for `op://` + `apple-password://`.** The two
+  CLI-shell schemes do NOT route through nono's `Command::new("op")`
+  bare-name lookup; they go through cloister's local subprocess shim
+  in `host::keystore::run_subprocess_with_trim`. That shim requires
+  `LEYLINE_SIGN_OP_BIN` / `LEYLINE_SIGN_SECURITY_BIN` to point to an
+  absolute path of an extant file; runs `Command::env_clear()` +
+  explicit allow-list (HOME, OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*,
+  OP_ACCOUNT, OP_DEVICE for `op`; HOME only for `security`); caps
+  wall-clock at `SUBPROCESS_TIMEOUT = 4500ms` (under the 5s
+  `SIGN_TIMEOUT`) and kills the child on timeout. Closes the
+  2026-05-13 adversarial cycle's trust-root-friend F3 (PATH-hijack)
+  + isolation-friend F-iso-3 (env wholesale inheritance).
 
 ### Implementation language and location
 
