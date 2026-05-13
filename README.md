@@ -12,7 +12,7 @@ Today's hosted tenants are `bead_*`, `mache_*`, `lsp_*`, lifecycle
 (`reparse`/`enrich`/`status`), and the Interlace identity bridge —
 anything HTTP-shaped plugs into the same route table without touching
 the substrate. Backend kinds and schema rules live in
-[ADR-0004](docs/adr/0004-manifest-as-build-time-config.md).
+[ADR-0004](docs/adr/0004-capnp-manifest.md).
 
 ## Load-bearing claims (and how they're defended)
 
@@ -266,9 +266,15 @@ failure modes — see [docs/integration/mcp-client.md](docs/integration/mcp-clie
 ## Run via workerd directly (no Cloudflare account)
 
 ```bash
-pnpm run build:local                           # bundle → dist/index.js
-npx workerd serve config.capnp --experimental
+task build:local                              # bundle → dist/index.js + dist/config.capnp
+task serve:local                              # workerd serve dist/config.capnp --experimental
 ```
+
+`workerd` ships as a devDependency. `task serve:local` requires
+`/data/do` to be writable (DO SQLite path baked into `config.capnp` for
+the apko image; for local dev create it once: `sudo mkdir -p /data/do
+&& sudo chown "$USER" /data/do`). The `wrangler dev` path (`task dev`)
+uses `.wrangler/state/` instead and needs no setup.
 
 [`config.capnp`](config.capnp) and [`wrangler.toml`](wrangler.toml) are kept in sync: same bindings (`BEAD_STORE`,
 `NOTME`, `ROSARY_MCP_URL`, `LLO_MCP_URL`, `SIGNET_URL`) on both paths.

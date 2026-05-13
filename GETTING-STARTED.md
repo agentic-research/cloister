@@ -78,9 +78,21 @@ task dev             # → http://localhost:8787
 ### Path B — `workerd serve` (no Cloudflare account, matches the apko image)
 
 ```sh
-task build:local     # bundles src/ → dist/index.js
-task serve:local     # workerd serve config.capnp --experimental
+task build:local     # bundles src/ → dist/index.js + dist/config.capnp
+task serve:local     # workerd serve dist/config.capnp --experimental
 ```
+
+**One-time prereq:** Path B requires `/data/do` writable. That's the
+DO SQLite path baked into `config.capnp` for the apko-image deploy
+shape. On a local self-host machine, create it once:
+
+```sh
+sudo mkdir -p /data/do && sudo chown "$USER" /data/do
+```
+
+Path A (`task dev`, wrangler) uses `.wrangler/state/` instead and needs
+no setup. If `/data/do` doesn't suit your environment, stick with Path A
+for local work — they run the same code.
 
 ### Path C — `task cluster:dev` (full cluster topology, mac-native)
 
