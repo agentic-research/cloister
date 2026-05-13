@@ -17,18 +17,68 @@
 // `keystore::resolve_bytes`. Default deny-all when `--require-sign-allow`
 // is set; warn-and-allow otherwise (for local dev only).
 //
-// Env-var grammar (`LEYLINE_SIGN_SIGN_ALLOW`):
+// # Env-var grammar (`LEYLINE_SIGN_SIGN_ALLOW`)
 //
-//   <caller>=<prefix>[,<prefix>...][;<caller>=<prefix>[,<prefix>...]]
+// ```text
+//   ALLOW_LIST    := CALLER_ENTRY (";" CALLER_ENTRY)*
+//   CALLER_ENTRY  := CALLER_NAME "=" PREFIX_LIST
+//   PREFIX_LIST   := PREFIX ("," PREFIX)*
+//   CALLER_NAME   := <bearer-token caller name, or "*" for wildcard>
+//   PREFIX        := <URL prefix; matches via String::starts_with>
+// ```
 //
-// Example:
+// **`;` separates callers. `,` chains prefixes within one caller. The
+// two are NOT interchangeable.**
 //
+// ## Worked examples
+//
+// Single caller, single prefix:
+// ```text
+//   LEYLINE_SIGN_SIGN_ALLOW="router=keychain://com.cloister/master-sk"
+// ```
+// `router` may sign over `keychain://com.cloister/master-sk` and any URL
+// starting with that prefix. No other caller is permitted any URL.
+//
+// Single caller, multiple prefixes (commas):
+// ```text
+//   LEYLINE_SIGN_SIGN_ALLOW="router=keychain://com.cloister/master-sk,keychain://com.cloister/backup-sk"
+// ```
+// `router` may sign over either of the two prefixes.
+//
+// Multiple callers, each with their own prefix (semicolons):
+// ```text
 //   LEYLINE_SIGN_SIGN_ALLOW="router=keychain://com.cloister/master-sk;notme=keyring://com.cloister/notme/cloister"
+// ```
+// `router` is pinned to the master-sk; `notme` is pinned to its own
+// keyring entry. Neither caller can sign over the other's URL.
 //
-// Wildcard caller `*` matches any authenticated caller. Use sparingly —
-// the per-caller form is preferred in production.
+// Multiple callers AND multiple prefixes per caller:
+// ```text
+//   LEYLINE_SIGN_SIGN_ALLOW="router=keychain://a,keychain://b;notme=file:///etc/notme-seed"
+// ```
 //
-// Findings closed by this module:
+// Wildcard caller `*` (use sparingly — preferred only for local-dev
+// where there's effectively one caller):
+// ```text
+//   LEYLINE_SIGN_SIGN_ALLOW="*=file:///tmp/dev-seed"
+// ```
+// Any authenticated caller may sign over `file:///tmp/dev-seed`.
+//
+// ## Common pitfalls
+//
+// **Wrong:** `LEYLINE_SIGN_SIGN_ALLOW="router=A,router=B"` — the parser
+// treats this as caller=`router`, prefixes=[`A`, `router=B`]. The `,` is
+// the *prefix* separator within one caller; you don't repeat the caller.
+//
+// **Right:** `LEYLINE_SIGN_SIGN_ALLOW="router=A,B"` (commas chain
+// prefixes) or `LEYLINE_SIGN_SIGN_ALLOW="router=A;router=B"`
+// (semicolons re-open the caller and merge — works but is misleading;
+// use the comma form).
+//
+// **Wrong:** `LEYLINE_SIGN_SIGN_ALLOW="router=A B"` — spaces inside
+// prefixes are not interpreted (they remain part of the prefix string).
+//
+// # Findings closed by this module
 //
 //   - trust-root-friend F2 (P0): /sign URL is not allow-listed
 //   - isolation-friend F-iso-1 (P1): /sign doesn't consult resolve_allow

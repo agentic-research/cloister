@@ -1218,6 +1218,7 @@ dependencies = [
  "der",
  "ed25519-dalek",
  "hex",
+ "keyring",
  "libc",
  "log",
  "nono",
@@ -1235,6 +1236,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

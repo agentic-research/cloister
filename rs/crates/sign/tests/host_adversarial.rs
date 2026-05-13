@@ -499,20 +499,55 @@ async fn sign_allow_is_per_caller_not_global() {
     );
 }
 
-// ── §17.10 — Wire collapse to 404 across all keystore failure shapes ────────
+// ── §17.10 — Wire collapse to 404 across backend failure shapes ───────────
 //
 // 2026-05-13 cycle oracle-friend F1 + F2 + silence Gap 3 (Cross-cut C).
-// Probing a malformed nono URI (well-formed scheme, invalid remainder)
-// must return 404 — NOT 400 (BadRequest), NOT 503 (KeystoreLocked).
-// Otherwise the wire distinguishes "shape-wrong" / "locked" / "absent".
+// Backend-side failures (entry not found, keystore locked, ambiguous,
+// platform error) MUST all return the byte-identical 404 body. Parse
+// errors at cloister's boundary are a distinct class (400) — they're
+// operator-config errors, not enumeration oracles, because
+// attacker-controlled URLs are filtered by the `/sign` (§17.2) and
+// `/resolve` allow-lists before parse runs. The collapse invariant
+// applies to the LAYER BELOW the allow-list.
 #[tokio::test]
-async fn nono_dispatch_collapses_to_constant_time_404() {
-    // /resolve gate with the allow-list configured to permit `keyring://`
-    // so we can probe nono-side error paths. The keyring URI shape
-    // requires `<service>/<account>` — providing only a service triggers
-    // nono's `ConfigParse` error, which used to map to BadRequest (400)
-    // and now collapses to NotFound (404).
-    let tmp = TempDir::new().unwrap();
+async fn backend_failures_collapse_to_constant_time_404() {
+    // Well-formed file:// URL pointing at a path that does not exist.
+    // Parse succeeds; keystore-side read fails with NotFound.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    use leyline_sign::host::auth::AuthConfig;
+    let state = AppState::with_config(
+        1000,
+        AuthConfig::Disabled,
+        vec!["file://".to_owned()],
+    );
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, build_router(state)).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let nonexistent = "file:///this/path/intentionally/does/not/exist";
+    let url = format!("http://{}/resolve?url={}", addr, urlencode(nonexistent));
+    let resp = client().get(&url).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "backend-side NotFound must surface as 404 (got {}), oracle-friend F1 / §17.10",
+        resp.status(),
+    );
+    // Body must be constant-time-shaped (matches the existing 404 body
+    // used by NotFound elsewhere).
+    let body = resp.text().await.unwrap();
+    let (_, expected_body) =
+        leyline_sign::host::error::HelperError::NotFound.into_response_parts();
+    let expected = serde_json::to_string(&expected_body).unwrap();
+    assert_eq!(body, expected, "404 body diverged from canonical NotFound shape");
+}
+
+// Companion: malformed URI at parse boundary → 400, NOT collapsed to 404.
+// Parse errors are operator-config errors, not enumeration oracles, since
+// the upstream allow-list filters attacker-controlled URLs.
+#[tokio::test]
+async fn malformed_uri_returns_400_at_parse_boundary() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     use leyline_sign::host::auth::AuthConfig;
@@ -525,30 +560,17 @@ async fn nono_dispatch_collapses_to_constant_time_404() {
         let _ = axum::serve(listener, build_router(state)).await;
     });
     tokio::time::sleep(Duration::from_millis(20)).await;
-    // Malformed: no account segment. Nono returns ConfigParse.
+    // keyring:// requires <service>/<account>. Without the account
+    // segment, cloister's parser returns BadRequest at the boundary.
     let malformed = "keyring://just-a-service";
-    let url = format!(
-        "http://{}/resolve?url={}",
-        addr,
-        urlencode(malformed),
-    );
+    let url = format!("http://{}/resolve?url={}", addr, urlencode(malformed));
     let resp = client().get(&url).send().await.unwrap();
     assert_eq!(
         resp.status(),
-        404,
-        "malformed nono URI must collapse to 404 (got {}), oracle-friend F2 / §17.10",
+        400,
+        "malformed keyring URI must surface as 400 at parse boundary (got {})",
         resp.status(),
     );
-    // Body must be constant-time-shaped (matches the existing 404 body
-    // used by NotFound elsewhere).
-    let body = resp.text().await.unwrap();
-    let (_, expected_body) =
-        leyline_sign::host::error::HelperError::NotFound.into_response_parts();
-    let expected = serde_json::to_string(&expected_body).unwrap();
-    assert_eq!(body, expected, "404 body diverged from canonical NotFound shape");
-
-    // Drop tempdir reference.
-    drop(tmp);
 }
 
 // ── §17.x — parse_spec rejects query strings + fragments ───────────────────

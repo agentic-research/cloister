@@ -247,10 +247,22 @@ async fn main() -> ExitCode {
     }
 
     // 2026-05-13 cycle silence-friend Gap 1: log presence of the pinned
-    // `op` + `security` CLI paths at startup. Not a hard fail — deploy
-    // may not use those schemes — but makes the gap operator-visible.
-    log_subprocess_pin("LEYLINE_SIGN_OP_BIN", "op", "op://");
-    log_subprocess_pin("LEYLINE_SIGN_SECURITY_BIN", "security", "apple-password://");
+    // `op` + `security` CLI paths at startup. Only meaningful under
+    // `host-extras` (the schemes are otherwise not compiled in and the
+    // probe would mislead operators into thinking they could enable
+    // them by setting the env var).
+    #[cfg(feature = "host-extras")]
+    {
+        log_subprocess_pin("LEYLINE_SIGN_OP_BIN", "op", "op://");
+        log_subprocess_pin("LEYLINE_SIGN_SECURITY_BIN", "security", "apple-password://");
+    }
+    #[cfg(not(feature = "host-extras"))]
+    info!(
+        target: "leyline_sign_helper",
+        op = "start",
+        outcome = "host_extras_disabled",
+        "binary built without host-extras feature; op:// and apple-password:// schemes are not enabled"
+    );
 
     // 2026-05-13 cycle silence-friend bonus: log effective KEYCHAIN_ACCOUNT.
     // Helps an operator notice the `KEYCHAIN_ACCOUNTS` typo class of bug.
@@ -355,6 +367,7 @@ fn init_tracing() {
 /// 2026-05-13 cycle silence-friend Gap 1: surface whether the subprocess
 /// shim has a usable pinned binary. Logs the resolved state at startup
 /// instead of letting it silently surface as a 503 keystore_locked.
+#[cfg(feature = "host-extras")]
 fn log_subprocess_pin(env_var: &str, bin_name: &str, scheme: &str) {
     match std::env::var(env_var) {
         Err(_) => {
