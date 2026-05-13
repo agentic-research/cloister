@@ -457,6 +457,8 @@ excluded from `task lint` / `task test`.
 - [docs/adr/0017-emit-workerd-config-generator.md](docs/adr/0017-emit-workerd-config-generator.md) — `scripts/emit-workerd-config.mjs` generator rationale (Accepted)
 - [docs/adr/0018-notme-co-location.md](docs/adr/0018-notme-co-location.md) — **notme co-location (Alternative 4 split surface — internal in-process, public separate Worker)** (Accepted 2026-05-12; external-consumer survey decisive)
 - [docs/adr/0019-sign-only-helper-protocol.md](docs/adr/0019-sign-only-helper-protocol.md) — **sign-only trust-anchor-helper protocol** (Accepted 2026-05-12; POST /sign returns sig+kid, never key bytes — cross-cutting prerequisite for ADR-0018 + ADR-0014 v2b)
+- [docs/adr/0020-adversarial-team-charter.md](docs/adr/0020-adversarial-team-charter.md) — **cloister adversarial red-team rotation** (Proposed 2026-05-12; 7-role specialist team complementing math-friend + code-architect; weekly cycle, synthesis-lead owns the threat model)
+- [docs/adr/0021-per-bundle-vault-instances.md](docs/adr/0021-per-bundle-vault-instances.md) — **per-bundle vault DO instances** (Proposed 2026-05-12; implements the binding-layer identity design from ADR-0013, resolves dos-friend F2 finding, gated by ADR-0018 notme-as-bundle landing)
 - [hooks/README.md](hooks/README.md) — `cloister-stale-sync` Claude Code plugin
 - [src/README.md](src/README.md) — worker source layout map (routes / manifest / wire / backends)
 - [manifest/README.md](manifest/README.md) — capnp schema for the gateway (the `Cloister.Gateway` type)

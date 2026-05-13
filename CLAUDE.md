@@ -27,7 +27,7 @@ top-level docs describe *what*.
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
   numbered ADR before changing the substrate. The next free number is
-  ADR-0020 (0001–0019 taken). Status mix as of 2026-05-12: most are
+  ADR-0022 (0001–0021 taken). Status mix as of 2026-05-12: most are
   Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
   signal); ADR-0010 stays Proposed for the manifest-side vault wiring
   question, but ADR-0013 ratified the enforcement model (V8 isolate +
@@ -38,7 +38,11 @@ top-level docs describe *what*.
   registry surface. ADR-0017 documents the workerd-config generator
   rationale. ADR-0018 (notme co-location, Alternative 4 split surface)
   + ADR-0019 (sign-only trust-anchor-helper protocol) ship the
-  2026-05-12 identity-co-location arc.
+  2026-05-12 identity-co-location arc. ADR-0020 charters the
+  adversarial red-team rotation (7 roles, weekly cycle); ADR-0021
+  resolves the F2 finding from that rotation's pilot by selecting
+  ADR-0013's per-bundle-DO design as the vault identity-propagation
+  mechanism.
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
@@ -130,7 +134,7 @@ sufficient.
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
 
-## In-flight substrate work (ADRs 0007–0019)
+## In-flight substrate work (ADRs 0007–0021)
 
 | ADR | Status | Decade thread |
 |---|---|---|
@@ -144,6 +148,8 @@ sufficient.
 | 0014 — pluggable KEK source (Keychain / libsecret / file / env) | Accepted | `interlace-substrate/vault` |
 | 0018 — notme co-location (Alternative 4: split surface — internal in-process, public separate Worker) | Accepted | `interlace-substrate/vault` |
 | 0019 — sign-only trust-anchor-helper protocol (POST /sign returns sig+kid, never key bytes) | Accepted | `interlace-substrate/vault` |
+| 0020 — adversarial red-team rotation (7-role review team; weekly cycle) | Proposed | `interlace-substrate/adversarial` |
+| 0021 — per-bundle vault DO instances (ADR-0013 design implementation; resolves F2 identity propagation) | Proposed | `interlace-substrate/vault` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.

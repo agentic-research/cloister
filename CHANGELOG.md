@@ -39,6 +39,31 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   hypervisor-tier bundles. 9 new tests.
 - **Threat model §2** — new row for the leyline-sign-helper binary
   trust root (per ADR-0019).
+- **ADR-0020 Proposed + adversarial team chartered** (`cloister-1f249f`)
+  — 7-role red-team rotation (dos-friend, oracle-friend, isolation-
+  friend, replay-friend, trust-root-friend, silence-friend, synthesis-
+  lead). Agent definitions in `~/github/jamestexas/agents/agents/`.
+  Six specialists read-only; synthesis-lead owns the threat model.
+  Origin: 5-why exercise surfaced pioneer-mode-under-resources-ops
+  pattern across multiple surfaces.
+- **dos-friend pilot dispatched** against `src/vault-store.ts` —
+  4 findings: F1 unbounded RPC queue (`cloister-211b68`, open), F2
+  identity propagation (`cloister-2140b5`, resolved by ADR-0021 below),
+  F3 KEK rejected-promise cache (`cloister-2176e4`, **shipped**), F4
+  credential-payload size cap (`cloister-21b5eb`, **shipped**).
+- **F3 + F4 shipped in vault** (commit `4499f7c`) — `#getKEK` clears
+  rejected promises with race-guard; `HelperKekSource.resolve` bounded
+  retry (3 attempts, 100/250ms backoff + jitter, no 4xx retry);
+  `validateCredentialPayload` enforces 32-header / 16 KiB / UTF-8-
+  byte-counted caps at the input boundary before encrypt + SQL write
+  can be triggered. 7 new adversarial tests.
+- **ADR-0021 Proposed** — per-bundle vault DO instances. Closes the
+  open identity-propagation question from `src/vault-store.ts:92-110`
+  by implementing ADR-0013's documented binding-layer identity design
+  (per-bundle `idFromName(bundleName)`) rather than adding new
+  per-call signature or workerd-caller-name machinery. Gated by
+  ADR-0018 (notme-as-bundle) landing. Layered-defense follow-on (per-
+  call sig via ADR-0019 helper) noted but out of scope.
 
 ### Arcs in flight
 
