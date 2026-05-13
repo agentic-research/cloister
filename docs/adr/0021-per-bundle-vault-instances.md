@@ -1,6 +1,6 @@
 ---
 title: "ADR-0021: Per-bundle vault DO instances — implementing ADR-0013's identity-by-binding design"
-status: Proposed (2026-05-12) — closes the open question in ADR-0013 §"in-cluster bundle identity propagation"; gated by notme-as-bundle landing (cloister-db99cd / ADR-0018)
+status: Proposed (2026-05-12) — closes the open question in ADR-0013 §"in-cluster bundle identity propagation"; implementation lands WITH ADR-0018's internal-bundle portion (cloister-db99cd), not before it
 date: 2026-05-12
 tags: [security, vault, identity, isolation, slice-grant, adr-0013-implementation]
 threat_model: docs/security/threat-model.md
@@ -29,9 +29,21 @@ The implementation hasn't followed: today
 Only `cloister-router` reaches the singleton, threading
 `VerifiedLease.peerFp` (the external peer's cert fingerprint) as
 `subjectFp`. The single-caller invariant has been the load-bearing
-isolation property — but ADR-0018 (notme co-location, in-progress as
-cloister-db99cd) makes notme the **first non-router bundle to need
-vault access**, breaking the single-caller invariant.
+isolation property and **still holds today** — notme runs as a
+separate workerd process (`cluster.capnp:notme-identity` is
+`kind = (external = ...)`, image `notme:0.1.0`, port 8788), reached
+over UDS via the NOTME service binding. The in-process portion of
+ADR-0018 (Alternative 4 split surface, accepted 2026-05-12) is
+`in_progress` as cloister-db99cd but has NOT shipped.
+
+When that in-process portion lands, notme becomes the **first
+non-router bundle to need vault access**, breaking the single-caller
+invariant. This ADR resolves the identity-propagation question
+*ahead* of that landing so the design is settled before the trigger
+arrives — but the implementation lands *alongside* ADR-0018's
+internal-bundle portion, not in advance. Migrating router to
+`idFromName("router")` before there's a second caller would be
+busywork.
 
 The dos-resilience-auditor pilot on 2026-05-12 (ADR-0020) surfaced
 this as finding F2 (`cloister-2140b5`): with the current shape, a
@@ -116,12 +128,17 @@ Implementing it dissolves the identity-propagation question — the
 DO instance *is* the identity. No new mechanism, no per-call
 verification cost, no machinery to maintain.
 
-**Why now?** notme-as-bundle (ADR-0018) is in-progress and is the
-trigger. Shipping notme-as-bundle without resolving F2 first would
-mean the first multi-caller deployment of vault uses a
-denial-counter / capability check keyed on the *wrong identity*,
-creating a "we already did vault rate-limiting" excuse against
-revisiting. Sequence matters more than speed.
+**Why decide now (when implementation lands later)?** ADR-0018's
+internal-bundle portion is `in_progress` (cloister-db99cd) and will
+ship in the near term. Shipping that without F2 resolved would mean
+the first multi-caller deployment of vault uses a denial-counter /
+capability check keyed on the *wrong identity*, creating a "we
+already did vault rate-limiting" excuse against revisiting. Settling
+the design ahead of the trigger lets the ADR-0018 implementation
+adopt the right binding shape from day one — no interim
+singleton-plus-identity-propagation phase. Implementation work
+itself lands alongside ADR-0018's internal-bundle portion, not
+before.
 
 **Why no new manifest field?** The bundle's `name` is already
 unique (lint-tenant-docs enforces uniqueness in the route table).
@@ -158,11 +175,13 @@ bundle's declaration.
    storage; bundle-A's `putCredential` is unreachable from bundle-B's
    stub.
 
-6. **Migration order:** (a) land per-bundle-DO change in router
-   (router uses `idFromName("router")`, existing tests pass);
-   (b) land notme-as-bundle (ADR-0018) with `idFromName("notme")`
-   from the start. No interim "singleton + identity-propagation"
-   phase.
+6. **Migration order:** land the migration as part of ADR-0018's
+   internal-bundle portion (cloister-db99cd). Same commit (or
+   tightly-coupled PR pair) moves router from
+   `idFromName("cluster")` → `idFromName("router")` AND introduces
+   notme's in-process bundle with `idFromName("notme")` from the
+   start. Don't migrate router solo — there's no second caller yet,
+   so the singleton-to-per-bundle switch by itself is busywork.
 
 **Layered defense follow-on (separate bead):** per-call signature
 verification against the bundle's ADR-0019-helper-held Ed25519 key.
@@ -179,9 +198,11 @@ future ADR. Today's default of `idFromName(bundleName)` covers the
 
 ## Status notes
 
-- This ADR depends on ADR-0018 (notme co-location, cloister-db99cd)
-  for its trigger. ADR-0018 is in-progress. This ADR's implementation
-  lands alongside it.
+- ADR-0018's design landed Accepted 2026-05-12, but the in-process
+  bundle portion is `in_progress` (cloister-db99cd). Today
+  `cluster.capnp:notme-identity` is still `kind = (external = ...)`
+  (separate workerd process). This ADR's implementation lands
+  alongside that bundle portion — not before.
 - The implementation bead is filed separately
   (see comments on cloister-2140b5). Layered-defense bead (per-call
   signature gate) is a follow-on tagged for synthesis-lead's next
