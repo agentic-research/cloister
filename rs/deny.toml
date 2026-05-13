@@ -13,7 +13,11 @@
 # block lets cargo deny gate on them too with project-specific
 # severity thresholds.
 yanked = "deny"
-unmaintained = "warn"
+# `unmaintained` takes one of: "all", "workspace", "transitive", "none".
+# "workspace" means we surface unmaintained crates that the workspace
+# depends on directly; transitive unmaintained crates are reported but
+# don't fail the check (we can't always patch them without forking).
+unmaintained = "workspace"
 # Don't ignore known advisories silently — surface them so we can
 # either patch, vendor, or document the residual.
 ignore = []
@@ -23,6 +27,7 @@ ignore = []
 # permissive licenses (MIT, Apache-2.0, BSD-*, ISC, Zlib) compose with
 # AGPL. Non-permissive copyleft (GPL, LGPL) need case-by-case review.
 allow = [
+    "AGPL-3.0-or-later",  # the host crate itself
     "MIT",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
