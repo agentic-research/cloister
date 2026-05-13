@@ -233,8 +233,17 @@ tasks:
     # it vitest-pool-workers fails every test file at module init. The
     # rs:sign:wasm task has sources/generates declared, so it's a no-op
     # on rebuilds.
+    #
+    # `rs:sign:host` runs the host-binary integration + adversarial test
+    # suites (cloister-99165e, ADR-0019). Wired into `task test` so the
+    # threat-model §15 adversarial tests at
+    # `rs/crates/sign/tests/host_adversarial.rs` block CI when red. The
+    # tests pin invariants from the trust-root-friend pre-merge review
+    # (adversarial-cycle 2026-05-12); they are the spec of correct
+    # behavior. Without this wire-up, the failing tests don't gate the
+    # merge — which defeats the entire point of the gate.
     desc: Run tests inside workerd (real DOs, real SQLite)
-    deps: [manifest, rs:sign:wasm]
+    deps: [manifest, rs:sign:wasm, rs:sign:host]
     cmds:
       - pnpm exec vitest run
 
