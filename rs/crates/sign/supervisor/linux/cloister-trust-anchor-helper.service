@@ -4,16 +4,19 @@
 #   mkdir -p ~/.config/systemd/user/
 #   cp cloister-trust-anchor-helper.service ~/.config/systemd/user/
 #   # Edit ExecStart= to point at the installed binary path.
+#   # Create the env-file (REQUIRED — see "Auth setup" below).
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now cloister-trust-anchor-helper.service
 #
 # Verify:
-#   curl -fsS http://127.0.0.1:8786/healthz
+#   curl -fsS -H "Authorization: Bearer $TOKEN_FROM_ENV_FILE" \
+#        http://127.0.0.1:8786/healthz
 #   systemctl --user status cloister-trust-anchor-helper.service
 #
 # Uninstall:
 #   systemctl --user disable --now cloister-trust-anchor-helper.service
 #   rm ~/.config/systemd/user/cloister-trust-anchor-helper.service
+#   rm ~/.config/cloister/trust-anchor-helper.env
 #
 # ADR-0019 normative req. 2: bind is HARDCODED 127.0.0.1:8786. Do not
 # override via --bind. Workerd's KEK_HELPER binding wouldn't find a
@@ -23,6 +26,33 @@
 # secret-tool:// (libsecret needs an unlocked D-Bus session keyring).
 # This unit lives under --user so a desktop session's keyring is in
 # scope; headless servers should switch to file:// in the URL spec.
+#
+# ==================================================================
+# AUTH SETUP (REQUIRED — threat-model §15.2 / cloister-7afedc + NEW-1)
+# ==================================================================
+#
+# The helper is launched with --require-auth below. It will REFUSE to
+# start unless LEYLINE_SIGN_CALLER_TOKENS is populated in the env-file.
+#
+#   Create the env-file (one-time setup; 0600 permissions):
+#     mkdir -p ~/.config/cloister
+#     touch ~/.config/cloister/trust-anchor-helper.env
+#     chmod 0600 ~/.config/cloister/trust-anchor-helper.env
+#
+#   Generate tokens (one per authorized caller):
+#     head -c32 /dev/urandom | base64 -w0
+#
+#   Write to the env-file:
+#     cat > ~/.config/cloister/trust-anchor-helper.env <<EOF
+#     LEYLINE_SIGN_CALLER_TOKENS=router=<token1>,notme-bundle=<token2>
+#     # OPTIONAL — /resolve allow-list (deny-all if unset).
+#     # NEVER include a prefix that could match signing-key URLs.
+#     # Threat-model §15.1 / cloister-7aaab1 + NEW-2.
+#     LEYLINE_SIGN_RESOLVE_ALLOW=
+#     EOF
+#
+# Each caller-name maps to a rate-limit bucket (per-caller fairness)
+# and shows up in structured logs.
 
 [Unit]
 Description=cloister trust-anchor sign-only helper (ADR-0019)
@@ -32,7 +62,15 @@ After=default.target
 [Service]
 Type=simple
 # EDIT THIS — point at the installed binary path.
-ExecStart=%h/.cargo/bin/leyline-sign-helper --bind 127.0.0.1:8786 --foreground
+# --require-auth: threat-model §15.2 close (fail-stop on missing env).
+ExecStart=%h/.cargo/bin/leyline-sign-helper --bind 127.0.0.1:8786 --foreground --require-auth
+
+# REQUIRED env-file containing LEYLINE_SIGN_CALLER_TOKENS (and
+# optionally LEYLINE_SIGN_RESOLVE_ALLOW). MUST exist + be 0600;
+# `EnvironmentFile=-` would silently swallow a missing file, so we
+# use the non-tolerant form: helper refuses to start if the file is
+# missing (or if it's present but doesn't set the required token env).
+EnvironmentFile=%h/.config/cloister/trust-anchor-helper.env
 
 # ADR-0019 ops §1: Restart with bounded backoff.
 Restart=on-failure
@@ -48,6 +86,12 @@ TimeoutStopSec=6
 NoNewPrivileges=true
 ProtectSystem=full
 PrivateTmp=true
+# Defense-in-depth (NEW-1 follow-up): restrict to localhost. The
+# helper's loopback bind is the only required interface; deny
+# routable addresses + non-IP families.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressAllow=localhost
+IPAddressDeny=any
 # stdout/stderr go to journal; the helper writes structured tracing
 # events with `op` + `scheme` + `outcome` keys (ADR-0019 req. 11).
 StandardOutput=journal

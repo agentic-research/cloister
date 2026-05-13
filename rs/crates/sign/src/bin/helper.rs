@@ -61,6 +61,17 @@ struct Args {
     /// systemd — kept for explicit invocation.
     #[arg(long, default_value_t = true)]
     foreground: bool,
+
+    /// Require bearer-token auth at startup. The helper refuses to start
+    /// if `LEYLINE_SIGN_CALLER_TOKENS` is unset or empty when this flag
+    /// is true. Production supervisor units (launchd plist / systemd
+    /// unit) MUST pass this flag — closes the NEW-1 finding from the
+    /// 2026-05-12 adversarial cycle (cloister-7afedc follow-up).
+    ///
+    /// For local dev (interactive `task helper:start`), leave this off
+    /// — the helper will warn loudly and accept unauthenticated calls.
+    #[arg(long, default_value_t = false)]
+    require_auth: bool,
 }
 
 #[tokio::main]
@@ -124,12 +135,28 @@ async fn main() -> ExitCode {
     };
     let auth_mode = match &auth {
         AuthConfig::Disabled => {
+            // `--require-auth` is the supervisor-unit-side close for
+            // NEW-1 (threat-model §15.2 follow-up): the templates pass
+            // the flag so an operator copy-pasting them and forgetting
+            // to populate LEYLINE_SIGN_CALLER_TOKENS gets a hard FAIL
+            // instead of silently dropping into dev mode.
+            if args.require_auth {
+                error!(
+                    target: "leyline_sign_helper",
+                    op = "start",
+                    outcome = "auth_required_but_unset",
+                    "--require-auth is set but LEYLINE_SIGN_CALLER_TOKENS is unset/empty. \
+                     Refusing to start. Set the env to `caller1=token1,caller2=token2`. \
+                     Threat-model §15.2 / cloister-7afedc."
+                );
+                return ExitCode::from(2);
+            }
             warn!(
                 target: "leyline_sign_helper",
                 op = "start",
                 outcome = "auth_disabled",
                 "LEYLINE_SIGN_CALLER_TOKENS unset — running WITHOUT auth (dev mode). \
-                 Production deployments MUST set this env (caller=token,...). \
+                 Production deployments MUST pass --require-auth AND set this env. \
                  Threat-model §15.2 / cloister-7afedc."
             );
             "disabled"
