@@ -1,26 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (c) 2026 cloister contributors
 //
-// Token-bucket rate limiter per source UID (ADR-0019 normative req. 10:
-// "Helper MUST default-rate-limit POST /sign at 1000 sigs/sec per source
-// UID. Configurable via --rate-limit. Excess returns HTTP 429.").
+// Token-bucket rate limiter per AUTHENTICATED CALLER (ADR-0019 normative
+// req. 10: "Helper MUST default-rate-limit POST /sign at 1000 sigs/sec
+// per source UID. Configurable via --rate-limit. Excess returns HTTP 429.").
 //
-// Why per-UID and not per-(remote-addr): the helper binds to loopback only,
-// so "remote addr" is always 127.0.0.1 — useless as a key. The local-UID
-// of the connecting socket is the real attacker-control boundary
-// (post-V8-escape from a compromised bundle in the same workerd process).
+// The "source UID" framing in ADR-0019's normative text dates to the
+// initial design when loopback-cross-UID was assumed to be OS-blocked.
+// Threat-model §15.2/§15.3 (cloister-7afedc, cloister-7b5b9d) corrected
+// the implementation: loopback TCP is NOT UID-scoped, so the caller's
+// identity is whatever bearer-token they presented (parsed by
+// host/auth.rs into a caller_name).
 //
-// On macOS / Linux: `getsockopt(SO_PEERCRED / LOCAL_PEEREPID + getpwuid)`
-// would give us the peer UID — but tokio doesn't expose that on
-// TcpStream. Instead, we use the same per-process UID as the helper (i.e.
-// "anyone on this host as this UID"). That matches the helper's bind-policy
-// trust boundary: anything that can reach `127.0.0.1:8786` IS the same UID
-// (the OS rejects cross-UID loopback access via process scoping when the
-// helper is run as the user). So in practice the rate-limit key is global,
-// keyed by the literal UID of the helper process itself.
+// Calling code passes the caller_name returned by authenticate() as the
+// rate-limit key. The "unauthenticated dev mode" path uses the literal
+// caller_name "anonymous" so the limiter still works without auth
+// configured (existing integration tests).
 //
-// If we ever switch to UDS, we'll have real peer-credentials and the
-// `per_uid` map will grow keys per peer.
+// Future: when we switch to UDS, SO_PEERCRED would let us tie the
+// authenticated caller_name to the peer process UID for additional
+// defense-in-depth.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -56,12 +55,12 @@ impl Bucket {
 
 #[derive(Clone)]
 pub struct RateLimiter {
-    inner: Arc<Mutex<HashMap<u32, Bucket>>>,
+    inner: Arc<Mutex<HashMap<String, Bucket>>>,
     rate_per_sec: f64,
 }
 
 impl RateLimiter {
-    /// Construct a limiter at `rate` sigs/sec per UID. Burst capacity is
+    /// Construct a limiter at `rate` sigs/sec per caller. Burst capacity is
     /// `rate` (i.e. one second's worth of pent-up budget).
     pub fn new(rate: u32) -> Self {
         Self {
@@ -70,27 +69,27 @@ impl RateLimiter {
         }
     }
 
-    /// Try to consume one signing-request token for `uid`. Returns true
-    /// if allowed, false if rate-limited.
-    pub async fn check(&self, uid: u32) -> bool {
-        self.check_at(uid, Instant::now()).await
+    /// Try to consume one signing-request token for `caller`. Returns true
+    /// if allowed, false if rate-limited. Threat-model §15.3 — keyed on
+    /// the AUTHENTICATED caller_name, not the helper's own getuid().
+    pub async fn check(&self, caller: &str) -> bool {
+        self.check_at(caller, Instant::now()).await
     }
 
     /// Test-injectable variant.
-    pub async fn check_at(&self, uid: u32, now: Instant) -> bool {
+    pub async fn check_at(&self, caller: &str, now: Instant) -> bool {
         let mut map = self.inner.lock().await;
-        let bucket =
-            map.entry(uid).or_insert_with(|| Bucket::new(self.rate_per_sec, self.rate_per_sec));
+        let bucket = map
+            .entry(caller.to_owned())
+            .or_insert_with(|| Bucket::new(self.rate_per_sec, self.rate_per_sec));
         bucket.try_consume(now)
     }
 }
 
-/// Current process UID; used as the singleton rate-limit key for loopback
-/// connections (see module-level comment).
-pub fn current_uid() -> u32 {
-    // SAFETY: getuid() always succeeds, takes no args, returns uid_t.
-    unsafe { libc::getuid() }
-}
+/// Caller-name placeholder for requests that came in without auth (dev
+/// mode). Production callers — set via LEYLINE_SIGN_CALLER_TOKENS —
+/// present a bearer token whose resolved caller_name replaces this.
+pub const ANONYMOUS_CALLER: &str = "anonymous";
 
 #[cfg(test)]
 mod tests {
@@ -101,17 +100,17 @@ mod tests {
     async fn under_limit_passes() {
         let rl = RateLimiter::new(10);
         for _ in 0..10 {
-            assert!(rl.check(42).await);
+            assert!(rl.check("router").await);
         }
     }
 
     #[tokio::test]
     async fn over_limit_rejects() {
         let rl = RateLimiter::new(3);
-        assert!(rl.check(42).await);
-        assert!(rl.check(42).await);
-        assert!(rl.check(42).await);
-        assert!(!rl.check(42).await);
+        assert!(rl.check("router").await);
+        assert!(rl.check("router").await);
+        assert!(rl.check("router").await);
+        assert!(!rl.check("router").await);
     }
 
     #[tokio::test]
@@ -119,14 +118,13 @@ mod tests {
         let rl = RateLimiter::new(10);
         let t0 = Instant::now();
         for _ in 0..10 {
-            assert!(rl.check_at(42, t0).await);
+            assert!(rl.check_at("router", t0).await);
         }
-        assert!(!rl.check_at(42, t0).await);
-        // 200ms later → 2 tokens.
+        assert!(!rl.check_at("router", t0).await);
         let t1 = t0 + Duration::from_millis(200);
-        assert!(rl.check_at(42, t1).await);
-        assert!(rl.check_at(42, t1).await);
-        assert!(!rl.check_at(42, t1).await);
+        assert!(rl.check_at("router", t1).await);
+        assert!(rl.check_at("router", t1).await);
+        assert!(!rl.check_at("router", t1).await);
     }
 
     /// ADR-0019 normative req. 10: 1001st req in same second gets 429
@@ -136,8 +134,24 @@ mod tests {
         let rl = RateLimiter::new(1000);
         let t = Instant::now();
         for _ in 0..1000 {
-            assert!(rl.check_at(42, t).await);
+            assert!(rl.check_at("router", t).await);
         }
-        assert!(!rl.check_at(42, t).await);
+        assert!(!rl.check_at("router", t).await);
+    }
+
+    /// Threat-model §15.3 (cloister-7b5b9d): two distinct callers must have
+    /// independent budgets. The previous global-getuid keying broke this;
+    /// the per-caller-name keying restores it.
+    #[tokio::test]
+    async fn caller_budgets_are_independent() {
+        let rl = RateLimiter::new(2);
+        let t = Instant::now();
+        assert!(rl.check_at("router", t).await);
+        assert!(rl.check_at("router", t).await);
+        assert!(!rl.check_at("router", t).await); // router exhausted
+        // notme starts with a fresh budget.
+        assert!(rl.check_at("notme-bundle", t).await);
+        assert!(rl.check_at("notme-bundle", t).await);
+        assert!(!rl.check_at("notme-bundle", t).await);
     }
 }

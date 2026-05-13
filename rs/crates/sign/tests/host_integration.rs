@@ -314,9 +314,33 @@ async fn req12_healthz_shape() {
 
 #[tokio::test]
 async fn req13_resolve_endpoint_returns_raw_bytes() {
-    let h = Helper::start().await;
+    // /resolve is now allow-list gated (threat-model §15.1). For the
+    // golden-vector parity test we configure the allow-list to permit
+    // `file://` URLs — the test fixture uses a file:// seed. Production
+    // sets a tight prefix like `keychain://com.cloister/vault-kek-`.
+    use leyline_sign::host::auth::AuthConfig;
+    let tmp = TempDir::new().unwrap();
+    let seed_path = tmp.path().join("seed");
+    std::fs::write(&seed_path, [0xAAu8; 32]).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&seed_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let state = AppState::with_config(
+        1000,
+        AuthConfig::Disabled,
+        vec!["file://".to_owned()],
+    );
+    let _task = tokio::spawn(async move {
+        let _ = axum::serve(listener, build_router(state)).await;
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let url = format!("file://{}", seed_path.display());
     let resp = client()
-        .get(h.url(&format!("/resolve?url={}", urlencode(&h.seed_url()))))
+        .get(format!("http://{}/resolve?url={}", addr, urlencode(&url)))
         .send()
         .await
         .unwrap();
@@ -335,7 +359,14 @@ async fn req13_resolve_trims_trailing_newlines_like_kek_helper_mjs() {
     std::fs::write(&p, b"hello-cloister\r\n\r\n").unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let app = build_router(AppState::new(1000));
+    // Configure /resolve allow-list for the golden-vector test (threat-model §15.1).
+    use leyline_sign::host::auth::AuthConfig;
+    let state = AppState::with_config(
+        1000,
+        AuthConfig::Disabled,
+        vec!["file://".to_owned()],
+    );
+    let app = build_router(state);
     let _task = tokio::spawn(async move { let _ = axum::serve(listener, app).await; });
     tokio::time::sleep(Duration::from_millis(20)).await;
     let url = format!("file://{}", p.display());

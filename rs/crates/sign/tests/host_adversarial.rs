@@ -24,6 +24,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use base64ct::{Base64UrlUnpadded, Encoding};
+use leyline_sign::host::auth::AuthConfig;
 use leyline_sign::host::server::{AppState, build_router};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -31,10 +32,17 @@ use tokio::net::TcpListener;
 
 const TEST_PAYLOAD: &[u8] = b"adversarial-probe";
 
-/// Minimal helper boot for adversarial tests. Same shape as the
-/// integration-test Helper but doesn't re-export to avoid coupling the
-/// two suites; if the production Helper signature changes, this one
-/// updates independently.
+/// Bearer tokens the AdvHelper accepts. The threat-model §15 tests exercise
+/// production posture (auth REQUIRED), so each test either presents one of
+/// these tokens (authenticated paths) or omits the Authorization header
+/// entirely (the 401-asserting tests).
+const ROUTER_TOKEN: &str = "test-token-router";
+const NOTME_TOKEN: &str = "test-token-notme";
+
+/// Minimal helper boot for adversarial tests. Boots in PRODUCTION posture
+/// (auth required, /resolve allow-list empty by default). This is what
+/// makes adversarial tests assert the §15 invariants on the production
+/// wire, NOT the integration-test back-compat shape.
 struct AdvHelper {
     addr: SocketAddr,
     _tmp: TempDir,
@@ -44,10 +52,18 @@ struct AdvHelper {
 
 impl AdvHelper {
     async fn start() -> Self {
-        Self::start_with_rate(1000).await
+        Self::start_with(1000, default_auth(), Vec::new()).await
     }
 
     async fn start_with_rate(rate: u32) -> Self {
+        Self::start_with(rate, default_auth(), Vec::new()).await
+    }
+
+    async fn start_with(
+        rate: u32,
+        auth: AuthConfig,
+        resolve_allow: Vec<String>,
+    ) -> Self {
         let tmp = TempDir::new().unwrap();
         let seed_path = tmp.path().join("seed");
         std::fs::write(&seed_path, [0xAAu8; 32]).unwrap();
@@ -58,7 +74,8 @@ impl AdvHelper {
         }
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = build_router(AppState::new(rate));
+        let state = AppState::with_config(rate, auth, resolve_allow);
+        let app = build_router(state);
         let task = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
@@ -78,6 +95,13 @@ impl AdvHelper {
     fn url(&self, path: &str) -> String {
         format!("http://{}{}", self.addr, path)
     }
+}
+
+fn default_auth() -> AuthConfig {
+    AuthConfig::required([
+        ("router".to_owned(), ROUTER_TOKEN.to_owned()),
+        ("notme-bundle".to_owned(), NOTME_TOKEN.to_owned()),
+    ])
 }
 
 fn client() -> reqwest::Client {
@@ -108,25 +132,27 @@ fn urlencode(s: &str) -> String {
 // or partition the keystore namespace.
 #[tokio::test]
 async fn resolve_must_reject_signing_key_urls() {
+    // AdvHelper defaults to EMPTY /resolve allow-list (deny-all).
+    // First confirm /sign DOES work for the seed URL (precondition).
     let h = AdvHelper::start().await;
-    // In the test fixture we can't reference a real keychain URL, but the
-    // file:// scheme is the same byte-return code path. The invariant is
-    // not "reject specifically keychain://" — it is "/resolve does not
-    // hand out bytes for URLs the helper would also sign over via POST
-    // /sign." Hitting the same URL we just signed over is the proof.
     let body = sign_body(&h.seed_url(), TEST_PAYLOAD);
-    let sign_resp = client().post(h.url("/sign")).json(&body).send().await.unwrap();
+    let sign_resp = client()
+        .post(h.url("/sign"))
+        .bearer_auth(ROUTER_TOKEN)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(sign_resp.status(), 200, "precondition: /sign reaches the seed");
 
+    // Same URL via /resolve must be rejected — allow-list is empty.
     let resolve_resp = client()
         .get(h.url(&format!("/resolve?url={}", urlencode(&h.seed_url()))))
+        .bearer_auth(ROUTER_TOKEN)
         .send()
         .await
         .unwrap();
 
-    // Acceptable closing statuses: 403 Forbidden (allow-list rejection) or
-    // 404 Not Found (endpoint removed) or 410 Gone. 200 with body means
-    // the byte-exfiltration vector is open.
     assert!(
         resolve_resp.status().is_client_error() || resolve_resp.status() == 410,
         "/resolve returned {} for a URL that /sign signs over — bytes exfiltrated. \
@@ -181,16 +207,16 @@ async fn sign_must_require_authentication() {
 // already throttled when it starts.
 #[tokio::test]
 async fn rate_limit_must_be_per_caller() {
-    // Low rate so the test runs fast.
+    // Two distinct bearer tokens → two distinct caller_names → independent
+    // rate-limit buckets. Low rate so the test runs fast.
     const RATE: u32 = 4;
     let h = AdvHelper::start_with_rate(RATE).await;
     let body = sign_body(&h.seed_url(), TEST_PAYLOAD);
 
-    // Caller A exhausts its budget.
     for _ in 0..RATE {
         let r = client()
             .post(h.url("/sign"))
-            .header("x-helper-caller", "router") // future per-caller identity header
+            .bearer_auth(ROUTER_TOKEN)
             .json(&body)
             .send()
             .await
@@ -199,7 +225,7 @@ async fn rate_limit_must_be_per_caller() {
     }
     let r_a_throttled = client()
         .post(h.url("/sign"))
-        .header("x-helper-caller", "router")
+        .bearer_auth(ROUTER_TOKEN)
         .json(&body)
         .send()
         .await
@@ -210,11 +236,11 @@ async fn rate_limit_must_be_per_caller() {
         "caller A's post-RATE request should be rate-limited",
     );
 
-    // Caller B must NOT be affected by caller A's exhaustion. If the
-    // limiter is keyed correctly, B starts with a fresh budget.
+    // Caller B (different bearer token → different caller_name) must NOT
+    // be affected by caller A's exhaustion.
     let r_b = client()
         .post(h.url("/sign"))
-        .header("x-helper-caller", "notme-bundle")
+        .bearer_auth(NOTME_TOKEN)
         .json(&body)
         .send()
         .await
@@ -243,8 +269,13 @@ async fn sign_must_reject_csrf_content_types() {
     let h = AdvHelper::start().await;
     let body = sign_body(&h.seed_url(), TEST_PAYLOAD);
 
+    // Even with a valid bearer token, text/plain Content-Type must be
+    // rejected. The CSRF defense: cross-origin browser fetch sending JSON
+    // with text/plain would normally skip CORS preflight; rejecting the
+    // request shape itself closes that bypass.
     let resp = client()
         .post(h.url("/sign"))
+        .bearer_auth(ROUTER_TOKEN)
         .header("content-type", "text/plain;charset=UTF-8")
         .body(serde_json::to_string(&body).unwrap())
         .send()
@@ -285,12 +316,13 @@ async fn sign_must_enforce_body_size_cap() {
     let head = format!(
         "POST /sign HTTP/1.1\r\n\
          Host: {}\r\n\
+         Authorization: Bearer {}\r\n\
          Content-Type: application/json\r\n\
          Transfer-Encoding: chunked\r\n\
          Connection: close\r\n\
          \r\n\
          {}\r\n",
-        h.addr, chunk_size_hex,
+        h.addr, ROUTER_TOKEN, chunk_size_hex,
     );
     stream.write_all(head.as_bytes()).await.unwrap();
     stream.write_all(&big).await.unwrap();

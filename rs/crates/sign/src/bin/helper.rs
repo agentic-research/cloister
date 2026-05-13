@@ -36,6 +36,7 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use clap::Parser;
+use leyline_sign::host::auth::AuthConfig;
 use leyline_sign::host::server::{AppState, SIGN_TIMEOUT, build_router};
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -108,16 +109,78 @@ async fn main() -> ExitCode {
         }
     };
 
+    // Threat-model §15.2 (cloister-7afedc): production binary requires
+    // bearer-token auth. LEYLINE_SIGN_CALLER_TOKENS env (`name=token,...`)
+    // configures the auth map; unset/empty = warn loudly and run in
+    // unauthenticated dev mode (intended for local task helper:start, NOT
+    // production). For prod, the supervisor unit MUST set the env.
+    let auth_env = std::env::var("LEYLINE_SIGN_CALLER_TOKENS").unwrap_or_default();
+    let auth = match AuthConfig::parse(&auth_env) {
+        Ok(a) => a,
+        Err(e) => {
+            error!(target: "leyline_sign_helper", "LEYLINE_SIGN_CALLER_TOKENS parse failed: {}", e);
+            return ExitCode::from(2);
+        }
+    };
+    let auth_mode = match &auth {
+        AuthConfig::Disabled => {
+            warn!(
+                target: "leyline_sign_helper",
+                op = "start",
+                outcome = "auth_disabled",
+                "LEYLINE_SIGN_CALLER_TOKENS unset — running WITHOUT auth (dev mode). \
+                 Production deployments MUST set this env (caller=token,...). \
+                 Threat-model §15.2 / cloister-7afedc."
+            );
+            "disabled"
+        }
+        AuthConfig::Required(m) => {
+            info!(target: "leyline_sign_helper", op = "start", caller_count = m.len(), "auth enabled");
+            "required"
+        }
+    };
+
+    // Threat-model §15.1 (cloister-7aaab1): /resolve allow-list is
+    // empty-default = deny-all. Operators authorize specific URL prefixes
+    // via LEYLINE_SIGN_RESOLVE_ALLOW=<prefix1>,<prefix2>. For the vault
+    // KEK path: `LEYLINE_SIGN_RESOLVE_ALLOW=keychain://com.cloister/vault-kek-`
+    // (or whatever scheme + prefix the deploy uses). Signing-key URLs
+    // (e.g., `keychain://com.cloister/master-sk`) MUST NOT be on the list.
+    let resolve_allow: Vec<String> = std::env::var("LEYLINE_SIGN_RESOLVE_ALLOW")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if resolve_allow.is_empty() {
+        info!(
+            target: "leyline_sign_helper",
+            op = "start",
+            outcome = "resolve_deny_all",
+            "/resolve is DENY-ALL (LEYLINE_SIGN_RESOLVE_ALLOW unset)"
+        );
+    } else {
+        info!(
+            target: "leyline_sign_helper",
+            op = "start",
+            allow_count = resolve_allow.len(),
+            "/resolve allow-list configured"
+        );
+    }
+
     info!(
         target: "leyline_sign_helper",
         op = "start",
         outcome = "ok",
         addr = %addr,
         rate_limit = args.rate_limit,
+        auth = auth_mode,
+        resolve_allow_count = resolve_allow.len(),
         "leyline-sign-helper listening"
     );
 
-    let state = AppState::new(args.rate_limit);
+    let state = AppState::with_config(args.rate_limit, auth, resolve_allow);
     let app = build_router(state);
 
     // Graceful shutdown — SIGTERM / SIGINT drain up to SIGN_TIMEOUT

@@ -6,16 +6,24 @@
 // Routes:
 //   GET  /healthz        — readiness probe (no per-entry oracle)
 //   POST /sign           — sign-only protocol (the load-bearing endpoint)
-//   GET  /resolve        — backward-compat byte-return (strictly weaker;
-//                          documented as such; used only by the vault KEK
-//                          which doesn't need sign-only)
+//   GET  /resolve        — KEK-byte resolver, GATED behind a deploy-time
+//                          allow-list (threat-model §15.1 / cloister-7aaab1).
+//                          Default deny-all.
 //
 // Middleware:
-//   - 64 KiB Content-Length pre-parse check (req. 3)
-//   - 5s timeout on /sign (req. 4)
-//   - rate limit (req. 10)
-//   - log only operation type + URL scheme + outcome (req. 11)
+//   - tower_http RequestBodyLimitLayer (64 KiB, no-CL safe) — req. 3 +
+//     threat-model §15.6 / cloister-7c737a
+//   - 64 KiB Content-Length pre-parse check — fast-path 413 with CL
+//     (composes with the layer above for missing-CL case)
+//   - 5s timeout on /sign — req. 4
+//   - bearer-token auth (threat-model §15.2 / cloister-7afedc)
+//   - rate limit per AUTHENTICATED CALLER — req. 10 + threat-model
+//     §15.3 / cloister-7b5b9d
+//   - strict Content-Type: application/json on /sign — threat-model
+//     §15.5 / cloister-7c2179
+//   - log only operation type + URL scheme + outcome — req. 11
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::Json;
@@ -27,12 +35,14 @@ use axum::routing::{get, post};
 use axum::{Router, middleware};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Serialize};
+use tower_http::limit::RequestBodyLimitLayer;
 
+use crate::host::auth::{AuthConfig, authenticate};
 use crate::host::cache::KeyCache;
 use crate::host::error::HelperError;
 use crate::host::health::healthz;
 use crate::host::keystore;
-use crate::host::ratelimit::{RateLimiter, current_uid};
+use crate::host::ratelimit::RateLimiter;
 use crate::host::sign;
 
 /// Maximum `POST /sign` body in bytes — ADR-0019 normative req. 3.
@@ -45,14 +55,42 @@ pub struct AppState {
     pub cache: KeyCache,
     pub limiter: RateLimiter,
     pub started: Instant,
+    pub auth: Arc<AuthConfig>,
+    /// URL prefixes the operator has explicitly authorized `/resolve` to
+    /// hand bytes back for. Default empty = deny all (threat-model §15.1).
+    /// Production deploys set this via LEYLINE_SIGN_RESOLVE_ALLOW env.
+    pub resolve_allow: Arc<Vec<String>>,
 }
 
 impl AppState {
+    /// Construct AppState with auth disabled and /resolve closed. The
+    /// historical signature — preserved for back-compat with existing
+    /// integration tests that pass `AppState::new(rate)` and expect
+    /// unauthenticated /sign to succeed.
+    ///
+    /// Production deployments MUST use `with_config`.
     pub fn new(rate_per_sec: u32) -> Self {
         Self {
             cache: KeyCache::new(),
             limiter: RateLimiter::new(rate_per_sec),
             started: Instant::now(),
+            auth: Arc::new(AuthConfig::Disabled),
+            resolve_allow: Arc::new(Vec::new()),
+        }
+    }
+
+    /// Production-shape constructor. Auth + /resolve allow-list explicit.
+    pub fn with_config(
+        rate_per_sec: u32,
+        auth: AuthConfig,
+        resolve_allow: Vec<String>,
+    ) -> Self {
+        Self {
+            cache: KeyCache::new(),
+            limiter: RateLimiter::new(rate_per_sec),
+            started: Instant::now(),
+            auth: Arc::new(auth),
+            resolve_allow: Arc::new(resolve_allow),
         }
     }
 }
@@ -65,6 +103,20 @@ pub fn build_router(state: AppState) -> Router {
         .route("/sign", post(post_sign))
         .route("/resolve", get(get_resolve))
         .fallback(fallback)
+        // Order matters: each .layer() call wraps OUTWARDS, so the LAST
+        // .layer() call is the outermost (runs FIRST on inbound). We want:
+        //
+        //   inbound → content_length_guard (spec'd 413 JSON body)
+        //          → RequestBodyLimitLayer (fallback: catches no-CL bodies)
+        //          → route handler
+        //
+        // The Content-Length-present path produces the spec'd
+        // `{"error":"payload_too_large", ...}` body. The no-CL path falls
+        // through content_length_guard (since CL is absent) and hits
+        // RequestBodyLimitLayer, which returns a bare 413 — acceptable
+        // for the threat-model §15.6 close because the body is rejected
+        // before parsing, regardless of Content-Length.
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES as usize))
         .layer(middleware::from_fn(content_length_guard))
         .with_state(state)
 }
@@ -92,17 +144,42 @@ pub struct SignResponseBody {
     pub pubkey_b64: Option<String>,
 }
 
-async fn post_sign(State(state): State<AppState>, body: axum::body::Bytes) -> Response {
-    let uid = current_uid();
-    // Rate-limit FIRST so an attacker can't burn cycles forcing keystore
-    // I/O before the gate.
-    if !state.limiter.check(uid).await {
-        tracing::warn!(target: "leyline_sign_helper", op = "sign", outcome = "rate_limited");
+async fn post_sign(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    // Threat-model §15.2: authenticate FIRST. Bearer token → caller_name.
+    let caller = match authenticate(&headers, &state.auth) {
+        Ok(name) => name,
+        Err(e) => {
+            tracing::warn!(target: "leyline_sign_helper", op = "sign", outcome = e.log_label());
+            return e.into_response();
+        }
+    };
+    // Threat-model §15.5: strict Content-Type: application/json. text/plain
+    // is CORS-safelisted → no preflight → CSRF simple-POST signs attacker
+    // payloads. Require strict media type so cross-origin fetch can't reach
+    // here without a preflight check.
+    if !content_type_is_json(&headers) {
+        tracing::info!(target: "leyline_sign_helper", op = "sign", outcome = "unsupported_media_type");
+        return HelperError::UnsupportedMediaType.into_response();
+    }
+    // Threat-model §15.3: rate-limit keyed on AUTHENTICATED caller_name,
+    // not the helper's own getuid(). Two distinct callers → two distinct
+    // buckets → noisy-neighbor isolation.
+    if !state.limiter.check(&caller).await {
+        tracing::warn!(
+            target: "leyline_sign_helper",
+            op = "sign",
+            caller = %caller,
+            outcome = "rate_limited",
+        );
         return HelperError::RateLimited.into_response();
     }
     // Parse body. axum::body::Bytes is already in memory at this point; the
-    // content_length_guard middleware enforced the 64 KiB cap before we
-    // got here.
+    // RequestBodyLimitLayer + content_length_guard enforced the 64 KiB cap
+    // before we got here.
     let req: SignRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(_) => {
@@ -176,10 +253,53 @@ pub struct ResolveQuery {
     pub url: String,
 }
 
-/// Backward-compat resolver — strictly weaker than `POST /sign`. Returns
-/// raw bytes for the vault KEK (and golden-vector parity with kek-helper.mjs).
-async fn get_resolve(Query(q): Query<ResolveQuery>) -> Response {
+/// KEK-byte resolver — gated behind a deploy-time allow-list. Threat-model
+/// §15.1 (cloister-7aaab1): without the allow-list this endpoint would
+/// return raw bytes for ANY URL, including signing-key URLs (master_sk).
+/// Default deny-all; production deploys set
+/// `LEYLINE_SIGN_RESOLVE_ALLOW=<comma-separated-prefixes>` to authorize
+/// vault-KEK URLs and nothing else.
+async fn get_resolve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ResolveQuery>,
+) -> Response {
     let scheme = keystore::scheme_label(&q.url);
+    // Threat-model §15.2: authenticate /resolve too. Defense in depth —
+    // even if the allow-list contains a URL the operator intends as
+    // "low-sensitivity," any leak is local-net-reachable today.
+    let caller = match authenticate(&headers, &state.auth) {
+        Ok(name) => name,
+        Err(e) => {
+            tracing::warn!(target: "leyline_sign_helper", op = "resolve", scheme = scheme, outcome = e.log_label());
+            return e.into_response();
+        }
+    };
+    // Threat-model §15.1: check allow-list BEFORE touching keystore. Empty
+    // allow-list = deny-all. Match by URL prefix (operator declares which
+    // URL families /resolve may emit).
+    let allowed = state.resolve_allow.iter().any(|prefix| q.url.starts_with(prefix.as_str()));
+    if !allowed {
+        tracing::warn!(
+            target: "leyline_sign_helper",
+            op = "resolve",
+            scheme = scheme,
+            caller = %caller,
+            outcome = "forbidden",
+        );
+        return HelperError::Forbidden.into_response();
+    }
+    // Per-caller rate-limit applies to /resolve too.
+    if !state.limiter.check(&caller).await {
+        tracing::warn!(
+            target: "leyline_sign_helper",
+            op = "resolve",
+            scheme = scheme,
+            caller = %caller,
+            outcome = "rate_limited",
+        );
+        return HelperError::RateLimited.into_response();
+    }
     match keystore::resolve_bytes(&q.url) {
         Ok(bytes) => {
             tracing::info!(
@@ -240,9 +360,26 @@ async fn content_length_guard(
     next.run(req).await
 }
 
+/// Strict Content-Type check: must be exactly `application/json` (with
+/// optional `; charset=...` suffix). Threat-model §15.5 — text/plain is
+/// CORS-safelisted; rejecting it forces preflight on cross-origin fetch.
+fn content_type_is_json(headers: &HeaderMap) -> bool {
+    let Some(ct) = headers.get(axum::http::header::CONTENT_TYPE) else {
+        return false;
+    };
+    let Ok(s) = ct.to_str() else {
+        return false;
+    };
+    // Split on ';' to allow `application/json; charset=utf-8`. Compare the
+    // media-type portion (lowercased + trimmed) against the constant.
+    let media = s.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    media == "application/json"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
 
     #[test]
     fn max_body_is_64_kib() {
@@ -252,5 +389,37 @@ mod tests {
     #[test]
     fn sign_timeout_is_5s() {
         assert_eq!(SIGN_TIMEOUT, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn content_type_is_json_accepts_canonical() {
+        let mut h = HeaderMap::new();
+        h.insert(axum::http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        assert!(content_type_is_json(&h));
+    }
+
+    #[test]
+    fn content_type_is_json_accepts_with_charset() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
+        assert!(content_type_is_json(&h));
+    }
+
+    #[test]
+    fn content_type_is_json_rejects_text_plain() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain;charset=UTF-8"),
+        );
+        assert!(!content_type_is_json(&h));
+    }
+
+    #[test]
+    fn content_type_is_json_rejects_missing() {
+        assert!(!content_type_is_json(&HeaderMap::new()));
     }
 }

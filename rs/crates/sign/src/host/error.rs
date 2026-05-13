@@ -29,6 +29,9 @@ pub const CODE_RATE_LIMITED: &str = "rate_limited";
 pub const CODE_TIMEOUT: &str = "timeout";
 pub const CODE_INTERNAL: &str = "internal";
 pub const CODE_METHOD_NOT_ALLOWED: &str = "method_not_allowed";
+pub const CODE_UNAUTHORIZED: &str = "unauthorized";
+pub const CODE_FORBIDDEN: &str = "forbidden";
+pub const CODE_UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
 
 /// Reason string used for the constant-time 404 / 500 collapse. Length must
 /// match between the two codes — they MUST be byte-identical bodies. The
@@ -66,6 +69,24 @@ pub enum HelperError {
 
     #[error("method_not_allowed")]
     MethodNotAllowed,
+
+    /// 401 — request lacked a valid Authorization: Bearer token. Threat-model
+    /// §15.2 (cloister-7afedc): auth is required when LEYLINE_SIGN_CALLER_TOKENS
+    /// is set; the helper rejects every request that doesn't authenticate.
+    #[error("unauthorized")]
+    Unauthorized,
+
+    /// 403 — request was authenticated but the requested URL is not on
+    /// /resolve's allow-list. Threat-model §15.1 (cloister-7aaab1): /resolve
+    /// must not address signing-key URLs.
+    #[error("forbidden")]
+    Forbidden,
+
+    /// 415 — Content-Type was not application/json. Threat-model §15.5
+    /// (cloister-7c2179): forces CORS preflight on cross-origin fetch and
+    /// blocks the text/plain CSRF simple-POST shape.
+    #[error("unsupported_media_type")]
+    UnsupportedMediaType,
 }
 
 #[derive(Serialize)]
@@ -120,6 +141,18 @@ impl HelperError {
                 StatusCode::METHOD_NOT_ALLOWED,
                 ErrorBody { error: CODE_METHOD_NOT_ALLOWED, reason: "use POST /sign or GET" },
             ),
+            HelperError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                ErrorBody { error: CODE_UNAUTHORIZED, reason: "Authorization: Bearer required" },
+            ),
+            HelperError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                ErrorBody { error: CODE_FORBIDDEN, reason: "URL not on /resolve allow-list" },
+            ),
+            HelperError::UnsupportedMediaType => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                ErrorBody { error: CODE_UNSUPPORTED_MEDIA_TYPE, reason: "Content-Type must be application/json" },
+            ),
         }
     }
 
@@ -136,6 +169,9 @@ impl HelperError {
             HelperError::Timeout => "timeout",
             HelperError::Internal => "internal",
             HelperError::MethodNotAllowed => "method_not_allowed",
+            HelperError::Unauthorized => "unauthorized",
+            HelperError::Forbidden => "forbidden",
+            HelperError::UnsupportedMediaType => "unsupported_media_type",
         }
     }
 }
