@@ -1,0 +1,10 @@
+# Cloister Rust toolchain pin.
+#
+# Bumped to 1.95 by cloister-2a0faa: nono 0.54 declares
+# `rust-version = "1.95"` in its workspace Cargo.toml. Older
+# toolchains reject the dep graph with E0658.
+#
+# Keep this in lockstep with nono's MSRV when bumping the nono dep.
+[toolchain]
+channel = "1.95.0"
+targets = ["wasm32-unknown-unknown"]

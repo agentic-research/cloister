@@ -256,6 +256,23 @@ rotation (both invariants satisfied).
 - **HTTP server crate:** TBD between `tiny_http` (small, low-churn)
   and `axum`/`hyper` (large, well-audited). Pinned during
   cloister-99165e implementation review.
+- **Keystore federation crate:** `nono = "0.54"` (`default-features =
+  false`, `features = ["system-keyring"]`). Replaces the previous
+  direct `keyring = "3"` dep per `cloister-2a0faa`. Nono unifies
+  `keychain://` (macOS Keychain) + `secret-tool://` (Linux libsecret) +
+  `keyring://service/account` (explicit form) + `op://` (1Password CLI)
+  + `apple-password://` (macOS Passwords CLI) under one dispatch
+  function. The `file://` scheme stays in cloister's own reader
+  (binary-safe bytes + the `/\r?\n+$/` multi-CRLF trim required by the
+  `kek-helper.mjs` golden-vector parity test — nono's reader is
+  UTF-8-only and trims at most one CRLF).
+- **Headless platform disposition:** with nono in place, Linux libsecret
+  is supported as a first-class scheme (no more "returns 501"); Windows
+  Credential Manager is supported via the same `keyring` 3.x backend
+  but untested in cloister CI today (see the "follow-up" note below).
+- **Toolchain pin:** `rust-toolchain.toml` at `rs/` pins channel
+  `1.95.0` because nono 0.54 declares `rust-version = "1.95"`. Bump in
+  lockstep with the nono MSRV.
 
 ### Implementation language and location
 
@@ -265,7 +282,12 @@ feature. Conditional compilation:
 
 - `#[cfg(target_arch = "wasm32")]` — existing wasm-verifier path
 - `#[cfg(not(target_arch = "wasm32"))]` — host-side helper code
-  (`keyring` crate + `tiny_http` + ed25519 sign)
+  (`nono::keystore` for keystore dispatch + `axum`/`hyper` + ed25519
+  sign). `cloister-2a0faa` verified the wasm artifact stays
+  byte-identical (`sha256` match) after adding nono as a host-feature
+  dep — nono and its sigstore-verify/landlock/aws-lc-rs transitive
+  closure are strictly gated behind `feature = "host"` and never
+  reachable from the wasm build path.
 
 The wasm-side verifier code is unchanged. The new binary is a native
 target of the same crate. This keeps cloister at TS + Rust (no third

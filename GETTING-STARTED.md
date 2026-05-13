@@ -330,8 +330,11 @@ For **self-host / production**, the vault DO supports these schemes:
 | `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
 | `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar (today) / `leyline-sign-helper` Rust binary (post-`cloister-99165e`) |
-| `secret-tool://service-name` | Linux libsecret — via the kek-helper sidecar (returns 501 today, roadmap) |
-| `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` |
+| `secret-tool://service-name` | Linux libsecret (Secret Service) — same unified keyring backend as `keychain://`; routed through `nono` |
+| `keyring://service/account` | explicit-form keyring URI (both halves in the URI). Use when `KEYCHAIN_ACCOUNT` is not the right account selector. Optional `?decode=go-keyring` for entries written by Go's `zalando/go-keyring`. |
+| `op://vault/item/field` | 1Password — via the `op` CLI on PATH. Requires `op signin` and a configured 1Password account. |
+| `apple-password://server/account` | Apple Passwords — via macOS `security` CLI. macOS-only. |
+| `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` (legacy / off-host helpers) |
 
 > **Migration in flight:** `scripts/kek-helper.mjs` (the JS sidecar
 > documented in this section) is being replaced by the
@@ -369,9 +372,15 @@ The helper refuses to bind to anything but loopback. The legacy
 port; the replacement `leyline-sign-helper` Rust binary (ADR-0019,
 merged 2026-05-12) adds bearer-token auth via
 `LEYLINE_SIGN_CALLER_TOKENS` and refuses to start under `--require-auth`
-without it. Either way: **don't expose the helper remotely.** Linux
-libsecret (`secret-tool://`) is on the roadmap; today the helper
-returns 501 for that scheme.
+without it. Either way: **don't expose the helper remotely.**
+
+Since `cloister-2a0faa` (2026-05-13) the helper routes all keystore
+schemes through [`nono`](https://crates.io/crates/nono), so
+`secret-tool://` works on Linux out of the box (libsecret via the
+unified `keyring` backend) and `op://` / `apple-password://` work on
+any host with the corresponding CLI on PATH. The `file://` reader
+remains a cloister-side path (binary-safe + multi-CRLF trim per the
+`kek-helper.mjs` golden vector).
 
 **Round-trip dogfood check** (proves Keychain → helper → bytes works
 end-to-end on your machine):
