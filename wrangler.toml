@@ -106,3 +106,21 @@ MACHE_MCP_URL   = "http://localhost:7532/mcp"
 # The legacy `VAULT_KEK_SECRET` text binding was removed in v2.
 # Plaintext key material is not representable in committed config.
 VAULT_KEK_SOURCE = ""
+
+# ── Interlace lease pipeline activation (ADR-0007) ─────────────────────────
+# Empty default = lease gate INACTIVE (dev mode). Operators activate by
+# setting non-empty values via `.env.local` (sourced by `task dev`) or
+# `wrangler secret put` in production. Per cloister-e14804: must be
+# declared here so the dev runtime exposes them as `env.X` — wrangler
+# doesn't auto-thread shell env to the worker.
+INTERLACE_ROOT_PUBKEY            = ""    # base64 Ed25519 master pubkey; non-empty turns lease gate ON
+INTERLACE_MASTER_PUBKEY          = ""    # alias used by some code paths; keep in sync with ROOT
+INTERLACE_DISCLOSURE_HMAC_KEY    = ""    # HMAC for disclosure-endpoint cursor signing
+
+# ── Interlace 0.2.0 receipts (cloister-ae713f) ─────────────────────────────
+# Empty default = no emission (Phase 1 dev/test posture). Production
+# operators flip these to enable per-2xx receipt emission. Phase 2
+# cutover (peers fail-closed on missing receipts) is operator action,
+# not a code change.
+RECEIPT_SIGNING_KEY  = ""    # base64-std 64-byte keypair (seed || pub) for receipt signer
+RECEIPT_EPOCH        = ""    # numeric epoch stamp aligned to lease cert epoch
