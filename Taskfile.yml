@@ -148,6 +148,12 @@ tasks:
     cmds:
       - cargo test -p leyline-sign --features host
 
+  rs:sign:host-extras:
+    desc: "Test the leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises the op:// + apple-password:// scheme handlers + nono URI validators that are opt-in for production deploys. Pulls in nono = 0.54 + the sigstore-verify / aws-lc-rs / landlock closure flagged in threat-model §17.1 — that's the cost of running this target."
+    dir: rs
+    cmds:
+      - cargo test -p leyline-sign --features 'host host-extras'
+
   rs:audit:
     desc: "Supply-chain audit for the rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure. Closes 2026-05-13 adversarial cycle row 17.1 / 17.4."
     dir: rs
@@ -417,8 +423,8 @@ tasks:
     deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras]
 
   ci:
     desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."
