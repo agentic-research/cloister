@@ -1128,22 +1128,29 @@ For the next cycle's reviewer:
 ## 17. Nono swap supply-chain expansion (2026-05-13 cycle)
 
 Inline (not weekly-cadence) adversarial cycle gated the merge of
-`cloister-2a0faa` (keystore-federation swap from `keyring = "3"` to
-`nono = "0.54"`). Six specialists dispatched in parallel; synthesis +
-fix-on-branch landed alongside the swap. Full cycle artifact:
+`cloister-2a0faa`. The initial commit swapped `keyring = "3"` for
+`nono = "0.54"` for unified scheme dispatch. Six specialists dispatched
+in parallel surfaced 17 findings across 5 cross-cuts; the cycle's
+heaviest finding (supply-chain expansion, §17.1) escalated to a
+follow-up that **feature-gated the heavy backends** under
+`host-extras`. Default `host` deploys now bind directly to
+`keyring = "3"` for `keychain://` / `secret-tool://` / `keyring://`
+and avoid the sigstore-verify / aws-lc-rs / landlock closure. Operators
+who need `op://` (1Password) or `apple-password://` integration opt in
+via `--features host,host-extras`. Full cycle artifact:
 `docs/security/adversarial-cycles/2026-05-13-nono-swap.md`.
 
-### Row 17.1 — Supply-chain expansion via sigstore-verify / aws-lc-rs / landlock
+### Row 17.1 — Supply-chain expansion via sigstore-verify / aws-lc-rs / landlock (CLOSED this cycle — feature-gated under host-extras)
 
 | | |
 |---|---|
-| **Adversary capability** | Compromise of any of 12+ transitive crates that became reachable from `leyline-sign-helper` when nono pulled in sigstore-verify, sigstore-trust-root, sigstore-crypto, sigstore-rekor, sigstore-bundle, sigstore-tsa, sigstore-merkle, sigstore-types, aws-lc-rs (+ aws-lc-sys bindgen C), rustls-webpki, x509-cert, landlock. |
-| **Invariant** | ADR-0019 §"Implementation pins" must enumerate the transitive trust base. Supply-chain attestation strategy must be documented and CI-enforced. |
-| **Status** | **MITIGATED on branch + active ROW** — ADR-0019 §"Implementation pins" updated to list the new closure (this cycle); `task rs:audit` Taskfile target added that runs `cargo audit --deny warnings` + `cargo deny check` (this cycle). Folded into `task verify` (strict CI gate). Long tail tracked by `cloister-future-supply-chain-attestation`. |
-| **Detection** | CI failure on new advisory; manual review of Cargo.lock churn during PR review. |
-| **Recovery** | Pin transitively-critical crates in `rs/Cargo.toml`; add `[patch.crates-io]` overrides if upstream yanks. |
-| **Closing playbook** | (a) Run `task rs:audit` in CI on every PR. (b) Document the supply-chain trust set in ADR-0019. (c) Quarterly `task rs:audit:full` (or equivalent cargo-vet pass) produces a signed attestation report. |
-| **Tracking** | `cloister-2a0faa` (this commit) + `cloister-future-supply-chain-attestation` (follow-up). |
+| **Adversary capability** | Compromise of any of 12+ transitive crates that become reachable from `leyline-sign-helper` when nono is in the dep graph: sigstore-verify, sigstore-trust-root, sigstore-crypto, sigstore-rekor, sigstore-bundle, sigstore-tsa, sigstore-merkle, sigstore-types, aws-lc-rs (+ aws-lc-sys bindgen C), rustls-webpki, x509-cert, landlock. |
+| **Invariant** | ADR-0019 §"Implementation pins" must enumerate the transitive trust base. Operators MUST be able to deploy without the heavy closure when they don't need 1P / Apple Passwords. |
+| **Status** | **CLOSED — feature-gated.** Cargo features split into `host` (baseline: keychain/secret-tool/keyring/file via direct `keyring = "3"`; no nono in the dep graph) and `host-extras` (additive: adds nono + enables `op://` / `apple-password://` schemes). Default `host` deploys have ~245 lines in `cargo tree`; opt-in `host,host-extras` deploys have ~559 lines. The sigstore-verify / aws-lc-rs / landlock closure is reachable ONLY when an operator explicitly opts in. The 1Password / Apple Passwords schemes (which need nono's URI validators) cfg out cleanly without affecting the wire shape or any other scheme. **Defense-in-depth:** `task rs:audit` Taskfile target added (`cargo audit --deny warnings` + `cargo deny check` against `rs/deny.toml`); folded into `task verify` (strict CI gate). Long-tail attestation tracked by `cloister-8df072`. |
+| **Detection** | CI fails on new advisory against any reachable crate; PR review surfaces any new `dep:` line added to the `host` feature (vs. `host-extras`) because that's the gate operators rely on. |
+| **Recovery** | If a CVE drops against a host-extras-only crate, operators can rebuild with default `host` only and lose 1P/Apple Passwords integration until the upstream is patched. |
+| **Closing playbook** | Done. Run `task rs:audit` in CI on every PR; quarterly `cargo-vet`-style attestation via `cloister-8df072`. Future schemes that need a fat dep should land under a similar opt-in feature, never under default `host`. |
+| **Tracking** | `cloister-2a0faa` (this commit) + `cloister-8df072` (long-tail attestation). |
 
 ### Row 17.2 — POST /sign has no per-caller URL allow-list (CLOSED this cycle)
 
@@ -1174,7 +1181,7 @@ fix-on-branch landed alongside the swap. Full cycle artifact:
 | **Adversary capability** | A PR deletes `rs/rust-toolchain.toml` or bumps `channel`; CI's `dtolnay/rust-toolchain@stable` silently falls back. Reproducible-build provenance breaks. |
 | **Invariant** | The pinned toolchain in `rs/rust-toolchain.toml` MUST match the documented version in ADR-0019. CI MUST refuse to build if the file is missing or its channel diverges. |
 | **Status** | **CLOSED** — `task rs:audit` Taskfile target asserts the channel pin via grep. Folded into `task verify`. CI step pins `dtolnay/rust-toolchain` to the documented version explicitly. |
-| **Closing playbook** | Done. Future: `cargo-vet` integration tracked under `cloister-future-supply-chain-attestation`. |
+| **Closing playbook** | Done. Future: `cargo-vet` integration tracked under `cloister-8df072`. |
 | **Tracking** | `cloister-2a0faa` (closed). |
 
 ### Row 17.5 — `?decode=` query-string passthrough on signing schemes (CLOSED this cycle)
@@ -1203,9 +1210,9 @@ fix-on-branch landed alongside the swap. Full cycle artifact:
 |---|---|
 | **Adversary capability** | First `/sign` against `apple-password://...` triggers FaceID; user takes 10s to authenticate. 50 concurrent callers' requests for the same URL each spawn an independent `security` subprocess — keychain daemon serializes prompts. Effective DoS ~5-10 minutes per FaceID slowness. |
 | **Invariant** | Concurrent requests for the same URL MUST coalesce into one in-flight resolution (singleflight). |
-| **Status** | **ACTIVE follow-up bead `cloister-future-faceid-singleflight`.** Mitigated short-term by 17.6 (spawn_blocking moves the wait to the dedicated pool, so it doesn't starve the tokio runtime), but the keychain daemon serialization remains. |
+| **Status** | **ACTIVE follow-up bead `cloister-8d4dd7`.** Mitigated short-term by 17.6 (spawn_blocking moves the wait to the dedicated pool, so it doesn't starve the tokio runtime), but the keychain daemon serialization remains. |
 | **Closing playbook** | Per-spec in-flight singleflight in `KeyCache`; positive-cache TTL for `apple-password://` / `op://` (60s recommended; needs ADR amendment for the "re-read every call" deviation). Pin with `apple_password_resolution_must_not_starve_other_callers` test against a `security` shim. |
-| **Tracking** | `cloister-future-faceid-singleflight`. |
+| **Tracking** | `cloister-8d4dd7`. |
 
 ### Row 17.8 — Keychain daemon serialization (FOLLOW-UP)
 
@@ -1213,9 +1220,9 @@ fix-on-branch landed alongside the swap. Full cycle artifact:
 |---|---|
 | **Adversary capability** | At rate-limit ceiling (1000 sigs/sec per caller × 2 callers = 2000 req/sec), macOS `securityd` IPC becomes the bottleneck (~500-1000 req/sec ceiling per the keyring crate's bench data). The §15.3 per-caller rate-limit holds at the token-bucket layer but is bottlenecked downstream. |
 | **Invariant** | Per-caller rate-limit MUST be meaningful, not bottlenecked on a shared resource that re-introduces global serialization. |
-| **Status** | **ACTIVE follow-up bead `cloister-future-keychain-cache-ttl`.** Needs ADR amendment to permit a short positive-cache window (deviation from ADR-0019's "re-read every call"). |
+| **Status** | **ACTIVE follow-up bead `cloister-8d675a`.** Needs ADR amendment to permit a short positive-cache window (deviation from ADR-0019's "re-read every call"). |
 | **Closing playbook** | TTL-bounded positive cache (1s window proposed) keyed on byte-hash mismatch detection. Pin with concurrent-caller bench. |
-| **Tracking** | `cloister-future-keychain-cache-ttl`. |
+| **Tracking** | `cloister-8d675a`. |
 
 ### Row 17.9 — /resolve allow-list iteration before rate-limit (CLOSED this cycle)
 
@@ -1242,9 +1249,9 @@ fix-on-branch landed alongside the swap. Full cycle artifact:
 |---|---|
 | **Adversary capability** | `/healthz` returns 200 ok=true if the Worker boots, regardless of whether nono can actually reach `op` / `security` / keychain. Decouples liveness signal from user-visible behavior. Separately: `/healthz` is unauthenticated and exposes the `platform` field, narrowing scheme-probe targeting. |
 | **Invariant** | `/healthz?deep=1` must exercise the load-bearing keystore path. `/healthz` (liveness) MUST NOT leak OS family to unauthenticated callers. |
-| **Status** | **ACTIVE follow-up bead `cloister-future-deep-healthz`.** Cycle synthesis chose not to land deep-probe inline because the design needs a probe-URL convention (must not signal scheme existence to unauthenticated callers) and operator pre-seeding ergonomics. |
+| **Status** | **ACTIVE follow-up bead `cloister-8d933d`.** Cycle synthesis chose not to land deep-probe inline because the design needs a probe-URL convention (must not signal scheme existence to unauthenticated callers) and operator pre-seeding ergonomics. |
 | **Closing playbook** | (a) `GET /healthz?deep=1` runs a synthetic resolve against `LEYLINE_SIGN_HEALTHZ_PROBE_URL`; returns `ok=false` + per-scheme status object on failure. (b) Auth-gate `/healthz` (or strip the `platform` field) when `AuthConfig::Required`. |
-| **Tracking** | `cloister-future-deep-healthz`. |
+| **Tracking** | `cloister-8d933d`. |
 
 ### Row 17.12 — caller_name is rate-limit key, not access-control principal (DOC-ONLY)
 
