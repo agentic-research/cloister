@@ -105,7 +105,16 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
+        # `capnp compile` exits 0 even when the plugin errors and
+        # writes nothing — its stderr carries the real diagnostic.
+        # Check that the output file actually landed before diffing,
+        # otherwise `diff` would fail on a missing file with a
+        # misleading "DRIFT" framing.
         capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
         if ! diff -u src/generated/cluster.zod.ts "$TMPDIR/cluster.zod.ts"; then
           echo "" >&2
           echo "DRIFT — committed src/generated/cluster.zod.ts differs from what" >&2
