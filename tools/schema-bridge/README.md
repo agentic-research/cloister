@@ -38,30 +38,45 @@ your new capnp construct, the build breaks until either (a) the
 construct is added to schema-bridge with a golden test + fail-case,
 or (b) the schema is rewritten without it. No silent fallbacks.
 
-## v1 scope (what's mapped today)
+## What's mapped today
 
-| capnp construct  | IR                | zod emit                           |
-|------------------|-------------------|------------------------------------|
-| `struct`         | `Struct { fields }`| `z.lazy(() => z.object({…}))`     |
-| scalar fields    | `Scalar(_)`       | `z.string()` / `z.number()` / etc. |
-| struct refs      | `StructRef(name)` | `{Name}Schema`                     |
+| capnp construct                        | IR                          | zod emit                                        |
+|----------------------------------------|-----------------------------|-------------------------------------------------|
+| `struct`                               | `Struct { fields, union }`  | `z.lazy(() => z.object({…}))`                   |
+| scalar fields                          | `Scalar(_)`                 | `z.string()` / `z.number()` / etc.              |
+| struct refs                            | `StructRef(name)`           | `{Name}Schema`                                  |
+| enum refs                              | `EnumRef(name)`             | `{Name}Schema` (where `{Name}Schema = z.enum`) |
+| `List(T)`                              | `List(Box<FieldType>)`      | `z.array(T)` (recurses)                         |
+| top-level `enum`                       | `Enum { name, variants }`   | `z.enum([…])` + `type X = "a" \| "b"`           |
+| `name :union { … }` (group form)       | `Struct.union: Some(Union)` | `z.intersection(base, z.discriminatedUnion)`    |
+| Void union variants                    | `UnionVariant.ty = Void`    | `z.object({ disc: z.literal("name") })`         |
+| union-only structs (no base fields)    | empty `fields`, `Some(union)` | `z.discriminatedUnion` directly (no intersect) |
 
-| Deliberately unmapped (errors today)| reason                                 |
-|-------------------------------------|----------------------------------------|
-| `enum`                              | needs zod enum mapping + TS string union|
-| `union` (in-struct)                 | needs zod discriminated union          |
-| `list`                              | needs `z.array(...)` + element walk    |
-| `group`                             | needs nested-anonymous-struct emit     |
-| `interface`                         | RPC types — out of scope for now       |
-| `const`, `annotation`               | not used at the surfaces we care about |
-| `anyPointer`                        | typed-erasure escape hatch; unmapped   |
-| generics (`$Foo(T)`)                | needs IR generics representation       |
+Verified end-to-end (run `capnp compile -oschema-bridge:<dir>` against
+each):
+
+- `manifest/cluster.capnp` → 136 lines clean zod TS (1 enum, 2 named
+  unions including all-Void `Wire.transport`)
+- `manifest/cloister.capnp` → 246 lines clean zod TS (13 structs,
+  `Backend.kind` 6-variant union, `Route.kind` 10-variant mostly-Void
+  union)
+
+| Deliberately unmapped (errors today)| reason                                       |
+|-------------------------------------|----------------------------------------------|
+| `interface`                         | RPC types — out of scope for now             |
+| `const`, `annotation`               | not used at the schema surfaces we care about |
+| `anyPointer`                        | typed-erasure escape hatch; unmapped         |
+| generics (`$Foo(T)`)                | needs IR generics representation             |
+| anonymous inline union              | unused in cloister; the `name :union {…}` sugar covers all current use|
+| non-union group (field namespacing) | unused in cloister                           |
+| group variant inside a union        | legal capnp, unused in cloister              |
 
 Adding any of these is a focused change: extend the IR variant, add
-the emit in `outputs/zod.rs`, add one golden test + one fail-case
-test. The fail-case test stays even after the construct is supported,
-to guard against regressions in adjacent constructs (e.g. don't let
-`group` start silently emitting nothing).
+the emit in `outputs/zod.rs`, add one golden test + leave one
+fail-case test for the still-unmapped neighbour. The fail-case tests
+stay forever as regression guards — they catch a future construct
+that silently slips through because it looks "close enough" to
+something that IS supported.
 
 ## How it runs
 
@@ -103,17 +118,21 @@ tools/schema-bridge/
 
 Tracked separately from this initial drop. In rough priority order:
 
-1. JSON-extension input adapter for the aggregation pattern (capnp
+1. Wire into `task manifest` + `task verify` — codegen step alongside
+   the existing capnp→TS pipeline. Decide whether the output replaces
+   `src/generated/cluster.ts` or sits beside it as
+   `src/generated/cluster.zod.ts`.
+2. JSON-extension input adapter for the aggregation pattern (capnp
    defines the structural backbone, JSON files supply per-variant
    field extensions). Where the polymorphism for skill / mcp / agent
    actually lands.
-2. Enum + union support — needed before the EnabledItem union can be
-   defined.
-3. List + group support — needed for any non-trivial schema.
-4. JSON Schema output adapter (`outputs/json_schema.rs`) — drives the
+3. JSON Schema output adapter (`outputs/json_schema.rs`) — drives the
    `$schema` field in `.cloister.json` for editor autocomplete.
-5. TS-types-only output adapter, separated from the zod emit, so
+4. TS-types-only output adapter, separated from the zod emit, so
    consumers can pick one or both.
+5. End-to-end fixture tests against `manifest/*.capnp` — currently
+   verified manually (see README "What's mapped today"); locking that
+   in as a golden-output test in CI prevents silent regressions.
 6. License — deferred per the implementation conversation. Default
    matches cloister (AGPL-3.0-or-later); revisit if extraction to a
    standalone repo lands.
