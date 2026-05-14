@@ -8,6 +8,65 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-05-13
+
+- **leyline-sign-helper keystore federation + ResolveCache hardening**
+  (PR #2, `fix/cloister-2a0faa`, beads `cloister-2a0faa`, `cloister-d95f0d`,
+  `cloister-d9a3c6`, `cloister-da4a07`, `cloister-da87da`,
+  `cloister-d7674e`) — host-side keystore now federates across
+  `keychain://`, `op://` (1Password CLI), `security://` (macOS
+  `/usr/bin/security`), and plain `https://` allow-list with byte-identical
+  bytes from each backend. Six-specialist adversarial cycle (trust-root,
+  dos, oracle, silence, isolation, replay friends + synthesis) ran inline:
+  13 of 17 findings fixed pre-merge, 4 carry as follow-ups.
+- **`ResolveCache` rewritten** (`cloister-d95f0d`, `cloister-d9a3c6`) —
+  replaced `tokio::sync::OnceCell` with `tokio::sync::watch::channel` +
+  `std::sync::Mutex` over a bounded `HashMap`/`VecDeque` pair. Two
+  invariants closed: (a) **no panic on leader cancellation** — followers
+  see `rx.changed().await → Err(_)` and bail with `HelperError::Internal`
+  instead of hitting an `unreachable!()` (skeptic-friend P1); (b)
+  **bounded growth** under unique-spec floods via FIFO eviction at
+  `LEYLINE_SIGN_RESOLVE_CACHE_MAX` (default 1024). New testable entry
+  `resolve_with<F, Fut>` separates wiring from the work-fn so unit
+  tests can assert the singleflight contract directly.
+- **`HelperError::KeystoreLocked` retired** (`cloister-da4a07`) — all
+  keystore-side failures collapse to the §17.10 constant-time
+  `NotFound` on the wire. Comment block on the removed variant
+  warns future devs against re-introducing a distinct 503 (re-opens
+  the §17.10 enumeration oracle); a `"keystore_locked"` outcome
+  label remains on the operator-side `tracing` log only.
+- **Coalescing test sharpened** (`cloister-da87da`) — the
+  `concurrent_resolve_for_same_spec_*` HTTP-layer test was a
+  wall-clock-budgeted shape check that would have passed even if
+  singleflight regressed to N independent fetches. Renamed to
+  `_smoke` (kept for HTTP-layer coverage); the actual invariant
+  now lives in three unit tests on `ResolveCache` directly: real
+  call-count assertion via `AtomicUsize` (16 concurrent callers →
+  `counter == 1`), leader-cancellation no-panic, and bounded-flood
+  size check.
+- **Cargo feature split: `host` vs `host-extras`** — `host-extras`
+  pulls in the OS-keystore federation (`keyring`, `secret-service`,
+  `dbus-sys`), `host` is the lean default. `task verify` runs both
+  feature shapes so the helper compiles + tests on linux-without-dbus
+  builds where AGPL `secret-service` is not desired.
+- **New env vars on the leyline-sign-helper** —
+  `LEYLINE_SIGN_SIGN_ALLOW` (per-helper allow-list overlay for
+  `/sign`), `LEYLINE_SIGN_OP_BIN` + `LEYLINE_SIGN_SECURITY_BIN`
+  (subprocess paths for 1Password CLI and macOS `security`),
+  `LEYLINE_SIGN_RESOLVE_TTL_MS` (positive-cache TTL; `0` disables
+  caching), `LEYLINE_SIGN_RESOLVE_CACHE_MAX` (FIFO cap; default
+  1024). All documented in ADR-0019 normative reqs 14–18.
+- **ADR-0019 normative reqs 14–18** — env-var surface frozen for
+  the pre-OSS release: `RESOLVE_CACHE_MAX` bound, `RESOLVE_TTL_MS`
+  zero-means-no-cache semantics, subprocess-path overrides, allow-
+  list overlay, host-extras feature flag.
+- **CI hardening** (commits `7e4c3f1`, `7ef7c61`) — linux runner
+  gained `libdbus-1-dev` + `pkg-config` so `keyring`'s
+  `sync-secret-service` feature links; `dtolnay/rust-toolchain`
+  pinned to `1.95.0` (matches `rust-toolchain.toml`) with a
+  pre-warm step to stop the `rs:sign:host`/`rs:sign:wasm` parallel
+  fan-out from racing rustup.
+
 ### Shipped 2026-05-12
 
 - **Interlace 0.2.0 receipts (Phase 1)** (`cloister-ae713f`) — full
