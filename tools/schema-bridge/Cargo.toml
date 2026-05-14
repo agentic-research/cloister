@@ -1,0 +1,22 @@
+[package]
+name = "schema-bridge"
+version = "0.0.1"
+edition = "2021"
+description = "Capnp + JSON-extension schemas → zod / TS / JSON Schema. Fail-fast codegen."
+license = "AGPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "capnpc-schema-bridge"
+path = "src/main.rs"
+
+[lib]
+name = "schema_bridge"
+path = "src/lib.rs"
+
+[dependencies]
+capnp = "0.21"
+thiserror = "2.0"
+
+[dev-dependencies]
+indoc = "2.0"
