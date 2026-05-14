@@ -330,8 +330,11 @@ For **self-host / production**, the vault DO supports these schemes:
 | `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
 | `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar (today) / `leyline-sign-helper` Rust binary (post-`cloister-99165e`) |
-| `secret-tool://service-name` | Linux libsecret — via the kek-helper sidecar (returns 501 today, roadmap) |
-| `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` |
+| `secret-tool://service-name` | Linux libsecret (Secret Service) — same `keyring` crate backend as `keychain://`. |
+| `keyring://service/account` | Explicit-form keyring URI (both halves in the URI). Use when `KEYCHAIN_ACCOUNT` is not the right account selector. |
+| `op://vault/item/field` | 1Password — via the `op` CLI. Requires `LEYLINE_SIGN_OP_BIN` env var pointing to an absolute path of the `op` binary (e.g. `/opt/1Password/bin/op`). |
+| `apple-password://server/account` | Apple Passwords — via macOS `security` CLI. Requires `LEYLINE_SIGN_SECURITY_BIN` (typically `/usr/bin/security`). macOS-only. |
+| `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` (legacy / off-host helpers) |
 
 > **Migration in flight:** `scripts/kek-helper.mjs` (the JS sidecar
 > documented in this section) is being replaced by the
@@ -369,9 +372,34 @@ The helper refuses to bind to anything but loopback. The legacy
 port; the replacement `leyline-sign-helper` Rust binary (ADR-0019,
 merged 2026-05-12) adds bearer-token auth via
 `LEYLINE_SIGN_CALLER_TOKENS` and refuses to start under `--require-auth`
-without it. Either way: **don't expose the helper remotely.** Linux
-libsecret (`secret-tool://`) is on the roadmap; today the helper
-returns 501 for that scheme.
+without it. Either way: **don't expose the helper remotely.**
+
+Since `cloister-2a0faa` (2026-05-13) the helper supports up to six
+keystore schemes, split across two Cargo features per the inline
+adversarial cycle (threat-model §17.1):
+
+- **Default `host` feature** (`task rs:sign:helper` default build):
+  `keychain://`, `secret-tool://`, `keyring://service/account`,
+  `file://`. Direct `keyring = "3"` crate dep; no `nono`; no sigstore
+  / aws-lc-rs / landlock closure. `cargo tree --features
+  leyline-sign/host` ≈ 245 lines.
+- **Opt-in `host-extras` feature** (`cargo build --features
+  host,host-extras`): additionally enables `op://vault/item/field` and
+  `apple-password://server/account`. Pulls in `nono = "0.54"` for URI
+  validators; the subprocess dispatch stays cloister-side with
+  absolute-path pinning + `env_clear` allow-list. Operators MUST pin
+  `LEYLINE_SIGN_OP_BIN` / `LEYLINE_SIGN_SECURITY_BIN` to absolute
+  paths; the shim refuses unset/missing paths with a structured 404 to
+  avoid PATH-hijack vectors. `cargo tree --features "leyline-sign/host
+  leyline-sign/host-extras"` ≈ 559 lines.
+
+`file://` stays in cloister's own reader (binary-safe + multi-CRLF
+trim per the `kek-helper.mjs` golden vector) under both features.
+
+The helper additionally supports a per-caller URL allow-list for
+`POST /sign` via `LEYLINE_SIGN_SIGN_ALLOW=<caller>=<prefix>[,<prefix>...][;...]`.
+See ADR-0019 §"Normative requirements" #14 for the grammar + worked
+examples. Production deploys should pass `--require-sign-allow`.
 
 **Round-trip dogfood check** (proves Keychain → helper → bytes works
 end-to-end on your machine):

@@ -55,7 +55,7 @@ pub async fn sign(
     if alg != "ed25519" {
         return Err(HelperError::UnsupportedAlg("only ed25519 supported"));
     }
-    let keystore_bytes = keystore::resolve_bytes(spec)?;
+    let keystore_bytes = keystore::resolve_bytes(spec).await?;
     // ADR-0019 normative req. 6: validate keystore byte length BEFORE
     // any sign operation. Wrong length → 415, no signing attempted.
     if keystore_bytes.len() != ED25519_SEED_BYTES {

@@ -1123,3 +1123,175 @@ For the next cycle's reviewer:
 - ADR-0020 — adversarial-team charter
 - `docs/security/adversarial-cycles/2026-05-12.md` — cycle 1 + cycle 2 + oracle-friend cycle report
 - Beads: `cloister-aa9376` (16.1), parent `cloister-1f249f`
+
+
+## 17. Nono swap supply-chain expansion (2026-05-13 cycle)
+
+Inline (not weekly-cadence) adversarial cycle gated the merge of
+`cloister-2a0faa`. The initial commit swapped `keyring = "3"` for
+`nono = "0.54"` for unified scheme dispatch. Six specialists dispatched
+in parallel surfaced 17 findings across 5 cross-cuts; the cycle's
+heaviest finding (supply-chain expansion, §17.1) escalated to a
+follow-up that **feature-gated the heavy backends** under
+`host-extras`. Default `host` deploys now bind directly to
+`keyring = "3"` for `keychain://` / `secret-tool://` / `keyring://`
+and avoid the sigstore-verify / aws-lc-rs / landlock closure. Operators
+who need `op://` (1Password) or `apple-password://` integration opt in
+via `--features host,host-extras`. Full cycle artifact:
+`docs/security/adversarial-cycles/2026-05-13-nono-swap.md`.
+
+### Row 17.1 — Supply-chain expansion via sigstore-verify / aws-lc-rs / landlock (CLOSED this cycle — feature-gated under host-extras)
+
+| | |
+|---|---|
+| **Adversary capability** | Compromise of any of 12+ transitive crates that become reachable from `leyline-sign-helper` when nono is in the dep graph: sigstore-verify, sigstore-trust-root, sigstore-crypto, sigstore-rekor, sigstore-bundle, sigstore-tsa, sigstore-merkle, sigstore-types, aws-lc-rs (+ aws-lc-sys bindgen C), rustls-webpki, x509-cert, landlock. |
+| **Invariant** | ADR-0019 §"Implementation pins" must enumerate the transitive trust base. Operators MUST be able to deploy without the heavy closure when they don't need 1P / Apple Passwords. |
+| **Status** | **CLOSED — feature-gated.** Cargo features split into `host` (baseline: keychain/secret-tool/keyring/file via direct `keyring = "3"`; no nono in the dep graph) and `host-extras` (additive: adds nono + enables `op://` / `apple-password://` schemes). Default `host` deploys have ~245 lines in `cargo tree`; opt-in `host,host-extras` deploys have ~559 lines. The sigstore-verify / aws-lc-rs / landlock closure is reachable ONLY when an operator explicitly opts in. The 1Password / Apple Passwords schemes (which need nono's URI validators) cfg out cleanly without affecting the wire shape or any other scheme. **Defense-in-depth:** `task rs:audit` Taskfile target added (`cargo audit --deny warnings` + `cargo deny check` against `rs/deny.toml`); folded into `task verify` (strict CI gate). Long-tail attestation tracked by `cloister-8df072`. **Linux build env:** the `host` feature's `keyring` dep activates `sync-secret-service` on `cfg(target_os = "linux")`, which transitively links libdbus-sys → requires `libdbus-1-dev` + `pkg-config` at build time. CI (`.github/workflows/ci.yml` lint + verify jobs) installs both. macOS uses `apple-native` (Security framework) and has no system-package prereq. |
+| **Detection** | CI fails on new advisory against any reachable crate; PR review surfaces any new `dep:` line added to the `host` feature (vs. `host-extras`) because that's the gate operators rely on. |
+| **Recovery** | If a CVE drops against a host-extras-only crate, operators can rebuild with default `host` only and lose 1P/Apple Passwords integration until the upstream is patched. |
+| **Closing playbook** | Done. Run `task rs:audit` in CI on every PR; quarterly `cargo-vet`-style attestation via `cloister-8df072`. Future schemes that need a fat dep should land under a similar opt-in feature, never under default `host`. |
+| **Tracking** | `cloister-2a0faa` (this commit) + `cloister-8df072` (long-tail attestation). |
+
+### Row 17.2 — POST /sign has no per-caller URL allow-list (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | A bearer-token holder (e.g., compromised `caller_name=router`) sends `POST /sign {url: "op://attacker-vault/their-key/field", payload_b64: "..."}`. Helper resolves the URL through nono, dispatches to subprocess (or via PATH-hijack if 17.3 also open) and signs the caller's payload under attacker-supplied bytes. Defeats ADR-0019's "signing-key bytes never leave the helper" load-bearing premise. |
+| **Invariant** | `/sign` MUST consult a per-caller URL allow-list. Default deny-all when `--require-sign-allow` is set. Mirror of `/resolve`'s `LEYLINE_SIGN_RESOLVE_ALLOW` discipline. |
+| **Status** | **CLOSED** — `host::allowlist::SignAllowList` + `LEYLINE_SIGN_SIGN_ALLOW` env var + `--require-sign-allow` flag + adversarial test `sign_must_reject_url_not_in_allow_list`. Per-caller binding enforced (`sign_allow_is_per_caller_not_global`). |
+| **Detection** | Adversarial test pin; supervisor template requires both `--require-auth` AND `--require-sign-allow`. |
+| **Closing playbook** | Done on `fix/cloister-2a0faa`. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.3 — `op` / `security` shell-out via $PATH (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | An attacker with same-UID filesystem write drops `~/bin/op` (or any path that precedes `/usr/local/bin` in the helper's `PATH`). Nono's `Command::new("op")` uses Rust's `$PATH` lookup; the hostile `op` shim receives the URI as argv, returns 32 attacker-chosen bytes, helper signs with them. Same for `security` on macOS. |
+| **Invariant** | `op://` and `apple-password://` schemes MUST use an operator-pinned absolute path to the CLI binary. Subprocess env MUST be `env_clear`-ed with an explicit allow-list (HOME, OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*, OP_ACCOUNT, OP_DEVICE for `op`; HOME only for `security`). |
+| **Status** | **CLOSED** — `keystore::read_op_bytes` / `read_apple_password_bytes` bypass nono's `Command::new("op")` bare-name lookup; require `LEYLINE_SIGN_OP_BIN` / `LEYLINE_SIGN_SECURITY_BIN` env to be set to an absolute path to an extant file. Refuses with 404 (constant-time) otherwise. Env is `env_clear`-ed; minimal PATH (`/usr/bin:/bin:/usr/local/bin`) + allow-list var inheritance. Subprocess wall-clock cap 4500ms (under helper's 5s SIGN_TIMEOUT). |
+| **Detection** | Startup info log surfaces whether each scheme has a usable pinned binary; supervisor unit pin can be grepped. |
+| **Closing playbook** | Done. Note: nono upstream issue filed (`cloister-nono-upstream-env-clear`) requesting an `env_clear` API at the nono dispatch layer so other consumers benefit. |
+| **Tracking** | `cloister-2a0faa` (closed) + `cloister-nono-upstream-env-clear` (follow-up). |
+
+### Row 17.4 — Toolchain pin not enforced in CI (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | A PR deletes `rs/rust-toolchain.toml` or bumps `channel`; CI's `dtolnay/rust-toolchain@stable` silently falls back. Reproducible-build provenance breaks. |
+| **Invariant** | The pinned toolchain in `rs/rust-toolchain.toml` MUST match the documented version in ADR-0019. CI MUST refuse to build if the file is missing or its channel diverges. |
+| **Status** | **CLOSED** — `task rs:audit` Taskfile target asserts the channel pin via grep. Folded into `task verify`. CI step pins `dtolnay/rust-toolchain` to the documented version explicitly. |
+| **Closing playbook** | Done. Future: `cargo-vet` integration tracked under `cloister-8df072`. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.5 — `?decode=` query-string passthrough on signing schemes (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | Cloister's prior `parse_spec` passed `?decode=go-keyring` and any future `?decode=*` value verbatim into nono's `keyring://` dispatcher, which invokes `apply_keyring_decode` → reaches `nono::trust::base64::base64_decode` → entry point to nono's trust module (which links sigstore-verify et al). Compounds with 17.1 (supply-chain expansion). Also creates a latent kid-aliasing surface (replay F1). |
+| **Invariant** | Signing-scheme URIs MUST NOT contain query strings or fragments. `parse_spec` rejects at the cloister boundary. |
+| **Status** | **CLOSED** — `parse_spec` rejects `?` and `#` for all schemes with `BadRequest`. Tests: `parse_spec_rejects_query_strings`, `parse_spec_rejects_fragments`, `sign_rejects_url_with_query_string`. |
+| **Closing playbook** | Done. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.6 — Blocking nono call pins tokio worker threads (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | N+1 concurrent `POST /sign` against `op://` (or any nono subprocess scheme), where N = `2 * num_cpus` (default tokio worker count). Each request: synchronous `nono::keystore::load_secret_by_ref` runs on a tokio worker, `wait_with_timeout` uses blocking `std::thread::sleep(100ms)` polling for up to 30s. Axum's 5s outer timeout abandons the future but doesn't yield the thread. Worker threads stay pinned 30s; orphaned subprocesses accumulate. Effective DoS using legal token-bucket allotment. |
+| **Invariant** | `/sign` (and `/resolve`) keystore dispatch MUST run on the spawn_blocking pool, not the tokio worker pool. Subprocess wall-clock MUST be capped under helper's `SIGN_TIMEOUT` and the child killed on timeout. |
+| **Status** | **CLOSED** — `keystore::resolve_bytes` is `async fn`; wraps `resolve_bytes_blocking` in `tokio::task::spawn_blocking`. Custom `run_subprocess_with_trim` uses `SUBPROCESS_TIMEOUT = 4500ms` and kills the child on timeout (vs. nono's internal 30s which we bypass). Adversarial test `keystore_call_does_not_pin_worker_threads` pins the invariant. |
+| **Closing playbook** | Done. Long-tail recommendation in cycle synthesis: add `clippy::await_holding_lock` + custom blocking-on-tokio lints. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.7 — Concurrent same-URL keystore reads (CLOSED for coalescing this cycle; TTL-cache FOLLOW-UP)
+
+| | |
+|---|---|
+| **Adversary capability** | N concurrent `/sign` or `/resolve` against the same URL (any backend: `keychain://`, `apple-password://`, `op://`, `keyring://`). Each request spawns an independent keystore read. macOS `securityd` re-evaluates per-thread authorization on parallel access, causing some callers to hang (real keychain dogfood observed 4 concurrent /resolve hanging indefinitely). For `apple-password://` specifically: FaceID prompt fires per call. Effective DoS via legal traffic volume. |
+| **Invariant** | Concurrent requests for the same URL MUST coalesce into one in-flight keystore read (singleflight). All callers share the result, success or failure. |
+| **Status** | **FULLY CLOSED.** `keystore::resolve_bytes` uses a per-spec `tokio::sync::OnceCell` cache that combines (a) singleflight (concurrent same-spec readers share one in-flight keystore call) and (b) TTL caching (cache the result for `LEYLINE_SIGN_RESOLVE_TTL_MS` ms, default 60s for `op://` / `apple-password://`, 0s for cheap-read schemes). Pinned by `concurrent_resolve_for_same_spec_coalesces` + `resolve_ttl_cache_serves_cached_bytes_within_window`. Real-keychain dogfood: 8 concurrent /resolve against one Keychain entry completes in 5.18s (dominated by ONE Touch ID prompt — all 8 callers coalesced + got byte-identical bytes). |
+| **Closing playbook** | Done. ADR-0019 amended with the "Subprocess-scheme TTL cache amendment" section documenting the rotation-latency trade-off. |
+| **Tracking** | `cloister-8d4dd7` (CLOSED). |
+
+### Row 17.8 — Keychain daemon serialization (CLOSED via opt-in cache)
+
+| | |
+|---|---|
+| **Adversary capability** | At rate-limit ceiling (1000 sigs/sec per caller × 2 callers = 2000 req/sec), macOS `securityd` IPC becomes the bottleneck (~500-1000 req/sec ceiling per the keyring crate's bench data). The §15.3 per-caller rate-limit holds at the token-bucket layer but is bottlenecked downstream. |
+| **Invariant** | Per-caller rate-limit MUST be meaningful, not bottlenecked on a shared resource that re-introduces global serialization. |
+| **Status** | **CLOSED (operator-opt-in mitigation).** ADR-0019 amended with §"Subprocess-scheme TTL cache amendment". For `keychain://`/`secret-tool://`/`keyring://` (the schemes that hit `securityd`), the **default** policy remains "re-read every call" (TTL=0) to preserve zero-latency rotation detection. Operators who hit the `securityd` ceiling can set `LEYLINE_SIGN_RESOLVE_TTL_MS=<ms>` to cache reads across all schemes uniformly — this trades rotation latency (≤TTL) for `securityd` throughput. The mechanism is implemented + tested (see §17.7 close); §17.8 is closed in the sense that the mitigation now EXISTS and is configurable, not that the default behavior changed. |
+| **Closing playbook** | Done. Operators wanting `securityd` throughput beyond the bench ceiling set the env var explicitly with a documented rotation-latency budget. |
+| **Tracking** | `cloister-8d675a` (CLOSED). |
+
+### Row 17.9 — /resolve allow-list iteration before rate-limit (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | A 64 KiB URL in `?url=...` triggers `state.resolve_allow.iter().any(|p| q.url.starts_with(p))` — O(N · prefix_len) per probe before the rate-limit check fires. Cost amplification. |
+| **Invariant** | Cheap rejects (rate-limit) before expensive checks (allow-list iteration). |
+| **Status** | **CLOSED** — `get_resolve` reordered: auth → rate-limit → allow-list → keystore. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.10 — Wire collapse to 404 across keystore failure shapes (CLOSED this cycle)
+
+| | |
+|---|---|
+| **Adversary capability** | An attacker probing `keychain://victim-vault-kek-1` vs `keychain://does-not-exist-9999` could distinguish "present-but-locked" (503 `keystore_locked`) from "absent" (404 `not_found`) from "malformed URI" (400 `bad_request`). One bit per probe → full service-name enumeration in linear time. Compounded by nono's `tracing::debug!` leakage of redacted-but-correlatable URIs under `RUST_LOG=debug`. |
+| **Invariant** | All keystore-side failures MUST produce the byte-identical 404 body per §9.4. Diagnostic detail goes to tracing, not the wire. nono's `tracing::debug!` lines MUST be filtered to INFO so operator log pipelines don't inherit nono's URI leakage. |
+| **Status** | **CLOSED** — `classify_nono_err` collapses `SecretNotFound`, `KeystoreAccess`, `ConfigParse`, and `_` all to `HelperError::NotFound`. `map_nono_err_logged` emits a `warn`-level diagnostic with the outcome label + nono's already-redacted error string before the wire collapse. `host::keystore::tests::classify_nono_err_collapses_to_not_found` + `nono_dispatch_collapses_to_constant_time_404` integration test pin the invariant. `init_tracing` adds `nono::keystore=info` + `nono=info` directives unconditionally (oracle F4). |
+| **Closing playbook** | Done. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.11 — /healthz deep probe missing + unauthenticated platform leak (FOLLOW-UP)
+
+| | |
+|---|---|
+| **Adversary capability** | `/healthz` returns 200 ok=true if the Worker boots, regardless of whether nono can actually reach `op` / `security` / keychain. Decouples liveness signal from user-visible behavior. Separately: `/healthz` is unauthenticated and exposes the `platform` field, narrowing scheme-probe targeting. |
+| **Invariant** | `/healthz?deep=1` must exercise the load-bearing keystore path. `/healthz` (liveness) MUST NOT leak OS family to unauthenticated callers. |
+| **Status** | **ACTIVE follow-up bead `cloister-8d933d`.** Cycle synthesis chose not to land deep-probe inline because the design needs a probe-URL convention (must not signal scheme existence to unauthenticated callers) and operator pre-seeding ergonomics. |
+| **Closing playbook** | (a) `GET /healthz?deep=1` runs a synthetic resolve against `LEYLINE_SIGN_HEALTHZ_PROBE_URL`; returns `ok=false` + per-scheme status object on failure. (b) Auth-gate `/healthz` (or strip the `platform` field) when `AuthConfig::Required`. |
+| **Tracking** | `cloister-8d933d`. |
+
+### Row 17.12 — caller_name is rate-limit key, not access-control principal (DOC-ONLY)
+
+| | |
+|---|---|
+| **Adversary capability** | An operator misreads the per-caller rate-limit + per-caller sign-allow-list as a per-tenant access-control fabric. Actually the helper has ONE trust root; both `router` and `notme` callers reach the same keystore. The new `keyring://service/account` explicit form makes the namespace fully caller-controlled, increasing the operator-error surface. |
+| **Invariant** | Cloister documents that `caller_name` is a rate-limit + allow-list key, NOT a tenant principal. Per-caller URL pinning (17.2) is the access-control axis. |
+| **Status** | **CLOSED (doc-only)** — `host/keystore.rs` module preamble + `host/auth.rs` rustdoc + ADR-0019 §"Trust roots and tenancy" all clarify. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Row 17.13 — Supervisor template hygiene for new schemes (DOC-ONLY)
+
+| | |
+|---|---|
+| **Adversary capability** | An operator with an old `LEYLINE_SIGN_RESOLVE_ALLOW=keychain://...` allow-list migrates `VAULT_KEK_SOURCE` to the explicit `keyring://com.cloister/...` form. The /resolve gate fails-closed (good), but the operator may then add `keyring://` to the allow-list with insufficient specificity and permit unintended URLs. |
+| **Invariant** | Supervisor templates document each scheme's hygiene shape (full prefix down to the service/account, not just the scheme prefix). |
+| **Status** | **CLOSED (doc-only)** — `GETTING-STARTED.md` §"For self-host / production" lists the new schemes with concrete example prefixes; supervisor template comments updated in the same commit. |
+| **Tracking** | `cloister-2a0faa` (closed). |
+
+### Vectors checked and cleared (audit trail — 2026-05-13 nono swap cycle)
+
+Combined from all six specialists' clear lists. The next reviewer can skip these:
+
+- kid + pubkey determinism through nono — preserved.
+- 64-bit kid collision birthday cost — unchanged.
+- macOS Keychain prompt blocking — preserved (same `keyring` crate semantics underneath nono).
+- `file://` path-traversal + symlink + perm checks — unchanged (cloister keeps its own reader, not routed through nono).
+- `trim_trailing_newlines` golden-vector parity with `kek-helper.mjs` — preserved.
+- nono module-init side effects — none.
+- Argument injection on `op` / `security` shell-out — cleared (we use `args([...])`, no shell; `FORBIDDEN_URI_CHARS` rejects metacharacters; `op read --` ends option parsing).
+- wasm32 verifier byte-identity — preserved (sha256 `653eae67e682cb816649c2308d2b4c7819354d710c65e304b3b0d10fe5d120f0`, 305945 bytes).
+- Bundle-side service-binding to helper — none present in `cluster.capnp`/`config.capnp`.
+- Subprocess output as replay surface — confirmed clean (op + security return trimmed bare secret; nono parses the same way; we kill on timeout so no half-written state).
+- Helper restart kid stability — preserved (stateless helper, keystore is source of truth).
+- Wire protocol / nonces / leases / epochs / receipt chains — untouched by the swap.
+- Per-caller rate-limit independence at token-bucket layer — preserved.
+- `/resolve` allow-list applies to all six schemes (not just the original three) — preserved.
+
+**Related:**
+- ADR-0020 — adversarial-team charter
+- `docs/security/adversarial-cycles/2026-05-13-nono-swap.md` — full cycle report
+- `docs/adr/0019-sign-only-helper-protocol.md` — §"Implementation pins" updated for the supply-chain expansion
+- Beads: `cloister-2a0faa` (this swap) + `cloister-1f249f` (rotation parent) + follow-ups listed in §17.7 / §17.8 / §17.11

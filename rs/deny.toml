@@ -1,0 +1,73 @@
+# cargo-deny configuration for the cloister rust workspace.
+#
+# Run via `task rs:audit` (or `cd rs && cargo deny check` directly).
+# Closes 2026-05-13 adversarial cycle row 17.1: the nono swap pulled
+# sigstore-verify, aws-lc-rs, landlock, and ~80 other transitive crates
+# into `leyline-sign-helper`'s trust closure. Without a `cargo deny`
+# policy, a CVE or yanked-republish on any of them lands silently.
+#
+# See https://embarkstudios.github.io/cargo-deny/ for the schema.
+
+[advisories]
+# CVE database checks. `cargo audit` covers RustSec advisories; this
+# block lets cargo deny gate on them too with project-specific
+# severity thresholds.
+yanked = "deny"
+# `unmaintained` takes one of: "all", "workspace", "transitive", "none".
+# "workspace" means we surface unmaintained crates that the workspace
+# depends on directly; transitive unmaintained crates are reported but
+# don't fail the check (we can't always patch them without forking).
+unmaintained = "workspace"
+# Don't ignore known advisories silently — surface them so we can
+# either patch, vendor, or document the residual.
+ignore = []
+
+[licenses]
+# AGPL-3.0-or-later host crate; AGPL-compatible deps OK. Most
+# permissive licenses (MIT, Apache-2.0, BSD-*, ISC, Zlib) compose with
+# AGPL. Non-permissive copyleft (GPL, LGPL) need case-by-case review.
+allow = [
+    "AGPL-3.0-or-later",  # the host crate itself
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+
+# Per-crate exceptions. Empty by default; add entries only with an
+# explicit comment justifying the residual.
+exceptions = []
+
+[bans]
+# Multiple-versions of the same crate increase the audit surface and
+# rebuild cost. Allowed but warned; tighten by upgrading consumers.
+multiple-versions = "warn"
+wildcards = "deny"
+
+# Crates explicitly banned (never permitted in the dep graph).
+deny = [
+    # openssl is a known weak link vs rustls + aws-lc-rs. Keep it out
+    # so a transitive resurrection is loud, not silent.
+    { name = "openssl" },
+    { name = "openssl-sys" },
+]
+
+# Skip the multiple-versions warning for known-OK split-version cases.
+skip = []
+
+[sources]
+# Only crates.io. Git-only deps need an ADR amendment to land.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

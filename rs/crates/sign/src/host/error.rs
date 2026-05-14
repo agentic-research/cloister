@@ -22,7 +22,11 @@ use thiserror::Error;
 /// change that needs an ADR amendment.
 pub const CODE_BAD_REQUEST: &str = "bad_request";
 pub const CODE_NOT_FOUND: &str = "not_found";
-pub const CODE_KEYSTORE_LOCKED: &str = "keystore_locked";
+// CODE_KEYSTORE_LOCKED was retired 2026-05-13 — `HelperError::KeystoreLocked`
+// removed when all keystore-side failures were collapsed to the §17.10
+// constant-time NotFound. The string "keystore_locked" still appears as
+// a structured-log outcome label in `host::keystore` (operator-side
+// signal, not wire), but no longer maps to a wire-level error code.
 pub const CODE_UNSUPPORTED_ALG: &str = "unsupported_alg";
 pub const CODE_PAYLOAD_TOO_LARGE: &str = "payload_too_large";
 pub const CODE_RATE_LIMITED: &str = "rate_limited";
@@ -41,7 +45,10 @@ pub const CODE_UNSUPPORTED_MEDIA_TYPE: &str = "unsupported_media_type";
 /// Per ADR-0019 §"Constant-time error shape" + threat-model §9.4.
 const CONST_TIME_REASON: &str = "keystore entry or internal error";
 
-#[derive(Debug, Error)]
+// Clone derived so the resolve-time singleflight in `host::keystore` can
+// fan out one keystore call's result to N concurrent callers. All
+// variants carry either no data or `&'static str` — Clone is trivial.
+#[derive(Debug, Error, Clone)]
 pub enum HelperError {
     #[error("bad_request: {0}")]
     BadRequest(&'static str),
@@ -49,8 +56,13 @@ pub enum HelperError {
     #[error("not_found")]
     NotFound,
 
-    #[error("keystore_locked")]
-    KeystoreLocked,
+    // `KeystoreLocked` variant retired 2026-05-13 (skeptic-friend
+    // d95f0d/da4a07): all keystore-side failures collapse to NotFound
+    // for the §17.10 constant-time wire shape. A future developer
+    // adding a new keystore backend MUST NOT re-introduce a distinct
+    // 503 variant for "credential exists but unreachable" — that
+    // re-opens the §17.10 enumeration oracle. Use NotFound + a
+    // structured tracing log to signal the locked-state to operators.
 
     #[error("unsupported_alg: {0}")]
     UnsupportedAlg(&'static str),
@@ -109,10 +121,6 @@ impl HelperError {
                 StatusCode::NOT_FOUND,
                 ErrorBody { error: CODE_NOT_FOUND, reason: CONST_TIME_REASON },
             ),
-            HelperError::KeystoreLocked => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                ErrorBody { error: CODE_KEYSTORE_LOCKED, reason: "unlock keystore" },
-            ),
             HelperError::UnsupportedAlg(reason) => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 ErrorBody { error: CODE_UNSUPPORTED_ALG, reason },
@@ -147,7 +155,11 @@ impl HelperError {
             ),
             HelperError::Forbidden => (
                 StatusCode::FORBIDDEN,
-                ErrorBody { error: CODE_FORBIDDEN, reason: "URL not on /resolve allow-list" },
+                // Neutral reason — same string for /resolve and /sign
+                // gates so the wire doesn't distinguish which gate fired
+                // (oracle-friend discipline). Distinct outcome labels in
+                // tracing carry the operator-side signal.
+                ErrorBody { error: CODE_FORBIDDEN, reason: "URL not on allow-list" },
             ),
             HelperError::UnsupportedMediaType => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -162,7 +174,6 @@ impl HelperError {
         match self {
             HelperError::BadRequest(_) => "bad_request",
             HelperError::NotFound => "not_found",
-            HelperError::KeystoreLocked => "keystore_locked",
             HelperError::UnsupportedAlg(_) => "unsupported_alg",
             HelperError::PayloadTooLarge => "payload_too_large",
             HelperError::RateLimited => "rate_limited",
@@ -207,7 +218,6 @@ mod tests {
         for err in [
             HelperError::BadRequest("malformed"),
             HelperError::NotFound,
-            HelperError::KeystoreLocked,
             HelperError::UnsupportedAlg("wrong length"),
             HelperError::PayloadTooLarge,
             HelperError::RateLimited,

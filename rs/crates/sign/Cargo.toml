@@ -2,6 +2,7 @@
 name = "leyline-sign"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
@@ -24,8 +25,16 @@ default = []
 # `#[cfg(all(feature = "host", not(target_arch = "wasm32")))]` at every
 # module boundary so toggling this feature does not change the wasm
 # artifact (cloister-99165e Taskfile rs:sign:wasm contract).
+#
+# `host` covers the three baseline schemes: `keychain://`,
+# `secret-tool://`, `keyring://`, and `file://`. The keyring backend is
+# wired directly to the `keyring` crate (no nono mediation) so the
+# default deploy avoids the sigstore-verify / aws-lc-rs / landlock
+# transitive closure flagged by the 2026-05-13 adversarial cycle row
+# 17.1.
 host = [
   "dep:keyring",
+  "dep:zeroize",
   "dep:axum",
   "dep:tokio",
   "dep:tower",
@@ -36,6 +45,22 @@ host = [
   "dep:clap",
   "dep:tracing",
   "dep:tracing-subscriber",
+]
+
+# `host-extras` is additive: enables the `op://` (1Password CLI) and
+# `apple-password://` (macOS `security` CLI) schemes. These schemes use
+# `nono::keystore` for URI validation and dispatch logic, which is what
+# drags in the sigstore-verify / aws-lc-rs / landlock closure. Operators
+# who need 1Password / Apple Passwords integration opt in via
+# `--features host,host-extras`; the default deploy stays minimal.
+#
+# Subprocess shims for `op` / `security` remain cloister-side (in
+# `host::keystore::run_subprocess_with_trim`) so the PATH-hijack
+# defense + `env_clear` allow-list (trust-root-friend F3 / 2026-05-13
+# cycle §17.3) apply under host-extras too.
+host-extras = [
+  "host",
+  "dep:nono",
 ]
 
 [dependencies]
@@ -53,7 +78,19 @@ libc = "0.2"
 # Host-feature deps. Each is `optional = true` so the wasm32 build does
 # NOT pull them in (the wasm artifact must remain byte-identical when
 # the host feature is added — verified by `task rs:sign:wasm`).
+#
+# `keyring` — direct dep for the default `host` feature (post-2026-05-13
+# cycle: avoids the sigstore-verify closure that came with nono).
+# Platform features pinned per nono 0.54's verified-in-practice choices:
+# `apple-native` on macOS, `sync-secret-service` on Linux (see the
+# target-cfg sections below).
 keyring             = { version = "3", optional = true }
+zeroize             = { version = "1", optional = true, features = ["alloc"] }
+# `nono` — only pulled in under `host-extras`. Provides URI validators
+# + load_secret_by_ref dispatcher for the `op://` and `apple-password://`
+# schemes. The sigstore-verify / aws-lc-rs / landlock closure flagged
+# in 2026-05-13 §17.1 is the cost of opting in.
+nono                = { version = "0.54", optional = true, default-features = false, features = ["system-keyring"] }
 axum                = { version = "0.7", optional = true, default-features = false, features = ["http1", "tokio", "macros", "json", "query"] }
 tokio               = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
 tower               = { version = "0.5", optional = true, default-features = false, features = ["util"] }
@@ -64,6 +101,15 @@ base64ct            = { version = "1", optional = true, features = ["alloc"] }
 clap                = { version = "4", optional = true, features = ["derive"] }
 tracing             = { version = "0.1", optional = true }
 tracing-subscriber  = { version = "0.3", optional = true, features = ["env-filter", "fmt"] }
+
+# Platform-specific keyring features. macOS uses the Security framework
+# directly; Linux uses libsecret synchronously. Both run inside
+# `spawn_blocking` so the sync variant is correct.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"], optional = true }
 
 [dev-dependencies]
 rand = "0.8"

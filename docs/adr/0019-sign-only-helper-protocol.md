@@ -201,6 +201,67 @@ counters, or last-error detail.
     receipts, anything in cloister-127a3c's scope) **MUST use
     `POST /sign`**.
 
+14. **Helper MUST refuse `POST /sign` for URLs not on a per-caller
+    allow-list when `--require-sign-allow` is set.**
+
+    Grammar:
+    ```text
+    LEYLINE_SIGN_SIGN_ALLOW := CALLER_ENTRY (";" CALLER_ENTRY)*
+    CALLER_ENTRY            := CALLER_NAME "=" PREFIX_LIST
+    PREFIX_LIST             := PREFIX ("," PREFIX)*
+    ```
+
+    **`;` separates callers; `,` chains prefixes within one caller. They
+    are NOT interchangeable** — a common operator error is `router=A,router=B`
+    (which parses as caller=`router`, prefixes=[`A`, `router=B`] — the
+    second `router=` becomes part of a prefix string).
+
+    Worked examples:
+
+    | Env value | Behavior |
+    |---|---|
+    | `router=keychain://com.cloister/master-sk` | `router` may sign over the master-sk URL (or any extension of it); other callers refused. |
+    | `router=keychain://a,keychain://b` | `router` may sign over either prefix. |
+    | `router=keychain://master-sk;notme=keyring://com.cloister/notme/cloister` | Two callers, each pinned to their own URL. |
+    | `*=file:///tmp/dev-seed` | Wildcard — any authenticated caller may sign over this prefix. Use sparingly. |
+
+    Empty allow-list with `--require-sign-allow` set is fail-stop at
+    startup. Added by the 2026-05-13 adversarial cycle (threat-model
+    §17.2). Closes the gap where a bearer-token holder could otherwise
+    direct the helper to sign with an attacker-supplied URL (e.g.,
+    `op://attacker-vault/their-key/field`).
+
+15. **Helper MUST reject `POST /sign` URLs containing `?` or `#`** at
+    parse time. Cloister's signing-scheme grammar is fixed at the
+    cloister boundary; nono's `?decode=*` family reaches into nono's
+    trust module (which links sigstore-verify), and the kid-determinism
+    invariant (req 7) is cleaner without query-string aliasing. Added
+    by the 2026-05-13 cycle (threat-model §17.5).
+
+16. **Helper MUST run keystore I/O on a blocking-thread pool, not the
+    request runtime's worker threads.** The synchronous nono dispatch
+    (`keyring` crate IPC; `op` / `security` subprocess polling) goes
+    through `tokio::task::spawn_blocking` so a slow keystore call does
+    not pin a worker. Subprocess wall-clock is capped at 4500ms (under
+    the 5s `SIGN_TIMEOUT` of req 4) and the child is killed on
+    timeout. Closes 2026-05-13 cycle threat-model §17.6.
+
+17. **Helper MUST collapse all keystore-side failures to the
+    constant-time 404 wire shape.** `SecretNotFound`, `KeystoreAccess`
+    (e.g., "keychain locked", "op not signed in"), and `ConfigParse`
+    (malformed URI) MUST all return the byte-identical 404 body. The
+    distinct outcome labels (`not_found`, `keystore_locked`, `bad_uri`)
+    survive in tracing for operators, not on the wire. Closes
+    2026-05-13 cycle threat-model §17.10 (oracle-friend F1+F2).
+
+18. **Helper MUST clamp `nono::*` tracing targets to INFO max.** Nono's
+    own debug lines emit redacted-but-correlatable URIs (service /
+    vault / item names) that req 11 wants out of logs. Operators
+    running `RUST_LOG=debug` for unrelated debugging would otherwise
+    inherit nono's leakage. Implemented via an EnvFilter directive in
+    the helper's `init_tracing`. Closes 2026-05-13 cycle §17.10
+    (oracle-friend F4).
+
 ### Constant-time error shape
 
 Per the §9.4 constant-time-404 pattern from ADR-0007 / `disclosure.ts`:
@@ -231,7 +292,9 @@ preserve "OS keystore IS the source of truth" semantics.
 - Helper MAY cache the parsed `SigningKey` object in memory, indexed
   by `byte_hash = SHA-256(keystore_bytes)`.
 - Helper MUST re-read the raw bytes from the OS keystore on every
-  `POST /sign` call (no byte-level caching).
+  `POST /sign` call **for cheap-read schemes** (`keychain://`,
+  `secret-tool://`, `keyring://`, `file://`) — no byte-level caching;
+  rotation latency is zero.
 - If `SHA-256(re-read bytes) == cached_byte_hash`, reuse the parsed
   `SigningKey` from cache (saves Ed25519-key parsing, which IS the
   cache-timing hot path; raw bytes are already in memory either way).
@@ -242,6 +305,46 @@ preserve "OS keystore IS the source of truth" semantics.
 Result: per-call keystore boundary check (ops invariant satisfied) +
 cached parsing (crypto invariant satisfied) + zero-operator-action
 rotation (both invariants satisfied).
+
+### Subprocess-scheme TTL cache amendment (2026-05-13, cloister-2a0faa)
+
+The "re-read every call" invariant above predates the `op://` (1Password
+CLI) and `apple-password://` (macOS `security` CLI) schemes. Both spawn
+a subprocess per read; both can trigger interactive auth (op signin,
+FaceID prompt). Re-reading EVERY call would mean every `/sign`
+re-prompts the user — a non-starter for production deploys (the
+2026-05-13 adversarial cycle's dos-friend F2 + threat-model §17.7).
+
+**Amendment for subprocess-shelling schemes:**
+
+- Helper MAY cache the read-result (bytes OR error) for these schemes
+  for up to `LEYLINE_SIGN_RESOLVE_TTL_MS` milliseconds (default
+  **60_000ms = 60s**, configurable via env var).
+- During the TTL window, subsequent callers receive the cached value
+  without spawning a fresh subprocess. Successful AND failed reads are
+  both cached (so a transient `op` outage doesn't cause partial-cache
+  inconsistency among concurrent callers).
+- Per-spec singleflight ensures only ONE in-flight read regardless of
+  how many concurrent callers arrive while a read is pending.
+- After TTL elapses, the next caller's read evicts the cached entry
+  and starts fresh.
+
+**Trade-off acknowledged:**
+
+- Rotation latency for `op://` / `apple-password://` is bounded by TTL.
+  Default 60s = operator who rotates a 1Password secret sees the new
+  bytes within 60s.
+- Operators requiring tighter rotation can set
+  `LEYLINE_SIGN_RESOLVE_TTL_MS=0`, which makes ALL schemes follow the
+  "re-read every call" invariant (matching pre-2026-05-13 behavior).
+  This trades latency for prompt cost.
+- The env var applies to all schemes uniformly; per-scheme tuning
+  requires a code change. One knob is easier to audit than five.
+
+This amendment IS NOT a deviation from the math-friend #2 ops
+invariant for cheap-read schemes — those still re-read on every call.
+It's a new policy for the new schemes, designed so the rotation
+latency is bounded + operator-tunable.
 
 ### Implementation pins
 
@@ -256,6 +359,71 @@ rotation (both invariants satisfied).
 - **HTTP server crate:** TBD between `tiny_http` (small, low-churn)
   and `axum`/`hyper` (large, well-audited). Pinned during
   cloister-99165e implementation review.
+- **Keystore federation:** split across two Cargo features per the
+  2026-05-13 adversarial cycle (threat-model §17.1):
+  - **`host` (default):** direct `keyring = "3"` dep. Platform features
+    pinned: `apple-native` on macOS, `sync-secret-service` on Linux.
+    Supports `keychain://` (macOS Keychain), `secret-tool://` (Linux
+    libsecret), `keyring://<svc>/<acct>` (explicit form), `file://`.
+    **No `nono` in the dep graph.** Default deploys avoid the
+    sigstore-verify / aws-lc-rs / landlock closure.
+  - **`host-extras` (additive opt-in):** adds `nono = "0.54"` as an
+    optional dep + enables the `op://` (1Password CLI) and
+    `apple-password://` (macOS Passwords CLI) schemes. nono provides
+    `validate_op_uri` + `validate_apple_password_uri` for URI shape
+    validation. The actual subprocess dispatch stays cloister-side
+    (in `host::keystore::run_subprocess_with_trim`) so the PATH-pin +
+    env_clear hardening (trust-root-friend F3, threat-model §17.3)
+    applies even with nono present.
+  - **`file://` scheme** stays in cloister's own reader (binary-safe
+    bytes + `/\r?\n+$/` multi-CRLF trim) regardless of feature flags.
+
+  **History (2026-05-13):** the initial `cloister-2a0faa` commit routed
+  all of these schemes through `nono = "0.54"` (with `system-keyring`).
+  The cycle's trust-root-friend F1 flagged the supply-chain closure
+  (sigstore-verify, sigstore-trust-root, aws-lc-rs (+ aws-lc-sys),
+  landlock, x509-cert, ~80 other crates). The follow-up commit
+  feature-gated nono behind `host-extras` so default deploys avoid
+  the heavy closure. Cloister's keyring backend path was rewritten to
+  use `keyring::Entry` directly (no nono mediation).
+
+- **Headless platform disposition:** Linux libsecret is supported as a
+  first-class scheme under default `host`. Windows Credential Manager
+  via the same `keyring` 3.x backend is untested in cloister CI today
+  (see the "follow-up" note below).
+- **Toolchain pin:** `rust-toolchain.toml` at `rs/` pins channel
+  `1.95.0` (originally introduced for nono 0.54's MSRV; retained for
+  reproducibility). `task rs:audit` (folded into `task verify`) asserts
+  the channel pin matches the documented value and runs
+  `cargo audit --deny warnings` + `cargo deny check` over the
+  supply-chain closure.
+
+- **Supply-chain trust base.**
+  - Default `host`: `keyring = "3"` + `axum = "0.7"` + `tokio = "1"` +
+    `tower` + `tower-http` + `serde` + `serde_json` + `base64ct` +
+    `clap` + `tracing` + `tracing-subscriber` + `zeroize`.
+    `cargo tree --features leyline-sign/host` ≈ 245 lines.
+  - `host,host-extras`: above + `nono = "0.54"` + sigstore-* +
+    aws-lc-rs + landlock + ~80 other transitive crates.
+    `cargo tree --features "leyline-sign/host leyline-sign/host-extras"` ≈ 559 lines.
+  - `cargo tree --edges normal` (no host feature, wasm verifier only):
+    ≈ 58 lines.
+
+  Long-tail attestation tracked under `cloister-8df072` (cargo-vet
+  trust set + quarterly attestation report).
+
+- **Subprocess hardening for `op://` + `apple-password://`** (host-extras
+  only). The two CLI-shell schemes do NOT route through nono's
+  `Command::new("op")` bare-name lookup; they go through cloister's
+  local subprocess shim in `host::keystore::run_subprocess_with_trim`.
+  That shim requires `LEYLINE_SIGN_OP_BIN` / `LEYLINE_SIGN_SECURITY_BIN`
+  to point to an absolute path of an extant file; runs
+  `Command::env_clear()` + explicit allow-list (HOME,
+  OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*, OP_ACCOUNT, OP_DEVICE for
+  `op`; HOME only for `security`); caps wall-clock at
+  `SUBPROCESS_TIMEOUT = 4500ms` (under the 5s `SIGN_TIMEOUT`) and kills
+  the child on timeout. Closes 2026-05-13 cycle trust-root-friend F3
+  (PATH-hijack) + isolation-friend F-iso-3 (env wholesale inheritance).
 
 ### Implementation language and location
 
@@ -265,7 +433,13 @@ feature. Conditional compilation:
 
 - `#[cfg(target_arch = "wasm32")]` — existing wasm-verifier path
 - `#[cfg(not(target_arch = "wasm32"))]` — host-side helper code
-  (`keyring` crate + `tiny_http` + ed25519 sign)
+  (`keyring` crate + cloister-side URI validators + subprocess shims +
+  `axum`/`hyper` + ed25519 sign; nono only under `host-extras`).
+  `cloister-2a0faa` verified the wasm artifact stays byte-identical
+  (`sha256 = 653eae67e682cb…`) across every iteration of the cycle:
+  original keyring dep, nono swap, feature-gate. All host-feature deps
+  are strictly gated behind `feature = "host"` (or `host-extras`) and
+  never reachable from the wasm build path.
 
 The wasm-side verifier code is unchanged. The new binary is a native
 target of the same crate. This keeps cloister at TS + Rust (no third

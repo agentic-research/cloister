@@ -148,6 +148,31 @@ tasks:
     cmds:
       - cargo test -p leyline-sign --features host
 
+  rs:sign:host-extras:
+    desc: "Test the leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises the op:// + apple-password:// scheme handlers + nono URI validators that are opt-in for production deploys. Pulls in nono = 0.54 + the sigstore-verify / aws-lc-rs / landlock closure flagged in threat-model §17.1 — that's the cost of running this target."
+    dir: rs
+    cmds:
+      - cargo test -p leyline-sign --features 'host host-extras'
+
+  rs:audit:
+    desc: "Supply-chain audit for the rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure. Closes 2026-05-13 adversarial cycle row 17.1 / 17.4."
+    dir: rs
+    cmds:
+      # 17.4 — toolchain pin matches the documented version. The grep
+      # asserts the exact channel string; a PR that deletes or bumps
+      # rust-toolchain.toml without coordinated ADR + Taskfile edit
+      # fails this gate.
+      - 'grep -q ''channel = "1.95.0"'' rust-toolchain.toml || (echo "rs/rust-toolchain.toml: channel != 1.95.0 — see ADR-0019 §Implementation pins"; exit 1)'
+      # 17.1 — supply-chain CVE scan. `cargo install --locked cargo-audit`
+      # if needed; CI installs once and caches. Local dev installs on
+      # first run (~30s). Failing on warnings ensures a new advisory
+      # against any nono transitive does not land silently.
+      - cargo audit --deny warnings
+      # `cargo deny check` enforces the bans / advisories / licenses /
+      # sources policy declared in deny.toml (next to Cargo.toml). The
+      # toml is part of this commit.
+      - cargo deny check
+
   rs:sign:helper:
     desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target, host feature enabled."
     dir: rs
@@ -398,8 +423,8 @@ tasks:
     deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness. Slower (spawns capnp CLI + Node servers); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras]
 
   ci:
     desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."
