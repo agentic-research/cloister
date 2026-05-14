@@ -6,6 +6,17 @@
 // Source: cluster.capnp (consumer) → manifest/cluster.capnp (schema).
 // See ADR-0009 + cloister-be0607 for the deployment-descriptor design.
 
+// Side-effect import: keeps cluster.zod.ts in the dependency graph
+// so `task lint`'s tsc pass type-checks the schema-bridge codegen
+// alongside this legacy capnp-eval output. Today nothing here uses
+// the zod schemas; this is the structural anchor for the migration
+// off hand-authored cluster-types.ts. Once consumers move to importing
+// types from ./cluster.zod.js directly, cluster-types.ts can shrink
+// to a re-export shim and eventually retire. The codegen tool lives
+// at tools/schema-bridge/ — see its README for the fail-fast
+// invariant and what's mapped today.
+import "./cluster.zod.js";
+
 import type { Cluster } from "../manifest/cluster-types.js";
 
 export const cluster: Cluster = {

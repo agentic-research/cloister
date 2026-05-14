@@ -45,14 +45,16 @@ fn run() -> Result<(), SchemaBridgeError> {
     let message = serialize::read_message(&mut stdin, capnp::message::ReaderOptions::new())?;
     let request = message.get_root::<schema_capnp::code_generator_request::Reader>()?;
 
+    // Derive the output filename from the first requested file in the
+    // CodeGeneratorRequest. `capnp compile -oschema-bridge:dir
+    // manifest/cluster.capnp` puts `manifest/cluster.capnp` as the
+    // first requested file's name → output is `<dir>/cluster.zod.ts`.
+    let out_name = derive_out_name(request)?;
+
     let schema = inputs::capnp::parse(request)?;
     let emitted = outputs::zod::emit(&schema)?;
 
-    // V1: write a single combined output file per invocation. The
-    // CodeGeneratorRequest can declare multiple requested files; for
-    // now we collapse them into one emission. Per-file splitting is a
-    // follow-on once we have a real schema graph to split.
-    let out_path = out_dir.join("schema.ts");
+    let out_path = out_dir.join(&out_name);
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -60,6 +62,24 @@ fn run() -> Result<(), SchemaBridgeError> {
     f.write_all(emitted.as_bytes())?;
 
     Ok(())
+}
+
+fn derive_out_name(
+    request: schema_capnp::code_generator_request::Reader<'_>,
+) -> Result<String, SchemaBridgeError> {
+    let requested = request.get_requested_files()?;
+    if requested.is_empty() {
+        // Fallback for hand-driven invocations that don't set a
+        // requested file (e.g. ad-hoc fixtures during debugging).
+        return Ok("schema.zod.ts".to_owned());
+    }
+    let filename = requested.get(0).get_filename()?.to_str()?;
+    // basename without the `.capnp` extension
+    let basename = std::path::Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("schema");
+    Ok(format!("{basename}.zod.ts"))
 }
 
 // Capnp passes the plugin's output directory as the first argv entry

@@ -55,6 +55,39 @@ tasks:
     generates:
       - src/generated/cluster.ts
 
+  # schema-bridge tasks
+  #
+  # Build-time codegen pipeline that lowers capnp schemas into zod
+  # validators + matching TS types. See tools/schema-bridge/README.md.
+  #
+  # Intentionally NOT wired into `task verify` or `task lint` yet —
+  # this is a migration step. The output sits beside the existing
+  # capnp-eval pipeline (src/generated/cluster.ts) and the legacy file
+  # imports it as a side-effect to keep it in the dependency graph for
+  # `task lint`'s tsc pass.
+  schema-bridge:build:
+    desc: "Build the schema-bridge capnp plugin (release profile)."
+    dir: tools/schema-bridge
+    cmds:
+      - cargo build --release
+    sources:
+      - src/**/*.rs
+      - Cargo.toml
+      - Cargo.lock
+    generates:
+      - target/release/capnpc-schema-bridge
+
+  cluster:zod:
+    desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
+    deps: [schema-bridge:build]
+    cmds:
+      - capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:./src/generated manifest/cluster.capnp
+    sources:
+      - manifest/cluster.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge
+    generates:
+      - src/generated/cluster.zod.ts
+
   cluster:emit:
     desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
     deps: [cluster:manifest]
