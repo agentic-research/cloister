@@ -12,16 +12,24 @@
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Schema {
+    pub enums: Vec<Enum>,
     pub structs: Vec<Struct>,
 }
 
 impl Schema {
     pub fn new() -> Self {
-        Self { structs: Vec::new() }
+        Self {
+            enums: Vec::new(),
+            structs: Vec::new(),
+        }
     }
 
     pub fn find_struct(&self, name: &str) -> Option<&Struct> {
         self.structs.iter().find(|s| s.name == name)
+    }
+
+    pub fn find_enum(&self, name: &str) -> Option<&Enum> {
+        self.enums.iter().find(|e| e.name == name)
     }
 }
 
@@ -29,6 +37,15 @@ impl Default for Schema {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Enum {
+    pub name: String,
+    // Position-stable: enumerants[i] has capnp ordinal i. Wire-format
+    // safety is the user's job (ADR-0004's monotonic-ordinal rule);
+    // schema-bridge just preserves what capnp gave it.
+    pub variants: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +65,7 @@ pub struct StructField {
 pub enum FieldType {
     Scalar(ScalarType),
     StructRef(String),
+    EnumRef(String),
     // `List(List(Text))` is legal capnp; the box keeps the recursion
     // representable without making FieldType itself recursive at the
     // type level.

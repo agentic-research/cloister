@@ -7,7 +7,7 @@
 use std::fmt::Write as _;
 
 use crate::error::Result;
-use crate::ir::{FieldType, ScalarType, Schema, Struct, StructField};
+use crate::ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField};
 
 pub fn emit(schema: &Schema) -> Result<String> {
     let mut out = String::new();
@@ -25,12 +25,36 @@ pub fn emit(schema: &Schema) -> Result<String> {
     writeln!(out, r#"import {{ z }} from "zod";"#).unwrap();
     writeln!(out).unwrap();
 
+    // Enums emit first: no forward references possible (they only
+    // reference string literals), and struct field renderers may
+    // reference enum schema names.
+    for e in &schema.enums {
+        emit_enum(&mut out, e);
+        writeln!(out).unwrap();
+    }
+
     for s in &schema.structs {
         emit_struct(&mut out, s)?;
         writeln!(out).unwrap();
     }
 
     Ok(out)
+}
+
+fn emit_enum(out: &mut String, e: &Enum) {
+    let variants_zod: Vec<String> =
+        e.variants.iter().map(|v| format!("\"{v}\"")).collect();
+    let variants_ts: Vec<String> =
+        e.variants.iter().map(|v| format!("\"{v}\"")).collect();
+    writeln!(
+        out,
+        "export const {name}Schema = z.enum([{joined}]);",
+        name = e.name,
+        joined = variants_zod.join(", ")
+    )
+    .unwrap();
+    writeln!(out, "export type {name} = {joined};", name = e.name, joined = variants_ts.join(" | "))
+        .unwrap();
 }
 
 fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
@@ -68,6 +92,7 @@ fn render_zod_type(t: &FieldType) -> String {
     match t {
         FieldType::Scalar(s) => render_zod_scalar(*s).to_owned(),
         FieldType::StructRef(name) => format!("{name}Schema"),
+        FieldType::EnumRef(name) => format!("{name}Schema"),
         FieldType::List(inner) => format!("z.array({})", render_zod_type(inner)),
     }
 }
@@ -94,6 +119,7 @@ fn render_ts_type(t: &FieldType) -> String {
     match t {
         FieldType::Scalar(s) => render_ts_scalar(*s).to_owned(),
         FieldType::StructRef(name) => name.clone(),
+        FieldType::EnumRef(name) => name.clone(),
         FieldType::List(inner) => {
             // `T[]` rather than `(T)[]` — TS array postfix is
             // right-associative against itself + scalars + struct

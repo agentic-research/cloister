@@ -240,28 +240,60 @@ fn list_of_unmapped_element_fails_fast() {
     }
 }
 
-// ── Fail-case: top-level enum ──────────────────────────────────────
+// ── Golden: top-level enum + struct field of enum type ─────────────
 
 #[test]
-fn enum_node_fails_fast() {
+fn enum_emits_zod_enum_and_string_union() {
     let mut message = Builder::new_default();
+    let enum_id: u64 = 0xCCCC;
     {
         let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
-        let mut nodes = request.init_nodes(2);
+        let mut nodes = request.init_nodes(3);
         fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
 
-        let mut n = nodes.reborrow().get(1);
-        n.set_id(0xAAAA);
-        n.set_display_name("test.capnp:Color");
-        n.set_display_name_prefix_length("test.capnp:".len() as u32);
-        n.init_enum();
+        // Enum Tier { hypervisor @0; cluster @1; }
+        {
+            let mut n = nodes.reborrow().get(1);
+            n.set_id(enum_id);
+            n.set_display_name("test.capnp:Tier");
+            n.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let e = n.init_enum();
+            let mut enumerants = e.init_enumerants(2);
+            enumerants.reborrow().get(0).set_name("hypervisor");
+            enumerants.reborrow().get(1).set_name("cluster");
+        }
+
+        // struct Bundle { tier @0 :Tier; }
+        {
+            let mut n = nodes.reborrow().get(2);
+            n.set_id(0xAAAA);
+            n.set_display_name("test.capnp:Bundle");
+            n.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = n.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("tier");
+            field.set_code_order(0);
+            let mut slot = field.init_slot();
+            let ty = slot.reborrow().init_type();
+            let mut et = ty.init_enum();
+            et.set_type_id(enum_id);
+        }
     }
 
-    let err = parse(&message).expect_err("must reject enum");
-    match err {
-        SchemaBridgeError::UnmappedConstruct { kind, .. } => assert_eq!(kind, "enum"),
-        other => panic!("expected UnmappedConstruct('enum'), got {other:?}"),
-    }
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    assert!(
+        emitted.contains(r#"export const TierSchema = z.enum(["hypervisor", "cluster"]);"#),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"export type Tier = "hypervisor" | "cluster";"#),
+        "emit:\n{emitted}"
+    );
+    assert!(emitted.contains("tier: TierSchema"), "emit:\n{emitted}");
+    assert!(emitted.contains("tier: Tier;"), "emit:\n{emitted}");
 }
 
 // ── Fail-case: in-struct union (discriminant_count > 0) ───────────
