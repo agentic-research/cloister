@@ -652,14 +652,21 @@ async fn keystore_call_does_not_pin_worker_threads() {
 // `keyring` crate) re-evaluates authorization per call, causing some
 // callers to hang on per-thread auth prompts.
 //
-// Post-fix: `keystore::resolve_bytes` uses a per-spec `OnceCell`
-// singleflight. N concurrent callers share one in-flight keystore read.
-// This test pins the invariant via wall-clock observation: 16 parallel
-// `/resolve` calls against the same file:// path complete in well under
-// 16× the single-call time. The bytes returned MUST be byte-identical
-// across all callers.
+// **SMOKE TEST** — confirms `/resolve` survives 16 concurrent same-spec
+// callers and they all see byte-identical bytes. Does NOT assert the
+// singleflight invariant — that lives at the unit-test layer:
+// `host::keystore::tests::resolve_with_coalesces_concurrent_same_spec_to_one_work_call`
+// (uses an `AtomicUsize` counter inside the work closure to assert
+// `count == 1`, the actual invariant). The old version of this test
+// tried to use wall-clock latency as the singleflight signal, which the
+// skeptic-friend cycle (cloister-da87da) flagged as a false-positive:
+// 16 serial `file://` reads (microseconds each) still pass <1s wall,
+// so a regression to no-singleflight is undetectable wall-clock-side.
+// The unit-test asserts on call count instead. Pre-rewrite contract
+// was also subtly wrong (`unreachable!()` panic on leader cancel;
+// cloister-d95f0d) — see the dedicated cancellation unit test.
 #[tokio::test]
-async fn concurrent_resolve_for_same_spec_coalesces() {
+async fn concurrent_resolve_for_same_spec_smoke() {
     let tmp = TempDir::new().unwrap();
     let seed_path = tmp.path().join("seed");
     std::fs::write(&seed_path, [0xCDu8; 32]).unwrap();
@@ -685,8 +692,6 @@ async fn concurrent_resolve_for_same_spec_coalesces() {
     let url_enc = urlencode(&url);
     let resolve_url = format!("http://{}/resolve?url={}", addr, url_enc);
 
-    // 16 concurrent /resolve calls against the same spec.
-    let start = std::time::Instant::now();
     let mut handles = Vec::with_capacity(16);
     for _ in 0..16 {
         let u = resolve_url.clone();
@@ -696,33 +701,11 @@ async fn concurrent_resolve_for_same_spec_coalesces() {
             resp.bytes().await.unwrap()
         }));
     }
-    let mut results = Vec::with_capacity(16);
-    for h in handles {
-        results.push(h.await.unwrap());
-    }
-    let elapsed = start.elapsed();
-
-    // All callers see byte-identical bytes (singleflight returns the
-    // same Result to every coalesced caller).
     let expected: &[u8] = &[0xCDu8; 32];
-    for (i, r) in results.iter().enumerate() {
-        assert_eq!(
-            r.as_ref(),
-            expected,
-            "caller {} got wrong bytes (singleflight broke byte parity)",
-            i,
-        );
+    for (i, h) in handles.into_iter().enumerate() {
+        let r = h.await.unwrap();
+        assert_eq!(r.as_ref(), expected, "caller {} got wrong bytes", i);
     }
-
-    // Wall-clock sanity: 16 parallel reads, coalesced, complete in well
-    // under 16× single-call time. file:// is microseconds; the bar is
-    // generous (1s) to absorb test-harness overhead — but a regression
-    // back to N-parallel-stat would still bust this on slow CI.
-    assert!(
-        elapsed < Duration::from_millis(1000),
-        "16 concurrent resolves took {:?} — singleflight regressed (§17.7 / cloister-8d4dd7)",
-        elapsed,
-    );
 }
 
 // ── §17.7 (TTL axis) + §17.8 — TTL-bounded positive cache ──────────────────

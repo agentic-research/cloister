@@ -191,109 +191,225 @@ pub async fn resolve_bytes(spec: &str) -> Result<Vec<u8>, HelperError> {
 
 // ── Resolve-time cache (singleflight + TTL) ────────────────────────────────
 //
-// Two-phase per-spec entry:
-//   1. Cell-created, no value yet → in-flight. Followers await the value.
-//   2. Cell-set, value cached → followers get cached value if within TTL,
-//      else the entry is dropped and a fresh read is started.
+// Per-spec singleflight built on `tokio::sync::watch::channel(None)`:
+//   - Leader inserts the receiver into the map, drives the work, sends
+//     `Some(CachedValue)` once it completes.
+//   - Followers grab the receiver from the map, `await rx.changed()`,
+//     then read `borrow()`. If the leader's future is dropped (outer
+//     `SIGN_TIMEOUT` fires mid-`spawn_blocking`, runtime cancellation),
+//     the sender drops, followers' `changed()` returns `Err`, and they
+//     bail with `HelperError::Internal` — no panic, no stale state.
+//     The next caller starts a fresh resolve.
+//   - The map is bounded by `MAX_CACHE_ENTRIES` via FIFO eviction. An
+//     attacker (or legitimate diverse-URL operator) flooding the cache
+//     with unique specs cannot grow the map unboundedly.
 //
 // Cached Err is intentional: all coalesced callers see the same outcome,
 // so a transient keystore failure doesn't silently retry for some
 // callers (which would muddle the operator log + the §17.10 constant-
 // time wire semantic). Err entries respect TTL too — a fresh read is
 // only attempted after TTL elapses.
+//
+// **Rewrite rationale (cloister-d95f0d, cloister-d9a3c6):** the prior
+// implementation used `tokio::sync::OnceCell::get_or_init` with an
+// `unreachable!()` in the follower path. That panic IS reachable when
+// the leader's future is cancelled mid-init (tokio 1.x: "if the
+// provided operation is cancelled or panics, one of the waiting tasks
+// will start another attempt at initializing the value"). The follower
+// would then run the `unreachable!()`. Also: the prior cache was
+// unbounded under TTL>0. Both fixed in one rewrite.
 
 type CachedValue = (Result<Vec<u8>, HelperError>, std::time::Instant);
 
-#[derive(Default)]
+/// Maximum cells held in the resolve cache. FIFO eviction enforces.
+/// Operator can override via `LEYLINE_SIGN_RESOLVE_CACHE_MAX` env. The
+/// default is generous enough for realistic deploys (thousands of
+/// distinct VAULT_KEK_SOURCE specs is absurd; 1024 is well above the
+/// usual single-digit count) and small enough to bound memory.
+const DEFAULT_MAX_CACHE_ENTRIES: usize = 1024;
+
+fn max_cache_entries() -> usize {
+    std::env::var("LEYLINE_SIGN_RESOLVE_CACHE_MAX")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_MAX_CACHE_ENTRIES)
+}
+
+struct Inflight {
+    /// Latest-value receiver. `None` while in-flight; `Some(value)`
+    /// after the leader publishes. Cloned for each follower.
+    rx: tokio::sync::watch::Receiver<Option<CachedValue>>,
+}
+
+struct ResolveCacheInner {
+    cells: std::collections::HashMap<String, Inflight>,
+    /// FIFO eviction order. Front = oldest insertion. On overflow,
+    /// pop_front + cells.remove. Linear-time `retain` on eviction; the
+    /// map is bounded so worst-case is O(MAX_CACHE_ENTRIES).
+    order: std::collections::VecDeque<String>,
+}
+
 struct ResolveCache {
-    cells: tokio::sync::Mutex<
-        std::collections::HashMap<
-            String,
-            std::sync::Arc<tokio::sync::OnceCell<CachedValue>>,
-        >,
-    >,
+    inner: std::sync::Mutex<ResolveCacheInner>,
 }
 
 impl ResolveCache {
     fn new() -> Self {
-        Self::default()
+        Self {
+            inner: std::sync::Mutex::new(ResolveCacheInner {
+                cells: std::collections::HashMap::new(),
+                order: std::collections::VecDeque::new(),
+            }),
+        }
     }
 
+    /// Production entry — dispatches via `resolve_bytes_blocking` on a
+    /// `spawn_blocking` thread.
     async fn resolve(&self, spec: &str) -> Result<Vec<u8>, HelperError> {
+        self.resolve_with(spec, |spec_owned| async move {
+            tokio::task::spawn_blocking(move || resolve_bytes_blocking(&spec_owned))
+                .await
+                .unwrap_or_else(|join_err| {
+                    tracing::error!(
+                        target: "leyline_sign_helper",
+                        op = "resolve_blocking",
+                        outcome = "join_error",
+                        err = %join_err,
+                    );
+                    Err(HelperError::Internal)
+                })
+        })
+        .await
+    }
+
+    /// Test-friendly entry — accepts the work closure. Production
+    /// `resolve` wraps this with `resolve_bytes_blocking` inside
+    /// `spawn_blocking`. Adversarial tests call this directly with a
+    /// counter-tracking closure to assert the singleflight invariant
+    /// (concurrent callers for the same spec → exactly ONE work call).
+    async fn resolve_with<F, Fut>(&self, spec: &str, work: F) -> Result<Vec<u8>, HelperError>
+    where
+        F: FnOnce(String) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<Vec<u8>, HelperError>> + Send + 'static,
+    {
         let scheme = scheme_label(spec);
         let ttl = ttl_for_scheme(scheme);
 
         // Phase 1: under the map lock, decide the role.
-        //   - cache hit (fresh result, age < TTL)         → return cached
-        //   - in-flight (cell exists, value not yet set)  → follower path
-        //   - cache stale (age >= TTL)                    → evict + leader
-        //   - miss                                        → leader
-        let cell = {
-            let mut map = self.cells.lock().await;
-            if let Some(existing) = map.get(spec) {
-                if let Some((result, fetched_at)) = existing.get() {
-                    if fetched_at.elapsed() < ttl {
-                        return result.clone();
+        let role = {
+            let mut inner = self.inner.lock().expect("resolve cache mutex poisoned");
+            // Inspect existing entry.
+            let existing_role = inner.cells.get(spec).map(|inflight| {
+                let snap = inflight.rx.borrow();
+                match &*snap {
+                    Some((result, fetched_at)) if fetched_at.elapsed() < ttl => {
+                        CacheLookup::CacheHit(result.clone())
                     }
-                    // Stale — evict so a fresh read happens below.
-                    map.remove(spec);
-                } else {
-                    // In-flight; await it.
-                    let cell = existing.clone();
-                    drop(map);
-                    let (result, _) = cell
-                        .get_or_init(|| async {
-                            // Unreachable in practice: the leader's closure
-                            // is already initializing the cell. `OnceCell`
-                            // semantics: only the first caller's closure
-                            // runs. We're a follower; we just await.
-                            unreachable!("follower closure must not run — cell is in-flight")
-                        })
-                        .await;
-                    return result.clone();
+                    Some(_) => CacheLookup::Stale,
+                    None => CacheLookup::Follower(inflight.rx.clone()),
                 }
+            });
+            match existing_role {
+                Some(CacheLookup::CacheHit(result)) => Role::CacheHit(result),
+                Some(CacheLookup::Follower(rx)) => Role::Follower(rx),
+                Some(CacheLookup::Stale) => {
+                    // Evict the stale entry and become leader.
+                    inner.cells.remove(spec);
+                    inner.order.retain(|s| s != spec);
+                    Role::Leader(insert_leader(&mut inner, spec))
+                }
+                None => Role::Leader(insert_leader(&mut inner, spec)),
             }
-            map.entry(spec.to_string())
-                .or_insert_with(|| std::sync::Arc::new(tokio::sync::OnceCell::new()))
-                .clone()
         };
 
-        // Phase 2: leader (or a coalesced follower of a brand-new cell)
-        // drives the read.
-        let (result, _) = cell
-            .get_or_init(|| {
-                let spec_owned = spec.to_owned();
-                async move {
-                    let r = tokio::task::spawn_blocking(move || {
-                        resolve_bytes_blocking(&spec_owned)
-                    })
-                    .await
-                    .unwrap_or_else(|join_err| {
-                        tracing::error!(
+        match role {
+            Role::CacheHit(result) => result,
+            Role::Follower(mut rx) => {
+                // Wait for the leader to publish or drop. Re-check the
+                // borrow on each wake because `watch` collapses
+                // multiple sends — the value we want might already be
+                // present when `changed()` returns Ok.
+                loop {
+                    {
+                        let snap = rx.borrow();
+                        if let Some((result, _)) = &*snap {
+                            return result.clone();
+                        }
+                    }
+                    if rx.changed().await.is_err() {
+                        // Leader cancelled mid-flight (sender dropped).
+                        // Bail; next caller will start fresh. No
+                        // unreachable!() — the cancellation is a
+                        // documented failure mode handled cleanly.
+                        tracing::warn!(
                             target: "leyline_sign_helper",
-                            op = "resolve_blocking",
-                            outcome = "join_error",
-                            err = %join_err,
+                            op = "resolve",
+                            outcome = "leader_cancelled",
+                            "leader future dropped before publishing — bailing follower"
                         );
-                        Err(HelperError::Internal)
-                    });
-                    (r, std::time::Instant::now())
+                        return Err(HelperError::Internal);
+                    }
                 }
-            })
-            .await;
-        let result = result.clone();
-
-        // Phase 3: eviction policy.
-        //   - TTL == 0 (default for keychain/keyring/file): remove the cell
-        //     so the NEXT call does a fresh read.
-        //   - TTL > 0 (subprocess schemes): KEEP the cell. Followers within
-        //     the TTL window get the cached value in Phase 1; after TTL
-        //     elapses, the next caller evicts and re-fetches.
-        if ttl.is_zero() {
-            self.cells.lock().await.remove(spec);
+            }
+            Role::Leader(tx) => {
+                let spec_owned = spec.to_owned();
+                let result = work(spec_owned).await;
+                let value = (result.clone(), std::time::Instant::now());
+                // `send` returns Err if no receivers — that's fine, we
+                // still have our own result. The leader's own receiver
+                // (kept in the map for TTL>0) keeps the send Ok-shaped.
+                let _ = tx.send(Some(value));
+                if ttl.is_zero() {
+                    let mut inner = self.inner.lock().expect("resolve cache mutex poisoned");
+                    inner.cells.remove(spec);
+                    inner.order.retain(|s| s != spec);
+                }
+                result
+            }
         }
-        result
     }
+
+    /// Test helper — current cache size. Used by adversarial tests
+    /// asserting bounded growth.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.inner.lock().unwrap().cells.len()
+    }
+}
+
+/// Outcome of inspecting an existing cell under the map lock.
+enum CacheLookup {
+    CacheHit(Result<Vec<u8>, HelperError>),
+    Follower(tokio::sync::watch::Receiver<Option<CachedValue>>),
+    Stale,
+}
+
+/// The post-Phase-1 role the caller plays.
+enum Role {
+    CacheHit(Result<Vec<u8>, HelperError>),
+    Follower(tokio::sync::watch::Receiver<Option<CachedValue>>),
+    Leader(tokio::sync::watch::Sender<Option<CachedValue>>),
+}
+
+/// Insert a fresh in-flight cell for `spec`, enforcing the bounded-
+/// capacity cap via FIFO eviction. Caller holds the inner mutex.
+fn insert_leader(
+    inner: &mut ResolveCacheInner,
+    spec: &str,
+) -> tokio::sync::watch::Sender<Option<CachedValue>> {
+    let (tx, rx) = tokio::sync::watch::channel(None);
+    inner.cells.insert(spec.to_string(), Inflight { rx });
+    inner.order.push_back(spec.to_string());
+    let cap = max_cache_entries();
+    while inner.order.len() > cap {
+        if let Some(evicted) = inner.order.pop_front() {
+            inner.cells.remove(&evicted);
+        } else {
+            break;
+        }
+    }
+    tx
 }
 
 /// Per-scheme TTL for cached keystore reads.
@@ -744,6 +860,142 @@ pub fn trim_trailing_newlines(b: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // ── ResolveCache: real singleflight + TTL + bounded-eviction tests ───────
+    //
+    // These tests exercise `ResolveCache::resolve_with` directly, bypassing
+    // the production `resolve_bytes_blocking` dispatch. The test work
+    // closure tracks call count via `AtomicUsize`, so the singleflight
+    // invariant is asserted precisely (concurrent same-spec callers →
+    // exactly ONE underlying call) — not inferred from wall-clock
+    // timing slack the way the pre-rewrite test did.
+
+    #[tokio::test]
+    async fn resolve_with_coalesces_concurrent_same_spec_to_one_work_call() {
+        let cache = Arc::new(ResolveCache::new());
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::with_capacity(16);
+        for _ in 0..16 {
+            let cache = cache.clone();
+            let counter = counter.clone();
+            handles.push(tokio::spawn(async move {
+                cache
+                    .resolve_with("file:///fake-test-spec", move |_| {
+                        let c = counter.clone();
+                        async move {
+                            c.fetch_add(1, Ordering::SeqCst);
+                            // Yield so other callers definitely arrive
+                            // before the leader publishes.
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            Ok(vec![0xCDu8; 32])
+                        }
+                    })
+                    .await
+            }));
+        }
+        for h in handles {
+            let result = h.await.unwrap().unwrap();
+            assert_eq!(result, vec![0xCDu8; 32], "coalesced caller got wrong bytes");
+        }
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "singleflight broken — work closure ran {} times, expected 1 (cloister-d95f0d / cloister-da87da)",
+            counter.load(Ordering::SeqCst),
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_with_leader_cancellation_bails_followers_without_panic() {
+        // When the leader's future is dropped before it publishes, the
+        // sender drops, all follower receivers see channel-closed, and
+        // they bail with `HelperError::Internal`. Critically: no
+        // `unreachable!()` panic. The pre-rewrite code panicked here.
+        let cache = Arc::new(ResolveCache::new());
+        // Two callers race to the same spec. The first becomes leader;
+        // we then drop its handle (simulating outer SIGN_TIMEOUT
+        // cancellation). The second should bail cleanly, not panic.
+        let cache_a = cache.clone();
+        let leader = tokio::spawn(async move {
+            cache_a
+                .resolve_with("file:///cancellation-test", |_| async move {
+                    // Take long enough that the cancel below fires first.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    Ok(vec![0xFFu8; 32])
+                })
+                .await
+        });
+        // Let the leader register the cell.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Spawn a follower that will wait on the leader's cell.
+        let cache_b = cache.clone();
+        let follower = tokio::spawn(async move {
+            cache_b
+                .resolve_with("file:///cancellation-test", |_| async move {
+                    // Follower's closure should never run — it joins
+                    // the leader's in-flight cell.
+                    Ok(vec![0xAAu8; 32])
+                })
+                .await
+        });
+        // Let the follower register as a watcher.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Cancel the leader.
+        leader.abort();
+        let _ = leader.await;
+
+        // Follower should return Internal (the contract on leader-drop).
+        let result = follower.await.unwrap();
+        assert!(
+            matches!(result, Err(HelperError::Internal)),
+            "follower didn't bail cleanly on leader-cancellation (got {:?}); pre-rewrite would have panicked here",
+            result,
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_cache_bounded_under_unique_spec_flood() {
+        // An attacker (or legitimate diverse-URL operator) hits the
+        // helper with N >> MAX_CACHE_ENTRIES distinct specs. Cache
+        // size MUST NOT grow unboundedly.
+        //
+        // We use the production cap (default 1024) by setting the env
+        // var to a small value so the test completes quickly.
+        // SAFETY: this test runs serially-ok because it asserts a
+        // bound, not a specific number — concurrent tests that read
+        // the env see at most the test's value (32), which is still a
+        // valid bounded behavior.
+        unsafe {
+            std::env::set_var("LEYLINE_SIGN_RESOLVE_CACHE_MAX", "32");
+        }
+        let cache = Arc::new(ResolveCache::new());
+        // Use a long TTL so entries stick (TTL=0 would evict on
+        // leader-complete; we want to test the capacity cap path).
+        unsafe {
+            std::env::set_var("LEYLINE_SIGN_RESOLVE_TTL_MS", "60000");
+        }
+        for i in 0..200u32 {
+            let spec = format!("file:///bounded-test-{}", i);
+            let _ = cache
+                .resolve_with(&spec, |_| async move { Ok(vec![0xAAu8; 32]) })
+                .await;
+        }
+        let size = cache.len();
+        assert!(
+            size <= 32,
+            "cache grew unboundedly: {} entries after 200 unique specs (cap was 32); cloister-d9a3c6 regressed",
+            size,
+        );
+        unsafe {
+            std::env::remove_var("LEYLINE_SIGN_RESOLVE_CACHE_MAX");
+            std::env::remove_var("LEYLINE_SIGN_RESOLVE_TTL_MS");
+        }
+    }
 
     #[test]
     fn trim_matches_kek_helper_mjs_regex() {
