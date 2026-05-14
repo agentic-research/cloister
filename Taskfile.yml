@@ -88,6 +88,37 @@ tasks:
     generates:
       - src/generated/cluster.zod.ts
 
+  cluster:zod:verify:
+    desc: "End-to-end semantic check — ClusterSchema (from cluster.zod.ts) must accept the real cluster const (from cluster.ts). Surfaced the union-shape bug during the initial schema-bridge wiring; lives here to lock that property in."
+    cmds:
+      - pnpm exec tsx scripts/validate-cluster-zod.mjs
+    sources:
+      - src/generated/cluster.ts
+      - src/generated/cluster.zod.ts
+      - scripts/validate-cluster-zod.mjs
+
+  cluster:zod:check-drift:
+    desc: "Drift check — regenerate cluster.zod.ts into a temp file and diff against the committed copy. Fails if schema-bridge's output diverges from what's checked in. Opt-in; not part of `task verify` yet. Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:"$TMPDIR" manifest/cluster.capnp
+        if ! diff -u src/generated/cluster.zod.ts "$TMPDIR/cluster.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cluster.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cluster:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cluster.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/cluster.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge
+      - src/generated/cluster.zod.ts
+
   cluster:emit:
     desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
     deps: [cluster:manifest]
