@@ -140,8 +140,9 @@ fn field_type(
             })?;
             FieldType::StructRef(name.clone())
         }
-        TW::List(_) => {
-            return Err(SchemaBridgeError::unmapped("list", location));
+        TW::List(list) => {
+            let elem = field_type(list.get_element_type()?, struct_names, location)?;
+            FieldType::List(Box::new(elem))
         }
         TW::Enum(_) => {
             return Err(SchemaBridgeError::unmapped("enum (type ref)", location));

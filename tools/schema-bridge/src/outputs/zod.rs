@@ -61,9 +61,14 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
 }
 
 fn render_field(field: &StructField) -> String {
-    match &field.ty {
+    render_zod_type(&field.ty)
+}
+
+fn render_zod_type(t: &FieldType) -> String {
+    match t {
         FieldType::Scalar(s) => render_zod_scalar(*s).to_owned(),
         FieldType::StructRef(name) => format!("{name}Schema"),
+        FieldType::List(inner) => format!("z.array({})", render_zod_type(inner)),
     }
 }
 
@@ -89,6 +94,14 @@ fn render_ts_type(t: &FieldType) -> String {
     match t {
         FieldType::Scalar(s) => render_ts_scalar(*s).to_owned(),
         FieldType::StructRef(name) => name.clone(),
+        FieldType::List(inner) => {
+            // `T[]` rather than `(T)[]` — TS array postfix is
+            // right-associative against itself + scalars + struct
+            // refs, so the bare form is unambiguous. When union types
+            // land they'll need explicit parens because `A | B[]`
+            // parses as `A | (B[])`; handle then, not now.
+            format!("{}[]", render_ts_type(inner))
+        }
     }
 }
 

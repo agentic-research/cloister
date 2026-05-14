@@ -48,6 +48,10 @@ pub struct StructField {
 pub enum FieldType {
     Scalar(ScalarType),
     StructRef(String),
+    // `List(List(Text))` is legal capnp; the box keeps the recursion
+    // representable without making FieldType itself recursive at the
+    // type level.
+    List(Box<FieldType>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

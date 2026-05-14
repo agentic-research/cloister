@@ -134,10 +134,10 @@ fn struct_ref_emits_named_schema() {
     assert!(emitted.contains("inner: Inner;"), "emit:\n{emitted}");
 }
 
-// ── Fail-case: list field ──────────────────────────────────────────
+// ── Golden: list of scalars ────────────────────────────────────────
 
 #[test]
-fn list_field_fails_fast() {
+fn list_of_scalars_emits_array() {
     let mut message = Builder::new_default();
     {
         let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
@@ -152,7 +152,7 @@ fn list_field_fails_fast() {
         s.set_discriminant_count(0);
         let mut fields = s.init_fields(1);
         let mut field = fields.reborrow().get(0);
-        field.set_name("items");
+        field.set_name("tags");
         field.set_code_order(0);
         let mut slot = field.init_slot();
         let ty = slot.reborrow().init_type();
@@ -160,10 +160,83 @@ fn list_field_fails_fast() {
         list.init_element_type().set_text(());
     }
 
-    let err = parse(&message).expect_err("must reject list");
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    assert!(
+        emitted.contains("tags: z.array(z.string())"),
+        "emit:\n{emitted}"
+    );
+    assert!(emitted.contains("tags: string[];"), "emit:\n{emitted}");
+}
+
+// ── Golden: nested list of lists ───────────────────────────────────
+
+#[test]
+fn list_of_lists_recurses() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Matrix");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("rows");
+        field.set_code_order(0);
+        let mut slot = field.init_slot();
+        let outer = slot.reborrow().init_type().init_list();
+        let inner = outer.init_element_type().init_list();
+        inner.init_element_type().set_int32(());
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    assert!(
+        emitted.contains("rows: z.array(z.array(z.number().int()))"),
+        "emit:\n{emitted}"
+    );
+    assert!(emitted.contains("rows: number[][];"), "emit:\n{emitted}");
+}
+
+// ── Regression-guard: list of an unmapped element still errors ────
+
+#[test]
+fn list_of_unmapped_element_fails_fast() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:HasInterfaces");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("services");
+        field.set_code_order(0);
+        let mut slot = field.init_slot();
+        let ty = slot.reborrow().init_type();
+        let list = ty.init_list();
+        let mut elem = list.init_element_type();
+        elem.init_interface();
+    }
+
+    let err = parse(&message).expect_err("must reject list-of-interface");
     match err {
-        SchemaBridgeError::UnmappedConstruct { kind, .. } => assert_eq!(kind, "list"),
-        other => panic!("expected UnmappedConstruct('list'), got {other:?}"),
+        SchemaBridgeError::UnmappedConstruct { kind, .. } => {
+            assert_eq!(kind, "interface (type ref)");
+        }
+        other => panic!("expected UnmappedConstruct('interface (type ref)'), got {other:?}"),
     }
 }
 
