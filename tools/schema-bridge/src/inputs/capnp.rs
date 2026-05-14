@@ -18,6 +18,42 @@ use crate::ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField, Union,
 // for non-union fields.
 const NO_DISCRIMINANT: u16 = 0xffff;
 
+// Annotation ids from capnp/compat/json.capnp (`@0x8ef99297a43a5e34`).
+// These affect JSON encoding and so MUST either be honoured or fail
+// loudly — silently ignoring `$flatten` would silently produce a zod
+// schema that rejects the JSON capnp actually emits. None of cloister's
+// capnp files use annotations today; if any get added, schema-bridge
+// stops on this list and forces a decision (handle or remove).
+const ANN_JSON_FLATTEN: u64 = 0x82d3e852af0336bf;
+const ANN_JSON_DISCRIMINATOR: u64 = 0xcfa794e8d19a0162;
+const ANN_JSON_NAME: u64 = 0xfa5b1fd61c2e7c3d;
+const ANN_JSON_BASE64: u64 = 0xd7d879450a253e4b;
+const ANN_JSON_HEX: u64 = 0xf061e22f0ae5c7b5;
+const ANN_JSON_NOTIFICATION: u64 = 0xa0a054dea32fd98c;
+
+fn annotation_kind(id: u64) -> String {
+    match id {
+        ANN_JSON_FLATTEN => "annotation `$Json.flatten`".to_owned(),
+        ANN_JSON_DISCRIMINATOR => "annotation `$Json.discriminator`".to_owned(),
+        ANN_JSON_NAME => "annotation `$Json.name`".to_owned(),
+        ANN_JSON_BASE64 => "annotation `$Json.base64`".to_owned(),
+        ANN_JSON_HEX => "annotation `$Json.hex`".to_owned(),
+        ANN_JSON_NOTIFICATION => "annotation `$Json.notification`".to_owned(),
+        other => format!("annotation @{other:#x}"),
+    }
+}
+
+fn check_annotations(
+    annotations: capnp::struct_list::Reader<'_, schema_capnp::annotation::Owned>,
+    location: &str,
+) -> Result<()> {
+    if !annotations.is_empty() {
+        let kind = annotation_kind(annotations.get(0).get_id());
+        return Err(SchemaBridgeError::unmapped(kind, location));
+    }
+    Ok(())
+}
+
 pub fn parse(
     request: schema_capnp::code_generator_request::Reader<'_>,
 ) -> Result<Schema> {
@@ -65,6 +101,7 @@ pub fn parse(
                 if s.get_is_group() {
                     continue;
                 }
+                check_annotations(node.get_annotations()?, &location)?;
                 schema.structs.push(parse_struct(
                     node,
                     s,
@@ -75,6 +112,7 @@ pub fn parse(
                 )?);
             }
             schema_capnp::node::Which::Enum(e) => {
+                check_annotations(node.get_annotations()?, &location)?;
                 schema.enums.push(parse_enum(node, e)?);
             }
             schema_capnp::node::Which::Interface(_) => {
@@ -99,7 +137,12 @@ fn parse_enum(
     let name = short_name(node)?;
     let mut variants = Vec::new();
     for enumerant in e.get_enumerants()?.iter() {
-        variants.push(enumerant.get_name()?.to_str()?.to_owned());
+        let v = enumerant.get_name()?.to_str()?.to_owned();
+        check_annotations(
+            enumerant.get_annotations()?,
+            &format!("enum {name}.{v}"),
+        )?;
+        variants.push(v);
     }
     Ok(Enum { name, variants })
 }
@@ -132,6 +175,8 @@ fn parse_struct<'a>(
         let field_name = field.get_name()?.to_str()?.to_owned();
         let ordinal = field.get_code_order();
         let field_location = format!("{location} ({name}.{field_name})");
+
+        check_annotations(field.get_annotations()?, &field_location)?;
 
         match field.which()? {
             schema_capnp::field::Which::Slot(slot) => {
@@ -206,6 +251,8 @@ fn parse_union<'a>(
     for field in group.get_fields()?.iter() {
         let variant_name = field.get_name()?.to_str()?.to_owned();
         let variant_location = format!("{location}.{variant_name}");
+
+        check_annotations(field.get_annotations()?, &variant_location)?;
 
         // Defensive: union variants always carry a discriminant value
         // (and non-variant fields shouldn't appear inside a union

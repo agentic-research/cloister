@@ -608,3 +608,124 @@ fn named_union_void_variants_omits_payload() {
         "emit:\n{emitted}"
     );
 }
+
+// ── Regression-guard: $Json.flatten annotation on a union field ───
+//
+// `$Json.flatten` changes capnp's JSON encoding from the nested
+// `"kind": { "variant": payload }` form to the flat-with-variant-name
+// form. Our v1 emit assumes the nested form; an annotated field
+// would produce a schema that silently rejects the JSON. Fail loudly
+// so the day someone adds `$Json.flatten` the codegen lights up.
+// Annotation id `@0x82d3e852af0336bf` is from capnp/compat/json.capnp.
+
+#[test]
+fn json_flatten_annotation_fails_fast() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Annotated");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("payload");
+        field.set_code_order(0);
+        field.set_discriminant_value(0xffff);
+        let mut anns = field.reborrow().init_annotations(1);
+        anns.reborrow().get(0).set_id(0x82d3e852af0336bf);
+        let mut slot = field.init_slot();
+        slot.reborrow().init_type().set_text(());
+    }
+
+    let err = parse(&message).expect_err("must reject $Json.flatten");
+    match err {
+        SchemaBridgeError::UnmappedConstruct { kind, .. } => {
+            assert_eq!(kind, "annotation `$Json.flatten`");
+        }
+        other => panic!("expected UnmappedConstruct, got {other:?}"),
+    }
+}
+
+// ── Regression-guard: unknown annotation reports raw hex id ───────
+
+#[test]
+fn unknown_annotation_fails_fast_with_hex_id() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Annotated");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut anns = node.reborrow().init_annotations(1);
+        // arbitrary id, NOT one of the known json.* ids
+        anns.reborrow().get(0).set_id(0xCAFEBABEu64);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        s.init_fields(0);
+    }
+
+    let err = parse(&message).expect_err("must reject unknown annotation");
+    match err {
+        SchemaBridgeError::UnmappedConstruct { kind, .. } => {
+            assert!(kind.starts_with("annotation @"), "got kind {kind:?}");
+            assert!(kind.contains("cafebabe"), "got kind {kind:?}");
+        }
+        other => panic!("expected UnmappedConstruct, got {other:?}"),
+    }
+}
+
+// ── Aspirational stubs (#[ignore]'d) ──────────────────────────────
+//
+// Cargo prints `X ignored` on every run, so these gaps stay visible
+// without breaking the suite. Each stub documents what the eventual
+// success looks like; removing `#[ignore]` is the activation gesture
+// once support lands. Paired with the regression-guard fail-fast
+// tests above — those stay forever, these go green and stay.
+
+// $Json.flatten changes the union encoding from
+//   { kind: { variant: payload } }
+// to flat
+//   { variant: payload }
+// alongside base fields. Different emit shape; future work.
+#[test]
+#[ignore = "schema-bridge does not yet emit the flat shape for $Json.flatten"]
+fn flat_union_emit_under_json_flatten() {
+    // When implemented, this test should:
+    //  - build a struct with a $Json.flatten-annotated union group
+    //  - parse it
+    //  - assert the emitted zod is `z.object({ ...base, ...union })`
+    //    where union variants are siblings of base fields, not nested
+    //    under the discriminant name
+    //  - assert the emitted TS type intersects the variants directly
+    unimplemented!("activate once schema-bridge handles `$Json.flatten`")
+}
+
+// Anonymous inline unions (`struct Foo { union { ... } }` with no
+// group wrapping) encode flat — variant name is a sibling key on the
+// parent struct, not nested under any group name. Same emit shape as
+// $Json.flatten conceptually; different parse path.
+#[test]
+#[ignore = "schema-bridge does not yet emit for anonymous inline unions"]
+fn anonymous_inline_union_emits_flat() {
+    unimplemented!("activate once schema-bridge handles anonymous inline unions")
+}
+
+// Non-union groups (`field :group { x @0 :T; y @1 :U; }`) are field
+// namespacing without a discriminator. Capnp's JSON encodes them as a
+// nested object under the group name. Future emit:
+// `field: z.object({ x: ..., y: ... })`.
+#[test]
+#[ignore = "schema-bridge does not yet emit for non-union groups"]
+fn non_union_group_emits_nested_object() {
+    unimplemented!("activate once schema-bridge handles non-union groups")
+}

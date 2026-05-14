@@ -64,12 +64,13 @@ each):
 | Deliberately unmapped (errors today)| reason                                       |
 |-------------------------------------|----------------------------------------------|
 | `interface`                         | RPC types — out of scope for now             |
-| `const`, `annotation`               | not used at the schema surfaces we care about |
+| `const`, `annotation` (top-level)   | not used at the schema surfaces we care about |
 | `anyPointer`                        | typed-erasure escape hatch; unmapped         |
 | generics (`$Foo(T)`)                | needs IR generics representation             |
 | anonymous inline union              | unused in cloister; the `name :union {…}` sugar covers all current use|
 | non-union group (field namespacing) | unused in cloister                           |
 | group variant inside a union        | legal capnp, unused in cloister              |
+| any annotation on a node/field      | including `$Json.flatten`, `$Json.discriminator`, `$Json.name`, `$Json.base64`, `$Json.hex`, `$Json.notification` (ids from `capnp/compat/json.capnp`) — affect JSON encoding and so MUST be handled or fail loudly; cloister capnp files use no annotations today |
 
 Adding any of these is a focused change: extend the IR variant, add
 the emit in `outputs/zod.rs`, add one golden test + leave one
@@ -77,6 +78,34 @@ fail-case test for the still-unmapped neighbour. The fail-case tests
 stay forever as regression guards — they catch a future construct
 that silently slips through because it looks "close enough" to
 something that IS supported.
+
+## Visibility of known gaps
+
+Every unmapped construct above is paired with two tests:
+
+1. **A regression-guard fail-fast test** — must throw
+   `UnmappedConstruct`. Stays active forever; catches a future
+   construct that silently slips through.
+2. **An `#[ignore]`'d aspirational stub** (where the emit shape is
+   already clear) — documents what success will look like. `cargo
+   test` prints `<name> ... ignored, schema-bridge does not yet …`
+   on every run, so the gap is visible in CI output without breaking
+   the build. Activation gesture: remove `#[ignore]`, implement, fill
+   in the assertions. The paired regression-guard stays.
+
+Today's `#[ignore]`'d stubs (search for them in
+`tests/integration.rs`):
+
+- `flat_union_emit_under_json_flatten` — emit when `$Json.flatten`
+  is on a union field
+- `anonymous_inline_union_emits_flat` — emit for
+  `struct Foo { union { … } }`
+- `non_union_group_emits_nested_object` — emit for
+  `field :group { x; y; }` (field namespacing without discriminator)
+
+Constructs without aspirational stubs (`interface`, generics,
+`anyPointer`) are deferred indefinitely — they're non-goals for the
+zod-validation surface today, not just "not yet."
 
 ## How it runs
 
