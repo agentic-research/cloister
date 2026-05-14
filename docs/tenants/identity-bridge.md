@@ -81,4 +81,4 @@ Identity material originates in `notme-bot` (cluster bundle
 - [ADR-0011](../adr/0011-hypervisor-bundle-boundary.md) — the bridge is hypervisor-tier (singleton, mediates trust)
 - [ADR-0013](../adr/0013-slice-grant-enforcement.md) — `notme-bot` co-location is safe because of V8-isolate + Service-binding-as-syscall
 - Tracking bead `cloister-c9922f` — implementation
-- Companion: `/.well-known/interlace/index.json` (substrate, not a tenant) publishes the gateway's `actor` + `policy` + aggregated MCP capabilities; see [`src/routes/well-known-interlace.ts`](../../src/routes/well-known-interlace.ts)
+- Companion: `/.well-known/interlace/index.json` (substrate, not a tenant) publishes the gateway's `actor` + `policy` + aggregated MCP capabilities; see [`src/routes/well-known-identity.ts`](../../src/routes/well-known-identity.ts)

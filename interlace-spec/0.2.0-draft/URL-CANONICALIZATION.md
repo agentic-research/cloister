@@ -754,7 +754,7 @@ Each implementation MUST reproduce them byte-equal.
 
 The test vectors carry a fixed Ed25519 keypair (the same fixture
 shared with 0.1.0's `lease-envelope.json` — see
-[`../../0.1.0/test-vectors/README.md`](../../0.1.0/test-vectors/README.md))
+[`../0.1.0/test-vectors/README.md`](../0.1.0/test-vectors/README.md))
 so that a conformant implementation that already passes 0.1.0's
 envelope vectors can extend its conformance suite without
 re-generating keys.

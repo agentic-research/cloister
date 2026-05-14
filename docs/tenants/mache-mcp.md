@@ -1,6 +1,6 @@
 # mache-mcp
 
-The `mache_*` tools surface [mache](https://github.com/jamestexas/mache)
+The `mache_*` tools surface [mache](https://github.com/agentic-research/mache)
 — a structural code-intelligence FUSE filesystem that exposes ~17 MCP
 tools (`get_overview`, `find_callers`, `search`, `get_communities`, …)
 over Streamable HTTP. cloister advertises them under the `mache_`
@@ -59,7 +59,7 @@ so the Service binding resolves to loopback inside the pod.
 
 ## Upstream project
 
-- Repo: [github.com/jamestexas/mache](https://github.com/jamestexas/mache)
+- Repo: [github.com/agentic-research/mache](https://github.com/agentic-research/mache)
 - Process: `mache serve --http localhost:7532`
 - Transport: MCP Streamable HTTP (mark3labs/mcp-go server)
 
