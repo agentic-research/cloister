@@ -193,8 +193,9 @@ of them is wasted effort until the DO RPCs come down.
 ## Related
 
 - Tracking bead: `cloister-747d98`.
-- Sub-bead for remaining four surfaces: `cloister-747d98b` (filed
-  separately; see `rsry_bead_search`).
+- Sub-bead for remaining four surfaces: see `cloister-747d98`
+  comment thread (filed separately; the other surface beads are
+  enumerated there via `rsry_bead_search`).
 - **Batched-RPC bead: `cloister-ee51b8`** — closed the two-RPC fan-out
   + atomicity gap; produced the After numbers above.
 - Source: [`src/routes/lease-middleware.ts`](../../src/routes/lease-middleware.ts),

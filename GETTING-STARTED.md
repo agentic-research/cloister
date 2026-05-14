@@ -329,22 +329,22 @@ For **self-host / production**, the vault DO supports these schemes:
 |---|---|
 | `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
-| `keychain://service-name` | macOS Keychain — via the `kek-helper` sidecar (today) / `leyline-sign-helper` Rust binary (post-`cloister-99165e`) |
+| `keychain://service-name` | macOS Keychain — via the `leyline-sign-helper` Rust binary (`rs/crates/sign/`, ADR-0019). |
 | `secret-tool://service-name` | Linux libsecret (Secret Service) — same `keyring` crate backend as `keychain://`. |
 | `keyring://service/account` | Explicit-form keyring URI (both halves in the URI). Use when `KEYCHAIN_ACCOUNT` is not the right account selector. |
 | `op://vault/item/field` | 1Password — via the `op` CLI. Requires `LEYLINE_SIGN_OP_BIN` env var pointing to an absolute path of the `op` binary (e.g. `/opt/1Password/bin/op`). |
 | `apple-password://server/account` | Apple Passwords — via macOS `security` CLI. Requires `LEYLINE_SIGN_SECURITY_BIN` (typically `/usr/bin/security`). macOS-only. |
 | `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` (legacy / off-host helpers) |
 
-> **Migration in flight:** `scripts/kek-helper.mjs` (the JS sidecar
-> documented in this section) is being replaced by the
-> `leyline-sign-helper` Rust binary per [ADR-0019](docs/adr/0019-sign-only-helper-protocol.md).
-> The Rust helper performs Ed25519 signing host-side and returns only
-> signatures, never key bytes — closing the heap-isolation gap
-> [ADR-0018](docs/adr/0018-notme-co-location.md) requires. Tracking:
-> `cloister-99165e` (binary build) + `cloister-993bef` (kek-helper
-> migration). The wire-level contract for `/resolve` is unchanged;
-> golden-vector parity tests are the load-bearing migration gate.
+> **Migration complete (2026-05-13):** the legacy `scripts/kek-helper.mjs`
+> JS sidecar is superseded by the `leyline-sign-helper` Rust binary
+> per [ADR-0019](docs/adr/0019-sign-only-helper-protocol.md). The Rust
+> helper performs Ed25519 signing host-side and returns only signatures,
+> never key bytes — closing the heap-isolation gap
+> [ADR-0018](docs/adr/0018-notme-co-location.md) requires. Tracking
+> beads `cloister-99165e` (binary build) + `cloister-993bef` (kek-helper
+> migration) shipped via PR #1 and PR #2; `scripts/kek-helper.mjs` is
+> retained only for historical reference and golden-vector parity.
 
 The macOS-Keychain self-host flow:
 
@@ -354,9 +354,9 @@ security add-generic-password \
   -a cloister -s com.cloister/kek \
   -w "$(openssl rand -hex 32)"
 
-# 2. Start the kek-helper sidecar (separate Node process — workerd
-#    can't shell to `security` because it's a sandboxed V8 isolate).
-node scripts/kek-helper.mjs --bind 127.0.0.1:8786 &
+# 2. Start the leyline-sign-helper Rust binary (separate process —
+#    workerd is a sandboxed V8 isolate with no `child_process`).
+task helper:start    # binds 127.0.0.1:8786 by default
 
 # 3. Tell cloister to use it. Wire KEK_HELPER as a service binding
 #    in config.capnp / wrangler.toml pointed at the helper port,
@@ -367,12 +367,10 @@ export VAULT_KEK_SOURCE="keychain://com.cloister/kek"
 task dev
 ```
 
-The helper refuses to bind to anything but loopback. The legacy
-`scripts/kek-helper.mjs` had no auth and trusted everything on its
-port; the replacement `leyline-sign-helper` Rust binary (ADR-0019,
-merged 2026-05-12) adds bearer-token auth via
-`LEYLINE_SIGN_CALLER_TOKENS` and refuses to start under `--require-auth`
-without it. Either way: **don't expose the helper remotely.**
+The helper refuses to bind to anything but loopback and enforces
+bearer-token auth via `LEYLINE_SIGN_CALLER_TOKENS`; under
+`--require-auth` (production-default) it refuses to start without
+tokens configured. **Don't expose the helper remotely.**
 
 Since `cloister-2a0faa` (2026-05-13) the helper supports up to six
 keystore schemes, split across two Cargo features per the inline
@@ -394,7 +392,8 @@ adversarial cycle (threat-model §17.1):
   leyline-sign/host-extras"` ≈ 559 lines.
 
 `file://` stays in cloister's own reader (binary-safe + multi-CRLF
-trim per the `kek-helper.mjs` golden vector) under both features.
+trim per the legacy `kek-helper.mjs` golden vector preserved for
+parity) under both features.
 
 The helper additionally supports a per-caller URL allow-list for
 `POST /sign` via `LEYLINE_SIGN_SIGN_ALLOW=<caller>=<prefix>[,<prefix>...][;...]`.
@@ -408,7 +407,7 @@ end-to-end on your machine):
 NAME="cloister-kek-test-$(date +%s)"
 KEK_HEX="$(openssl rand -hex 32)"
 security add-generic-password -a cloister -s "$NAME" -w "$KEK_HEX"
-node scripts/kek-helper.mjs --bind 127.0.0.1:8786 > /tmp/kek-helper.log 2>&1 &
+task helper:start > /tmp/leyline-sign-helper.log 2>&1 &
 sleep 1
 RESOLVED="$(curl -s "http://127.0.0.1:8786/resolve?url=keychain://$NAME")"
 [ "$RESOLVED" = "$KEK_HEX" ] && echo "OK: round-trip $RESOLVED" || echo "FAIL"
@@ -416,9 +415,11 @@ kill %1 2>/dev/null
 security delete-generic-password -a cloister -s "$NAME"
 ```
 
-Validated end-to-end on macOS 2026-05-11 (cloister-268a01). If you see
-`FAIL`, check `/tmp/kek-helper.log` — usually means the helper didn't
-bind (port in use) or the `security` CLI isn't on PATH.
+Validated end-to-end on macOS 2026-05-11 (cloister-268a01) against the
+JS sidecar, and re-validated 2026-05-13 against the Rust helper
+(cloister-2a0faa). If you see `FAIL`, check
+`/tmp/leyline-sign-helper.log` — usually means the helper didn't bind
+(port in use) or the `security` CLI isn't on PATH.
 
 For OCI / Cloudflare deployments where "Keychain" isn't a thing,
 use `env://NAME` populated via `wrangler secret put` (for CF Workers)

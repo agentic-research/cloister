@@ -28,7 +28,7 @@ its own DO instance.
 ```
 
 Tool input schemas are sourced from
-[`src/tool-schemas/bead.ts`](../../src/tool-schemas/bead.ts) (zod);
+[`src/tool-schemas/beads.ts`](../../src/tool-schemas/beads.ts) (zod);
 `inputSchemaJson = ""` is the explicit "use the TS schema" marker.
 Drift between the two is a build error.
 
@@ -80,9 +80,11 @@ and `docs/security/threat-model.md` for the full pipeline.
 ## Upstream project
 
 In-tree. Implementation lives at
-[`src/storage/bead-store.ts`](../../src/storage/bead-store.ts).
+[`src/beads.ts`](../../src/beads.ts) (BeadStore DO);
+canonical-bytes derivation in
+[`src/storage/bead-canonical.ts`](../../src/storage/bead-canonical.ts).
 Schema at
-[`src/tool-schemas/bead.ts`](../../src/tool-schemas/bead.ts).
+[`src/tool-schemas/beads.ts`](../../src/tool-schemas/beads.ts).
 
 ## Cross-references
 

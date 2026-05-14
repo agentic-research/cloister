@@ -306,7 +306,7 @@ WASM → JS), the canonical wire is the following minimal JSON:
 Field order is fixed: `epk, nb, na, ep, pf, sc`. Optional fields are
 omitted when absent. Strings are escaped per [RFC 8259
 §7](https://www.rfc-editor.org/rfc/rfc8259#section-7). See
-[`test-vectors/cert-claims-json.json`](test-vectors/cert-claims-json.json)
+[`test-vectors/cert-vectors.json`](test-vectors/cert-vectors.json)
 for the canonical encoding of every test cert.
 
 ## 3. Lease envelope

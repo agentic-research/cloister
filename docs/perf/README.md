@@ -62,9 +62,13 @@ are a separate workstream — flagged as out-of-scope for these docs.
 3. **TrustStore scales fine.** 10k rows in `seen_nonces` has no
    measurable impact on RPC latency. The throughput ceiling is the
    input gate (~5k req/s local), not the SQL.
-4. **Disclosure endpoint is not actually constant-time.** The §9.4
-   invariant fails: no-peer 404 takes ~17× longer than tampered-
-   cursor 404 because the former hits the DO twice. **Filed as a
-   follow-up; see the disclosure-endpoint doc for fix options.**
+4. **Disclosure endpoint constant-time §9.4.b — CLOSED 2026-05-10
+   (`cloister-1c42ae`).** The pre-fix 17× delta between no-peer 404
+   and tampered-cursor 404 was driven by a double DO hit; the
+   `peerHasChain` constant-cost probe collapses both paths to a
+   single 60µs response inside workerd's quantization floor.
+   Re-verified 2026-05-12 by oracle-friend. See
+   [`docs/perf/2026-05-10-disclosure-endpoint.md`](2026-05-10-disclosure-endpoint.md)
+   for the before/after numbers.
 5. **Cold-start is fine.** 610ms warm, 1.9s cold-cache. No
    optimization needed at current scale.

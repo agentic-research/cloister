@@ -23,7 +23,7 @@ required by Apache 2.0 §4(c) and the divergence plan tracked in
 | `src/vault.ts` | CRUD + access logic: get/store/delete credentials, `checkAccess` sub-glob matcher, request building, error envelopes. Storage-agnostic (takes a `VaultStorage`). |
 | `src/crypto.ts` | AES-256-GCM envelope encryption. KEK (key-encryption-key) wraps a per-credential DEK (data-encryption-key). Pure Web Crypto — no npm deps. |
 | `src/handler.ts` | HTTP request handler: routes `GET /:service`, `PUT /:service`, `DELETE /:service`, `GET /admin/services` to the right vault op with identity + admin gating. |
-| `src/kek-source.ts` | Pluggable KEK resolution. Accepts URL-driven sources: `env://NAME`, `file:///path`, `http://helper/...`, `keychain://...`. See ADR-0014. |
+| `src/kek-source.ts` | Pluggable KEK resolution. Accepts URL-driven sources: `env://NAME`, `file:///path`, `http(s)://helper/...`, `keychain://`, `apple-password://`, `keyring://`, `op://`, `secret-tool://`. See ADR-0014; the helper-backed schemes resolve via the `leyline-sign-helper` Rust binary (ADR-0019). |
 | `src/__tests__/` | Vitest suites — vault.test (core CRUD + access), encryption.test (crypto primitives), vault-security.test (privilege boundary), vault-adversarial.test (active-attack scenarios), kek-source.test (URL dispatch). |
 
 ## How it's wired in
@@ -46,9 +46,10 @@ flowchart LR
 ```
 
 The library never opens its own network sockets or files. The DO
-provides storage; the kek-helper sidecar (or an env binding) provides
-the KEK material. See `scripts/kek-helper.mjs` for the macOS-Keychain
-sidecar implementation.
+provides storage; the `leyline-sign-helper` Rust binary
+(`rs/crates/sign/`, ADR-0019) or an env binding provides the KEK
+material. The legacy `scripts/kek-helper.mjs` JS sidecar is retained
+only for golden-vector parity during the migration window.
 
 ## Decisions
 
@@ -67,5 +68,5 @@ sidecar implementation.
   enforcement at the V8-isolate boundary.
 - **Threat boundary** — credential exfiltration scenarios are catalogued
   in [`docs/security/threat-model.md`](../docs/security/threat-model.md)
-  (§7 vault layer + §11 row table). Multi-bundle isolation invariants
+  (§11 row V.1 + §13.6 + §16.1). Multi-bundle isolation invariants
   are exercised by `test/vault/multi-tenant-isolation.test.ts`.

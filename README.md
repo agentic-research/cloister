@@ -1,20 +1,24 @@
 # cloister
 
-**Cloister hosts MCP servers behind one HTTP face.** Identity, audit,
-and per-bundle credential scoping are wired through the substrate, not
+**Cloister is a v8-isolate hypervisor on `workerd`** with a declarative
+Cap'n Proto manifest. Routes, backends, and per-bundle credential
+scopes are substrate concerns — identity (Interlace), audit (signed
+receipts), and credential isolation are wired in at the substrate, not
 bolted on per-tenant. It's offline-first: runs locally on `workerd`
-with no cloud account required. The same TypeScript bundle deploys to
-Cloudflare Workers when you want a public endpoint — cloud is optional,
-not load-bearing.
+with no cloud account required, and the same TypeScript bundle deploys
+to Cloudflare Workers when you want a public endpoint.
 
-The interface is a declarative manifest at
-[`cloister.capnp`](cloister.capnp). Today's tenants are `bead_*`,
-`mache_*`, `lsp_*`, lifecycle (`reparse`/`enrich`/`status`), and the
-Interlace identity bridge — anything HTTP-shaped plugs into the same
-route table without touching the substrate. See
-[ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest shape and
-[ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) for which
-responsibilities live at the hypervisor layer vs the bundle layer.
+**Today's primary application is hosting MCP servers behind one HTTP
+face.** `bead_*`, `mache_*`, `lsp_*`, lifecycle
+(`reparse`/`enrich`/`status`), and the Interlace identity bridge are
+the first tenants — but the contract is
+[`cloister.capnp`](cloister.capnp): anything HTTP-shaped plugs into
+the same route table without touching the substrate. See
+[ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest shape,
+[ADR-0009](docs/adr/0009-compute-substrate-portability.md) for the
+substrate-portability claim, and
+[ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) for what lives
+at the hypervisor layer vs the bundle layer.
 
 ```mermaid
 graph TB
@@ -234,12 +238,17 @@ Full task surface: `task --list-all`.
   `http://localhost:*,https://app.example.com` for prod. Supports a
   trailing `:*` port wildcard per entry; no general globs.
 - **`VAULT_KEK_SOURCE`** — picks where the vault DO resolves its
-  envelope-encryption KEK from. Schemes: `keychain://`, `file://`,
-  `env://`, `secret-tool://`, `http(s)://`. See
+  envelope-encryption KEK from. Schemes: `keychain://`,
+  `apple-password://`, `keyring://`, `op://`, `secret-tool://`,
+  `file://`, `env://`, `http(s)://`. See
   [ADR-0014](docs/adr/0014-pluggable-kek-source.md) +
   [GETTING-STARTED §9](GETTING-STARTED.md#vault-kek--keep-it-out-of-plaintext-bindings).
 - **`LEYLINE_SIGN_CALLER_TOKENS`** + `--require-auth` —
   trust-anchor-helper auth (production deploys MUST set; ADR-0019).
+  Additional helper env vars frozen in ADR-0019 reqs 14–18:
+  `LEYLINE_SIGN_RESOLVE_ALLOW`, `LEYLINE_SIGN_SIGN_ALLOW`,
+  `LEYLINE_SIGN_OP_BIN`, `LEYLINE_SIGN_SECURITY_BIN`,
+  `LEYLINE_SIGN_RESOLVE_TTL_MS`, `LEYLINE_SIGN_RESOLVE_CACHE_MAX`.
 - **Container** — `task image` produces a distroless OCI image
   (`cloister.tar`), workerd + bundle only, no shell/pkgmgr, runs as
   uid `65532`. Mount `/data` for DO SQLite persistence.

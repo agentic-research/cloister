@@ -54,8 +54,8 @@ of 2026-05-12; full text in `docs/adr/`):
   land; bundles can't escape the isolate even if the manifest is wrong.
 - [ADR-0014](adr/0014-pluggable-kek-source.md) — **pluggable vault KEK
   source** (Accepted). Vault KEK resolved from a URL spec (env://,
-  file://, keychain://, secret-tool://, http(s)://); ships the
-  OS-keystore self-host story.
+  file://, keychain://, apple-password://, keyring://, op://,
+  secret-tool://, http(s)://); ships the OS-keystore self-host story.
 
 **MCP-spec alignment + operator surface (0015–0017):**
 - [ADR-0015](adr/0015-mcp-spec-alignment.md) — MCP-Proxy-Server framing
@@ -420,7 +420,7 @@ each launcher:
 | `LLO_MCP_URL`                    | text var                    | `wrangler.toml`, `config.capnp`             | LspToolBackend, LeylineLifecycleBackend (CF-prod fallback) |
 | `MACHE_MCP_URL`                  | text var                    | `wrangler.toml`, `config.capnp`             | mache backend (CF-prod fallback)               |
 | `ROSARY_MCP_URL`                 | text var                    | `wrangler.toml`, `config.capnp`             | (future) rosary passthrough                    |
-| `VAULT_KEK_SOURCE`               | text var (URL spec)         | `wrangler.toml`, `config.capnp`             | CredentialVault — ADR-0014 v2; required non-empty URL (env://, file://, keychain://, secret-tool://, http(s)://) |
+| `VAULT_KEK_SOURCE`               | text var (URL spec)         | `wrangler.toml`, `config.capnp`             | CredentialVault — ADR-0014 v2; required non-empty URL (env://, file://, keychain://, apple-password://, keyring://, op://, secret-tool://, http(s)://) |
 | `INTERLACE_MASTER_PUBKEY`        | text var (b64)              | `wrangler.toml`, `config.capnp`             | lease verification (cert-chain root)           |
 | `INTERLACE_ROOT_PUBKEY`          | text var (b64; optional)    | `wrangler.toml`, `config.capnp`             | lease-gate activation switch (unset = dev mode) |
 | `INTERLACE_DISCLOSURE_HMAC_KEY`  | text var                    | `wrangler.toml`, `config.capnp`             | DisclosureRoute HMAC cursor signing            |
@@ -428,12 +428,18 @@ each launcher:
 | `RECEIPT_EPOCH`                  | text var (int; optional)    | `wrangler.toml`, `config.capnp`             | receipt epoch stamp (ADR-0007 rotation alignment) |
 | `ALLOWED_ORIGINS`                | text var (optional)         | env-only (unset in wrangler/capnp defaults) | `pickAllowedOrigin` in `src/cors.ts`           |
 
-**Host-process env (leyline-sign-helper binary; NOT in wrangler/capnp):**
+**Host-process env (leyline-sign-helper binary; NOT in wrangler/capnp).
+Env-var surface frozen by ADR-0019 normative reqs 14–18:**
 
 | Env var                            | Required? | Used by                                              |
 | ---------------------------------- | --------- | ---------------------------------------------------- |
 | `LEYLINE_SIGN_CALLER_TOKENS`       | Yes (prod; `--require-auth` fail-stops if unset) | bearer-token → caller-name map (ADR-0019 + threat-model §15.2) |
 | `LEYLINE_SIGN_RESOLVE_ALLOW`       | Optional (deny-all if unset) | `/resolve` URL-prefix allow-list (threat-model §15.1) |
+| `LEYLINE_SIGN_SIGN_ALLOW`          | Optional (overlay; deny-all if unset) | `/sign` URL-prefix allow-list overlay (ADR-0019 req 17) |
+| `LEYLINE_SIGN_OP_BIN`              | Optional (defaults to `op` on PATH) | subprocess path for 1Password CLI `op://` scheme (ADR-0019 req 16) |
+| `LEYLINE_SIGN_SECURITY_BIN`        | Optional (defaults to `/usr/bin/security`) | subprocess path for macOS `security` keychain CLI (ADR-0019 req 16) |
+| `LEYLINE_SIGN_RESOLVE_TTL_MS`      | Optional (default 30000; `0` disables) | positive-cache TTL on `/resolve` (ADR-0019 req 15; threat-model §17.7) |
+| `LEYLINE_SIGN_RESOLVE_CACHE_MAX`   | Optional (default 1024) | FIFO eviction cap on `/resolve` cache (ADR-0019 req 15; threat-model §17.8) |
 
 ## Packaging (melange + apko)
 

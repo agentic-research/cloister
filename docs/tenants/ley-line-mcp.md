@@ -2,7 +2,7 @@
 
 The lifecycle tools (`reparse`, `enrich`, `status`) sit alongside
 [lsp-mcp](lsp-mcp.md) on the same upstream daemon
-([ley-line-open](https://github.com/jamestexas/ley-line-open)). They
+([ley-line-open](https://github.com/agentic-research/ley-line-open)). They
 control the daemon itself rather than the source tree it indexes:
 
 - `reparse` — re-run tree-sitter parsing over the source tree (or a single file)
@@ -56,7 +56,7 @@ LLO binary on the dev box.
 
 ## Upstream project
 
-- Repo: [github.com/jamestexas/ley-line-open](https://github.com/jamestexas/ley-line-open)
+- Repo: [github.com/agentic-research/ley-line-open](https://github.com/agentic-research/ley-line-open)
 - Process: the LLO daemon on port `:8384`
 
 ## Auth

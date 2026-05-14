@@ -19,7 +19,7 @@ CC ─Edit→ <file>
 ```
 
 `reparse` is exposed via `LeylineLifecycleBackend` (alongside `enrich` and
-`status`) — see `src/backends/leyline.ts`. The plugin is fire-and-quiet: any
+`status`) — see `src/manifest/backends/leyline-net.ts`. The plugin is fire-and-quiet: any
 failure (cloister down, no `file_path`, parse error) exits `0` silently rather
 than spamming red text on every edit.
 

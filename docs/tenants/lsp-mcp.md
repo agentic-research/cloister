@@ -56,7 +56,7 @@ in compose.
 
 ## Upstream project
 
-- Repo: [github.com/jamestexas/ley-line-open](https://github.com/jamestexas/ley-line-open) (the open subset of `ley-line`; raptorq + sqlite-blast stay closed per ADR-0005)
+- Repo: [github.com/agentic-research/ley-line-open](https://github.com/agentic-research/ley-line-open) (the open subset of `ley-line`; raptorq + sqlite-blast stay closed per ADR-0005)
 - Process: the LLO daemon (`llod` or equivalent) on port `:8384`
 - Transport: MCP JSON-RPC over HTTP (no session, no `text/event-stream` SSE needed)
 

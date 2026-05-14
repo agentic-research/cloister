@@ -12,7 +12,7 @@ Everything under `docs/` is one of these kinds:
 |---|---|
 | [`adr/`](adr/) | Numbered architectural decisions — the *why* behind every substrate choice. Current range: ADR-0001 through ADR-0021. Start with ADR-0001 → ADR-0002 → ADR-0007 (Interlace) → ADR-0011 (hypervisor/bundle boundary) for the core mental model. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The substrate description — *what* runs and how it composes. Read after the README + ADR-0011. |
-| [`security/`](security/) | Threat model + adversarial-cycle reports. `threat-model.md` is the contract (16 sections); `adversarial-cycles/` records red-team findings. |
+| [`security/`](security/) | Threat model + adversarial-cycle reports. `threat-model.md` is the contract (17 sections); `adversarial-cycles/` records red-team findings. |
 | [`perf/`](perf/) | Benchmark reports for the load-bearing perf claims (lease pipeline, dispatch, TrustStore contention, disclosure endpoint, cold start). |
 | [`deployment/`](deployment/) | Operator runbooks: cluster-in-a-pod, off-platform peers. |
 | [`integration/`](integration/) | Client-side wiring (`mcp-client.md` — how external MCP clients connect to cloister). |

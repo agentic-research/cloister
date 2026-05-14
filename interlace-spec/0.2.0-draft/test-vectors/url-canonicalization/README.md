@@ -29,7 +29,7 @@ Each file pins a single canonicalization scenario:
 ## Fixed inputs across all vectors
 
 Vectors reuse the same keypair as
-[`../../0.1.0/test-vectors/lease-envelope.json`](../../0.1.0/test-vectors/lease-envelope.json):
+[`../../../0.1.0/test-vectors/lease-envelope.json`](../../../0.1.0/test-vectors/lease-envelope.json):
 
 | Field | Value |
 |---|---|
