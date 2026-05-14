@@ -167,13 +167,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
 ### Arcs in flight
 
-- **leyline-sign-helper Rust binary** (`cloister-99165e`) — implements
-  ADR-0019 wire spec; extends existing `rs/crates/sign/` with a host-
-  binary target. Multi-day Rust work; produces a PR.
-- **kek-helper.mjs → leyline-sign-helper migration** (`cloister-993bef`)
-  — depends on 99165e. Phase B (golden-vector parity tests) is the
-  load-bearing gate; without byte-exact `/resolve` equivalence,
-  derived KEKs drift → unrecoverable wrapped DEKs.
 - **Cloister CLI in `rs/crates/cli/`** (`cloister-999532`) — Rust
   binary subsumes `scripts/cli-init.mjs`. Install/bundles/init/status
   subcommands. OCI-annotation-based tool installation per

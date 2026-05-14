@@ -19,7 +19,7 @@ by Apache 2.0 §4(c).
 |------|-------|
 | `Cargo.toml` | Workspace root. `resolver = "2"`. Single member today; future Rust additions (cloister-companion when it ships) land here. |
 | `Cargo.lock` | Pinned. Checked in so the wasm32 build is reproducible. |
-| `crates/sign/` | The leyline-sign crate — see [`crates/sign/README.md`](crates/sign/README.md). Builds a wasm32 module + a `gpgsm`-compatible native binary. |
+| `crates/sign/` | The leyline-sign crate — see [`crates/sign/README.md`](crates/sign/README.md). Builds three targets: a wasm32 module (used by cloister at workerd boot for cert-chain verification), the `leyline-sign-helper` host binary (sign-only trust-anchor-helper, ADR-0019; supersedes `scripts/kek-helper.mjs` as of 2026-05-13), and a `gpgsm`-compatible native binary. |
 | `target/` | Cargo build output. Gitignored. |
 
 ## Build output cloister depends on

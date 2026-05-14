@@ -63,16 +63,19 @@ emitted `cluster.compose.yaml` — no script wrapper needed.)
 | `lint-paths.mjs` | `task lint:paths` | Drift lint for paths shared across `apko.yaml` + `config.capnp` + DO storage. Closes `cloister-7c12cc` P2. |
 | `lint-timing-invariants.mjs` | `task lint:timing` | Drift lint for security-affecting timing constants (`MAX_CLOCK_SKEW_MS`, bundle refresh, nonce eviction, retry backoff). Silently-insecure regression class. Per `cloister-7ea4c4` P1. |
 
-## OS sidecar
+## OS sidecar (legacy)
 
 | Script | Task / binding | Purpose |
 |--------|----------------|---------|
-| `kek-helper.mjs` | bound as `KEK_HELPER` service binding | Resolves `keychain://service-name` (and future `secret-tool://`) URLs to raw KEK bytes via the OS keystore. Sidecar because workerd has no `child_process`. Per [ADR-0014](../docs/adr/0014-pluggable-kek-source.md). |
+| `kek-helper.mjs` | bound as `KEK_HELPER` service binding (legacy) | **Superseded 2026-05-13 by [`rs/crates/sign/`](../rs/crates/sign/) `leyline-sign-helper` Rust binary** (ADR-0019, PR #1 + PR #2). Retained for golden-vector parity tests during the migration window. New deployments should start the Rust helper via `task helper:start`. |
 
 ## See also
 
 - [`Taskfile.yml`](../Taskfile.yml) — the dispatcher.
 - [ADR-0001](../docs/adr/0001-workerd-mcp-gateway.md) — substrate choice
   (workerd) that drives most of the build pipeline shape.
-- [ADR-0014](../docs/adr/0014-pluggable-kek-source.md) — kek-helper
+- [ADR-0014](../docs/adr/0014-pluggable-kek-source.md) — KEK-source
   design rationale.
+- [ADR-0019](../docs/adr/0019-sign-only-helper-protocol.md) — sign-only
+  trust-anchor-helper protocol (the Rust binary that replaced
+  `kek-helper.mjs`).

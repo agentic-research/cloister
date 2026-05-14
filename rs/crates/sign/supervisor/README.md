@@ -62,7 +62,7 @@ Deferred — see ADR-0019 §"Headless platform disposition".
 {
   "ok": true,
   "platform": "darwin" | "linux" | "windows",
-  "supported_schemes": ["keychain://", "secret-tool://", "file://"],
+  "supported_schemes": ["keychain://", "apple-password://", "keyring://", "op://", "secret-tool://", "file://", "http://", "https://"],
   "supported_algs": ["ed25519"],
   "uptime_s": 12345,
   "build_sha": "<git ref>"
@@ -77,7 +77,7 @@ oracle for keystore enumeration). See ADR-0019 normative req. 12.
 | Scenario                     | Behavior                          | Recovery                                                          |
 | ---------------------------- | --------------------------------- | ----------------------------------------------------------------- |
 | Keystore entry missing       | HTTP 404 `not_found`              | Provision via `security add-generic-password` / `secret-tool store` |
-| macOS Keychain locked        | HTTP 503 `keystore_locked`        | `security unlock-keychain ~/Library/Keychains/login.keychain-db`  |
+| macOS Keychain locked        | HTTP 404 `not_found` (constant-time §17.10 collapse) + `keystore_locked` outcome label in structured log | `security unlock-keychain ~/Library/Keychains/login.keychain-db`; operators distinguish "locked" from "missing" via the helper's tracing log, not the wire (avoids §17.10 enumeration oracle) |
 | `alg` mismatch / wrong bytes | HTTP 415 `unsupported_alg`        | Re-provision keystore with correct key type                        |
 | Payload > 64 KiB             | HTTP 413 `payload_too_large`     | Caller side: chunk or reject                                       |
 | Helper crashes mid-signing   | Supervisor restarts; caller 503   | Automated; operator alerted on burst                               |
