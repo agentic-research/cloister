@@ -51,7 +51,31 @@ pub struct Enum {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Struct {
     pub name: String,
+    // Always-present fields. Capnp lets a struct carry both base
+    // fields and a union; both forms (`struct Foo { x @0 :Text;
+    // kind :union { … } }`) map naturally.
     pub fields: Vec<StructField>,
+    pub union: Option<Union>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Union {
+    // The discriminant in capnp is positional, not named — `name
+    // :union { … }` is sugar for `name :group { union { … } }`. We
+    // surface the group's name as the discriminant key so the
+    // emitted zod/TS reads like `kind: "durableObject"` rather than
+    // a synthesised `_tag`.
+    pub discriminant_name: String,
+    pub variants: Vec<UnionVariant>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionVariant {
+    pub name: String,
+    // Capnp permits `someVariant @N :Void` for tag-only variants
+    // (no payload). Those represent here as `Scalar(Void)` and the
+    // zod emitter knows not to include a sibling property for them.
+    pub ty: FieldType,
 }
 
 #[derive(Debug, Clone, PartialEq)]

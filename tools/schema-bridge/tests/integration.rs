@@ -227,7 +227,7 @@ fn list_of_unmapped_element_fails_fast() {
         let mut slot = field.init_slot();
         let ty = slot.reborrow().init_type();
         let list = ty.init_list();
-        let mut elem = list.init_element_type();
+        let elem = list.init_element_type();
         elem.init_interface();
     }
 
@@ -296,10 +296,15 @@ fn enum_emits_zod_enum_and_string_union() {
     assert!(emitted.contains("tier: Tier;"), "emit:\n{emitted}");
 }
 
-// ── Fail-case: in-struct union (discriminant_count > 0) ───────────
+// ── Regression-guard: anonymous inline union ──────────────────────
+//
+// `struct Foo { union { … } }` (no group wrapper). Real capnp form
+// but cloister's schemas always use the `name :union { … }` sugar,
+// so we don't emit for it yet. Kept as a fail-fast so a schema
+// change to this form lights up.
 
 #[test]
-fn in_struct_union_fails_fast() {
+fn anonymous_inline_union_fails_fast() {
     let mut message = Builder::new_default();
     {
         let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
@@ -314,42 +319,297 @@ fn in_struct_union_fails_fast() {
         s.set_discriminant_count(2);
     }
 
-    let err = parse(&message).expect_err("must reject union");
+    let err = parse(&message).expect_err("must reject anonymous inline union");
     match err {
         SchemaBridgeError::UnmappedConstruct { kind, .. } => {
-            assert_eq!(kind, "union (in-struct)");
+            assert!(
+                kind.starts_with("anonymous inline union"),
+                "got kind {kind:?}"
+            );
         }
-        other => panic!("expected UnmappedConstruct('union (in-struct)'), got {other:?}"),
+        other => panic!("expected UnmappedConstruct, got {other:?}"),
     }
 }
 
-// ── Fail-case: group field ─────────────────────────────────────────
+// ── Regression-guard: non-union group field ────────────────────────
+//
+// `struct Foo { thing :group { a @0 :Int32 } }` (group field whose
+// target struct has no union) is a real capnp form for field
+// namespacing. Unused in cloister; reject loudly.
 
 #[test]
-fn group_field_fails_fast() {
+fn non_union_group_fails_fast() {
     let mut message = Builder::new_default();
+    let outer_id: u64 = 0xAAAA;
+    let group_id: u64 = 0xBBBB;
     {
         let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
-        let mut nodes = request.init_nodes(2);
+        let mut nodes = request.init_nodes(3);
         fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
 
-        let mut node = nodes.reborrow().get(1);
-        node.set_id(0xAAAA);
-        node.set_display_name("test.capnp:WithGroup");
-        node.set_display_name_prefix_length("test.capnp:".len() as u32);
-        let mut s = node.init_struct();
-        s.set_discriminant_count(0);
-        let mut fields = s.init_fields(1);
-        let mut field = fields.reborrow().get(0);
-        field.set_name("nested");
-        field.set_code_order(0);
-        let mut group = field.init_group();
-        group.set_type_id(0xBBBB);
+        // Outer struct with a `nested` group field.
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(outer_id);
+            node.set_display_name("test.capnp:WithGroup");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("nested");
+            field.set_code_order(0);
+            field.set_discriminant_value(0xffff);
+            let mut group = field.init_group();
+            group.set_type_id(group_id);
+        }
+
+        // The group node — a struct with no union (discriminant_count = 0).
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(group_id);
+            node.set_display_name("test.capnp:WithGroup.nested");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(0);
+            // Field on the group — body doesn't matter for the test.
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("a");
+            field.set_code_order(0);
+            let mut slot = field.init_slot();
+            slot.reborrow().init_type().set_int32(());
+        }
     }
 
-    let err = parse(&message).expect_err("must reject group");
+    let err = parse(&message).expect_err("must reject non-union group");
     match err {
-        SchemaBridgeError::UnmappedConstruct { kind, .. } => assert_eq!(kind, "group"),
-        other => panic!("expected UnmappedConstruct('group'), got {other:?}"),
+        SchemaBridgeError::UnmappedConstruct { kind, .. } => {
+            assert_eq!(kind, "non-union group");
+        }
+        other => panic!("expected UnmappedConstruct('non-union group'), got {other:?}"),
     }
+}
+
+// ── Golden: named union via group, struct variants ────────────────
+//
+// The shape used by `Backend.kind :union { durableObject @2 :DoBackend;
+// httpForward @3 :HttpForwardBackend; … }` in manifest/cloister.capnp.
+
+#[test]
+fn named_union_struct_variants_emits_discriminated_union() {
+    let mut message = Builder::new_default();
+    let backend_id: u64 = 0xAAAA;
+    let kind_group_id: u64 = 0xBBBB;
+    let do_backend_id: u64 = 0xCCCC;
+    let http_backend_id: u64 = 0xDDDD;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(5);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        // Backend struct with name + kind union.
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(backend_id);
+            node.set_display_name("test.capnp:Backend");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(2);
+            // name @0 :Text
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("name");
+                field.set_code_order(0);
+                field.set_discriminant_value(0xffff);
+                let mut slot = field.init_slot();
+                slot.reborrow().init_type().set_text(());
+            }
+            // kind :group { union { ... } }
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("kind");
+                field.set_code_order(1);
+                field.set_discriminant_value(0xffff);
+                let mut group = field.init_group();
+                group.set_type_id(kind_group_id);
+            }
+        }
+
+        // The kind group: anonymous struct, discriminant_count = 2.
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(kind_group_id);
+            node.set_display_name("test.capnp:Backend.kind");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            // durableObject (discriminant 0) → :DoBackend
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("durableObject");
+                field.set_code_order(0);
+                field.set_discriminant_value(0);
+                let mut slot = field.init_slot();
+                let ty = slot.reborrow().init_type();
+                let mut sty = ty.init_struct();
+                sty.set_type_id(do_backend_id);
+            }
+            // httpForward (discriminant 1) → :HttpForwardBackend
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("httpForward");
+                field.set_code_order(1);
+                field.set_discriminant_value(1);
+                let mut slot = field.init_slot();
+                let ty = slot.reborrow().init_type();
+                let mut sty = ty.init_struct();
+                sty.set_type_id(http_backend_id);
+            }
+        }
+
+        // DoBackend and HttpForwardBackend — trivial structs, refs only.
+        for (i, (id, name)) in [(do_backend_id, "DoBackend"), (http_backend_id, "HttpForwardBackend")]
+            .into_iter()
+            .enumerate()
+        {
+            let mut node = nodes.reborrow().get(3 + i as u32);
+            node.set_id(id);
+            node.set_display_name(&format!("test.capnp:{name}"));
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            s.init_fields(0);
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+
+    // zod side: intersection of base + discriminated union, with
+    // discriminant key "kind" and two variants carrying their
+    // respective struct schemas.
+    assert!(emitted.contains("z.intersection("), "emit:\n{emitted}");
+    assert!(
+        emitted.contains(r#"z.discriminatedUnion("kind", ["#),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(
+            r#"z.object({ kind: z.literal("durableObject"), durableObject: DoBackendSchema })"#
+        ),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"z.object({ kind: z.literal("httpForward"), httpForward: HttpForwardBackendSchema })"#),
+        "emit:\n{emitted}"
+    );
+
+    // TS side: intersection emit. interface won't work for unions.
+    assert!(
+        emitted.contains("export type Backend = {"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"{ kind: "durableObject"; durableObject: DoBackend }"#),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"{ kind: "httpForward"; httpForward: HttpForwardBackend }"#),
+        "emit:\n{emitted}"
+    );
+}
+
+// ── Golden: named union with Void variants (pure discriminator) ───
+//
+// The shape used by `Wire.transport :union { uds @3 :Void; leylineNet
+// @4 :Void; }` in manifest/cluster.capnp. No payload on either
+// variant — just the discriminant.
+
+#[test]
+fn named_union_void_variants_omits_payload() {
+    let mut message = Builder::new_default();
+    let wire_id: u64 = 0xAAAA;
+    let transport_group_id: u64 = 0xBBBB;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        // Wire struct: only the transport union, no base fields.
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(wire_id);
+            node.set_display_name("test.capnp:Wire");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("transport");
+            field.set_code_order(0);
+            field.set_discriminant_value(0xffff);
+            let mut group = field.init_group();
+            group.set_type_id(transport_group_id);
+        }
+
+        // transport group: union { uds @3 :Void; leylineNet @4 :Void; }
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(transport_group_id);
+            node.set_display_name("test.capnp:Wire.transport");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            for (i, name) in ["uds", "leylineNet"].iter().enumerate() {
+                let mut field = fields.reborrow().get(i as u32);
+                field.set_name(name);
+                field.set_code_order(i as u16);
+                field.set_discriminant_value(i as u16);
+                let mut slot = field.init_slot();
+                slot.reborrow().init_type().set_void(());
+            }
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+
+    // zod: union-only struct skips the intersection wrapper.
+    assert!(
+        !emitted.contains("z.intersection"),
+        "Wire has no base fields; should not emit intersection.\nemit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"z.discriminatedUnion("transport", ["#),
+        "emit:\n{emitted}"
+    );
+    // Void variants emit no payload sibling.
+    assert!(
+        emitted.contains(r#"z.object({ transport: z.literal("uds") })"#),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"z.object({ transport: z.literal("leylineNet") })"#),
+        "emit:\n{emitted}"
+    );
+    // TS: union type alias, no & intersection.
+    assert!(
+        emitted.contains("export type Wire ="),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"{ transport: "uds" }"#),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"{ transport: "leylineNet" }"#),
+        "emit:\n{emitted}"
+    );
 }

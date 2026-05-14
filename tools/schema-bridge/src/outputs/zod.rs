@@ -7,7 +7,7 @@
 use std::fmt::Write as _;
 
 use crate::error::Result;
-use crate::ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField};
+use crate::ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField, Union, UnionVariant};
 
 pub fn emit(schema: &Schema) -> Result<String> {
     let mut out = String::new();
@@ -63,25 +63,140 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
     // not having to detect cycles.
     writeln!(
         out,
-        "export const {name}Schema: z.ZodType<{name}> = z.lazy(() => z.object({{",
+        "export const {name}Schema: z.ZodType<{name}> = z.lazy(() =>",
         name = s.name
     )
     .unwrap();
-    for field in &s.fields {
-        let rendered = render_field(field);
-        writeln!(out, "  {}: {},", field.name, rendered).unwrap();
+
+    match (&s.fields[..], &s.union) {
+        // Plain struct: no union.
+        (fields, None) => {
+            emit_zod_object(out, "  ", fields);
+            writeln!(out, ");").unwrap();
+        }
+        // Union-only struct: no base fields, just the discriminated
+        // union over variants. Skip the intersection wrapping.
+        ([], Some(u)) => {
+            emit_zod_discriminated_union(out, "  ", u);
+            writeln!(out, ");").unwrap();
+        }
+        // Struct with both base fields and a union: intersect.
+        (fields, Some(u)) => {
+            writeln!(out, "  z.intersection(").unwrap();
+            emit_zod_object(out, "    ", fields);
+            writeln!(out, ",").unwrap();
+            emit_zod_discriminated_union(out, "    ", u);
+            writeln!(out, "\n  )").unwrap();
+            writeln!(out, ");").unwrap();
+        }
     }
-    writeln!(out, "}}));").unwrap();
     writeln!(out).unwrap();
 
-    writeln!(out, "export interface {} {{", s.name).unwrap();
-    for field in &s.fields {
-        let ts_ty = render_ts_type(&field.ty);
-        writeln!(out, "  {}: {};", field.name, ts_ty).unwrap();
-    }
-    writeln!(out, "}}").unwrap();
+    emit_ts_type(out, s);
 
     Ok(())
+}
+
+fn emit_zod_object(out: &mut String, indent: &str, fields: &[StructField]) {
+    writeln!(out, "{indent}z.object({{").unwrap();
+    for field in fields {
+        let rendered = render_field(field);
+        writeln!(out, "{indent}  {}: {},", field.name, rendered).unwrap();
+    }
+    write!(out, "{indent}}})").unwrap();
+}
+
+fn emit_zod_discriminated_union(out: &mut String, indent: &str, u: &Union) {
+    writeln!(
+        out,
+        "{indent}z.discriminatedUnion(\"{name}\", [",
+        name = u.discriminant_name
+    )
+    .unwrap();
+    for variant in &u.variants {
+        emit_zod_variant(out, &format!("{indent}  "), &u.discriminant_name, variant);
+        writeln!(out, ",").unwrap();
+    }
+    write!(out, "{indent}])").unwrap();
+}
+
+fn emit_zod_variant(out: &mut String, indent: &str, disc: &str, v: &UnionVariant) {
+    match &v.ty {
+        // Void variants are pure discriminators — no payload field.
+        FieldType::Scalar(ScalarType::Void) => {
+            write!(
+                out,
+                "{indent}z.object({{ {disc}: z.literal(\"{name}\") }})",
+                name = v.name
+            )
+            .unwrap();
+        }
+        other => {
+            let rendered = render_zod_type(other);
+            write!(
+                out,
+                "{indent}z.object({{ {disc}: z.literal(\"{name}\"), {name}: {rendered} }})",
+                name = v.name
+            )
+            .unwrap();
+        }
+    }
+}
+
+fn emit_ts_type(out: &mut String, s: &Struct) {
+    match (&s.fields[..], &s.union) {
+        (fields, None) => {
+            writeln!(out, "export interface {} {{", s.name).unwrap();
+            for field in fields {
+                writeln!(out, "  {}: {};", field.name, render_ts_type(&field.ty)).unwrap();
+            }
+            writeln!(out, "}}").unwrap();
+        }
+        ([], Some(u)) => {
+            writeln!(out, "export type {} =", s.name).unwrap();
+            for (i, v) in u.variants.iter().enumerate() {
+                let prefix = if i == 0 { "  " } else { "  | " };
+                write!(out, "{prefix}").unwrap();
+                emit_ts_variant(out, &u.discriminant_name, v);
+                if i + 1 < u.variants.len() {
+                    writeln!(out).unwrap();
+                } else {
+                    writeln!(out, ";").unwrap();
+                }
+            }
+        }
+        (fields, Some(u)) => {
+            writeln!(out, "export type {} = {{", s.name).unwrap();
+            for field in fields {
+                writeln!(out, "  {}: {};", field.name, render_ts_type(&field.ty)).unwrap();
+            }
+            writeln!(out, "}} & (").unwrap();
+            for (i, v) in u.variants.iter().enumerate() {
+                let prefix = if i == 0 { "  " } else { "  | " };
+                write!(out, "{prefix}").unwrap();
+                emit_ts_variant(out, &u.discriminant_name, v);
+                writeln!(out).unwrap();
+            }
+            writeln!(out, ");").unwrap();
+        }
+    }
+}
+
+fn emit_ts_variant(out: &mut String, disc: &str, v: &UnionVariant) {
+    match &v.ty {
+        FieldType::Scalar(ScalarType::Void) => {
+            write!(out, "{{ {disc}: \"{name}\" }}", name = v.name).unwrap();
+        }
+        other => {
+            write!(
+                out,
+                "{{ {disc}: \"{name}\"; {name}: {ts} }}",
+                name = v.name,
+                ts = render_ts_type(other)
+            )
+            .unwrap();
+        }
+    }
 }
 
 fn render_field(field: &StructField) -> String {

@@ -11,4 +11,4 @@ pub mod inputs;
 pub mod outputs;
 
 pub use error::SchemaBridgeError;
-pub use ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField};
+pub use ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField, Union, UnionVariant};
