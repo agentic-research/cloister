@@ -22,56 +22,46 @@ export interface ClusterMetadata {
 }
 
 export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
-  z.intersection(
-    z.object({
-      name: z.string(),
-      description: z.string(),
-      tier: TierSchema,
-      holdsCredential: z.array(z.string()),
-      workerdServiceName: z.string(),
-      hypervisorRationale: z.string(),
-    }),
-    z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("workerd"), workerd: WorkerdBundleSchema }),
-      z.object({ kind: z.literal("external"), external: ExternalBundleSchema }),
-    ])
-  )
-);
+  z.object({
+    name: z.string(),
+    description: z.string(),
+    tier: TierSchema,
+    holdsCredential: z.array(z.string()),
+    workerdServiceName: z.string(),
+    hypervisorRationale: z.string(),
+    kind: z.union([
+      z.object({ workerd: WorkerdBundleSchema }).strict(),
+      z.object({ external: ExternalBundleSchema }).strict(),
+    ]),
+  }));
 
-export type Bundle = {
+export interface Bundle {
   name: string;
   description: string;
   tier: Tier;
   holdsCredential: string[];
   workerdServiceName: string;
   hypervisorRationale: string;
-} & (
-  { kind: "workerd"; workerd: WorkerdBundle }
-  | { kind: "external"; external: ExternalBundle }
-);
+  kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
+}
 
 export const WireSchema: z.ZodType<Wire> = z.lazy(() =>
-  z.intersection(
-    z.object({
-      from: z.string(),
-      to: z.string(),
-      binding: z.string(),
-    }),
-    z.discriminatedUnion("transport", [
-      z.object({ transport: z.literal("uds") }),
-      z.object({ transport: z.literal("leylineNet") }),
-    ])
-  )
-);
+  z.object({
+    from: z.string(),
+    to: z.string(),
+    binding: z.string(),
+    transport: z.union([
+      z.object({ uds: z.null() }).strict(),
+      z.object({ leylineNet: z.null() }).strict(),
+    ]),
+  }));
 
-export type Wire = {
+export interface Wire {
   from: string;
   to: string;
   binding: string;
-} & (
-  { transport: "uds" }
-  | { transport: "leylineNet" }
-);
+  transport: { uds: null } | { leylineNet: null };
+}
 
 export const StoragePolicySchema: z.ZodType<StoragePolicy> = z.lazy(() =>
   z.object({

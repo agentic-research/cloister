@@ -490,36 +490,37 @@ fn named_union_struct_variants_emits_discriminated_union() {
     let schema = parse(&message).expect("parse");
     let emitted = outputs::zod::emit(&schema).expect("emit");
 
-    // zod side: intersection of base + discriminated union, with
-    // discriminant key "kind" and two variants carrying their
-    // respective struct schemas.
-    assert!(emitted.contains("z.intersection("), "emit:\n{emitted}");
+    // zod side: union variants are NESTED under the discriminant
+    // name ("kind"), one variant per single-key object, with .strict()
+    // to enforce exactly-one. This matches capnp's JSON convention:
+    // `"kind": { "durableObject": {…} }`.
     assert!(
-        emitted.contains(r#"z.discriminatedUnion("kind", ["#),
+        emitted.contains("kind: z.union(["),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(
-            r#"z.object({ kind: z.literal("durableObject"), durableObject: DoBackendSchema })"#
-        ),
+        emitted.contains("z.object({ durableObject: DoBackendSchema }).strict()"),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(r#"z.object({ kind: z.literal("httpForward"), httpForward: HttpForwardBackendSchema })"#),
+        emitted.contains("z.object({ httpForward: HttpForwardBackendSchema }).strict()"),
         "emit:\n{emitted}"
+    );
+    // No intersection wrapper now — base fields are siblings of the
+    // nested union object in a single z.object().
+    assert!(
+        !emitted.contains("z.intersection"),
+        "should NOT use z.intersection under the new shape.\nemit:\n{emitted}"
     );
 
-    // TS side: intersection emit. interface won't work for unions.
+    // TS side: interface with the union field typed as a nested-
+    // object union.
     assert!(
-        emitted.contains("export type Backend = {"),
+        emitted.contains("export interface Backend {"),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(r#"{ kind: "durableObject"; durableObject: DoBackend }"#),
-        "emit:\n{emitted}"
-    );
-    assert!(
-        emitted.contains(r#"{ kind: "httpForward"; httpForward: HttpForwardBackend }"#),
+        emitted.contains("kind: { durableObject: DoBackend } | { httpForward: HttpForwardBackend };"),
         "emit:\n{emitted}"
     );
 }
@@ -581,35 +582,29 @@ fn named_union_void_variants_omits_payload() {
     let schema = parse(&message).expect("parse");
     let emitted = outputs::zod::emit(&schema).expect("emit");
 
-    // zod: union-only struct skips the intersection wrapper.
+    // zod: Void variants emit as `{ name: z.null() }` (matches
+    // capnp's JSON convention `"transport": { "uds": null }`).
     assert!(
-        !emitted.contains("z.intersection"),
-        "Wire has no base fields; should not emit intersection.\nemit:\n{emitted}"
-    );
-    assert!(
-        emitted.contains(r#"z.discriminatedUnion("transport", ["#),
-        "emit:\n{emitted}"
-    );
-    // Void variants emit no payload sibling.
-    assert!(
-        emitted.contains(r#"z.object({ transport: z.literal("uds") })"#),
+        emitted.contains("transport: z.union(["),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(r#"z.object({ transport: z.literal("leylineNet") })"#),
-        "emit:\n{emitted}"
-    );
-    // TS: union type alias, no & intersection.
-    assert!(
-        emitted.contains("export type Wire ="),
+        emitted.contains("z.object({ uds: z.null() }).strict()"),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(r#"{ transport: "uds" }"#),
+        emitted.contains("z.object({ leylineNet: z.null() }).strict()"),
+        "emit:\n{emitted}"
+    );
+
+    // TS: interface with the transport field typed as a nested
+    // object union over `null` payloads.
+    assert!(
+        emitted.contains("export interface Wire {"),
         "emit:\n{emitted}"
     );
     assert!(
-        emitted.contains(r#"{ transport: "leylineNet" }"#),
+        emitted.contains("transport: { uds: null } | { leylineNet: null };"),
         "emit:\n{emitted}"
     );
 }
