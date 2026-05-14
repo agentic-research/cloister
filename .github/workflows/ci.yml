@@ -51,16 +51,31 @@ jobs:
         # and mache use; bump together when bumping their workflows.
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
 
-      - name: Install capnp
-        # Required by `task manifest` (compiles cloister.capnp →
-        # src/generated/manifest.ts at build time, per ADR-0004).
-        run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Install capnp + libdbus dev headers
+        # `capnproto` — required by `task manifest` (compiles
+        # cloister.capnp → src/generated/manifest.ts at build time,
+        # per ADR-0004).
+        # `libdbus-1-dev pkg-config` — required by `task rs:sign:host`
+        # (a dep of `task test` → `task lint`). On Linux, the
+        # `keyring` crate's `sync-secret-service` feature is activated
+        # by the `[target.'cfg(target_os = "linux")'.dependencies]`
+        # block in rs/crates/sign/Cargo.toml. That feature pulls in
+        # secret-service → zbus → libdbus-sys, whose build.rs invokes
+        # `pkg-config --cflags --libs dbus-1` and panics if libdbus-1.pc
+        # is missing. macOS dev boxes use the `apple-native` keyring
+        # backend instead (no dbus) which is why local builds pass.
+        # Per ADR-0014 the keystore backend is intentionally
+        # platform-native; the Linux build environment requirement is
+        # accepted cost.
+        run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
 
       - name: Install Rust + wasm32 target
         # Required by `task rs:sign:wasm`, a dep of `task test` (and
         # therefore `task lint`). The wasm artifact is loaded by
         # src/wire/signet-verify.ts; without it, vitest-pool-workers
         # fails every test file at module init (cloister-bd5241).
+        # The same toolchain also drives `task rs:sign:host` (host-side
+        # OS-keystore tests, also a dep of `task test`).
         # Stable channel is enough — leyline-sign uses no nightly features.
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
@@ -122,8 +137,11 @@ jobs:
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
 
-      - name: Install capnp
-        run: sudo apt-get update && sudo apt-get install -y capnproto
+      - name: Install capnp + libdbus dev headers
+        # See the lint job's matching step for the rationale. `task verify`
+        # additionally runs `rs:sign:host-extras` (cargo test with the
+        # nono closure) which also links against libdbus on Linux.
+        run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
 
       - name: Install Rust + wasm32 target
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
