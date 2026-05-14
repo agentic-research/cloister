@@ -69,17 +69,25 @@ jobs:
         # accepted cost.
         run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
 
-      - name: Install Rust + wasm32 target
-        # Required by `task rs:sign:wasm`, a dep of `task test` (and
-        # therefore `task lint`). The wasm artifact is loaded by
-        # src/wire/signet-verify.ts; without it, vitest-pool-workers
+      - name: Install Rust toolchain (1.95.0 — pinned by rs/rust-toolchain.toml) + wasm32 target
+        # Required by `task rs:sign:wasm` and `task rs:sign:host`, both
+        # deps of `task test` → `task lint`. The wasm artifact is loaded
+        # by src/wire/signet-verify.ts; without it, vitest-pool-workers
         # fails every test file at module init (cloister-bd5241).
-        # The same toolchain also drives `task rs:sign:host` (host-side
-        # OS-keystore tests, also a dep of `task test`).
-        # Stable channel is enough — leyline-sign uses no nightly features.
+        #
+        # Install 1.95.0 explicitly (matching rs/rust-toolchain.toml,
+        # pinned by ADR-0019 §"Implementation pins") to avoid a parallel
+        # rustup-download race: `task lint` runs `rs:sign:host` +
+        # `rs:sign:wasm` concurrently via Task's dep parallelism. If
+        # the installed channel here is `stable`, cargo's rustup-proxy
+        # sees the override file and BOTH parallel cargo invocations
+        # race-fetch 1.95.0 into the same ~/.rustup/downloads/*.partial
+        # path → one process renames the partial first, the other gets
+        # ENOENT and exits 1. Installing 1.95.0 up-front means cargo
+        # finds it already-resolved and skips the fetch entirely.
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: stable
+          toolchain: 1.95.0
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo registry + git
@@ -107,6 +115,16 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Pre-warm rustup toolchain
+        # Belt-and-suspenders for the parallel rustup-download race.
+        # `cd rs && cargo --version` triggers rustup to fully realize
+        # the 1.95.0 toolchain (already installed by the prior step,
+        # but `cargo --version` is what proves rustup's proxy can
+        # dispatch without a fetch). If the prior step's install was
+        # complete this is a no-op; if anything is still partial it
+        # serializes the resolution here BEFORE Task fans out.
+        run: cd rs && cargo --version && rustc --version
 
       - name: Lint (the inner-loop gate)
         # `task lint` chains: task manifest → task rs:sign:wasm → tsc
@@ -143,10 +161,11 @@ jobs:
         # nono closure) which also links against libdbus on Linux.
         run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
 
-      - name: Install Rust + wasm32 target
+      - name: Install Rust toolchain (1.95.0 — pinned by rs/rust-toolchain.toml) + wasm32 target
+        # See the lint job's matching step for the rustup-race rationale.
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: stable
+          toolchain: 1.95.0
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo registry + git
@@ -170,6 +189,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Pre-warm rustup toolchain
+        # See the lint job's matching step. `task verify` fans out
+        # `lint` (which runs rs:sign:host + rs:sign:wasm in parallel)
+        # AND `rs:sign:host-extras` + `rs:audit`; pre-warming avoids
+        # the parallel rustup-download race.
+        run: cd rs && cargo --version && rustc --version
 
       - name: Verify (lint + capnp roundtrip + stub-companion smoke)
         # `task verify` adds the substrate-equivalence harness (production
