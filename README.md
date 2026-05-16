@@ -240,6 +240,18 @@ per [ADR-0023](docs/adr/0023-host-path-resolution.md). Path A
 needs no setup. Full walkthrough:
 [GETTING-STARTED.md](GETTING-STARTED.md).
 
+> **⚠️ DO SQLite is unencrypted at rest.** Whichever path you pick
+> (`/data/do`, `.wrangler/state/`, `$XDG_DATA_HOME/cloister/do` via
+> `CLOISTER_DO_PATH`, or `$HOME/.cache/cloister-dev/do/` for
+> `cluster:dev`), the DO SQLite databases — beads, trust state,
+> blob digests, vault ciphertext metadata — live on disk in plaintext
+> SQLite files. The vault ciphertexts *inside* those files ARE
+> AES-GCM-encrypted (per ADR-0013/0014); the bead/trust/blob tables
+> are not. Don't drop production-sensitive data into a dev install;
+> if you need on-disk encryption-at-rest of the SQLite files
+> themselves, that's an open follow-on (no ADR yet — file one if you
+> need it).
+
 ## Tasks
 
 ```bash
