@@ -33,10 +33,16 @@ loud. notme's older `capnp-to-ts.ts` (which this tool replaces in
 spirit) silently emitted `z.unknown()` for unrecognised constructs;
 that's the precise failure mode schema-bridge exists to prevent.
 
-CI runs the codegen on every commit. If schema-bridge can't handle
-your new capnp construct, the build breaks until either (a) the
-construct is added to schema-bridge with a golden test + fail-case,
-or (b) the schema is rewritten without it. No silent fallbacks.
+**Today the codegen is opt-in** — `task cluster:zod` regenerates
+`src/generated/cluster.zod.ts` and `task cluster:zod:check-drift`
+verifies the committed copy matches. Neither task is wired into
+`task lint` or `task verify` yet, so an unmapped capnp construct
+won't break CI automatically; it WILL break the moment a developer
+runs the regen or drift-check task locally. The plan is to wire
+`cluster:zod:check-drift` into `task verify` once the schema-bridge
+mapping coverage stabilises (tracked separately) — at that point
+unmapped constructs become a hard CI failure. No silent fallbacks
+regardless.
 
 ## What's mapped today
 
@@ -48,9 +54,9 @@ or (b) the schema is rewritten without it. No silent fallbacks.
 | enum refs                              | `EnumRef(name)`             | `{Name}Schema` (where `{Name}Schema = z.enum`) |
 | `List(T)`                              | `List(Box<FieldType>)`      | `z.array(T)` (recurses)                         |
 | top-level `enum`                       | `Enum { name, variants }`   | `z.enum([…])` + `type X = "a" \| "b"`           |
-| `name :union { … }` (group form)       | `Struct.union: Some(Union)` | `z.intersection(base, z.discriminatedUnion)`    |
-| Void union variants                    | `UnionVariant.ty = Void`    | `z.object({ disc: z.literal("name") })`         |
-| union-only structs (no base fields)    | empty `fields`, `Some(union)` | `z.discriminatedUnion` directly (no intersect) |
+| `name :union { … }` (group form)       | `Struct.union: Some(Union)` | `z.union([z.object({ <variant>: <T> }).strict(), …])` — one strict single-key object per variant |
+| Void union variants                    | `UnionVariant.ty = Void`    | `z.object({ <variant>: z.null() }).strict()` inside the union |
+| union-only structs (no base fields)    | empty `fields`, `Some(union)` | same `z.union([…])` shape (no intersect wrapper) |
 
 Verified end-to-end (run `capnp compile -oschema-bridge:<dir>` against
 each):
@@ -117,9 +123,10 @@ capnp compile \
 ```
 
 `capnp compile` invokes the binary with the parsed `CodeGeneratorRequest`
-on stdin. The binary writes `gen/schema.ts` (zod schemas + TS interface
-declarations). One emit per invocation today; per-file splitting is on
-the follow-on list.
+on stdin. The binary writes `<output-dir>/<schema-basename>.zod.ts`
+(e.g. `cluster.zod.ts` from `manifest/cluster.capnp`) — zod schemas
+plus TS interface declarations in one file. One emit per invocation
+today; per-file splitting is on the follow-on list.
 
 For development the library is also drivable directly — see
 `tests/integration.rs` for examples of building a `CodeGeneratorRequest`
