@@ -499,9 +499,9 @@ tasks:
       - scripts/lint-tenant-docs.mjs
 
   test:lint-scripts:
-    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
+    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs
+      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."

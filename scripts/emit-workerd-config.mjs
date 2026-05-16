@@ -62,6 +62,15 @@
 //     future refactor regression).
 //
 // Per cloister-0854b7, hardened per cloister-7b1af5, see ADR-0017.
+//
+// Path-resolution extension (cloister-addcdd, ADR-0023):
+//   The `do-storage` service's `path` field is the second substitution
+//   this script performs. The template uses `/data/do` as the
+//   apko/OCI default; on hosts where that path isn't writable (notably
+//   macOS where SIP makes `/data` un-mkdir-able), operators set
+//   `CLOISTER_DO_PATH` to any user-writable location. The substitution
+//   runs at build time so the emitted dist/config.capnp carries the
+//   resolved absolute path workerd reads at boot.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -70,6 +79,38 @@ const ROOT = process.cwd();
 const DIST = path.join(ROOT, "dist");
 const SOURCE = path.join(ROOT, "config.capnp");
 const TARGET = path.join(DIST, "config.capnp");
+
+// Default matches apko.yaml:50 + the existing template default. Override
+// via CLOISTER_DO_PATH for hosts where /data isn't writable (macOS SIP,
+// containers with different mount conventions, multi-instance dev).
+const DO_PATH_DEFAULT = "/data/do";
+const DO_PATH = process.env.CLOISTER_DO_PATH ?? DO_PATH_DEFAULT;
+if (!path.isAbsolute(DO_PATH)) {
+  die(
+    `CLOISTER_DO_PATH must be an absolute path; got ${JSON.stringify(DO_PATH)}. ` +
+      `workerd resolves disk service paths relative to its CWD which is unpredictable; ` +
+      `pin to an absolute path (e.g. $HOME/.local/share/cloister/do or /tmp/cloister-test/do).`,
+  );
+}
+// Reject chars that would either break the capnp string literal we
+// substitute into (`"`, `\`) or produce confusing diagnostics (control
+// chars like newline/tab/NUL). The substitution writes DO_PATH verbatim
+// inside `path = "<DO_PATH>"`; any of these would either close the
+// string early, introduce an unintended escape, or produce a literal
+// newline that workerd's capnp parser surfaces as a confusing "unexpected
+// token" error one step removed from the actual problem. POSIX paths
+// legally allow `"` and `\` but in practice nobody uses them; reject
+// upfront with a clear error rather than silently emit broken capnp.
+const FORBIDDEN_DO_PATH_RE = /["\\\x00-\x1f]/;
+if (FORBIDDEN_DO_PATH_RE.test(DO_PATH)) {
+  die(
+    `CLOISTER_DO_PATH contains a character that would corrupt the emitted ` +
+      `capnp string literal: ${JSON.stringify(DO_PATH)}. Forbidden: ` +
+      `double-quote, backslash, control characters (NUL through 0x1F including ` +
+      `newline + tab). Pick a path without these (filesystem paths in practice ` +
+      `don't use them).`,
+  );
+}
 
 function die(msg) {
   console.error(`emit-workerd-config: ${msg}`);
@@ -199,6 +240,135 @@ let output =
   replacementArray +
   config.slice(located.arrayEnd);
 
+// Substitute the do-storage service's `path` field with the resolved
+// DO_PATH. The locator narrows the search in three stages so a generic
+// `path` token elsewhere in the template (a future field, a comment
+// that wasn't stripped, a different service's `disk` block) can't
+// mis-match:
+//
+//   1. Find the do-storage *service entry* — anchor on
+//      `name = "do-storage"`, walk backward to its opening `(`, then
+//      paren-balance forward to its matching close. That's the service
+//      block range.
+//   2. Find the `disk = (` group inside the service block. Paren-
+//      balance again for the disk's range.
+//   3. Inside the disk's range, find `path = "..."`. The string body
+//      is what we substitute.
+//
+// Returns { stringStart, stringEnd, serviceStart, serviceEnd } so the
+// post-substitution sanity check can verify the replacement landed
+// inside the bounded service range, not just anywhere after the anchor.
+//
+// Targets:
+//   ( name = "do-storage",         ← serviceStart points at this `(`
+//     disk = (
+//       path = "/data/do",         ← stringStart...stringEnd
+//       writable = true,
+//     ),
+//   ),                              ← serviceEnd points one past this `)`
+function findGroupRange(src, openIdx) {
+  // Walk paren-balanced from openIdx (must point at `(`) to the
+  // matching `)`. Skips over comments + string literals so escapes
+  // can't desync the counter. Returns the index one past the close.
+  if (src[openIdx] !== "(") return -1;
+  let depth = 1;
+  let walk = openIdx + 1;
+  while (walk < src.length && depth > 0) {
+    const ch = src[walk];
+    if (ch === '"') {
+      walk += 1;
+      while (walk < src.length && src[walk] !== '"') {
+        if (src[walk] === "\\") walk += 1;
+        walk += 1;
+      }
+      walk += 1;
+      continue;
+    }
+    if (ch === "#") {
+      while (walk < src.length && src[walk] !== "\n") walk += 1;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+    walk += 1;
+  }
+  return depth === 0 ? walk : -1;
+}
+
+function locateDoStoragePathString(src) {
+  // Stage 1: do-storage service block boundaries.
+  const serviceAnchor = 'name = "do-storage"';
+  const anchorIdx = src.indexOf(serviceAnchor);
+  if (anchorIdx === -1) return null;
+  // Walk backward to find the service entry's opening `(`. The
+  // template shape is `( name = "do-storage", …`, so the `(` is on
+  // the same line, before the anchor, with only whitespace between
+  // it and `name`.
+  let serviceStart = anchorIdx - 1;
+  while (serviceStart >= 0 && /\s/.test(src[serviceStart])) serviceStart -= 1;
+  if (serviceStart < 0 || src[serviceStart] !== "(") return null;
+  const serviceEnd = findGroupRange(src, serviceStart);
+  if (serviceEnd === -1) return null;
+  const serviceBlock = src.slice(serviceStart, serviceEnd);
+
+  // Stage 2: locate `disk = (` inside the service block.
+  const diskAnchor = serviceBlock.indexOf("disk");
+  if (diskAnchor === -1) return null;
+  // Require `disk` is a fresh identifier (preceded by whitespace)
+  // followed by ` = (`. Anything else means the template diverged.
+  const diskBefore = diskAnchor === 0 ? "\n" : serviceBlock[diskAnchor - 1];
+  if (!/\s/.test(diskBefore)) return null;
+  let diskAfter = diskAnchor + "disk".length;
+  while (diskAfter < serviceBlock.length && /[ \t]/.test(serviceBlock[diskAfter])) diskAfter += 1;
+  if (serviceBlock[diskAfter] !== "=") return null;
+  diskAfter += 1;
+  while (diskAfter < serviceBlock.length && /\s/.test(serviceBlock[diskAfter])) diskAfter += 1;
+  if (serviceBlock[diskAfter] !== "(") return null;
+  const diskOpenIdx = serviceStart + diskAfter; // absolute index in src
+  const diskEnd = findGroupRange(src, diskOpenIdx);
+  if (diskEnd === -1) return null;
+  const diskBlock = src.slice(diskOpenIdx, diskEnd);
+
+  // Stage 3: locate `path = "..."` inside the disk block.
+  const pathAnchor = diskBlock.indexOf("path");
+  if (pathAnchor === -1) return null;
+  const pathBefore = pathAnchor === 0 ? "\n" : diskBlock[pathAnchor - 1];
+  if (!/\s/.test(pathBefore)) return null;
+  let pathAfter = pathAnchor + "path".length;
+  while (pathAfter < diskBlock.length && /[ \t]/.test(diskBlock[pathAfter])) pathAfter += 1;
+  if (diskBlock[pathAfter] !== "=") return null;
+  pathAfter += 1;
+  while (pathAfter < diskBlock.length && /[ \t]/.test(diskBlock[pathAfter])) pathAfter += 1;
+  if (diskBlock[pathAfter] !== '"') return null;
+  // Walk the string body to find the closing quote.
+  const stringStartRel = pathAfter + 1;
+  let stringEndRel = stringStartRel;
+  while (stringEndRel < diskBlock.length && diskBlock[stringEndRel] !== '"') {
+    if (diskBlock[stringEndRel] === "\\") stringEndRel += 1;
+    stringEndRel += 1;
+  }
+  if (stringEndRel >= diskBlock.length) return null;
+  // Translate disk-block-relative offsets back to absolute indices.
+  return {
+    stringStart: diskOpenIdx + stringStartRel,
+    stringEnd: diskOpenIdx + stringEndRel,
+    serviceStart,
+    serviceEnd,
+  };
+}
+
+const doPathLoc = locateDoStoragePathString(output);
+if (!doPathLoc) {
+  die(
+    `source template doesn't contain a locatable do-storage \`disk = ( path = "..." )\` ` +
+      `shape; the template diverged from the script's expectations (do-storage anchor, ` +
+      `disk group, or path field missing / nested differently)`,
+  );
+}
+const beforePathValue = output.slice(0, doPathLoc.stringStart);
+const afterPathValue = output.slice(doPathLoc.stringEnd);
+output = beforePathValue + DO_PATH + afterPathValue;
+
 // Embed paths in the template are template-relative (`dist/<X>`);
 // in the emitted config they're dist-relative (just `<X>`). Strip
 // the prefix everywhere it appears — currently only on the worker
@@ -219,7 +389,37 @@ for (const wasm of wasmFiles) {
   }
 }
 
+// Sanity: re-locate the do-storage path field in the OUTPUT and assert
+// the string body is exactly DO_PATH. Bounding via the same 3-stage
+// locator (service → disk → path) means a `path` token elsewhere in
+// the output (e.g. a future field added in another service's `disk`
+// block, or a path-shaped value in a comment that wasn't stripped)
+// can't satisfy this check. The previous version searched the whole
+// post-anchor slice for `path = "<DO_PATH>"`, which would have passed
+// if the substitution silently mis-landed but the same string happened
+// to appear in any later service entry.
+const postLoc = locateDoStoragePathString(output);
+if (!postLoc) {
+  die(
+    `post-substitution sanity: do-storage \`disk = ( path = "..." )\` shape ` +
+      `no longer locatable in the emitted output — substitution corrupted ` +
+      `the surrounding structure`,
+  );
+}
+const emittedValue = output.slice(postLoc.stringStart, postLoc.stringEnd);
+if (emittedValue !== DO_PATH) {
+  die(
+    `post-substitution sanity: do-storage path field is ${JSON.stringify(emittedValue)} ` +
+      `in the emitted output but should be ${JSON.stringify(DO_PATH)}. ` +
+      `Locator regression; aborting before writing a broken config.`,
+  );
+}
+
 fs.writeFileSync(TARGET, output);
 console.log(
   `emit-workerd-config: wrote ${TARGET} (${wasmFiles.length} wasm module(s): ${wasmFiles.join(", ")})`,
+);
+console.log(
+  `emit-workerd-config:   do-storage path = ${DO_PATH}` +
+    (DO_PATH === DO_PATH_DEFAULT ? " (default)" : " (via CLOISTER_DO_PATH)"),
 );
