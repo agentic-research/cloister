@@ -15,7 +15,7 @@
 // to a re-export shim and eventually retire. The codegen tool lives
 // at tools/schema-bridge/ — see its README for the fail-fast
 // invariant and what's mapped today.
-import "./cluster.zod.js";
+import type {} from "./cluster.zod.js";
 
 import type { Cluster } from "../manifest/cluster-types.js";
 
