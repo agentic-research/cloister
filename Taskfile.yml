@@ -85,13 +85,20 @@ tasks:
         set -eu
         # `capnp compile` exits 0 even when the plugin errors and
         # writes nothing — its stderr carries the real diagnostic.
-        # Check the output file actually landed; otherwise an old
-        # cluster.zod.ts would silently stay in tree.
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:./src/generated manifest/cluster.capnp
-        if [ ! -f src/generated/cluster.zod.ts ]; then
+        # Generate into a tmpdir + existence-check + atomic move into
+        # src/generated/. An in-place existence check is insufficient
+        # because cluster.zod.ts is already committed: a failing
+        # plugin run that writes nothing would leave the OLD file in
+        # tree and `[ -f … ]` would falsely pass. Same shape as
+        # :check-drift below.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
         fi
+        mv "$TMPDIR/cluster.zod.ts" src/generated/cluster.zod.ts
     sources:
       - manifest/cluster.capnp
       - tools/schema-bridge/target/release/capnpc-schema-bridge
