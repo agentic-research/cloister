@@ -82,17 +82,31 @@ task build:local     # bundles src/ → dist/index.js + dist/config.capnp
 task serve:local     # workerd serve dist/config.capnp --experimental
 ```
 
-**One-time prereq:** Path B requires `/data/do` writable. That's the
-DO SQLite path baked into `config.capnp` for the apko-image deploy
-shape. On a local self-host machine, create it once:
+**Where DO SQLite lands:** Path B writes to `/data/do` by default
+(matches the apko image's mount point per `apko.yaml:50`). On Linux
+hosts, create the directory once: `sudo mkdir -p /data/do && sudo
+chown "$USER" /data/do`.
+
+**macOS — or any host where `/data` isn't writable:** export
+`CLOISTER_DO_PATH` to a user-writable location before `task build:local`:
 
 ```sh
-sudo mkdir -p /data/do && sudo chown "$USER" /data/do
+mkdir -p "$HOME/.local/share/cloister/do"
+export CLOISTER_DO_PATH="$HOME/.local/share/cloister/do"
+task build:local --force    # `--force` because env-var changes don't invalidate the cache
+task serve:local
 ```
 
-Path A (`task dev`, wrangler) uses `.wrangler/state/` instead and needs
-no setup. If `/data/do` doesn't suit your environment, stick with Path A
-for local work — they run the same code.
+The `emit-workerd-config` step prints the resolved path on every
+build (`do-storage path = ... (via CLOISTER_DO_PATH)`) so you always
+know where workerd is writing. Default behavior is unchanged for the
+OCI image and Linux hosts that have `/data/do` set up. Per
+[ADR-0023](docs/adr/0023-host-path-resolution.md).
+
+Path A (`task dev`, wrangler) uses `.wrangler/state/` instead — no
+setup, no env-var needed. Pick Path A for fastest local iteration;
+pick Path B (with `CLOISTER_DO_PATH` on macOS) when you want the
+workerd-direct path closer to the OCI image's runtime shape.
 
 ### Path C — `task cluster:dev` (full cluster topology, mac-native)
 

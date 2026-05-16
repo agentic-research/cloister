@@ -230,10 +230,14 @@ task serve:local    # Path B — workerd serve dist/config.capnp (no CF account)
 task cluster:dev    # Path C — mac-native cluster topology with UDS bindings
 ```
 
-Path B is closest to the production OCI image but requires `/data/do`
-writable (DO SQLite path baked into `config.capnp`): create once with
-`sudo mkdir -p /data/do && sudo chown "$USER" /data/do`. Path A uses
-`.wrangler/state/` and needs no setup. Full walkthrough:
+Path B is closest to the production OCI image and writes to `/data/do`
+by default (matches the apko image's mount point). Create the dir
+once on Linux: `sudo mkdir -p /data/do && sudo chown "$USER" /data/do`.
+**On macOS or any host where `/data` isn't writable**, set
+`CLOISTER_DO_PATH` to a writable absolute path before `task build:local --force` —
+per [ADR-0023](docs/adr/0023-host-path-resolution.md). Path A
+(`task dev`) uses `.wrangler/state/` (already in `.gitignore`) and
+needs no setup. Full walkthrough:
 [GETTING-STARTED.md](GETTING-STARTED.md).
 
 ## Tasks

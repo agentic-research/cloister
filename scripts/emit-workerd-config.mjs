@@ -62,6 +62,15 @@
 //     future refactor regression).
 //
 // Per cloister-0854b7, hardened per cloister-7b1af5, see ADR-0017.
+//
+// Path-resolution extension (cloister-addcdd, ADR-0023):
+//   The `do-storage` service's `path` field is the second substitution
+//   this script performs. The template uses `/data/do` as the
+//   apko/OCI default; on hosts where that path isn't writable (notably
+//   macOS where SIP makes `/data` un-mkdir-able), operators set
+//   `CLOISTER_DO_PATH` to any user-writable location. The substitution
+//   runs at build time so the emitted dist/config.capnp carries the
+//   resolved absolute path workerd reads at boot.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -70,6 +79,19 @@ const ROOT = process.cwd();
 const DIST = path.join(ROOT, "dist");
 const SOURCE = path.join(ROOT, "config.capnp");
 const TARGET = path.join(DIST, "config.capnp");
+
+// Default matches apko.yaml:50 + the existing template default. Override
+// via CLOISTER_DO_PATH for hosts where /data isn't writable (macOS SIP,
+// containers with different mount conventions, multi-instance dev).
+const DO_PATH_DEFAULT = "/data/do";
+const DO_PATH = process.env.CLOISTER_DO_PATH ?? DO_PATH_DEFAULT;
+if (!path.isAbsolute(DO_PATH)) {
+  die(
+    `CLOISTER_DO_PATH must be an absolute path; got ${JSON.stringify(DO_PATH)}. ` +
+      `workerd resolves disk service paths relative to its CWD which is unpredictable; ` +
+      `pin to an absolute path (e.g. $HOME/.local/share/cloister/do or /tmp/cloister-test/do).`,
+  );
+}
 
 function die(msg) {
   console.error(`emit-workerd-config: ${msg}`);
@@ -199,6 +221,77 @@ let output =
   replacementArray +
   config.slice(located.arrayEnd);
 
+// Substitute the do-storage service's `path` field with the resolved
+// DO_PATH. Locator pattern matches the modules array shape — anchor
+// on `name = "do-storage"`, walk forward to the disk's `path = "..."`
+// string literal, replace just the string body (preserving quotes).
+//
+// Targets:
+//   ( name = "do-storage",
+//     disk = (
+//       path = "/data/do",   ← this string literal's value
+//       writable = true,
+//     ),
+//   ),
+function locateDoStoragePathString(src) {
+  const serviceAnchor = 'name = "do-storage"';
+  const serviceIdx = src.indexOf(serviceAnchor);
+  if (serviceIdx === -1) return null;
+  // Walk forward from the anchor to find `path = "..."`. Bound the
+  // search to the same service entry — terminate if we cross into
+  // another `( name = "..."` declaration (which would mean the
+  // do-storage entry didn't have a path field, i.e. template drift).
+  const pathKeyword = "path";
+  let cursor = serviceIdx + serviceAnchor.length;
+  while (cursor < src.length) {
+    // Cheap early termination on next service-entry boundary.
+    const nextService = src.indexOf('( name = "', cursor);
+    const nextPath = src.indexOf(pathKeyword, cursor);
+    if (nextPath === -1) return null;
+    if (nextService !== -1 && nextService < nextPath) return null;
+    // Require `path` to be a fresh identifier — preceded by whitespace
+    // and followed by ` = "` (the only shape used in this template).
+    const before = src[nextPath - 1];
+    if (!/\s/.test(before)) {
+      cursor = nextPath + pathKeyword.length;
+      continue;
+    }
+    let after = nextPath + pathKeyword.length;
+    while (after < src.length && /[ \t]/.test(src[after])) after += 1;
+    if (src[after] !== "=") {
+      cursor = nextPath + pathKeyword.length;
+      continue;
+    }
+    after += 1;
+    while (after < src.length && /[ \t]/.test(src[after])) after += 1;
+    if (src[after] !== '"') {
+      cursor = nextPath + pathKeyword.length;
+      continue;
+    }
+    // Found `path = "`. Walk past the opening quote to the close.
+    const stringStart = after + 1;
+    let stringEnd = stringStart;
+    while (stringEnd < src.length && src[stringEnd] !== '"') {
+      if (src[stringEnd] === "\\") stringEnd += 1; // skip escape
+      stringEnd += 1;
+    }
+    if (stringEnd >= src.length) return null;
+    return { stringStart, stringEnd };
+  }
+  return null;
+}
+
+const doPathLoc = locateDoStoragePathString(output);
+if (!doPathLoc) {
+  die(
+    `source template doesn't contain a locatable do-storage \`path = "..."\` ` +
+      `field; the template diverged from the script's expectations`,
+  );
+}
+const beforePathValue = output.slice(0, doPathLoc.stringStart);
+const afterPathValue = output.slice(doPathLoc.stringEnd);
+output = beforePathValue + DO_PATH + afterPathValue;
+
 // Embed paths in the template are template-relative (`dist/<X>`);
 // in the emitted config they're dist-relative (just `<X>`). Strip
 // the prefix everywhere it appears — currently only on the worker
@@ -219,7 +312,26 @@ for (const wasm of wasmFiles) {
   }
 }
 
+// Sanity: the do-storage path substitution actually landed. The
+// resolved DO_PATH must appear inside the do-storage service entry's
+// `path = "..."` field. Guards against locator regressions silently
+// emitting a config that still points at /data/do.
+const doStorageMarker = `name = "do-storage"`;
+const doStorageIdx = output.indexOf(doStorageMarker);
+const expectedAfter = output.indexOf(`path = "${DO_PATH}"`, doStorageIdx);
+if (doStorageIdx === -1 || expectedAfter === -1) {
+  die(
+    `do-storage path substitution didn't land — expected ` +
+      `\`path = "${DO_PATH}"\` after the do-storage service anchor. ` +
+      `Locator regression; aborting before writing a broken config.`,
+  );
+}
+
 fs.writeFileSync(TARGET, output);
 console.log(
   `emit-workerd-config: wrote ${TARGET} (${wasmFiles.length} wasm module(s): ${wasmFiles.join(", ")})`,
+);
+console.log(
+  `emit-workerd-config:   do-storage path = ${DO_PATH}` +
+    (DO_PATH === DO_PATH_DEFAULT ? " (default)" : " (via CLOISTER_DO_PATH)"),
 );
