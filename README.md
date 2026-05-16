@@ -1,6 +1,36 @@
 # cloister
 
-**Cloister is a v8-isolate hypervisor on `workerd`** with a declarative
+Cloister hosts AI tools (MCP servers, today) behind one HTTPS
+endpoint. You declare what to host in a config file; the same bundle
+runs locally on your machine for development and on Cloudflare Workers
+in production — no rewrites, no deployment-specific code.
+
+```sh
+task serve:local                       # → http://localhost:8787
+curl http://localhost:8787/health
+```
+
+**What you get for free:**
+
+- **Sandboxed tools.** Each hosted tool runs in its own isolate with
+  its own scoped credentials. A compromised tool can't reach the
+  others' secrets.
+- **Identity without bearer tokens.** Tools authenticate to each
+  other via short-lived certificates rather than long-lived API
+  keys — nothing to rotate, nothing to leak.
+- **Signed audit trail.** Every state-changing call leaves a
+  hash-chained, signed receipt. A third party can verify what
+  happened offline, with only the master public key.
+
+**Three entry points depending on what brought you here:**
+
+- **Run it locally** → [GETTING-STARTED.md](GETTING-STARTED.md)
+- **Understand the architecture** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Verify the security claims** → [docs/security/load-bearing-claims.md](docs/security/load-bearing-claims.md)
+
+## Architecture
+
+Cloister is a v8-isolate hypervisor on `workerd` with a declarative
 Cap'n Proto manifest. Routes, backends, and per-bundle credential
 scopes are substrate concerns — identity (Interlace), audit (signed
 receipts), and credential isolation are wired in at the substrate, not
@@ -8,8 +38,8 @@ bolted on per-tenant. It's offline-first: runs locally on `workerd`
 with no cloud account required, and the same TypeScript bundle deploys
 to Cloudflare Workers when you want a public endpoint.
 
-**Today's primary application is hosting MCP servers behind one HTTP
-face.** `bead_*`, `mache_*`, `lsp_*`, lifecycle
+Today's primary application is hosting MCP servers behind one HTTP
+face. `bead_*`, `mache_*`, `lsp_*`, lifecycle
 (`reparse`/`enrich`/`status`), and the Interlace identity bridge are
 the first tenants — but the contract is
 [`cloister.capnp`](cloister.capnp): anything HTTP-shaped plugs into
@@ -68,11 +98,6 @@ graph TB
     style siblings fill:#fff5e1,color:#000
     style EXT fill:#f5f5f5,color:#000
 ```
-
-**Three entry points depending on what you're here for:**
-- **Run it locally** → [GETTING-STARTED.md](GETTING-STARTED.md)
-- **Understand the architecture** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Verify the security claims** → [docs/security/load-bearing-claims.md](docs/security/load-bearing-claims.md)
 
 ## Quickstart
 

@@ -56,3 +56,7 @@ _agent_log/
 # rs/Cargo.lock is intentionally tracked — cloister's a deployable thing,
 # we want reproducible builds. Only the build output dir is ignored.
 rs/target/
+
+# Build artifacts for standalone Rust tools under tools/ (e.g.
+# schema-bridge). Same pattern as rs/: Cargo.lock tracked, target/ not.
+tools/*/target/
