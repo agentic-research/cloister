@@ -135,10 +135,64 @@ test("missing do-storage entry in template fails fast", () => {
       () => runScript(dir),
       (err) => {
         const stderr = String(err.stderr ?? "");
-        assert.match(stderr, /do-storage `path = "\.\.\."` field/);
+        assert.match(stderr, /do-storage.*disk = \( path/);
         return true;
       },
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Per Copilot review on PR #7 (#3253591448): a DO_PATH containing `"`,
+// `\`, or a control char would corrupt the emitted capnp string literal.
+// The script must reject upfront with a clear error before writing anything.
+test("CLOISTER_DO_PATH with capnp-string-breaking chars is rejected", () => {
+  const { dir } = setupSandbox();
+  try {
+    for (const bad of ['/tmp/has"quote/do', "/tmp/has\\backslash/do", "/tmp/has\nnewline/do", "/tmp/has\ttab/do"]) {
+      assert.throws(
+        () => runScript(dir, { CLOISTER_DO_PATH: bad }),
+        (err) => {
+          const stderr = String(err.stderr ?? "");
+          assert.match(stderr, /CLOISTER_DO_PATH contains a character that would corrupt/);
+          return true;
+        },
+        `expected reject for ${JSON.stringify(bad)}`,
+      );
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Per Copilot review on PR #7 (#3253591471): the locator must bound to
+// the do-storage disk block; a `path` token outside that block must
+// not be matched. Synthesizes a decoy service WITH its own `disk.path`
+// BEFORE the do-storage entry and asserts the locator picks the right
+// one + leaves the decoy untouched.
+test("path locator ignores `path` tokens outside do-storage's disk block", () => {
+  const { dir } = setupSandbox();
+  const withDecoy = STUB_TEMPLATE.replace(
+    `( name = "do-storage",`,
+    `( name = "decoy-storage",
+      disk = (
+        path = "/decoy/path",
+        writable = true,
+      ),
+    ),
+    ( name = "do-storage",`,
+  );
+  writeFileSync(join(dir, "config.capnp"), withDecoy);
+  const override = "/tmp/correct/do";
+  try {
+    const out = runScript(dir, { CLOISTER_DO_PATH: override });
+    assert.match(out, new RegExp(`do-storage path = ${override.replace(/\//g, "\\/")}`));
+    const emitted = readFileSync(join(dir, "dist", "config.capnp"), "utf8");
+    // Decoy's /decoy/path MUST survive untouched.
+    assert.match(emitted, /name = "decoy-storage",[\s\S]*?path = "\/decoy\/path"/);
+    // do-storage's path MUST be the override.
+    assert.match(emitted, new RegExp(`name = "do-storage",[\\s\\S]*?path = "${override.replace(/\//g, "\\/")}"`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
