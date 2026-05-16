@@ -108,6 +108,33 @@ setup, no env-var needed. Pick Path A for fastest local iteration;
 pick Path B (with `CLOISTER_DO_PATH` on macOS) when you want the
 workerd-direct path closer to the OCI image's runtime shape.
 
+**OCI image path (third option for macOS, mirrors production):**
+`task image:run` composes the full build → load → retag → docker run
+pipeline so `/data/do` lives inside the container's writable
+filesystem. One command:
+
+```sh
+task image:run                   # build + load + run, foreground
+task image:run -- -d             # extra `docker run` args after `--`
+task image:run -- --name dev     # name the container
+```
+
+This is the closest local approximation to how cloister runs in
+production. Use it when you specifically want to validate the OCI
+image path; for most dev iteration, `CLOISTER_DO_PATH` + Path B is
+faster.
+
+> **⚠️ DO SQLite is unencrypted at rest.** Whichever path you pick
+> (`/data/do`, `.wrangler/state/`, `$CLOISTER_DO_PATH`, or
+> `$HOME/.cache/cloister-dev/do/` for `cluster:dev`), the DO SQLite
+> databases — beads, trust state, blob digests, vault ciphertext
+> metadata — live on disk in plaintext SQLite files. The vault
+> ciphertexts *inside* those files ARE AES-GCM-encrypted (per
+> ADR-0013/0014); the bead/trust/blob tables are not. Don't drop
+> production-sensitive data into a dev install. On-disk
+> encryption-at-rest of the SQLite files themselves is an open
+> follow-on (no ADR yet — file one if you need it).
+
 ### Path C — `task cluster:dev` (full cluster topology, mac-native)
 
 Per [cluster.capnp](cluster.capnp), spawns cloister-router **plus**

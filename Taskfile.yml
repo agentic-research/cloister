@@ -602,6 +602,18 @@ tasks:
         docker images cloister --format '  {{`{{.Repository}}:{{.Tag}}`}}' >&2
         exit 1
 
+  image:run:
+    desc: "Build, load, and run the cloister OCI image locally (cloister-a3681d). One-stop for `I want to validate it works in the container` — chains image → image:load → docker run with /data/do as a named volume + 8787 forwarded. Foreground; Ctrl+C stops it. Extra args via `task image:run -- -d` pass through to `docker run` (-d to detach, --name foo, etc.)."
+    deps: [image:load]
+    vars:
+      TAG: '{{.TAG | default "0.1.0"}}'
+    cmds:
+      # Foreground by default so operators see logs. The named volume
+      # (cloister-do) keeps DO storage across runs; --rm cleans the
+      # container itself. CLI_ARGS pass through to `docker run` so the
+      # user can add -d, --env, --name, etc. without editing the Taskfile.
+      - 'docker run --rm -p 8787:8787 -v cloister-do:/data/do {{.CLI_ARGS | default ""}} cloister:{{.TAG}}'
+
   image:check:
     desc: Validate melange.yaml + apko.yaml syntax without running a real build
     deps: [apk:keygen]
