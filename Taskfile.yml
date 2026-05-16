@@ -81,7 +81,17 @@ tasks:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
     deps: [schema-bridge:build]
     cmds:
-      - capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:./src/generated manifest/cluster.capnp
+      - |
+        set -eu
+        # `capnp compile` exits 0 even when the plugin errors and
+        # writes nothing — its stderr carries the real diagnostic.
+        # Check the output file actually landed; otherwise an old
+        # cluster.zod.ts would silently stay in tree.
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:./src/generated manifest/cluster.capnp
+        if [ ! -f src/generated/cluster.zod.ts ]; then
+          echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
     sources:
       - manifest/cluster.capnp
       - tools/schema-bridge/target/release/capnpc-schema-bridge
