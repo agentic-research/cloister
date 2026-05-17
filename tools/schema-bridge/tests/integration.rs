@@ -80,6 +80,55 @@ fn struct_with_scalars_emits_zod() {
     assert!(emitted.contains("loud: boolean;"), "emit:\n{emitted}");
 }
 
+// ── cloister-cf2e6a: struct z.object() must be .strict() ───────────
+//
+// Without .strict(), zod silently drops unknown fields on parse. An
+// operator typo like `holdsCredentials = ["SECRET"]` (extra 's') gets
+// silently discarded — the credential vanishes with no diagnostic.
+// .strict() turns the typo into a ZodError at the boundary where
+// schema-bridge is the source of truth.
+//
+// Surfaced as skeptic N1 during cloister-ae06f3's adversarial review;
+// filed as cloister-cf2e6a; fixed here.
+
+#[test]
+fn struct_zod_object_is_strict() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Strict");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("only");
+        field.set_code_order(0);
+        field.init_slot().init_type().set_text(());
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+
+    // The outer struct z.object MUST be terminated with .strict() so
+    // unknown keys are rejected at parse time (zod default is to
+    // silently drop them). Per cloister-cf2e6a / skeptic N1.
+    assert!(
+        emitted.contains("}).strict()"),
+        "struct z.object must be .strict() — emitted:\n{emitted}"
+    );
+    // And the existing schema decl is still there.
+    assert!(
+        emitted.contains("export const StrictSchema: z.ZodType<Strict>"),
+        "schema decl missing — emitted:\n{emitted}"
+    );
+}
+
 // ── Golden: struct-to-struct reference ─────────────────────────────
 
 #[test]
