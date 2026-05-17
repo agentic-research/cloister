@@ -193,6 +193,11 @@ tasks:
 
   cluster:toml:roundtrip:
     desc: "Drift gate — re-export src/generated/cluster.ts to a temp TOML and diff against the committed cluster.toml. Fails if the two diverge (operator edited cluster.toml without running `task cluster:toml`, or vice-versa). Mirrors `cluster:zod:check-drift`."
+    # Intentionally no `sources:` block — gates must always run; the
+    # task-runner's mtime cache would otherwise skip the gate when
+    # nothing visibly changed, which is exactly the case where drift
+    # silently lands (someone hand-edited cluster.ts after a stale
+    # cluster.toml). Same shape as cluster:zod:check-drift.
     cmds:
       - |
         set -eu
@@ -219,10 +224,6 @@ tasks:
           exit 1
         fi
         echo "OK — cluster.toml matches the cluster-to-toml.mjs canonical output for the current cluster.ts"
-    sources:
-      - cluster.toml
-      - src/generated/cluster.ts
-      - scripts/cluster-to-toml.mjs
 
   test:cluster-toml:
     desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the scripts can dynamically import src/generated/cluster.zod.ts."
@@ -591,8 +592,8 @@ tasks:
     deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts, test:cluster-toml]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip]
 
   ci:
     desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."

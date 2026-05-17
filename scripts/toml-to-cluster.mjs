@@ -82,10 +82,36 @@ export async function parseTomlToCluster(tomlString) {
     throw new Error(`cluster schema validation failed:\n${formatZodError(e)}`);
   }
 
-  // 4. Semantic check: every wire's from/to references a declared bundle.
-  //    Schema lets any string in wire.from/to; this is the cross-field
-  //    invariant the schema can't express.
-  const known = new Set(validated.bundles.map((b) => b.name));
+  // 4. Semantic checks the schema can't express:
+  //    4a. Bundle names are unique. Two bundles with the same name
+  //        collapse to one entry at runtime; the cluster emitters
+  //        would silently pick whichever the Map iteration surfaced
+  //        last. Reject at parse time.
+  const bundleNames = validated.bundles.map((b) => b.name);
+  const duplicateBundle = firstDuplicate(bundleNames);
+  if (duplicateBundle) {
+    throw new Error(
+      `bundle name "${duplicateBundle}" is declared more than once ` +
+        `(at indices ${findAllIndices(bundleNames, duplicateBundle).join(", ")})`,
+    );
+  }
+
+  //    4b. Wire binding names are unique. The binding becomes the
+  //        workerd service-binding ENV name on the `from` bundle;
+  //        duplicates collide at runtime with no parse-time signal.
+  const wireBindings = validated.wires.map((w) => w.binding);
+  const duplicateBinding = firstDuplicate(wireBindings);
+  if (duplicateBinding) {
+    throw new Error(
+      `wire binding "${duplicateBinding}" is declared more than once ` +
+        `(at indices ${findAllIndices(wireBindings, duplicateBinding).join(", ")})`,
+    );
+  }
+
+  //    4c. Every wire's from/to references a declared bundle.
+  //        Schema lets any string in wire.from/to; this is the
+  //        cross-field invariant the schema can't express.
+  const known = new Set(bundleNames);
   validated.wires.forEach((w, i) => {
     for (const endpoint of ["from", "to"]) {
       if (!known.has(w[endpoint])) {
@@ -98,6 +124,20 @@ export async function parseTomlToCluster(tomlString) {
   });
 
   return validated;
+}
+
+/** Return the first duplicated value in `arr`, or null if all unique. */
+function firstDuplicate(arr) {
+  const seen = new Set();
+  for (const v of arr) {
+    if (seen.has(v)) return v;
+    seen.add(v);
+  }
+  return null;
+}
+
+function findAllIndices(arr, target) {
+  return arr.reduce((acc, v, i) => (v === target ? [...acc, i] : acc), []);
 }
 
 /**

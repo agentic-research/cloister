@@ -18,7 +18,6 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { parse as parseToml } from "@iarna/toml";
 import {
   parseTomlToCluster,
   renderClusterTs,
@@ -190,11 +189,12 @@ doStoragePath = "/data/do"
   await assert.rejects(
     () => parseTomlToCluster(bad),
     (err) => {
-      // Error message must mention the missing field by name so
-      // operators can locate it in their TOML.
-      return /name/.test(err.message);
+      // Error message must cite the field path `metadata.name`
+      // (not just any field containing "name") so operators see
+      // the location precisely. Tightened per skeptic-agent N5.
+      return /metadata\.name/.test(err.message);
     },
-    "expected a schema-validation error citing the missing 'name' field",
+    "expected a schema-validation error citing the missing 'metadata.name' field",
   );
 });
 
@@ -321,16 +321,117 @@ test("roundtrip: cluster object → TOML → cluster object is semantically equi
   assert.deepEqual(b, a, "roundtrip must preserve all data faithfully");
 });
 
-// ── Phase 2 baseline sanity: confirm the stubs throw as documented ────────
+// ── Contract 9: duplicate bundle names rejected ──────────────────────────
 
-test("Phase 2 stub baseline: imports succeed and stubs throw 'not implemented' (deleted in Phase 3)", () => {
-  // This test passes today (Phase 2) and stays passing through
-  // Phase 5 because the impl never makes them throw — by then the
-  // test is moot, but it documents the pre-impl invariant. Delete
-  // when Phase 5 closes.
-  assert.equal(typeof parseTomlToCluster, "function");
-  assert.equal(typeof renderClusterTs, "function");
-  assert.equal(typeof clusterToToml, "function");
-  assert.equal(typeof parseToml, "function", "@iarna/toml.parse is reachable");
-  assert.equal(typeof ClusterSchema.parse, "function", "ClusterSchema is reachable via tsx loader");
+test("toml-to-cluster: rejects TOML with duplicate bundle names", async () => {
+  // `wires = []` at the top is required by TOML 1.0.0 (top-level
+  // scalars must precede any table sections); zod also requires
+  // `wires` to be present (empty is fine).
+  const bad = `wires = []
+
+[metadata]
+name = "test"
+version = "0.0.1"
+
+[[bundles]]
+name = "twin"
+description = "first"
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+[bundles.external]
+image = "twin:0.1"
+ipcSocket = "/twin1.sock"
+httpPort = 0
+args = []
+env = []
+
+[[bundles]]
+name = "twin"
+description = "second — duplicate name"
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+[bundles.external]
+image = "twin:0.2"
+ipcSocket = "/twin2.sock"
+httpPort = 0
+args = []
+env = []
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  await assert.rejects(
+    () => parseTomlToCluster(bad),
+    (err) => /bundle name "twin" is declared more than once/.test(err.message),
+    "expected duplicate-bundle-name rejection citing the collision",
+  );
+});
+
+// ── Contract 10: duplicate wire bindings rejected ────────────────────────
+
+test("toml-to-cluster: rejects TOML with duplicate wire bindings", async () => {
+  const bad = `
+[metadata]
+name = "test"
+version = "0.0.1"
+
+[[bundles]]
+name = "alpha"
+description = "a"
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+[bundles.external]
+image = "alpha:0.1"
+ipcSocket = "/alpha.sock"
+httpPort = 0
+args = []
+env = []
+
+[[wires]]
+from = "alpha"
+to = "alpha"
+binding = "DUPED"
+transport = "uds"
+
+[[wires]]
+from = "alpha"
+to = "alpha"
+binding = "DUPED"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  await assert.rejects(
+    () => parseTomlToCluster(bad),
+    (err) => /wire binding "DUPED" is declared more than once/.test(err.message),
+    "expected duplicate-wire-binding rejection citing the collision",
+  );
+});
+
+// ── Contract 11: empty cluster roundtrips deterministically ──────────────
+
+test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOML hoists them per spec — known artifact, documented in ADR-0025 §Canonicalization)", async () => {
+  const empty = {
+    metadata: { name: "empty", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+  };
+  const t1 = clusterToToml(empty);
+  const back = await parseTomlToCluster(t1);
+  const t2 = clusterToToml(back);
+  assert.equal(t2, t1, "empty-cluster canonical form must be byte-stable");
+  // Confirm zod validates the parsed-back shape too.
+  const validated = ClusterSchema.parse(back);
+  assert.deepEqual(validated, empty);
 });

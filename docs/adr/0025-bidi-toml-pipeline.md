@@ -103,9 +103,13 @@ cluster.toml                                  (canonical operator source)
    `wire.requires` / `route.requiresCapability` additions ride.
 4. **Existing pipelines keep working.** `task cluster:manifest`
    (capnp-eval) still functions. The new TOML path is **additive** in
-   Phase 1 — both paths produce the same `src/generated/cluster.ts`.
-   Eventually the capnp-eval path retires; Phase 1 doesn't force that
-   migration. Operators stay un-broken across the cutover.
+   Phase 1 — both paths produce semantically-identical
+   `src/generated/cluster.ts` (same `cluster` data; the file header +
+   per-bundle key order differ because the TOML pipeline emits
+   alphabetical canonical order while capnp-eval emits in capnp
+   ordinal order). Eventually the capnp-eval path retires; Phase 1
+   doesn't force that migration. Operators stay un-broken across the
+   cutover.
 
 ### Library: `@iarna/toml`
 
@@ -141,6 +145,30 @@ The rules:
 | Arrays of tables (`[[bundles]]`) | Preserve declaration order from the input. Reordering bundles changes the cluster's semantics (start-order, dependency probing); the writer never reorders. |
 | Inline arrays of scalars | Preserve declaration order. |
 | Discriminated unions | Flatten to `kind = "<variant-name>"` + shape-specific sibling fields. See below. |
+
+**Empty-array edge case:** TOML 1.0.0 requires top-level scalar
+keys (including inline empty arrays like `bundles = []`) to appear
+*before* any table sections (`[metadata]`, `[storage]`). So a
+cluster with `bundles: []` and `wires: []` emits as:
+
+```toml
+bundles = [ ]
+wires = [ ]
+
+[metadata]
+name = "x"
+...
+
+[storage]
+doStoragePath = "/data/do"
+```
+
+This violates the "metadata first" rule for the empty case — but
+the format leaves us no choice. The empty cluster still
+roundtrips deterministically + byte-equal; covered by
+`scripts/test/cluster-toml-roundtrip.test.mjs` Contract 11.
+Production clusters never hit this (at least cloister-router is
+declared), so the artifact is theoretical.
 
 ### Discriminated unions in TOML
 
