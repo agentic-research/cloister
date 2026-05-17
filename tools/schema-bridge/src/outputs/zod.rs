@@ -91,6 +91,13 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
     Ok(())
 }
 
+// `.strict()` rejects unknown keys at parse time — without it, zod's
+// default behavior silently drops them, so an operator typo like
+// `holdsCredentials = ["SECRET"]` (extra 's' vs the schema's
+// `holdsCredential`) discards the credential without a diagnostic.
+// Per cloister-cf2e6a / skeptic N1: the schema-bridge is the boundary
+// where typos must become errors. Inner union variants ALSO use
+// `.strict()` (see `emit_zod_union` below).
 fn emit_zod_object(out: &mut String, indent: &str, fields: &[StructField], union: Option<&Union>) {
     writeln!(out, "{indent}z.object({{").unwrap();
     for field in fields {
@@ -102,7 +109,7 @@ fn emit_zod_object(out: &mut String, indent: &str, fields: &[StructField], union
         emit_zod_union(out, &format!("{indent}  "), u);
         writeln!(out, ",").unwrap();
     }
-    write!(out, "{indent}}})").unwrap();
+    write!(out, "{indent}}}).strict()").unwrap();
 }
 
 // Each variant is a single-key object. `z.union([...])` rather than

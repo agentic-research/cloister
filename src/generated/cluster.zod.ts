@@ -14,7 +14,7 @@ export const ClusterMetadataSchema: z.ZodType<ClusterMetadata> = z.lazy(() =>
   z.object({
     name: z.string(),
     version: z.string(),
-  }));
+  }).strict());
 
 export interface ClusterMetadata {
   name: string;
@@ -33,7 +33,7 @@ export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
       z.object({ workerd: WorkerdBundleSchema }).strict(),
       z.object({ external: ExternalBundleSchema }).strict(),
     ]),
-  }));
+  }).strict());
 
 export interface Bundle {
   name: string;
@@ -54,7 +54,7 @@ export const WireSchema: z.ZodType<Wire> = z.lazy(() =>
       z.object({ uds: z.null() }).strict(),
       z.object({ leylineNet: z.null() }).strict(),
     ]),
-  }));
+  }).strict());
 
 export interface Wire {
   from: string;
@@ -66,7 +66,7 @@ export interface Wire {
 export const StoragePolicySchema: z.ZodType<StoragePolicy> = z.lazy(() =>
   z.object({
     doStoragePath: z.string(),
-  }));
+  }).strict());
 
 export interface StoragePolicy {
   doStoragePath: string;
@@ -78,7 +78,7 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     bundles: z.array(BundleSchema),
     wires: z.array(WireSchema),
     storage: StoragePolicySchema,
-  }));
+  }).strict());
 
 export interface Cluster {
   metadata: ClusterMetadata;
@@ -90,7 +90,7 @@ export interface Cluster {
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
   z.object({
     entryPoint: z.string(),
-  }));
+  }).strict());
 
 export interface WorkerdBundle {
   entryPoint: string;
@@ -103,7 +103,7 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     httpPort: z.number().int().nonnegative(),
     args: z.array(z.string()),
     env: z.array(EnvVarSchema),
-  }));
+  }).strict());
 
 export interface ExternalBundle {
   image: string;
@@ -117,7 +117,7 @@ export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
   z.object({
     name: z.string(),
     value: z.string(),
-  }));
+  }).strict());
 
 export interface EnvVar {
   name: string;
