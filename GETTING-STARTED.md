@@ -157,13 +157,24 @@ slightly (`wrangler` uses `.wrangler/state/...`, `workerd` uses
 ### Editing the cluster shape
 
 Add a bundle, change a wire, tweak storage paths? Edit
-[`cluster.toml`](cluster.toml) at the repo root, then regenerate the
-typed TS module the deployment emitters consume:
+[`cluster.toml`](cluster.toml) at the repo root, then run:
 
 ```sh
-task cluster:toml                          # cluster.toml → src/generated/cluster.ts
-task cluster:toml:roundtrip                # confirm canonical (drift gate)
-task cluster:toml:export -- --write cluster.toml   # the reverse: cluster.ts → canonical cluster.toml
+task cluster:toml                          # parse + render cluster.ts + re-canonicalize cluster.toml
+```
+
+That single verb does the full operator workflow: parses your edit,
+validates it against `ClusterSchema`, regenerates
+`src/generated/cluster.ts`, then rewrites `cluster.toml` in canonical
+form (alphabetical key order within tables, integer
+normalization like `httpPort = 9_999`, bundle-group placement). Commit
+both files.
+
+Two ancillary tasks for non-routine cases:
+
+```sh
+task cluster:toml:roundtrip                          # drift gate — task verify runs this
+task cluster:toml:export -- --write cluster.toml     # reverse-only (rare — when you edited cluster.ts directly)
 ```
 
 `cluster.toml` is the operator surface ([ADR-0025](docs/adr/0025-bidi-toml-pipeline.md));
