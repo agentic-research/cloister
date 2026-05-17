@@ -45,6 +45,10 @@ sbom-*.spdx.json
 .beads/dolt-server.pid
 .beads/dolt-server.port
 
+# Per-worktree bead pin used by the rsry commit-msg hook to auto-prefix
+# commits with the active bead id (Golden Rule 11). Workspace-local.
+.rsry-bead-id
+
 # Agent transcripts — full JSONL of subagent runs (bucketing audits,
 # theoretical-foundations reviews, etc.). May contain prompts, paths,
 # and reasoning traces specific to one developer's machine. Local

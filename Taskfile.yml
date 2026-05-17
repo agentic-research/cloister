@@ -156,6 +156,85 @@ tasks:
     generates:
       - cluster.compose.yaml
 
+  # ── Bidi TOML ↔ cluster.ts pipeline (ADR-0025, cloister-ae06f3) ─────────
+  #
+  # Forward leg (`cluster:toml`):     cluster.toml → cluster.ts via
+  #                                   @iarna/toml.parse → ClusterSchema →
+  #                                   semantic check → render.
+  # Reverse leg (`cluster:toml:export`): cluster.ts → canonical TOML
+  #                                      (stdout; pass `-- --write <path>`
+  #                                      to land at a file).
+  # Drift gate (`cluster:toml:roundtrip`): re-export current cluster.ts to
+  #                                        a tmp TOML and diff against the
+  #                                        committed cluster.toml — fails
+  #                                        on drift. Same shape as
+  #                                        `cluster:zod:check-drift`.
+  #
+  # The tasks require `pnpm exec tsx` because the scripts dynamically
+  # import the .ts ClusterSchema from src/generated/cluster.zod.ts.
+  cluster:toml:
+    desc: "Forward leg — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts (cloister-ae06f3, ADR-0025)."
+    cmds:
+      - pnpm exec tsx scripts/toml-to-cluster.mjs
+    sources:
+      - cluster.toml
+      - scripts/toml-to-cluster.mjs
+      - src/generated/cluster.zod.ts
+    generates:
+      - src/generated/cluster.ts
+
+  cluster:toml:export:
+    desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
+    cmds:
+      - pnpm exec tsx scripts/cluster-to-toml.mjs {{.CLI_ARGS}}
+    sources:
+      - src/generated/cluster.ts
+      - scripts/cluster-to-toml.mjs
+
+  cluster:toml:roundtrip:
+    desc: "Drift gate — re-export src/generated/cluster.ts to a temp TOML and diff against the committed cluster.toml. Fails if the two diverge (operator edited cluster.toml without running `task cluster:toml`, or vice-versa). Mirrors `cluster:zod:check-drift`."
+    # Intentionally no `sources:` block — gates must always run; the
+    # task-runner's mtime cache would otherwise skip the gate when
+    # nothing visibly changed, which is exactly the case where drift
+    # silently lands (someone hand-edited cluster.ts after a stale
+    # cluster.toml). Same shape as cluster:zod:check-drift.
+    cmds:
+      - |
+        set -eu
+        if [ ! -f cluster.toml ]; then
+          echo "FAIL — cluster.toml does not exist at repo root; run \`task cluster:toml:export -- --write cluster.toml\` to seed it" >&2
+          exit 1
+        fi
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        # `tsx` on a script that errors exits non-zero — `set -eu` will
+        # surface that. Use `--write` so any successful write commits
+        # atomically to the tmpdir before diff.
+        pnpm exec tsx scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
+        if [ ! -f "$TMPDIR/cluster.toml" ]; then
+          echo "FAIL — cluster-to-toml produced no output; check tsx stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u cluster.toml "$TMPDIR/cluster.toml"; then
+          echo "" >&2
+          echo "DRIFT — committed cluster.toml differs from what cluster-to-toml.mjs" >&2
+          echo "would generate from the current src/generated/cluster.ts. Either:" >&2
+          echo "  - operator edited cluster.toml: run \`task cluster:toml\` to regenerate cluster.ts, then commit both" >&2
+          echo "  - operator edited cluster.ts: run \`task cluster:toml:export -- --write cluster.toml\` to refresh cluster.toml, then commit both" >&2
+          exit 1
+        fi
+        echo "OK — cluster.toml matches the cluster-to-toml.mjs canonical output for the current cluster.ts"
+
+  test:cluster-toml:
+    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the scripts can dynamically import src/generated/cluster.zod.ts."
+    cmds:
+      - pnpm exec tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
+    sources:
+      - scripts/test/cluster-toml-roundtrip.test.mjs
+      - scripts/toml-to-cluster.mjs
+      - scripts/cluster-to-toml.mjs
+      - src/generated/cluster.zod.ts
+
   cluster:dev:
     desc: "Mac dev launcher — spawns cluster.capnp bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
     deps: [cluster:manifest]
@@ -509,12 +588,12 @@ tasks:
       - node scripts/cli-init.mjs {{.CLI_ARGS | default "--help"}}
 
   lint:
-    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts]
+    desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, test:lint-scripts, test:cluster-toml]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip]
 
   ci:
     desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."

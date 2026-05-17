@@ -34,6 +34,7 @@ work-tracking, follow the linked bead.
 | Capability | Reference | Bead | Notes |
 |---|---|---|---|
 | **`cloister/credential-isolation/v1`** capability | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `docs/plans/credential-isolation-capability.md` | **`cloister-8f57f0`** | First concrete capability under the substrate-as-kernel framing. TDD baseline (stub + 29 failing tests) lives on branch `tdd/credential-isolation-v1`. Phases 1-11 in the plan doc; each closes when its test tranche turns green. |
+| **Bidi TOML ↔ capnp pipeline (Phase 1)** | **ADR-0025**, `docs/plans/bidi-toml-pipeline.md` | **`cloister-ae06f3`** | Active branch: `feat/cloister-ae06f3-bidi-toml-pipeline`. Phase 1 (ADR) drafted; Phases 2-9 in flight. Substrate-schema-neutral; Phase 2 schema additions ride this rail. |
 | Substrate-as-kernel framing (every concrete subsystem → v1 reference impl of a named Capability Interface, k8s CNI/CSI/CRI shape) | — | `cloister-1b59a2` | Framing direction; formalizing ADR is **pending from user's other LLM session** (network-identity ADR). Don't pre-empt. |
 | ADR-0022 — schema-bridge positioning + bidi pipeline framing | — (ADR not yet drafted) | `cloister-ae587d` | Overdue. Should land before bidi-TOML work to close out the schema-bridge narrative. |
 
@@ -42,7 +43,6 @@ work-tracking, follow the linked bead.
 | Capability | Bead | Blocked on |
 |---|---|---|
 | Layer 2 addressability schema (`bundle.implements`, `wire.requires`, `route.requiresCapability`) | `cloister-ae4ed2` | User's incoming network-identity / "lego blocks" ADR |
-| Bidi TOML ↔ capnp pipeline (Phase 1 — substrate-schema-neutral) | `cloister-ae06f3` | Nothing — ready. Branch `feat/cloister-ae06f3-bidi-toml-pipeline` is the entry point. Prompt for an autonomous session at `docs/prompts/finish-bidi-toml-pipeline.md`. |
 | Port `@notme/contract` → schema-bridge | `cloister-9f03ed` | Trigger-gated: needs (a) top-level `const` mapping in schema-bridge OR (b) a non-TS consumer OR (c) contract growing past ~10 shapes |
 | `interface`/generics/annotations/etc. in schema-bridge | `cloister-9f54d6` (meta) | First real schema hits the gap |
 | schema-bridge: top-level `const` support | `cloister-9ea507` | None — ready |
