@@ -59,7 +59,7 @@ work-tracking, follow the linked bead.
 | `cloister-aea8a7` | schema-bridge: cover `cloister.capnp` + `cli-config.capnp` | P3 |
 | `cloister-9f03ed` | port `@notme/contract` → schema-bridge | P3 (trigger-gated) |
 | `cloister-9f54d6` | schema-bridge construct-coverage gaps (meta) | P3 |
-| `cloister-cf519b` | lint:bundle-isolation: read cluster.toml (not cluster.capnp) after ADR-0025 | P2 (skeptic N3 follow-up from cloister-ae06f3) |
+| `cloister-cf519b` | lint:bundle-isolation: read cluster.ts (not cluster.capnp) after ADR-0025 | closed (PR #10, 2026-05-17) |
 | `cloister-cf2e6a` | schema-bridge: emit .strict() on generated zod objects | P3 (skeptic N1, trigger-gated) |
 
 ## Convention
