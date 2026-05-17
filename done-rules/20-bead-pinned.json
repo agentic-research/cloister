@@ -1,0 +1,6 @@
+{
+  "id":          "bead-pinned",
+  "description": ".rsry-bead-id exists and contains a non-empty bead id (so the commit-msg hook auto-prefixes per Golden Rule 11)",
+  "severity":    "block",
+  "run":         "test -s .rsry-bead-id && grep -qE '^[a-z][-a-z0-9]*-[0-9a-f]{6}$' .rsry-bead-id || { echo '.rsry-bead-id missing or malformed; expected one line like cloister-abc123'; exit 1; }"
+}
