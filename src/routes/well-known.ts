@@ -25,6 +25,7 @@ import type {
   McpToolSpec,
   Route,
 } from "../manifest/types.js";
+import type { ActorCaBundleEntry } from "../storage/actor-ca-bundle.js";
 
 // ── Public route ──────────────────────────────────────────────────────────
 
@@ -46,7 +47,12 @@ export class WellKnownInterlaceRoute implements EdgeRoute {
       return new Response("interlace discovery disabled", { status: 404 });
     }
 
-    const body = synthesize(this.manifest, env);
+    // Fetch CA bundle epochs from TrustStore for the §2.3 epoch index.
+    // Unreachable / empty TrustStore degrades to an empty array — the
+    // index still emits the 0.2.0 shape so clients can rely on
+    // `epochs: []` as a feature signal vs schema-missing.
+    const epochs = await fetchEpochSummaries(env);
+    const body = synthesize(this.manifest, env, epochs);
 
     return new Response(JSON.stringify(body, null, 2), {
       status: 200,
@@ -70,6 +76,16 @@ interface CapabilityDoc {
   readonly scopes:      readonly string[];
 }
 
+interface EpochDoc {
+  readonly epoch:                number;
+  readonly pubkey:               string;       // base64url no-pad — matches storage's `signing_key_pubkey_b64u`
+  readonly status:               "active" | "retired";
+  readonly issued_at_ms:         number;
+  readonly retired_at_ms:        number | null;
+  readonly compromise_notice:    string | null; // §2.7 signed-notice blob (b64u opaque); null if none
+  readonly external_anchor_uri?: string;        // omitted when null (no key noise)
+}
+
 interface InterlaceDoc {
   readonly version:      string;
   readonly actor: {
@@ -87,13 +103,27 @@ interface InterlaceDoc {
     readonly require_interlock:        boolean;
     readonly min_algorithm:            string;
   };
+  // ── Interlace 0.2.0 receipts (RECEIPTS.md §2.3) ─────────────────────────
+  // The epoch index lets archival verifiers (V-archival) resolve
+  // historical pubkeys when replaying receipts against retired epochs.
+  // `current_epoch` is the entry with status='active'; null when no
+  // active epoch is registered (e.g. fresh deploy with no key rotated
+  // yet). `epochs[]` carries every archived entry, most-recent first.
+  readonly current_epoch: number | null;
+  readonly epochs:        readonly EpochDoc[];
 }
 
 /**
- * Build the discovery doc body. Pure function over (manifest, env) so
- * tests don't need a Request.
+ * Build the discovery doc body. Pure function over (manifest, env,
+ * epochs) so tests don't need a Request or a live TrustStore. The
+ * route handler does the TrustStore RPC and passes the projection
+ * in via `epochs`.
  */
-export function synthesize(manifest: Gateway, env: Env): InterlaceDoc {
+export function synthesize(
+  manifest: Gateway,
+  env: Env,
+  epochs: readonly ActorCaBundleEntry[] = [],
+): InterlaceDoc {
   const actor       = manifest.actor;
   const policy      = manifest.policy;
   const masterKeyB64 = readEnvString(env, actor.pubkeyBinding) ?? "";
@@ -108,12 +138,31 @@ export function synthesize(manifest: Gateway, env: Env): InterlaceDoc {
     ...(actor.tunnelEndpoint  ? { tunnel: { endpoint: actor.tunnelEndpoint } } : {}),
   };
 
+  const epochDocs = epochs.map(toEpochDoc);
+  const active    = epochDocs.find((e) => e.status === "active");
+
   return {
-    version:      "0.1.0",
-    actor:        actorDoc,
+    version:        "0.2.0",
+    actor:          actorDoc,
     capabilities,
-    policy:       toPolicyDoc(policy),
+    policy:         toPolicyDoc(policy),
+    current_epoch:  active?.epoch ?? null,
+    epochs:         epochDocs,
   };
+}
+
+function toEpochDoc(entry: ActorCaBundleEntry): EpochDoc {
+  const base: EpochDoc = {
+    epoch:              entry.epoch,
+    pubkey:             entry.signing_key_pubkey_b64u,
+    status:             entry.status,
+    issued_at_ms:       entry.issued_at_ms,
+    retired_at_ms:      entry.retired_at_ms,
+    compromise_notice:  entry.compromise_notice_b64u,
+  };
+  return entry.external_anchor_uri
+    ? { ...base, external_anchor_uri: entry.external_anchor_uri }
+    : base;
 }
 
 function toPolicyDoc(p: InterlacePolicy): InterlaceDoc["policy"] {
@@ -170,8 +219,35 @@ function readEnvString(env: Env, binding: string): string | undefined {
 }
 
 function weakEtag(body: InterlaceDoc): string {
-  // Cheap stable hash — fingerprint ⊕ capability count is plenty for
-  // cache validation; anything finer-grained would require crypto.subtle
-  // (async, not great inside a synthesize+respond path).
-  return `W/"${body.actor.fingerprint}-${body.capabilities.length}"`;
+  // Cheap stable hash — fingerprint ⊕ capability count ⊕ current epoch
+  // is plenty for cache validation; anything finer-grained would
+  // require crypto.subtle (async, not great inside a synthesize+respond
+  // path). Including current_epoch ensures a fresh ETag on key rotation.
+  const epochTag = body.current_epoch ?? "none";
+  return `W/"${body.actor.fingerprint}-${body.capabilities.length}-${epochTag}"`;
+}
+
+// ── TrustStore epoch fetch ────────────────────────────────────────────────
+
+interface TrustStoreRpc {
+  listCaBundleEpochs(): Promise<ActorCaBundleEntry[]>;
+}
+
+/**
+ * Fetch the actor's CA bundle epochs from TrustStore. Returns an
+ * empty array on any error (TrustStore binding missing, RPC throws,
+ * etc.) — the index doc still emits the 0.2.0 shape with empty
+ * epochs[] so clients can rely on the field's presence.
+ */
+async function fetchEpochSummaries(env: Env): Promise<readonly ActorCaBundleEntry[]> {
+  const trustBinding = (env as unknown as { TRUST_STORE?: DurableObjectNamespace }).TRUST_STORE;
+  if (!trustBinding) return [];
+  try {
+    const stub = trustBinding.get(trustBinding.idFromName("cluster")) as DurableObjectStub & TrustStoreRpc;
+    return await stub.listCaBundleEpochs();
+  } catch {
+    // TrustStore unreachable — degrade gracefully. The 0.2.0 shape
+    // still lands; downstream readers see epochs: [].
+    return [];
+  }
 }
