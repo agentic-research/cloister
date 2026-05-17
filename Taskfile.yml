@@ -558,13 +558,12 @@ tasks:
       - scripts/lint-timing-invariants.mjs
 
   lint:bundle-isolation:
-    desc: "Validate ADR-0013 substrate invariants on cluster.capnp + config.capnp (cloister-ac30e7) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings"
+    desc: "Validate ADR-0013 substrate invariants on src/generated/cluster.ts + config.capnp (cloister-ac30e7 + cloister-cf519b) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings. Reads cluster.ts via tsx (the canonical derived artifact per ADR-0025)."
     cmds:
-      - node scripts/lint-bundle-isolation.mjs
+      - pnpm exec tsx scripts/lint-bundle-isolation.mjs
     sources:
-      - cluster.capnp
+      - src/generated/cluster.ts
       - config.capnp
-      - manifest/cluster.capnp
       - scripts/lint-bundle-isolation.mjs
 
   lint:tenant-docs:
