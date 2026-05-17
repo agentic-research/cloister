@@ -89,21 +89,38 @@
 // the only two binding-injection paths:
 //
 //   - scripts/emit-workerd-config.mjs (the runtime config emitter)
-//   - scripts/build-cluster.mjs       (the cluster-manifest compiler)
+//   - scripts/toml-to-cluster.mjs     (the cluster-manifest compiler — ADR-0025)
+//
+// (scripts/build-cluster.mjs is the legacy capnp-eval pipeline and still
+// produces an equivalent cluster.ts; the drift gate
+// `task cluster:toml:roundtrip` keeps them aligned.)
 //
 // If a future runtime-binding-injection path is added (e.g. dynamic
 // `env.X = Y` assignment at request time, or a wasm-component-model
 // FFI that exposes binding mutation), THIS LINT MUST BE RE-VERIFIED.
 // The structural perimeter only works against config-time bindings.
 //
+// ── Cluster source (post-ADR-0025) ────────────────────────────────────────
+//
+// Reads `src/generated/cluster.ts` (the typed derived artifact) via
+// dynamic import. cluster.toml is the authoritative operator source
+// (ADR-0025), cluster.ts is the canonical typed artifact every other
+// consumer already uses (the deployment emitters in scripts/emit-*.mjs,
+// the cluster:dev launcher). The drift gate `task cluster:toml:roundtrip`
+// ensures cluster.toml ↔ cluster.ts agreement; reading cluster.ts here
+// keeps the lint in lock-step with what the runtime sees.
+//
+// Per cloister-cf519b (skeptic N3 follow-up from cloister-ae06f3).
+//
 // Exit codes:
 //   0 — invariants hold
 //   1 — violation found; details on stderr
-//   2 — toolchain error (capnp eval failed, source unreadable, etc.)
+//   2 — toolchain error (capnp eval / dynamic import failed, source unreadable, etc.)
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const REPO = process.cwd();
 
@@ -136,20 +153,39 @@ function findWorkerdSchemaDir() {
   return null;
 }
 
-// Eval `cluster.capnp`. CLOISTER_SCHEMA_ROOT mirrors build-cluster.mjs.
-function evalCluster() {
-  const schemaRoot = process.env.CLOISTER_SCHEMA_ROOT ?? resolve(REPO, "..");
-  try {
-    const out = execFileSync(
-      "capnp",
-      ["eval", "-I", schemaRoot, "--no-standard-import",
-       resolve(REPO, "cluster.capnp"), "cluster", "-o", "json"],
-      { encoding: "utf8" },
+// Load the cluster object from `src/generated/cluster.ts` via dynamic
+// import. cluster.ts is the canonical derived artifact (ADR-0025); the
+// drift gate `task cluster:toml:roundtrip` ensures it matches the
+// authoritative cluster.toml.
+//
+// Requires the tsx loader (the Taskfile entry invokes
+// `pnpm exec tsx scripts/lint-bundle-isolation.mjs`). When invoked
+// without tsx (bare `node`), the dynamic import of a .ts file fails
+// loudly with a useful error.
+//
+// CLUSTER_TS env-var overrides the default path — used by the test
+// harness to point at a synthesized fixture.
+async function loadCluster() {
+  const clusterTsPath = process.env.CLUSTER_TS ?? resolve(REPO, "src/generated/cluster.ts");
+  if (!existsSync(clusterTsPath)) {
+    throw new Error(
+      `cluster source not found at ${clusterTsPath} — run \`task cluster:toml\` ` +
+        `(or set CLUSTER_TS to point at a generated cluster.ts)`,
     );
-    return JSON.parse(out);
+  }
+  try {
+    const mod = await import(pathToFileURL(clusterTsPath).href);
+    if (!mod.cluster) {
+      throw new Error(`${clusterTsPath} does not export 'cluster'`);
+    }
+    return mod.cluster;
   } catch (e) {
-    const err = e.stderr?.toString?.() ?? String(e);
-    throw new Error(`capnp eval cluster.capnp failed:\n${err}`);
+    throw new Error(
+      `failed to load cluster source from ${clusterTsPath}: ${e.message}\n` +
+        `(this script requires the tsx loader — invoke via ` +
+        `\`pnpm exec tsx scripts/lint-bundle-isolation.mjs\` or use the ` +
+        `\`task lint:bundle-isolation\` entry.)`,
+    );
   }
 }
 
@@ -462,7 +498,7 @@ function checkInvariant5(workerSvc, tier, bundleName, cluster, services, service
 
 let cluster, config;
 try {
-  cluster = evalCluster();
+  cluster = await loadCluster();
   config = evalConfig();
 } catch (e) {
   console.error(`lint-bundle-isolation: ${e.message}`);
@@ -514,5 +550,5 @@ const workerCount = workersIn(config).length;
 const bundleCount = (cluster.bundles ?? []).length;
 console.log(`lint-bundle-isolation: clean ✓`);
 console.log(`  ${workerCount} workerd Worker(s) in config.capnp`);
-console.log(`  ${bundleCount} bundle(s) in cluster.capnp`);
+console.log(`  ${bundleCount} bundle(s) in src/generated/cluster.ts`);
 console.log(`  invariants 1–5 hold (ADR-0013 sandbox preserved)`);
