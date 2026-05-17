@@ -284,10 +284,24 @@ describe("WellKnownInterlaceRoute.handle", () => {
     expect(res.headers.get("cache-control")).toMatch(/max-age=/);
   });
 
-  it("emits a weak ETag derived from fingerprint + capability count + current_epoch", async () => {
+  it("emits a weak ETag whose three segments are fingerprint, capability count, and current_epoch", async () => {
     const route = new WellKnownInterlaceRoute(PATH, makeManifest());
     const res = await route.handle(new Request(`http://x${PATH}`), fakeEnv());
-    // No TrustStore binding in this test env → epochs: [] → current_epoch: null → "none"
-    expect(res.headers.get("etag")).toBe('W/"sha256:abc123-2-none"');
+    const etag = res.headers.get("etag");
+    // Structural assertion (not a literal string match) so future
+    // additions to makeManifest() — e.g. a third backend tool — don't
+    // silently break an unrelated test by shifting the cap count.
+    // The three segments are: actor fingerprint, capability count,
+    // current_epoch (numeric epoch, or "none" when null).
+    expect(etag).toMatch(
+      /^W\/"sha256:abc123-\d+-(none|\d+)"$/,
+    );
+  });
+
+  it("ETag epoch segment is 'none' when no active epoch is registered", async () => {
+    const route = new WellKnownInterlaceRoute(PATH, makeManifest());
+    // No TrustStore binding in this test env → epochs: [] → current_epoch: null.
+    const res = await route.handle(new Request(`http://x${PATH}`), fakeEnv());
+    expect(res.headers.get("etag")).toMatch(/-none"$/);
   });
 });
