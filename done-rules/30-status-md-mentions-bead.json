@@ -1,0 +1,6 @@
+{
+  "id":          "status-md-mentions-bead",
+  "description": "docs/STATUS.md mentions the current bead-id (under Drafted, Shipped, or Pending follow-ups)",
+  "severity":    "warn",
+  "run":         "BEAD=$(cat .rsry-bead-id 2>/dev/null); test -n \"$BEAD\" || { echo 'no .rsry-bead-id to check against'; exit 0; }; grep -qF \"$BEAD\" docs/STATUS.md || { echo \"STATUS.md does not mention $BEAD — add a row under Drafted, Pending follow-ups, or move to Shipped on merge\"; exit 1; }"
+}

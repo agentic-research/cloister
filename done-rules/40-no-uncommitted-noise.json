@@ -1,0 +1,6 @@
+{
+  "id":          "no-uncommitted-noise",
+  "description": "no untracked or modified files outside .beads/ runtime state (dolt server PID/manifest churn is expected)",
+  "severity":    "warn",
+  "run":         "DIRTY=$(git status -s | grep -vE '^\\s*M?\\s+\\.beads/' || true); test -z \"$DIRTY\" || { echo 'uncommitted changes outside .beads/:'; echo \"$DIRTY\"; exit 1; }"
+}

@@ -1,0 +1,6 @@
+{
+  "id":          "lint-passes",
+  "description": "task lint exits 0 (the project's fast-gate of record)",
+  "severity":    "block",
+  "run":         "task lint"
+}

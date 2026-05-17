@@ -1,0 +1,6 @@
+{
+  "id":          "branch-on-feature",
+  "description": "current branch is feat/* | fix/* | chore/* (not main / detached)",
+  "severity":    "block",
+  "run":         "git symbolic-ref --short HEAD 2>/dev/null | grep -qE '^(feat|fix|chore|docs|test|refactor)/' || { echo 'current branch must match feat/* | fix/* | chore/* | docs/* | test/* | refactor/* (got:' $(git symbolic-ref --short HEAD 2>/dev/null || echo '<detached>') ')'; exit 1; }"
+}

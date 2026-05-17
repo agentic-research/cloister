@@ -61,6 +61,8 @@ work-tracking, follow the linked bead.
 | `cloister-9f54d6` | schema-bridge construct-coverage gaps (meta) | P3 |
 | `cloister-cf519b` | lint:bundle-isolation: read cluster.ts (not cluster.capnp) after ADR-0025 | closed (PR #10, 2026-05-17) |
 | `cloister-cf2e6a` | schema-bridge: emit .strict() on generated zod objects | P3 (skeptic N1, trigger-gated) |
+| `cloister-fe891f` | cluster:toml chains canonicalize step (operator UX) | closed (PR #12, 2026-05-17) |
+| `cloister-0d5e0f` | `task done` pre-PR readiness gate (drop-in rules, mache smell-rules shape) | P2 — in flight |
 
 ## Convention
 
