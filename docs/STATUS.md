@@ -28,15 +28,15 @@ work-tracking, follow the linked bead.
 | Compute substrate portability (Phase 1: OCI + workerd) | ADR-0009 | — | Phase 1 shipped; Phase 2+ (Firecracker / WASI / unikernel) future |
 | `task image:run` composable OCI image launcher | `cloister-a3681d` | closed | shipped 2026-05-16 |
 | DO SQLite unencrypted-at-rest disclaimer | `cloister-a3681d` | closed | shipped 2026-05-16 |
+| **Bidi TOML ↔ capnp pipeline (Phase 1)** — `cluster.toml` operator surface; `cluster:toml` / `:export` / `:roundtrip` Taskfile entries; drift gate in `task verify` | **ADR-0025**, `cluster.toml`, `scripts/toml-to-cluster.mjs`, `scripts/cluster-to-toml.mjs` | `cloister-ae06f3` | shipped 2026-05-17 (PR #9) |
 
 ## Drafted (design landed, no shipped behavior yet)
 
 | Capability | Reference | Bead | Notes |
 |---|---|---|---|
 | **`cloister/credential-isolation/v1`** capability | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `docs/plans/credential-isolation-capability.md` | **`cloister-8f57f0`** | First concrete capability under the substrate-as-kernel framing. TDD baseline (stub + 29 failing tests) lives on branch `tdd/credential-isolation-v1`. Phases 1-11 in the plan doc; each closes when its test tranche turns green. |
-| **Bidi TOML ↔ capnp pipeline (Phase 1)** | **ADR-0025**, `docs/plans/bidi-toml-pipeline.md` | **`cloister-ae06f3`** | Active branch: `feat/cloister-ae06f3-bidi-toml-pipeline`. Phase 1 (ADR) drafted; Phases 2-9 in flight. Substrate-schema-neutral; Phase 2 schema additions ride this rail. |
-| Substrate-as-kernel framing (every concrete subsystem → v1 reference impl of a named Capability Interface, k8s CNI/CSI/CRI shape) | — | `cloister-1b59a2` | Framing direction; formalizing ADR is **pending from user's other LLM session** (network-identity ADR). Don't pre-empt. |
-| ADR-0022 — schema-bridge positioning + bidi pipeline framing | — (ADR not yet drafted) | `cloister-ae587d` | Overdue. Should land before bidi-TOML work to close out the schema-bridge narrative. |
+| Substrate-as-kernel framing (every concrete subsystem → v1 reference impl of a named Capability Interface, k8s CNI/CSI/CRI shape) | — | `cloister-1b59a2` | Framing direction; formalizing ADR is **pending from user's other LLM session** (network-identity ADR). Don't pre-empt. Phase 1 of the substrate-schema-neutral rail shipped via `cloister-ae06f3` 2026-05-17. |
+| ADR-0022 — schema-bridge positioning + bidi pipeline framing | — (ADR not yet drafted) | `cloister-ae587d` | Overdue. ADR-0025 ships the bidi rail without it; ADR-0022 still wanted to close out the schema-bridge narrative. |
 
 ## Blocked
 
@@ -59,6 +59,8 @@ work-tracking, follow the linked bead.
 | `cloister-aea8a7` | schema-bridge: cover `cloister.capnp` + `cli-config.capnp` | P3 |
 | `cloister-9f03ed` | port `@notme/contract` → schema-bridge | P3 (trigger-gated) |
 | `cloister-9f54d6` | schema-bridge construct-coverage gaps (meta) | P3 |
+| `cloister-cf519b` | lint:bundle-isolation: read cluster.toml (not cluster.capnp) after ADR-0025 | P2 (skeptic N3 follow-up from cloister-ae06f3) |
+| `cloister-cf2e6a` | schema-bridge: emit .strict() on generated zod objects | P3 (skeptic N1, trigger-gated) |
 
 ## Convention
 
@@ -82,9 +84,6 @@ doesn't.
 - `wip/credential-isolation-recipes` — speculative operator recipes
   (OpenClaw / Claude Code / Codex). Lands as part of Phase 10 of
   `cloister-8f57f0`.
-- `feat/cloister-ae06f3-bidi-toml-pipeline` — bidi TOML pipeline
-  starter branch. See `docs/prompts/finish-bidi-toml-pipeline.md`
-  for an autonomous-session prompt.
 
 ## Updating this file
 
