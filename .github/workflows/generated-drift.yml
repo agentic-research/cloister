@@ -78,25 +78,48 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Regenerate src/generated/*.ts
-        # `scripts/build-manifest.mjs` and `scripts/build-cluster.mjs`
-        # dynamically `import()` `.ts` files. Node 20 LTS (this CI runner)
-        # can't load .ts natively; `tsx` (in devDeps) provides the loader.
-        # Mirror the Taskfile `manifest` + `cluster:manifest` tasks
-        # (Taskfile.yml uses `pnpm exec tsx scripts/...` for the same
-        # reason). If a future Node bump enables native .ts loading,
-        # revert to bare `node` here in lockstep with Taskfile.
+        # `scripts/build-manifest.mjs` + `scripts/toml-to-cluster.mjs`
+        # dynamically `import()` `.ts` files. Node 20 LTS (this CI
+        # runner) can't load .ts natively; `tsx` (in devDeps) provides
+        # the loader. Mirror the Taskfile `manifest` + `cluster:toml`
+        # tasks (Taskfile.yml uses `pnpm exec tsx scripts/...` for the
+        # same reason). If a future Node bump enables native .ts
+        # loading, revert to bare `node` here in lockstep with Taskfile.
+        #
+        # cluster.toml is the authoritative operator surface for the
+        # cluster topology (ADR-0025, cloister-ae06f3); the legacy
+        # capnp-eval pipeline (`build-cluster.mjs`) coexists but is no
+        # longer the source of truth for src/generated/cluster.ts.
         run: |
           pnpm exec tsx scripts/build-tool-schemas.mjs
           pnpm exec tsx scripts/build-manifest.mjs
-          pnpm exec tsx scripts/build-cluster.mjs
+          pnpm exec tsx scripts/toml-to-cluster.mjs
 
-      - name: Assert no drift in src/generated/
+      - name: Assert no drift in src/generated/ or cluster.toml
+        # Two-direction drift gate (per ADR-0025):
+        # 1. src/generated/cluster.ts MUST match what
+        #    `toml-to-cluster.mjs` produces from the committed
+        #    cluster.toml (forward leg green).
+        # 2. cluster.toml MUST match what `cluster-to-toml.mjs`
+        #    produces from the committed cluster.ts (reverse leg
+        #    canonical). Catches the case where someone hand-edited
+        #    cluster.ts directly without round-tripping through TOML.
         run: |
           if ! git diff --exit-code src/generated/; then
             echo "::error::src/generated/ has drift; regenerate locally + commit:" >&2
             echo "::error::  pnpm exec tsx scripts/build-tool-schemas.mjs" >&2
             echo "::error::  pnpm exec tsx scripts/build-manifest.mjs" >&2
-            echo "::error::  pnpm exec tsx scripts/build-cluster.mjs" >&2
+            echo "::error::  pnpm exec tsx scripts/toml-to-cluster.mjs   (was build-cluster.mjs — see ADR-0025)" >&2
             echo "::error::  git add src/generated/ && git commit" >&2
+            exit 1
+          fi
+          # Reverse-leg drift: cluster.toml canonical-form must match.
+          TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$TMPDIR"' EXIT
+          pnpm exec tsx scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
+          if ! diff -u cluster.toml "$TMPDIR/cluster.toml"; then
+            echo "::error::cluster.toml diverges from canonical form; regenerate locally + commit:" >&2
+            echo "::error::  pnpm exec tsx scripts/cluster-to-toml.mjs --write cluster.toml" >&2
+            echo "::error::  git add cluster.toml && git commit" >&2
             exit 1
           fi
