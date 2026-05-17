@@ -150,10 +150,13 @@ So you can decide whether to keep reading, here's what cloister
   (gRPC, WebSocket, anything HTTP-shaped) plugs into the same
   `EdgeRoute` table without touching the substrate
   (per [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md)).
-- **Not Kubernetes.** cloister's cluster shape (`cluster.capnp` →
+- **Not Kubernetes.** cloister's cluster shape (`cluster.toml` →
   multi-container pod) targets containerd / podman / nerdctl / kubelet,
   but it doesn't replace them. You bring your container runtime;
-  cloister provides the manifest + the wiring.
+  cloister provides the manifest + the wiring. The operator surface
+  is TOML (`cluster.toml` at the repo root, see
+  [ADR-0025](docs/adr/0025-bidi-toml-pipeline.md)); capnp remains the
+  substrate schema authority.
 - **Not a service mesh.** No Envoy sidecar per service. The lease
   middleware lives in cloister-router itself — one gate at the cluster
   edge, not N gates at N sidecars.

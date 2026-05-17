@@ -137,7 +137,7 @@ faster.
 
 ### Path C — `task cluster:dev` (full cluster topology, mac-native)
 
-Per [cluster.capnp](cluster.capnp), spawns cloister-router **plus**
+Per [cluster.toml](cluster.toml), spawns cloister-router **plus**
 sibling bundles (notme-identity, mache, rosary) as native processes
 with UDS sockets in `/tmp/cloister-dev/run/`. Missing binaries are
 skipped with hints — you can dev cloister-router alone if mache/rosary
@@ -153,6 +153,25 @@ All three paths bind cloister-router on `:8787`. Storage paths differ
 slightly (`wrangler` uses `.wrangler/state/...`, `workerd` uses
 `/data/do` per `config.capnp`, `cluster:dev` uses
 `$HOME/.cache/cloister-dev/do/`); the DO API is identical.
+
+### Editing the cluster shape
+
+Add a bundle, change a wire, tweak storage paths? Edit
+[`cluster.toml`](cluster.toml) at the repo root, then regenerate the
+typed TS module the deployment emitters consume:
+
+```sh
+task cluster:toml                          # cluster.toml → src/generated/cluster.ts
+task cluster:toml:roundtrip                # confirm canonical (drift gate)
+task cluster:toml:export -- --write cluster.toml   # the reverse: cluster.ts → canonical cluster.toml
+```
+
+`cluster.toml` is the operator surface ([ADR-0025](docs/adr/0025-bidi-toml-pipeline.md));
+`cluster.capnp` + `manifest/cluster.capnp` remain the substrate
+schema authority. `src/generated/cluster.ts` is a derived artifact
+(committed for review-time visibility; regenerated whenever
+cluster.toml changes). The TOML reader fail-fasts on schema or
+semantic violations — garbage in, error out.
 
 ## 4. Smoke tests
 
