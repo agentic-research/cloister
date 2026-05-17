@@ -1,228 +1,271 @@
-# Autonomous-session prompt — finish the bidi TOML ↔ capnp pipeline
+# Brief for `/rosary:evolve` — finish bidi TOML ↔ capnp pipeline
 
-**Paste this prompt (or `claude -p "$(cat
-docs/prompts/finish-bidi-toml-pipeline.md)"`) into a fresh Claude
-Code session. The session must not stop until the feature is done.**
+**For invoking `/rosary:evolve` against `cloister-ae06f3`.**
+
+```sh
+# At cloister repo root, on branch feat/cloister-ae06f3-bidi-toml-pipeline:
+/rosary:evolve --focus cloister-ae06f3
+
+# Or compose with /loop for autonomous continuation:
+/loop 15m /rosary:evolve --focus cloister-ae06f3
+```
+
+The `/evolve` skill's scoping-agent reads this file + the bead +
+the plan (`docs/plans/bidi-toml-pipeline.md`) and writes a
+worktree-local `plan.md`. Generator agents (dev-agent for impl;
+principal-agent if `--simplify` mode comes up) implement; the
+skeptic / staging agent gates each commit; team lead commits when
+green.
+
+This document is the **contract** the scoping-agent reads. It
+codifies what the agents must NOT do, what "done" looks like, and
+when stopping is acceptable.
 
 ---
 
-You are picking up `cloister-ae06f3` — the bidi TOML ↔ capnp pipeline.
-This is the substrate-vocabulary work that lets operators declare
-cluster shape in TOML, lowers to the existing capnp manifest, and can
-roundtrip back to TOML. It's Phase 1 of the substrate-as-kernel arc
-(`cloister-1b59a2`) — substrate-schema-neutral; no manifest schema
-additions, just format pipeline.
+## Goal (one sentence)
 
-**The branch is `feat/cloister-ae06f3-bidi-toml-pipeline`** (already
-exists on origin, branched off main at `54bedcd` after PR #8 merged
-the credential-isolation docs scaffold).
+Implement the bidi TOML ↔ capnp pipeline per
+`docs/plans/bidi-toml-pipeline.md`. Ship `cluster.toml` at repo
+root as the operator-facing source; `cluster.ts` becomes derived.
+schema-bridge mediates. Tests prove the bidi rail.
 
-## Your standing directives
+## Standing directives (read before scoping)
 
-1. **You must not finish until the feature is done.** "Done" is
-   defined in the "Definition of done" section below. Until those
-   criteria are all met, keep working. No "I think this is a good
-   stopping point" — read your work against the criteria and keep
-   going.
+**1. Don't stop until the feature is done.** "Done" is defined
+below. Until every criterion is met, keep working. No "I think
+this is a good stopping point" — read your work against the
+criteria.
 
-2. **The plan is falsifiable.** Tests are the proof. If a test
-   passes for the wrong reason (e.g. the assertion is too loose, the
-   mock returns a hardcoded value, the test doesn't actually exercise
-   the path), that's a failure of the proof, not a success. Strengthen
-   the test before claiming the phase done.
+**2. The plan is falsifiable.** Tests are the proof. A test that
+passes for the wrong reason (assertion too loose, mock returns
+hardcoded value, doesn't exercise the actual path) is a failure of
+the proof. Strengthen tests before claiming phases done. The
+skeptic-agent / staging-agent's job in /evolve is exactly this
+adversarial check; respect their findings.
 
-3. **If the design hits a wall, evolve the design — don't silently
-   work around.** Examples of "design hits a wall":
-   - TOML can't round-trip a discriminated union losslessly because
-     of an edge case the ADR didn't anticipate.
-   - `@iarna/toml` (or whatever lib you pick) has a behavior that
-     contradicts the plan.
-   - The schema-bridge IR doesn't carry information you need.
-   When this happens: update the bead with a comment, update ADR-0024
-   (or the ADR you're working under) with the new constraint, update
-   the failing tests to reflect the new reality, then continue. The
-   ADR + tests + bead stay in sync with what the code actually does.
-   **Never silently emit `z.unknown()`, `as any`, or any other "I'll
-   come back to this" escape hatch.** This violates the fail-fast
-   substrate convention.
+**3. If the design hits a wall, evolve the design — don't
+silently work around.**
 
-4. **Use the existing patterns.** This repo has established
-   conventions. Don't invent new ones:
-   - Beads track work (`rsry_bead_comment` as you go).
-   - Tests fail first (TDD); impl makes them green.
-   - Schema-bridge is the codegen authority for capnp → other.
-   - Manifest schema changes are append-only (ADR-0004).
-   - Specs live in `cloister-spec/` or `interlace-spec/`; impls don't
-     depend on impls.
-   - Commit messages use the `[cloister-XXXXXX] type(scope):` shape;
-     the commit-msg hook enforces it.
+Examples of "design hits a wall":
+- `@iarna/toml` has a behavior that contradicts the plan's
+  canonicalization rules.
+- TOML can't round-trip a discriminated union shape losslessly.
+- The schema-bridge IR doesn't carry information needed for the
+  writer.
 
-5. **Stop conditions (the only acceptable terminations):**
-   - **(a) Done:** every criterion in "Definition of done" is met +
-     PR is merged to main + STATUS.md is updated to move
-     `cloister-ae06f3` from Blocked to Shipped.
-   - **(b) Genuinely unresolvable blocker:** a decision needs human
-     judgment that the ADR doesn't speak to (NOT a coding problem you
-     can solve). File a bead comment explicitly framing the blocker
-     in one paragraph, then stop. Examples of acceptable blockers:
-     a load-bearing security tradeoff with no clear right answer; a
-     dependency version conflict that requires a project-wide
-     decision. Examples of NOT-acceptable blockers: "tests are
-     failing" (fix them); "I'm unsure about an implementation
-     detail" (make the call, document the rationale, continue).
+When this happens:
+- Update `cloister-ae06f3` with a bead comment naming the wall.
+- Update `docs/plans/bidi-toml-pipeline.md` (or ADR-0025 once
+  drafted) with the new constraint.
+- Update failing tests to reflect the new reality.
+- Continue.
 
-## Context you need
+**Never silently emit `z.unknown()`, `as any`, or "// TODO: fix
+later" escape hatches.** This violates the fail-fast substrate
+convention (see `tools/schema-bridge/README.md` for the
+substrate-wide rule).
 
-Read these files before starting:
-- `docs/STATUS.md` — project reality index. Tells you what's
-  Shipped vs Drafted vs Blocked. Update it when this work ships.
-- `docs/adr/0024-credential-isolation-capability.md` — template for
-  the ADR shape this feature will need (you'll write an ADR for
-  bidi-pipeline parallel to it).
-- `tools/schema-bridge/README.md` — the codegen tool you're
-  extending. Read the "What's mapped today" + "Deliberately unmapped"
-  tables. Your work is adding a TOML emit/parse target alongside the
-  existing zod target.
-- `tools/schema-bridge/src/outputs/zod.rs` — the existing emit target.
-  Your new TOML target sits beside it.
-- `scripts/build-cluster.mjs` + `scripts/emit-compose.mjs` — existing
-  capnp-eval pipeline that produces `src/generated/cluster.ts` from
-  `cluster.capnp`. Your work makes TOML the operator-facing source;
-  this script becomes one of the consumers.
-- `Taskfile.yml` — task `cluster:zod`, `cluster:zod:verify`,
-  `cluster:zod:check-drift` are the existing schema-bridge tasks.
-  You're adding `cluster:toml`, `cluster:toml:export`,
-  `cluster:toml:roundtrip`.
+**4. Use existing patterns.** This repo has established
+conventions:
+- Beads track work; comment as you go via `rsry_bead_comment`.
+- Tests fail first (TDD); impl makes them green.
+- schema-bridge is the codegen authority for capnp → other
+  targets.
+- Manifest schema changes are append-only (ADR-0004) — though
+  Phase 1 has NO schema changes.
+- Specs live in `cloister-spec/` or `interlace-spec/`; impls don't
+  depend on impls.
+- Commits: `[cloister-ae06f3] type(scope): description`. The
+  commit-msg hook enforces it; `.rsry-bead-id` pin auto-prefixes.
+- For `/evolve`: **no per-agent commits** — generator stages
+  changes, evaluator gates, team lead commits.
 
-Read these beads:
-- `cloister-ae06f3` — this work. Description has the full deliverable
-  list.
-- `cloister-1b59a2` — substrate-as-kernel framing this feeds into.
-- `cloister-ae587d` — ADR-0022 schema-bridge positioning. **Land this
-  ADR first** if it's not already there; it sets the schema-bridge
-  framing that your bidi pipeline lives under.
+**5. Stop conditions (the only acceptable terminations):**
+
+**(a) Done:** every criterion in "Definition of done" below is
+met + PR is merged to main + `docs/STATUS.md` is updated to move
+`cloister-ae06f3` from Blocked to Shipped + bead closed.
+
+**(b) Genuinely unresolvable human-judgment blocker:** a decision
+needs human judgment the plan / ADR doesn't speak to. File a bead
+comment with one paragraph framing the blocker, then stop.
+
+Acceptable blocker examples:
+- A load-bearing security tradeoff with no clear right answer.
+- A dependency version conflict requiring a project-wide
+  decision.
+
+NOT-acceptable blocker examples:
+- "Tests are failing." → fix them.
+- "I'm unsure about an implementation detail." → make the call,
+  document the rationale in the bead, continue.
+- "The library doesn't do X." → evolve the design per directive
+  3, document, continue.
+
+## Required reading (scoping-agent does this first)
+
+Before writing `plan.md`, read:
+
+1. `docs/STATUS.md` — project reality index. Tells you what's
+   Shipped vs Drafted vs Blocked. You'll update it when this work
+   ships.
+2. `docs/plans/bidi-toml-pipeline.md` — the canonical plan
+   for this work. The 10 phases. Your worktree-local `plan.md`
+   adapts (NOT replaces) this.
+3. `docs/adr/0024-credential-isolation-capability.md` — template
+   for the ADR you'll draft (`docs/adr/0025-bidi-toml-pipeline.md`).
+4. `tools/schema-bridge/README.md` — codegen tool you're
+   extending. Pay attention to "What's mapped today" + the
+   fail-fast invariant.
+5. `tools/schema-bridge/src/outputs/zod.rs` — the existing emit
+   target. Your TOML reader/writer sit beside it as scripts (NOT
+   as a new schema-bridge emit target in Phase 1 — that's Phase 2
+   territory).
+6. `scripts/build-cluster.mjs` — existing capnp-eval pipeline.
+   Your TOML reader replaces this AS the source-of-truth path
+   eventually; in Phase 1 they coexist.
+7. `Taskfile.yml` — existing `cluster:zod` / `cluster:zod:verify`
+   / `cluster:zod:check-drift` tasks. Your new tasks
+   (`cluster:toml` / `:export` / `:roundtrip`) mirror their shape.
+
+Required beads to know about:
+- `cloister-ae06f3` — this work.
+- `cloister-1b59a2` — substrate-as-kernel framing this feeds
+  into. Comment when Phase 9 closes.
+- `cloister-ae587d` — ADR-0022 schema-bridge positioning
+  (overdue). NOT a hard blocker; ship bidi without it, but a
+  parallel PR drafting ADR-0022 is welcome.
 - `cloister-9ea507` — schema-bridge top-level `const` support.
-  Probably NOT a prerequisite for bidi (cluster.capnp has no
-  top-level consts) but check.
-
-User feedback shaping the work:
-- "Speak a language" — the manifest IS the substrate vocabulary; TOML
-  is the operator-facing dialect; capnp is the substrate dialect.
-  schema-bridge is the compiler between them.
-- "Imperative we make sure it's bidi" — every Phase 2 schema addition
-  (later work) must round-trip TOML ↔ capnp losslessly or with
-  explicitly-documented loss. This Phase 1 lays that rail.
-- Substrate-as-kernel framing (cloister-1b59a2): TOML overlay is the
-  operator-facing surface; capnp stays the substrate schema. They are
-  two views of the same data.
+  Probably NOT a prerequisite (cluster.capnp has no top-level
+  consts) but verify in scoping.
 
 ## Definition of done
 
-**All of the following must be true:**
+**All must be true:**
 
-1. **Six files exist** (per `cloister-ae06f3` deliverable list):
-   - `scripts/toml-to-cluster.mjs` — TOML → JSON → validate against
-     `ClusterSchema` from `src/generated/cluster.zod.ts` → emit
-     `src/generated/cluster.ts`. Validation FAILS the build if
-     the JSON doesn't conform.
-   - `scripts/cluster-to-toml.mjs` — `src/generated/cluster.ts` →
-     JSON → canonical TOML (deterministic key order, stable
-     inline-vs-multiline formatting; data-faithful, comments not
-     preserved in Phase 1).
-   - `cluster.toml` at repo root — derived from current
-     `src/generated/cluster.ts` state. Becomes the authoritative
-     operator source going forward; `cluster.ts` becomes a generated
-     artifact like `cluster.zod.ts`.
-   - `test/cluster-toml-roundtrip.test.ts` — golden test proving
-     TOML → capnp → TOML preserves shape byte-equal (or with
-     documented diff allowance for known reorderings).
-   - `docs/adr/0025-bidi-toml-pipeline.md` (or whatever next ADR
-     number is free — check `docs/adr/` for next sequential) —
-     records the decision, library choice, comment-preservation
-     tradeoff, future extensions (Phase 2 schema additions ride
-     this rail).
-   - Updates to `Taskfile.yml`, `README.md`, `GETTING-STARTED.md` per
-     the bead description.
+1. **ADR-0025 drafted** at `docs/adr/0025-bidi-toml-pipeline.md`.
+   Marked Accepted (or Drafted with reviewer named). Per the plan
+   Phase 1.
 
-2. **All tests pass.** `task lint` green. The new
-   `test/cluster-toml-roundtrip.test.ts` must:
-   - Load `cluster.toml`, lower to capnp shape, emit JSON, re-emit
-     TOML, byte-diff against `cluster.toml`. Pass.
-   - Load `src/generated/cluster.ts` directly, emit TOML, byte-diff
-     against `cluster.toml`. Pass.
-   - Fail with a clear error if `cluster.toml` violates the schema.
-   - Cover at least one "schema-conformant-but-semantically-wrong"
-     case (e.g. wire pointing at a nonexistent bundle) and assert it
-     fails validation with a clear message.
+2. **Six files exist:**
+   - `scripts/toml-to-cluster.mjs` — TOML → JSON → zod-validate →
+     `cluster.ts`.
+   - `scripts/cluster-to-toml.mjs` — `cluster.ts` → JSON →
+     canonical TOML.
+   - `cluster.toml` at repo root — generated from current
+     `src/generated/cluster.ts` state; becomes authoritative source.
+   - `test/cluster-toml-roundtrip.test.ts` — TDD baseline; all
+     tests turn green by Phase 5.
+   - `docs/adr/0025-bidi-toml-pipeline.md` — design ADR.
+   - Updates to `Taskfile.yml`, `README.md`,
+     `GETTING-STARTED.md`, `docs/STATUS.md` per plan Phases 6/7/8.
 
-3. **The bidi rail is real.** Manually verify by:
-   - Editing `cluster.toml` (e.g. add a bundle).
-   - Running `task cluster:toml` — produces a new
-     `src/generated/cluster.ts`.
-   - Running `task cluster:toml:export` — produces a new TOML that
-     byte-equals the edited input.
-   - Running `task cluster:toml:roundtrip` — passes.
+3. **All tests pass.** `task lint` green. The new tests in
+   `test/cluster-toml-roundtrip.test.ts` cover (per plan Phase 2):
+   - Forward parse + zod-validate.
+   - Schema-violation rejection.
+   - Semantic-violation rejection (wire references nonexistent
+     bundle).
+   - Canonical-write deterministic.
+   - Discriminated-union TOML shape.
+   - Void-union variant TOML shape.
+   - TOML → cluster.ts → TOML byte-equal.
+   - cluster.ts → TOML → cluster.ts semantically-equivalent.
 
-4. **PR is open + merged to main.** Self-review your work before
-   merging (read your own diff with fresh eyes; if something feels
-   half-baked, fix it). Address any Copilot inline comments
-   completely (file → resolve, not just acknowledge).
+4. **Manual bidi verification:**
+   - Edit `cluster.toml` (add a bundle).
+   - `task cluster:toml` regenerates `cluster.ts`.
+   - `task cluster:toml:export` produces TOML that byte-equals
+     the edited input.
+   - `task cluster:toml:roundtrip` passes.
 
-5. **`docs/STATUS.md` is updated** to move `cloister-ae06f3` from
-   "Blocked" to "Shipped." Add the PR number, the ADR reference, and
-   any new Taskfile entries to the relevant sections.
+5. **PR is open + merged to main.** Self-review your work before
+   merging (read your own diff with fresh eyes). Address any
+   Copilot inline comments completely (file changes → resolve, not
+   just acknowledge). Use the existing PR review skill
+   (`pr-respond`) if useful.
 
-6. **Bead `cloister-ae06f3` is closed** via `rsry_bead_close` after
-   the PR merges.
+6. **`docs/STATUS.md` updated.** `cloister-ae06f3` moves from
+   Blocked to Shipped. PR number, ADR ref, new Taskfile entries
+   listed.
 
-## Reasonable design choices that are NOT design questions
+7. **Bead `cloister-ae06f3` closed** via `rsry_bead_close` after
+   PR merges. Comment on `cloister-1b59a2` referencing Phase 1
+   shipped.
 
-If you find yourself uncertain about these, just pick one and continue:
+## Reasonable design choices (NOT design questions)
+
+If uncertain about these, pick the listed default and continue:
+
 - **TOML library:** `@iarna/toml` (MIT, mature, canonical output).
-  Pin it via `pnpm add`.
-- **Comment preservation:** Phase 1 is data-faithful, NOT
-  comment-preserving. Operators who add `# notes` to `cluster.toml`
-  lose them on round-trip. Document this in the ADR; file a P3
-  follow-up bead.
-- **Key ordering:** alphabetical per TOML spec where the spec
-  defines it; otherwise stable insertion order from capnp's
-  declaration order.
+  `pnpm add @iarna/toml`.
+- **Comments:** Phase 1 is data-faithful, NOT comment-preserving.
+  Document in ADR-0025; file P3 follow-up bead.
+- **Key ordering:** declaration-order at top level; alphabetical
+  within tables.
 - **Discriminated unions in TOML:** flatten to `kind = "<name>"` +
-  sibling shape-specific fields. This is the standard TOML pattern.
-- **Schema validation:** use the existing `ClusterSchema` from
-  `src/generated/cluster.zod.ts` (zod). Don't re-validate at the
-  TOML level; let zod be the source of truth.
+  shape-specific siblings.
+- **Schema validation:** zod via `ClusterSchema` from
+  `src/generated/cluster.zod.ts`.
+- **Drift check pattern:** mirrors `cluster:zod:check-drift`.
 
-## What to expect from the work
+## /evolve-specific mechanics
 
-Rough effort: **2-3 focused days.** Most of the time is in
-`scripts/cluster-to-toml.mjs` (canonical emission is fiddly) and
-the golden roundtrip test. The `toml-to-cluster.mjs` side is mostly
-delegation to `@iarna/toml` + zod validation.
+When `/rosary:evolve --focus cloister-ae06f3` runs:
 
-The codepath is mostly mechanical once the design choices land. The
-hard part is the byte-equal roundtrip; budget more time than you
-think for canonicalization (sort keys, inline-vs-multiline arrays,
-escape encoding, trailing newlines, etc.).
+1. **scoping-agent** reads this brief + the plan + the bead.
+   Writes worktree-local `plan.md` adapting the phases to the
+   `/evolve` generator → evaluator handoff format. The plan in
+   `docs/plans/bidi-toml-pipeline.md` is the canonical reference;
+   the worktree `plan.md` is the operational version.
 
-## Reporting cadence
+2. **Team composition** (per `/evolve`'s scaling rules):
+   - 2-5 files, same module → generator + evaluator.
+   - This work is 4-6 files (scripts + tests + ADR + docs + Taskfile
+     + cluster.toml) but spans `scripts/`, `test/`, `docs/`,
+     `manifest/` — full pipeline applies: scoping + generator +
+     evaluator + skeptic.
 
-Update `cloister-ae06f3` with a comment per phase (TOML reader done /
-TOML writer done / roundtrip test green / ADR drafted / PR open / PR
-merged). The user is intentionally hands-off until done; the bead
-comments are your record.
+3. **Generator: dev-agent.** Implements per the phases. Stages
+   changes, does NOT commit.
 
-If a `<task-notification>` arrives mid-flight, handle the event and
-continue working. Don't wait for human input unless you've hit an
-acceptable blocker per directive 5(b).
+4. **Evaluator: skeptic-agent + staging-agent.**
+   - skeptic-agent: assumes wrong until proven. Reviews each
+     phase's tests for "passing for the wrong reason" (loose
+     assertions, hardcoded mocks, missing edge cases).
+   - staging-agent: confirms tests test real behavior, not mocks.
+   - Both must approve before team lead commits.
 
-## When you've finished
+5. **Retry budget:** 3 attempts per phase per `/evolve`'s default.
+   If a phase fails 3 times, post-mortem fires (pm-agent) and the
+   prompt gets refined. Then the user's notified.
 
-Send one final message summarizing:
+6. **Post-mortem** (after merge): pm-agent runs, captures what
+   slowed the work, what prompts could be tighter. Findings get
+   written back to this prompt file as durable improvements.
+
+## /loop composition
+
+For autonomous continuation across days:
+
+```sh
+/loop 15m /rosary:evolve --focus cloister-ae06f3
+```
+
+Fires every 15 minutes; idempotent. Once Phase 9 closes (bead
+closed), the next /loop fire is a no-op. /loop auto-expires after
+7 days; if not done by then, /loop re-invokes itself.
+
+## When the autonomous session reports done
+
+The pm-agent's final summary (or the dev-agent's, if working solo)
+should hit these points:
 - PR # + merge SHA.
 - New Taskfile entries.
-- Any design evolutions that landed (and the bead comment that
-  documents them).
-- Confirmation that STATUS.md updated + bead closed.
+- Any design evolutions that landed (bead comment that documents
+  them).
+- Confirmation STATUS.md updated + bead closed.
+- Brief retro: what worked, what didn't.
 
 Then stop.
