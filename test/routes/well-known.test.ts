@@ -72,7 +72,7 @@ describe("WellKnownInterlaceRoute / synthesize", () => {
   it("emits Interlace §4.1 schema with version + actor + capabilities + policy", () => {
     const body = synthesize(makeManifest(), fakeEnv());
 
-    expect(body.version).toBe("0.1.0");
+    expect(body.version).toBe("0.2.0");
     expect(body.actor.fingerprint).toBe("sha256:abc123");
     expect(body.actor.algorithm).toBe("ed25519");
     expect(body.actor.master_public_key).toBe(TEST_PUBKEY_B64);
@@ -138,6 +138,114 @@ describe("WellKnownInterlaceRoute / synthesize", () => {
     const body = synthesize(makeManifest(), {} as Env);
     expect(body.actor.master_public_key).toBe("");
   });
+
+  // ── cloister-c13fa5: epoch index synthesis (RECEIPTS.md §2.3) ───────────
+
+  it("bumps version to 0.2.0 (Interlace 0.2.0 receipts capability)", () => {
+    const body = synthesize(makeManifest(), fakeEnv());
+    expect(body.version).toBe("0.2.0");
+  });
+
+  it("emits empty epochs[] + null current_epoch when TrustStore is empty", () => {
+    const body = synthesize(makeManifest(), fakeEnv(), []);
+    expect(body.epochs).toEqual([]);
+    expect(body.current_epoch).toBeNull();
+  });
+
+  it("projects a single active-only epoch from ActorCaBundleEntry", () => {
+    const epochs = [{
+      epoch:                   3,
+      signing_key_pubkey_b64u: "pk-three-b64u",
+      cert_der_b64u:           null,
+      issued_at_ms:            1_700_000_000_000,
+      retired_at_ms:           null,
+      status:                  "active" as const,
+      compromise_notice_b64u:  null,
+      external_anchor_uri:     null,
+    }];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.current_epoch).toBe(3);
+    expect(body.epochs).toEqual([{
+      epoch:               3,
+      pubkey:              "pk-three-b64u",
+      status:              "active",
+      issued_at_ms:        1_700_000_000_000,
+      retired_at_ms:       null,
+      compromise_notice:   null,
+    }]);
+  });
+
+  it("projects mixed retired + active epochs and identifies current_epoch by status='active'", () => {
+    const epochs = [
+      {
+        epoch: 3, signing_key_pubkey_b64u: "pk-three", cert_der_b64u: null,
+        issued_at_ms: 1_750_000_000_000, retired_at_ms: null,
+        status: "active" as const, compromise_notice_b64u: null, external_anchor_uri: null,
+      },
+      {
+        epoch: 2, signing_key_pubkey_b64u: "pk-two", cert_der_b64u: null,
+        issued_at_ms: 1_700_000_000_000, retired_at_ms: 1_750_000_000_000,
+        status: "retired" as const, compromise_notice_b64u: null, external_anchor_uri: null,
+      },
+      {
+        epoch: 1, signing_key_pubkey_b64u: "pk-one", cert_der_b64u: null,
+        issued_at_ms: 1_650_000_000_000, retired_at_ms: 1_700_000_000_000,
+        status: "retired" as const, compromise_notice_b64u: null, external_anchor_uri: null,
+      },
+    ];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.current_epoch).toBe(3);
+    expect(body.epochs.length).toBe(3);
+    expect(body.epochs.map((e) => e.epoch)).toEqual([3, 2, 1]); // most-recent first
+    expect(body.epochs[1].status).toBe("retired");
+    expect(body.epochs[1].retired_at_ms).toBe(1_750_000_000_000);
+  });
+
+  it("emits compromise_notice (b64u opaque blob) when an epoch carries one (§2.7)", () => {
+    const epochs = [{
+      epoch: 2, signing_key_pubkey_b64u: "pk-two", cert_der_b64u: null,
+      issued_at_ms: 1_700_000_000_000, retired_at_ms: 1_750_000_000_000,
+      status: "retired" as const,
+      compromise_notice_b64u: "signed-notice-b64u-blob",
+      external_anchor_uri: null,
+    }];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.epochs[0].compromise_notice).toBe("signed-notice-b64u-blob");
+  });
+
+  it("includes external_anchor_uri on epochs that have one (§2.3 lost-bundle defense)", () => {
+    const epochs = [{
+      epoch: 1, signing_key_pubkey_b64u: "pk-one", cert_der_b64u: null,
+      issued_at_ms: 1_700_000_000_000, retired_at_ms: null,
+      status: "active" as const, compromise_notice_b64u: null,
+      external_anchor_uri: "https://anchors.example/cloister/epoch-1.json",
+    }];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.epochs[0].external_anchor_uri).toBe("https://anchors.example/cloister/epoch-1.json");
+  });
+
+  it("omits external_anchor_uri on epochs that don't have one (no null key noise)", () => {
+    const epochs = [{
+      epoch: 1, signing_key_pubkey_b64u: "pk-one", cert_der_b64u: null,
+      issued_at_ms: 1_700_000_000_000, retired_at_ms: null,
+      status: "active" as const, compromise_notice_b64u: null, external_anchor_uri: null,
+    }];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.epochs[0]).not.toHaveProperty("external_anchor_uri");
+  });
+
+  it("backwards-compat: 0.1.0 readers still see actor.fingerprint + actor.master_public_key + capabilities + policy", () => {
+    const epochs = [{
+      epoch: 1, signing_key_pubkey_b64u: "pk-one", cert_der_b64u: null,
+      issued_at_ms: 1_700_000_000_000, retired_at_ms: null,
+      status: "active" as const, compromise_notice_b64u: null, external_anchor_uri: null,
+    }];
+    const body = synthesize(makeManifest(), fakeEnv(), epochs);
+    expect(body.actor.fingerprint).toBe("sha256:abc123");
+    expect(body.actor.master_public_key).toBe(TEST_PUBKEY_B64);
+    expect(body.capabilities.length).toBe(2);
+    expect(body.policy.max_cert_lifetime_seconds).toBe(300);
+  });
 });
 
 // ── Route handler ─────────────────────────────────────────────────────────
@@ -158,7 +266,7 @@ describe("WellKnownInterlaceRoute.handle", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/^application\/json/);
     const body = await res.json() as { version: string; actor: { fingerprint: string } };
-    expect(body.version).toBe("0.1.0");
+    expect(body.version).toBe("0.2.0");
     expect(body.actor.fingerprint).toBe("sha256:abc123");
   });
 
@@ -176,9 +284,24 @@ describe("WellKnownInterlaceRoute.handle", () => {
     expect(res.headers.get("cache-control")).toMatch(/max-age=/);
   });
 
-  it("emits a weak ETag derived from fingerprint + capability count", async () => {
+  it("emits a weak ETag whose three segments are fingerprint, capability count, and current_epoch", async () => {
     const route = new WellKnownInterlaceRoute(PATH, makeManifest());
     const res = await route.handle(new Request(`http://x${PATH}`), fakeEnv());
-    expect(res.headers.get("etag")).toBe('W/"sha256:abc123-2"');
+    const etag = res.headers.get("etag");
+    // Structural assertion (not a literal string match) so future
+    // additions to makeManifest() — e.g. a third backend tool — don't
+    // silently break an unrelated test by shifting the cap count.
+    // The three segments are: actor fingerprint, capability count,
+    // current_epoch (numeric epoch, or "none" when null).
+    expect(etag).toMatch(
+      /^W\/"sha256:abc123-\d+-(none|\d+)"$/,
+    );
+  });
+
+  it("ETag epoch segment is 'none' when no active epoch is registered", async () => {
+    const route = new WellKnownInterlaceRoute(PATH, makeManifest());
+    // No TrustStore binding in this test env → epochs: [] → current_epoch: null.
+    const res = await route.handle(new Request(`http://x${PATH}`), fakeEnv());
+    expect(res.headers.get("etag")).toMatch(/-none"$/);
   });
 });
