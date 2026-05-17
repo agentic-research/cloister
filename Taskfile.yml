@@ -173,12 +173,21 @@ tasks:
   # The tasks require `pnpm exec tsx` because the scripts dynamically
   # import the .ts ClusterSchema from src/generated/cluster.zod.ts.
   cluster:toml:
-    desc: "Forward leg — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts (cloister-ae06f3, ADR-0025)."
+    desc: "Operator workflow — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts, then re-canonicalize cluster.toml (cloister-ae06f3 + cloister-fe891f, ADR-0025)."
+    # Two cmds chained: forward leg (cluster.toml → cluster.ts) then
+    # reverse leg (cluster.ts → canonical cluster.toml). Operators edit
+    # cluster.toml in whatever shape (`httpPort = 9999`, bundle inserted
+    # anywhere); after `task cluster:toml`, both files are in canonical
+    # sync. Same idempotency profile as `task cluster:zod` regenerating
+    # cluster.zod.ts. The chain is the SPEC of the workflow; the
+    # cluster-toml contract test pins it.
     cmds:
       - pnpm exec tsx scripts/toml-to-cluster.mjs
+      - pnpm exec tsx scripts/cluster-to-toml.mjs --write cluster.toml
     sources:
       - cluster.toml
       - scripts/toml-to-cluster.mjs
+      - scripts/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
     generates:
       - src/generated/cluster.ts

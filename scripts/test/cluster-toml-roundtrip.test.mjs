@@ -18,12 +18,23 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   parseTomlToCluster,
   renderClusterTs,
 } from "../toml-to-cluster.mjs";
 import { clusterToToml } from "../cluster-to-toml.mjs";
 import { ClusterSchema } from "../../src/generated/cluster.zod.ts";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, "..", "..");
+const TSX_BIN = resolve(REPO_ROOT, "node_modules/.bin/tsx");
+const TOML_TO_CLUSTER = resolve(REPO_ROOT, "scripts/toml-to-cluster.mjs");
+const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -434,4 +445,138 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
   // Confirm zod validates the parsed-back shape too.
   const validated = ClusterSchema.parse(back);
   assert.deepEqual(validated, empty);
+});
+
+// ── cloister-fe891f: Taskfile cluster:toml chain canonicalizes operator-edited TOML ──
+//
+// Spec: `task cluster:toml` MUST chain `toml-to-cluster.mjs` (forward)
+// then `cluster-to-toml.mjs --write cluster.toml` (re-canonicalize) so
+// operator-edited TOML lands in canonical form in one verb. Without
+// the chain, an operator who types `httpPort = 9999` (which @iarna/toml
+// normalizes to `9_999`) sees the drift gate fail after `task cluster:toml`
+// even though the data is correct.
+//
+// Test exercises the chain at the script level (matches what Taskfile
+// will invoke). If the scripts change such that the chain no longer
+// canonicalizes in one pass, this fails. Pair with the Taskfile entry
+// having BOTH commands — see Taskfile.yml `cluster:toml`.
+
+const NON_CANONICAL_TOML = `
+[metadata]
+name = "fe891f-test"
+version = "0.0.1"
+
+[[bundles]]
+description = "fe891f probe — non-canonical formatting"
+holdsCredential = []
+hypervisorRationale = ""
+kind = "external"
+name = "probe"
+tier = "cluster"
+workerdServiceName = ""
+
+  [bundles.external]
+  args = []
+  env = []
+  httpPort = 9999
+  image = "probe:0.1"
+  ipcSocket = "/run/probe.sock"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[wires]]
+binding = "SELF"
+from = "probe"
+to = "probe"
+transport = "uds"
+`;
+
+function runChain(workDir, tomlPath, tsPath) {
+  // Forward: parse cluster.toml → render cluster.ts.
+  const fwd = spawnSync(TSX_BIN, [TOML_TO_CLUSTER], {
+    cwd: workDir,
+    env: { ...process.env, CLUSTER_TOML: tomlPath, CLUSTER_OUTPUT: tsPath },
+    encoding: "utf8",
+  });
+  if (fwd.status !== 0) {
+    throw new Error(`toml-to-cluster failed: exit=${fwd.status}\nstderr:\n${fwd.stderr}\nstdout:\n${fwd.stdout}`);
+  }
+  // Reverse: render cluster.ts → canonical cluster.toml (overwriting input).
+  const rev = spawnSync(TSX_BIN, [CLUSTER_TO_TOML, "--write", tomlPath], {
+    cwd: workDir,
+    env: { ...process.env, CLUSTER_TS: tsPath },
+    encoding: "utf8",
+  });
+  if (rev.status !== 0) {
+    throw new Error(`cluster-to-toml failed: exit=${rev.status}\nstderr:\n${rev.stderr}\nstdout:\n${rev.stdout}`);
+  }
+}
+
+test("cloister-fe891f: chained workflow canonicalizes non-canonical operator-edited TOML in one pass", () => {
+  const tmp = mkdtempSync(resolve(tmpdir(), "fe891f-"));
+  const tomlPath = resolve(tmp, "cluster.toml");
+  const tsPath = resolve(tmp, "cluster.ts");
+
+  try {
+    writeFileSync(tomlPath, NON_CANONICAL_TOML);
+
+    // Single chain pass = the Taskfile `cluster:toml` workflow post-fix.
+    runChain(tmp, tomlPath, tsPath);
+
+    const afterChain = readFileSync(tomlPath, "utf8");
+
+    // 1. The chain rewrote the file (operator's non-canonical input
+    //    was normalized).
+    assert.notEqual(
+      afterChain,
+      NON_CANONICAL_TOML,
+      "chain must rewrite operator-edited TOML to canonical form",
+    );
+
+    // 2. The canonical form normalizes the integer (httpPort 9999 → 9_999
+    //    per @iarna/toml thousand-separator behavior).
+    assert.match(
+      afterChain,
+      /httpPort = 9_999/,
+      "canonical form should use TOML's thousand-separator for integers ≥1000",
+    );
+
+    // 3. Second chain pass is a no-op (canonical is the fixed point).
+    runChain(tmp, tomlPath, tsPath);
+    const afterSecondChain = readFileSync(tomlPath, "utf8");
+    assert.equal(
+      afterSecondChain,
+      afterChain,
+      "canonical TOML must be a fixed point of the chain (second pass = no-op)",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("cloister-fe891f: Taskfile cluster:toml entry has BOTH legs of the chain", () => {
+  // Pins the Taskfile config so a future edit that drops the
+  // canonicalize step fails CI immediately. Companion to the
+  // behavior test above — behavior tests the contract; this tests
+  // the wire-up.
+  const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
+
+  // Extract the cluster:toml: block (up to the next top-level entry).
+  // Match from `  cluster:toml:` (indented) through the next blank line
+  // followed by a non-indented or differently-indented key.
+  const blockMatch = taskfile.match(/^  cluster:toml:\n([\s\S]*?)(?=^  [\w:-]+:|^\S)/m);
+  assert.ok(blockMatch, "Taskfile must contain a cluster:toml: entry");
+  const block = blockMatch[1];
+
+  assert.match(
+    block,
+    /toml-to-cluster\.mjs/,
+    "cluster:toml must invoke the forward leg (toml-to-cluster.mjs)",
+  );
+  assert.match(
+    block,
+    /cluster-to-toml\.mjs[^\n]*--write[^\n]*cluster\.toml/,
+    "cluster:toml must chain the re-canonicalize step (cluster-to-toml.mjs --write cluster.toml) — per cloister-fe891f",
+  );
 });
