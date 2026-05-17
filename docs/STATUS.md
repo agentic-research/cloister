@@ -60,9 +60,10 @@ work-tracking, follow the linked bead.
 | `cloister-9f03ed` | port `@notme/contract` → schema-bridge | P3 (trigger-gated) |
 | `cloister-9f54d6` | schema-bridge construct-coverage gaps (meta) | P3 |
 | `cloister-cf519b` | lint:bundle-isolation: read cluster.ts (not cluster.capnp) after ADR-0025 | closed (PR #10, 2026-05-17) |
-| `cloister-cf2e6a` | schema-bridge: emit .strict() on generated zod objects | in flight (skeptic N1 follow-up from cloister-ae06f3) |
+| `cloister-cf2e6a` | schema-bridge: emit .strict() on generated zod objects | closed (PR #14, 2026-05-17) |
 | `cloister-fe891f` | cluster:toml chains canonicalize step (operator UX) | closed (PR #12, 2026-05-17) |
-| `cloister-0d5e0f` | `task done` pre-PR readiness gate (drop-in rules, mache smell-rules shape) | P2 — in flight |
+| `cloister-0d5e0f` | `task done` pre-PR readiness gate (drop-in rules, mache smell-rules shape) | closed (PR #13, 2026-05-17) |
+| `cloister-339a22` | cloister/agent-process/v1 design (ACP server-side hosted in workerd) | P2 — design draft on `feat/cloister-339a22-agent-process-v1-design`, math-friend reviewed, awaiting direction |
 
 ## Convention
 
