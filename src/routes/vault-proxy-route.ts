@@ -45,6 +45,7 @@ import {
   InMemoryCredentialStore,
   type CredentialStore,
 } from "./vault-proxy-credential-store.js";
+import { VaultDoCredentialStore } from "./vault-do-credential-store.js";
 
 const PATH_PREFIX = "/vault/proxy/";
 
@@ -82,20 +83,52 @@ export interface VaultProxyRouteDeps {
 }
 
 export class VaultProxyRoute implements EdgeRoute {
-  private readonly credentials:   CredentialStore;
-  private readonly services:      ServiceResolver;
-  private readonly upstream:      UpstreamFetcher;
-  private readonly receipts?:     ReceiptEmitter;
-  private readonly metrics?:      MetricEmitter;
-  private readonly leaseVerifier: LeaseVerifier;
+  private readonly credentials:           CredentialStore;
+  private readonly credentialsExplicit:   boolean;
+  private readonly services:              ServiceResolver;
+  private readonly upstream:               UpstreamFetcher;
+  private readonly receipts?:              ReceiptEmitter;
+  private readonly metrics?:               MetricEmitter;
+  private readonly leaseVerifier:          LeaseVerifier;
+  /**
+   * Lazily constructed when `env.VAULT_STORE` is present + the caller
+   * didn't pass an explicit `deps.credentials`. Memoized across calls
+   * so the per-bundle DO stub doesn't get rebuilt every request.
+   * Per cloister-e2a12a (D2 of the DO saga).
+   */
+  private vaultDoStore: VaultDoCredentialStore | null = null;
 
   constructor(deps: VaultProxyRouteDeps = {}) {
-    this.credentials   = deps.credentials   ?? new InMemoryCredentialStore();
-    this.services      = deps.services      ?? (() => null);
-    this.upstream      = deps.upstream      ?? { fetch: (r) => fetch(r) };
-    this.receipts      = deps.receipts;
-    this.metrics       = deps.metrics;
-    this.leaseVerifier = deps.leaseVerifier ?? defaultLeaseVerifier;
+    this.credentials          = deps.credentials ?? new InMemoryCredentialStore();
+    this.credentialsExplicit  = deps.credentials !== undefined;
+    this.services             = deps.services      ?? (() => null);
+    this.upstream             = deps.upstream      ?? { fetch: (r) => fetch(r) };
+    this.receipts             = deps.receipts;
+    this.metrics              = deps.metrics;
+    this.leaseVerifier        = deps.leaseVerifier ?? defaultLeaseVerifier;
+  }
+
+  /**
+   * Pick the CredentialStore for this request. Three branches in priority order:
+   *
+   * 1. Explicit `deps.credentials` override → use it verbatim. Test
+   *    ergonomics path (stubs, in-memory fixtures, etc.) — env is ignored.
+   * 2. `env.VAULT_STORE` binding present → lazily construct a
+   *    `VaultDoCredentialStore` with `bundleIdName: "router"` and
+   *    memoize. Production path. Plaintext stays inside the DO trust
+   *    boundary (ADR-0013 slice-grant); the route delegates the entire
+   *    Request via `store.forward(...)` further down.
+   * 3. Otherwise → the default `InMemoryCredentialStore` constructed at
+   *    `deps.credentials ?? new InMemoryCredentialStore()`. Dev/local
+   *    fallback; no production traffic should hit this path.
+   */
+  private selectCredentialStore(env: Env): CredentialStore {
+    if (this.credentialsExplicit)          return this.credentials;
+    if (env.VAULT_STORE) {
+      this.vaultDoStore ??= new VaultDoCredentialStore({ env, bundleIdName: "router" });
+      return this.vaultDoStore;
+    }
+    return this.credentials;
   }
 
   match(request: Request): boolean {
@@ -121,12 +154,36 @@ export class VaultProxyRoute implements EdgeRoute {
     }
     const verifiedLease = verdict.lease;
 
-    // ── service config + credential lookup ───────────────────────
+    // ── service config + credential store + lookup ──────────────
     const service      = parsed?.service ?? "";
     const upstreamPath = parsed?.upstreamPath ?? "/";
     const serviceConfig = parsed === null ? null : this.services(service);
+    const credentialStore = this.selectCredentialStore(env);
+
+    // Service-declaration check fires BEFORE any forward delegation so
+    // an undeclared service is rejected at the route (404 constant-shape)
+    // — vault DO never sees it. Preserves the §9.4.b oracle closure.
+    if (parsed !== null && serviceConfig === null) {
+      return new Response(CONSTANT_TIME_ERROR_BODY, {
+        status: 404, headers: { "content-type": "application/json" },
+      });
+    }
+
+    // Production forward path: when the store supports `forward`
+    // (VaultDoCredentialStore does; InMemoryCredentialStore does not),
+    // delegate the full Request to vault DO. Plaintext credential bytes
+    // stay inside the DO trust boundary per ADR-0013.
+    if (credentialStore.forward && parsed !== null && serviceConfig !== null) {
+      return credentialStore.forward(
+        verifiedLease.peerFp,
+        service,
+        verifiedLease.peerFp,
+        request,
+      );
+    }
+
     const lookup = service !== ""
-      ? await this.credentials.resolve(verifiedLease.peerFp, service)
+      ? await credentialStore.resolve(verifiedLease.peerFp, service)
       : null;
 
     const proxyReq: VaultProxyRequest = {
