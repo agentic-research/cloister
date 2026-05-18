@@ -17,6 +17,7 @@ import {
   parseVaultProxyPath,
   vaultProxyHandler,
   CONSTANT_TIME_ERROR_BODY,
+  type UpstreamFetcher,
   type VaultProxyRequest,
   type VaultProxyService,
 } from "../../src/routes/vault-proxy.js";
@@ -114,13 +115,86 @@ describe("Phase 1 — identity gates (Interlace lease verification + allowedSubs
   });
 });
 
+// ── Phase 2: header injection (Bearer / Basic / named header) ─────────────
+
+describe("Phase 2 — header injection (authorizationBearer, authorizationBasic, headerNamed)", () => {
+  it("authorizationBearer: upstream receives Authorization: Bearer <stored>", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "openai",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "sk-abc123",
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    expect(upstream.lastRequest?.headers.get("Authorization")).toBe("Bearer sk-abc123");
+  });
+
+  it("authorizationBasic: upstream receives Authorization: Basic <b64(user:secret)>", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "internal-svc",
+      injection: { kind: "authorizationBasic" },
+      storedCredential: "secret123",
+      storedUsername: "operator",
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    const expected = "Basic " + btoa("operator:secret123");
+    expect(upstream.lastRequest?.headers.get("Authorization")).toBe(expected);
+  });
+
+  it("headerNamed { name: 'x-api-key' }: upstream receives x-api-key: <stored>", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "anthropic",
+      injection: { kind: "headerNamed", name: "x-api-key" },
+      storedCredential: "sk-ant-xyz",
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    expect(upstream.lastRequest?.headers.get("x-api-key")).toBe("sk-ant-xyz");
+  });
+
+  it("client NEVER observes the stored credential in response body", async () => {
+    const upstream = mockUpstream({ responseBody: '{"choices":[{"text":"hi"}]}' });
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "openai",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "sk-leak-bait",
+      upstream,
+    });
+    const res = await vaultProxyHandler(req);
+    const body = await res.text();
+    expect(body).not.toContain("sk-leak-bait");
+  });
+
+  it("client NEVER observes the stored credential in response headers", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "openai",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "sk-leak-bait-headers",
+      upstream,
+    });
+    const res = await vaultProxyHandler(req);
+    for (const [_name, value] of res.headers) {
+      expect(value).not.toContain("sk-leak-bait-headers");
+    }
+  });
+});
+
 // ── Test helpers (intentionally simple — they're not the spec) ──────────
 
 /**
- * Phase 1 options surface. Phases 2+ add their own fields here as
- * they ship (storedCredential, upstream, receipts, metrics, etc.);
- * keeping the type narrow at Phase 1 keeps unused-import warnings
- * out of tsc.
+ * Phase 1 + Phase 2 options surface. Phases 3+ add their own fields
+ * here as they ship; keeping the type narrow at each phase keeps
+ * unused-import warnings out of tsc.
  */
 interface MakeProxyRequestOpts {
   withLease?: boolean;
@@ -131,9 +205,12 @@ interface MakeProxyRequestOpts {
   peerFp?: string;
   allowedSubs?: string[];
   injection?: VaultProxyService["injection"];
+  storedCredential?: string;
+  storedUsername?: string;
   requestBody?: string;
   requestPathQuery?: string;
   requestSignal?: AbortSignal;
+  upstream?: ReturnType<typeof mockUpstream>;
   serviceConfigOverride?: Partial<VaultProxyService>;
 }
 /**
@@ -190,15 +267,49 @@ function makeProxyRequest(opts: MakeProxyRequestOpts = {}): VaultProxyRequest {
         };
 
   return {
-    request:        new Request(`http://cloister/vault/proxy/${service}${opts.requestPathQuery ?? "/"}`, {
+    request:          new Request(`http://cloister/vault/proxy/${service}${opts.requestPathQuery ?? "/"}`, {
       method: "POST",
       body:   opts.requestBody,
       signal: opts.requestSignal,
     }),
     service,
-    upstreamPath:   opts.requestPathQuery ?? "/",
+    upstreamPath:     opts.requestPathQuery ?? "/",
     verifiedLease,
     serviceConfig,
+    storedCredential: opts.storedCredential ?? null,
+    storedUsername:   opts.storedUsername,
+    upstream:         opts.upstream ?? noopUpstream(),
+  };
+}
+
+/**
+ * mockUpstream — Phase 2 fetcher mock. Captures the outbound Request
+ * for header assertions + returns a configurable Response. Phases 3+
+ * extend with chunked/SSE/disconnect modes.
+ */
+function mockUpstream(opts: {
+  status?:       number;
+  responseBody?: string;
+  contentType?:  string;
+} = {}): UpstreamFetcher & { lastRequest: Request | null } {
+  const captured: { lastRequest: Request | null } = { lastRequest: null };
+  return {
+    get lastRequest() { return captured.lastRequest; },
+    set lastRequest(v) { captured.lastRequest = v; },
+    fetch: async (req: Request): Promise<Response> => {
+      captured.lastRequest = req;
+      return new Response(opts.responseBody ?? "", {
+        status:  opts.status ?? 200,
+        headers: { "content-type": opts.contentType ?? "application/json" },
+      });
+    },
+  };
+}
+
+/** A no-op upstream used by Phase 1 tests that never reach the success path. */
+function noopUpstream(): UpstreamFetcher {
+  return {
+    fetch: async () => new Response("", { status: 200 }),
   };
 }
 
