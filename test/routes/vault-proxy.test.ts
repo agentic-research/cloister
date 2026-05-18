@@ -12,15 +12,25 @@
 //
 // Spec: cloister-spec/credential-isolation/v1/
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   parseVaultProxyPath,
   vaultProxyHandler,
   CONSTANT_TIME_ERROR_BODY,
+  __resetRateBuckets,
+  type MetricEmitter,
+  type ProxyCallReceipt,
+  type ReceiptEmitter,
   type UpstreamFetcher,
   type VaultProxyRequest,
   type VaultProxyService,
 } from "../../src/routes/vault-proxy.js";
+
+// Phase 6 + 7 — rate-limit state is module-scoped; reset between
+// every test so per-test budget assertions are deterministic.
+beforeEach(() => {
+  __resetRateBuckets();
+});
 
 // ── Phase 0: path parser (the only piece small enough to land NOT-failing) ─
 
@@ -252,6 +262,220 @@ describe("Phase 3 — query + body injection", () => {
   });
 });
 
+// ── Phase 4: streaming + chunked + client disconnect ──────────────────────
+
+describe("Phase 4 — streaming pass-through", () => {
+  it("upstream chunked transfer-encoding streams to client without buffering", async () => {
+    const chunks = ["one ", "two ", "three"];
+    const upstream = mockUpstream({ chunked: chunks });
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "stream-svc",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "x",
+      upstream,
+    });
+    const res = await vaultProxyHandler(req);
+    const seen: string[] = [];
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      seen.push(decoder.decode(value));
+    }
+    expect(seen.length).toBeGreaterThan(1); // streamed, not buffered into one chunk
+    expect(seen.join("")).toBe("one two three");
+  });
+
+  it("upstream SSE event stream forwards event-by-event", async () => {
+    const events = ["data: chunk-1\n\n", "data: chunk-2\n\n", "data: [DONE]\n\n"];
+    const upstream = mockUpstream({ sse: events, contentType: "text/event-stream" });
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "sse-svc",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "x",
+      upstream,
+    });
+    const res = await vaultProxyHandler(req);
+    expect(res.headers.get("Content-Type")).toContain("text/event-stream");
+    const body = await res.text();
+    for (const ev of events) expect(body).toContain(ev);
+  });
+
+  it("client disconnect aborts upstream request mid-flight", async () => {
+    const ctrl = new AbortController();
+    const upstream = mockUpstream({ delayMs: 5000 });
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "slow-svc",
+      injection: { kind: "authorizationBearer" },
+      storedCredential: "x",
+      upstream,
+      requestSignal: ctrl.signal,
+    });
+    const handlerPromise = vaultProxyHandler(req);
+    ctrl.abort();
+    await handlerPromise.catch(() => {});
+    expect(upstream.aborted).toBe(true);
+  });
+});
+
+// ── Phase 5: audit receipts (commit + MUST-NOT-commit invariants) ─────────
+
+describe("Phase 5 — Interlace receipts on every proxy call", () => {
+  it("emits receipt on success", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream({ status: 200 });
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "x",
+      upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    expect(receipts.emitted.length).toBe(1);
+  });
+
+  it("emits receipt on error (upstream 5xx)", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream({ status: 502 });
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "x",
+      upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    expect(receipts.emitted.length).toBe(1);
+    expect(receipts.emitted[0]!.upstreamStatus).toBe(502);
+  });
+
+  it("receipt commits to expected fields", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream({ status: 200, responseBody: "hello" });
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "sk-x",
+      peerFp: "sha256:test-peer", upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    const r = receipts.emitted[0]!;
+    expect(r.capability).toBe("cloister/credential-isolation/v1");
+    expect(r.peerFp).toBe("sha256:test-peer");
+    expect(r.service).toBe("openai");
+    expect(r.upstreamStatus).toBe(200);
+    expect(typeof r.requestSizeBytes).toBe("number");
+    expect(typeof r.responseSizeBytes).toBe("number");
+    expect(typeof r.wallClockMs).toBe("number");
+  });
+
+  it("receipt MUST NOT commit to credential value", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "sk-leak-bait-in-receipt",
+      upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    const serialized = JSON.stringify(receipts.emitted[0]);
+    expect(serialized).not.toContain("sk-leak-bait-in-receipt");
+  });
+
+  it("receipt MUST NOT commit to upstream request body", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream();
+    const sensitiveBody = "user-pii-payload-12345";
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "x",
+      requestBody: sensitiveBody, upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    const serialized = JSON.stringify(receipts.emitted[0]);
+    expect(serialized).not.toContain(sensitiveBody);
+  });
+
+  it("receipt MUST NOT commit to query string", async () => {
+    const receipts = mockReceiptEmitter();
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "x",
+      requestPathQuery: "?user_id=PII-token", upstream, receipts,
+    });
+    await vaultProxyHandler(req);
+    const serialized = JSON.stringify(receipts.emitted[0]);
+    expect(serialized).not.toContain("PII-token");
+  });
+});
+
+// ── Phase 6: per-(peerFp, service) rate limit ─────────────────────────────
+
+describe("Phase 6 — per-(peerFp, service) rate limit", () => {
+  it("returns 429 when bucket exhausted", async () => {
+    const upstream = mockUpstream();
+    const config: Partial<VaultProxyService> = { rateLimitPerMinute: 2 };
+    const reqs = [1, 2, 3].map(() =>
+      makeProxyRequest({
+        withLease: true, service: "rate-limited",
+        injection: { kind: "authorizationBearer" }, storedCredential: "x",
+        peerFp: "sha256:hot-peer", upstream, serviceConfigOverride: config,
+      })
+    );
+    const responses = await Promise.all(reqs.map((r) => vaultProxyHandler(r).catch((e) => e as Response)));
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rate limit does NOT leak across (peerFp, service) tuples", async () => {
+    const upstream = mockUpstream();
+    const config: Partial<VaultProxyService> = { rateLimitPerMinute: 1 };
+    const r1 = await vaultProxyHandler(makeProxyRequest({
+      withLease: true, service: "iso", injection: { kind: "authorizationBearer" },
+      storedCredential: "x", peerFp: "sha256:peer-A", upstream, serviceConfigOverride: config,
+    })).catch((e) => e as Response);
+    const r2 = await vaultProxyHandler(makeProxyRequest({
+      withLease: true, service: "iso", injection: { kind: "authorizationBearer" },
+      storedCredential: "x", peerFp: "sha256:peer-B", upstream, serviceConfigOverride: config,
+    })).catch((e) => e as Response);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+  });
+});
+
+// ── Phase 7: no-plaintext-leak invariants ─────────────────────────────────
+
+describe("Phase 7 — no-plaintext-leak invariants", () => {
+  it("error response (502 upstream) does NOT include credential", async () => {
+    const upstream = mockUpstream({ status: 502, responseBody: "upstream error" });
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "sk-leak-bait-on-error",
+      upstream,
+    });
+    const res = await vaultProxyHandler(req);
+    const body = await res.text();
+    expect(body).not.toContain("sk-leak-bait-on-error");
+  });
+
+  it("metric labels do NOT include credential value", async () => {
+    const metrics = mockMetricEmitter();
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true, service: "openai",
+      injection: { kind: "authorizationBearer" }, storedCredential: "sk-leak-bait-in-metrics",
+      upstream, metrics,
+    });
+    await vaultProxyHandler(req);
+    for (const m of metrics.emitted) {
+      for (const v of Object.values(m.labels)) {
+        expect(String(v)).not.toContain("sk-leak-bait-in-metrics");
+      }
+    }
+  });
+});
+
 // ── Test helpers (intentionally simple — they're not the spec) ──────────
 
 /**
@@ -274,6 +498,8 @@ interface MakeProxyRequestOpts {
   requestPathQuery?: string;
   requestSignal?: AbortSignal;
   upstream?: ReturnType<typeof mockUpstream>;
+  receipts?: ReturnType<typeof mockReceiptEmitter>;
+  metrics?: ReturnType<typeof mockMetricEmitter>;
   serviceConfigOverride?: Partial<VaultProxyService>;
 }
 /**
@@ -342,25 +568,103 @@ function makeProxyRequest(opts: MakeProxyRequestOpts = {}): VaultProxyRequest {
     storedCredential: opts.storedCredential ?? null,
     storedUsername:   opts.storedUsername,
     upstream:         opts.upstream ?? noopUpstream(),
+    receipts:         opts.receipts,
+    metrics:          opts.metrics,
+  };
+}
+
+function mockReceiptEmitter(): ReceiptEmitter & { emitted: ProxyCallReceipt[] } {
+  const emitted: ProxyCallReceipt[] = [];
+  return {
+    emitted,
+    emit: (r) => { emitted.push(r); },
+  };
+}
+
+function mockMetricEmitter(): MetricEmitter & {
+  emitted: Array<{ name: string; labels: Record<string, string | number> }>;
+} {
+  const emitted: Array<{ name: string; labels: Record<string, string | number> }> = [];
+  return {
+    emitted,
+    emit: (m) => { emitted.push(m); },
   };
 }
 
 /**
- * mockUpstream — Phase 2 fetcher mock. Captures the outbound Request
- * for header assertions + returns a configurable Response. Phases 3+
- * extend with chunked/SSE/disconnect modes.
+ * mockUpstream — fetcher mock. Captures the outbound Request for
+ * header/URL/body assertions + returns a configurable Response.
+ *
+ * Modes:
+ *   - default: 200 with `responseBody` text + `contentType` JSON
+ *   - `chunked: string[]` — emits each item as a separate ReadableStream
+ *     chunk (Phase 4 streaming pass-through)
+ *   - `sse: string[]` — same shape; content-type forced to text/event-stream
+ *     when not otherwise specified
+ *   - `delayMs: number` — waits up to delayMs OR until the request
+ *     signal fires; sets `aborted = true` on abort (Phase 4
+ *     client-disconnect)
  */
 function mockUpstream(opts: {
   status?:       number;
   responseBody?: string;
   contentType?:  string;
-} = {}): UpstreamFetcher & { lastRequest: Request | null } {
-  const captured: { lastRequest: Request | null } = { lastRequest: null };
+  chunked?:      string[];
+  sse?:          string[];
+  delayMs?:      number;
+} = {}): UpstreamFetcher & { lastRequest: Request | null; aborted: boolean } {
+  const captured: { lastRequest: Request | null; aborted: boolean } = {
+    lastRequest: null,
+    aborted: false,
+  };
   return {
     get lastRequest() { return captured.lastRequest; },
     set lastRequest(v) { captured.lastRequest = v; },
+    get aborted() { return captured.aborted; },
+    set aborted(v) { captured.aborted = v; },
     fetch: async (req: Request): Promise<Response> => {
       captured.lastRequest = req;
+
+      // Honor abort BEFORE producing the body so client-disconnect
+      // is observable mid-flight.
+      if (opts.delayMs !== undefined) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, opts.delayMs);
+          if (req.signal) {
+            const onAbort = (): void => {
+              captured.aborted = true;
+              clearTimeout(timer);
+              reject(new Error("aborted"));
+            };
+            if (req.signal.aborted) {
+              onAbort();
+            } else {
+              req.signal.addEventListener("abort", onAbort, { once: true });
+            }
+          }
+        });
+      }
+
+      const chunks = opts.chunked ?? opts.sse;
+      if (chunks !== undefined) {
+        const encoder = new TextEncoder();
+        const body = new ReadableStream<Uint8Array>({
+          async start(controller): Promise<void> {
+            for (const c of chunks) {
+              controller.enqueue(encoder.encode(c));
+              // Yield so the consumer reads each chunk separately
+              // (not coalesced by the runtime into one Uint8Array).
+              await new Promise((r) => setTimeout(r, 0));
+            }
+            controller.close();
+          },
+        });
+        return new Response(body, {
+          status:  opts.status ?? 200,
+          headers: { "content-type": opts.contentType ?? "application/octet-stream" },
+        });
+      }
+
       return new Response(opts.responseBody ?? "", {
         status:  opts.status ?? 200,
         headers: { "content-type": opts.contentType ?? "application/json" },
