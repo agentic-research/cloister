@@ -74,7 +74,7 @@ This v1 **DEFINES** (new content not in either upstream spec):
   worked input → output example.
 - `wire/receipt-commitment.md` — the receipt fields, the canonical
   signing input, and the explicit "MUST NOT commit" list.
-- `wire/error-codes.md` — error shapes specific to the proxy
+- `wire/error-responses.md` — error shapes specific to the proxy
   capability; references `@notme/contract`'s `ERROR_STATUS` for the
   shared set.
 - `vectors/` — canonical inputs + expected digests. JSON-as-carrier
