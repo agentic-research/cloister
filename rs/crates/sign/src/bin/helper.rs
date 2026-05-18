@@ -36,7 +36,7 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 
 use clap::Parser;
-use leyline_sign::host::allowlist::SignAllowList;
+use leyline_sign::host::allowlist::{SignAllowList, validate_resolve_allow_prefixes};
 use leyline_sign::host::auth::AuthConfig;
 use leyline_sign::host::server::{AppState, SIGN_TIMEOUT, build_router};
 use tokio::net::TcpListener;
@@ -199,6 +199,24 @@ async fn main() -> ExitCode {
             "/resolve is DENY-ALL (LEYLINE_SIGN_RESOLVE_ALLOW unset)"
         );
     } else {
+        // NEW-2 / cloister-9bee1f: validate prefixes don't accidentally
+        // authorize signing-key URLs (via too-broad string-prefix match).
+        // Hard-fail before binding the socket — fail-closed is the only
+        // safe disposition for a misconfigured allow-list.
+        if let Err(violations) = validate_resolve_allow_prefixes(&resolve_allow) {
+            for v in &violations {
+                error!(
+                    target: "leyline_sign_helper",
+                    op = "start",
+                    outcome = "resolve_allow_unsafe",
+                    prefix = %v.prefix,
+                    matched = v.matched,
+                    "{}",
+                    v,
+                );
+            }
+            return ExitCode::from(2);
+        }
         info!(
             target: "leyline_sign_helper",
             op = "start",

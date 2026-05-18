@@ -82,6 +82,9 @@
 //
 //   - trust-root-friend F2 (P0): /sign URL is not allow-listed
 //   - isolation-friend F-iso-1 (P1): /sign doesn't consult resolve_allow
+//   - trust-root-friend NEW-2 (P2, cloister-9bee1f): /resolve allow-list
+//     entries that could match a signing-key URL are rejected at startup
+//     (see `validate_resolve_allow_prefixes` below the SignAllowList impl).
 
 use std::collections::HashMap;
 
@@ -183,6 +186,86 @@ impl SignAllowList {
     }
 }
 
+// ── /resolve allow-list startup validation (cloister-9bee1f) ─────────────
+//
+// `LEYLINE_SIGN_RESOLVE_ALLOW` entries are matched via String::starts_with
+// (see `host::server::get_resolve`). An operator who sets a too-broad
+// prefix — say `keychain://com.cloister/vault-kek-` — silently authorizes
+// `/resolve` to emit the bytes of any item starting with that prefix.
+// If a signing-key URL happens to share the prefix (`vault-kek-master-sk`
+// is a plausible-but-wrong name), the helper exfils the signing key
+// without ever consulting `SignAllowList`.
+//
+// The 2026-05-12 trust-root-friend cycle filed NEW-2 against this. The
+// initial mitigation was supervisor-template doc warnings; this
+// validator is the code-side enforcement (deferred follow-up).
+//
+// Match rule: a prefix is rejected if any of `DANGEROUS_SUBSTRINGS`
+// appears in it (case-insensitive ASCII). The list deliberately errs
+// toward false-positive rejection — an operator who legitimately needs
+// a prefix like `keychain://com.cloister/rocketmaster` can rename the
+// keystore item; the cost of a too-permissive false-negative is
+// signing-key exfil.
+
+/// Substrings that signal "this prefix could match a signing-key URL".
+/// Matched case-insensitively against each `LEYLINE_SIGN_RESOLVE_ALLOW`
+/// entry. Order is preserved so error messages cite the first hit
+/// deterministically.
+const DANGEROUS_SUBSTRINGS: &[&str] = &[
+    "master-sk",
+    "master_sk",
+    "signing-key",
+    "signing_key",
+    "-sk",
+    "_sk",
+    "signing",
+    "master",
+];
+
+/// One offending prefix paired with the substring that triggered the
+/// rejection. Returned in a `Vec` so the helper can log every problem
+/// at once rather than making the operator fix one, restart, fix the
+/// next, restart, etc.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveAllowViolation {
+    pub prefix: String,
+    pub matched: &'static str,
+}
+
+impl std::fmt::Display for ResolveAllowViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "LEYLINE_SIGN_RESOLVE_ALLOW entry {:?} contains signing-key substring {:?} — \
+             /resolve must not be authorized to emit signing-key bytes (cloister-9bee1f). \
+             Rename the keystore item OR scope the prefix more narrowly.",
+            self.prefix, self.matched,
+        )
+    }
+}
+
+/// Validate the parsed `LEYLINE_SIGN_RESOLVE_ALLOW` entries against the
+/// signing-key substring blocklist. Returns Ok if every prefix is safe,
+/// or a non-empty `Vec` of violations otherwise.
+///
+/// Empty input is Ok (deny-all is already safe).
+pub fn validate_resolve_allow_prefixes(entries: &[String]) -> Result<(), Vec<ResolveAllowViolation>> {
+    let mut violations = Vec::new();
+    for entry in entries {
+        let lower = entry.to_ascii_lowercase();
+        for needle in DANGEROUS_SUBSTRINGS {
+            if lower.contains(needle) {
+                violations.push(ResolveAllowViolation {
+                    prefix: entry.clone(),
+                    matched: needle,
+                });
+                break; // one match per entry; first hit wins
+            }
+        }
+    }
+    if violations.is_empty() { Ok(()) } else { Err(violations) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +360,117 @@ mod tests {
         // Operator might leave a trailing semicolon. Tolerate it.
         let a = SignAllowList::parse("router=a;;").unwrap();
         assert!(a.is_allowed("router", "a-prefix"));
+    }
+
+    // ── validate_resolve_allow_prefixes (cloister-9bee1f) ────────────────
+
+    fn v(prefixes: &[&str]) -> Vec<String> {
+        prefixes.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn resolve_allow_empty_input_is_safe() {
+        assert!(validate_resolve_allow_prefixes(&[]).is_ok());
+    }
+
+    #[test]
+    fn resolve_allow_safe_vault_kek_prefix_passes() {
+        // The textbook deploy: vault-KEK family with no signing-key tokens.
+        assert!(
+            validate_resolve_allow_prefixes(&v(&[
+                "keychain://com.cloister/vault-kek-",
+                "file:///etc/cloister/vault-kek",
+            ]))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn resolve_allow_rejects_master_sk_compound() {
+        let err = validate_resolve_allow_prefixes(&v(&[
+            "keychain://com.cloister/vault-kek-master-sk",
+        ]))
+        .unwrap_err();
+        assert_eq!(err.len(), 1);
+        assert_eq!(err[0].matched, "master-sk");
+    }
+
+    #[test]
+    fn resolve_allow_rejects_bare_master() {
+        let err = validate_resolve_allow_prefixes(&v(&["keychain://com.cloister/master-"]))
+            .unwrap_err();
+        assert_eq!(err[0].matched, "master");
+    }
+
+    #[test]
+    fn resolve_allow_rejects_signing_token() {
+        let err = validate_resolve_allow_prefixes(&v(&["keychain://com.cloister/signing-"]))
+            .unwrap_err();
+        // "signing-key" doesn't match the bare "signing-" but "signing" does.
+        assert_eq!(err[0].matched, "signing");
+    }
+
+    #[test]
+    fn resolve_allow_rejects_dash_sk_suffix() {
+        let err = validate_resolve_allow_prefixes(&v(&["keychain://com.cloister/router-sk"]))
+            .unwrap_err();
+        assert_eq!(err[0].matched, "-sk");
+    }
+
+    #[test]
+    fn resolve_allow_rejects_underscore_sk_suffix() {
+        let err = validate_resolve_allow_prefixes(&v(&["keychain://com.cloister/router_sk"]))
+            .unwrap_err();
+        assert_eq!(err[0].matched, "_sk");
+    }
+
+    #[test]
+    fn resolve_allow_is_case_insensitive() {
+        let err = validate_resolve_allow_prefixes(&v(&[
+            "KEYCHAIN://COM.CLOISTER/MASTER-SK",
+        ]))
+        .unwrap_err();
+        assert_eq!(err[0].matched, "master-sk");
+    }
+
+    #[test]
+    fn resolve_allow_collects_all_violations_not_just_first() {
+        // Operator gets one clean error report, not one-fix-restart-repeat.
+        let err = validate_resolve_allow_prefixes(&v(&[
+            "keychain://com.cloister/vault-kek-",            // safe
+            "keychain://com.cloister/master-sk",             // rejected
+            "keychain://com.cloister/backup-signing-key",    // rejected
+            "keychain://com.cloister/ok-bundle-kek",         // safe
+        ]))
+        .unwrap_err();
+        assert_eq!(err.len(), 2);
+        assert!(err.iter().any(|v| v.prefix.contains("master-sk")));
+        assert!(err.iter().any(|v| v.prefix.contains("signing-key")));
+    }
+
+    #[test]
+    fn resolve_allow_violation_display_names_the_substring_and_the_prefix() {
+        let err = validate_resolve_allow_prefixes(&v(&[
+            "keychain://com.cloister/vault-kek-master-sk",
+        ]))
+        .unwrap_err();
+        let s = format!("{}", err[0]);
+        assert!(s.contains("master-sk"));
+        assert!(s.contains("vault-kek-master-sk"));
+        assert!(s.contains("cloister-9bee1f"));
+    }
+
+    #[test]
+    fn resolve_allow_first_substring_wins_per_entry() {
+        // "master-sk" is listed before "-sk" in DANGEROUS_SUBSTRINGS, so
+        // an entry containing both reports "master-sk" — a more specific
+        // diagnosis is more useful to the operator than the generic
+        // "-sk" alone.
+        let err = validate_resolve_allow_prefixes(&v(&[
+            "keychain://com.cloister/master-sk-mirror",
+        ]))
+        .unwrap_err();
+        assert_eq!(err.len(), 1);
+        assert_eq!(err[0].matched, "master-sk");
     }
 }
