@@ -1,0 +1,6 @@
+{
+  "id":          "recipes",
+  "description": "Phase 1 recipe smoke validation — each recipes/<name>/ has README.md + cloister.capnp/cluster.toml; READMEs link to docs/reference/ canonical pages (cloister-449f82)",
+  "severity":    "block",
+  "run":         "node scripts/lint-recipes.mjs"
+}

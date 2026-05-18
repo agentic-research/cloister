@@ -47,6 +47,11 @@ For "the smallest cluster that does something useful" pick
 For the full identity story (notme + companion + signing surface), see
 [`agent-cluster`](../agent-cluster/README.md).
 
+## See also
+
+- [`docs/reference/bundle-topology.md`](../../docs/reference/bundle-topology.md) — canonical per-bundle reference (tier + transport + purpose)
+- [`docs/reference/backend-kinds.md`](../../docs/reference/backend-kinds.md) — canonical `Backend.kind` enum reference
+
 ## Next steps after `cloister init --recipe rosary-dev`
 
 ```sh

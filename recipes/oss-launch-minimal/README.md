@@ -42,6 +42,11 @@ For the full identity story (notme + companion + signing surface), see
 For the full ART development surface (bead + mache + lsp + lifecycle +
 identity), see [`rosary-dev`](../rosary-dev/README.md).
 
+## See also
+
+- [`docs/reference/bundle-topology.md`](../../docs/reference/bundle-topology.md) — canonical per-bundle reference (tier + transport + purpose)
+- [`docs/reference/backend-kinds.md`](../../docs/reference/backend-kinds.md) — canonical `Backend.kind` enum reference
+
 ## Next steps after `cloister init --recipe oss-launch-minimal`
 
 ```sh
