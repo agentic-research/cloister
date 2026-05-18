@@ -88,7 +88,7 @@ work-tracking, follow the linked bead.
 | `cloister-9bee1f` | /resolve allow-list: startup-time validator rejects prefixes that could match signing-key URLs | closed (PR #20, 2026-05-17) |
 | `cloister-aa9376` | vault DO: collapse 403/404 status-code enumeration oracle (mirror disclosure §9.4.b) | closed (PR #21, 2026-05-17) |
 | `cloister-d9a3c6` | keystore: TTL cache map grows unboundedly under unique-URL probe flood | stale-closed (shipped under cloister-2a0faa, commit a29dd88; pinned by `resolve_cache_bounded_under_unique_spec_flood`) |
-| `cloister-211b68` | vault DO: unbounded RPC queue allows self-DoS (no per-caller budget) | shipped (F1 token-bucket in `vault/src/rate-bucket.ts` + per-method costs in `src/vault-store.ts:#consumeBudget`) — **bead close still blocked by auto-mode classifier; needs explicit user-authorized close** |
+| `cloister-211b68` | vault DO: unbounded RPC queue allows self-DoS (no per-caller budget) | closed 2026-05-18 — F1 token-bucket shipped at commit `4499f7c` (`vault/src/rate-bucket.ts` + `src/vault-store.ts:#consumeBudget`) |
 | `cloister-2176e4` | vault DO: KEK source path is cached per-DO but cold-start is amplification-amenable | stale-closed (clear-on-rejection at `src/vault-store.ts:524-528` + bounded retry in `vault/src/kek-source.ts:203`; commit 4499f7c) |
 | `cloister-21b5eb` | vault DO: write-side has no rate-distinct cost from read-side | stale-closed (credential-payload caps in `vault/src/vault.ts:CREDENTIAL_LIMITS` + write=3/read=1 in RATE_LIMITS.COST; commit 4499f7c) |
 | `cloister-d816a0` | ADR-0019 normative-req consolidation (18 → 15; move impl/log invariants to "Implementation pins") | closed (PR #22, 2026-05-17) |
