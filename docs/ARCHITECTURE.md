@@ -140,6 +140,8 @@ Durable Object SQLite. Both use the same DO SQL API (`ctx.storage.sql`).
 Tier classification per ADR-0011's three-criterion test: **BeadStore** is
 bundle-tier (per-repo, idFromName(repo)); **TrustStore**, **BlobStore**,
 and **CredentialVault** are hypervisor-tier singletons (idFromName("cluster")).
+The full hypervisor-tier DO map + the per-bundle topology live in
+[`docs/reference/bundle-topology.md`](reference/bundle-topology.md).
 
 ## Request routing — two layers
 
