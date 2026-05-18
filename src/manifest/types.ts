@@ -32,7 +32,42 @@ export interface Gateway {
    * deployments.
    */
   supportedProtocolVersions?: readonly string[];
+  /**
+   * `cloister/credential-isolation/v1` service registry (cloister-8f57f0,
+   * ADR-0024). Each entry declares (service-name → upstream-base-URL,
+   * injection strategy, allow-list, rate limit). Consumed by the
+   * `vaultProxy` Route at instantiate time — the route's URL parser
+   * (`/vault/proxy/<service>/<path>`) keys the lookup. Empty / omitted
+   * ⇒ no services declared; every `/vault/proxy/*` request returns 404
+   * (safe-closed default).
+   */
+  vaultProxyServices?: readonly VaultProxyServiceConfig[];
 }
+
+/**
+ * Manifest-side declaration of a `cloister/credential-isolation/v1`
+ * upstream service. Mirrors the capnp `VaultProxyService` struct.
+ * Runtime conversion to the route's `VaultProxyService` shape (which
+ * uses a TS-discriminated-union injection) lives in `runtime.ts`.
+ */
+export interface VaultProxyServiceConfig {
+  name:               string;
+  upstreamBaseUrl:    string;
+  defaultAllowedSubs: readonly string[];
+  rateLimitPerMinute: number;
+  injection: VaultProxyInjection;
+}
+
+/**
+ * Discriminated union of injection strategies. Object-with-single-key
+ * shape matches capnp's JSON encoding of unions.
+ */
+export type VaultProxyInjection =
+  | { authorizationBearer: null }
+  | { authorizationBasic:  null }
+  | { headerNamed:         { name: string } }
+  | { queryParam:          { name: string } }
+  | { bodyField:           { path: string } };
 
 export interface Metadata {
   name:    string;
