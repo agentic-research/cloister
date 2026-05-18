@@ -1,0 +1,6 @@
+{
+  "id":          "cargo-pins",
+  "description": "ed25519-dalek tilde-pinned per ADR-0019 §Implementation pins (cloister-9bfbf6 / §15.7)",
+  "severity":    "block",
+  "run":         "node scripts/lint-cargo-pins.mjs"
+}
