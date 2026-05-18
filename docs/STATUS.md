@@ -73,6 +73,7 @@ work-tracking, follow the linked bead.
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-da0f35` | host_adversarial.rs: unsafe env var mutation races with parallel tests | closed (PR #18, 2026-05-17) |
+| `cloister-d9da67` | keystore: run_subprocess_with_trim reads stdout with no size cap | in flight |
 
 ## Convention
 
