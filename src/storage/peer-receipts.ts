@@ -102,6 +102,16 @@ export function findPeerReceipt(
   return rows[0] as unknown as PeerReceiptRow;
 }
 
+/**
+ * Default retention window for receipts past a retired epoch's
+ * decommission. Per RECEIPTS.md §2.3 the SHOULD-recommended retention
+ * is 7 years from epoch retirement. Per-actor override lands as a
+ * follow-up once `actor_ca_bundle` gains a `ca_decommission_after_ms`
+ * column (cloister-c1691c Phase 2).
+ */
+export const DEFAULT_RECEIPT_RETENTION_MS =
+  7 * 365 * 24 * 60 * 60 * 1000;
+
 /** List receipts for an actor + epoch (audit sweep helper). */
 export function listReceiptsForActorEpoch(
   sql: SqlExecutor,
@@ -119,4 +129,50 @@ export function listReceiptsForActorEpoch(
     actorFp, epoch, limit,
   ).toArray();
   return rows as unknown as PeerReceiptRow[];
+}
+
+/**
+ * Delete `direction='out'` receipts whose epoch is RETIRED in
+ * `actor_ca_bundle` AND past the per-actor retention window. Returns
+ * `{ deleted, oldestRemainingMs }` — operator metric of post-prune
+ * storage horizon. `oldestRemainingMs` is null when the table is
+ * empty after prune.
+ *
+ * Direction-scope rationale: cloister stores its OWN actor's bundle
+ * locally (one row per epoch). For `direction='in'` receipts (observed
+ * from external peers), the retired-epoch metadata lives at the peer's
+ * `.well-known/interlace/index.json`, NOT in our `actor_ca_bundle`.
+ * Phase 1 prunes only `direction='out'` so the join is unambiguous;
+ * Phase 2 (when peer bundles are mirrored locally) can extend the
+ * helper to direction='in' too. Per cloister-c1691c.
+ *
+ * Active-epoch receipts (epoch is in `actor_ca_bundle` with
+ * `status='active'`, OR epoch has no `actor_ca_bundle` row at all)
+ * are never pruned regardless of age — the receipts are still
+ * verifiable while the signing key is in rotation.
+ */
+export function pruneExpiredReceipts(
+  sql: SqlExecutor,
+  nowMs: number,
+  retentionMs: number = DEFAULT_RECEIPT_RETENTION_MS,
+): { deleted: number; oldestRemainingMs: number | null } {
+  const deleteSql =
+    "DELETE FROM peer_receipts" +
+    " WHERE direction = 'out'" +
+    "   AND epoch IN (" +
+    "     SELECT epoch FROM actor_ca_bundle" +
+    "      WHERE status = 'retired'" +
+    "        AND retired_at_ms IS NOT NULL" +
+    "        AND (retired_at_ms + ?) < ?" +
+    "   )" +
+    " RETURNING request_hash";
+  const deleted = sql.exec(deleteSql, retentionMs, nowMs).toArray().length;
+
+  const oldestRow = sql
+    .exec("SELECT MIN(timestamp_ms) AS m FROM peer_receipts")
+    .toArray() as Array<{ m: number | null }>;
+  const oldestRemainingMs =
+    oldestRow.length > 0 && oldestRow[0].m !== null ? oldestRow[0].m : null;
+
+  return { deleted, oldestRemainingMs };
 }

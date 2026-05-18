@@ -92,9 +92,11 @@ import {
   upsertTag as upsertTagHelper,
 } from "./storage/registry-tags.js";
 import {
+  DEFAULT_RECEIPT_RETENTION_MS,
   SCHEMA_PEER_RECEIPTS,
   findPeerReceipt as findPeerReceiptHelper,
   listReceiptsForActorEpoch as listReceiptsForActorEpochHelper,
+  pruneExpiredReceipts as pruneExpiredReceiptsHelper,
   upsertPeerReceipt as upsertPeerReceiptHelper,
   type PeerReceiptRow,
 } from "./storage/peer-receipts.js";
@@ -642,6 +644,29 @@ export class TrustStore extends DurableObject {
   /** List receipts for an actor+epoch (audit sweep). */
   listReceiptsForActorEpoch(actorFp: string, epoch: number, limit = 100): PeerReceiptRow[] {
     return listReceiptsForActorEpochHelper(this.db, actorFp, epoch, limit);
+  }
+
+  /**
+   * Prune `direction='out'` receipts whose epoch was retired more than
+   * `retentionMs` ago. Defaults to 7-year retention per
+   * RECEIPTS.md §2.3 (`DEFAULT_RECEIPT_RETENTION_MS`).
+   *
+   * Returns `{ deleted, oldestRemainingMs }`. Caller (alarm handler or
+   * op-level sweep) logs the result with `outcome=receipt_prune`.
+   * Active-epoch receipts (epoch in `actor_ca_bundle` with
+   * `status='active'`, or epoch absent from `actor_ca_bundle`) are
+   * NEVER pruned — they remain verifiable while the key is in
+   * rotation.
+   *
+   * Alarm wiring (hourly cadence + matching seen-nonces sweep) lands
+   * as a follow-up under the substrate-pattern bead that also covers
+   * `pruneSeenNonces`. Per cloister-c1691c Phase 1.
+   */
+  pruneExpiredReceipts(
+    nowMs: number,
+    retentionMs: number = DEFAULT_RECEIPT_RETENTION_MS,
+  ): { deleted: number; oldestRemainingMs: number | null } {
+    return pruneExpiredReceiptsHelper(this.db, nowMs, retentionMs);
   }
 
   // ── Actor CA bundle archive (RECEIPTS.md §2.3 + §2.7) ───────────────────

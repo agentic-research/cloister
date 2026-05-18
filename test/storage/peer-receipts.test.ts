@@ -2,11 +2,14 @@
 import { describe, expect, it } from "vitest";
 import { env, runInDurableObject } from "cloudflare:test";
 import {
+  DEFAULT_RECEIPT_RETENTION_MS,
   type PeerReceiptRow,
   findPeerReceipt,
   listReceiptsForActorEpoch,
+  pruneExpiredReceipts,
   upsertPeerReceipt,
 } from "../../src/storage/peer-receipts.js";
+import { upsertActorCaBundle } from "../../src/storage/actor-ca-bundle.js";
 
 function row(overrides: Partial<PeerReceiptRow> = {}): PeerReceiptRow {
   return {
@@ -90,6 +93,116 @@ describe("peer_receipts helpers", () => {
     await runInDurableObject(stub, async (instance: any) => {
       const sql = instance.ctx.storage.sql;
       expect(findPeerReceipt(sql, "nobody", "nothing", "in")).toBeNull();
+    });
+  });
+});
+
+// ── cloister-c1691c: pruneExpiredReceipts retention sweep ───────────────
+
+describe("pruneExpiredReceipts (cloister-c1691c)", () => {
+  it("prunes a direction='out' receipt past retention; keeps fresh row", async () => {
+    const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("receipts-prune-1"));
+    await runInDurableObject(stub, async (instance: any) => {
+      const sql = instance.ctx.storage.sql;
+      // Two epochs: 1 retired long ago, 2 retired recently.
+      upsertActorCaBundle(sql, {
+        epoch: 1, signing_key_pubkey_b64u: "pk-1", cert_der_b64u: null,
+        issued_at_ms: 1_000_000_000_000, retired_at_ms: 1_100_000_000_000,
+        status: "retired", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      upsertActorCaBundle(sql, {
+        epoch: 2, signing_key_pubkey_b64u: "pk-2", cert_der_b64u: null,
+        issued_at_ms: 2_000_000_000_000, retired_at_ms: 2_100_000_000_000,
+        status: "retired", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      // direction='out' in each epoch.
+      upsertPeerReceipt(sql, row({ direction: "out", epoch: 1, request_hash: "stale", timestamp_ms: 1_050_000_000_000 }));
+      upsertPeerReceipt(sql, row({ direction: "out", epoch: 2, request_hash: "fresh", timestamp_ms: 2_050_000_000_000 }));
+
+      // now_ms = 2_200_000_000_000; retention = 200_000_000_000 (≈ 6.3 years)
+      // Epoch 1 retired at 1.1T + 0.2T = 1.3T < now → prune.
+      // Epoch 2 retired at 2.1T + 0.2T = 2.3T > now → keep.
+      const r = pruneExpiredReceipts(sql, 2_200_000_000_000, 200_000_000_000);
+      expect(r.deleted).toBe(1);
+      expect(r.oldestRemainingMs).toBe(2_050_000_000_000);
+      expect(findPeerReceipt(sql, "actor-1", "stale", "out")).toBeNull();
+      expect(findPeerReceipt(sql, "actor-1", "fresh", "out")).not.toBeNull();
+    });
+  });
+
+  it("never prunes a receipt whose epoch is still active", async () => {
+    const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("receipts-prune-2"));
+    await runInDurableObject(stub, async (instance: any) => {
+      const sql = instance.ctx.storage.sql;
+      upsertActorCaBundle(sql, {
+        epoch: 1, signing_key_pubkey_b64u: "pk-1", cert_der_b64u: null,
+        issued_at_ms: 1_000_000_000_000, retired_at_ms: null,
+        status: "active", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      upsertPeerReceipt(sql, row({ direction: "out", epoch: 1, request_hash: "ancient", timestamp_ms: 1 }));
+
+      // now arbitrarily far in the future; retention 1 ms.
+      const r = pruneExpiredReceipts(sql, 9_999_999_999_999, 1);
+      expect(r.deleted).toBe(0);
+      expect(findPeerReceipt(sql, "actor-1", "ancient", "out")).not.toBeNull();
+    });
+  });
+
+  it("never prunes direction='in' receipts (peer-bundle metadata absent locally — Phase 1 scope)", async () => {
+    const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("receipts-prune-3"));
+    await runInDurableObject(stub, async (instance: any) => {
+      const sql = instance.ctx.storage.sql;
+      upsertActorCaBundle(sql, {
+        epoch: 1, signing_key_pubkey_b64u: "pk-1", cert_der_b64u: null,
+        issued_at_ms: 1_000_000_000_000, retired_at_ms: 1_100_000_000_000,
+        status: "retired", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      // direction='in' — observed FROM a peer. We don't own the peer's
+      // bundle, so we don't prune it even though OUR epoch 1 is retired.
+      upsertPeerReceipt(sql, row({ direction: "in", epoch: 1, request_hash: "from-peer", timestamp_ms: 1_050_000_000_000 }));
+
+      const r = pruneExpiredReceipts(sql, 9_999_999_999_999, 1);
+      expect(r.deleted).toBe(0);
+      expect(findPeerReceipt(sql, "actor-1", "from-peer", "in")).not.toBeNull();
+    });
+  });
+
+  it("oldestRemainingMs is null when the table is empty after prune", async () => {
+    const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("receipts-prune-4"));
+    await runInDurableObject(stub, async (instance: any) => {
+      const sql = instance.ctx.storage.sql;
+      upsertActorCaBundle(sql, {
+        epoch: 1, signing_key_pubkey_b64u: "pk-1", cert_der_b64u: null,
+        issued_at_ms: 1_000_000_000_000, retired_at_ms: 1_100_000_000_000,
+        status: "retired", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      upsertPeerReceipt(sql, row({ direction: "out", epoch: 1, request_hash: "only-row", timestamp_ms: 1_050_000_000_000 }));
+
+      const r = pruneExpiredReceipts(sql, 9_999_999_999_999, 1);
+      expect(r.deleted).toBe(1);
+      expect(r.oldestRemainingMs).toBeNull();
+    });
+  });
+
+  it("defaults to 7-year retention when retentionMs is not supplied", async () => {
+    const stub = env.TRUST_STORE.get(env.TRUST_STORE.idFromName("receipts-prune-5"));
+    await runInDurableObject(stub, async (instance: any) => {
+      const sql = instance.ctx.storage.sql;
+      // Retired 1ms ago — fresh under default 7-year retention.
+      const nowMs = 5_000_000_000_000;
+      upsertActorCaBundle(sql, {
+        epoch: 1, signing_key_pubkey_b64u: "pk-1", cert_der_b64u: null,
+        issued_at_ms: 4_000_000_000_000, retired_at_ms: nowMs - 1,
+        status: "retired", compromise_notice_b64u: null, external_anchor_uri: null,
+      });
+      upsertPeerReceipt(sql, row({ direction: "out", epoch: 1, request_hash: "recent-retire", timestamp_ms: nowMs - 100 }));
+
+      const r = pruneExpiredReceipts(sql, nowMs);
+      expect(r.deleted).toBe(0);
+
+      // Re-call with now > retired_at + DEFAULT_RECEIPT_RETENTION_MS → pruned.
+      const r2 = pruneExpiredReceipts(sql, nowMs + DEFAULT_RECEIPT_RETENTION_MS + 1);
+      expect(r2.deleted).toBe(1);
     });
   });
 });
