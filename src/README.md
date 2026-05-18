@@ -13,33 +13,51 @@ src/
 ├── router.ts            # Router + EdgeRoute interface (outer-layer dispatch)
 ├── backends.ts          # ToolBackend interface (MCP-layer dispatch)
 ├── beads.ts             # BeadStore Durable Object (per-repo bead state)
+├── blob-store.ts        # BlobStore Durable Object (content-addressed bytes, ADR-0003)
+├── trust-store.ts       # TrustStore Durable Object (lease counters + receipts + CA bundles, ADR-0012)
+├── vault-store.ts       # CredentialVault Durable Object (ADR-0013 + ADR-0014)
 ├── cors.ts              # ALLOWED_ORIGINS allowlist + CORS helpers
 ├── types.ts             # Env shape (workerd bindings)
 │
 ├── routes/              # EdgeRoute implementations
-│   ├── health.ts        # GET /health
-│   ├── mcp.ts           # GET|POST /mcp (SSE + JSON-RPC)
-│   ├── notme-identity.ts# /identity/* → notme service binding
-│   └── well-known.ts    # GET /.well-known/interlace/index.json
+│   ├── health.ts                  # GET /health
+│   ├── mcp.ts                     # GET|POST /mcp (SSE + JSON-RPC)
+│   ├── notme-identity.ts          # /identity/* → notme service binding
+│   ├── well-known.ts              # GET /.well-known/interlace/index.json
+│   ├── well-known-identity.ts     # GET /.well-known/cloister/identity
+│   ├── well-known-mcp-registry.ts # GET /.well-known/cloister/mcp-registry (ADR-0016)
+│   ├── lease-middleware.ts        # Interlace lease verification (ADR-0007); gates /mcp + disclosure
+│   ├── bead-create-orchestrator.ts# Cross-DO bead_create handoff (ADR-0012 / §13.4)
+│   ├── disclosure.ts              # GET /interlace/peers/{fp} (peer attestation chain)
+│   ├── ca-bundle.ts               # GET /interlace/ca-bundle/[epoch] (RECEIPTS.md §2.3)
+│   ├── receipt-emitter.ts         # Interlace-Receipt header construction (RECEIPTS.md)
+│   ├── receipt-stream.ts          # SSE receipt-stream pairing (open_commitment_hash)
+│   ├── oci-registry.ts            # OCI Distribution Spec Phase 1+2 (cloister-3a3b0d)
+│   └── roots-state.ts             # MCP roots-state helpers
 │
 ├── manifest/            # capnp manifest → runtime EdgeRoute table
-│   ├── types.ts         # hand-mirrored Cloister.Gateway TS types
-│   ├── runtime.ts       # instantiate(manifest): EdgeRoute[]
-│   ├── spec.ts          # inputSchemaJson → parsed JSON Schema
-│   └── backends/        # ToolBackend factories per kind
+│   ├── types.ts             # hand-mirrored Cloister.Gateway TS types
+│   ├── cluster-types.ts     # hand-mirrored Cluster.* TS types
+│   ├── runtime.ts           # instantiate(manifest): EdgeRoute[]
+│   ├── spec.ts              # inputSchemaJson → parsed JSON Schema
+│   └── backends/            # ToolBackend factories per kind
 │       ├── durable-object.ts
-│       ├── mcp-proxy.ts
+│       ├── mcp-proxy.ts         # formerly httpForward (ADR-0015 Phase 1 rename)
 │       ├── service-binding.ts
-│       ├── uds-forward.ts    # placeholder, not wired
-│       └── leyline-net.ts    # IPC to cloister-companion
+│       ├── uds-forward.ts       # placeholder, not wired
+│       └── leyline-net.ts       # IPC to cloister-companion
 │
 ├── wire/                # hand-rolled capnp codec (ADR-0005)
-│   ├── codec.ts         # WireBuilder / WireReader (pointer + segment primitives)
-│   ├── manifest.ts      # encode/decode Manifest (dead in production — kept for schema parity)
-│   ├── tool-call.ts     # encode/decode ToolCall (used by leyline-net.ts)
-│   └── tool-result.ts   # encode/decode ToolResult (composite-list + union)
+│   ├── codec.ts             # WireBuilder / WireReader
+│   ├── manifest.ts          # encode/decode Manifest (kept for schema parity)
+│   ├── tool-call.ts         # encode/decode ToolCall (used by leyline-net.ts)
+│   ├── tool-result.ts       # encode/decode ToolResult
+│   └── receipts.ts          # Interlace 0.2.0 receipt envelope codec
 │
-├── storage/             # DO-internal storage helpers (when present)
+├── storage/             # SQLite-backed helpers used by the DOs (peer-lease-counters,
+│                        # actor-ca-bundle, peer-attestations, peer-receipts, bundle-canonical,
+│                        # disclosure-cursor, seen-nonces, registry-tags, pending-attestations,
+│                        # ca-bundle-cache, notme-bundle-fetcher, typed-cid, canonical, workerd)
 │
 └── generated/           # gitignored — populated by `task manifest`
     └── manifest.ts      # typed JSON literal of the consumer cloister.capnp

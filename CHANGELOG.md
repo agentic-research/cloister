@@ -8,6 +8,87 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-05-17
+
+Eight feature PRs + ten stale-close reconciliations in a single
+session (`cloister-963bf6` doc-polish + reorg landing after).
+
+- **Bidi TOML ↔ capnp pipeline (Phase 1)** (PR #9, `cloister-ae06f3`,
+  [ADR-0025](docs/adr/0025-bidi-toml-pipeline.md)) — `cluster.toml`
+  at the repo root is now the operator-facing source. `task cluster:toml`
+  parses + validates against `ClusterSchema` (zod via schema-bridge)
+  + renders `src/generated/cluster.ts`. Capnp stays the substrate
+  schema authority. Lossless on the data layer; comments NOT preserved
+  (P3 follow-up).
+
+- **`cluster:toml` chains canonicalize** (PR #12, `cloister-fe891f`)
+  — operator workflow is one verb. `task cluster:toml` now chains
+  forward + reverse legs so `httpPort = 9999` lands as canonical
+  `httpPort = 9_999` in one step.
+
+- **`task done` pre-PR readiness gate** (PR #13, `cloister-0d5e0f`)
+  — drop-in `done-rules/*.json` (mache smell-rules shape). Five
+  seed rules; cargo-pin rule (PR #15) extended cleanly to six.
+
+- **`/.well-known/interlace/index.json` epoch index** (PR #11,
+  `cloister-c13fa5`, RECEIPTS.md §2.3) — discovery doc bumps to
+  Interlace 0.2.0 + carries epoch list with per-epoch pubkey + §2.7
+  compromise notices, projected from `TrustStore.listCaBundleEpochs()`.
+  Backwards-compat with 0.1.0 readers preserved.
+
+- **`lint:bundle-isolation` reads `cluster.ts` not `cluster.capnp`**
+  (PR #10, `cloister-cf519b`) — post-ADR-0025, `cluster.toml` is
+  authoritative + `cluster.ts` is the canonical derived artifact.
+  Lint catches ADR-0013-violating bundles in `cluster.toml` even
+  when `cluster.capnp` is stale.
+
+- **schema-bridge emits `.strict()`** (PR #14, `cloister-cf2e6a`,
+  skeptic N1 from `cloister-ae06f3`) — zod's default behavior
+  silently drops unknown keys. `.strict()` rejects them at the
+  boundary where schema-bridge is the source of truth.
+
+- **`lint:cargo-pins` for ed25519-dalek tilde-pin** (PR #15,
+  `cloister-9bfbf6`, ADR-0019 §15.7) — cargo-deny operates on
+  resolved versions (Cargo.lock); the `~` vs `^` vs bare vs `*`
+  shape is purely syntactic in Cargo.toml. Lint parses the string
+  directly.
+
+- **README §13.2 row split** (PR #16, `cloister-ff437f`) — the
+  load-bearing-claims table's §13.2 row was a 470-char wall
+  conflating request-side + response-side. Split into two; added
+  "this is a summary; full prose lives at
+  `docs/security/load-bearing-claims.md`" framing.
+
+Plus ten **stale-close reconciliations** (work already on main; bead
+just got reconciled): `cloister-e14804`, `cloister-1f249f`,
+`cloister-99165e`, `cloister-d95f0d`, `cloister-ff3169`,
+`cloister-dc21b3`, `cloister-d7a862`, `cloister-7cd202`,
+`cloister-d7674e`, `cloister-906adf`.
+
+### Shipped 2026-05-16
+
+- **`CLOISTER_DO_PATH` env-var override** (PR #7, `cloister-addcdd`,
+  [ADR-0023](docs/adr/0023-host-path-resolution.md)) — macOS
+  unblocker for `task serve:local`. `scripts/emit-workerd-config.mjs`
+  substitutes the resolved path into `dist/config.capnp`'s
+  `do-storage` service entry at build time. No `sudo`, no firmlinks,
+  no docker required.
+
+- **`task image:run` composable OCI launcher + DO SQLite
+  unencrypted-at-rest disclaimer** (PR #5, `cloister-a3681d`) —
+  `image:run` chains image → image:load → docker run with `/data/do`
+  as a named volume. Disclaimer added across GETTING-STARTED + ADR
+  surface: vault ciphertexts ARE AES-GCM-encrypted; bead/trust/blob
+  tables are not. Don't drop production-sensitive data into a dev
+  install.
+
+- **ADR-0024: `cloister/credential-isolation/v1` capability + STATUS.md
+  tracking index** (PR #8) — first concrete capability spec under the
+  substrate-as-kernel framing (`cloister-1b59a2`). Defines capability
+  shape, wire protocol, identity model, audit invariants, injection-
+  strategy union. `docs/STATUS.md` lands as the canonical reality
+  index for "what's Shipped vs Drafted vs Blocked."
+
 ### Shipped 2026-05-13
 
 - **leyline-sign-helper keystore federation + ResolveCache hardening**

@@ -331,7 +331,7 @@ graph TD
     subgraph backends ["MCP backends"]
         BI["backends.ts<br/>ToolBackend interface<br/>JsonRpcInvocationError"]
         BB["manifest/backends/durable-object.ts<br/>DurableObjectToolBackend"]
-        BL["manifest/backends/http-forward.ts<br/>HttpForwardToolBackend"]
+        BL["manifest/backends/mcp-proxy.ts<br/>McpProxyToolBackend<br/>(formerly httpForward, ADR-0015 Phase 1 rename)"]
         BS["manifest/backends/service-binding.ts<br/>ServiceBindingToolBackend"]
         BU["manifest/backends/uds-forward.ts<br/>UdsForwardToolBackend<br/>(via companion proxy, cloister-46fc1a)"]
         BLN["manifest/backends/leyline-net.ts<br/>LeylineNetToolBackend (ADR-0005)"]

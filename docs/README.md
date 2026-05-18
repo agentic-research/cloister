@@ -10,7 +10,7 @@ Everything under `docs/` is one of these kinds:
 
 | Subdir | What lives there |
 |---|---|
-| [`adr/`](adr/) | Numbered architectural decisions — the *why* behind every substrate choice. Current range: ADR-0001 through ADR-0021. Start with ADR-0001 → ADR-0002 → ADR-0007 (Interlace) → ADR-0011 (hypervisor/bundle boundary) for the core mental model. |
+| [`adr/`](adr/) | Numbered architectural decisions — the *why* behind every substrate choice. Current range: ADR-0001 through ADR-0025 (with ADR-0022 reserved-but-not-drafted). Per-ADR status canonical in [`STATUS.md`](STATUS.md). Start with ADR-0001 → ADR-0002 → ADR-0007 (Interlace) → ADR-0011 (hypervisor/bundle boundary) for the core mental model. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The substrate description — *what* runs and how it composes. Read after the README + ADR-0011. |
 | [`security/`](security/) | Threat model + adversarial-cycle reports. `threat-model.md` is the contract (17 sections); `adversarial-cycles/` records red-team findings. |
 | [`perf/`](perf/) | Benchmark reports for the load-bearing perf claims (lease pipeline, dispatch, TrustStore contention, disclosure endpoint, cold start). |
@@ -30,7 +30,7 @@ Everything under `docs/` is one of these kinds:
 | Verify a security claim | [`security/threat-model.md`](security/threat-model.md) → trace to the test + bead it cites |
 | See what red-team review found | [`security/adversarial-cycles/`](security/adversarial-cycles/) |
 | Add a new MCP tool family | [`adr/0006-derived-tool-schemas.md`](adr/0006-derived-tool-schemas.md) + the existing `LspToolBackend` template |
-| Add a new ADR | next free number is **ADR-0022** (latest is 0021); see any 00*.md for the shape |
+| Add a new ADR | next free is **ADR-0026** (latest is 0025; 0022 reserved-but-not-drafted, see `cloister-ae587d`); see any 00*.md for the shape. Per-ADR status canonical in [STATUS.md](STATUS.md). |
 | Wire a client to `/mcp` | [`integration/mcp-client.md`](integration/mcp-client.md) |
 | Operate cloister in a cluster topology | [`deployment/cluster-in-a-pod.md`](deployment/cluster-in-a-pod.md) |
 

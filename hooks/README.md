@@ -18,10 +18,14 @@ CC ─Edit→ <file>
                                                               └→ LSP enrichment (lazy)
 ```
 
-`reparse` is exposed via `LeylineLifecycleBackend` (alongside `enrich` and
-`status`) — see `src/manifest/backends/leyline-net.ts`. The plugin is fire-and-quiet: any
-failure (cloister down, no `file_path`, parse error) exits `0` silently rather
-than spamming red text on every edit.
+`reparse` is exposed by the `mcpProxy` backend whose `urlBinding=LLO_MCP_URL`
+and empty `handlesPrefix` matches the three lifecycle tools (`reparse`,
+`enrich`, `status`) by exact name — see [`docs/tenants/ley-line-mcp.md`](../docs/tenants/ley-line-mcp.md)
+for the wiring + `src/manifest/backends/mcp-proxy.ts` for the implementation
+(formerly `LeylineLifecycleBackend` / `HttpForwardToolBackend` pre-ADR-0015
+rename). The plugin is fire-and-quiet: any failure (cloister down, no
+`file_path`, parse error) exits `0` silently rather than spamming red text
+on every edit.
 
 ## Install
 
@@ -73,4 +77,6 @@ hooks/test/sync.test.mjs     node --test suite (no extra deps)
 - [../GETTING-STARTED.md](../GETTING-STARTED.md) — install + wire upstreams + verify
 - [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) — request routing diagrams
 - [../docs/adr/0002-edge-router-protocol-agnostic-backends.md](../docs/adr/0002-edge-router-protocol-agnostic-backends.md)
-  — why `LeylineLifecycleBackend` is a sibling of `LspToolBackend`
+  — why every backend (mcpProxy, durableObject, serviceBinding, udsForward, leylineNet) is a kind-typed sibling
+- [../docs/adr/0015-mcp-spec-alignment.md](../docs/adr/0015-mcp-spec-alignment.md)
+  — the `httpForward` → `mcpProxy` rename rationale

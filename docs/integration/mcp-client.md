@@ -112,7 +112,7 @@ For local dev, leave `INTERLACE_ROOT_PUBKEY` unset and skip auth entirely.
 | `connection refused` on `/mcp` | Cloister isn't running, or it's bound to a different port | `task dev` (port 8787) or `task cluster:up`; check `lsof -i :8787` |
 | `tools/list` returns empty | Upstream backends (notme, llo, mache, rosary) aren't wired | [GETTING-STARTED.md §5](../../GETTING-STARTED.md#5-wire-upstreams-only-what-you-need) — set `*_MCP_URL` env vars |
 | 401 / lease-required | `INTERLACE_ROOT_PUBKEY` is set on the deployment, but the client didn't send `X-Interlace-Lease` | Either unset the env (dev) or wire notme to mint leases (prod) |
-| 503 on `/identity/*` | notme service binding is missing | `task notme:up` to start notme on `:8788`; or remove the `notme-bot` service entry from `config.capnp` if running standalone |
+| 503 on `/identity/*` | notme service binding is missing | `cd ../notme/worker && wrangler dev --port 8788` (matches GETTING-STARTED.md §5b); or remove the `notme-bot` service entry from `config.capnp` if running standalone |
 | Tool calls hang | Backend (mache, ley-line-open) is unreachable | Check the specific `*_MCP_URL` env — `curl $URL` should return a response |
 | `bead_create` returns `peer_lease_counters not found` | TrustStore DO didn't migrate; happens on fresh installs in dev when SQL schema is rolled forward | Tear down and recreate the cluster volume: `task cluster:down -- DESTROY=1` then `task cluster:up` |
 
