@@ -74,7 +74,7 @@ work-tracking, follow the linked bead.
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-da0f35` | host_adversarial.rs: unsafe env var mutation races with parallel tests | closed (PR #18, 2026-05-17) |
 | `cloister-d9da67` | keystore: run_subprocess_with_trim reads stdout with no size cap | closed (PR #19, 2026-05-17) |
-| `cloister-9bee1f` | /resolve allow-list: startup-time validator rejects prefixes that could match signing-key URLs | in flight |
+| `cloister-9bee1f` | /resolve allow-list: startup-time validator rejects prefixes that could match signing-key URLs | closed (PR #20, 2026-05-17) |
 
 ## Convention
 
