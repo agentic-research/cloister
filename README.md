@@ -327,7 +327,7 @@ so `lsp_*` tools stay accurate inside long sessions. Config + tests:
 - **Operator setup** — [GETTING-STARTED.md](GETTING-STARTED.md) (install, run, wire upstreams, plugin)
 - **Substrate description** — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (runtime model, sequence diagrams, bindings, component map)
 - **All `docs/`** — [docs/README.md](docs/README.md) (orientation map for the 8 subdirs)
-- **Architectural decisions** — [docs/adr/](docs/adr/) (21 numbered ADRs; start with 0001 → 0002 → 0007 → 0011 for the core mental model)
+- **Architectural decisions** — [docs/adr/](docs/adr/) (24 numbered ADRs; 0001–0021 + 0023–0025, with 0022 reserved-but-not-drafted; start with 0001 → 0002 → 0007 → 0011 for the core mental model). Per-ADR status table in [`docs/STATUS.md`](docs/STATUS.md).
 - **Threat model + adversarial cycles** — [docs/security/threat-model.md](docs/security/threat-model.md) + [docs/security/adversarial-cycles/](docs/security/adversarial-cycles/)
 - **Performance** — [docs/perf/](docs/perf/) (5 bench surfaces; reproducible via `task bench:*`)
 - **Interlace protocol spec** — [interlace-spec/0.1.0/](interlace-spec/0.1.0/README.md) (vendor-neutral CDDL + test vectors)

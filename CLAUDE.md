@@ -26,23 +26,19 @@ top-level docs describe *what*.
   bindings (`BEAD_STORE`, `NOTME`, `LLO_MCP_URL`, etc.) declared on
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
-  numbered ADR before changing the substrate. The next free number is
-  ADR-0022 (0001–0021 taken). Status mix as of 2026-05-12: most are
-  Accepted; ADR-0008 is Deferred (multi-companion scale not yet a real
-  signal); ADR-0010 stays Proposed for the manifest-side vault wiring
-  question, but ADR-0013 ratified the enforcement model (V8 isolate +
-  service-binding-as-syscall) — the substrate-level security claim no
-  longer waits on ADR-0010 to land. ADR-0014 (pluggable vault KEK
-  source) ships the OS-keystore self-host story. ADR-0015 + ADR-0016
-  align cloister with the MCP-Proxy-Server framing + private MCP
-  registry surface. ADR-0017 documents the workerd-config generator
-  rationale. ADR-0018 (notme co-location, Alternative 4 split surface)
-  + ADR-0019 (sign-only trust-anchor-helper protocol) ship the
-  2026-05-12 identity-co-location arc. ADR-0020 charters the
-  adversarial red-team rotation (7 roles, weekly cycle); ADR-0021
-  resolves the F2 finding from that rotation's pilot by selecting
-  ADR-0013's per-bundle-DO design as the vault identity-propagation
-  mechanism.
+  numbered ADR before changing the substrate. **For the canonical
+  per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
+  don't duplicate the list here, it rots. Quick orient: next free
+  number is **ADR-0026** (0001–0021 + 0023–0025 land; **ADR-0022
+  reserved-but-not-drafted** — schema-bridge positioning, see
+  `cloister-ae587d`). Most ADRs are Accepted; ADR-0008 Deferred
+  (multi-companion scale not yet a real signal); ADR-0010 stays
+  Proposed (manifest-side enforcement ratified by ADR-0013); ADR-0020
+  + ADR-0021 are Proposed; everything else 0011–0019, 0023–0025 is
+  Accepted. ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker);
+  ADR-0024 specifies the `cloister/credential-isolation/v1` capability
+  under the substrate-as-kernel framing; ADR-0025 ships the bidi
+  TOML ↔ capnp pipeline with `cluster.toml` at repo root.
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
@@ -79,10 +75,12 @@ sufficient.
 
 - **Routes are declarative** — defined in `cloister.capnp`, instantiated
   by `src/manifest/runtime.ts`. Don't hand-code routes in `src/index.ts`.
-- **Backends are kind-typed** — `durableObject`, `httpForward`,
-  `serviceBinding`, `udsForward`, `leylineNet` (per ADRs 0002, 0005).
-  Adding a new kind requires a schema field, a TS mirror in
-  `src/manifest/types.ts`, and a runtime branch in `runtime.ts`.
+- **Backends are kind-typed** — `durableObject`, `mcpProxy` (formerly
+  `httpForward` per ADR-0015 Phase 1 rename; both schema variants
+  still parse), `serviceBinding`, `udsForward`, `leylineNet` (per
+  ADRs 0002, 0005, 0015). Adding a new kind requires a schema field,
+  a TS mirror in `src/manifest/types.ts`, and a runtime branch in
+  `runtime.ts`.
 - **The wire is leyline-net at companion ↔ backend** — signed capnp
   manifests with AEAD. `src/wire/codec.ts` is the cloister-side encoder/
   decoder. Per ADR-0005 amendment, cloister ↔ companion is plain capnp
@@ -134,22 +132,34 @@ sufficient.
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
 
-## In-flight substrate work (ADRs 0007–0021)
+## In-flight substrate work (ADRs 0007–0025)
 
-| ADR | Status | Decade thread |
-|---|---|---|
-| 0007 — Interlace substrate (Signet leases + attestation + discovery) | Accepted | `interlace-substrate/identity-lease`, `/attestation`, `/discovery` |
-| 0008 — companion pool / load balancing | Deferred | `interlace-substrate/adrs` |
-| 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | Accepted (Phase 1: OCI + workerd) | `interlace-substrate/adrs` |
-| 0010 — vault + bundle clusters (replaces env-var bindings with scoped slices) | Proposed (manifest-side only — enforcement ratified by ADR-0013) | `interlace-substrate/vault` |
-| 0011 — hypervisor / bundle boundary (three-criterion test) | Accepted | `interlace-substrate/adrs` |
-| 0012 — TrustStore vs BeadStore (DO classification correction) | Accepted | `interlace-substrate/adrs` |
-| 0013 — slice-grant enforcement (V8 isolate + service-binding-as-syscall) | Accepted | `interlace-substrate/vault` |
-| 0014 — pluggable KEK source (Keychain / libsecret / file / env) | Accepted | `interlace-substrate/vault` |
-| 0018 — notme co-location (Alternative 4: split surface — internal in-process, public separate Worker) | Accepted | `interlace-substrate/vault` |
-| 0019 — sign-only trust-anchor-helper protocol (POST /sign returns sig+kid, never key bytes) | Accepted | `interlace-substrate/vault` |
-| 0020 — adversarial red-team rotation (7-role review team; weekly cycle) | Proposed | `interlace-substrate/adversarial` |
-| 0021 — per-bundle vault DO instances (ADR-0013 design implementation; resolves F2 identity propagation) | Proposed | `interlace-substrate/vault` |
+Per-ADR status lives in [`docs/STATUS.md`](docs/STATUS.md); the table
+below names the post-0007 decade additions + their decade-thread
+home. When a new ADR lands, update STATUS.md first; this table is
+the decade-thread index only.
+
+| ADR | Decade thread |
+|---|---|
+| 0007 — Interlace substrate (Signet leases + attestation + discovery) | `interlace-substrate/identity-lease`, `/attestation`, `/discovery` |
+| 0008 — companion pool / load balancing | `interlace-substrate/adrs` |
+| 0009 — compute substrate portability (Linux / Firecracker / WASM / unikernel) | `interlace-substrate/adrs` |
+| 0010 — vault + bundle clusters | `interlace-substrate/vault` |
+| 0011 — hypervisor / bundle boundary (three-criterion test) | `interlace-substrate/adrs` |
+| 0012 — TrustStore vs BeadStore (DO classification correction) | `interlace-substrate/adrs` |
+| 0013 — slice-grant enforcement (V8 isolate + service-binding-as-syscall) | `interlace-substrate/vault` |
+| 0014 — pluggable KEK source (Keychain / libsecret / file / env) | `interlace-substrate/vault` |
+| 0015 — MCP-Proxy-Server alignment (`mcpProxy` backend rename) | `interlace-substrate/adrs` |
+| 0016 — cloister as private MCP registry | `interlace-substrate/adrs` |
+| 0017 — workerd-config generator rationale | `interlace-substrate/adrs` |
+| 0018 — notme co-location (Alternative 4: split surface) | `interlace-substrate/vault` |
+| 0019 — sign-only trust-anchor-helper protocol | `interlace-substrate/vault` |
+| 0020 — adversarial red-team rotation charter | `interlace-substrate/adversarial` |
+| 0021 — per-bundle vault DO instances (ADR-0013 design impl) | `interlace-substrate/vault` |
+| 0022 — *reserved-but-not-drafted* (schema-bridge positioning, `cloister-ae587d`) | — |
+| 0023 — host-path resolution (`CLOISTER_DO_PATH` macOS unblocker) | `interlace-substrate/adrs` |
+| 0024 — `cloister/credential-isolation/v1` capability | `interlace-substrate/credential-isolation` |
+| 0025 — bidi TOML ↔ capnp pipeline (`cluster.toml` operator surface) | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.

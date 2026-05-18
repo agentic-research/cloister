@@ -365,6 +365,17 @@ RECEIPT_SIGNING_KEY=<base64-of-receipt-signer-64-byte-keypair>
 RECEIPT_EPOCH=1
 ```
 
+> **Why `.dev.vars` and not `.env.local`?** wrangler's `[vars]` block
+> in `wrangler.toml` is overridden by `.dev.vars`; `.env.local` only
+> feeds the shell-sourced KEK path (`VAULT_KEK_SOURCE` / `DEV_VAULT_KEK`,
+> per `task dev:bootstrap`). Setting `INTERLACE_ROOT_PUBKEY` in
+> `.env.local` does NOT activate the lease gate — wrangler's dev
+> runtime doesn't auto-thread shell env to declared `[vars]`. This
+> was the discovery in
+> [`docs/launch/PRE-LAUNCH-VERIFICATION.md`](docs/launch/PRE-LAUNCH-VERIFICATION.md)
+> (cloister-e14804, fixed by wiring the activation vars into
+> `wrangler.toml [vars]` with empty defaults).
+
 Production deploys use `wrangler secret put <NAME>` instead of
 `.dev.vars`. With the gate active, `POST /mcp` requires a Signet lease
 cert; bundles like notme issue them.

@@ -1,3 +1,15 @@
+> **SHIPPED 2026-05-17 — historical artifact.** This plan was
+> executed end-to-end via PR #9 (bidi pipeline) + PR #12 (operator
+> workflow chain) + PR #16 (README claims-table split). Bead
+> `cloister-ae06f3` is closed. ADR-0025 is in
+> [`docs/adr/0025-bidi-toml-pipeline.md`](../../adr/0025-bidi-toml-pipeline.md);
+> `cluster.toml` is at the repo root; `task cluster:toml` chains
+> both legs. Preserved here for audit trail + as a worked example
+> of a TDD-shape plan run through to completion. See
+> [`docs/STATUS.md`](../../STATUS.md) for current state.
+
+---
+
 # Plan — Bidi TOML ↔ capnp pipeline (Phase 1)
 
 - **Bead:** `cloister-ae06f3`

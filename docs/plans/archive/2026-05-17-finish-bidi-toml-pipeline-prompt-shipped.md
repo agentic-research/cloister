@@ -1,3 +1,13 @@
+> **SHIPPED 2026-05-17 — historical artifact.** This prompt drove
+> the autonomous /loop /rosary:evolve session that shipped PR #9
+> (bidi pipeline) + PR #12 (operator-workflow chain) + PR #16
+> (README claims-table split). Bead `cloister-ae06f3` closed. ADR-0025
+> in [`docs/adr/0025-bidi-toml-pipeline.md`](../../adr/0025-bidi-toml-pipeline.md).
+> Preserved here as a worked example of a /loop-shaped autonomous
+> prompt that ran to completion.
+
+---
+
 # Brief for `/rosary:evolve` — finish bidi TOML ↔ capnp pipeline
 
 **For invoking `/rosary:evolve` against `cloister-ae06f3`.**

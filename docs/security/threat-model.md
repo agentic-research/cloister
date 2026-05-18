@@ -386,6 +386,14 @@ becomes impossible. This is worth considering. Filed as
 
 ## 9. Seam: disclosure endpoint (`GET /interlace/peers/{fp}`)
 
+> **STATUS UPDATE 2026-05-17**: shipped. `cloister-bdef0c` + its
+> prerequisites `cloister-bdcbe7` + `cloister-bd7770` all closed.
+> Implementation at [`src/routes/disclosure.ts`](../../src/routes/disclosure.ts).
+> The "Not yet implemented … blocked on" paragraph below is preserved
+> for audit trail of how the seam was originally specified; the
+> table that follows is the live contract (verified by
+> `test/routes/disclosure.test.ts`).
+
 Not yet implemented (cloister-bdef0c, blocked on bdcbe7 and bd7770). The
 threat model requires the endpoint expose:
 
