@@ -112,7 +112,10 @@ describe("CredentialVault DO — wiring + smoke", () => {
 });
 
 describe("CredentialVault DO — proxyRequest identity gate", () => {
-  it("returns 403 when callerSub is not in allowedSubs", async () => {
+  it("returns 404 (not 403) when callerSub is not in allowedSubs", async () => {
+    // cloister-aa9376: the 403 vs 404 split was a single-bit oracle
+    // enumerating service names under a verified subject_fp. Collapsed
+    // to a byte-identical 404 mirroring the disclosure §9.4.b precedent.
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "github-pat", {
       upstream: "https://api.github.com/",
@@ -129,20 +132,20 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
       probe,
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     const body = await response.text();
     // The credential bytes MUST NOT appear in the denial response.
     expect(body).not.toContain("GITHUB-PAT-DO-NOT-LEAK");
     expect(body).not.toContain("Authorization");
     expect(body).not.toContain("Bearer");
+    // The wire shape must match the no-row case (asserted as a
+    // dedicated constant-shape pin below).
+    expect(body).toBe(JSON.stringify({ error: "not_found", service: "github-pat" }));
   });
 
-  it("returns 404 (not 403) when the service doesn't exist", async () => {
-    // 404 vs 403 is a peer-existence oracle, BUT vault is gateway-internal
-    // — callers must already be authenticated by cloister-router. The
-    // disclosure-endpoint constant-time-404 concern (threat-model §9.4)
-    // doesn't apply here. Keep the more informative error code for the
-    // internal API.
+  it("returns 404 when the service doesn't exist (no-row path)", async () => {
+    // The no-row path. Pinned alongside the scope-mismatch test above
+    // to prove the wire-shape collapse (cloister-aa9376).
     const stub = vaultStub();
     const probe = new Request("https://anything.invalid/", { method: "GET" });
     const response = await stub.proxyRequest(
@@ -153,6 +156,64 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+
+  // ── cloister-aa9376: constant-shape rejection (mirrors §9.4.b) ────────
+  //
+  // Two callers probing the same verified subject_fp + service-name
+  // namespace must receive byte-identical 404 responses regardless of
+  // whether the row exists. This pins the enumeration-oracle closure.
+  it("vault proxyRequest: no-row and scope-mismatch return byte-equal 404s", async () => {
+    const stub = vaultStub();
+
+    // Seed a row whose allowedSubs do NOT include the probing caller.
+    await stub.putCredential(SUBJECT_FP_A, "exists", {
+      upstream: "https://api.example/",
+      headers: { "Authorization": "Bearer SHOULD-NOT-LEAK" },
+      allowedSubs: ["bundle:owner:*"],
+    });
+
+    const probe = new Request("https://anything.invalid/", { method: "GET" });
+
+    // 1. Unknown service: no row.
+    const r1 = await stub.proxyRequest(
+      SUBJECT_FP_A,
+      "never-existed",
+      "bundle:attacker:*",
+      probe,
+    );
+    // 2. Service exists for this subject, but caller is out of scope.
+    const r2 = await stub.proxyRequest(
+      SUBJECT_FP_A,
+      "exists",
+      "bundle:attacker:*",
+      probe,
+    );
+
+    expect(r1.status).toBe(404);
+    expect(r2.status).toBe(404);
+
+    const b1 = await r1.text();
+    const b2 = await r2.text();
+    // Service name echoes back identically in both — caller-controlled.
+    // Body byte-equality holds modulo the `service` field; assert each
+    // body matches its own service exactly and that the SHAPE matches.
+    expect(b1).toBe(JSON.stringify({ error: "not_found", service: "never-existed" }));
+    expect(b2).toBe(JSON.stringify({ error: "not_found", service: "exists" }));
+
+    // Critical: the scope-mismatch body MUST NOT carry any credential
+    // payload. The 403→404 collapse must not have regressed §scenario-2.
+    expect(b2).not.toContain("SHOULD-NOT-LEAK");
+    expect(b2).not.toContain("Authorization");
+    expect(b2).not.toContain("api.example");
+    expect(b2).not.toContain("bundle:owner");
+
+    // Header sets identical (both go through Response.json with the
+    // same status). 404 paths omit retry-after; only rate-limited 429
+    // carries it.
+    const h1 = [...r1.headers.entries()].sort();
+    const h2 = [...r2.headers.entries()].sort();
+    expect(h1).toEqual(h2);
   });
 });
 

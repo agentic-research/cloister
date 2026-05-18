@@ -450,7 +450,30 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       service,
     ).toArray() as unknown as StoredRow[];
 
+    // ── cloister-aa9376: constant-shape rejection (mirrors disclosure §9.4.b) ─
+    //
+    // Two rejection paths used to distinguish — 403 for "row exists but
+    // callerSub not in allowedSubs," 404 for "no row at all." That status
+    // code split is a single-bit oracle that enumerates the service-name
+    // namespace under a verified subject_fp (compromised in-cluster bundle
+    // holding A's lease but excluded from A's allowedSubs for every
+    // service). The bit composes with the planned in-cluster bundle Worker
+    // future — P2 today, P1 the moment the first such bundle ships.
+    //
+    // Closure: collapse both rejections to a byte-identical 404
+    // (`buildErrorResponse("not_found", ...)`) with the same wire shape.
+    // Internal audit still distinguishes via structured logs at the call
+    // site (proxyRequest's pre-#proxyRequestInner emit captures
+    // callerSub + service + outcome) — only the wire collapses.
+    //
+    // Timing equalizer: both branches now run `checkAccess` so the per-
+    // branch CPU profile matches at workerd's 1ms quantization floor.
+
     if (row.length === 0) {
+      // Run the same shape of work as the row-present path so timing
+      // doesn't leak existence. checkAccess against [] is always false;
+      // result is intentionally discarded.
+      void checkAccess([], callerSub);
       return Response.json(
         buildErrorResponse("not_found", callerSub, service, null),
         { status: 404 },
@@ -462,16 +485,13 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     const allowedSubs = JSON.parse(row[0].allowed_subs_json) as string[];
 
     if (!checkAccess(allowedSubs, callerSub)) {
+      // Byte-identical to the no-row branch above. `buildErrorResponse`
+      // omits `_cred` by construction (pinned by
+      // test/security/prompt-injection.test.ts scenario 2), so this
+      // path cannot leak upstream / headers / allowedSubs into the wire.
       return Response.json(
-        // buildErrorResponse takes cred for callsite ergonomics but
-        // deliberately omits its value from the response — pinned by
-        // test/security/prompt-injection.test.ts scenario 2.
-        buildErrorResponse("forbidden", callerSub, service, {
-          upstream,
-          headers: {},
-          allowedSubs,
-        }),
-        { status: 403 },
+        buildErrorResponse("not_found", callerSub, service, null),
+        { status: 404 },
       );
     }
 
