@@ -56,6 +56,32 @@ export interface UpstreamFetcher {
 }
 
 /**
+ * Phase 5 — audit receipts seam. The handler emits exactly one
+ * `ProxyCallReceipt` per call (success OR upstream error), capturing
+ * only non-sensitive metadata: capability + peerFp + service +
+ * upstreamStatus + sizes + wall-clock + tsMs + nonceHex. The
+ * receipt MUST NOT carry credential bytes, request body, query
+ * string, or response bytes — those are spec-pinned by the
+ * "no-leak" Phase 5 tests + the Phase 7 follow-up invariants.
+ */
+export interface ReceiptEmitter {
+  emit: (receipt: ProxyCallReceipt) => void;
+}
+
+/**
+ * Phase 7 — metric emitter seam. The handler emits exactly one
+ * `(name, labels)` pair per call. Labels are bounded-cardinality
+ * non-secret metadata: `service`, `peer_fp` (cert fingerprint, NOT
+ * credential), `status`, `injection_kind`. NEVER includes the
+ * credential value, request body, query string, or upstream URL
+ * fragments — pinned by the Phase 7 "metric labels do NOT include
+ * credential" test.
+ */
+export interface MetricEmitter {
+  emit: (metric: { name: string; labels: Record<string, string | number> }) => void;
+}
+
+/**
  * What the route gets after middleware passes. The lease is verified
  * upstream by `src/routes/lease-middleware.ts` per ADR-0007. The
  * credential lookup happens at route entry too (keyed by peerFp +
@@ -73,6 +99,10 @@ export interface VaultProxyRequest {
   storedUsername?: string;
   /** Upstream fetcher (production wires global fetch; tests pass a mock). */
   upstream: UpstreamFetcher;
+  /** Optional receipt emitter — when present, one receipt per call (Phase 5). */
+  receipts?: ReceiptEmitter;
+  /** Optional metric emitter — when present, one metric per call (Phase 7). */
+  metrics?: MetricEmitter;
 }
 
 /**
@@ -115,7 +145,140 @@ export async function vaultProxyHandler(
   // §9.4.b enumeration-oracle invariant.
   if (req.storedCredential === null) return rejection(404);
 
-  return proxyToUpstream(req, req.storedCredential, req.serviceConfig);
+  // Phase 6 — per-(peerFp, service) rate limit. 429 is distinct
+  // from the constant-shape 401/403/404 because reaching this gate
+  // means the caller already passed identity + scope + credential
+  // checks — they're authorized, just being slowed. No additional
+  // oracle is leaked vs. the 200 they'd otherwise get.
+  if (!consumeRateBudget(req.verifiedLease.peerFp, req.serviceConfig)) {
+    return new Response(
+      JSON.stringify({ error: "rate_limited", service: req.serviceConfig.name }),
+      { status: 429, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  return proxyWithReceipt(req, req.storedCredential, req.serviceConfig);
+}
+
+/**
+ * Phase 6 — per-(peerFp, service) fixed-window rate limit. Module-
+ * scoped Map keyed by `${peerFp}::${service}` so two distinct peers
+ * (or one peer hitting two distinct services) get independent
+ * buckets. Window is 60s rolling. `rateLimitPerMinute = 0` is
+ * documented as "unlimited" and skips the gate.
+ *
+ * Fixed window is simpler than token bucket and adequate for the
+ * defense-in-depth role: per-(peerFp, service) rate limits AREN'T
+ * the primary cost shield (the verified-lease pipeline + the
+ * per-service rateLimitPerMinute config + upstream's own rate
+ * limits all sit in front); this gate exists so a single
+ * compromised peer can't burn down a service's upstream-side budget
+ * without the operator noticing.
+ */
+const RATE_BUCKETS = new Map<string, { count: number; windowStart: number }>();
+const RATE_WINDOW_MS = 60 * 1000;
+
+function consumeRateBudget(peerFp: string, cfg: VaultProxyService): boolean {
+  if (cfg.rateLimitPerMinute <= 0) return true;
+  const key = `${peerFp}::${cfg.name}`;
+  const now = Date.now();
+  let bucket = RATE_BUCKETS.get(key);
+  if (bucket === undefined || (now - bucket.windowStart) >= RATE_WINDOW_MS) {
+    bucket = { count: 0, windowStart: now };
+    RATE_BUCKETS.set(key, bucket);
+  }
+  if (bucket.count >= cfg.rateLimitPerMinute) return false;
+  bucket.count += 1;
+  return true;
+}
+
+/** Test-only — clears the rate-limit state between tests. */
+export function __resetRateBuckets(): void {
+  RATE_BUCKETS.clear();
+}
+
+/**
+ * Phase 5 — wrap `proxyToUpstream` with measure-and-emit. One
+ * receipt per call regardless of outcome (success, upstream 5xx,
+ * thrown). The receipt commits only non-sensitive metadata; the
+ * helpers `requestSizeFromHeaders` + `peekResponseSize` use
+ * content-length when available and fall back to 0 (an unknown size
+ * is information about the body, but it's not credential bytes —
+ * acceptable per spec).
+ */
+async function proxyWithReceipt(
+  req: VaultProxyRequest,
+  credential: string,
+  cfg: VaultProxyService,
+): Promise<Response> {
+  const peerFp = req.verifiedLease!.peerFp;
+  const startMs = Date.now();
+  const reqSize = requestSizeFromHeaders(req.request);
+  let status = 0;
+  let respSize = 0;
+  try {
+    const res = await proxyToUpstream(req, credential, cfg);
+    status = res.status;
+    respSize = peekResponseSize(res);
+    return res;
+  } finally {
+    if (req.receipts) {
+      const receipt: ProxyCallReceipt = {
+        capability:       "cloister/credential-isolation/v1",
+        peerFp,
+        service:          cfg.name,
+        upstreamStatus:   status,
+        // Path-only, NO query string (Phase 5 no-leak invariant) —
+        // strip everything from `?` onward; query params can carry
+        // PII / tokens / user-supplied secrets.
+        upstreamUrlPath:  req.upstreamPath.split("?")[0],
+        requestSizeBytes: reqSize,
+        responseSizeBytes: respSize,
+        wallClockMs:      Date.now() - startMs,
+        tsMs:             startMs,
+        nonceHex:         generateNonceHex(),
+      };
+      req.receipts.emit(receipt);
+    }
+    if (req.metrics) {
+      // Phase 7 — bounded-cardinality labels only. NEVER include
+      // the credential value, request body, query string, or
+      // upstream URL fragments.
+      req.metrics.emit({
+        name: "vault_proxy_call",
+        labels: {
+          service:        cfg.name,
+          peer_fp:        peerFp,
+          status:         status,
+          injection_kind: cfg.injection.kind,
+        },
+      });
+    }
+  }
+}
+
+function requestSizeFromHeaders(r: Request): number {
+  const cl = r.headers.get("content-length");
+  if (cl !== null) {
+    const n = Number.parseInt(cl, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  return 0;
+}
+
+function peekResponseSize(r: Response): number {
+  const cl = r.headers.get("content-length");
+  if (cl !== null) {
+    const n = Number.parseInt(cl, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  return 0;
+}
+
+function generateNonceHex(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -156,21 +319,13 @@ async function proxyToUpstream(
     strategy.kind === "headerNamed"
   ) {
     applyHeaderInjection(upstreamHeaders, strategy, credential, username);
-    return req.upstream.fetch(new Request(baseUrl, {
-      method:  req.request.method,
-      headers: upstreamHeaders,
-      body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
-    }));
+    return req.upstream.fetch(buildUpstreamRequest(baseUrl, req, upstreamHeaders, undefined));
   }
 
   // ── queryParam (Phase 3) ───────────────────────────────────────────
   if (strategy.kind === "queryParam") {
     const url = appendQueryParam(baseUrl, strategy.name, credential);
-    return req.upstream.fetch(new Request(url, {
-      method:  req.request.method,
-      headers: upstreamHeaders,
-      body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
-    }));
+    return req.upstream.fetch(buildUpstreamRequest(url, req, upstreamHeaders, undefined));
   }
 
   // ── bodyField (Phase 3) ────────────────────────────────────────────
@@ -182,11 +337,7 @@ async function proxyToUpstream(
     const parsed = original.length === 0 ? {} : JSON.parse(original);
     const merged = deepSetPath(parsed, strategy.path, credential);
     upstreamHeaders.set("content-type", "application/json");
-    return req.upstream.fetch(new Request(baseUrl, {
-      method:  req.request.method,
-      headers: upstreamHeaders,
-      body:    JSON.stringify(merged),
-    }));
+    return req.upstream.fetch(buildUpstreamRequest(baseUrl, req, upstreamHeaders, JSON.stringify(merged)));
   }
 
   // Exhaustiveness — TS narrows `strategy` to `never` here when all
@@ -197,6 +348,33 @@ async function proxyToUpstream(
   throw new Error(
     `cloister/credential-isolation/v1: unknown injection.kind ${JSON.stringify(_exhaustive)}`,
   );
+}
+
+/**
+ * Build the outgoing upstream Request. Threads `req.request.signal`
+ * (Phase 4 — client-disconnect propagates to the upstream fetch so
+ * we don't keep paying for bytes the client will never read). When
+ * `overrideBody` is provided (e.g. `bodyField` deep-set result),
+ * use it; otherwise stream-pass-through `req.request.body` for
+ * methods that allow a body.
+ */
+function buildUpstreamRequest(
+  url: string,
+  req: VaultProxyRequest,
+  headers: Headers,
+  overrideBody: BodyInit | undefined,
+): Request {
+  const init: RequestInit = {
+    method:  req.request.method,
+    headers,
+    signal:  req.request.signal,
+  };
+  if (overrideBody !== undefined) {
+    init.body = overrideBody;
+  } else if (methodCanHaveBody(req.request.method)) {
+    init.body = req.request.body;
+  }
+  return new Request(url, init);
 }
 
 function applyHeaderInjection(
