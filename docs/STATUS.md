@@ -80,6 +80,7 @@ work-tracking, follow the linked bead.
 | `cloister-211b68` | vault DO: unbounded RPC queue allows self-DoS (no per-caller budget) | shipped (F1 token-bucket in `vault/src/rate-bucket.ts` + per-method costs in `src/vault-store.ts:#consumeBudget`) — **bead close blocked by auto-mode classifier; manual close needed** |
 | `cloister-2176e4` | vault DO: KEK source path is cached per-DO but cold-start is amplification-amenable | stale-closed (clear-on-rejection at `src/vault-store.ts:524-528` + bounded retry in `vault/src/kek-source.ts:203`; commit 4499f7c) |
 | `cloister-21b5eb` | vault DO: write-side has no rate-distinct cost from read-side | shipped (credential-payload caps in `vault/src/vault.ts:CREDENTIAL_LIMITS` + write=3/read=1 in RATE_LIMITS.COST; commit 4499f7c) — **bead close blocked by auto-mode classifier; manual close needed** |
+| `cloister-d816a0` | ADR-0019 normative-req consolidation (18 → 15; move impl/log invariants to "Implementation pins") | in flight |
 
 ## Convention
 

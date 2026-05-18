@@ -70,6 +70,14 @@ All binary fields use **base64url** (RFC 4648 §5) no-padding for
 consistency with [`interlace-spec/0.2.0-draft/RECEIPTS.md`](../../interlace-spec/0.2.0-draft/RECEIPTS.md)
 and disclosure cursors. The `+/` alphabet is rejected.
 
+The `url` field is parsed strictly: URLs containing `?` or `#` are
+rejected at parse time with HTTP 400 `bad_request`. Cloister's
+signing-scheme grammar is fixed at the cloister boundary; nono's
+`?decode=*` family reaches into nono's trust module (which links
+sigstore-verify), and the `kid` determinism invariant (req 7) is
+cleaner without query-string aliasing. (URI-grammar invariant —
+added by the 2026-05-13 cycle, threat-model §17.5.)
+
 ```
 POST /sign HTTP/1.1
 Host: 127.0.0.1:8786
@@ -231,22 +239,7 @@ counters, or last-error detail.
     direct the helper to sign with an attacker-supplied URL (e.g.,
     `op://attacker-vault/their-key/field`).
 
-15. **Helper MUST reject `POST /sign` URLs containing `?` or `#`** at
-    parse time. Cloister's signing-scheme grammar is fixed at the
-    cloister boundary; nono's `?decode=*` family reaches into nono's
-    trust module (which links sigstore-verify), and the kid-determinism
-    invariant (req 7) is cleaner without query-string aliasing. Added
-    by the 2026-05-13 cycle (threat-model §17.5).
-
-16. **Helper MUST run keystore I/O on a blocking-thread pool, not the
-    request runtime's worker threads.** The synchronous nono dispatch
-    (`keyring` crate IPC; `op` / `security` subprocess polling) goes
-    through `tokio::task::spawn_blocking` so a slow keystore call does
-    not pin a worker. Subprocess wall-clock is capped at 4500ms (under
-    the 5s `SIGN_TIMEOUT` of req 4) and the child is killed on
-    timeout. Closes 2026-05-13 cycle threat-model §17.6.
-
-17. **Helper MUST collapse all keystore-side failures to the
+15. **Helper MUST collapse all keystore-side failures to the
     constant-time 404 wire shape.** `SecretNotFound`, `KeystoreAccess`
     (e.g., "keychain locked", "op not signed in"), and `ConfigParse`
     (malformed URI) MUST all return the byte-identical 404 body. The
@@ -254,13 +247,12 @@ counters, or last-error detail.
     survive in tracing for operators, not on the wire. Closes
     2026-05-13 cycle threat-model §17.10 (oracle-friend F1+F2).
 
-18. **Helper MUST clamp `nono::*` tracing targets to INFO max.** Nono's
-    own debug lines emit redacted-but-correlatable URIs (service /
-    vault / item names) that req 11 wants out of logs. Operators
-    running `RUST_LOG=debug` for unrelated debugging would otherwise
-    inherit nono's leakage. Implemented via an EnvFilter directive in
-    the helper's `init_tracing`. Closes 2026-05-13 cycle §17.10
-    (oracle-friend F4).
+(Three other invariants added by the 2026-05-13 cycle are not
+normative on the wire and live elsewhere in this ADR — `cloister-d816a0`
+consolidation: the `/sign` URL grammar reject is the URI-shape clause
+in §"Wire protocol"; the blocking-thread-pool dispatch invariant is
+in §"Implementation pins" → "Concurrency invariants"; the `nono::*`
+tracing clamp is in §"Implementation pins" → "Logging hygiene".)
 
 ### Constant-time error shape
 
@@ -424,6 +416,28 @@ latency is bounded + operator-tunable.
   `SUBPROCESS_TIMEOUT = 4500ms` (under the 5s `SIGN_TIMEOUT`) and kills
   the child on timeout. Closes 2026-05-13 cycle trust-root-friend F3
   (PATH-hijack) + isolation-friend F-iso-3 (env wholesale inheritance).
+
+#### Concurrency invariants
+
+- **Keystore I/O MUST run on a blocking-thread pool**, not the
+  request runtime's worker threads. The synchronous nono dispatch
+  (`keyring` crate IPC; `op` / `security` subprocess polling) goes
+  through `tokio::task::spawn_blocking` so a slow keystore call does
+  not pin a worker. Subprocess wall-clock is capped at 4500ms (under
+  the 5s `SIGN_TIMEOUT` of req 4) and the child is killed on
+  timeout. (Implementation invariant; not protocol-visible. Closes
+  2026-05-13 cycle threat-model §17.6.)
+
+#### Logging hygiene
+
+- **`nono::*` tracing targets MUST be clamped to INFO max.** Nono's
+  own debug lines emit redacted-but-correlatable URIs (service /
+  vault / item names) that req 11 wants out of logs. Operators
+  running `RUST_LOG=debug` for unrelated debugging would otherwise
+  inherit nono's leakage. Implemented via an EnvFilter directive in
+  the helper's `init_tracing`. (Deployment-side log-pipeline
+  invariant; not protocol-visible. Closes 2026-05-13 cycle §17.10,
+  oracle-friend F4.)
 
 ### Implementation language and location
 
