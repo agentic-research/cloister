@@ -618,7 +618,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs
+      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
@@ -639,7 +639,7 @@ tasks:
       - node scripts/done-runner.mjs
 
   ci:
-    desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally."
+    desc: "Mirror what CI runs on push — exactly the same `task lint` (PR gate) + `task verify` (main-push gate). Use before pushing to main to catch CI failures locally. Per cloister-8e40ad, `task lint` invokes `test:lint-scripts` which now includes the e2e manifest pipeline (real fixture .capnp files driven through scripts/build-manifest.mjs, asserting happy + unhappy paths). Adding a new validator or schema invariant means adding a fixture here — never re-implementing the check in CI YAML."
     cmds:
       - 'echo "[ci] Running the exact gate CI runs. See .github/workflows/ci.yml for the workflow spec."'
       - task: lint
