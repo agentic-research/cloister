@@ -6,7 +6,12 @@ rsry over leyline-net.
 
 ## What's included
 
-| Bundle           | Tier        | Why it's here                                                |
+This recipe's bundles. Per-bundle tier + transport + purpose definitions
+live in
+[`docs/reference/bundle-topology.md`](../../docs/reference/bundle-topology.md);
+this table is the recipe-specific subset + the "why it's here" rationale.
+
+| Bundle           | Tier        | Why it's in this recipe                                      |
 | ---------------- | ----------- | ------------------------------------------------------------ |
 | `cloister-router` | hypervisor  | Gateway + DO state (BeadStore, TrustStore, BlobStore)        |
 | `notme-identity` | hypervisor  | Signet master CA, lease cert mint                            |

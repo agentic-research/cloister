@@ -220,8 +220,9 @@ radius if compromised, singleton per cluster):
 
 **At the bundle layer**: HTTP-shaped tenants registered in
 `cloister.capnp` (today: `bead_*`, `mache_*`, `lsp_*`, lifecycle, the
-identity bridge). Sibling bundles in the cluster topology (notme,
-mache, rosary) reach cloister-router via UDS service bindings.
+identity bridge). Sibling bundles reach cloister-router via UDS service
+bindings — the full cluster bundle map (tier + transport + purpose) is
+[`docs/reference/bundle-topology.md`](docs/reference/bundle-topology.md).
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime
 model + component map + sequence diagrams.

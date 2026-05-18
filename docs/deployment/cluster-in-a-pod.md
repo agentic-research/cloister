@@ -8,12 +8,10 @@ k8s pod) — same source of truth.**
 
 ## What this gets you
 
-A single `cluster.capnp` describes a deployable cloister cluster:
-
-- **cloister-router** — the gateway + DO state holder (workerd)
-- **notme-identity** — cluster's identity authority (workerd)
-- **mache** — code intelligence (Go, capnp-over-UDS)
-- **rosary** — bead orchestrator (Rust, capnp-over-UDS)
+A single `cluster.capnp` describes a deployable cloister cluster.
+The four default bundles and their tier classification live in
+[`docs/reference/bundle-topology.md`](../reference/bundle-topology.md);
+this doc focuses on the deployment commands that launch them.
 
 `task cluster:emit` compiles `cluster.capnp` into a
 `cluster.compose.yaml` (OCI compose spec, no docker-specific
