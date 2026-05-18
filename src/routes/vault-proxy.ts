@@ -45,8 +45,21 @@ export interface VaultProxyService {
 }
 
 /**
+ * Upstream fetcher seam. The route's composition root supplies a
+ * concrete fetcher (the global `fetch`, or a service-binding fetcher
+ * for in-cluster upstreams); tests supply a mock. The handler never
+ * dials directly so identity-isolation tests + integration tests can
+ * pin the exact outbound request shape.
+ */
+export interface UpstreamFetcher {
+  fetch: (request: Request) => Promise<Response>;
+}
+
+/**
  * What the route gets after middleware passes. The lease is verified
- * upstream by `src/routes/lease-middleware.ts` per ADR-0007.
+ * upstream by `src/routes/lease-middleware.ts` per ADR-0007. The
+ * credential lookup happens at route entry too (keyed by peerFp +
+ * service); the handler is pure over its inputs.
  */
 export interface VaultProxyRequest {
   request: Request;
@@ -54,6 +67,12 @@ export interface VaultProxyRequest {
   upstreamPath: string;
   verifiedLease: VerifiedLease | null;
   serviceConfig: VaultProxyService | null;
+  /** Credential bytes for the matched (peerFp, service). null if no cred is stored. */
+  storedCredential: string | null;
+  /** Optional username pair for `authorizationBasic` injection (else service.name). */
+  storedUsername?: string;
+  /** Upstream fetcher (production wires global fetch; tests pass a mock). */
+  upstream: UpstreamFetcher;
 }
 
 /**
@@ -90,11 +109,82 @@ export async function vaultProxyHandler(
   if (!checkAccess(req.serviceConfig.defaultAllowedSubs, req.verifiedLease.peerFp)) {
     return rejection(403);
   }
-  // Phase 1 boundary — success path turns green phase-by-phase.
-  throw new Error(
-    "cloister/credential-isolation/v1: success path not yet implemented (Phase 2+) — see " +
-      "docs/plans/credential-isolation-capability.md",
-  );
+  // No stored credential for this (peerFp, service) → 404 with same
+  // constant-shape body. From a probing client's POV this is
+  // indistinguishable from "service not declared," preserving the
+  // §9.4.b enumeration-oracle invariant.
+  if (req.storedCredential === null) return rejection(404);
+
+  return proxyToUpstream(req, req.storedCredential, req.serviceConfig);
+}
+
+/**
+ * Phase 2 — apply the configured injection strategy + forward to
+ * upstream. The credential goes UPSTREAM only; the caller-facing
+ * response is the upstream's response unmodified (the "client never
+ * observes the stored credential" invariant relies on the upstream
+ * being trusted not to echo, which is the contract operators sign
+ * up for when they declare a service in the manifest).
+ *
+ * Phases 3+ add query-param + body-field injection, streaming
+ * pass-through, receipts, rate limit, and the no-leak defense in depth.
+ */
+async function proxyToUpstream(
+  req: VaultProxyRequest,
+  credential: string,
+  cfg: VaultProxyService,
+): Promise<Response> {
+  const upstreamUrl = cfg.upstreamBaseUrl.replace(/\/+$/, "") + req.upstreamPath;
+  const upstreamHeaders = new Headers(req.request.headers);
+  // Strip ALL Interlace lease headers — they're cloister-internal,
+  // never forwarded to a credentialed upstream (separate trust
+  // boundary; the upstream sees a freshly-injected credential, not
+  // the caller's peer identity).
+  for (const key of Array.from(upstreamHeaders.keys())) {
+    if (key.toLowerCase().startsWith("x-interlace-")) {
+      upstreamHeaders.delete(key);
+    }
+  }
+  applyInjection(upstreamHeaders, cfg.injection, credential, req.storedUsername ?? cfg.name);
+  const upstreamReq = new Request(upstreamUrl, {
+    method:  req.request.method,
+    headers: upstreamHeaders,
+    body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
+  });
+  return req.upstream.fetch(upstreamReq);
+}
+
+function applyInjection(
+  headers: Headers,
+  strategy: InjectionStrategy,
+  credential: string,
+  username: string,
+): void {
+  switch (strategy.kind) {
+    case "authorizationBearer":
+      headers.set("Authorization", `Bearer ${credential}`);
+      return;
+    case "authorizationBasic": {
+      const pair = `${username}:${credential}`;
+      // btoa is the workerd-native base64 encoder for ASCII strings.
+      headers.set("Authorization", `Basic ${btoa(pair)}`);
+      return;
+    }
+    case "headerNamed":
+      headers.set(strategy.name, credential);
+      return;
+    case "queryParam":
+    case "bodyField":
+      // Phase 3 — implemented when the query/body tests come back online.
+      throw new Error(
+        `cloister/credential-isolation/v1: injection.kind=${strategy.kind} not yet implemented (Phase 3)`,
+      );
+  }
+}
+
+function methodCanHaveBody(method: string): boolean {
+  const m = method.toUpperCase();
+  return m !== "GET" && m !== "HEAD";
 }
 
 function rejection(status: 401 | 403 | 404): Response {
