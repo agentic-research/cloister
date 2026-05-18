@@ -194,6 +194,23 @@ struct Route {
     # via this surface to replay receipts after key rotation.
     # Backed by TrustStore.actor_ca_bundle table (cloister-ae713f).
     caBundle                @10 :Void;
+
+    # `cloister/credential-isolation/v1` route — ADR-0024, cloister-8f57f0.
+    # Handler matches `/vault/proxy/<service>/<rest...>` internally; the
+    # route's `path` is a sentinel marker. Lease-gated when
+    # `INTERLACE_ROOT_PUBKEY` is set (deployment-binding granularity, same
+    # contract as the MCP edge route).
+    #
+    # The five injection strategies (Bearer / Basic / named header /
+    # queryParam / bodyField) + per-(peerFp, service) rate limit + audit
+    # receipts + no-plaintext-leak invariants are all wired through the
+    # handler in `src/routes/vault-proxy.ts` (29 baseline tests green per
+    # PRs #29-#32). Credential-store seam in `src/routes/vault-proxy-
+    # credential-store.ts` (PR #33). Service config + credential lookup
+    # are passed into the route at composition time — manifest-side
+    # `VaultProxyService` declarations land as a Phase 11 schema add
+    # (separate bead).
+    vaultProxy              @11 :Void;
   }
 }
 

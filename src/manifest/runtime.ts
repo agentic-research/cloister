@@ -34,6 +34,7 @@ import { DisclosureRoute } from "../routes/disclosure.js";
 import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { CaBundleRoute } from "../routes/ca-bundle.js";
+import { VaultProxyRoute } from "../routes/vault-proxy-route.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { McpProxyToolBackend } from "./backends/mcp-proxy.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -159,6 +160,15 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // Sibling metadata-surface route to wellKnownInterlace; the route's
     // `path` is a sentinel marker — actual matching is in the handler.
     return new CaBundleRoute();
+  }
+  if ("vaultProxy" in k) {
+    // cloister/credential-isolation/v1 route (ADR-0024, cloister-8f57f0).
+    // Mount with SAFE-CLOSED defaults: empty service registry +
+    // in-memory credential store → every request 404 with constant-
+    // shape body. Composition root (e.g. cluster.toml bootstrap, when
+    // the Phase 11 schema add lands) supplies real CredentialStore +
+    // ServiceResolver via VaultProxyRoute's constructor deps.
+    return new VaultProxyRoute();
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

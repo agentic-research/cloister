@@ -149,7 +149,24 @@ export type RouteKind =
    *
    * See `src/routes/ca-bundle.ts`.
    */
-  | { caBundle:                null };
+  | { caBundle:                null }
+  /**
+   * `cloister/credential-isolation/v1` route (ADR-0024, cloister-8f57f0).
+   * Sentinel `path` marker — handler matches `/vault/proxy/<service>/<rest>`
+   * internally via URLPattern. The five injection strategies + identity
+   * gates + streaming pass-through + audit receipts + per-(peerFp, service)
+   * rate limit + no-plaintext-leak invariants are all wired through
+   * `src/routes/vault-proxy.ts` (29 baseline tests green per PRs #29-#32).
+   *
+   * Composition root supplies the credential store + service-config
+   * resolver — these aren't in the manifest today (Phase 11 schema add
+   * pending). The route mounts with sensible defaults (empty service
+   * registry + in-memory credential store) so a fresh deploy returns
+   * 404 with constant-shape body until the operator wires real config.
+   *
+   * See `src/routes/vault-proxy-route.ts`.
+   */
+  | { vaultProxy:              null };
 
 export interface McpRouteSpec {
   backends: readonly Backend[];
