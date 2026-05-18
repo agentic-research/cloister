@@ -34,7 +34,7 @@ work-tracking, follow the linked bead.
 
 | Capability | Reference | Bead | Notes |
 |---|---|---|---|
-| **`cloister/credential-isolation/v1`** capability | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `docs/plans/credential-isolation-capability.md` | **`cloister-8f57f0`** | First concrete capability under the substrate-as-kernel framing. **Phase 0** (parser) + **Phase 1** (identity gates: constant-shape 401/403/404) + **Phase 2** (header injection: Bearer/Basic/named) shipped 2026-05-18 (PRs #29 + #30). Phases 3-7 add their tests back as they ship; the plan doc owns the full test list. |
+| **`cloister/credential-isolation/v1`** capability | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `docs/plans/credential-isolation-capability.md` | **`cloister-8f57f0`** | First concrete capability under the substrate-as-kernel framing. **Phases 0+1+2+3** shipped 2026-05-18 (PRs #29, #30, #31): parser, identity gates, header injection (Bearer/Basic/named), query+body injection. **21 of 29 baseline tests green.** Phases 4-7 (streaming, receipts, rate limit, no-leak invariants) add their tests back as they ship. |
 | Substrate-as-kernel framing (every concrete subsystem → v1 reference impl of a named Capability Interface, k8s CNI/CSI/CRI shape) | — | `cloister-1b59a2` | Framing direction; formalizing ADR is **pending from user's other LLM session** (network-identity ADR). Don't pre-empt. Phase 1 of the substrate-schema-neutral rail shipped via `cloister-ae06f3` 2026-05-17. |
 | ADR-0022 — schema-bridge positioning + bidi pipeline framing | — (ADR not yet drafted) | `cloister-ae587d` | Overdue. ADR-0025 ships the bidi rail without it; ADR-0022 still wanted to close out the schema-bridge narrative. |
 
