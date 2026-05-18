@@ -129,6 +129,26 @@ ${SCHEMA_ACTOR_CA_BUNDLE}
  */
 const REPLAY_SENTINEL: unique symbol = Symbol("replay-sentinel");
 
+// ── DO alarm cadence + retention cutoffs (cloister-0719da) ───────────────
+//
+// First DO alarm in the cloister codebase. Runs hourly, sweeps the two
+// known periodic tables (seen_nonces + peer_receipts) in one pass.
+// Both prune helpers existed as orphan methods before this scaffolding
+// landed (filed as cloister-0719da from the c1691c Phase 1 discovery).
+//
+// Hour cadence: frequent enough to keep tables tidy under normal load
+// (1000 nonces/min → 60k entries between sweeps, still trivial on SQLite);
+// rare enough that the alarm-handler cost is amortized.
+//
+// Seen-nonces retention is bounded above by the longest cert TTL the
+// policy will ever issue. With `maxCertLifetimeSeconds = 300` (the
+// current default) a 1-hour cutoff is a 12x safety margin against
+// over-pruning. If a future policy ships a longer max-cert-lifetime,
+// bump SEEN_NONCES_RETENTION_MS to match — the constant is the
+// per-DO upper bound, not a per-cert value.
+const ALARM_INTERVAL_MS = 60 * 60 * 1000;
+const SEEN_NONCES_RETENTION_MS = 60 * 60 * 1000;
+
 // ── TEST-ONLY — DO NOT USE IN PRODUCTION ─────────────────────────────────
 //
 // Fault-injection seam for the cross-DO recovery test
@@ -178,6 +198,75 @@ export class TrustStore extends DurableObject {
     super(ctx, env);
     this.db = ctx.storage.sql;
     this.initSchema();
+    // Bootstrap the periodic-sweep alarm — idempotent (no-op if an
+    // alarm is already scheduled), so re-instantiation after a DO
+    // eviction doesn't reschedule on top of an existing one.
+    // blockConcurrencyWhile defers all method calls until bootstrap
+    // resolves, so callers always see a scheduled alarm.
+    ctx.blockConcurrencyWhile(async () => {
+      await this.ensureAlarmScheduled();
+    });
+  }
+
+  /**
+   * Idempotent — schedules the periodic-sweep alarm if (and only if)
+   * none is currently scheduled. Called once on construction; safe to
+   * call again from any entry-point that wants to re-arm after a
+   * manual `deleteAlarm()`.
+   */
+  private async ensureAlarmScheduled(): Promise<void> {
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing !== null) return;
+    await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+  }
+
+  /**
+   * Periodic-sweep handler. Runs hourly per `ALARM_INTERVAL_MS`.
+   * Sweeps both periodic tables in one pass + reschedules itself so
+   * the cadence continues. Per cloister-0719da.
+   *
+   * Sweep order is deliberate: seen_nonces first (bounded growth, hot
+   * read path), then peer_receipts (cold path; size matters
+   * operationally, not latency-wise).
+   *
+   * Failure in either sweep doesn't stop the other or the reschedule —
+   * a transient SQL error shouldn't cost us the alarm cadence.
+   */
+  override async alarm(): Promise<void> {
+    const now = Date.now();
+    let noncesDeleted = 0;
+    let receiptsDeleted = 0;
+    let oldestRemainingReceiptMs: number | null = null;
+    try {
+      noncesDeleted = this.pruneSeenNonces(now - SEEN_NONCES_RETENTION_MS);
+    } catch (e) {
+      console.error(JSON.stringify({
+        target: "trust_store", op: "alarm",
+        outcome: "seen_nonces_prune_failed",
+        err: String(e),
+      }));
+    }
+    try {
+      const r = this.pruneExpiredReceipts(now);
+      receiptsDeleted = r.deleted;
+      oldestRemainingReceiptMs = r.oldestRemainingMs;
+    } catch (e) {
+      console.error(JSON.stringify({
+        target: "trust_store", op: "alarm",
+        outcome: "receipts_prune_failed",
+        err: String(e),
+      }));
+    }
+    console.log(JSON.stringify({
+      target: "trust_store", op: "alarm",
+      outcome: "trust_store_alarm_swept",
+      seen_nonces_deleted: noncesDeleted,
+      receipts_deleted: receiptsDeleted,
+      oldest_remaining_receipt_ms: oldestRemainingReceiptMs,
+    }));
+    // Reschedule. If this fails, the alarm cadence stops — that's a
+    // hard failure worth surfacing.
+    await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
   }
 
   private initSchema(): void {
