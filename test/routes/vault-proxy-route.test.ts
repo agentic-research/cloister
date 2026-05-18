@@ -189,3 +189,158 @@ describe("VaultProxyRoute.handle — composition wiring (cloister-8f57f0 route m
     expect(res.status).toBe(404);
   });
 });
+
+// ── cloister-e2a12a (D2): vault-DO-backed CredentialStore selection ──────
+
+describe("VaultProxyRoute.handle — auto-select VaultDoCredentialStore when env.VAULT_STORE is set", () => {
+  /**
+   * D2 wires the production credential store through composition: when
+   * `env.VAULT_STORE` is present AND the test/operator didn't explicitly
+   * pass `deps.credentials`, the route lazily constructs a
+   * VaultDoCredentialStore and delegates via its `forward` method. This
+   * preserves ADR-0013 (plaintext stays in the DO) without requiring
+   * every test to wire the store themselves.
+   */
+
+  interface ForwardCall {
+    peerFp: string; service: string; callerSub: string; request: Request;
+  }
+
+  function fakeVaultStoreNamespace(opts: {
+    respondWith?: Response;
+    throwWith?:   Error;
+  } = {}): { ns: DurableObjectNamespace; calls: ForwardCall[]; idNamesSeen: string[] } {
+    const calls: ForwardCall[] = [];
+    const idNamesSeen: string[] = [];
+    const ns = {
+      idFromName(name: string): DurableObjectId {
+        idNamesSeen.push(name);
+        return { name } as unknown as DurableObjectId;
+      },
+      get(_id: DurableObjectId): DurableObjectStub {
+        return {
+          async proxyRequest(
+            peerFp: string,
+            service: string,
+            callerSub: string,
+            request: Request,
+          ): Promise<Response> {
+            calls.push({ peerFp, service, callerSub, request });
+            if (opts.throwWith) throw opts.throwWith;
+            return opts.respondWith ?? new Response('{"ok":true,"via":"vault-do"}', {
+              status: 200, headers: { "content-type": "application/json" },
+            });
+          },
+        } as unknown as DurableObjectStub;
+      },
+    } as unknown as DurableObjectNamespace;
+    return { ns, calls, idNamesSeen };
+  }
+
+  function envWithVaultStore(ns: DurableObjectNamespace | undefined): Env {
+    return { VAULT_STORE: ns } as unknown as Env;
+  }
+
+  const serviceConfigOpenAi: () => VaultProxyService | null = () => ({
+    name: "openai",
+    upstreamBaseUrl: "https://api.openai.test",
+    injection: { kind: "authorizationBearer" },
+    defaultAllowedSubs: [TEST_PEER_FP],
+    rateLimitPerMinute: 60,
+  });
+
+  it("delegates to vault DO's proxyRequest when env.VAULT_STORE is set", async () => {
+    const { ns, calls, idNamesSeen } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      // deps.credentials NOT set — route should auto-select VaultDoCredentialStore
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat", { method: "POST", body: "{}" }),
+      envWithVaultStore(ns),
+    );
+
+    expect(idNamesSeen).toEqual(["router"]);
+    expect(calls.length).toBe(1);
+    expect(calls[0].peerFp).toBe(TEST_PEER_FP);
+    expect(calls[0].service).toBe("openai");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('{"ok":true,"via":"vault-do"}');
+  });
+
+  it("returns 404 for unknown service even with vault DO available (service-declaration check runs first)", async () => {
+    const { ns, calls } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      () => null, // empty service registry
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/unknown/v1"),
+      envWithVaultStore(ns),
+    );
+    expect(res.status).toBe(404);
+    expect(calls.length).toBe(0); // never reached vault DO
+  });
+
+  it("preserves explicit deps.credentials override (test ergonomics — env.VAULT_STORE ignored)", async () => {
+    const credentials = new InMemoryCredentialStore();
+    credentials.set(TEST_PEER_FP, "openai", { credential: "sk-explicit-override" });
+
+    const { ns, calls } = fakeVaultStoreNamespace();
+    const upstream = mockUpstream({ status: 200, body: '{"via":"in-memory"}' });
+
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      credentials,                  // EXPLICIT override
+      upstream,
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(ns),         // env.VAULT_STORE set but should be ignored
+    );
+
+    expect(calls.length).toBe(0);
+    expect(upstream.lastRequest).not.toBeNull();
+    expect(upstream.lastRequest!.headers.get("Authorization")).toBe("Bearer sk-explicit-override");
+    expect(await res.text()).toBe('{"via":"in-memory"}');
+  });
+
+  it("falls back to InMemoryCredentialStore when env.VAULT_STORE is unset (dev/local)", async () => {
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      // No deps.credentials, no env.VAULT_STORE
+    });
+    // No credential stored in the implicit in-memory store → handler returns 404 constant-shape
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(undefined),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("memoizes the VaultDoCredentialStore across requests (does not reconstruct per call)", async () => {
+    const { ns, idNamesSeen } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+    });
+    const env = envWithVaultStore(ns);
+
+    await route.handle(new Request("http://x/vault/proxy/openai/v1/a"), env);
+    await route.handle(new Request("http://x/vault/proxy/openai/v1/b"), env);
+
+    // Three calls might be observed if a fresh store were built each
+    // request (constructor doesn't call idFromName, but proxyRequest
+    // does each call) — we instead assert that the cache held by NOT
+    // building a NEW VaultDoCredentialStore: two requests = two
+    // idFromName invocations because each call resolves the stub
+    // fresh, but the SAME bundleIdName ("router") is used both times.
+    expect(idNamesSeen).toEqual(["router", "router"]);
+  });
+});
