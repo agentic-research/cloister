@@ -76,7 +76,10 @@ work-tracking, follow the linked bead.
 | `cloister-449f82` | CI: recipe smoke validation (parse + emit + canonical-link drift gate) | Phase 1 shipped (PR #35, 2026-05-18); Phase 2 (parse validation) + Phase 3 (local boot smoke) deferred |
 | `cloister-8e40ad` | Taskfile-as-source-of-truth audit + e2e manifest pipeline validation | Phase 1 shipped (PR #37, 2026-05-18) — fixture-driven e2e; Phase 2 in flight (CI workflow refactor — generated-drift.yml invokes `task <name>`); Phase 3 (docs audit + drift lint) deferred |
 | `cloister-d9347e` | LSP tool ownership: move `lsp_*` tool definitions from cloister to ley-line-open | P2 — filed 2026-05-18 from ADR-0026 conversation; predecessor pattern for cloister-cf7a3b |
-| `cloister-d98db2` | cred-iso/v1: vault-DO-backed `CredentialStore` (production impl) | P1 — filed 2026-05-18; last load-bearing piece of cloister-8f57f0; design question between new-RPC vs route-via-DO documented in bead |
+| `cloister-d98db2` | cred-iso/v1: vault-DO-backed `CredentialStore` (production impl) | P1 — decomposed 2026-05-18 into D1 `cloister-e26ea8` + D2 `cloister-e2a12a` + D3 `cloister-e2d38a` for parallel dispatch. Design decision (route-via-DO, NOT new plaintext-returning RPC) resolved in D1 bead description. Resume prompt: [`docs/prompts/finish-vault-do-saga.md`](prompts/finish-vault-do-saga.md). |
+| `cloister-e26ea8` | D1 — `VaultDoCredentialStore` impl (new file, no overlap) | P1 — first of the three D-track sub-beads; commits the `CredentialStore.forward` interface bump on its own commit so D2 can rebase. |
+| `cloister-e2a12a` | D2 — wire `VaultDoCredentialStore` into vault-proxy route composition | P1 — depends on D1; 5-line composition-root edit + two tests. |
+| `cloister-e2d38a` | D3 — end-to-end vault-DO-backed integration tests (new file) | P1 — depends on D2; mirrors `test/vault/multi-tenant-isolation.test.ts` shape against the production route. |
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | closed (PR #26, 2026-05-17) |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | closed (PR #27, 2026-05-17) |
 | `cloister-c18eb3` | receipts followup: wire P-live verification into mcp-proxy outbound | Phase 1 shipped (PR #28); bead stays open as Phase 2 tracker (live wire-in + upstream CA-bundle fetcher + integration tests) |
