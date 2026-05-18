@@ -78,6 +78,16 @@ const DEFAULT_KEYCHAIN_ACCOUNT: &str = "cloister";
 #[cfg(feature = "host-extras")]
 const SUBPROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(4_500);
 
+/// Upper bound on bytes we'll read from a keystore subprocess's stdout.
+///
+/// Legitimate keystore outputs are tiny — Ed25519 raw key bytes are 32B,
+/// base64 PEM blocks ~100B, x509 certs a few KB. 64 KiB is ~3 orders of
+/// magnitude above any real ceiling and prevents an op/security CLI bug
+/// or a hijacked binary from streaming until OOM. On overflow we drop
+/// the bytes and surface `HelperError::Internal` (cloister-d9da67).
+#[cfg(feature = "host-extras")]
+const MAX_SUBPROCESS_STDOUT_BYTES: usize = 64 * 1024;
+
 /// All supported URL schemes (shown verbatim in `GET /healthz`).
 ///
 /// Op + apple-password are included only when `host-extras` is enabled
@@ -719,6 +729,41 @@ fn apple_password_env_allowlist() -> Vec<&'static str> {
     vec!["HOME"]
 }
 
+/// Outcome of a bounded stdout read.
+///
+/// `Overflow` distinguishes "subprocess produced more than `cap` bytes"
+/// from a real I/O error so callers can emit a specific log line. Both
+/// collapse to `HelperError::Internal` at the boundary — the variant
+/// only exists for observability + future test seams.
+#[cfg(feature = "host-extras")]
+#[derive(Debug)]
+enum StdoutReadError {
+    Io(std::io::Error),
+    Overflow,
+}
+
+/// Read at most `cap` bytes from `reader`. If the reader yields more
+/// than `cap` bytes, returns `Overflow` (we deliberately let the OS
+/// kernel buffer the rest so it gets dropped when the subprocess pipe
+/// closes — we don't need to consume them). Per cloister-d9da67.
+#[cfg(feature = "host-extras")]
+fn read_stdout_capped<R: std::io::Read>(
+    reader: &mut R,
+    cap: usize,
+) -> Result<Vec<u8>, StdoutReadError> {
+    // Take cap+1 so we can DISTINGUISH "exactly at cap" (legitimate)
+    // from "above cap" (overflow). Without the +1 the two collapse.
+    let mut buf = Vec::with_capacity(cap.min(4096));
+    let n = reader
+        .take((cap as u64) + 1)
+        .read_to_end(&mut buf)
+        .map_err(StdoutReadError::Io)?;
+    if n > cap {
+        return Err(StdoutReadError::Overflow);
+    }
+    Ok(buf)
+}
+
 /// Spawn the subprocess with `env_clear` + an allow-list, capture stdout,
 /// kill on timeout, return trimmed bytes.
 #[cfg(feature = "host-extras")]
@@ -785,15 +830,28 @@ fn run_subprocess_with_trim(
     };
     let mut stdout = Vec::new();
     if let Some(mut s) = child.stdout.take() {
-        if let Err(e) = s.read_to_end(&mut stdout) {
-            tracing::warn!(
-                target: "leyline_sign_helper",
-                op = "resolve",
-                backend = backend,
-                outcome = "subprocess_stdout_read_failed",
-                io_kind = ?e.kind(),
-            );
-            return Err(HelperError::Internal);
+        match read_stdout_capped(&mut s, MAX_SUBPROCESS_STDOUT_BYTES) {
+            Ok(bytes) => stdout = bytes,
+            Err(StdoutReadError::Io(e)) => {
+                tracing::warn!(
+                    target: "leyline_sign_helper",
+                    op = "resolve",
+                    backend = backend,
+                    outcome = "subprocess_stdout_read_failed",
+                    io_kind = ?e.kind(),
+                );
+                return Err(HelperError::Internal);
+            }
+            Err(StdoutReadError::Overflow) => {
+                tracing::warn!(
+                    target: "leyline_sign_helper",
+                    op = "resolve",
+                    backend = backend,
+                    outcome = "subprocess_stdout_overflow",
+                    cap_bytes = MAX_SUBPROCESS_STDOUT_BYTES,
+                );
+                return Err(HelperError::Internal);
+            }
         }
     }
     if !exit_status.success() {
@@ -1146,5 +1204,76 @@ mod tests {
         assert!(parse_apple_password_remainder("/account").is_err());
         assert!(parse_apple_password_remainder("server/").is_err());
         assert!(parse_apple_password_remainder("server/account/extra").is_err());
+    }
+
+    // ── read_stdout_capped: bounds subprocess stdout (cloister-d9da67) ───────
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_returns_full_buffer_under_cap() {
+        let payload = vec![0xAAu8; 100];
+        let mut cur = std::io::Cursor::new(payload.clone());
+        let got = read_stdout_capped(&mut cur, MAX_SUBPROCESS_STDOUT_BYTES).unwrap();
+        assert_eq!(got, payload);
+    }
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_returns_full_buffer_at_exactly_cap() {
+        // Boundary: a payload whose length equals the cap is legitimate
+        // and must succeed (the +1 take buffer is for distinguishing
+        // overflow, not for trimming at the boundary).
+        let cap = 256;
+        let payload = vec![0xBBu8; cap];
+        let mut cur = std::io::Cursor::new(payload.clone());
+        let got = read_stdout_capped(&mut cur, cap).unwrap();
+        assert_eq!(got.len(), cap);
+        assert_eq!(got, payload);
+    }
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_overflows_one_byte_past_cap() {
+        let cap = 256;
+        let payload = vec![0xCCu8; cap + 1];
+        let mut cur = std::io::Cursor::new(payload);
+        let err = read_stdout_capped(&mut cur, cap).unwrap_err();
+        assert!(matches!(err, StdoutReadError::Overflow));
+    }
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_overflows_far_past_cap() {
+        // The MAX bound itself — feed twice the production cap to confirm
+        // the dispatch path classifies this as Overflow, not Io.
+        let payload = vec![0xDDu8; MAX_SUBPROCESS_STDOUT_BYTES * 2];
+        let mut cur = std::io::Cursor::new(payload);
+        let err = read_stdout_capped(&mut cur, MAX_SUBPROCESS_STDOUT_BYTES).unwrap_err();
+        assert!(matches!(err, StdoutReadError::Overflow));
+    }
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_empty_reader_yields_empty_vec() {
+        let payload: Vec<u8> = Vec::new();
+        let mut cur = std::io::Cursor::new(payload);
+        let got = read_stdout_capped(&mut cur, MAX_SUBPROCESS_STDOUT_BYTES).unwrap();
+        assert!(got.is_empty());
+    }
+
+    #[cfg(feature = "host-extras")]
+    #[test]
+    fn read_stdout_capped_propagates_io_error_as_io_variant() {
+        // A reader that always fails — confirms the Io variant is
+        // distinguishable from Overflow at the boundary.
+        struct AlwaysErr;
+        impl std::io::Read for AlwaysErr {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(std::io::ErrorKind::Other, "boom"))
+            }
+        }
+        let mut r = AlwaysErr;
+        let err = read_stdout_capped(&mut r, MAX_SUBPROCESS_STDOUT_BYTES).unwrap_err();
+        assert!(matches!(err, StdoutReadError::Io(_)));
     }
 }
