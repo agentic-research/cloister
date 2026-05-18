@@ -64,3 +64,7 @@ rs/target/
 # Build artifacts for standalone Rust tools under tools/ (e.g.
 # schema-bridge). Same pattern as rs/: Cargo.lock tracked, target/ not.
 tools/*/target/
+
+# Python bytecode
+__pycache__/
+*.pyc

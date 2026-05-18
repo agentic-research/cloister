@@ -1,0 +1,40 @@
+{
+  "$comment": "ADVERSARIAL: byte-equality is the defense. An attacker who claims a particular canonical-bytes sha256 must actually have produced bytes that hash to that value — the spec's whole point is that the digest commits to the entire field set. These vectors document two tamper attempts and pin the CORRECT digest a conformant impl reaches from the (genuine) inputs, plus the WRONG digest the attacker is trying to pass off. Conformance: actual == expected_correct, AND actual != claimed.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "envelope_body_tamper_after_signing",
+      "description": "Attacker observed a signed request, then attempted to replay it with a different body — but the signature commits to canonical-bytes-of-original-body. A conformant impl recomputes canonical bytes from the request actually received, reaches the digest below, and compares against the digest the signature covers. The attacker's 'claimed_digest_sha256_hex' is the sha256 of an unrelated string ('totally-different-bytes') — included to make 'actual != claimed' an actual byte-comparison check, not a hand-wave.",
+      "kind": "envelope",
+      "inputs": {
+        "method": "POST",
+        "url": "/vault/proxy/openai/v1/chat/completions",
+        "ts_ms": 1700000100000,
+        "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+        "body": "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+      },
+      "claimed_digest_sha256_hex": "5c51c1e045e8951a5259408e50ef7540f5c97e7ce35b5dbc046d7e89c4069e38",
+      "expected_correct_digest_sha256_hex": "94817601cd2dfd982fb498761954399243e77734a6fe655882b12d6075555fe9"
+    },
+    {
+      "name": "receipt_capability_tag_strip",
+      "description": "Attacker constructed a receipt input with the capability tag 'cloister/credential-isolation/v1' STRIPPED — trying to cross-replay a receipt as if it were from a different (cheaper-to-forge?) capability. The tag is load-bearing: a conformant impl ALWAYS prepends the tag, so the resulting digest differs from the attacker's tag-less digest by 100% of the bits. claimed_digest is the sha256 of the tag-less concatenation; expected_correct is the proper tagged sha256.",
+      "kind": "receipt",
+      "inputs": {
+        "receipt_fields": {
+          "peer_fp_hex": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "service": "openai",
+          "upstream_status": 200,
+          "upstream_url_path": "/v1/chat/completions",
+          "request_size_bytes": 72,
+          "response_size_bytes": 348,
+          "wall_clock_ms": 413,
+          "ts_ms": 1700000100000,
+          "nonce_hex": "d1d2d3d4d5d6d7d8d9dadbdcdddedfe0"
+        }
+      },
+      "claimed_digest_sha256_hex": "9c046209fa972446229d9264e98499c1903606b6767ba70b00f19656e4bd1bd4",
+      "expected_correct_digest_sha256_hex": "f82d68ee5960cd12c2c685636c7e8996f0eebfce78eb9bee2398082418cffaaf"
+    }
+  ]
+}

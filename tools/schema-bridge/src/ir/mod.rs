@@ -14,6 +14,11 @@
 pub struct Schema {
     pub enums: Vec<Enum>,
     pub structs: Vec<Struct>,
+    // Top-level `const Name :Type = value;` declarations. Emitted as
+    // named TS exports with `as const` literal types so call sites can
+    // share the same value the capnp schema declares. Per cloister-946a59
+    // (the L1 unblocker for `@notme/contract`'s capnp adoption).
+    pub consts: Vec<Const>,
 }
 
 impl Schema {
@@ -21,6 +26,7 @@ impl Schema {
         Self {
             enums: Vec::new(),
             structs: Vec::new(),
+            consts: Vec::new(),
         }
     }
 
@@ -30,6 +36,10 @@ impl Schema {
 
     pub fn find_enum(&self, name: &str) -> Option<&Enum> {
         self.enums.iter().find(|e| e.name == name)
+    }
+
+    pub fn find_const(&self, name: &str) -> Option<&Const> {
+        self.consts.iter().find(|c| c.name == name)
     }
 }
 
@@ -94,6 +104,41 @@ pub enum FieldType {
     // representable without making FieldType itself recursive at the
     // type level.
     List(Box<FieldType>),
+}
+
+// Top-level `const Name :Type = value;` declaration. The capnp parser
+// surfaces these alongside structs/enums; the zod emitter writes them
+// as `export const Name = <literal> as const;` so consumers get
+// compile-time literal narrowing rather than `string` / `number`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Const {
+    pub name: String,
+    pub ty: FieldType,
+    pub value: ConstValue,
+}
+
+// Decoded const literal. Mirrors capnp's `value` schema variants we
+// support. Int/UInt/Float collapse the bit-width tiers because TS has
+// one numeric type — the schema declaration (`ty`) carries the
+// signedness/range, not the value variant. Struct values carry the
+// field names in declaration order so emit can produce stable output
+// without re-consulting the struct schema. List values nest naturally.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstValue {
+    Void,
+    Bool(bool),
+    Int(i64),
+    UInt(u64),
+    Float(f64),
+    Text(String),
+    // Enum constants resolve to the variant name; the index is lost,
+    // matching how the zod-emitted type uses string literals.
+    Enum(String),
+    List(Vec<ConstValue>),
+    // Pairs preserve declaration order. Missing-from-the-value fields
+    // are omitted entirely (they'll fall back to the field's default
+    // in the consumer if it parses through a zod object schema).
+    Struct(Vec<(String, ConstValue)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

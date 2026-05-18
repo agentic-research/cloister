@@ -1,0 +1,21 @@
+[project]
+name = "credisolation-ref"
+version = "0.1.0"
+description = "Reference implementation of cloister/credential-isolation/v1 (Python). Conformance harness for the wire-format spec."
+requires-python = ">=3.11"
+authors = [{ name = "cloister contributors" }]
+license = { text = "AGPL-3.0-or-later OR (spec license TBD)" }
+
+# Stdlib-only by design.
+#
+# The credential-isolation/v1 vectors commit to wire-shape canonical
+# bytes (sha256, base64url, URL building, JSON-body merging) — not to
+# new signatures. Ed25519 lease signatures + DER cert verification are
+# inherited from interlace-spec/0.1.0 (see its ref-impl-py); this v1
+# does NOT re-specify them. Keeping this package stdlib-only means a
+# second implementor can audit every byte going into a digest without
+# a transitive package surface.
+dependencies = []
+
+[tool.setuptools]
+packages = ["credisolation"]

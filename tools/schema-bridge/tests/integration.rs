@@ -14,10 +14,42 @@
 //   - fail-case: group field → UnmappedConstruct("group")
 
 use capnp::message::{Builder, HeapAllocator};
+use capnp::private::layout::{PointerBuilder, StructBuilder, StructSize};
 use capnp::schema_capnp;
+use capnp::traits::FromPointerBuilder;
+use capnp::Word;
 
 use schema_bridge::error::SchemaBridgeError;
 use schema_bridge::{inputs, outputs};
+
+// Builder-side mirror of the parser's StructPeek wrapper: lets a test
+// initialize an `any_pointer` as a raw struct so we can poke individual
+// data / pointer slots to mimic what `capnp compile` would emit for a
+// user-authored `const Foo :Bar = (…);`. The (data, pointers) sizing
+// is hard-coded big enough to cover the test fixtures — three data
+// words and two pointer slots is more than `with_const.capnp` needs.
+// Per cloister-946a59.
+struct StructPoke<'a>(StructBuilder<'a>);
+impl<'a> FromPointerBuilder<'a> for StructPoke<'a> {
+    fn init_pointer(builder: PointerBuilder<'a>, _len: u32) -> Self {
+        StructPoke(builder.init_struct(StructSize {
+            data: 3,
+            pointers: 2,
+        }))
+    }
+    fn get_from_pointer(
+        builder: PointerBuilder<'a>,
+        _default: Option<&'a [Word]>,
+    ) -> capnp::Result<Self> {
+        Ok(StructPoke(builder.get_struct(
+            StructSize {
+                data: 3,
+                pointers: 2,
+            },
+            None,
+        )?))
+    }
+}
 
 fn parse(message: &Builder<HeapAllocator>) -> Result<schema_bridge::Schema, SchemaBridgeError> {
     let reader = message.get_root_as_reader::<schema_capnp::code_generator_request::Reader>()?;
@@ -777,4 +809,237 @@ fn anonymous_inline_union_emits_flat() {
 #[ignore = "schema-bridge does not yet emit for non-union groups"]
 fn non_union_group_emits_nested_object() {
     unimplemented!("activate once schema-bridge handles non-union groups")
+}
+
+// ── Golden: top-level scalar const ─────────────────────────────────
+//
+// Mirrors `const contractVersion :Int32 = 1;` (and friends) in
+// tests/fixtures/with_const.capnp. The emit shape is
+// `export const NAME = <literal> as const;` so consuming TS gets the
+// narrowed literal type rather than a widened `number`/`string`.
+// Per cloister-946a59 (L1 of substrate-IDL).
+
+#[test]
+fn test_const_scalar() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(4);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "with_const.capnp");
+
+        // const contractVersion :Int32 = 1;
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(0xC0DE_0001);
+            node.set_display_name("with_const.capnp:contractVersion");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            c.reborrow().init_type().set_int32(());
+            c.init_value().set_int32(1);
+        }
+
+        // const productName :Text = "notme";
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(0xC0DE_0002);
+            node.set_display_name("with_const.capnp:productName");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            c.reborrow().init_type().set_text(());
+            c.init_value().set_text("notme");
+        }
+
+        // const debugMode :Bool = false;
+        {
+            let mut node = nodes.reborrow().get(3);
+            node.set_id(0xC0DE_0003);
+            node.set_display_name("with_const.capnp:debugMode");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            c.reborrow().init_type().set_bool(());
+            c.init_value().set_bool(false);
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    assert_eq!(schema.consts.len(), 3, "schema: {schema:?}");
+
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    // Each const becomes a single line `export const <name> = <lit> as const;`.
+    assert!(
+        emitted.contains("export const contractVersion = 1 as const;"),
+        "scalar int const missing or wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("export const productName = \"notme\" as const;"),
+        "scalar text const missing or wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("export const debugMode = false as const;"),
+        "scalar bool const missing or wrong shape:\n{emitted}"
+    );
+}
+
+// ── Golden: top-level list const ───────────────────────────────────
+//
+// Mirrors `const allowedScopes :List(Text) = ["read", "write", "admin"];`
+// in tests/fixtures/with_const.capnp. The emit shape is a TS array
+// literal followed by `as const` — TS's `as const` on an array narrows
+// each element to its literal type AND makes the array `readonly`,
+// which is the contract `@notme/contract` needs from its SCOPES
+// declaration. Per cloister-946a59.
+
+#[test]
+fn test_const_list() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "with_const.capnp");
+
+        // const allowedScopes :List(Text) = ["read", "write", "admin"];
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xC0DE_0010);
+        node.set_display_name("with_const.capnp:allowedScopes");
+        node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+        let mut c = node.init_const();
+        // type: List(Text)
+        {
+            let ty = c.reborrow().init_type();
+            let list = ty.init_list();
+            list.init_element_type().set_text(());
+        }
+        // value: List with three text entries.
+        {
+            let value = c.init_value();
+            let any_ptr = value.init_list();
+            let mut list: capnp::text_list::Builder = any_ptr.initn_as(3);
+            list.set(0, "read");
+            list.set(1, "write");
+            list.set(2, "admin");
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    assert_eq!(schema.consts.len(), 1);
+
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    assert!(
+        emitted.contains(r#"export const allowedScopes = ["read", "write", "admin"] as const;"#),
+        "list const missing or wrong shape:\n{emitted}"
+    );
+}
+
+// ── Golden: top-level struct const ─────────────────────────────────
+//
+// Mirrors `struct ErrorStatus { code; message; retryable; }` +
+// `const notFoundStatus :ErrorStatus = (code = 404, message = "not
+// found", retryable = false);` in tests/fixtures/with_const.capnp. The
+// emit shape is `{ field: value, ... } as const` with declaration-order
+// field preservation. The wire-layout decoder reads each field from
+// the const value's StructReader by its capnp ABI offset, which is
+// what `capnp compile` writes into the CodeGeneratorRequest. Per
+// cloister-946a59.
+
+#[test]
+fn test_const_struct() {
+    let mut message = Builder::new_default();
+    let status_struct_id: u64 = 0xC0DE_0100;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "with_const.capnp");
+
+        // struct ErrorStatus { code @0 :Int32; message @1 :Text;
+        //                       retryable @2 :Bool; }
+        // capnp lays out data fields in size-descending order, then
+        // pointer fields:
+        //   code      :Int32 at data offset 0 (i32-sized slot)
+        //   retryable :Bool  at bit offset 32 (after the int32)
+        //   message   :Text  at pointer offset 0
+        // Picking these explicit offsets matches what `capnp compile`
+        // would emit; the parser reads them via slot.offset.
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(status_struct_id);
+            node.set_display_name("with_const.capnp:ErrorStatus");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(3);
+            // code @0 :Int32 at data slot 0 (i32-sized)
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("code");
+                field.set_code_order(0);
+                field.set_discriminant_value(0xffff);
+                let mut slot = field.init_slot();
+                slot.set_offset(0);
+                slot.reborrow().init_type().set_int32(());
+            }
+            // message @1 :Text at pointer slot 0
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("message");
+                field.set_code_order(1);
+                field.set_discriminant_value(0xffff);
+                let mut slot = field.init_slot();
+                slot.set_offset(0);
+                slot.reborrow().init_type().set_text(());
+            }
+            // retryable @2 :Bool at bit offset 32
+            {
+                let mut field = fields.reborrow().get(2);
+                field.set_name("retryable");
+                field.set_code_order(2);
+                field.set_discriminant_value(0xffff);
+                let mut slot = field.init_slot();
+                slot.set_offset(32);
+                slot.reborrow().init_type().set_bool(());
+            }
+        }
+
+        // const notFoundStatus :ErrorStatus = (code = 404,
+        //                                      message = "not found",
+        //                                      retryable = false);
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(0xC0DE_0101);
+            node.set_display_name("with_const.capnp:notFoundStatus");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            // type: StructRef → ErrorStatus
+            {
+                let ty = c.reborrow().init_type();
+                let mut sty = ty.init_struct();
+                sty.set_type_id(status_struct_id);
+            }
+            // value: struct with the three fields poked at their ABI
+            // offsets via the StructPoke wrapper. retryable defaults
+            // to false → leave the bool slot zeroed (no set_bool call).
+            {
+                let value = c.init_value();
+                let any_ptr = value.init_struct();
+                let StructPoke(mut builder) = any_ptr.init_as::<StructPoke>();
+                builder.set_data_field::<i32>(0, 404);
+                // pointer slot 0 = message field
+                let mut t = builder.reborrow().get_pointer_field(0).init_text(9);
+                t.push_str("not found");
+                // retryable @ bit 32 stays false (zero-init), which
+                // matches the schema fixture.
+            }
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    assert_eq!(schema.consts.len(), 1, "schema: {schema:?}");
+
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+    // Declaration-order: code, message, retryable.
+    assert!(
+        emitted.contains(
+            r#"export const notFoundStatus = { code: 404, message: "not found", retryable: false } as const;"#
+        ),
+        "struct const missing or wrong shape:\n{emitted}"
+    );
 }
