@@ -134,7 +134,7 @@ async function proxyToUpstream(
   credential: string,
   cfg: VaultProxyService,
 ): Promise<Response> {
-  const upstreamUrl = cfg.upstreamBaseUrl.replace(/\/+$/, "") + req.upstreamPath;
+  const baseUrl = cfg.upstreamBaseUrl.replace(/\/+$/, "") + req.upstreamPath;
   const upstreamHeaders = new Headers(req.request.headers);
   // Strip ALL Interlace lease headers — they're cloister-internal,
   // never forwarded to a credentialed upstream (separate trust
@@ -145,18 +145,63 @@ async function proxyToUpstream(
       upstreamHeaders.delete(key);
     }
   }
-  applyInjection(upstreamHeaders, cfg.injection, credential, req.storedUsername ?? cfg.name);
-  const upstreamReq = new Request(upstreamUrl, {
-    method:  req.request.method,
-    headers: upstreamHeaders,
-    body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
-  });
-  return req.upstream.fetch(upstreamReq);
+
+  const strategy = cfg.injection;
+  const username = req.storedUsername ?? cfg.name;
+
+  // ── header-shaped strategies (Phase 2) ─────────────────────────────
+  if (
+    strategy.kind === "authorizationBearer" ||
+    strategy.kind === "authorizationBasic" ||
+    strategy.kind === "headerNamed"
+  ) {
+    applyHeaderInjection(upstreamHeaders, strategy, credential, username);
+    return req.upstream.fetch(new Request(baseUrl, {
+      method:  req.request.method,
+      headers: upstreamHeaders,
+      body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
+    }));
+  }
+
+  // ── queryParam (Phase 3) ───────────────────────────────────────────
+  if (strategy.kind === "queryParam") {
+    const url = appendQueryParam(baseUrl, strategy.name, credential);
+    return req.upstream.fetch(new Request(url, {
+      method:  req.request.method,
+      headers: upstreamHeaders,
+      body:    methodCanHaveBody(req.request.method) ? req.request.body : undefined,
+    }));
+  }
+
+  // ── bodyField (Phase 3) ────────────────────────────────────────────
+  if (strategy.kind === "bodyField") {
+    // bodyField is fundamentally incompatible with streaming (need
+    // the whole JSON to deep-set); we buffer. Streaming pass-through
+    // for the other strategies is preserved.
+    const original = await req.request.text();
+    const parsed = original.length === 0 ? {} : JSON.parse(original);
+    const merged = deepSetPath(parsed, strategy.path, credential);
+    upstreamHeaders.set("content-type", "application/json");
+    return req.upstream.fetch(new Request(baseUrl, {
+      method:  req.request.method,
+      headers: upstreamHeaders,
+      body:    JSON.stringify(merged),
+    }));
+  }
+
+  // Exhaustiveness — TS narrows `strategy` to `never` here when all
+  // arms above are present; if a new InjectionStrategy variant is
+  // added without an arm, this throws at runtime (and tsc errors at
+  // build) so we don't silently drop strategies.
+  const _exhaustive: never = strategy;
+  throw new Error(
+    `cloister/credential-isolation/v1: unknown injection.kind ${JSON.stringify(_exhaustive)}`,
+  );
 }
 
-function applyInjection(
+function applyHeaderInjection(
   headers: Headers,
-  strategy: InjectionStrategy,
+  strategy: { kind: "authorizationBearer" } | { kind: "authorizationBasic" } | { kind: "headerNamed"; name: string },
   credential: string,
   username: string,
 ): void {
@@ -165,21 +210,56 @@ function applyInjection(
       headers.set("Authorization", `Bearer ${credential}`);
       return;
     case "authorizationBasic": {
-      const pair = `${username}:${credential}`;
       // btoa is the workerd-native base64 encoder for ASCII strings.
-      headers.set("Authorization", `Basic ${btoa(pair)}`);
+      headers.set("Authorization", `Basic ${btoa(`${username}:${credential}`)}`);
       return;
     }
     case "headerNamed":
       headers.set(strategy.name, credential);
       return;
-    case "queryParam":
-    case "bodyField":
-      // Phase 3 — implemented when the query/body tests come back online.
-      throw new Error(
-        `cloister/credential-isolation/v1: injection.kind=${strategy.kind} not yet implemented (Phase 3)`,
-      );
   }
+}
+
+/**
+ * Append a query param to a URL string, encoding the value with
+ * `encodeURIComponent` (NOT `URLSearchParams` — the latter encodes
+ * spaces as `+`, which some upstream servers reject for credential
+ * tokens that legitimately contain `+`).
+ */
+function appendQueryParam(urlStr: string, name: string, value: string): string {
+  const sep = urlStr.includes("?") ? "&" : "?";
+  return `${urlStr}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+}
+
+/**
+ * Deep-set a credential at a dotted path inside a JSON object,
+ * returning a new object (no mutation of the input). Intermediate
+ * objects are created when missing. The leaf value is the credential
+ * string; pre-existing siblings at every level are preserved.
+ *
+ * `"client_secret"` → top-level key.
+ * `"auth.client_secret"` → nested. Two levels.
+ */
+function deepSetPath(obj: unknown, path: string, value: string): Record<string, unknown> {
+  const segments = path.split(".");
+  if (segments.length === 0) throw new Error("bodyField path must be non-empty");
+  const root: Record<string, unknown> =
+    obj !== null && typeof obj === "object" && !Array.isArray(obj)
+      ? { ...(obj as Record<string, unknown>) }
+      : {};
+  let cursor: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    const next = cursor[seg];
+    const child: Record<string, unknown> =
+      next !== null && typeof next === "object" && !Array.isArray(next)
+        ? { ...(next as Record<string, unknown>) }
+        : {};
+    cursor[seg] = child;
+    cursor = child;
+  }
+  cursor[segments[segments.length - 1]] = value;
+  return root;
 }
 
 function methodCanHaveBody(method: string): boolean {

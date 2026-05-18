@@ -189,6 +189,69 @@ describe("Phase 2 — header injection (authorizationBearer, authorizationBasic,
   });
 });
 
+// ── Phase 3: query + body injection ───────────────────────────────────────
+
+describe("Phase 3 — query + body injection", () => {
+  it("queryParam: upstream URL has ?api_key=<stored>", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "google",
+      injection: { kind: "queryParam", name: "api_key" },
+      storedCredential: "ya29.abc",
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    expect(upstream.lastRequest?.url).toContain("api_key=ya29.abc");
+  });
+
+  it("queryParam URL-encodes the credential value correctly", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "exotic",
+      injection: { kind: "queryParam", name: "k" },
+      storedCredential: "value with spaces & ampersands",
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    expect(upstream.lastRequest?.url).toContain("k=value%20with%20spaces%20%26%20ampersands");
+  });
+
+  it("bodyField (top-level): upstream JSON body merges in stored cred", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "oauth-svc",
+      injection: { kind: "bodyField", path: "client_secret" },
+      storedCredential: "topsecret",
+      requestBody: JSON.stringify({ client_id: "abc", grant_type: "client_credentials" }),
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    const sent = JSON.parse(await upstream.lastRequest!.text());
+    expect(sent.client_secret).toBe("topsecret");
+    expect(sent.client_id).toBe("abc"); // existing fields preserved
+  });
+
+  it("bodyField (nested path): merges in 'auth.client_secret'", async () => {
+    const upstream = mockUpstream();
+    const req = makeProxyRequest({
+      withLease: true,
+      service: "nested-oauth",
+      injection: { kind: "bodyField", path: "auth.client_secret" },
+      storedCredential: "deepsecret",
+      requestBody: JSON.stringify({ auth: { client_id: "abc" }, scope: "read" }),
+      upstream,
+    });
+    await vaultProxyHandler(req);
+    const sent = JSON.parse(await upstream.lastRequest!.text());
+    expect(sent.auth.client_secret).toBe("deepsecret");
+    expect(sent.auth.client_id).toBe("abc");
+    expect(sent.scope).toBe("read");
+  });
+});
+
 // ── Test helpers (intentionally simple — they're not the spec) ──────────
 
 /**
