@@ -66,7 +66,12 @@ work-tracking, follow the linked bead.
 | `cloister-339a22` | cloister/agent-process/v1 design (ACP server-side hosted in workerd) | P2 — design draft on `feat/cloister-339a22-agent-process-v1-design`, math-friend reviewed, awaiting direction |
 | `cloister-9bfbf6` | CI lint: ed25519-dalek tilde-pin enforcement (ADR-0019 §15.7) | closed (PR #15, 2026-05-17) |
 | `cloister-ff437f` | README §13.2 row unreadable — split into two rows + tighten | closed (PR #16, 2026-05-17) |
-| `cloister-963bf6` | doc-polish + reorg: doc-friend audit findings (B1-B8 + P-fixes + archive shipped plans) | in flight |
+| `cloister-963bf6` | doc-polish + reorg: doc-friend audit findings (B1-B8 + P-fixes + archive shipped plans) | closed (PR #17, 2026-05-17) |
+| `cloister-ff58d4` | docs/ surface lacks top-level index — orientation map | stale-closed (docs/README.md shipped via commit 201e8a1) |
+| `cloister-9cd506` | doc-restructure: per-module READMEs to one voice + one template | P3 — follow-up from 963bf6 doc-friend audit |
+| `cloister-9d14f2` | lint:doc-counts — assert "N tests" / "N ADRs" claims | P3 — follow-up from 963bf6 doc-friend audit |
+| `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | P3 — follow-up from 963bf6 doc-friend audit |
+| `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
 
 ## Convention
 
