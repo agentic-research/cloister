@@ -74,7 +74,9 @@ work-tracking, follow the linked bead.
 | `cloister-c1691c` | receipts: pruneExpiredReceipts retention sweep | Phase 1+2 shipped (PR #24 + PR #25, 2026-05-17); bead stays open as Phase 3 tracker (per-actor `ca_decommission_after_ms` override, deferred until a real second actor lands) |
 | `cloister-0719da` | substrate: TrustStore DO alarm scaffolding (closes pruneSeenNonces + pruneExpiredReceipts orphans) | closed (PR #25, 2026-05-17) |
 | `cloister-449f82` | CI: recipe smoke validation (parse + emit + canonical-link drift gate) | Phase 1 shipped (PR #35, 2026-05-18); Phase 2 (parse validation) + Phase 3 (local boot smoke) deferred |
-| `cloister-8e40ad` | Taskfile-as-source-of-truth audit + e2e manifest pipeline validation | Phase 1 shipped (PR #37, 2026-05-18) — fixture-driven e2e via `task manifest`; broader CI YAML / docs / scripts audit + drift lint deferred |
+| `cloister-8e40ad` | Taskfile-as-source-of-truth audit + e2e manifest pipeline validation | Phase 1 shipped (PR #37, 2026-05-18) — fixture-driven e2e; Phase 2 in flight (CI workflow refactor — generated-drift.yml invokes `task <name>`); Phase 3 (docs audit + drift lint) deferred |
+| `cloister-d9347e` | LSP tool ownership: move `lsp_*` tool definitions from cloister to ley-line-open | P2 — filed 2026-05-18 from ADR-0026 conversation; predecessor pattern for cloister-cf7a3b |
+| `cloister-d98db2` | cred-iso/v1: vault-DO-backed `CredentialStore` (production impl) | P1 — filed 2026-05-18; last load-bearing piece of cloister-8f57f0; design question between new-RPC vs route-via-DO documented in bead |
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | closed (PR #26, 2026-05-17) |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | closed (PR #27, 2026-05-17) |
 | `cloister-c18eb3` | receipts followup: wire P-live verification into mcp-proxy outbound | Phase 1 shipped (PR #28); bead stays open as Phase 2 tracker (live wire-in + upstream CA-bundle fetcher + integration tests) |

@@ -68,6 +68,14 @@ jobs:
         with:
           version: "10.30.3"
 
+      - name: Install Task
+        # Constellation's standard. SHA-pinned to the same commit ci.yml
+        # uses; bump together with ley-line / mache. Per cloister-8e40ad:
+        # CI invokes `task <name>` targets instead of duplicating the
+        # underlying `pnpm exec tsx scripts/...` invocations the
+        # Taskfile already owns.
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+
       - name: Install capnp (build-time tool — not needed at deploy)
         run: |
           sudo apt-get update
@@ -77,49 +85,42 @@ jobs:
       - name: Install dependencies (frozen)
         run: pnpm install --frozen-lockfile
 
-      - name: Regenerate src/generated/*.ts
-        # `scripts/build-manifest.mjs` + `scripts/toml-to-cluster.mjs`
-        # dynamically `import()` `.ts` files. Node 20 LTS (this CI
-        # runner) can't load .ts natively; `tsx` (in devDeps) provides
-        # the loader. Mirror the Taskfile `manifest` + `cluster:toml`
-        # tasks (Taskfile.yml uses `pnpm exec tsx scripts/...` for the
-        # same reason). If a future Node bump enables native .ts
-        # loading, revert to bare `node` here in lockstep with Taskfile.
+      - name: Regenerate src/generated/*.ts via task targets (source of truth)
+        # Source-of-truth invocation principle (cloister-8e40ad): CI
+        # invokes the SAME tasks dev + docs use. Adding a new generated
+        # artifact means adding a Taskfile target, not editing this
+        # workflow alongside.
         #
-        # cluster.toml is the authoritative operator surface for the
-        # cluster topology (ADR-0025, cloister-ae06f3); the legacy
-        # capnp-eval pipeline (`build-cluster.mjs`) coexists but is no
-        # longer the source of truth for src/generated/cluster.ts.
+        # `task manifest` depends on `task tool-schemas` so calling
+        # manifest runs both. `task cluster:toml` does the forward leg
+        # (TOML → cluster.ts), per ADR-0025.
         run: |
-          pnpm exec tsx scripts/build-tool-schemas.mjs
-          pnpm exec tsx scripts/build-manifest.mjs
-          pnpm exec tsx scripts/toml-to-cluster.mjs
+          task manifest
+          task cluster:toml
 
-      - name: Assert no drift in src/generated/ or cluster.toml
-        # Two-direction drift gate (per ADR-0025):
-        # 1. src/generated/cluster.ts MUST match what
-        #    `toml-to-cluster.mjs` produces from the committed
-        #    cluster.toml (forward leg green).
-        # 2. cluster.toml MUST match what `cluster-to-toml.mjs`
-        #    produces from the committed cluster.ts (reverse leg
-        #    canonical). Catches the case where someone hand-edited
-        #    cluster.ts directly without round-tripping through TOML.
+      - name: Assert no drift in src/generated/
+        # Forward-leg drift gate. Reverse leg + cluster.toml canonical
+        # check is `task cluster:toml:roundtrip` below — the same
+        # task local dev runs (it's also a `task verify` dep), so a
+        # developer can repro this CI check with one command.
         run: |
           if ! git diff --exit-code src/generated/; then
             echo "::error::src/generated/ has drift; regenerate locally + commit:" >&2
-            echo "::error::  pnpm exec tsx scripts/build-tool-schemas.mjs" >&2
-            echo "::error::  pnpm exec tsx scripts/build-manifest.mjs" >&2
-            echo "::error::  pnpm exec tsx scripts/toml-to-cluster.mjs   (was build-cluster.mjs — see ADR-0025)" >&2
+            echo "::error::  task manifest" >&2
+            echo "::error::  task cluster:toml" >&2
             echo "::error::  git add src/generated/ && git commit" >&2
             exit 1
           fi
-          # Reverse-leg drift: cluster.toml canonical-form must match.
-          TMPDIR=$(mktemp -d)
-          trap 'rm -rf "$TMPDIR"' EXIT
-          pnpm exec tsx scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
-          if ! diff -u cluster.toml "$TMPDIR/cluster.toml"; then
+
+      - name: Assert no cluster.toml canonical-form drift
+        # Reverse-leg drift gate (ADR-0025). `task cluster:toml:roundtrip`
+        # is the SAME drift check operators run via `task verify`. CI
+        # just invokes it; if the task ever gains new checks, CI
+        # follows automatically. Per cloister-8e40ad.
+        run: |
+          if ! task cluster:toml:roundtrip; then
             echo "::error::cluster.toml diverges from canonical form; regenerate locally + commit:" >&2
-            echo "::error::  pnpm exec tsx scripts/cluster-to-toml.mjs --write cluster.toml" >&2
+            echo "::error::  task cluster:toml:export -- --write cluster.toml" >&2
             echo "::error::  git add cluster.toml && git commit" >&2
             exit 1
           fi
