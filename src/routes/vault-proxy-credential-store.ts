@@ -40,13 +40,41 @@ export interface CredentialLookup {
 }
 
 /**
- * Async resolver. The production impl will likely route through
- * `env.VAULT_STORE` (the existing credential vault DO) so the seal
- * + KEK boundary is preserved; the in-memory impl below is for dev
- * + tests only.
+ * Async resolver. The production impl routes through `env.VAULT_STORE`
+ * (the existing credential vault DO) so the seal + KEK boundary is
+ * preserved; the in-memory impl below is for dev + tests only.
+ *
+ * Two seams (cloister-e26ea8 / D1 of the DO saga):
+ *
+ *   - `resolve` — looks up the credential bytes; returns `null` when
+ *     no row exists. Used by the dev/in-memory composition path where
+ *     the handler injects the credential into the request itself.
+ *
+ *   - `forward` (optional, production) — delegates the entire Request
+ *     to the vault DO's `proxyRequest`, which decrypts + injects +
+ *     fetches upstream inside the DO. Plaintext never crosses the
+ *     trust boundary. When defined, the route composition (D2,
+ *     cloister-e2a12a) prefers this path over `resolve + inject`.
+ *
+ * Both methods return wire-shape-compatible responses. The branch is
+ * a composition-root concern, not a handler concern.
  */
 export interface CredentialStore {
   resolve(peerFp: string, service: string): Promise<CredentialLookup | null>;
+  /**
+   * Production seam — delegate the full Request to vault DO. Returns
+   * the proxied upstream Response. When implemented, the composition
+   * root should prefer this path to preserve the ADR-0013 slice-grant
+   * invariant (plaintext stays inside the DO trust boundary). Optional
+   * because `InMemoryCredentialStore` doesn't have a meaningful
+   * upstream-delegation path.
+   */
+  forward?(
+    peerFp: string,
+    service: string,
+    callerSub: string,
+    request: Request,
+  ): Promise<Response>;
 }
 
 /**
