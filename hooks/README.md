@@ -77,6 +77,8 @@ hooks/test/sync.test.mjs     node --test suite (no extra deps)
 - [../GETTING-STARTED.md](../GETTING-STARTED.md) — install + wire upstreams + verify
 - [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) — request routing diagrams
 - [../docs/adr/0002-edge-router-protocol-agnostic-backends.md](../docs/adr/0002-edge-router-protocol-agnostic-backends.md)
-  — why every backend (mcpProxy, durableObject, serviceBinding, udsForward, leylineNet) is a kind-typed sibling
+  — why every backend is a kind-typed sibling
+- [../docs/reference/backend-kinds.md](../docs/reference/backend-kinds.md)
+  — canonical enumeration of the five `Backend.kind` variants + per-kind purpose
 - [../docs/adr/0015-mcp-spec-alignment.md](../docs/adr/0015-mcp-spec-alignment.md)
   — the `httpForward` → `mcpProxy` rename rationale

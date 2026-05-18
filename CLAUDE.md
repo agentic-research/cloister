@@ -75,12 +75,12 @@ sufficient.
 
 - **Routes are declarative** — defined in `cloister.capnp`, instantiated
   by `src/manifest/runtime.ts`. Don't hand-code routes in `src/index.ts`.
-- **Backends are kind-typed** — `durableObject`, `mcpProxy` (formerly
-  `httpForward` per ADR-0015 Phase 1 rename; both schema variants
-  still parse), `serviceBinding`, `udsForward`, `leylineNet` (per
-  ADRs 0002, 0005, 0015). Adding a new kind requires a schema field,
-  a TS mirror in `src/manifest/types.ts`, and a runtime branch in
-  `runtime.ts`.
+- **Backends are kind-typed** — five variants (`durableObject`,
+  `mcpProxy`, `serviceBinding`, `udsForward`, `leylineNet`). Canonical
+  reference: [`docs/reference/backend-kinds.md`](docs/reference/backend-kinds.md)
+  (don't re-enumerate here; that doc owns the table). Adding a new
+  kind requires a schema field, a TS mirror in `src/manifest/types.ts`,
+  and a runtime branch in `runtime.ts` — per ADRs 0002, 0005, 0015.
 - **The wire is leyline-net at companion ↔ backend** — signed capnp
   manifests with AEAD. `src/wire/codec.ts` is the cloister-side encoder/
   decoder. Per ADR-0005 amendment, cloister ↔ companion is plain capnp
