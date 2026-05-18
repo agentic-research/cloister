@@ -6,9 +6,12 @@
 // installed.
 
 pub mod error;
-pub mod ir;
 pub mod inputs;
+pub mod ir;
 pub mod outputs;
 
 pub use error::SchemaBridgeError;
-pub use ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField, Union, UnionVariant};
+pub use ir::{
+    Const, ConstValue, Enum, FieldType, ScalarType, Schema, Struct, StructField, Union,
+    UnionVariant,
+};

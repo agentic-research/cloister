@@ -7,7 +7,9 @@
 use std::fmt::Write as _;
 
 use crate::error::Result;
-use crate::ir::{Enum, FieldType, ScalarType, Schema, Struct, StructField, Union};
+use crate::ir::{
+    Const, ConstValue, Enum, FieldType, ScalarType, Schema, Struct, StructField, Union,
+};
 
 pub fn emit(schema: &Schema) -> Result<String> {
     let mut out = String::new();
@@ -38,14 +40,20 @@ pub fn emit(schema: &Schema) -> Result<String> {
         writeln!(out).unwrap();
     }
 
+    // Consts emit last so they can reference enum / struct names
+    // declared above without forward-declaration. Each becomes a single
+    // `export const NAME = <literal> as const;` line. Per cloister-946a59.
+    for c in &schema.consts {
+        emit_const(&mut out, c);
+        writeln!(out).unwrap();
+    }
+
     Ok(out)
 }
 
 fn emit_enum(out: &mut String, e: &Enum) {
-    let variants_zod: Vec<String> =
-        e.variants.iter().map(|v| format!("\"{v}\"")).collect();
-    let variants_ts: Vec<String> =
-        e.variants.iter().map(|v| format!("\"{v}\"")).collect();
+    let variants_zod: Vec<String> = e.variants.iter().map(|v| format!("\"{v}\"")).collect();
+    let variants_ts: Vec<String> = e.variants.iter().map(|v| format!("\"{v}\"")).collect();
     writeln!(
         out,
         "export const {name}Schema = z.enum([{joined}]);",
@@ -53,8 +61,13 @@ fn emit_enum(out: &mut String, e: &Enum) {
         joined = variants_zod.join(", ")
     )
     .unwrap();
-    writeln!(out, "export type {name} = {joined};", name = e.name, joined = variants_ts.join(" | "))
-        .unwrap();
+    writeln!(
+        out,
+        "export type {name} = {joined};",
+        name = e.name,
+        joined = variants_ts.join(" | ")
+    )
+    .unwrap();
 }
 
 fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
@@ -183,14 +196,12 @@ fn render_zod_scalar(s: ScalarType) -> &'static str {
     match s {
         ScalarType::Void => "z.void()",
         ScalarType::Bool => "z.boolean()",
-        ScalarType::Int8
-        | ScalarType::Int16
-        | ScalarType::Int32
-        | ScalarType::Int64 => "z.number().int()",
-        ScalarType::UInt8
-        | ScalarType::UInt16
-        | ScalarType::UInt32
-        | ScalarType::UInt64 => "z.number().int().nonnegative()",
+        ScalarType::Int8 | ScalarType::Int16 | ScalarType::Int32 | ScalarType::Int64 => {
+            "z.number().int()"
+        }
+        ScalarType::UInt8 | ScalarType::UInt16 | ScalarType::UInt32 | ScalarType::UInt64 => {
+            "z.number().int().nonnegative()"
+        }
         ScalarType::Float32 | ScalarType::Float64 => "z.number()",
         ScalarType::Text => "z.string()",
         ScalarType::Data => "z.instanceof(Uint8Array)",
@@ -211,6 +222,81 @@ fn render_ts_type(t: &FieldType) -> String {
             format!("{}[]", render_ts_type(inner))
         }
     }
+}
+
+// `export const NAME = <literal> as const;` — the `as const` is the
+// load-bearing bit. Without it TS widens object/array literals to
+// `string` / `number` / mutable arrays, defeating the whole point of
+// declaring a constant in the schema. Per cloister-946a59.
+fn emit_const(out: &mut String, c: &Const) {
+    writeln!(
+        out,
+        "export const {name} = {value} as const;",
+        name = c.name,
+        value = render_const_value(&c.value),
+    )
+    .unwrap();
+}
+
+fn render_const_value(v: &ConstValue) -> String {
+    match v {
+        ConstValue::Void => "null".to_owned(),
+        ConstValue::Bool(b) => b.to_string(),
+        ConstValue::Int(n) => n.to_string(),
+        ConstValue::UInt(n) => n.to_string(),
+        ConstValue::Float(f) => {
+            // JSON-friendly float emit: avoid `inf`/`nan`/scientific
+            // edge cases by routing through Rust's default Display. The
+            // const must lex as a valid TS numeric literal.
+            if f.is_finite() {
+                let s = format!("{f}");
+                // Force a decimal point so `1.0` doesn't widen to `1`
+                // (which would let TS infer `number` more eagerly when
+                // composing with other ints). Cheap textual check.
+                if s.contains('.') || s.contains('e') || s.contains('E') {
+                    s
+                } else {
+                    format!("{s}.0")
+                }
+            } else {
+                // Inf/NaN aren't valid TS const literals — surface as a
+                // typed sentinel so the build breaks visibly rather
+                // than emitting bare `NaN` (which is a wide `number`).
+                format!("Number.{:?}", f).to_lowercase()
+            }
+        }
+        ConstValue::Text(s) => format!("\"{}\"", escape_ts_string(s)),
+        ConstValue::Enum(name) => format!("\"{name}\""),
+        ConstValue::List(items) => {
+            let inner: Vec<String> = items.iter().map(render_const_value).collect();
+            format!("[{}]", inner.join(", "))
+        }
+        ConstValue::Struct(fields) => {
+            let inner: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", render_const_value(v)))
+                .collect();
+            format!("{{ {} }}", inner.join(", "))
+        }
+    }
+}
+
+// Minimal TS string escape: backslash, double-quote, newline, carriage
+// return, tab. Sufficient for the const values we ingest from capnp
+// (capnp Text is already UTF-8, no embedded NULs).
+fn escape_ts_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn render_ts_scalar(s: ScalarType) -> &'static str {
