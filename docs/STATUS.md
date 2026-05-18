@@ -72,7 +72,7 @@ work-tracking, follow the linked bead.
 | `cloister-9d14f2` | lint:doc-counts — assert "N tests" / "N ADRs" claims | closed (PR #23, 2026-05-17) |
 | `cloister-c1691c` | receipts: pruneExpiredReceipts retention sweep | Phase 1+2 shipped (PR #24 + PR #25, 2026-05-17); bead stays open as Phase 3 tracker (per-actor `ca_decommission_after_ms` override, deferred until a real second actor lands) |
 | `cloister-0719da` | substrate: TrustStore DO alarm scaffolding (closes pruneSeenNonces + pruneExpiredReceipts orphans) | closed (PR #25, 2026-05-17) |
-| `cloister-449f82` | CI: recipe smoke validation (parse + emit + canonical-link drift gate) | Phase 1 in flight |
+| `cloister-449f82` | CI: recipe smoke validation (parse + emit + canonical-link drift gate) | Phase 1 shipped (PR #35, 2026-05-18); Phase 2 (parse validation) + Phase 3 (local boot smoke) deferred |
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | closed (PR #26, 2026-05-17) |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | closed (PR #27, 2026-05-17) |
 | `cloister-c18eb3` | receipts followup: wire P-live verification into mcp-proxy outbound | Phase 1 shipped (PR #28); bead stays open as Phase 2 tracker (live wire-in + upstream CA-bundle fetcher + integration tests) |
