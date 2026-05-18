@@ -119,3 +119,8 @@ base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync"] }
 tempfile = "3"
+# Serialize process-env mutations across parallel cargo-test workers
+# (cloister-da0f35). `#[serial("env_LEYLINE_SIGN_RESOLVE_TTL_MS")]` makes
+# the "I mutate this env var" property compile-checked-by-label across
+# the test suite, not just an inline SAFETY comment.
+serial_test = "3"

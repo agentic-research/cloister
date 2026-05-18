@@ -72,6 +72,7 @@ work-tracking, follow the linked bead.
 | `cloister-9d14f2` | lint:doc-counts — assert "N tests" / "N ADRs" claims | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
+| `cloister-da0f35` | host_adversarial.rs: unsafe env var mutation races with parallel tests | in flight |
 
 ## Convention
 
