@@ -23,7 +23,9 @@ fails if a tenant declared in either file lacks a matching page here.
 
 Tier comes from [`cluster.capnp`](../../cluster.capnp) per ADR-0011's
 three-criterion test. Backend kind comes from the `kind :union` variant
-on `Backend` in [`manifest/cloister.capnp`](../../manifest/cloister.capnp).
+on `Backend` in [`manifest/cloister.capnp`](../../manifest/cloister.capnp) —
+the five variants + per-kind purpose are documented in
+[`docs/reference/backend-kinds.md`](../reference/backend-kinds.md).
 
 ## What this grid does NOT cover
 

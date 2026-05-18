@@ -9,6 +9,10 @@ the backend abstraction is the seam that lets cloister speak to
 heterogeneous upstream tools without baking transport choices into the
 edge.
 
+This directory README is the **per-file implementation map**. For the
+operator-facing reference (when to use each kind, anchor ADRs, etc.)
+see [`docs/reference/backend-kinds.md`](../../../docs/reference/backend-kinds.md).
+
 ## Files
 
 | File | `kind` | Transport | Notes |

@@ -72,7 +72,7 @@ work-tracking, follow the linked bead.
 | `cloister-9d14f2` | lint:doc-counts — assert "N tests" / "N ADRs" claims | closed (PR #23, 2026-05-17) |
 | `cloister-c1691c` | receipts: pruneExpiredReceipts retention sweep | Phase 1+2 shipped (PR #24 + PR #25, 2026-05-17); bead stays open as Phase 3 tracker (per-actor `ca_decommission_after_ms` override, deferred until a real second actor lands) |
 | `cloister-0719da` | substrate: TrustStore DO alarm scaffolding (closes pruneSeenNonces + pruneExpiredReceipts orphans) | closed (PR #25, 2026-05-17) |
-| `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | P3 — follow-up from 963bf6 doc-friend audit |
+| `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | in flight |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-da0f35` | host_adversarial.rs: unsafe env var mutation races with parallel tests | closed (PR #18, 2026-05-17) |
 | `cloister-d9da67` | keystore: run_subprocess_with_trim reads stdout with no size cap | closed (PR #19, 2026-05-17) |
