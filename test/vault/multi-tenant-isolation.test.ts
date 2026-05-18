@@ -296,7 +296,10 @@ describe("vault composite — subject_fp forge + manifest mistake", () => {
     });
 
     // Forge subject_fp = B's. Row lookup succeeds. callerSub claims
-    // to be A's bundle. allowedSubs gate fires.
+    // to be A's bundle. allowedSubs gate fires. Post-cloister-aa9376
+    // the gate emits a byte-identical 404 (not 403) to deny the
+    // enumeration oracle — the no-payload-leak invariant survives the
+    // shape collapse.
     const probe = new Request("https://anything.invalid/", { method: "GET" });
     const response = await stub.proxyRequest(
       SUBJECT_FP_BUNDLE_B,             // forged
@@ -305,7 +308,7 @@ describe("vault composite — subject_fp forge + manifest mistake", () => {
       probe,
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     const body = await response.text();
     expect(body).not.toContain("COMPOSITE-MUST-NEVER-LEAK");
     expect(body).not.toContain("Authorization");
