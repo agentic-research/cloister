@@ -47,15 +47,24 @@ export interface Gateway {
 /**
  * Manifest-side declaration of a `cloister/credential-isolation/v1`
  * upstream service. Mirrors the capnp `VaultProxyService` struct.
+ *
  * Runtime conversion to the route's `VaultProxyService` shape (which
- * uses a TS-discriminated-union injection) lives in `runtime.ts`.
+ * uses a TS-discriminated-union injection) lives in
+ * `./vault-proxy-services.ts`. Same pure module is invoked by
+ * `src/manifest/runtime.ts` AND `scripts/build-manifest.mjs` — single
+ * code path for build-time + boot-time validation.
+ *
+ * **`defaultAllowedSubs` is optional**: capnp's JSON encoding OMITS
+ * default-empty pointer fields, so a service that leaves the list
+ * empty arrives here as `undefined`. `buildServiceRegistry` treats
+ * `undefined` as `[]` (the safe-closed default — deny-all).
  */
 export interface VaultProxyServiceConfig {
-  name:               string;
-  upstreamBaseUrl:    string;
-  defaultAllowedSubs: readonly string[];
-  rateLimitPerMinute: number;
-  injection: VaultProxyInjection;
+  name:                string;
+  upstreamBaseUrl:     string;
+  defaultAllowedSubs?: readonly string[];
+  rateLimitPerMinute:  number;
+  injection:           VaultProxyInjection;
 }
 
 /**

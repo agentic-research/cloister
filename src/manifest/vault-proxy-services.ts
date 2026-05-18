@@ -55,21 +55,52 @@ export function buildServiceRegistry(
 function toRouteVaultProxyService(
   cfg: VaultProxyServiceConfig,
 ): RouteVaultProxyService {
+  // ── name: non-empty + single URL path segment ────────────────────
+  // (Copilot #6 #9). `parseVaultProxyPath` splits the first path
+  // segment as the service name, so a manifest entry like "foo/bar"
+  // can never be resolved by `/vault/proxy/<service>/...`. Reject
+  // at build time so a misconfig fails closed.
   const name = typeof cfg.name === "string" ? cfg.name : "";
   if (name === "") {
     throw new TypeError("manifest: vaultProxyService.name must be a non-empty string");
   }
+  if (name.includes("/") || name.includes("%2F") || name.includes("%2f")) {
+    throw new TypeError(
+      `manifest: vaultProxyService.name "${name}" must be a single URL path segment (no '/' or encoded slash) — parseVaultProxyPath splits on '/'`,
+    );
+  }
+
+  // ── upstreamBaseUrl: http/https only, no query/fragment ───────────
+  // (Copilot #6 #11 #16). `new URL()` accepts ftp:/data:/mailto:/etc;
+  // proxy fetches must be HTTP. AND: query/fragment can't be present
+  // because proxyToUpstream composes upstream URL as
+  // `baseUrl.replace(/\/+$/, "") + req.upstreamPath` — a base like
+  // `https://api.test/v1?token=x` would yield
+  // `https://api.test/v1?token=x/path` which misroutes traffic.
   const upstreamBaseUrl = typeof cfg.upstreamBaseUrl === "string" ? cfg.upstreamBaseUrl : "";
   if (upstreamBaseUrl === "") {
     throw new TypeError(
       `manifest: vaultProxyService "${name}".upstreamBaseUrl must be a non-empty string`,
     );
   }
-  try { new URL(upstreamBaseUrl); } catch {
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(upstreamBaseUrl); } catch {
     throw new TypeError(
       `manifest: vaultProxyService "${name}".upstreamBaseUrl is not a valid URL: ${upstreamBaseUrl}`,
     );
   }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new TypeError(
+      `manifest: vaultProxyService "${name}".upstreamBaseUrl must use http: or https: (got ${parsedUrl.protocol})`,
+    );
+  }
+  if (parsedUrl.search !== "" || parsedUrl.hash !== "") {
+    throw new TypeError(
+      `manifest: vaultProxyService "${name}".upstreamBaseUrl must not have a query string or fragment — they don't compose with the appended upstream path`,
+    );
+  }
+
+  // ── rateLimitPerMinute: non-negative integer ─────────────────────
   if (
     typeof cfg.rateLimitPerMinute !== "number"
     || !Number.isFinite(cfg.rateLimitPerMinute)
@@ -80,8 +111,9 @@ function toRouteVaultProxyService(
       `manifest: vaultProxyService "${name}".rateLimitPerMinute must be a non-negative integer; got ${String(cfg.rateLimitPerMinute)}`,
     );
   }
-  // Capnp omits default-empty pointer fields → undefined is the
-  // common shape, not [] (a real client never observes []).
+
+  // ── defaultAllowedSubs: capnp omits default-empty pointer fields ──
+  // (Copilot #5). `undefined` is the common shape, not [].
   const subs = cfg.defaultAllowedSubs ?? [];
   return {
     name,
@@ -91,6 +123,14 @@ function toRouteVaultProxyService(
     injection:          toRouteInjection(cfg.injection, name),
   };
 }
+
+/**
+ * RFC 7230 §3.2.6 "tchar" — the only characters permitted in HTTP
+ * header field names. `Headers.set()` throws at request time for any
+ * other character; rejecting at build time turns a 500-at-traffic
+ * into a clear manifest error. Per Copilot #10.
+ */
+const HTTP_HEADER_TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function toRouteInjection(
   inj: VaultProxyInjection,
@@ -103,6 +143,14 @@ function toRouteInjection(
     if (typeof n !== "string" || n === "") {
       throw new TypeError(
         `manifest: vaultProxyService "${serviceName}".injection.headerNamed.name must be a non-empty string`,
+      );
+    }
+    // Copilot #10 — Headers.set() throws at request time on invalid
+    // header tokens (spaces, colons, control chars). Fail at build
+    // time instead of turning all matching requests into 500s.
+    if (!HTTP_HEADER_TOKEN_RE.test(n)) {
+      throw new TypeError(
+        `manifest: vaultProxyService "${serviceName}".injection.headerNamed.name "${n}" is not a valid HTTP header token (RFC 7230 tchar)`,
       );
     }
     return { kind: "headerNamed", name: n };
@@ -121,6 +169,14 @@ function toRouteInjection(
     if (typeof p !== "string" || p === "") {
       throw new TypeError(
         `manifest: vaultProxyService "${serviceName}".injection.bodyField.path must be a non-empty string`,
+      );
+    }
+    // Copilot #15 — `.foo` or `auth..secret` would deep-set under an
+    // empty-string key. Reject so the handler's split('.') never
+    // observes an empty segment.
+    if (p.split(".").some((seg) => seg === "")) {
+      throw new TypeError(
+        `manifest: vaultProxyService "${serviceName}".injection.bodyField.path "${p}" must not contain empty dotted segments (split on '.' yields no empty parts)`,
       );
     }
     return { kind: "bodyField", path: p };

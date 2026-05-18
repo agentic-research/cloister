@@ -167,8 +167,9 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // Service registry comes from the gateway-level vaultProxyServices
     // list (manifest-side declaration). Each entry's injection union
     // is converted from the capnp object-with-single-key shape into
-    // the route's TS discriminated-union shape via
-    // toVaultProxyService below.
+    // the route's TS discriminated-union shape via `buildServiceRegistry`
+    // imported from `./vault-proxy-services.ts` (the pure module that
+    // both runtime AND `scripts/build-manifest.mjs` import).
     //
     // Credential store stays defaulted to in-memory (production wires
     // a vault-DO-backed impl via the composition root; separate bead).
