@@ -64,6 +64,7 @@ work-tracking, follow the linked bead.
 | `cloister-fe891f` | cluster:toml chains canonicalize step (operator UX) | closed (PR #12, 2026-05-17) |
 | `cloister-0d5e0f` | `task done` pre-PR readiness gate (drop-in rules, mache smell-rules shape) | closed (PR #13, 2026-05-17) |
 | `cloister-339a22` | cloister/agent-process/v1 design (ACP server-side hosted in workerd) | P2 — design draft on `feat/cloister-339a22-agent-process-v1-design`, math-friend reviewed, awaiting direction |
+| `cloister-9bfbf6` | CI lint: ed25519-dalek tilde-pin enforcement (ADR-0019 §15.7) | in flight |
 
 ## Convention
 
