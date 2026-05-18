@@ -35,8 +35,7 @@ import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { CaBundleRoute } from "../routes/ca-bundle.js";
 import { VaultProxyRoute } from "../routes/vault-proxy-route.js";
-import type { VaultProxyService as RouteVaultProxyService } from "../routes/vault-proxy.js";
-import type { VaultProxyServiceConfig, VaultProxyInjection } from "./types.js";
+import { buildServiceRegistry } from "./vault-proxy-services.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { McpProxyToolBackend } from "./backends/mcp-proxy.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -173,9 +172,16 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     //
     // Credential store stays defaulted to in-memory (production wires
     // a vault-DO-backed impl via the composition root; separate bead).
-    // An unknown service or unauthenticated request collapses to 404
-    // with the constant-shape body — preserves the §9.4.b
-    // enumeration-oracle invariant.
+    //
+    // Status-code map (handler.ts behavior, pinned by vault-proxy.test.ts):
+    //   - unauthenticated (lease verifier fails / no INTERLACE_ROOT_PUBKEY)
+    //     → 401 with constant-shape body
+    //   - service not declared → 404 with constant-shape body
+    //   - peerFp ∉ allowedSubs → 403 with constant-shape body
+    //   - credential not stored → 404 with constant-shape body
+    // All four rejections share the body bytes so a probing client
+    // cannot distinguish failure classes — preserves the §9.4.b
+    // enumeration-oracle invariant from cloister-aa9376.
     const registry = buildServiceRegistry(manifest.vaultProxyServices ?? []);
     return new VaultProxyRoute({
       services: (name) => registry.get(name) ?? null,
@@ -187,52 +193,13 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
   throw new TypeError(`manifest: unknown route kind on path "${route.path}"`);
 }
 
-// ── VaultProxyService manifest → route conversion (cloister-8f57f0) ──────
-
-/**
- * Build a Map-backed service registry from the manifest's
- * `vaultProxyServices` list. Duplicates throw at instantiate time
- * (first occurrence wins for safety, but we surface the bug).
- */
-function buildServiceRegistry(
-  configs: readonly VaultProxyServiceConfig[],
-): Map<string, RouteVaultProxyService> {
-  const map = new Map<string, RouteVaultProxyService>();
-  for (const cfg of configs) {
-    if (map.has(cfg.name)) {
-      throw new TypeError(
-        `manifest: vaultProxyServices declares "${cfg.name}" more than once`,
-      );
-    }
-    map.set(cfg.name, toRouteVaultProxyService(cfg));
-  }
-  return map;
-}
-
-function toRouteVaultProxyService(
-  cfg: VaultProxyServiceConfig,
-): RouteVaultProxyService {
-  return {
-    name:               cfg.name,
-    upstreamBaseUrl:    cfg.upstreamBaseUrl,
-    defaultAllowedSubs: [...cfg.defaultAllowedSubs],
-    rateLimitPerMinute: cfg.rateLimitPerMinute,
-    injection:          toRouteInjection(cfg.injection),
-  };
-}
-
-function toRouteInjection(
-  inj: VaultProxyInjection,
-): RouteVaultProxyService["injection"] {
-  if ("authorizationBearer" in inj) return { kind: "authorizationBearer" };
-  if ("authorizationBasic" in inj)  return { kind: "authorizationBasic" };
-  if ("headerNamed" in inj)         return { kind: "headerNamed", name: inj.headerNamed.name };
-  if ("queryParam" in inj)          return { kind: "queryParam",  name: inj.queryParam.name };
-  if ("bodyField" in inj)           return { kind: "bodyField",   path: inj.bodyField.path };
-  const _exhaustive: never = inj;
-  void _exhaustive;
-  throw new TypeError(`manifest: unknown vault-proxy injection kind: ${JSON.stringify(inj)}`);
-}
+// ── VaultProxyService conversion lives in ./vault-proxy-services.ts ──────
+//
+// Imported above. Pure module so the build-time validator
+// (scripts/build-manifest.mjs) can use the same code path without
+// pulling in cloudflare:workers. Single source of truth — same
+// `buildServiceRegistry` runs at build time AND at boot time.
+// Per cloister-8f57f0 + the Copilot review on PR #36.
 
 // ── ToolBackend instantiation ─────────────────────────────────────────────
 
