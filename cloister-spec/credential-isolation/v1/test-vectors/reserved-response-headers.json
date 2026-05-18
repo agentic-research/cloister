@@ -1,0 +1,41 @@
+{
+  "$comment": "Reserved response headers per wire/proxy-envelope.md §'Response'. Two headers the proxy MUST set/overwrite on its OWN response (never copied from upstream): Interlace-Receipt and Server. All other upstream response headers MUST pass through unchanged. Listing this as a vector pins the case-insensitive set + the fixed Server-header value so a second implementation doesn't accidentally pass through upstream's Server: nginx/1.23 or fail to set Interlace-Receipt.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "reserved_set_canonical",
+      "description": "The two header names the proxy MUST control on every response. Names compared case-insensitive on the wire (HTTP §3.2); listed here in lower-case as the canonical comparison form.",
+      "inputs": {
+        "scenario": "list_reserved_headers"
+      },
+      "expected_reserved_response_headers_lowercase": [
+        "interlace-receipt",
+        "server"
+      ],
+      "expected_server_header_value": "cloister/credential-isolation/v1"
+    },
+    {
+      "name": "pass_through_other_headers",
+      "description": "Headers upstream sent that MUST pass through unchanged. Content-Type, Content-Length, Transfer-Encoding, Set-Cookie are the load-bearing ones — body framing breaks if any of these get mutated.",
+      "inputs": {
+        "upstream_response_headers": {
+          "Content-Type": "application/json",
+          "Content-Length": "348",
+          "Transfer-Encoding": "chunked",
+          "Set-Cookie": "session=opaque-FAKE; Path=/; HttpOnly",
+          "X-RateLimit-Remaining": "59",
+          "Server": "envoy"
+        }
+      },
+      "expected_proxy_response_headers": {
+        "Content-Type": "application/json",
+        "Content-Length": "348",
+        "Transfer-Encoding": "chunked",
+        "Set-Cookie": "session=opaque-FAKE; Path=/; HttpOnly",
+        "X-RateLimit-Remaining": "59",
+        "Server": "cloister/credential-isolation/v1",
+        "Interlace-Receipt": "<receipt-base64url-set-by-proxy>"
+      }
+    }
+  ]
+}
