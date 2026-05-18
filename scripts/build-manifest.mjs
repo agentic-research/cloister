@@ -80,6 +80,22 @@ await overlayToolSchemas(json);
 
 validate(json);
 
+// ── Mirror runtime invariants at build time (cloister-8f57f0 Copilot #1) ──
+//
+// Don't duplicate validation logic — IMPORT the runtime helper. Same
+// code path runs at boot (instantiate manifest) and at build (this
+// script via tsx). Any new manifest invariant added to runtime.ts is
+// automatically enforced here too; no parallel implementation to keep
+// in sync.
+{
+  const { buildServiceRegistry } = await import("../src/manifest/vault-proxy-services.ts");
+  try {
+    buildServiceRegistry(json.vaultProxyServices ?? []);
+  } catch (e) {
+    fail(`vaultProxyServices: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // ── Emit the typed TS module ──────────────────────────────────────────────
 
 // No `Built:` timestamp in the banner — the generated file is checked

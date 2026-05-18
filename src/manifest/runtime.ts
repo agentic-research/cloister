@@ -35,6 +35,7 @@ import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { CaBundleRoute } from "../routes/ca-bundle.js";
 import { VaultProxyRoute } from "../routes/vault-proxy-route.js";
+import { buildServiceRegistry } from "./vault-proxy-services.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { McpProxyToolBackend } from "./backends/mcp-proxy.js";
 import { ServiceBindingToolBackend } from "./backends/service-binding.js";
@@ -163,18 +164,43 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
   }
   if ("vaultProxy" in k) {
     // cloister/credential-isolation/v1 route (ADR-0024, cloister-8f57f0).
-    // Mount with SAFE-CLOSED defaults: empty service registry +
-    // in-memory credential store → every request 404 with constant-
-    // shape body. Composition root (e.g. cluster.toml bootstrap, when
-    // the Phase 11 schema add lands) supplies real CredentialStore +
-    // ServiceResolver via VaultProxyRoute's constructor deps.
-    return new VaultProxyRoute();
+    // Service registry comes from the gateway-level vaultProxyServices
+    // list (manifest-side declaration). Each entry's injection union
+    // is converted from the capnp object-with-single-key shape into
+    // the route's TS discriminated-union shape via `buildServiceRegistry`
+    // imported from `./vault-proxy-services.ts` (the pure module that
+    // both runtime AND `scripts/build-manifest.mjs` import).
+    //
+    // Credential store stays defaulted to in-memory (production wires
+    // a vault-DO-backed impl via the composition root; separate bead).
+    //
+    // Status-code map (handler.ts behavior, pinned by vault-proxy.test.ts):
+    //   - unauthenticated (lease verifier fails / no INTERLACE_ROOT_PUBKEY)
+    //     → 401 with constant-shape body
+    //   - service not declared → 404 with constant-shape body
+    //   - peerFp ∉ allowedSubs → 403 with constant-shape body
+    //   - credential not stored → 404 with constant-shape body
+    // All four rejections share the body bytes so a probing client
+    // cannot distinguish failure classes — preserves the §9.4.b
+    // enumeration-oracle invariant from cloister-aa9376.
+    const registry = buildServiceRegistry(manifest.vaultProxyServices ?? []);
+    return new VaultProxyRoute({
+      services: (name) => registry.get(name) ?? null,
+    });
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;
   void _exhaustive;
   throw new TypeError(`manifest: unknown route kind on path "${route.path}"`);
 }
+
+// ── VaultProxyService conversion lives in ./vault-proxy-services.ts ──────
+//
+// Imported above. Pure module so the build-time validator
+// (scripts/build-manifest.mjs) can use the same code path without
+// pulling in cloudflare:workers. Single source of truth — same
+// `buildServiceRegistry` runs at build time AND at boot time.
+// Per cloister-8f57f0 + the Copilot review on PR #36.
 
 // ── ToolBackend instantiation ─────────────────────────────────────────────
 

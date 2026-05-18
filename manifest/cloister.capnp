@@ -58,7 +58,74 @@ struct Gateway {
   # strings here so dual-stack clients can pick.
   # ADR-0015 Phase 2 (cloister-a35fdb).
   supportedProtocolVersions @4 :List(Text);
+
+  # `cloister/credential-isolation/v1` service registry (cloister-8f57f0,
+  # ADR-0024). Each entry is a declared (service-name → upstream-base-URL,
+  # injection strategy, allow-list, rate limit) tuple consumed by the
+  # `vaultProxy` Route at instantiate time. The route's URL parser
+  # (`/vault/proxy/<service>/<path>`) keys the lookup; an unknown service
+  # collapses to the constant-shape 404 (preserves §9.4.b oracle closure).
+  #
+  # Empty list ⇒ no services declared; every `/vault/proxy/*` request
+  # returns 404 (safe-closed default — same as the in-memory empty-store
+  # behavior). Operators populate this in their `cloister.capnp` per the
+  # spec at `cloister-spec/credential-isolation/v1/`.
+  vaultProxyServices @5 :List(VaultProxyService);
 }
+
+# ── cloister/credential-isolation/v1 service config (cloister-8f57f0) ────
+
+struct VaultProxyService {
+  # Logical service name — matches the URL path segment in
+  # `/vault/proxy/<name>/<rest>`. Must be unique within the gateway's
+  # vaultProxyServices list (the runtime asserts this at instantiate
+  # time; duplicates are a TypeError).
+  name @0 :Text;
+
+  # Upstream base URL — credential is injected into requests against
+  # this URL. The `<rest>` path segment from the inbound URL is
+  # appended verbatim.
+  upstreamBaseUrl @1 :Text;
+
+  # Glob list of `peerFp` values authorized to use this service. Empty
+  # list = deny-all (preserves the safe-closed default; operators
+  # declare allowedSubs to opt callers in). Glob semantics match
+  # `vault/src/vault.ts:checkAccess` — same matcher the vault DO uses.
+  defaultAllowedSubs @2 :List(Text);
+
+  # Per-(peerFp, service) bucket capacity in calls/minute. 0 = unlimited
+  # (NOT recommended; documented as such in the vault-proxy handler).
+  rateLimitPerMinute @3 :UInt32;
+
+  # Where + how the credential is injected into the upstream request.
+  # Discriminated union — the route handler dispatches on `kind`.
+  # Closed-by-design in v1; adding a strategy requires a spec extension.
+  injection :union {
+    # `Authorization: Bearer <credential>` (OpenAI, Anthropic, ...)
+    authorizationBearer @4 :Void;
+
+    # `Authorization: Basic base64(<username>:<credential>)` —
+    # `username` defaults to the service `name` when not supplied via
+    # the credential-store seam.
+    authorizationBasic  @5 :Void;
+
+    # Arbitrary named header carrying the raw credential value (e.g.
+    # `x-api-key: <credential>`).
+    headerNamed         @6 :HeaderNamedSpec;
+
+    # Query parameter carrying the URL-encoded credential.
+    queryParam          @7 :QueryParamSpec;
+
+    # JSON body field at a dotted path (e.g. `auth.client_secret`).
+    # Buffers the request body to merge the credential at the named
+    # path; incompatible with streaming bodies (handler-side tradeoff).
+    bodyField           @8 :BodyFieldSpec;
+  }
+}
+
+struct HeaderNamedSpec { name @0 :Text; }
+struct QueryParamSpec  { name @0 :Text; }
+struct BodyFieldSpec   { path @0 :Text; }
 
 # Interlace actor identity (ADR-0007). Pinned at build time; the
 # corresponding master public key bytes are loaded from the env binding

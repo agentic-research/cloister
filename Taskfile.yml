@@ -40,6 +40,11 @@ tasks:
       - cloister.capnp
       - manifest/cloister.capnp
       - scripts/build-manifest.mjs
+      # Build-time validation imports buildServiceRegistry from this
+      # pure module. Without listing it here, Task's checksum cache
+      # would skip `task manifest` after a validation-rule change
+      # (Copilot #8 on PR #36).
+      - src/manifest/vault-proxy-services.ts
       - src/generated/tool-schemas.ts
     generates:
       - src/generated/manifest.ts
