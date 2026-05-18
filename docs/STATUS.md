@@ -70,7 +70,7 @@ work-tracking, follow the linked bead.
 | `cloister-ff58d4` | docs/ surface lacks top-level index — orientation map | stale-closed (docs/README.md shipped via commit 201e8a1) |
 | `cloister-9cd506` | doc-restructure: per-module READMEs to one voice + one template | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-9d14f2` | lint:doc-counts — assert "N tests" / "N ADRs" claims | closed (PR #23, 2026-05-17) |
-| `cloister-c1691c` | receipts: pruneExpiredReceipts retention sweep | closed (Phase 1 PR #24 + Phase 2 PR #25, 2026-05-17); Phase 3 (per-actor override) tracked separately |
+| `cloister-c1691c` | receipts: pruneExpiredReceipts retention sweep | Phase 1+2 shipped (PR #24 + PR #25, 2026-05-17); bead stays open as Phase 3 tracker (per-actor `ca_decommission_after_ms` override, deferred until a real second actor lands) |
 | `cloister-0719da` | substrate: TrustStore DO alarm scaffolding (closes pruneSeenNonces + pruneExpiredReceipts orphans) | closed (PR #25, 2026-05-17) |
 | `cloister-9d4555` | doc-restructure: canonical "Backend kinds" page | P3 — follow-up from 963bf6 doc-friend audit |
 | `cloister-9d602f` | doc-restructure: canonical "Bundle topology" page | P3 — follow-up from 963bf6 doc-friend audit |
