@@ -727,10 +727,26 @@ async fn concurrent_resolve_for_same_spec_smoke() {
 // the bare scheme label through `parse_spec` paths in unit tests, plus
 // the live behavior validated by the host-extras + keychain dogfoods.
 #[tokio::test]
+#[serial_test::serial(env_LEYLINE_SIGN_RESOLVE_TTL_MS)]
 async fn resolve_ttl_cache_serves_cached_bytes_within_window() {
     // Set env BEFORE the helper starts so the cache picks up the override.
-    // SAFETY: single-threaded test; no other code reads this env var at
-    // resolve time. Restore at end.
+    //
+    // SAFETY: the `#[serial(env_LEYLINE_SIGN_RESOLVE_TTL_MS)]` attribute
+    // serializes this test against any other test bearing the same
+    // label, across cargo's parallel test workers. No other test in
+    // the suite currently touches this env var; if one is added later,
+    // mark it with the same label and serial_test serializes them.
+    // (For read-only tests that just observe the value, `#[parallel(...)]`
+    // with the same label is the right shape — runs concurrently with
+    // other readers but waits if a serial-writer is in-flight.)
+    //
+    // `unsafe` is required by Rust 2024 for env mutation regardless of
+    // serialization; `std::env::set_var` is sound-only-if-single-threaded.
+    // serial_test gives us the single-threaded guarantee at test-runner
+    // level; the unsafe block is the compile-time acknowledgment.
+    //
+    // Per cloister-da0f35 — replaces an inline SAFETY comment that
+    // wasn't enforceable.
     unsafe {
         std::env::set_var("LEYLINE_SIGN_RESOLVE_TTL_MS", "10000");
     }
