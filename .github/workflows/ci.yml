@@ -197,6 +197,14 @@ jobs:
         # the parallel rustup-download race.
         run: cd rs && cargo --version && rustc --version
 
+      - name: Install cargo-audit
+        # `task rs:audit` (a verify dep) shells out to `cargo audit`.
+        # GH runner doesn't ship cargo-audit; install + lock for
+        # reproducibility. Only needed in the verify job — PR-time
+        # `task lint` doesn't run rs:audit. No untrusted input flows
+        # into this command.
+        run: cargo install --locked cargo-audit
+
       - name: Verify (lint + capnp roundtrip + stub-companion smoke)
         # `task verify` adds the substrate-equivalence harness (production
         # codec ↔ capnp CLI ↔ production codec) and the stub-companion
