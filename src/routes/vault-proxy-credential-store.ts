@@ -1,0 +1,95 @@
+// src/routes/vault-proxy-credential-store.ts — credential-store seam
+// for the cloister/credential-isolation/v1 route.
+//
+// Per cloister-8f57f0 — the v1 route handler (`vault-proxy.ts`) takes
+// `storedCredential` + optional `storedUsername` as input. The route
+// ENTRY (composition root) is responsible for the lookup, which lets
+// the handler stay pure over its inputs (the entire 34-test suite
+// is unit-testable without a backing store).
+//
+// This file defines the seam — `CredentialStore` — and ships one
+// reference impl (`InMemoryCredentialStore`) suitable for dev /
+// recipe smoke / integration tests. The production impl (probably
+// routed through the vault DO so plaintext bytes never leave the
+// trust boundary in steady state) lands in a follow-on bead alongside
+// the route mount.
+//
+// Lookup key: `(peerFp, service)`. Same composite key the vault DO's
+// `credentials` table uses (cloister-26546a / `(subject_fp, service)`
+// composite PK) — they MUST stay congruent so the eventual
+// vault-DO-backed impl can use the same tuple without translation.
+//
+// Spec: cloister-spec/credential-isolation/v1/
+// ADR: docs/adr/0024-credential-isolation-capability.md
+
+/**
+ * What the route entry hands to `vaultProxyHandler` for the
+ * credential-bearing fields of `VaultProxyRequest`. `null` means
+ * "no credential stored for this (peerFp, service)" — the handler
+ * collapses that to a 404 with constant-shape body (preserves the
+ * §9.4.b enumeration-oracle closure from cloister-aa9376).
+ */
+export interface CredentialLookup {
+  /** The credential bytes — e.g., the OpenAI API key for service="openai". */
+  readonly credential: string;
+  /**
+   * Optional username for `authorizationBasic` injection. Defaults to
+   * the service name when absent.
+   */
+  readonly username?: string;
+}
+
+/**
+ * Async resolver. The production impl will likely route through
+ * `env.VAULT_STORE` (the existing credential vault DO) so the seal
+ * + KEK boundary is preserved; the in-memory impl below is for dev
+ * + tests only.
+ */
+export interface CredentialStore {
+  resolve(peerFp: string, service: string): Promise<CredentialLookup | null>;
+}
+
+/**
+ * Dev / test backing — a plain Map keyed by `${peerFp}::${service}`.
+ * NOT for production use; documented as such in the constructor.
+ * Provides `set` / `delete` / `size` for test ergonomics.
+ *
+ * Same composite-key shape as the vault DO. Switching to the
+ * vault-DO-backed impl is a `new VaultDoCredentialStore(env)` swap
+ * at the composition root; the handler doesn't change.
+ */
+export class InMemoryCredentialStore implements CredentialStore {
+  private readonly map = new Map<string, CredentialLookup>();
+
+  constructor(_opts: { dev: true } = { dev: true }) {
+    // The `dev: true` opt is the only way to construct — a small
+    // gate that makes "I'm using the in-memory store in prod by
+    // accident" a grep-able phrase. Production code constructs
+    // VaultDoCredentialStore (follow-up bead) instead.
+  }
+
+  async resolve(peerFp: string, service: string): Promise<CredentialLookup | null> {
+    return this.map.get(InMemoryCredentialStore.key(peerFp, service)) ?? null;
+  }
+
+  set(peerFp: string, service: string, lookup: CredentialLookup): void {
+    this.map.set(InMemoryCredentialStore.key(peerFp, service), lookup);
+  }
+
+  delete(peerFp: string, service: string): boolean {
+    return this.map.delete(InMemoryCredentialStore.key(peerFp, service));
+  }
+
+  /** Number of stored credentials. Useful for test cleanup assertions. */
+  get size(): number {
+    return this.map.size;
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+
+  private static key(peerFp: string, service: string): string {
+    return `${peerFp}::${service}`;
+  }
+}
