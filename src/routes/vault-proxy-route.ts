@@ -26,6 +26,7 @@
 // (PRs #29-#32, all 29 baseline tests green); this wraps it into the
 // live request-dispatch graph.
 
+import { checkAccess } from "../../vault/src/vault.js";
 import { CaUnavailableError, getCABundle } from "../storage/ca-bundle-cache.js";
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
@@ -222,6 +223,23 @@ export class VaultProxyRoute implements EdgeRoute {
     // an undeclared service is rejected at the route (404 constant-shape)
     // — vault DO never sees it. Preserves the §9.4.b oracle closure.
     if (parsed !== null && serviceConfig === null) {
+      return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
+    }
+
+    // Manifest defaultAllowedSubs gate (Bundle F1 / cloister-6ed9ae —
+    // 2026-05-18 cycle). Pre-this-fix the route ran this gate only in
+    // the resolve+inject branch via vaultProxyHandler; the forward branch
+    // delegated to vault DO whose per-row allowedSubs (stored at
+    // putCredential time) is a DIFFERENT gate. Operator-side manifest
+    // tightening was dead code in production.
+    //
+    // Lifted into the route boundary so BOTH paths honor the manifest
+    // gate. Vault DO's per-row allowedSubs becomes defense-in-depth on
+    // top of the manifest gate, not the sole gate. Collapses to the
+    // same Shape R / 404 constant-shape body the rest of the access-
+    // failure outcomes use (X-2 invariant from PR #51).
+    if (parsed !== null && serviceConfig !== null
+        && !checkAccess(serviceConfig.defaultAllowedSubs, verifiedLease.peerFp)) {
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
     }
 
