@@ -188,7 +188,16 @@ export interface VaultStoreRpc {
 
 export class CredentialVault extends DurableObject implements VaultStoreRpc {
   private kekPromise: Promise<CryptoKey> | null = null;
-  private inflight = 0;
+  /**
+   * In-flight proxy-call counter, sharded by `subject_fp` per DoS F2 from
+   * the 2026-05-18 adversarial cycle. Pre-this-fix this was a single
+   * scalar `private inflight = 0` — one slow-upstream peer could saturate
+   * the MAX_INFLIGHT cap and deny every other peer on the same DO. Now
+   * each peer has its own per-(subject_fp) bucket against MAX_INFLIGHT;
+   * entries are removed when the count returns to zero so the Map can't
+   * grow unboundedly under unique-subject probing. Per cloister-6f21dc.
+   */
+  private inflightBySubject = new Map<string, number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -310,20 +319,42 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   /**
    * Burst gate: workerd serializes handler dispatch per DO, but proxy's
    * upstream await yields, letting more handlers queue. Cap concurrent
-   * in-flight RPCs so a slow-upstream attack can't pile up.
+   * in-flight RPCs **per subject_fp** so a slow-upstream attack from one
+   * peer can't deny every other peer (DoS F2 from the 2026-05-18 cycle;
+   * pre-fix this was a single shared scalar). Each verified peer gets
+   * its own MAX_INFLIGHT allowance.
    */
-  #checkInflight(): { ok: true } | { ok: false } {
-    if (this.inflight >= RATE_LIMITS.MAX_INFLIGHT) {
+  #checkInflight(subjectFp: string): { ok: true } | { ok: false } {
+    const current = this.inflightBySubject.get(subjectFp) ?? 0;
+    if (current >= RATE_LIMITS.MAX_INFLIGHT) {
       console.warn(
         JSON.stringify({
-          event: "vault.inflight_reject",
-          inflight: this.inflight,
-          cap: RATE_LIMITS.MAX_INFLIGHT,
+          event:      "vault.inflight_reject",
+          subject_fp: subjectFp,
+          inflight:   current,
+          cap:        RATE_LIMITS.MAX_INFLIGHT,
         }),
       );
       return { ok: false };
     }
     return { ok: true };
+  }
+
+  #incInflight(subjectFp: string): void {
+    this.inflightBySubject.set(subjectFp, (this.inflightBySubject.get(subjectFp) ?? 0) + 1);
+  }
+
+  /**
+   * Decrement + GC: when a subject's count returns to 0 the entry is
+   * removed so the Map can't grow unboundedly under unique-subject
+   * probing (related to the keystore-cache concern in cloister-d9a3c6
+   * resolved earlier — same "Map of state keyed by attacker-controlled
+   * identifier" footgun).
+   */
+  #decInflight(subjectFp: string): void {
+    const next = (this.inflightBySubject.get(subjectFp) ?? 1) - 1;
+    if (next <= 0) this.inflightBySubject.delete(subjectFp);
+    else this.inflightBySubject.set(subjectFp, next);
   }
 
   /**
@@ -401,7 +432,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // each one holds the DO during upstream fetch. Reject overflow with
     // a 429 (web-shaped — proxyRequest returns Response, unlike the
     // other RPC methods which throw).
-    const inflight = this.#checkInflight();
+    const inflight = this.#checkInflight(subjectFp);
     if (!inflight.ok) {
       return errorResponse(
         429,
@@ -421,11 +452,11 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       );
     }
 
-    this.inflight++;
+    this.#incInflight(subjectFp);
     try {
       return await this.#proxyRequestInner(subjectFp, service, callerSub, incomingRequest);
     } finally {
-      this.inflight--;
+      this.#decInflight(subjectFp);
     }
   }
 
