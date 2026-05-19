@@ -461,6 +461,19 @@ struct HttpForwardBackend {
   # cloister-b65a20 alongside `external` service entries in
   # config.capnp.
   serviceBinding @6 :Text;
+
+  # Explicit list of upstream tool names this backend handles. When
+  # non-empty, the backend filters its derived (upstream `tools/list`)
+  # output to just these names and advertises them verbatim (no
+  # prefix-add). When empty (default), legacy behavior: filter the
+  # derived set by `handlesPrefix` when non-empty, or claim everything
+  # when both are empty (single-backend-per-upstream shape).
+  #
+  # Operators rarely write this by hand; the resolver (P3) populates
+  # it from a server.json `_meta.art.cloister/v1.groups[].upstreamNames`
+  # block so a single upstream MCP server can be split across N
+  # backend declarations in the generated manifest. Per cloister-8ede3f.
+  claims @7 :List(Text);
 }
 
 struct ServiceBindingBackend {

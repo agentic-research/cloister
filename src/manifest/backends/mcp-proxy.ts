@@ -200,6 +200,15 @@ export class McpProxyToolBackend implements ToolBackend {
 
   private readonly assertedNames: Set<string>;
 
+  /**
+   * Resolved claim set from `spec.claims`. When non-empty, drives both the
+   * derived-cache filter (only matching upstream tools are stored) and the
+   * `handles()` routing decision. When empty, the backend falls back to
+   * `handlesPrefix`-based filtering (legacy single-backend-per-upstream
+   * shape). Per cloister-8ede3f.
+   */
+  private readonly claims: ReadonlySet<string>;
+
   private derivedByUpstreamName = new Map<string, McpTool>();
 
   private fetchedAt = 0;
@@ -238,6 +247,7 @@ export class McpProxyToolBackend implements ToolBackend {
     this.assertedTools = toolsFromSpecs(spec.tools);
     this.assertedNames = new Set(this.assertedTools.map(t => t.name));
     this.protocolMode = normalizeProtocolMode(spec.protocolMode);
+    this.claims        = new Set(spec.claims ?? []);
   }
 
   /**
@@ -277,7 +287,12 @@ export class McpProxyToolBackend implements ToolBackend {
 
     const out = [...this.assertedTools];
     for (const [upstreamName, tool] of this.derivedByUpstreamName) {
-      const advertisedName = this.handlesPrefix + upstreamName;
+      // Don't re-prefix already-prefixed upstream names: an upstream that
+      // emits `lsp_hover` behind `handlesPrefix="lsp_"` must surface as
+      // `lsp_hover`, not `lsp_lsp_hover`. Per cloister-8ede3f.
+      const advertisedName = upstreamName.startsWith(this.handlesPrefix)
+        ? upstreamName
+        : this.handlesPrefix + upstreamName;
       if (this.assertedNames.has(advertisedName)) continue;
       out.push({ ...tool, name: advertisedName });
     }
@@ -285,6 +300,20 @@ export class McpProxyToolBackend implements ToolBackend {
   }
 
   handles(toolName: string): boolean {
+    // Claim-aware routing (cloister-8ede3f): an explicit `claims` set
+    // takes precedence over prefix matching. The upstream name may
+    // arrive bare or already-prefixed — we check both, so a backend that
+    // declares `claims=["lsp_hover"]` correctly owns the advertised
+    // `lsp_hover` (already-prefixed) AND the raw upstream name during
+    // dispatch (when `stripPrefix` is empty).
+    if (this.claims.size > 0) {
+      if (this.claims.has(toolName)) return true;
+      const stripPrefix = this.spec.stripPrefix ?? "";
+      if (stripPrefix !== "" && toolName.startsWith(stripPrefix)) {
+        return this.claims.has(toolName.slice(stripPrefix.length));
+      }
+      return false;
+    }
     if (this.handlesPrefix !== "") return toolName.startsWith(this.handlesPrefix);
     if (this.assertedNames.has(toolName)) return true;
     return this.derivedByUpstreamName.has(toolName);
@@ -434,6 +463,18 @@ export class McpProxyToolBackend implements ToolBackend {
    * Pull `tools` out of a JSON-RPC `tools/list` result and store them in
    * the Derived cache (advertised under the prefix). No-op on shape
    * mismatch — Asserted fallback continues to be returned by `tools()`.
+   *
+   * Filtering precedence (cloister-8ede3f):
+   *   1. `claims` non-empty   → keep only upstream tools whose name is
+   *                              in the claim set.
+   *   2. `handlesPrefix` set  → keep only upstream tools that start
+   *                              with the prefix (legacy mache-shape).
+   *   3. otherwise            → keep everything (legacy claim-all,
+   *                              single-backend-per-upstream).
+   *
+   * Restricting the stored map keeps the derived cache small in the
+   * multi-backend-per-upstream shape (P3 resolver) where each backend
+   * sees the same upstream `tools/list` but owns a disjoint slice.
    */
   private captureDerivedTools(result: unknown): void {
     const upstreamResult = result as UpstreamToolsListResult | undefined;
@@ -442,6 +483,7 @@ export class McpProxyToolBackend implements ToolBackend {
     const next = new Map<string, McpTool>();
     for (const t of upstreamResult.tools) {
       if (typeof t.name !== "string" || t.name === "") continue;
+      if (!this.claimsUpstreamName(t.name)) continue;
       next.set(t.name, {
         name:        t.name,
         description: typeof t.description === "string" ? t.description : "",
@@ -452,6 +494,32 @@ export class McpProxyToolBackend implements ToolBackend {
     }
     this.derivedByUpstreamName = next;
     this.fetchedAt = Date.now();
+  }
+
+  /**
+   * Decide whether this backend claims a given upstream tool name. Used
+   * by `captureDerivedTools` to shrink the per-backend cache to the
+   * subset of upstream tools the backend owns. Per cloister-8ede3f.
+   *
+   * Precedence:
+   *   1. `claims` non-empty            → claim only matching names.
+   *   2. `handlesPrefix` non-empty AND
+   *      `stripPrefix` empty           → claim only names that already
+   *                                       carry the prefix (LSP shape:
+   *                                       upstream is `lsp_*`, no strip).
+   *   3. otherwise                     → claim everything. Covers the
+   *                                       mache shape (upstream is bare,
+   *                                       `stripPrefix=handlesPrefix`)
+   *                                       and the empty-everything single-
+   *                                       backend-per-upstream legacy.
+   */
+  private claimsUpstreamName(upstreamName: string): boolean {
+    if (this.claims.size > 0) return this.claims.has(upstreamName);
+    const stripPrefix = this.spec.stripPrefix ?? "";
+    if (this.handlesPrefix !== "" && stripPrefix === "") {
+      return upstreamName.startsWith(this.handlesPrefix);
+    }
+    return true;
   }
 
   /**

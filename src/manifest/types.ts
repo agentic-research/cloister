@@ -330,6 +330,21 @@ export interface HttpForwardBackend {
    * ordinal `@6` in `HttpForwardBackend`.
    */
   serviceBinding?: string;
+  /**
+   * Explicit list of upstream tool names this backend handles. When
+   * non-empty, the backend filters its derived (upstream `tools/list`)
+   * output to just these names and advertises them verbatim (no
+   * `handlesPrefix` add). When empty / absent (default), legacy
+   * behavior: filter by `handlesPrefix` when non-empty, or claim
+   * everything when both are empty.
+   *
+   * Foundation for multi-backend-per-upstream: a single MCP server
+   * (e.g. LLO) is split across N backend declarations, each owning a
+   * subset of the upstream's tool catalog. The resolver (P3) populates
+   * this from `_meta.art.cloister/v1.groups[].upstreamNames`. Per
+   * cloister-8ede3f. Append-only schema field at ordinal `@7`.
+   */
+  claims?: readonly string[];
 }
 
 export interface ServiceBindingBackend {
