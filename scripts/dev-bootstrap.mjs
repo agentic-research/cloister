@@ -26,7 +26,11 @@
 //   2. If DEV_VAULT_KEK is already set there, reuse it
 //   3. Otherwise: generate 32 random bytes (hex), append to .env.local
 //   4. Ensure VAULT_KEK_SOURCE=env://DEV_VAULT_KEK is set
-//   5. Print next steps
+//   5. If INTERLACE_ROOT_PUBKEY is unset, try `signet authority pubkey`
+//      to materialize it from the local keystore (or remote authority
+//      when SIGNET_AUTHORITY_URL is set). Skipped silently if signet
+//      isn't on PATH — the lease gate then stays off (dev mode).
+//   6. Print next steps
 //
 // Same URL-spec resolver code path as production (`env://` scheme); only
 // the backend differs (env-binding for dev, keychain://`/file://`/etc.
@@ -37,6 +41,7 @@
 // Cross-platform: pure Node, no shells, no OS-specific dependencies.
 
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -44,6 +49,20 @@ const ENV_LOCAL = resolve(process.cwd(), ".env.local");
 const DEV_KEK_VAR = "DEV_VAULT_KEK";
 const KEK_SOURCE_VAR = "VAULT_KEK_SOURCE";
 const KEK_SOURCE_VAL = `env://${DEV_KEK_VAR}`;
+
+// INTERLACE_ROOT_PUBKEY is the lease-gate trust anchor (see CLAUDE.md +
+// docs/ARCHITECTURE.md). When set, the lease middleware verifies every
+// authenticated request's cert chain against this public key. When unset,
+// the gate is off (dev mode).
+//
+// The signet repo ships `signet authority pubkey` (signet-PR #131) which
+// emits the master Ed25519 pubkey as base64. We invoke it here. If signet
+// isn't on PATH, skip silently and let the gate stay off — many cloister
+// dev workflows don't need lease verification.
+const PUBKEY_VAR = "INTERLACE_ROOT_PUBKEY";
+const SIGNET_BIN = process.env.SIGNET_BIN || "signet";
+const SIGNET_AUTHORITY_URL = process.env.SIGNET_AUTHORITY_URL || ""; // when set, remote-fetch instead of local keystore
+const PUBKEY_REFRESH = !!process.env.INTERLACE_PUBKEY_REFRESH; // force re-fetch even if already set
 
 function parseEnv(content) {
   const entries = new Map();
@@ -88,6 +107,52 @@ if (!entries.has(DEV_KEK_VAR) || !entries.get(DEV_KEK_VAR)) {
 const sourceWas = entries.get(KEK_SOURCE_VAR);
 entries.set(KEK_SOURCE_VAR, KEK_SOURCE_VAL);
 
+// ── INTERLACE_ROOT_PUBKEY — lease-gate trust anchor ─────────────────
+//
+// Try to materialize from the local signet binary. Stays off if signet
+// isn't installed — that's a supported dev mode.
+function tryFetchInterlacePubkey() {
+  const args = ["authority", "pubkey"];
+  if (SIGNET_AUTHORITY_URL) args.push("--url", SIGNET_AUTHORITY_URL);
+
+  const result = spawnSync(SIGNET_BIN, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (result.error) {
+    // ENOENT (signet not on PATH) or similar exec failure.
+    return { ok: false, reason: "signet-not-found", detail: String(result.error) };
+  }
+  if (result.status !== 0) {
+    // signet ran but failed — likely "master key not found" (no init
+    // yet on local keystore) or HTTP failure for --url mode.
+    return { ok: false, reason: "signet-error", detail: (result.stderr || "").trim() };
+  }
+  const pubkey = (result.stdout || "").trim();
+  if (!pubkey) {
+    return { ok: false, reason: "signet-empty", detail: "stdout was empty" };
+  }
+  return { ok: true, pubkey };
+}
+
+const pubkeyWas = entries.get(PUBKEY_VAR);
+const shouldFetchPubkey = PUBKEY_REFRESH || !pubkeyWas;
+let pubkeyOutcome = { kind: "kept" };
+if (shouldFetchPubkey) {
+  const fetched = tryFetchInterlacePubkey();
+  if (fetched.ok) {
+    entries.set(PUBKEY_VAR, fetched.pubkey);
+    pubkeyOutcome = {
+      kind: pubkeyWas ? "refreshed" : "fetched",
+      pubkey: fetched.pubkey,
+      via: SIGNET_AUTHORITY_URL || "local keystore",
+    };
+  } else {
+    pubkeyOutcome = { kind: "skipped", reason: fetched.reason, detail: fetched.detail };
+  }
+}
+
 writeFileSync(ENV_LOCAL, serializeEnv(entries, HEADER), { mode: 0o600 });
 
 console.log("dev-bootstrap:");
@@ -101,6 +166,28 @@ if (sourceWas !== KEK_SOURCE_VAL) {
   console.log(`  ✓ Set ${KEK_SOURCE_VAR}=${KEK_SOURCE_VAL}`);
 } else {
   console.log(`  → ${KEK_SOURCE_VAR} already set correctly`);
+}
+switch (pubkeyOutcome.kind) {
+  case "fetched":
+    console.log(`  ✓ Set ${PUBKEY_VAR} from ${pubkeyOutcome.via} (lease gate ON)`);
+    break;
+  case "refreshed":
+    console.log(`  ✓ Refreshed ${PUBKEY_VAR} from ${pubkeyOutcome.via} (INTERLACE_PUBKEY_REFRESH=1)`);
+    break;
+  case "kept":
+    console.log(`  → ${PUBKEY_VAR} already set — kept (set INTERLACE_PUBKEY_REFRESH=1 to re-fetch)`);
+    break;
+  case "skipped":
+    if (pubkeyOutcome.reason === "signet-not-found") {
+      console.log(`  → ${PUBKEY_VAR} unset — signet not on PATH (lease gate OFF, dev mode)`);
+      console.log("       install signet via signet-repo \`task install\`, or set");
+      console.log("       INTERLACE_ROOT_PUBKEY=<base64-pubkey> in .env.local manually.");
+    } else {
+      console.log(`  ⚠ ${PUBKEY_VAR} unset — signet ran but failed (${pubkeyOutcome.reason})`);
+      if (pubkeyOutcome.detail) console.log(`       ${pubkeyOutcome.detail.split("\n")[0]}`);
+      console.log("       lease gate stays OFF for now (dev mode).");
+    }
+    break;
 }
 console.log("");
 console.log("Next:");
