@@ -96,19 +96,28 @@ describe("MCP lifecycle", () => {
     expect(res.result).toEqual({});
   });
 
-  it("tools/list aggregates bead_* and lsp_* tools across backends", async () => {
+  it("tools/list aggregates bead_* tools (lsp_* now derived from LLO upstream)", async () => {
     const res = await mcp<{ result: { tools: Array<{ name: string }> } }>("tools/list");
     const names = res.result.tools.map(t => t.name);
-    // 6 bead_* + 5 lsp_* — kept loose so adding tools doesn't churn this test.
+    // The bead_* set lives in cloister (DurableObject backend); the
+    // assertion checks the in-process MCP surface advertises every
+    // bead tool. The `lsp_*` set was removed from cloister's asserted
+    // catalog by cloister-d9347e (P5 of the LLO arc); cloister now
+    // derives the catalog at request time from LLO's `tools/list`. In
+    // the workerd test pool LLO_MCP_URL points at an unreachable port,
+    // so the derived cache stays empty and `lsp_*` does not surface
+    // here — this is correct behavior, not a regression. See
+    // test/manifest/mcp-proxy-dynamic.test.ts for the LSP-shape
+    // dynamic-derivation tests (stubbed fetch, asserts no
+    // double-prefix, etc.).
     for (const expected of [
-      // bead_*
       "bead_create", "bead_update", "bead_search",
       "bead_list", "bead_close", "bead_comment",
-      // lsp_*
-      "lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics",
     ]) {
       expect(names).toContain(expected);
     }
+    // No `lsp_*` should surface — the upstream is unreachable in tests.
+    expect(names.some(n => n.startsWith("lsp_"))).toBe(false);
     // Sanity: no duplicates across backends.
     expect(new Set(names).size).toBe(names.length);
   });

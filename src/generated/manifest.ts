@@ -116,34 +116,8 @@ export const manifest: Gateway = {
               "kind": {
                 "mcpProxy": {
                   "urlBinding": "LLO_MCP_URL",
-                  "tools": [
-                    {
-                      "name": "lsp_hover",
-                      "description": "Position-based LSP hover; resolves (file, line, col) to the node and returns hover text.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\"},\"line\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991},\"col\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991}},\"required\":[\"file\",\"line\",\"col\"],\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "lsp_defs",
-                      "description": "Position-based LSP definitions.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\"},\"line\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991},\"col\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991}},\"required\":[\"file\",\"line\",\"col\"],\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "lsp_refs",
-                      "description": "Position-based LSP references.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\"},\"line\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991},\"col\":{\"type\":\"integer\",\"minimum\":-9007199254740991,\"maximum\":9007199254740991}},\"required\":[\"file\",\"line\",\"col\"],\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "lsp_symbols",
-                      "description": "Document symbols for a file.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\"}},\"required\":[\"file\"],\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "lsp_diagnostics",
-                      "description": "Diagnostics for a file. LLO enriches on demand if the file hasn't been parsed yet.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"file\":{\"type\":\"string\"}},\"required\":[\"file\"],\"additionalProperties\":false}"
-                    }
-                  ],
-                  "dynamicTools": false,
+                  "tools": [],
+                  "dynamicTools": true,
                   "requiresSession": false,
                   "serviceBinding": "LSP_MCP"
                 }
