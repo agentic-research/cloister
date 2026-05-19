@@ -33,6 +33,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import {
   CONSTANT_TIME_ERROR_BODY,
+  collapseWireShape,
   errorResponse,
   parseVaultProxyPath,
   vaultProxyHandler,
@@ -171,12 +172,19 @@ export class VaultProxyRoute implements EdgeRoute {
     // delegate the full Request to vault DO. Plaintext credential bytes
     // stay inside the DO trust boundary per ADR-0013.
     if (credentialStore.forward && parsed !== null && serviceConfig !== null) {
-      return credentialStore.forward(
+      // Collapse vault DO's debug-friendly error bodies to the canonical
+      // cred-iso/v1 wire shapes before returning to the client (closes
+      // Oracle O1 + O2 + O4 from the 2026-05-18 adversarial cycle).
+      // Vault DO can still emit structured shapes for direct DO callers;
+      // the collapse is a cred-iso/v1 invariant enforced at the route
+      // boundary, not a substrate-wide change.
+      const res = await credentialStore.forward(
         verifiedLease.peerFp,
         service,
         verifiedLease.peerFp,
         request,
       );
+      return collapseWireShape(res);
     }
 
     const lookup = service !== ""
