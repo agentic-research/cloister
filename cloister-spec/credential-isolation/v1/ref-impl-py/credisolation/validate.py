@@ -109,7 +109,13 @@ def parse_vault_proxy_path(path: str) -> tuple[str, str]:
 
 # ── response shape ──────────────────────────────────────────────────────
 
-CONSTANT_TIME_ERROR_STATUSES: frozenset[int] = frozenset({401, 403, 404})
-"""401/403/404 are wire-equal in shape per wire/proxy-envelope.md §"Error
-responses" — same body shape, same MUST-NOT-distinguish guarantee. This
-is the enumeration-oracle closure."""
+CONSTANT_TIME_ERROR_STATUSES: frozenset[int] = frozenset({401, 404})
+"""401 + 404 are the access-failure status codes in Shape R per
+wire/error-responses.md (post-2026-05-18 cycle X-2 unification per
+cloister-6eba0a). 403 is INTENTIONALLY ABSENT — historically the
+allowedSubs-mismatch path emitted 403, but the route boundary now
+collapses that to 404 (cloister-aa9376 + the X-2 wire-shape collapse).
+Per the spec a Shape R response on the wire is 401 OR 404; no other
+status. The 429 rate-limit path also emits Shape R bodies but with a
+distinct status code that legitimately differentiates the operator
+signal."""

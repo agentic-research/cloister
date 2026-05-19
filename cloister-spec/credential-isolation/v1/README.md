@@ -1,6 +1,6 @@
 # `cloister/credential-isolation/v1` — vendor-neutral specification
 
-**Status:** Draft (2026-05-17, paired with ADR-0024 in cloister; conformance vectors landed 2026-05-18 via `cloister-954f21`)
+**Status:** Draft (2026-05-17, paired with ADR-0024 in cloister; conformance vectors landed 2026-05-18 via `cloister-954f21`; vectors reconciled 2026-05-18 with the X-2 wire-shape collapse via `cloister-505bf1` — `error-responses.json`'s allowedSubs-mismatch vector now expects the canonical Shape R 404 body, matching `wire/error-responses.md` post-cycle)
 **Audience:** anyone building a second implementation of this
 capability — whether in Rust, Python, Go, or as a different
 substrate-side cloister bundle. If you reach the same digests on the
