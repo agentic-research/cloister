@@ -598,6 +598,14 @@ tasks:
       - config.capnp
       - scripts/lint-bundle-isolation.mjs
 
+  lint:capability-scheme:
+    desc: "ADR-0028 §6 lane discipline — fails if any [inputs.*].provides/requires value isn't cloister/<name>/v<n> shape (cloister-308ea4). Catches lane-1 URN / lane-2 WIMSE leakage into lane-3 slots. Reads cluster.ts via tsx."
+    cmds:
+      - pnpm exec tsx scripts/lint-capability-scheme.mjs
+    sources:
+      - src/generated/cluster.ts
+      - scripts/lint-capability-scheme.mjs
+
   lint:tenant-docs:
     desc: "Drift gate for docs/tenants/ (cloister-c9df61) — asserts every tenant in cloister.capnp + every non-substrate service in cluster.compose.yaml has a matching docs/tenants/<name>.md page."
     cmds:
@@ -628,7 +636,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs
+      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
@@ -637,7 +645,7 @@ tasks:
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + cargo-pin lint. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:tenant-docs, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, lint:cargo-pins]
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:tenant-docs, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, lint:cargo-pins]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
