@@ -33,6 +33,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import {
   CONSTANT_TIME_ERROR_BODY,
+  SHAPE_U_ERROR_BODY,
   collapseWireShape,
   errorResponse,
   forwardWithReceipt,
@@ -112,26 +113,54 @@ export class VaultProxyRoute implements EdgeRoute {
   }
 
   /**
-   * Pick the CredentialStore for this request. Three branches in priority order:
+   * Latch — emit the structured "vault binding missing" error log at
+   * most once per route instance. Operator misconfiguration deserves
+   * a loud signal in `wrangler tail` / CF Workers Logs, but logging
+   * the same error per-request would spam. Per cloister-6e6bfb /
+   * Obs O-OBS-3 (2026-05-18 adversarial cycle).
+   */
+  private loggedVaultMissing = false;
+
+  /**
+   * Pick the CredentialStore for this request. **Fail-closed** —
+   * three branches in priority order:
    *
    * 1. Explicit `deps.credentials` override → use it verbatim. Test
-   *    ergonomics path (stubs, in-memory fixtures, etc.) — env is ignored.
+   *    ergonomics path (stubs, in-memory fixtures); the operator/test
+   *    has explicitly opted into a specific store and env is ignored.
    * 2. `env.VAULT_STORE` binding present → lazily construct a
    *    `VaultDoCredentialStore` with `bundleIdName: "router"` and
    *    memoize. Production path. Plaintext stays inside the DO trust
    *    boundary (ADR-0013 slice-grant); the route delegates the entire
    *    Request via `store.forward(...)` further down.
-   * 3. Otherwise → the default `InMemoryCredentialStore` constructed at
-   *    `deps.credentials ?? new InMemoryCredentialStore()`. Dev/local
-   *    fallback; no production traffic should hit this path.
+   * 3. Neither → return `null`. Handler treats this as fatal config
+   *    error: 503 SHAPE_U + one-shot structured error log so the
+   *    operator sees the misconfiguration in logs. The old silent
+   *    fallback to InMemoryCredentialStore is gone — that was the
+   *    Obs O-OBS-3 gap (silent dev-mode-in-prod).
+   *
+   * Closes Obs O-OBS-3 from the 2026-05-18 adversarial cycle.
    */
-  private selectCredentialStore(env: Env): CredentialStore {
+  private selectCredentialStore(env: Env): CredentialStore | null {
     if (this.credentialsExplicit)          return this.credentials;
     if (env.VAULT_STORE) {
       this.vaultDoStore ??= new VaultDoCredentialStore({ env, bundleIdName: "router" });
       return this.vaultDoStore;
     }
-    return this.credentials;
+    if (!this.loggedVaultMissing) {
+      this.loggedVaultMissing = true;
+      // eslint-disable-next-line no-console -- intentional structured emit
+      console.error(JSON.stringify({
+        kind:    "error",
+        source:  "cloister/credential-isolation/v1",
+        message: "env.VAULT_STORE binding is absent AND no explicit deps.credentials was passed. " +
+                 "Route is failing-closed: every request returns 503 SHAPE_U_ERROR_BODY. " +
+                 "Bind VAULT_STORE in wrangler.toml + config.capnp, OR pass " +
+                 "deps.credentials explicitly (test path). No further error logs for this route instance.",
+        bead:    "cloister-6e6bfb",
+      }));
+    }
+    return null;
   }
 
   match(request: Request): boolean {
@@ -166,6 +195,16 @@ export class VaultProxyRoute implements EdgeRoute {
     // — vault DO never sees it. Preserves the §9.4.b oracle closure.
     if (parsed !== null && serviceConfig === null) {
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
+    }
+
+    // Fail-closed on missing credential store (Obs O-OBS-3): when
+    // neither env.VAULT_STORE nor explicit deps.credentials was wired,
+    // selectCredentialStore returns null + emits a one-shot error log.
+    // Every request hits a 503 SHAPE_U_ERROR_BODY — operator sees a
+    // hard signal in wrangler tail. Old silent dev-fallback in prod is
+    // gone. Per cloister-6e6bfb / 2026-05-18 cycle.
+    if (credentialStore === null) {
+      return errorResponse(503, SHAPE_U_ERROR_BODY);
     }
 
     // Production forward path: when the store supports `forward`

@@ -310,18 +310,25 @@ describe("VaultProxyRoute.handle — auto-select VaultDoCredentialStore when env
     expect(await res.text()).toBe('{"via":"in-memory"}');
   });
 
-  it("falls back to InMemoryCredentialStore when env.VAULT_STORE is unset (dev/local)", async () => {
+  it("fails CLOSED with 503 SHAPE_U when neither env.VAULT_STORE nor deps.credentials is wired (Obs O-OBS-3)", async () => {
+    // Pre-cloister-6e6bfb: route silently fell back to InMemoryCredentialStore
+    // here, which let a misconfigured production deployment run dev-mode
+    // forever without any wire-visible signal. Post-fix: fail-closed — every
+    // request 503s + the route emits a one-shot structured error log to
+    // wrangler tail. Operators must wire env.VAULT_STORE OR pass
+    // deps.credentials explicitly (the test-ergonomics opt-in path).
     const route = new VaultProxyRoute({
       leaseVerifier: fakeVerifier(fakeLease()),
       services:      serviceConfigOpenAi,
-      // No deps.credentials, no env.VAULT_STORE
+      // No deps.credentials, no env.VAULT_STORE — production-misconfig shape
     });
-    // No credential stored in the implicit in-memory store → handler returns 404 constant-shape
     const res = await route.handle(
       new Request("http://x/vault/proxy/openai/v1/chat"),
       envWithVaultStore(undefined),
     );
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(503);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("upstream_unavailable");
   });
 
   it("memoizes the VaultDoCredentialStore across requests (does not reconstruct per call)", async () => {
