@@ -60,9 +60,23 @@ The substrate to fix this **already exists in tree**:
 
 The model the ecosystem has settled on is `server.json` (MCP Registry spec,
 schema `2025-12-11`). It's the standardized way for an MCP server to
-declare its own contract: name, version, transports, declared tools,
-package install info, plus a reverse-DNS `_meta` extension point for
-consumer-specific hints.
+declare its own **install + transport** contract: `name`, `description`,
+`version` (required) plus `packages` (registry type, identifier,
+transport, runtime/package arguments, environment variables), `remotes`,
+`repository`, `icons`, `title`, `websiteUrl`, and a reverse-DNS `_meta`
+extension point for consumer-specific hints.
+
+**Note (2026-05-19 audit):** `server.json` does NOT carry the server's
+tool catalog. The schema's `ServerDetail` has no `tools` field —
+tools (and prompts, resources) are discovered at runtime over MCP via
+`tools/list` (resp. `prompts/list`, `resources/list`) once the server
+is running. `server.json` answers "how do I install / launch / reach
+this server?"; the running server answers "what tools do you have?".
+The `_meta.art.cloister/v1` extension (see ADR-0026 §"Where the `_meta`
+extension lives" and `cloister-spec/mcp-tool/v1`) is how server authors
+attach *cloister-side routing hints* over that runtime catalog —
+specifically, how to partition the upstream `tools/list` into named
+backend groups at build time.
 
 ## Decision
 
