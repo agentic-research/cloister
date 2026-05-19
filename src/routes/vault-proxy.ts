@@ -488,6 +488,65 @@ export const CONSTANT_TIME_ERROR_BODY = JSON.stringify({
 });
 
 /**
+ * Canonical body for upstream-failure outcomes (502 / 503). By the
+ * time an attacker sees a U-shape they've already passed every
+ * access check (lease, scope, service-declaration, allowedSubs), so
+ * collapsing 502 (upstream unreachable) + 503 (vault unavailable) +
+ * any other 5xx-class transient does NOT leak access info. The
+ * collapse closes Oracle O2 (the undocumented `vault_unavailable`
+ * shape) from the 2026-05-18 adversarial cycle.
+ *
+ * Status codes still differentiate the operator signal (502 = we
+ * tried + upstream failed; 503 = substrate transient). Only the
+ * body bytes collapse.
+ */
+export const SHAPE_U_ERROR_BODY = JSON.stringify({
+  error: "upstream_unavailable",
+});
+
+/**
+ * Wire-shape collapse for cred-iso/v1 responses. The route layer
+ * owns the wire contract; vault DO emits its own debug-friendly
+ * bodies (`{error: "not_found", service: ...}`, etc.) which are
+ * appropriate for direct DO callers but leak substrate identity +
+ * registry membership when forwarded verbatim to the wire (Oracle
+ * O1 + O4, 2026-05-18 cycle).
+ *
+ * Two canonical wire shapes, picked by status code class:
+ *
+ *   - 401 / 403 / 404 / 429 → CONSTANT_TIME_ERROR_BODY
+ *     ("access failure" class — byte-equal so an attacker who
+ *     lacks credential context can't distinguish which failure
+ *     gate fired)
+ *   - 502 / 503 → SHAPE_U_ERROR_BODY ("upstream failure" class —
+ *     byte-equal across substrate-vs-network-transient outcomes)
+ *
+ * 2xx + other statuses pass through verbatim — those are
+ * upstream-authored bodies the route just relays.
+ *
+ * Retry-After + other forward-relevant headers from the source
+ * Response are preserved.
+ */
+export async function collapseWireShape(res: Response): Promise<Response> {
+  const status = res.status;
+  if (status >= 200 && status < 400) return res;
+
+  const isAccessFailure   = status === 401 || status === 403 || status === 404 || status === 429;
+  const isUpstreamFailure = status === 502 || status === 503;
+  if (!isAccessFailure && !isUpstreamFailure) return res;
+
+  // Drain the upstream body so its plaintext doesn't leak via any
+  // mistake at a later layer.
+  await res.arrayBuffer().catch(() => {});
+
+  const canonicalBody = isAccessFailure ? CONSTANT_TIME_ERROR_BODY : SHAPE_U_ERROR_BODY;
+  const extra: Record<string, string> = {};
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) extra["retry-after"] = retryAfter;
+  return errorResponse(status, canonicalBody, extra);
+}
+
+/**
  * Required headers on every error-emission site across the
  * cloister/credential-isolation/v1 surface. Per
  * `wire/error-responses.md` § "Header invariants on error paths":

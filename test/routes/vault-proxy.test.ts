@@ -17,8 +17,10 @@ import {
   parseVaultProxyPath,
   vaultProxyHandler,
   CONSTANT_TIME_ERROR_BODY,
+  SHAPE_U_ERROR_BODY,
   REQUIRED_ERROR_HEADERS,
   __resetRateBuckets,
+  collapseWireShape,
   errorResponse,
   type MetricEmitter,
   type ProxyCallReceipt,
@@ -745,6 +747,80 @@ describe("errorResponse — required headers per wire/error-responses.md", () =>
       {} as never,
     );
     expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+// ── cloister-6eba0a sub-fix: wire-shape collapse (X-2 body unification) ─
+
+describe("collapseWireShape — body unification at the route boundary", () => {
+  async function collapsed(upstream: Response): Promise<{ status: number; body: string; cacheControl: string | null; retryAfter: string | null }> {
+    const res = await collapseWireShape(upstream);
+    return {
+      status: res.status,
+      body: await res.text(),
+      cacheControl: res.headers.get("cache-control"),
+      retryAfter: res.headers.get("retry-after"),
+    };
+  }
+
+  it("collapses vault DO's `{error:not_found, service:...}` 404 to CONSTANT_TIME_ERROR_BODY", async () => {
+    const result = await collapsed(new Response('{"error":"not_found","service":"openai"}', { status: 404, headers: { "content-type": "application/json" } }));
+    expect(result.status).toBe(404);
+    expect(result.body).toBe(CONSTANT_TIME_ERROR_BODY);
+    expect(result.cacheControl).toBe("no-store");
+  });
+
+  it("collapses 401 to CONSTANT_TIME_ERROR_BODY", async () => {
+    const result = await collapsed(new Response('{"error":"foo"}', { status: 401 }));
+    expect(result.body).toBe(CONSTANT_TIME_ERROR_BODY);
+  });
+
+  it("collapses 403 to CONSTANT_TIME_ERROR_BODY", async () => {
+    const result = await collapsed(new Response('{"error":"bar"}', { status: 403 }));
+    expect(result.body).toBe(CONSTANT_TIME_ERROR_BODY);
+  });
+
+  it("collapses 429 to CONSTANT_TIME_ERROR_BODY AND preserves retry-after", async () => {
+    const result = await collapsed(new Response('{"error":"rate_limited","service":"openai"}', { status: 429, headers: { "retry-after": "7" } }));
+    expect(result.status).toBe(429);
+    expect(result.body).toBe(CONSTANT_TIME_ERROR_BODY);
+    expect(result.retryAfter).toBe("7");
+  });
+
+  it("collapses 502 to SHAPE_U_ERROR_BODY (upstream failure class)", async () => {
+    const result = await collapsed(new Response('{"error":"upstream_unavailable"}', { status: 502 }));
+    expect(result.status).toBe(502);
+    expect(result.body).toBe(SHAPE_U_ERROR_BODY);
+    expect(result.cacheControl).toBe("no-store");
+  });
+
+  it("collapses 503 vault_unavailable (Oracle O2) to SHAPE_U_ERROR_BODY", async () => {
+    const result = await collapsed(new Response('{"error":"vault_unavailable"}', { status: 503 }));
+    expect(result.status).toBe(503);
+    expect(result.body).toBe(SHAPE_U_ERROR_BODY);
+  });
+
+  it("passes 2xx responses through verbatim (upstream-authored body)", async () => {
+    const upstreamBody = JSON.stringify({ choices: [{ text: "hi" }] });
+    const result = await collapsed(new Response(upstreamBody, { status: 200, headers: { "content-type": "application/json", "x-foo": "bar" } }));
+    expect(result.status).toBe(200);
+    expect(result.body).toBe(upstreamBody);
+  });
+
+  it("preserves 5xx outside the collapse set (e.g. 504, 500) verbatim", async () => {
+    const result = await collapsed(new Response('{"error":"gateway_timeout"}', { status: 504 }));
+    expect(result.status).toBe(504);
+    expect(result.body).toBe('{"error":"gateway_timeout"}');
+  });
+
+  it("404 + 401 + 403 + 429 all produce IDENTICAL body bytes (the X-2 invariant)", async () => {
+    const r404 = await collapsed(new Response('{"error":"not_found","service":"a"}', { status: 404 }));
+    const r401 = await collapsed(new Response('{"error":"foo"}', { status: 401 }));
+    const r403 = await collapsed(new Response('{"error":"bar"}', { status: 403 }));
+    const r429 = await collapsed(new Response('{"error":"rate_limited","service":"b"}', { status: 429 }));
+    expect(r404.body).toBe(r401.body);
+    expect(r401.body).toBe(r403.body);
+    expect(r403.body).toBe(r429.body);
   });
 });
 
