@@ -29,16 +29,19 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0026** (0001–0021 + 0023–0025 land; **ADR-0022
-  reserved-but-not-drafted** — schema-bridge positioning, see
-  `cloister-ae587d`). Most ADRs are Accepted; ADR-0008 Deferred
-  (multi-companion scale not yet a real signal); ADR-0010 stays
-  Proposed (manifest-side enforcement ratified by ADR-0013); ADR-0020
-  + ADR-0021 are Proposed; everything else 0011–0019, 0023–0025 is
-  Accepted. ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker);
-  ADR-0024 specifies the `cloister/credential-isolation/v1` capability
-  under the substrate-as-kernel framing; ADR-0025 ships the bidi
-  TOML ↔ capnp pipeline with `cluster.toml` at repo root.
+  number is **ADR-0029** (0001–0028 land). Most ADRs are Accepted;
+  ADR-0008 Deferred (multi-companion scale not yet a real signal);
+  ADR-0010 stays Proposed (manifest-side enforcement ratified by
+  ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028 are
+  Proposed; everything else 0011–0019, 0022–0025 is Accepted.
+  ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker); ADR-0024
+  specifies the `cloister/credential-isolation/v1` capability under
+  the substrate-as-kernel framing; ADR-0025 ships the bidi
+  TOML ↔ capnp pipeline with `cluster.toml` at repo root; ADR-0026
+  ships the tool-composition model (`[inputs.*]` in `cluster.toml`);
+  ADR-0027 frames the n-dim capability matchmaker; ADR-0028
+  reconciles the three capability identifier schemes (signet URN,
+  WIMSE URI, cloister reverse-DNS).
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
