@@ -35,6 +35,7 @@ import {
   CONSTANT_TIME_ERROR_BODY,
   collapseWireShape,
   errorResponse,
+  forwardWithReceipt,
   parseVaultProxyPath,
   vaultProxyHandler,
   type MetricEmitter,
@@ -172,18 +173,32 @@ export class VaultProxyRoute implements EdgeRoute {
     // delegate the full Request to vault DO. Plaintext credential bytes
     // stay inside the DO trust boundary per ADR-0013.
     if (credentialStore.forward && parsed !== null && serviceConfig !== null) {
-      // Collapse vault DO's debug-friendly error bodies to the canonical
-      // cred-iso/v1 wire shapes before returning to the client (closes
-      // Oracle O1 + O2 + O4 from the 2026-05-18 adversarial cycle).
-      // Vault DO can still emit structured shapes for direct DO callers;
-      // the collapse is a cred-iso/v1 invariant enforced at the route
-      // boundary, not a substrate-wide change.
-      const res = await credentialStore.forward(
-        verifiedLease.peerFp,
-        service,
-        verifiedLease.peerFp,
-        request,
-      );
+      // Production forward path. Two invariants enforced here:
+      //
+      //   1. forwardWithReceipt — emits ProxyCallReceipt + vault_proxy_call
+      //      metric exactly once per call (success OR upstream-error)
+      //      via the route's receipts/metrics emitters. Closes X-1 (the
+      //      forward path used to emit nothing — cloister-6e888b).
+      //   2. collapseWireShape — vault DO's debug-friendly error bodies
+      //      rewrap to the canonical cred-iso/v1 wire shapes before
+      //      returning to the client. Closes X-2 / Oracle O1+O2+O4.
+      //
+      // Vault DO still emits structured shapes for direct DO callers;
+      // both invariants are cred-iso/v1 route-boundary concerns.
+      const res = await forwardWithReceipt({
+        receipts:         this.receipts,
+        metrics:          this.metrics,
+        peerFp:           verifiedLease.peerFp,
+        cfg:              serviceConfig,
+        upstreamPath:     parsed.upstreamPath,
+        requestSizeBytes: Number.parseInt(request.headers.get("content-length") ?? "0", 10) || 0,
+        forward: () => credentialStore.forward!(
+          verifiedLease.peerFp,
+          service,
+          verifiedLease.peerFp,
+          request,
+        ),
+      });
       return collapseWireShape(res);
     }
 
