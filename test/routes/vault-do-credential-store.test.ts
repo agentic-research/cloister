@@ -145,6 +145,47 @@ describe("VaultDoCredentialStore.forward — failure propagation", () => {
     expect(JSON.stringify(body)).not.toContain("connection reset");
     expect(JSON.stringify(body)).not.toContain("DO RPC");
   });
+
+  it("emits a structured console.error capturing the exception class + message on RPC throw (Obs O-OBS-4)", async () => {
+    const { ns } = fakeNamespace({ throwWith: new TypeError("DO eviction during fetch") });
+    const store = new VaultDoCredentialStore({ env: envWith(ns), bundleIdName: "router" });
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (line: string) => { errs.push(line); };
+    try {
+      await store.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+    } finally {
+      console.error = orig;
+    }
+    expect(errs.length).toBe(1);
+    const parsed = JSON.parse(errs[0]);
+    expect(parsed.kind).toBe("error");
+    expect(parsed.source).toBe("cloister/credential-isolation/v1");
+    expect(parsed.location).toBe("VaultDoCredentialStore.forward");
+    expect(parsed.bundleIdName).toBe("router");
+    expect(parsed.service).toBe(TEST_SERVICE);
+    expect(parsed.error_class).toBe("TypeError");
+    expect(parsed.error_message).toBe("DO eviction during fetch");
+    expect(parsed.bead).toBe("cloister-6e6bfb");
+  });
+
+  it("structured log captures non-Error throws (string / object / undefined) safely", async () => {
+    const { ns } = fakeNamespace({ throwWith: { weird: true } as unknown as Error });
+    const store = new VaultDoCredentialStore({ env: envWith(ns), bundleIdName: "router" });
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (line: string) => { errs.push(line); };
+    try {
+      await store.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+    } finally {
+      console.error = orig;
+    }
+    expect(errs.length).toBe(1);
+    const parsed = JSON.parse(errs[0]);
+    // Non-Error throws coerce to `new Error(String(err))` — class is "Error", message is the toString
+    expect(parsed.error_class).toBe("Error");
+    expect(typeof parsed.error_message).toBe("string");
+  });
 });
 
 describe("VaultDoCredentialStore — per-bundle isolation seam", () => {
