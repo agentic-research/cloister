@@ -273,12 +273,41 @@ struct Route {
     # receipts + no-plaintext-leak invariants are all wired through the
     # handler in `src/routes/vault-proxy.ts` (29 baseline tests green per
     # PRs #29-#32). Credential-store seam in `src/routes/vault-proxy-
-    # credential-store.ts` (PR #33). Service config + credential lookup
-    # are passed into the route at composition time — manifest-side
-    # `VaultProxyService` declarations land as a Phase 11 schema add
-    # (separate bead).
-    vaultProxy              @11 :Void;
+    # credential-store.ts` (PR #33).
+    #
+    # Carries a `VaultProxySpec` rather than Void so the operator can name
+    # the `bundleIdName` the route uses to address its vault DO
+    # (`env.VAULT_STORE.idFromName(bundleIdName)`). Per ADR-0021, each
+    # bundle in the cluster gets its own DO instance via a distinct
+    # `idFromName(...)` namespace. Pre-X-3 the literal `"router"` was
+    # hardcoded in the route handler, so any second `vaultProxy` route
+    # would collapse to the same DO + inherit the same MAX_INFLIGHT cap
+    # (Bundle F4 + DoS F2 from the 2026-05-18 adversarial cycle).
+    # Post-X-3 the manifest names the binding seam. Empty string
+    # defaults to `"router"` for back-compat with single-bundle deploys.
+    # Per cloister-6f06cc / X-3 cluster.
+    vaultProxy              @11 :VaultProxySpec;
   }
+}
+
+# ── VaultProxySpec: per-route config for `vaultProxy` Route.kind ──────────
+#
+# Carries the per-bundle isolation seam (ADR-0021): the `bundleIdName`
+# the route passes to `env.VAULT_STORE.idFromName(...)`. Each distinct
+# `bundleIdName` yields a distinct vault DO instance with independent
+# SQLite storage + independent rate buckets + independent inflight cap.
+#
+# Empty `bundleIdName` defaults to `"router"` (back-compat with
+# single-bundle deploys that shipped before X-3 / cloister-6f06cc).
+# A future schema-bridge / lint rule (lint:vault-proxy-bundle-id-name)
+# asserts no two `vaultProxy` routes resolve to the same effective
+# `bundleIdName` — would defeat the per-bundle isolation invariant.
+
+struct VaultProxySpec {
+  # Logical bundle name passed to `env.VAULT_STORE.idFromName(...)`.
+  # Empty → defaults to "router". Each distinct value yields an
+  # independent vault DO instance per ADR-0021.
+  bundleIdName @0 :Text;
 }
 
 # ── McpRoute: the inner ToolBackend dispatch layer ────────────────────────

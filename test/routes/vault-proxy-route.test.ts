@@ -310,6 +310,48 @@ describe("VaultProxyRoute.handle — auto-select VaultDoCredentialStore when env
     expect(await res.text()).toBe('{"via":"in-memory"}');
   });
 
+  it("auto-select uses manifest-supplied bundleIdName (X-3 / cloister-6f06cc) when set", async () => {
+    const { ns, idNamesSeen } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      bundleIdName:  "notme", // Operator passes via manifest VaultProxySpec
+    });
+    await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(ns),
+    );
+    expect(idNamesSeen).toEqual(["notme"]);
+  });
+
+  it("auto-select defaults bundleIdName to 'router' when manifest leaves it empty (back-compat)", async () => {
+    const { ns, idNamesSeen } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      bundleIdName:  "", // VaultProxySpec.bundleIdName empty → default
+    });
+    await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(ns),
+    );
+    expect(idNamesSeen).toEqual(["router"]);
+  });
+
+  it("auto-select defaults bundleIdName to 'router' when deps omits it entirely (pre-X-3 back-compat)", async () => {
+    const { ns, idNamesSeen } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services:      serviceConfigOpenAi,
+      // bundleIdName omitted
+    });
+    await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(ns),
+    );
+    expect(idNamesSeen).toEqual(["router"]);
+  });
+
   it("fails CLOSED with 503 SHAPE_U when neither env.VAULT_STORE nor deps.credentials is wired (Obs O-OBS-3)", async () => {
     // Pre-cloister-6e6bfb: route silently fell back to InMemoryCredentialStore
     // here, which let a misconfigured production deployment run dev-mode

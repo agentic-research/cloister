@@ -29,6 +29,6 @@ const gateway :Cloister.Gateway = (
 
   routes = [
     (path = "/health",      kind = (health      = void)),
-    (path = "/vault/proxy", kind = (vaultProxy  = void)),
+    (path = "/vault/proxy", kind = (vaultProxy = (bundleIdName = ""))),
   ],
 );

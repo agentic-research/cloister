@@ -33,7 +33,7 @@ function makeManifest(services: readonly VaultProxyServiceConfig[] = []): Gatewa
     actor:    ACTOR_STUB,
     policy:   POLICY_STUB,
     vaultProxyServices: services,
-    routes: [{ path: "/vault/proxy", kind: { vaultProxy: null } }],
+    routes: [{ path: "/vault/proxy", kind: { vaultProxy: { bundleIdName: "" } } }],
   };
 }
 
@@ -291,7 +291,7 @@ describe("instantiate(manifest) wires vaultProxyServices into VaultProxyRoute", 
   it("mounts the route even when vaultProxyServices is omitted entirely", () => {
     const manifest: Gateway = {
       metadata: META_STUB, actor: ACTOR_STUB, policy: POLICY_STUB,
-      routes: [{ path: "/vault/proxy", kind: { vaultProxy: null } }],
+      routes: [{ path: "/vault/proxy", kind: { vaultProxy: { bundleIdName: "" } } }],
     };
     expect(instantiate(manifest)).toHaveLength(1);
   });
