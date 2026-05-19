@@ -130,5 +130,15 @@ export const cluster: Cluster = {
   "storage": {
     "doStoragePath": "/data/do"
   },
-  "inputs": []
+  "inputs": [
+    {
+      "name": "llo",
+      "ref": "io.github.org/agentic-research/ley-line-open@main",
+      "version": "0.4.5",
+      "digest": "",
+      "from": "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json",
+      "provides": [],
+      "requires": []
+    }
+  ]
 } as const;

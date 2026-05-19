@@ -10,22 +10,31 @@
 //
 // To add a new tool's schema:
 //   1. Add a zod schema export in the appropriate group module
-//      (beads.ts / lsp.ts / lifecycle.ts), or create a new group.
+//      (beads.ts / lifecycle.ts), or create a new group.
 //   2. Add it to that module's `schemas` map under its tool name.
 //   3. Add it to the merged `schemas` map below.
 //   4. The cloister.capnp tool entry NO LONGER needs `inputSchemaJson`
 //      — it's deprecated; the build step injects from here.
 //   5. `task lint:tool-schemas` enforces parity.
+//
+// Group ownership note (cloister-d9347e): the `lsp_*` family used to live
+// here as a mirror of LLO's canonical schemas. The mirror is gone — LLO's
+// `server.json` (`_meta.art.cloister/v1.groups[].name = "lsp"`) is the
+// source of truth, and cloister derives `lsp_*` tool definitions at
+// request time via the upstream `tools/list`. The `leyline-lifecycle`
+// group (`status` / `enrich` / `reparse`) still mirrors locally because
+// its backend has `handlesPrefix = ""`; until the manifest emitter
+// consumes `cluster.lock.toml` `[[generated_backends]]`, prefix-less
+// backends can't fall back to derived-cache claims and need the
+// asserted catalog.
 
 import { z } from "zod";
 import { schemas as bead }      from "./beads.js";
-import { schemas as lsp }       from "./lsp.js";
 import { schemas as lifecycle } from "./lifecycle.js";
 
 /** Every cloister-resident tool's input schema, keyed by MCP tool name. */
 export const schemas = {
   ...bead,
-  ...lsp,
   ...lifecycle,
 } as const;
 

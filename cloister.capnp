@@ -163,29 +163,31 @@ const gateway :Cloister.Gateway = (
           # cloister-b65a20: `serviceBinding = "LSP_MCP"` wins locally
           # (workerd `external` service); `urlBinding` stays populated
           # as the CF-prod fallback.
+          # cloister-d9347e (P5 of LLO arc): asserted catalog removed.
+          # The `lsp_*` tool definitions now live canonically in LLO's
+          # `server.json` (`_meta.art.cloister/v1.groups[]`); cloister
+          # learns them at request time via `tools/list` from the
+          # upstream. With `handlesPrefix = "lsp_"` and the upstream
+          # already advertising `lsp_*` names, the derived-cache filter
+          # (mcp-proxy.ts:captureDerivedTools) claims the right set, and
+          # the no-double-prefix rule (cloister-8ede3f, P1) keeps the
+          # advertised names verbatim. A future phase will wire
+          # `cluster.lock.toml` `[[generated_backends]]` into the
+          # manifest emitter, at which point the explicit `claims = [...]`
+          # populates from LLO's `_meta` block instead of relying on the
+          # prefix-based fallback.
           ( name          = "lsp",
             handlesPrefix = "lsp_",
             kind = (mcpProxy = (
               urlBinding     = "LLO_MCP_URL",
               serviceBinding = "LSP_MCP",
-              # Schemas in src/tool-schemas/lsp.ts; injected at build time.
-              tools = [
-                ( name = "lsp_hover",
-                  description     = "Position-based LSP hover; resolves (file, line, col) to the node and returns hover text.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_defs",
-                  description     = "Position-based LSP definitions.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_refs",
-                  description     = "Position-based LSP references.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_symbols",
-                  description     = "Document symbols for a file.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_diagnostics",
-                  description     = "Diagnostics for a file. LLO enriches on demand if the file hasn't been parsed yet.",
-                  inputSchemaJson = "" ),
-              ],
+              tools          = [],
+              dynamicTools   = true,
+              # stripPrefix stays empty — LLO already prefixes its tools
+              # `lsp_*` and the no-double-prefix rule (mcp-proxy.ts:tools)
+              # advertises them verbatim. Empty stripPrefix + non-empty
+              # handlesPrefix is the "upstream-already-prefixed" shape
+              # documented in claimsUpstreamName().
             )),
           ),
 
