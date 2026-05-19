@@ -22,7 +22,8 @@ const workerConfig = {
     serviceBindings: {
       // notme isn't running in unit tests.
       NOTME: async () => new Response("notme not available in test", { status: 503 }),
-      // KEK_HELPER stub — same wire shape as scripts/kek-helper.mjs.
+      // KEK_HELPER stub — same wire shape as leyline-sign-helper
+      // (rs/crates/sign/, ADR-0019).
       // Responds to GET /resolve?url=keychain://vitest-kek with the
       // deterministic test KEK bytes. Any other URL → 404 so tests
       // that accidentally point at a real keychain entry fail loudly.
