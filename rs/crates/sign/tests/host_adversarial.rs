@@ -831,5 +831,59 @@ async fn resolve_ttl_cache_serves_cached_bytes_within_window() {
 // §17.8 — Keychain daemon serialization fairness (dos F3). Tracked by
 //          `cloister-future-keychain-cache-ttl`.
 //
-// §17.11 — `/healthz` deep probe (silence Gap 4 + oracle F3). Tracked by
-//          `cloister-future-deep-healthz`.
+// §17.11 — `/healthz` deep probe (silence Gap 4). The deep-probe handler
+//          + CLI-presence section + LEYLINE_SIGN_HEALTHZ_PROBE_URL env
+//          are tracked by `cloister-future-deep-healthz` (the larger
+//          §17.11 closing playbook). The PLATFORM-FIELD-STRIP sub-piece
+//          IS pinned below (cloister-8d933d sub-piece #3) — narrow
+//          security fix that ships independent of the deep-probe work.
+
+// ── §17.11 sub-piece: `/healthz` platform-field strip (cloister-8d933d) ───
+//
+// Pre-fix /healthz unconditionally emitted `platform = "darwin"|"linux"|...`,
+// giving an unauthenticated probe an OS-family oracle for targeted scheme
+// probing (skip `apple-password://` on Linux, etc.). Per cloister-8d933d
+// the production posture (AuthConfig::Required) strips the field; the
+// dev posture (AuthConfig::Disabled) keeps it for local debugging.
+
+#[tokio::test]
+async fn healthz_strips_platform_when_auth_required() {
+    let h = AdvHelper::start().await; // default_auth() = AuthConfig::Required
+    let body: Value = client()
+        .get(h.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    assert!(
+        body.get("platform").is_none(),
+        "auth-required /healthz MUST omit `platform` (cloister-8d933d / §17.11); got body: {body}",
+    );
+    // Other fields still present (only `platform` is stripped).
+    assert!(body.get("supported_schemes").is_some());
+    assert!(body.get("supported_algs").is_some());
+    assert!(body.get("uptime_s").is_some());
+    assert!(body.get("build_sha").is_some());
+}
+
+#[tokio::test]
+async fn healthz_emits_platform_when_auth_disabled() {
+    let h = AdvHelper::start_with(1000, AuthConfig::Disabled, Vec::new()).await;
+    let body: Value = client()
+        .get(h.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    let platform = body.get("platform").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        ["darwin", "linux", "windows", "unknown"].contains(&platform),
+        "dev-mode /healthz MUST emit a recognized `platform` string; got {platform:?}",
+    );
+}
