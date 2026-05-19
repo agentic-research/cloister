@@ -22,6 +22,23 @@
 // on AuthConfig::Required, so dev-mode (no auth) still shows platform for
 // local debugging.
 //
+// ── cloister-8d933d sub-piece #2: CLI-presence section ──────────────────
+//
+// Operators wiring `op://` or `apple-password://` schemes pin absolute
+// paths to the `op` / `security` binaries via LEYLINE_SIGN_OP_BIN and
+// LEYLINE_SIGN_SECURITY_BIN. When those bindings are missing or the
+// pinned path doesn't exist, the scheme silently 404s — operators
+// historically discovered this by trial-and-error. /healthz now exposes
+// the two presence flags in dev-mode (Disabled) so an operator can curl
+// the helper and see "oh, op is pinned but security isn't" without
+// needing to trigger a real signing call.
+//
+// Same strip-under-Required posture as `platform`: presence flags leak
+// platform information indirectly (security_cli_present=true ≈ macOS),
+// so they're omitted under production auth posture. Operators on
+// production deploys already have access to the pinned bindings; the
+// /healthz field is for cold-start debugging, not steady-state.
+//
 // 2026-05-13 cycle row 17.11. Per cloister-8d933d.
 
 use std::time::Instant;
@@ -31,7 +48,7 @@ use axum::extract::State;
 use serde::Serialize;
 
 use crate::host::auth::AuthConfig;
-use crate::host::keystore::SUPPORTED_SCHEMES;
+use crate::host::keystore::{SUPPORTED_SCHEMES, cli_pinned_present};
 use crate::host::server::AppState;
 use crate::host::sign::SUPPORTED_ALGS;
 
@@ -44,6 +61,20 @@ pub struct HealthResponse {
     /// Per cloister-8d933d / threat-model §17.11.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub platform: Option<&'static str>,
+    /// `true` if LEYLINE_SIGN_OP_BIN is set, absolute, and points at an
+    /// extant file (i.e. `op://` schemes would actually invoke).
+    /// Present ONLY in dev-mode (AuthConfig::Disabled). Stripped under
+    /// production auth posture — see module header.
+    /// Per cloister-8d933d sub-piece #2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op_cli_present: Option<bool>,
+    /// `true` if LEYLINE_SIGN_SECURITY_BIN is set, absolute, and points
+    /// at an extant file (i.e. `apple-password://` schemes would
+    /// actually invoke). Present ONLY in dev-mode (AuthConfig::Disabled).
+    /// Stripped under production auth posture — see module header.
+    /// Per cloister-8d933d sub-piece #2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security_cli_present: Option<bool>,
     pub supported_schemes: Vec<&'static str>,
     pub supported_algs: Vec<&'static str>,
     pub uptime_s: u64,
@@ -59,16 +90,22 @@ pub const BUILD_SHA: &str = match option_env!("LEYLINE_SIGN_BUILD_SHA") {
 };
 
 pub async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
-    // Per cloister-8d933d / §17.11: strip the `platform` field for
+    // Per cloister-8d933d / §17.11: strip identifying fields for
     // production (auth-required) deploys. The dev-mode (auth-disabled)
-    // path keeps it for local debugging — operator opted out of auth.
-    let platform = match *state.auth {
-        AuthConfig::Disabled    => Some(platform_str()),
-        AuthConfig::Required(_) => None,
+    // path keeps them for local debugging — operator opted out of auth.
+    let (platform, op_cli_present, security_cli_present) = match *state.auth {
+        AuthConfig::Disabled => (
+            Some(platform_str()),
+            Some(cli_pinned_present("LEYLINE_SIGN_OP_BIN")),
+            Some(cli_pinned_present("LEYLINE_SIGN_SECURITY_BIN")),
+        ),
+        AuthConfig::Required(_) => (None, None, None),
     };
     Json(HealthResponse {
         ok: true,
         platform,
+        op_cli_present,
+        security_cli_present,
         supported_schemes: SUPPORTED_SCHEMES.to_vec(),
         supported_algs: SUPPORTED_ALGS.to_vec(),
         uptime_s: uptime_s(state.started),
