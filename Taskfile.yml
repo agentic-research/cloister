@@ -249,6 +249,16 @@ tasks:
       - scripts/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
 
+  cluster:resolve:
+    desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
+    cmds:
+      - pnpm exec tsx scripts/resolve-inputs.mjs
+    sources:
+      - cluster.toml
+      - scripts/resolve-inputs.mjs
+    generates:
+      - cluster.lock.toml
+
   cluster:dev:
     desc: "Mac dev launcher — spawns cluster.capnp bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
     deps: [cluster:manifest]
@@ -616,9 +626,9 @@ tasks:
       - scripts/lint-recipes.mjs
 
   test:lint-scripts:
-    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
+    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs
+      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
