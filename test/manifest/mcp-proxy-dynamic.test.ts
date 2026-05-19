@@ -540,6 +540,142 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
   });
 });
 
+// ── claims-aware filtering (cloister-8ede3f) ─────────────────────────────
+//
+// HttpForwardBackend.claims @7 lets a backend declare which upstream tool
+// names it owns. When non-empty, the derived `tools/list` set is filtered
+// to that explicit list — the foundation for a single MCP upstream (LLO)
+// being split across N backends in the same manifest (one per group).
+//
+// The four cases pin the precedence rules:
+//   1. LSP-shape: claims set, prefix matches upstream (lsp_*) — names
+//      pass through verbatim, no double-prefix.
+//   2. Mache-shape: claims empty, prefix non-empty — legacy add-prefix
+//      behavior preserved.
+//   3. Prefix-less + claims: prefix empty, claims set — only the named
+//      tools surface, advertised verbatim.
+//   4. Empty everything: prefix empty + claims empty — legacy
+//      claim-everything behavior; pinned so future changes can't silently
+//      regress.
+
+describe("McpProxyToolBackend — claims filter (cloister-8ede3f)", () => {
+  const LLO_TOOLS_LIST_RESULT = {
+    tools: [
+      { name: "lsp_hover",          description: "hover",          inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "lsp_defs",           description: "defs",           inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "lsp_refs",           description: "refs",           inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "lsp_symbols",        description: "symbols",        inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "lsp_diagnostics",    description: "diagnostics",    inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "status",             description: "lifecycle status",inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "enrich",             description: "enrich pass",    inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "reparse",            description: "reparse tree",   inputSchema: { type: "object", properties: {}, required: [] } },
+      { name: "sheaf_set_topology", description: "set topology",   inputSchema: { type: "object", properties: {}, required: [] } },
+    ],
+  };
+
+  it("LSP-shape: claims set + prefix matches upstream — verbatim names, no double-prefix", async () => {
+    const spec: HttpForwardBackend = {
+      urlBinding:   "LLO_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "",   // upstream already uses lsp_ prefix; do not strip
+      claims:       ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(LLO_TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "lsp_", fetcher);
+
+    await b.refreshTools({ LLO_MCP_URL: "http://llo.stub/mcp" } as unknown as Env);
+
+    const names = b.tools().map(t => t.name).sort();
+    expect(names).toEqual([
+      "lsp_defs", "lsp_diagnostics", "lsp_hover", "lsp_refs", "lsp_symbols",
+    ]);
+    // No `lsp_lsp_*` double-prefix surfaces.
+    expect(names.some(n => n.startsWith("lsp_lsp_"))).toBe(false);
+
+    expect(b.handles("lsp_hover")).toBe(true);
+    expect(b.handles("lsp_defs")).toBe(true);
+    expect(b.handles("status")).toBe(false);
+    expect(b.handles("sheaf_set_topology")).toBe(false);
+  });
+
+  it("Mache-shape: claims empty + prefix non-empty — legacy add-prefix preserved", async () => {
+    const spec: HttpForwardBackend = {
+      urlBinding:   "MACHE_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "mache_",
+      claims:       [],
+    };
+    const upstream = {
+      tools: [
+        { name: "get_overview",  description: "overview", inputSchema: { type: "object", properties: {}, required: [] } },
+        { name: "find_callers", description: "callers",  inputSchema: { type: "object", properties: {}, required: [] } },
+      ],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(upstream));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+
+    await b.refreshTools(envWith("http://mache.stub/mcp"));
+
+    expect(b.tools().map(t => t.name).sort()).toEqual(["mache_find_callers", "mache_get_overview"]);
+    expect(b.handles("mache_get_overview")).toBe(true);
+    expect(b.handles("get_overview")).toBe(false);
+  });
+
+  it("prefix-less + claims: empty handlesPrefix, claims drives selection — verbatim", async () => {
+    const spec: HttpForwardBackend = {
+      urlBinding:   "LLO_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "",
+      claims:       ["status", "enrich", "reparse"],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(LLO_TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "", fetcher);
+
+    await b.refreshTools({ LLO_MCP_URL: "http://llo.stub/mcp" } as unknown as Env);
+
+    expect(b.tools().map(t => t.name).sort()).toEqual(["enrich", "reparse", "status"]);
+    expect(b.handles("status")).toBe(true);
+    expect(b.handles("enrich")).toBe(true);
+    expect(b.handles("reparse")).toBe(true);
+    expect(b.handles("lsp_hover")).toBe(false);
+    expect(b.handles("sheaf_set_topology")).toBe(false);
+  });
+
+  it("empty everything: prefix='' + claims=[] — legacy claim-all behavior pinned", async () => {
+    // This is the over-claim guard: when both prefix and claims are empty,
+    // the backend claims every upstream tool. Single-backend-per-upstream
+    // shape; pinned so a future regression surfaces.
+    const spec: HttpForwardBackend = {
+      urlBinding:   "LLO_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "",
+      claims:       [],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(LLO_TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "", fetcher);
+
+    await b.refreshTools({ LLO_MCP_URL: "http://llo.stub/mcp" } as unknown as Env);
+
+    expect(b.tools().map(t => t.name).sort()).toEqual([
+      "enrich",
+      "lsp_defs",
+      "lsp_diagnostics",
+      "lsp_hover",
+      "lsp_refs",
+      "lsp_symbols",
+      "reparse",
+      "sheaf_set_topology",
+      "status",
+    ]);
+    expect(b.handles("status")).toBe(true);
+    expect(b.handles("lsp_hover")).toBe(true);
+  });
+});
+
 describe("McpProxyToolBackend — protocolMode: 'auto' downgrade", () => {
   it("downgrades to current-spec when upstream rejects sessionless on server/discover", async () => {
     let discoverCount = 0;
