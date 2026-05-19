@@ -58,7 +58,7 @@ work-tracking, follow the linked bead.
 | Bead | Title | Priority |
 |---|---|---|
 | `cloister-ae8dac` | Re-incorporate 6 Copilot fixes onto main | closed (PR #6) |
-| `cloister-ae587d` | ADR-0022 schema-bridge positioning | P3 — overdue but not blocking |
+| `cloister-ae587d` | ADR-0022 schema-bridge positioning | closed 2026-05-18 — ADR-0022 shipped via cloister-9443f0 (PR #43); landed `docs/adr/0022-schema-bridge-substrate-positioning.md`. Bead in tracker was already closed; STATUS row was stale. |
 | `cloister-aea8a7` | schema-bridge: cover `cloister.capnp` + `cli-config.capnp` | P3 |
 | `cloister-9f03ed` | port `@notme/contract` → schema-bridge | P3 (trigger-gated) |
 | `cloister-9f54d6` | schema-bridge construct-coverage gaps (meta) | P3 |
