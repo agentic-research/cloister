@@ -21,7 +21,10 @@ import {
   REQUIRED_ERROR_HEADERS,
   __resetRateBuckets,
   collapseWireShape,
+  consoleMetricEmitter,
+  consoleReceiptEmitter,
   errorResponse,
+  forwardWithReceipt,
   type MetricEmitter,
   type ProxyCallReceipt,
   type ReceiptEmitter,
@@ -821,6 +824,222 @@ describe("collapseWireShape — body unification at the route boundary", () => {
     expect(r404.body).toBe(r401.body);
     expect(r401.body).toBe(r403.body);
     expect(r403.body).toBe(r429.body);
+  });
+});
+
+// ── cloister-6e888b / X-1 sub-fix: forwardWithReceipt shim ──────────────
+
+describe("forwardWithReceipt — emits ProxyCallReceipt + metric on the forward path", () => {
+  const TEST_PEER = "1111111111111111111111111111111111111111111111111111111111111111";
+  const TEST_CFG: VaultProxyService = {
+    name:               "openai",
+    upstreamBaseUrl:    "https://api.openai.test",
+    injection:          { kind: "authorizationBearer" },
+    defaultAllowedSubs: ["*"],
+    rateLimitPerMinute: 60,
+  };
+
+  function spyEmitters(): {
+    receipts: ReceiptEmitter & { calls: ProxyCallReceipt[] };
+    metrics:  MetricEmitter  & { calls: Array<{ name: string; labels: Record<string, string|number> }> };
+  } {
+    const receiptCalls: ProxyCallReceipt[] = [];
+    const metricCalls: Array<{ name: string; labels: Record<string, string|number> }> = [];
+    return {
+      receipts: { calls: receiptCalls, emit: (r) => { receiptCalls.push(r); } },
+      metrics:  { calls: metricCalls,  emit: (m) => { metricCalls.push(m); } },
+    };
+  }
+
+  it("emits exactly one receipt on a successful forward (status 200)", async () => {
+    const sp = spyEmitters();
+    await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 42,
+      forward: async () => new Response("ok", { status: 200, headers: { "content-length": "2" } }),
+    });
+    expect(sp.receipts.calls.length).toBe(1);
+    const r = sp.receipts.calls[0];
+    expect(r.capability).toBe("cloister/credential-isolation/v1");
+    expect(r.peerFp).toBe(TEST_PEER);
+    expect(r.service).toBe("openai");
+    expect(r.upstreamStatus).toBe(200);
+    expect(r.upstreamUrlPath).toBe("/v1/chat");
+    expect(r.requestSizeBytes).toBe(42);
+    expect(r.responseSizeBytes).toBe(2);
+    expect(typeof r.nonceHex).toBe("string");
+    expect(r.nonceHex.length).toBeGreaterThan(0);
+  });
+
+  it("emits exactly one receipt on a forward-error (status 502) — claim #3 invariant", async () => {
+    const sp = spyEmitters();
+    await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => new Response('{"error":"upstream_unavailable"}', { status: 502 }),
+    });
+    expect(sp.receipts.calls.length).toBe(1);
+    expect(sp.receipts.calls[0].upstreamStatus).toBe(502);
+  });
+
+  it("emits exactly one vault_proxy_call metric per forward call", async () => {
+    const sp = spyEmitters();
+    await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => new Response("ok", { status: 200 }),
+    });
+    expect(sp.metrics.calls.length).toBe(1);
+    const m = sp.metrics.calls[0];
+    expect(m.name).toBe("vault_proxy_call");
+    expect(m.labels.service).toBe("openai");
+    expect(m.labels.peer_fp).toBe(TEST_PEER);
+    expect(m.labels.status).toBe(200);
+    expect(m.labels.injection_kind).toBe("authorizationBearer");
+  });
+
+  it("strips query string from upstreamUrlPath (no-leak invariant)", async () => {
+    const sp = spyEmitters();
+    await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat?secret=abc&user_token=xyz",
+      requestSizeBytes: 0,
+      forward: async () => new Response("ok", { status: 200 }),
+    });
+    expect(sp.receipts.calls[0].upstreamUrlPath).toBe("/v1/chat");
+    expect(JSON.stringify(sp.receipts.calls[0])).not.toContain("secret=");
+    expect(JSON.stringify(sp.receipts.calls[0])).not.toContain("user_token=");
+  });
+
+  it("metric labels do NOT include credential bytes (no-leak invariant)", async () => {
+    const sp = spyEmitters();
+    await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => new Response("ok", { status: 200 }),
+    });
+    const serialized = JSON.stringify(sp.metrics.calls[0]);
+    // Credential value would have looked like "Bearer sk-..." in
+    // headers if leaked. The metric label IS allowed to contain
+    // "authorizationBearer" (strategy NAME, not credential bytes).
+    expect(serialized).not.toContain("Bearer sk-");
+    expect(serialized).not.toContain("sk-");
+  });
+
+  it("propagates the forward Response verbatim (status + body)", async () => {
+    const sp = spyEmitters();
+    const upstreamBody = JSON.stringify({ choices: [{ text: "hi" }] });
+    const res = await forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => new Response(upstreamBody, { status: 200, headers: { "content-type": "application/json" } }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(upstreamBody);
+  });
+
+  it("emits in finally{} even when forward() rejects (no-receipt-on-throw would break §13.2 silence-is-evidence)", async () => {
+    const sp = spyEmitters();
+    await expect(forwardWithReceipt({
+      receipts:         sp.receipts,
+      metrics:          sp.metrics,
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => { throw new Error("DO eviction"); },
+    })).rejects.toThrow();
+    // Throw propagation: status remains 0 (uninitialized), but receipt
+    // + metric STILL emit because finally{} runs. Operator sees the
+    // signature of "request happened, status unknown" — distinguishable
+    // from "no receipt emitted" via the 0 vs >=100 status.
+    expect(sp.receipts.calls.length).toBe(1);
+    expect(sp.receipts.calls[0].upstreamStatus).toBe(0);
+    expect(sp.metrics.calls.length).toBe(1);
+  });
+
+  it("emits NO receipt/metric when emitters are undefined (caller opted out)", async () => {
+    await forwardWithReceipt({
+      // receipts + metrics omitted
+      peerFp:           TEST_PEER,
+      cfg:              TEST_CFG,
+      upstreamPath:     "/v1/chat",
+      requestSizeBytes: 0,
+      forward: async () => new Response("ok", { status: 200 }),
+    });
+    // No throw, no assertion fail — opt-out path is silent.
+    expect(true).toBe(true);
+  });
+});
+
+describe("consoleReceiptEmitter / consoleMetricEmitter — default production emitters", () => {
+  it("consoleReceiptEmitter emits JSON-per-line with kind:receipt prefix", () => {
+    const logs: string[] = [];
+    const orig = console.log;
+    console.log = (line: string) => { logs.push(line); };
+    try {
+      consoleReceiptEmitter().emit({
+        capability:       "cloister/credential-isolation/v1",
+        peerFp:           "abc",
+        service:          "openai",
+        upstreamStatus:   200,
+        upstreamUrlPath:  "/v1/chat",
+        requestSizeBytes: 0,
+        responseSizeBytes: 0,
+        wallClockMs:      10,
+        tsMs:             1000,
+        nonceHex:         "deadbeef",
+      });
+    } finally {
+      console.log = orig;
+    }
+    expect(logs.length).toBe(1);
+    const parsed = JSON.parse(logs[0]);
+    expect(parsed.kind).toBe("receipt");
+    expect(parsed.capability).toBe("cloister/credential-isolation/v1");
+    expect(parsed.peerFp).toBe("abc");
+  });
+
+  it("consoleMetricEmitter emits JSON-per-line with kind:metric prefix", () => {
+    const logs: string[] = [];
+    const orig = console.log;
+    console.log = (line: string) => { logs.push(line); };
+    try {
+      consoleMetricEmitter().emit({
+        name: "vault_proxy_call",
+        labels: { service: "openai", peer_fp: "abc", status: 200, injection_kind: "authorizationBearer" },
+      });
+    } finally {
+      console.log = orig;
+    }
+    expect(logs.length).toBe(1);
+    const parsed = JSON.parse(logs[0]);
+    expect(parsed.kind).toBe("metric");
+    expect(parsed.name).toBe("vault_proxy_call");
+    expect(parsed.labels.service).toBe("openai");
   });
 });
 

@@ -35,6 +35,7 @@ import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { CaBundleRoute } from "../routes/ca-bundle.js";
 import { VaultProxyRoute } from "../routes/vault-proxy-route.js";
+import { consoleMetricEmitter, consoleReceiptEmitter } from "../routes/vault-proxy.js";
 import { buildServiceRegistry } from "./vault-proxy-services.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
 import { McpProxyToolBackend } from "./backends/mcp-proxy.js";
@@ -183,9 +184,17 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // All four rejections share the body bytes so a probing client
     // cannot distinguish failure classes — preserves the §9.4.b
     // enumeration-oracle invariant from cloister-aa9376.
+    // Production composition wires console-shaped receipts + metrics
+    // emitters by default — closes X-1 from the 2026-05-18 adversarial
+    // cycle (the route was previously instantiated with both undefined,
+    // so master claim #3 audit-by-receipt was FALSE in production).
+    // Operators can override via deps at composition time for Logpush
+    // / structured-telemetry sinks. Per cloister-6e888b.
     const registry = buildServiceRegistry(manifest.vaultProxyServices ?? []);
     return new VaultProxyRoute({
       services: (name) => registry.get(name) ?? null,
+      receipts: consoleReceiptEmitter(),
+      metrics:  consoleMetricEmitter(),
     });
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.

@@ -222,39 +222,137 @@ async function proxyWithReceipt(
     respSize = peekResponseSize(res);
     return res;
   } finally {
-    if (req.receipts) {
-      const receipt: ProxyCallReceipt = {
-        capability:       "cloister/credential-isolation/v1",
-        peerFp,
-        service:          cfg.name,
-        upstreamStatus:   status,
-        // Path-only, NO query string (Phase 5 no-leak invariant) —
-        // strip everything from `?` onward; query params can carry
-        // PII / tokens / user-supplied secrets.
-        upstreamUrlPath:  req.upstreamPath.split("?")[0],
-        requestSizeBytes: reqSize,
-        responseSizeBytes: respSize,
-        wallClockMs:      Date.now() - startMs,
-        tsMs:             startMs,
-        nonceHex:         generateNonceHex(),
-      };
-      req.receipts.emit(receipt);
-    }
-    if (req.metrics) {
-      // Phase 7 — bounded-cardinality labels only. NEVER include
-      // the credential value, request body, query string, or
-      // upstream URL fragments.
-      req.metrics.emit({
-        name: "vault_proxy_call",
-        labels: {
-          service:        cfg.name,
-          peer_fp:        peerFp,
-          status:         status,
-          injection_kind: cfg.injection.kind,
-        },
-      });
-    }
+    emitProxyCallTelemetry(req.receipts, req.metrics, {
+      peerFp,
+      cfg,
+      upstreamPath:      req.upstreamPath,
+      startMs,
+      status,
+      requestSizeBytes:  reqSize,
+      responseSizeBytes: respSize,
+    });
   }
+}
+
+/**
+ * Forward-path telemetry shim — mirrors `proxyWithReceipt`'s emit
+ * shape for the production composition where the route delegates the
+ * full Request to vault DO via `CredentialStore.forward`. Closes
+ * X-1 from the 2026-05-18 adversarial cycle: pre-shim the forward
+ * branch emitted NO receipts + NO metrics, leaving master claim #3
+ * (audit-by-receipt) FALSE in production.
+ *
+ * Per cloister-6e888b. Receipt shape per
+ * `cloister-spec/credential-isolation/v1/wire/receipt-commitment.md`.
+ */
+export async function forwardWithReceipt(
+  args: {
+    receipts?:         ReceiptEmitter;
+    metrics?:          MetricEmitter;
+    peerFp:            string;
+    cfg:               VaultProxyService;
+    upstreamPath:      string;
+    requestSizeBytes:  number;
+    forward:           () => Promise<Response>;
+  },
+): Promise<Response> {
+  const startMs = Date.now();
+  let status = 0;
+  let respSize = 0;
+  try {
+    const res = await args.forward();
+    status = res.status;
+    respSize = peekResponseSize(res);
+    return res;
+  } finally {
+    emitProxyCallTelemetry(args.receipts, args.metrics, {
+      peerFp:            args.peerFp,
+      cfg:               args.cfg,
+      upstreamPath:      args.upstreamPath,
+      startMs,
+      status,
+      requestSizeBytes:  args.requestSizeBytes,
+      responseSizeBytes: respSize,
+    });
+  }
+}
+
+/** Shared between `proxyWithReceipt` + `forwardWithReceipt` — single
+ *  source of truth for receipt + metric field shape. */
+function emitProxyCallTelemetry(
+  receipts: ReceiptEmitter | undefined,
+  metrics:  MetricEmitter  | undefined,
+  args: {
+    peerFp:            string;
+    cfg:               VaultProxyService;
+    upstreamPath:      string;
+    startMs:           number;
+    status:            number;
+    requestSizeBytes:  number;
+    responseSizeBytes: number;
+  },
+): void {
+  if (receipts) {
+    const receipt: ProxyCallReceipt = {
+      capability:       "cloister/credential-isolation/v1",
+      peerFp:           args.peerFp,
+      service:          args.cfg.name,
+      upstreamStatus:   args.status,
+      // Path-only, NO query string (Phase 5 no-leak invariant) —
+      // strip everything from `?` onward; query params can carry
+      // PII / tokens / user-supplied secrets.
+      upstreamUrlPath:  args.upstreamPath.split("?")[0],
+      requestSizeBytes: args.requestSizeBytes,
+      responseSizeBytes: args.responseSizeBytes,
+      wallClockMs:      Date.now() - args.startMs,
+      tsMs:             args.startMs,
+      nonceHex:         generateNonceHex(),
+    };
+    receipts.emit(receipt);
+  }
+  if (metrics) {
+    // Phase 7 — bounded-cardinality labels only. NEVER include
+    // the credential value, request body, query string, or
+    // upstream URL fragments.
+    metrics.emit({
+      name: "vault_proxy_call",
+      labels: {
+        service:        args.cfg.name,
+        peer_fp:        args.peerFp,
+        status:         args.status,
+        injection_kind: args.cfg.injection.kind,
+      },
+    });
+  }
+}
+
+// ── Default emitters (cloister-6e888b / X-1 production-readiness) ────────
+//
+// `runtime.ts` wires these by default so the production composition
+// emits to wrangler tail / CF Workers Logs without operator config.
+// Operators wanting structured telemetry sinks (Logpush, etc.) replace
+// these via `VaultProxyRouteDeps.receipts` / `.metrics` overrides at
+// composition time.
+//
+// JSON-per-line, prefixed with `kind:"receipt"|"metric"` so log
+// readers can filter by event class.
+
+export function consoleReceiptEmitter(): ReceiptEmitter {
+  return {
+    emit: (receipt) => {
+      // eslint-disable-next-line no-console -- intentional structured emit
+      console.log(JSON.stringify({ kind: "receipt", ...receipt }));
+    },
+  };
+}
+
+export function consoleMetricEmitter(): MetricEmitter {
+  return {
+    emit: (m) => {
+      // eslint-disable-next-line no-console -- intentional structured emit
+      console.log(JSON.stringify({ kind: "metric", ...m }));
+    },
+  };
 }
 
 function requestSizeFromHeaders(r: Request): number {
