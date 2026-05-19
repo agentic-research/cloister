@@ -15,13 +15,14 @@
 //   env://NAME              — plaintext from env binding NAME (legacy default)
 //   file:///path/to/file    — bytes from a workerd disk-service binding
 //   http://helper/...       — a generic HTTP service binding (sidecar)
-//   keychain://service-name — sugar for the kek-helper macOS Keychain backend
-//   secret-tool://...       — sugar for the kek-helper Linux libsecret backend (future)
+//   keychain://service-name — sugar for the leyline-sign-helper macOS Keychain backend
+//   secret-tool://...       — sugar for the leyline-sign-helper Linux libsecret backend (future)
 //
 // Workerd is a sandboxed V8 isolate — no fs, no child_process. So
-// `keychain://` is implemented by a separate `kek-helper` Node sidecar
-// (scripts/kek-helper.mjs) that cloister talks to over a service
-// binding (KEK_HELPER). See ADR-0014 for the design rationale.
+// `keychain://` is implemented by the leyline-sign-helper Rust
+// binary (rs/crates/sign/, ADR-0019) that cloister talks to over a
+// service binding (KEK_HELPER). See ADR-0014 for the design
+// rationale.
 
 /**
  * The minimal env shape this module reads.
@@ -190,7 +191,7 @@ class HelperKekSource implements KekSource {
     if (!helper) {
       throw new Error(
         `kek-source: ${schemeOf(this.spec)} requires the KEK_HELPER service binding ` +
-          "(start scripts/kek-helper.mjs and bind it as KEK_HELPER)",
+          "(start leyline-sign-helper and bind it as KEK_HELPER — see ADR-0019)",
       );
     }
 

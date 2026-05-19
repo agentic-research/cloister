@@ -103,10 +103,10 @@ export interface Env {
   /// only consulted when VAULT_KEK_SOURCE uses `file://`.
   KEK_DISK?: Fetcher;
   /// HTTP service binding for `keychain://` and `http(s)://` KEK
-  /// sources. Points at the kek-helper sidecar
-  /// (scripts/kek-helper.mjs) which translates these URLs to OS-
-  /// keystore calls. Optional — only consulted when VAULT_KEK_SOURCE
-  /// uses one of those schemes. See ADR-0014.
+  /// sources. Points at the leyline-sign-helper Rust binary
+  /// (rs/crates/sign/, ADR-0019) which translates these URLs to
+  /// OS-keystore calls. Optional — only consulted when
+  /// VAULT_KEK_SOURCE uses one of those schemes. See ADR-0014.
   KEK_HELPER?: Fetcher;
 
   // Service bindings (workerd-native)

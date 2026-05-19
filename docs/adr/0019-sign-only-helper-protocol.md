@@ -674,12 +674,12 @@ Phase B. Without byte-exact `/resolve` equivalence between the old
 and new helpers, the migration is unsafe.
 
 Phased rollout sequence enforced by cloister-993bef:
-- **Phase A** — binary build, no wiring
-- **Phase B** — contract parity tests (golden vectors; LOAD-BEARING GATE)
-- **Phase C** — opt-in shadow (`--use-rs-helper` flag; both shapes coexist)
-- **Phase D** — default switch (`task dev:bootstrap` uses Rust binary)
-- **Phase E** — deprecation warning on JS helper invocation
-- **Phase F** — delete `scripts/kek-helper.mjs`
+- **Phase A** — binary build, no wiring (shipped via cloister-99165e / PR #1)
+- **Phase B** — contract parity tests (golden vectors; LOAD-BEARING GATE) (shipped 2026-05-13)
+- **Phase C** — opt-in shadow (`--use-rs-helper` flag; both shapes coexist) (shipped 2026-05-13)
+- **Phase D** — default switch (`task dev:bootstrap` uses Rust binary) (shipped 2026-05-13)
+- **Phase E** — deprecation warning on JS helper invocation (skipped — Phase D moved everyone)
+- **Phase F** — delete `scripts/kek-helper.mjs` (shipped 2026-05-18 via cloister-993bef close)
 
 **ADR-0018 dependency:** notme co-location is unblocked at **Phase C**
 (sign-only available as opt-in), NOT Phase F. Make this explicit in

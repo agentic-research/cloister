@@ -418,15 +418,16 @@ For **self-host / production**, the vault DO supports these schemes:
 | `apple-password://server/account` | Apple Passwords — via macOS `security` CLI. Requires `LEYLINE_SIGN_SECURITY_BIN` (typically `/usr/bin/security`). macOS-only. |
 | `http(s)://helper/...` | any HTTP-reachable helper bound as `KEK_HELPER` (legacy / off-host helpers) |
 
-> **Migration complete (2026-05-13):** the legacy `scripts/kek-helper.mjs`
-> JS sidecar is superseded by the `leyline-sign-helper` Rust binary
-> per [ADR-0019](docs/adr/0019-sign-only-helper-protocol.md). The Rust
-> helper performs Ed25519 signing host-side and returns only signatures,
-> never key bytes — closing the heap-isolation gap
+> **Migration complete (2026-05-18 — Phase F):** the legacy
+> `scripts/kek-helper.mjs` JS sidecar is superseded by the
+> `leyline-sign-helper` Rust binary per
+> [ADR-0019](docs/adr/0019-sign-only-helper-protocol.md). The Rust
+> helper performs Ed25519 signing host-side and returns only
+> signatures, never key bytes — closing the heap-isolation gap
 > [ADR-0018](docs/adr/0018-notme-co-location.md) requires. Tracking
 > beads `cloister-99165e` (binary build) + `cloister-993bef` (kek-helper
-> migration) shipped via PR #1 and PR #2; `scripts/kek-helper.mjs` is
-> retained only for historical reference and golden-vector parity.
+> migration) shipped via PR #1 and PR #2; Phase F (script deletion)
+> landed 2026-05-18.
 
 The macOS-Keychain self-host flow:
 
