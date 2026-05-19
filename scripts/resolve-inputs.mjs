@@ -1,24 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// scripts/resolve-inputs.mjs — ADR-0026 Phase 1b — input resolver +
-// cluster.lock.toml writer (cloister-cf7a3b).
+// scripts/resolve-inputs.mjs — ADR-0026 Phase 1b + Phase 2 subpiece 1
+// (cloister-cf7a3b + cloister-5f5aee) — input resolver +
+// cluster.lock.toml writer.
 //
 // Reads `cluster.toml`'s `[inputs.*]` blocks, resolves each input via
 // its ref scheme, computes a content-addressed digest, writes the
 // resolved metadata to `cluster.lock.toml`. Operators commit the
 // lockfile alongside cluster.toml so deploys are reproducible.
 //
-// Phase 1b ships TWO resolver schemes:
+// Resolver schemes today:
 //
-//   - file://<abs-path>  — local filesystem (dev escape hatch + the
-//                          simplest happy path for testing)
-//   - https://<url>      — direct HTTPS fetch (real deploy path)
+//   - file://<abs-path>            — local filesystem (dev escape hatch +
+//                                    the simplest happy path for testing)
+//   - https://<url>                — direct HTTPS fetch (real deploy path)
+//   - github://owner/repo@<ref>    — whole-repo tarball via codeload.github.com
+//   - github://owner/repo/<p>@<ref> — single file via raw.githubusercontent.com
 //
-// Phase 2 (cloister-cf7a3b follow-up) adds registry-resolved refs
-// (`io.github.org/repo` → resolves via cloister-as-registry per
-// ADR-0016). Phase 3 adds signature verification via Interlace
-// receipts. Phase 4 adds the capability matchmaker that walks
-// provides/requires.
+// github:// refs MUST pin a git ref (`@<sha|tag|branch>`); no default-
+// branch sniffing — pinning is the whole point. The existing
+// content-addressed sha256 digest pin in `cluster.lock.toml` is what
+// makes the deploy reproducible regardless of branch-head drift.
+//
+// Phase 2 remaining subpieces (cloister-cf7a3b follow-up):
+//   - subpiece 2 — `cloister add github://owner/repo` CLI that mutates
+//                  cluster.toml + invokes this resolver
+//   - subpiece 3 — io.github.org/repo registry resolution per ADR-0016
+//                  (cloister-as-private-MCP-registry surface)
+// Phase 3 adds signature verification via Interlace receipts. Phase 4
+// adds the capability matchmaker that walks provides/requires.
 //
 // Wire:
 //
@@ -115,12 +125,34 @@ export async function resolveInput(spec) {
       fetchedFrom = ref;
       break;
     }
+    case "github": {
+      // Parse github://owner/repo[/path]@<git-ref> → https URL, then
+      // fall through to the same fetch logic as https://. The
+      // resolver records `fetched_from` as the actual https URL so
+      // the lockfile shows what was downloaded.
+      let parsed;
+      try {
+        parsed = parseGithubRef(ref);
+      } catch (e) {
+        throw new ResolveError(spec.name, e.message);
+      }
+      const httpsUrl = githubRefToHttpsUrl(parsed);
+      const r = await fetch(httpsUrl);
+      if (!r.ok) {
+        throw new ResolveError(
+          spec.name,
+          `HTTP ${r.status} ${r.statusText} for ${httpsUrl} (resolved from ${ref})`,
+        );
+      }
+      bytes = Buffer.from(await r.arrayBuffer());
+      fetchedFrom = httpsUrl;
+      break;
+    }
     default:
-      // Registry-resolved refs (io.github.org/repo) land in Phase 2.
+      // io.github.org/<repo> registry refs land in Phase 2 subpiece 3.
       throw new ResolveError(
         spec.name,
-        `unsupported ref scheme "${scheme}" — Phase 1b supports file:// and https:// only; ` +
-        `registry refs land in Phase 2`,
+        `unsupported ref scheme "${scheme}" — supported: file://, https://, github://owner/repo@<ref>`,
       );
   }
 
@@ -156,6 +188,73 @@ function fileUrlToPath(url) {
   if (url.startsWith("file:///")) return "/" + url.slice("file:///".length);
   if (url.startsWith("file://"))  return url.slice("file://".length);
   throw new ResolveError("", `malformed file URL: ${url}`);
+}
+
+// ── github:// scheme ────────────────────────────────────────────────────
+
+/**
+ * Parse a github:// ref into its components. Shape:
+ *
+ *   github://<owner>/<repo>[/<path>]@<git-ref>
+ *
+ * Examples:
+ *   github://anthropic/skills@main
+ *     → { owner: "anthropic", repo: "skills", path: "",                gitRef: "main" }
+ *   github://anthropic/skills/python-bridge.md@v1.2.0
+ *     → { owner: "anthropic", repo: "skills", path: "python-bridge.md", gitRef: "v1.2.0" }
+ *
+ * @<git-ref> is REQUIRED. Default-branch sniffing would need a GitHub
+ * API call + auth handling, and the resolved digest would drift each
+ * time the default branch moves — defeating content-addressed pinning.
+ *
+ * Exported for unit tests.
+ */
+export function parseGithubRef(ref) {
+  if (typeof ref !== "string" || !ref.startsWith("github://")) {
+    throw new Error(`not a github:// ref: ${ref}`);
+  }
+  const rest = ref.slice("github://".length);
+  // Use lastIndexOf so a literal '@' in a path (rare but possible) is
+  // tolerated — only the trailing @<ref> is special.
+  const atIdx = rest.lastIndexOf("@");
+  if (atIdx === -1) {
+    throw new Error(
+      `github:// ref must pin a git ref with @<sha|tag|branch>; got ${ref}`,
+    );
+  }
+  const ownerRepoPath = rest.slice(0, atIdx);
+  const gitRef = rest.slice(atIdx + 1);
+  if (gitRef.length === 0) {
+    throw new Error(`empty git ref after @ in ${ref}`);
+  }
+  const parts = ownerRepoPath.split("/");
+  if (parts.length < 2 || parts[0].length === 0 || parts[1].length === 0) {
+    throw new Error(
+      `github:// ref must be github://owner/repo[/path]@<ref>; got ${ref}`,
+    );
+  }
+  const [owner, repo, ...pathParts] = parts;
+  const path = pathParts.join("/");
+  return { owner, repo, path, gitRef };
+}
+
+/**
+ * Map a parsed github ref to the https URL the fetch goes to. When
+ * `path` is empty, fetch the whole-repo tarball via codeload.github.com;
+ * otherwise fetch the single file via raw.githubusercontent.com.
+ *
+ * codeload.github.com serves a deterministic tarball given a fixed
+ * git-ref SHA; the same is true of raw.githubusercontent.com for a
+ * fixed-SHA path. (Branches/tags drift; that's why the operator pins
+ * sha256 in `cluster.lock.toml`.)
+ *
+ * Exported for unit tests.
+ */
+export function githubRefToHttpsUrl({ owner, repo, path, gitRef }) {
+  if (path === "") {
+    return `https://codeload.github.com/${owner}/${repo}/tar.gz/${gitRef}`;
+  }
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${gitRef}/${path}`;
 }
 
 // ── Lockfile shape ──────────────────────────────────────────────────────
