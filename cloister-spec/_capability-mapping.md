@@ -74,6 +74,7 @@ meet programmatically.
 | `urn:signet:cap:read:credential-isolation` | `cloister/credential-isolation/v1` | Vault-proxy read on configured `defaultAllowedSubs`. |
 | `urn:signet:cap:sign:artifact` | `cloister/sign-helper/v1` | leyline-sign-helper (`POST /sign`) invocation grant. |
 | `urn:signet:cap:read:disclosure:<fp>` | `cloister/interlace-discovery/v1` | Per-peer disclosure-endpoint read; `<fp>` is the target peer fingerprint. |
+| n/a (substrate-internal) | `cloister/mcp-tool/v1` | `_meta.art.cloister/v1` extension on MCP `server.json`; build-time partitioning hint for the resolver, not a wire surface a cert authorizes. Authorization for invoking the resulting MCP tools belongs to each upstream tool's own capability, not to the partitioning hint itself. |
 
 This table is **non-exhaustive** today. As new capability specs land
 under `cloister-spec/<name>/v<n>/`, they MUST add their

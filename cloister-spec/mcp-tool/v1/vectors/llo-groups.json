@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.agentic-research/ley-line-open",
+  "version": "0.2.0",
+  "description": "...",
+  "_meta": {
+    "art.cloister/v1": {
+      "groups": [
+        {
+          "name": "lsp",
+          "advertisedPrefix": "lsp_",
+          "upstreamNames": ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]
+        },
+        {
+          "name": "lifecycle",
+          "advertisedPrefix": "",
+          "upstreamNames": ["status", "enrich", "reparse"]
+        },
+        {
+          "name": "sheaf",
+          "advertisedPrefix": "sheaf_",
+          "upstreamNames": ["sheaf_set_topology"]
+        }
+      ]
+    }
+  }
+}
