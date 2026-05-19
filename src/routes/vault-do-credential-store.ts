@@ -30,6 +30,7 @@ import type {
   CredentialLookup,
   CredentialStore,
 } from "./vault-proxy-credential-store.js";
+import { errorResponse } from "./vault-proxy.js";
 
 /** Minimal RPC surface this impl consumes — narrower than the full `VaultStoreRpc`. */
 interface VaultProxyRpc {
@@ -80,21 +81,15 @@ export class VaultDoCredentialStore implements CredentialStore {
   ): Promise<Response> {
     const ns = this.env.VAULT_STORE;
     if (!ns) {
-      return jsonResponse(503, { error: "vault_unavailable" });
+      return errorResponse(503, JSON.stringify({ error: "vault_unavailable" }));
     }
 
     try {
       const stub = ns.get(ns.idFromName(this.bundleIdName)) as DurableObjectStub & VaultProxyRpc;
       return await stub.proxyRequest(peerFp, service, callerSub, request);
     } catch {
-      return jsonResponse(502, { error: "upstream_unavailable" });
+      return errorResponse(502, JSON.stringify({ error: "upstream_unavailable" }));
     }
   }
 }
 
-function jsonResponse(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}

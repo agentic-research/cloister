@@ -131,6 +131,7 @@ import {
 } from "../vault/src/crypto.js";
 import { buildKekSource, type KekSource } from "../vault/src/kek-source.js";
 import { RATE_LIMITS, refillBucket, tryConsume } from "../vault/src/rate-bucket.js";
+import { errorResponse } from "./routes/vault-proxy.js";
 
 /** SQLite row shape — sealed_headers is JSON-serialized SealedCredential. */
 interface StoredRow {
@@ -402,15 +403,10 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // other RPC methods which throw).
     const inflight = this.#checkInflight();
     if (!inflight.ok) {
-      return new Response(
+      return errorResponse(
+        429,
         JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
-        {
-          status: 429,
-          headers: {
-            "content-type": "application/json",
-            "retry-after": "1",
-          },
-        },
+        { "retry-after": "1" },
       );
     }
 
@@ -418,15 +414,10 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // highest — it does encrypt + SQL read + upstream fetch.
     const budget = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.proxy);
     if (!budget.ok) {
-      return new Response(
+      return errorResponse(
+        429,
         JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
-        {
-          status: 429,
-          headers: {
-            "content-type": "application/json",
-            "retry-after": String(budget.retryAfterSec),
-          },
-        },
+        { "retry-after": String(budget.retryAfterSec) },
       );
     }
 
@@ -474,9 +465,9 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       // doesn't leak existence. checkAccess against [] is always false;
       // result is intentionally discarded.
       void checkAccess([], callerSub);
-      return Response.json(
-        buildErrorResponse("not_found", callerSub, service, null),
-        { status: 404 },
+      return errorResponse(
+        404,
+        JSON.stringify(buildErrorResponse("not_found", callerSub, service, null)),
       );
     }
 
@@ -489,9 +480,9 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       // omits `_cred` by construction (pinned by
       // test/security/prompt-injection.test.ts scenario 2), so this
       // path cannot leak upstream / headers / allowedSubs into the wire.
-      return Response.json(
-        buildErrorResponse("not_found", callerSub, service, null),
-        { status: 404 },
+      return errorResponse(
+        404,
+        JSON.stringify(buildErrorResponse("not_found", callerSub, service, null)),
       );
     }
 
