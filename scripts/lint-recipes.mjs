@@ -29,9 +29,11 @@
  *                 Defaults to <repo>/recipes/.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
@@ -68,6 +70,51 @@ function discoverRecipes() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Phase 2 (cloister-449f82): drive each recipe's `cloister.capnp`
+ * through the real `task manifest` pipeline (the same entry point
+ * CI + dev + docs use, per the cloister-8e40ad invocation principle)
+ * and assert it parses + emits without error. Catches manifest schema
+ * changes / backend-kind renames / canonical-doc additions that break
+ * a recipe today's Phase 1 file-presence check would miss.
+ *
+ * Opt-out env: `LINT_RECIPES_SKIP_PARSE=1` (used by the unit test
+ * harness — invoking `task manifest` requires the full toolchain so
+ * isn't appropriate inside a focused unit test).
+ */
+function parseCheckRecipe(recipe) {
+  if (process.env.LINT_RECIPES_SKIP_PARSE === "1") return null;
+  const capnp = join(recipe.path, "cloister.capnp");
+  if (!existsSync(capnp)) return null; // only recipes with capnp are checked
+
+  const dir = mkdtempSync(resolve(tmpdir(), "lint-recipes-parse-"));
+  const outFile = resolve(dir, "manifest.ts");
+  try {
+    // Same `task manifest --force` invocation as e2e-manifest-pipeline.test.mjs.
+    // CLOISTER_MANIFEST overrides which consumer cloister.capnp gets compiled.
+    // --force bypasses Task's checksum cache (env-vars aren't cache keys).
+    const r = spawnSync("task", ["manifest", "--force"], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        CLOISTER_MANIFEST: capnp,
+        CLOISTER_OUTPUT:   outFile,
+      },
+      encoding: "utf8",
+    });
+    if (r.status !== 0) {
+      const stderr = (r.stderr || "").trim().split("\n").slice(-5).join("\n");
+      return `parse failed (exit ${r.status}):\n        ${stderr}`;
+    }
+    if (!existsSync(outFile)) {
+      return `parse appeared to succeed but no output file was written at ${outFile}`;
+    }
+    return null;
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+  }
+}
+
 function checkRecipe(recipe) {
   const violations = [];
   const warnings = [];
@@ -82,6 +129,12 @@ function checkRecipe(recipe) {
     if (!group.some((f) => existsSync(join(recipe.path, f)))) {
       violations.push(`missing required file (one of): ${group.join(", ")}`);
     }
+  }
+
+  // Phase 2: parse the recipe's cloister.capnp through the real pipeline.
+  const parseErr = parseCheckRecipe(recipe);
+  if (parseErr !== null) {
+    violations.push(parseErr);
   }
 
   // Canonical-link convention: soft-required (warn only).

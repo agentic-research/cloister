@@ -30,10 +30,20 @@ function makeRecipesDir(recipes) {
   return { dir, cleanup: () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} } };
 }
 
-function runLint(recipesDir) {
+function runLint(recipesDir, opts = {}) {
   return spawnSync("node", [LINT_SCRIPT], {
     cwd: REPO_ROOT,
-    env: { ...process.env, RECIPES_DIR: recipesDir },
+    env: {
+      ...process.env,
+      RECIPES_DIR: recipesDir,
+      // Phase 2 parse-check shells out to `task manifest` which is too
+      // heavy for synthesized unit fixtures; opt out by default so the
+      // Phase 1 file-presence + canonical-link tests stay focused.
+      // The Phase 2 contract is exercised against REAL recipes via the
+      // top-level `task lint:recipes` (Phase 1 + Phase 2 combined) and
+      // by the dedicated parse-check test below.
+      LINT_RECIPES_SKIP_PARSE: opts.skipParse === false ? "" : "1",
+    },
     encoding: "utf8",
   });
 }
@@ -177,5 +187,50 @@ test("empty recipes/ dir → exit 2", () => {
     assert.match(r.stderr, /no recipes found/);
   } finally {
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+// ── Phase 2 (cloister-449f82): recipe cloister.capnp parses through the real pipeline
+
+test("Phase 2: broken recipe cloister.capnp fails the lint", () => {
+  // Synthesize a recipe with intentionally broken capnp: missing the
+  // required `gateway` symbol that `task manifest` evaluates.
+  const t = makeRecipesDir({
+    "broken-recipe": {
+      "README.md":      "# broken-recipe\n\nlinks to docs/reference/bundle-topology.md\n",
+      "cloister.capnp": `# Intentionally broken capnp — no @id, no Gateway value.
+# task manifest invocation should fail at capnp eval time.
+this is not a valid capnp file at all
+`,
+    },
+  });
+  try {
+    // Phase 2 ON for this test — exercises the actual task manifest path.
+    const r = runLint(t.dir, { skipParse: false });
+    assert.notEqual(r.status, 0, "expected lint to fail on broken recipe");
+    // Diagnostic mentions parse failure shape
+    assert.match(r.stdout + r.stderr, /parse failed/);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("Phase 2: recipe WITHOUT cloister.capnp is skipped (cluster.toml-only recipes OK)", () => {
+  // The REQUIRED_ONE_OF check still requires cloister.capnp OR cluster.toml;
+  // a recipe with just cluster.toml should pass Phase 1 + skip Phase 2.
+  // (cluster.toml parse is the cluster:toml task's responsibility, not
+  // this lint's — Phase 3 territory.)
+  const t = makeRecipesDir({
+    "toml-only-recipe": {
+      "README.md":   "# toml-only\n\nlinks to docs/reference/backend-kinds.md\n",
+      "cluster.toml": "# A minimal cluster.toml — Phase 2 lint should not invoke task manifest here.\n",
+    },
+  });
+  try {
+    const r = runLint(t.dir, { skipParse: false });
+    // Phase 1 satisfied (README + one-of), Phase 2 no-op for cluster.toml-only.
+    assert.equal(r.status, 0, `expected ok, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
+  } finally {
+    t.cleanup();
   }
 });
