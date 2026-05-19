@@ -146,7 +146,7 @@ describe("VaultProxyRoute.handle — composition wiring (cloister-8f57f0 route m
     expect(await res.text()).toBe('{"ok":true}');
   });
 
-  it("returns 403 (constant-shape) when peerFp not in allowedSubs", async () => {
+  it("returns 404 (constant-shape, collapsed from 403 per X-2) when peerFp not in defaultAllowedSubs (Bundle F1 / cloister-6ed9ae)", async () => {
     const credentials = new InMemoryCredentialStore();
     credentials.set(TEST_PEER_FP, "openai", { credential: "sk-test" });
     const route = new VaultProxyRoute({
@@ -165,7 +165,15 @@ describe("VaultProxyRoute.handle — composition wiring (cloister-8f57f0 route m
       new Request("http://x/vault/proxy/openai/v1/chat"),
       {} as Env,
     );
-    expect(res.status).toBe(403);
+    // Bundle F1 (cloister-6ed9ae): the route now applies the manifest's
+    // defaultAllowedSubs gate at the route boundary (BEFORE forward
+    // delegation), so a peer not in the glob list is rejected with the
+    // canonical Shape R 404 (X-2 collapse from PR #51). Pre-this-fix
+    // the gate fired ONLY in the resolve+inject branch and emitted 403;
+    // post-fix it fires for BOTH paths and emits the collapsed 404.
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("unauthorized");
   });
 
   it("returns 404 (constant-shape) when credential is not stored for (peerFp, service)", async () => {
@@ -268,6 +276,41 @@ describe("VaultProxyRoute.handle — auto-select VaultDoCredentialStore when env
     expect(calls[0].service).toBe("openai");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('{"ok":true,"via":"vault-do"}');
+  });
+
+  it("manifest defaultAllowedSubs gate fires on the FORWARD path too (Bundle F1 / cloister-6ed9ae)", async () => {
+    // Pre-cloister-6ed9ae: the gate ran ONLY in the resolve+inject branch
+    // (inside vaultProxyHandler). The forward branch delegated to vault DO
+    // whose per-row allowedSubs is a different gate. Operators tightening
+    // manifest defaultAllowedSubs got dead code in production.
+    //
+    // Post-fix: the gate fires at the route boundary for BOTH paths. A
+    // peer NOT in defaultAllowedSubs gets a 404 (Shape R collapse) even
+    // when the forward path would otherwise delegate to vault DO.
+    const { ns, calls } = fakeVaultStoreNamespace();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      services: () => ({
+        name: "openai",
+        upstreamBaseUrl: "https://api.openai.test",
+        injection: { kind: "authorizationBearer" },
+        defaultAllowedSubs: ["sha256:other-peer"], // not TEST_PEER_FP
+        rateLimitPerMinute: 60,
+      }),
+      // No deps.credentials → forward path via env.VAULT_STORE
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      envWithVaultStore(ns),
+    );
+
+    // Vault DO was NEVER consulted — the route-level manifest gate
+    // rejected before delegation. Proves the gate fires on forward path.
+    expect(calls.length).toBe(0);
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("unauthorized");
   });
 
   it("returns 404 for unknown service even with vault DO available (service-declaration check runs first)", async () => {
