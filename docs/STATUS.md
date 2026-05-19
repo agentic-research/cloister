@@ -97,6 +97,10 @@ work-tracking, follow the linked bead.
 | `cloister-2176e4` | vault DO: KEK source path is cached per-DO but cold-start is amplification-amenable | stale-closed (clear-on-rejection at `src/vault-store.ts:524-528` + bounded retry in `vault/src/kek-source.ts:203`; commit 4499f7c) |
 | `cloister-21b5eb` | vault DO: write-side has no rate-distinct cost from read-side | stale-closed (credential-payload caps in `vault/src/vault.ts:CREDENTIAL_LIMITS` + write=3/read=1 in RATE_LIMITS.COST; commit 4499f7c) |
 | `cloister-d816a0` | ADR-0019 normative-req consolidation (18 → 15; move impl/log invariants to "Implementation pins") | closed (PR #22, 2026-05-17) |
+| `cloister-182ba2` | Cross-repo overlap audit (signet / notme / cloister / ley-line) | closed 2026-05-18 (PR #65) — five overlap surfaces enumerated; informs ADR-0028 + cloister-12b062 |
+| `cloister-224917` | ADR-0028 — capability identifier scheme (three concerns, three names) + `cloister-spec/_capability-mapping.md` crosswalk | closed 2026-05-18 (PR #66 + PR #67) — Proposed. Lane discipline doc + normative crosswalk for `urn:signet:` vs `wimse://` vs `cloister/<name>/v<n>` |
+| `cloister-94cf13` | L2: canonical trait library `cloister-spec/_traits.capnp` + `_traits.md` | closed 2026-05-18 (PR #68) — 7 annotations ($Sensitive / $Scope / $Capability / $Since / $Deprecated / $Unstable / $Op); ADR-0022 §3 commit |
+| `cloister-308ea4` | `lint:capability-scheme` — ADR-0028 §6 lane discipline enforcement on `[inputs.*].provides/requires` | closed 2026-05-18 (PR #70) — 27 tests, no regex per project convention, wired into `task lint` + `test:lint-scripts` |
 
 ## Convention
 
