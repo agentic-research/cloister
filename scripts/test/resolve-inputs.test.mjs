@@ -23,7 +23,13 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { resolveInput, buildLockfile, parseGithubRef, githubRefToHttpsUrl } from "../resolve-inputs.mjs";
+import {
+  resolveInput,
+  buildLockfile,
+  parseGithubRef,
+  githubRefToHttpsUrl,
+  rewriteIoGithubOrgSugar,
+} from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -198,15 +204,16 @@ test("resolveInput: digest pin accepts the bare-hex form (no sha256: prefix)", a
 // ── unsupported scheme ───────────────────────────────────────────────────
 
 test("resolveInput: unsupported scheme errors and lists the supported set", async () => {
-  // io.github.org/<repo> registry resolution is Phase 2 subpiece 3 —
-  // not shipped yet. The error message must enumerate the supported
-  // schemes so the operator can see what they have today.
+  // A truly-unsupported scheme (not file/https/github/io.github.org).
+  // The error message must enumerate every supported scheme so the
+  // operator can see what they have today.
   await assert.rejects(
-    () => resolveInput(specDefaults({ name: "future", ref: "io.github.org/repo" })),
+    () => resolveInput(specDefaults({ name: "future", ref: "registry+npm://acme/tool" })),
     (err) => err.detail.includes("unsupported")
       && err.detail.includes("file://")
       && err.detail.includes("https://")
-      && err.detail.includes("github://"),
+      && err.detail.includes("github://")
+      && err.detail.includes("io.github.org/"),
   );
 });
 
@@ -430,6 +437,108 @@ test("resolveInput: github:// + path → raw URL via fetch mock", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ── io.github.org/ → github:// sugar (cloister-771364) ──────────────────
+
+test("rewriteIoGithubOrgSugar: whole-repo ref rewrites to github://", () => {
+  assert.equal(
+    rewriteIoGithubOrgSugar("io.github.org/anthropics/skills@main"),
+    "github://anthropics/skills@main",
+  );
+});
+
+test("rewriteIoGithubOrgSugar: single-file path rewrites", () => {
+  assert.equal(
+    rewriteIoGithubOrgSugar("io.github.org/anthropics/skills/python-bridge.md@v1.2.0"),
+    "github://anthropics/skills/python-bridge.md@v1.2.0",
+  );
+});
+
+test("rewriteIoGithubOrgSugar: multi-segment path preserved", () => {
+  assert.equal(
+    rewriteIoGithubOrgSugar("io.github.org/x/y/dir/sub/file.json@abc"),
+    "github://x/y/dir/sub/file.json@abc",
+  );
+});
+
+test("rewriteIoGithubOrgSugar: non-matching refs pass through unchanged", () => {
+  assert.equal(rewriteIoGithubOrgSugar("github://x/y@main"), "github://x/y@main");
+  assert.equal(rewriteIoGithubOrgSugar("file:///abs/path"), "file:///abs/path");
+  assert.equal(rewriteIoGithubOrgSugar("https://example.com/x"), "https://example.com/x");
+});
+
+test("rewriteIoGithubOrgSugar: bare prefix with no suffix passes through (pathological)", () => {
+  // The github parser will surface a clean error; double-bookkeeping
+  // here would just duplicate that validation.
+  assert.equal(rewriteIoGithubOrgSugar("io.github.org/"), "io.github.org/");
+});
+
+test("rewriteIoGithubOrgSugar: non-string input passes through unchanged", () => {
+  assert.equal(rewriteIoGithubOrgSugar(null), null);
+  assert.equal(rewriteIoGithubOrgSugar(42), 42);
+});
+
+test("resolveInput: io.github.org/ sugar routes through github:// resolver via fetch mock", async () => {
+  const payload = Buffer.from("io.github sugar e2e payload");
+  const originalFetch = globalThis.fetch;
+  let observedUrl = null;
+  globalThis.fetch = async (url) => {
+    observedUrl = url;
+    return new Response(payload, { status: 200 });
+  };
+  try {
+    const row = await resolveInput(specDefaults({
+      name: "io-sugar",
+      ref:  "io.github.org/anthropics/skills@main",
+    }));
+    assert.equal(
+      observedUrl,
+      "https://codeload.github.com/anthropics/skills/tar.gz/main",
+      "io.github.org/ ref MUST route through codeload.github.com (same path as github:// form)",
+    );
+    // The lockfile preserves the ORIGINAL operator-authored ref shape
+    // so subsequent re-resolves see the same input string.
+    assert.equal(row.ref, "io.github.org/anthropics/skills@main",
+      "ref column records the operator-authored io.github.org/ form, not the rewritten github://");
+    // fetched_from records the actual URL, same as the github:// path.
+    assert.equal(row.fetched_from, "https://codeload.github.com/anthropics/skills/tar.gz/main");
+    assert.equal(row.sha256, `sha256:${sha256hex(payload)}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolveInput: io.github.org/ sugar with single-file path routes to raw.githubusercontent.com", async () => {
+  const payload = Buffer.from("# Skill\n\nbody");
+  const originalFetch = globalThis.fetch;
+  let observedUrl = null;
+  globalThis.fetch = async (url) => {
+    observedUrl = url;
+    return new Response(payload, { status: 200 });
+  };
+  try {
+    await resolveInput(specDefaults({
+      name: "io-sugar-file",
+      ref:  "io.github.org/anthropics/skills/python-bridge.md@v1.2.0",
+    }));
+    assert.equal(
+      observedUrl,
+      "https://raw.githubusercontent.com/anthropics/skills/v1.2.0/python-bridge.md",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolveInput: io.github.org/ sugar without @<ref> errors per github:// validator", async () => {
+  // Sugar rewrites without validating; the github parser is the
+  // authoritative validator. A bad io.github.org/ ref should surface
+  // the same error message a bad github:// ref would.
+  await assert.rejects(
+    () => resolveInput(specDefaults({ name: "io-bad", ref: "io.github.org/anthropics/skills" })),
+    (err) => err.inputName === "io-bad" && err.detail.includes("must pin a git ref"),
+  );
 });
 
 test("resolveInput: github:// fetch failure surfaces both URLs in the error", async () => {
