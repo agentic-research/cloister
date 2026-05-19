@@ -946,3 +946,131 @@ async fn healthz_emits_cli_presence_when_auth_disabled() {
         "dev-mode /healthz MUST emit `security_cli_present` as a bool; got {security_present:?}",
     );
 }
+
+// ── §17.11 sub-piece #1+#4: `/healthz?deep=1` synthetic probe (cloister-8d933d) ──
+//
+// Silence Gap 4 fix: today /healthz returns ok=true if the Worker boots,
+// regardless of whether the keystore is wired. `?deep=1` rounds-trips a
+// pinned URL (LEYLINE_SIGN_HEALTHZ_PROBE_URL) through the keystore so
+// ok=true means "I can actually resolve secrets," not just "I started."
+//
+// Sub-piece #4 from the bead checklist: `healthz_deep_probe_returns_ok_for_seeded_url`.
+
+#[tokio::test]
+async fn healthz_no_deep_query_omits_deep_probe_field() {
+    let h = AdvHelper::start().await;
+    let body: Value = client()
+        .get(h.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    assert!(
+        body.get("deep_probe").is_none(),
+        "shallow /healthz MUST omit `deep_probe` (back-compat with pre-sub-piece-#1 readers); got body: {body}",
+    );
+}
+
+#[tokio::test]
+#[serial_test::serial(env_LEYLINE_SIGN_HEALTHZ_PROBE_URL)]
+async fn healthz_deep_query_unconfigured_when_probe_url_unset() {
+    // Save + clear so this test is hermetic regardless of dev-env.
+    let saved = std::env::var("LEYLINE_SIGN_HEALTHZ_PROBE_URL").ok();
+    // SAFETY: env mutation in a test; the AdvHelper handler reads the
+    // env on each /healthz?deep=1 call (no cached value).
+    unsafe { std::env::remove_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL"); }
+    let h = AdvHelper::start().await;
+    let body: Value = client()
+        .get(h.url("/healthz?deep=1"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    if let Some(v) = saved {
+        unsafe { std::env::set_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL", v); }
+    }
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    let deep = body.get("deep_probe").expect("deep_probe field present under ?deep=1");
+    assert_eq!(deep.get("status"), Some(&Value::String("unconfigured".to_string())));
+    assert!(deep.get("error").is_none(), "unconfigured MUST NOT carry an error label; got {deep}");
+}
+
+#[tokio::test]
+#[serial_test::serial(env_LEYLINE_SIGN_HEALTHZ_PROBE_URL)]
+async fn healthz_deep_probe_returns_ok_for_seeded_url() {
+    // Seed: keychain://probe-marker-{nonce} populated via the test
+    // keychain fixture. We don't have a real keychain in CI, so use
+    // file:// pointing at a tmp file we control.
+    let dir = tempfile::tempdir().unwrap();
+    let probe_path = dir.path().join("probe.txt");
+    std::fs::write(&probe_path, b"healthz-probe-bytes\n").unwrap();
+    let probe_url = format!("file://{}", probe_path.to_string_lossy());
+
+    let saved = std::env::var("LEYLINE_SIGN_HEALTHZ_PROBE_URL").ok();
+    // SAFETY: env mutation in a test; the handler reads env per call.
+    unsafe { std::env::set_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL", &probe_url); }
+    let h = AdvHelper::start().await;
+    let body: Value = client()
+        .get(h.url("/healthz?deep=1"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    match saved {
+        Some(v) => unsafe { std::env::set_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL", v); },
+        None => unsafe { std::env::remove_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL"); },
+    }
+
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    let deep = body.get("deep_probe").expect("deep_probe field present under ?deep=1");
+    assert_eq!(deep.get("status"), Some(&Value::String("ok".to_string())));
+    assert!(deep.get("error").is_none(), "ok MUST NOT carry an error label; got {deep}");
+}
+
+#[tokio::test]
+#[serial_test::serial(env_LEYLINE_SIGN_HEALTHZ_PROBE_URL)]
+async fn healthz_deep_probe_reports_error_with_coarse_label_when_url_fails() {
+    // Point at a definitely-missing file. resolve_bytes returns
+    // NotFound; the deep-probe surface lowers that to log_label()
+    // = "not_found".
+    let probe_url = "file:///does/not/exist/healthz-probe.txt";
+    let saved = std::env::var("LEYLINE_SIGN_HEALTHZ_PROBE_URL").ok();
+    // SAFETY: env mutation in a test.
+    unsafe { std::env::set_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL", probe_url); }
+    let h = AdvHelper::start().await;
+    let body: Value = client()
+        .get(h.url("/healthz?deep=1"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    match saved {
+        Some(v) => unsafe { std::env::set_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL", v); },
+        None => unsafe { std::env::remove_var("LEYLINE_SIGN_HEALTHZ_PROBE_URL"); },
+    }
+
+    assert_eq!(body.get("ok"), Some(&Value::Bool(false)));
+    let deep = body.get("deep_probe").expect("deep_probe field present under ?deep=1");
+    assert_eq!(deep.get("status"), Some(&Value::String("error".to_string())));
+    let err = deep.get("error").and_then(|v| v.as_str()).unwrap_or("");
+    // The exact label is one of HelperError's coarse strings — we
+    // don't pin which to keep the test resilient to error-classification
+    // refinements. We DO pin "not the URL" (ADR-0019 req. 11).
+    assert!(
+        !err.is_empty(),
+        "error label MUST be a non-empty coarse string; got {err:?}",
+    );
+    assert!(
+        !err.contains("/does/not/exist") && !err.contains("healthz-probe"),
+        "error label MUST NOT leak the probe URL (ADR-0019 req. 11); got {err:?}",
+    );
+}
