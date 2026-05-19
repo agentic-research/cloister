@@ -87,7 +87,34 @@ export class VaultDoCredentialStore implements CredentialStore {
     try {
       const stub = ns.get(ns.idFromName(this.bundleIdName)) as DurableObjectStub & VaultProxyRpc;
       return await stub.proxyRequest(peerFp, service, callerSub, request);
-    } catch {
+    } catch (err) {
+      // Obs O-OBS-4 (2026-05-18 cycle): bare catch {} dropped RPC
+      // throw context entirely — vault DO outages were invisible to
+      // operators internally even though the wire-side 502 was
+      // visible to clients. Now we emit a structured error log
+      // capturing the exception class + message so wrangler tail /
+      // CF Workers Logs surface the failure for triage. The wire
+      // response stays the constant SHAPE_U_ERROR_BODY (no internal
+      // detail leaks to the caller).
+      //
+      // Bounded-cardinality fields only:
+      // - service / bundleIdName: deploy-static identifiers
+      // - error_class / error_message: from the caught exception
+      //   (NOT the request body, NOT the caller's identity, NOT the
+      //   credential bytes — those are all out of scope at this
+      //   catch boundary anyway)
+      const e = err instanceof Error ? err : new Error(String(err));
+      // eslint-disable-next-line no-console -- intentional structured emit
+      console.error(JSON.stringify({
+        kind:          "error",
+        source:        "cloister/credential-isolation/v1",
+        location:      "VaultDoCredentialStore.forward",
+        bundleIdName:  this.bundleIdName,
+        service,
+        error_class:   e.name,
+        error_message: e.message,
+        bead:          "cloister-6e6bfb",
+      }));
       return errorResponse(502, JSON.stringify({ error: "upstream_unavailable" }));
     }
   }
