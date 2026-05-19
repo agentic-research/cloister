@@ -326,12 +326,16 @@ async function resolveAllAndWriteLockfile(tomlString, lockPath) {
   const inputsTable = parsed.inputs ?? {};
   const specs = Object.entries(inputsTable).map(([name, spec]) => ({
     name,
-    ref:      typeof spec.ref      === "string" ? spec.ref      : "",
-    version:  typeof spec.version  === "string" ? spec.version  : "",
-    digest:   typeof spec.digest   === "string" ? spec.digest   : "",
-    from:     typeof spec.from     === "string" ? spec.from     : "",
-    provides: Array.isArray(spec.provides) ? spec.provides : [],
-    requires: Array.isArray(spec.requires) ? spec.requires : [],
+    ref:            typeof spec.ref            === "string" ? spec.ref            : "",
+    version:        typeof spec.version        === "string" ? spec.version        : "",
+    digest:         typeof spec.digest         === "string" ? spec.digest         : "",
+    from:           typeof spec.from           === "string" ? spec.from           : "",
+    // urlBinding / serviceBinding pass through to generated_backends
+    // rows (cloister-cb7263, P3).
+    urlBinding:     typeof spec.urlBinding     === "string" ? spec.urlBinding     : "",
+    serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
+    provides:       Array.isArray(spec.provides) ? spec.provides : [],
+    requires:       Array.isArray(spec.requires) ? spec.requires : [],
   }));
 
   const resolved = [];

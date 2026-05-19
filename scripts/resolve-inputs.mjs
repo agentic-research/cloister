@@ -1,13 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // scripts/resolve-inputs.mjs — ADR-0026 Phase 1b + Phase 2 subpiece 1
-// (cloister-cf7a3b + cloister-5f5aee) — input resolver +
-// cluster.lock.toml writer.
+// (cloister-cf7a3b + cloister-5f5aee) + Phase 3 (cloister-cb7263) —
+// input resolver + cluster.lock.toml writer + `_meta.art.cloister/v1`
+// → generated-backends emitter.
 //
 // Reads `cluster.toml`'s `[inputs.*]` blocks, resolves each input via
 // its ref scheme, computes a content-addressed digest, writes the
 // resolved metadata to `cluster.lock.toml`. Operators commit the
 // lockfile alongside cluster.toml so deploys are reproducible.
+//
+// Phase 3 layer (cloister-cb7263): when the resolved bytes are an MCP
+// `server.json` carrying a `_meta.art.cloister/v1.groups[]` block (per
+// `cloister-spec/mcp-tool/v1/`), the resolver derives ONE backend
+// declaration per group and records them in a `[generated_backends]`
+// section in the lockfile. Operators commit that, the downstream
+// manifest emitter consumes it. When the bytes carry no `_meta` block
+// (or aren't JSON at all — e.g. a tarball), the resolver falls back to
+// a single-backend heuristic with `claims=[]`, `handlesPrefix=""`,
+// `dynamicTools=true` (legacy claim-all shape) and logs a warning so
+// the operator can ask the upstream MCP server author to add a
+// `_meta` block for finer-grained group composition.
 //
 // Resolver schemes today:
 //
@@ -182,14 +195,48 @@ export async function resolveInput(spec) {
     }
   }
 
+  // Phase 3 (cloister-cb7263): walk the resolved bytes for an MCP
+  // server.json `_meta.art.cloister/v1.groups[]` block. If present,
+  // derive one backend declaration per group. If absent (or the bytes
+  // aren't parseable as JSON), fall back to a single-backend heuristic
+  // and warn the operator.
+  let meta = null;
+  try {
+    meta = parseServerJsonMeta(bytes);
+  } catch (e) {
+    // Bytes parsed as JSON + carried _meta.art.cloister/v1 but the
+    // block was malformed (missing required field, empty
+    // upstreamNames, duplicate group name, etc.). Per the spec
+    // constraint matrix this is a build failure, not a silent
+    // fallback — the server author opted in, they need to opt in
+    // correctly.
+    throw new ResolveError(spec.name, e.message);
+  }
+
+  let generatedBackends;
+  if (meta) {
+    generatedBackends = deriveGeneratedBackends(spec, meta);
+  } else {
+    generatedBackends = deriveGeneratedBackends(spec, null);
+    // Warn so the operator knows they're getting a single backend
+    // rather than a partitioned set. README §"Heuristic fallback":
+    // the fallback exists + emits a warning + does NOT fail the build.
+    console.warn(
+      `resolve-inputs: input ${spec.name}: no _meta.art.cloister/v1 — ` +
+      `using single-backend fallback. For multi-group servers, ask the ` +
+      `maintainer to add _meta.`,
+    );
+  }
+
   return {
-    name:         spec.name,
-    ref:          spec.ref,
-    resolved:     spec.version || "",
-    sha256:       `sha256:${sha256}`,
-    fetched_from: fetchedFrom,
-    signer:       "", // Phase 3 — Interlace receipts populate this
-    bytes:        bytes.length,
+    name:              spec.name,
+    ref:               spec.ref,
+    resolved:          spec.version || "",
+    sha256:            `sha256:${sha256}`,
+    fetched_from:      fetchedFrom,
+    signer:            "", // Interlace receipts will populate (future ADR-0026 phase)
+    bytes:             bytes.length,
+    generatedBackends,
   };
 }
 
@@ -298,6 +345,191 @@ export function rewriteIoGithubOrgSugar(ref) {
   return `github://${suffix}`;
 }
 
+// ── `_meta.art.cloister/v1` parsing (cloister-cb7263, P3 of LLO arc) ────
+//
+// Spec: cloister-spec/mcp-tool/v1/README.md + wire/meta-groups.md.
+// Canonical fixture: cloister-spec/mcp-tool/v1/vectors/llo-groups.json.
+//
+// The resolver consumes the `_meta.art.cloister/v1.groups[]` block out
+// of an MCP `server.json` document. Each group becomes one backend
+// declaration:
+//
+//   group.name             → backend.name
+//   group.advertisedPrefix → backend.handlesPrefix (default "")
+//   group.upstreamNames    → backend.claims (P1 schema slot)
+//   (always)               → backend.dynamicTools = true
+//
+// When _meta is absent OR the resolved bytes aren't JSON at all, the
+// resolver falls back to a single backend with `claims=[]`,
+// `handlesPrefix=""`, `dynamicTools=true` (legacy claim-everything
+// shape) and warns the operator.
+
+/**
+ * Parse the `_meta.art.cloister/v1` block out of resolved bytes (which
+ * are expected to be an MCP `server.json`). Returns:
+ *
+ *   - `null` if the bytes aren't JSON, or are JSON but carry no
+ *     `_meta.art.cloister/v1` block, or carry an empty `groups: []`
+ *     (per wire/meta-groups.md: empty groups[] is semantically
+ *     equivalent to omitting the block).
+ *   - the parsed `{ groups: [...] }` object on success, with each
+ *     group validated against the spec constraint matrix.
+ *
+ * Throws on a malformed _meta block (missing required field, empty
+ * upstreamNames, duplicate group name, etc.) — the server author
+ * opted in, they need to opt in correctly. Per
+ * `cloister-spec/mcp-tool/v1/wire/meta-groups.md` §"Constraint matrix".
+ *
+ * Exported for unit tests.
+ */
+export function parseServerJsonMeta(bytes) {
+  let doc;
+  try {
+    // Try to parse the bytes as JSON. Buffers / typed arrays / strings
+    // all work via String().
+    const text = typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
+    doc = JSON.parse(text);
+  } catch {
+    return null; // Not JSON ⇒ no _meta block ⇒ fallback path.
+  }
+  if (!doc || typeof doc !== "object" || !doc._meta || typeof doc._meta !== "object") {
+    return null;
+  }
+  const block = doc._meta["art.cloister/v1"];
+  if (!block || typeof block !== "object") {
+    return null;
+  }
+
+  // Validate `groups` field shape.
+  const groups = block.groups;
+  if (groups === undefined || groups === null) {
+    return null; // _meta block present but no groups[] — treat as no opt-in.
+  }
+  if (!Array.isArray(groups)) {
+    throw new Error(
+      `_meta.art.cloister/v1.groups must be an array; got ${typeof groups}`,
+    );
+  }
+  if (groups.length === 0) {
+    // Per wire/meta-groups.md: "An empty groups: [] means 'this server
+    // author opted in but declared no groups.' It is semantically
+    // equivalent to omitting _meta.art.cloister/v1 entirely."
+    return null;
+  }
+
+  // Validate each group.
+  const seenNames = new Set();
+  const validatedGroups = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    if (!g || typeof g !== "object") {
+      throw new Error(`_meta.art.cloister/v1.groups[${i}] is not an object`);
+    }
+    // `name`: REQUIRED, non-empty string, unique within groups[].
+    if (typeof g.name !== "string" || g.name.length === 0) {
+      throw new Error(
+        `_meta.art.cloister/v1.groups[${i}].name is required and must be a non-empty string`,
+      );
+    }
+    if (seenNames.has(g.name)) {
+      throw new Error(
+        `_meta.art.cloister/v1.groups[${i}]: duplicate group name "${g.name}" ` +
+        `— group names must be unique within groups[]`,
+      );
+    }
+    seenNames.add(g.name);
+
+    // `upstreamNames`: REQUIRED, non-empty array of strings.
+    if (!Array.isArray(g.upstreamNames)) {
+      throw new Error(
+        `_meta.art.cloister/v1.groups[${i}] (name="${g.name}"): ` +
+        `upstreamNames is required and must be an array`,
+      );
+    }
+    if (g.upstreamNames.length === 0) {
+      throw new Error(
+        `_meta.art.cloister/v1.groups[${i}] (name="${g.name}"): ` +
+        `upstreamNames must not be empty — a group with no claims is a no-op backend`,
+      );
+    }
+    for (let j = 0; j < g.upstreamNames.length; j++) {
+      if (typeof g.upstreamNames[j] !== "string" || g.upstreamNames[j].length === 0) {
+        throw new Error(
+          `_meta.art.cloister/v1.groups[${i}] (name="${g.name}"): ` +
+          `upstreamNames[${j}] must be a non-empty string`,
+        );
+      }
+    }
+
+    // `advertisedPrefix`: OPTIONAL, defaults to "".
+    let advertisedPrefix = "";
+    if (g.advertisedPrefix !== undefined) {
+      if (typeof g.advertisedPrefix !== "string") {
+        throw new Error(
+          `_meta.art.cloister/v1.groups[${i}] (name="${g.name}"): ` +
+          `advertisedPrefix must be a string when present`,
+        );
+      }
+      advertisedPrefix = g.advertisedPrefix;
+    }
+
+    validatedGroups.push({
+      name:             g.name,
+      advertisedPrefix,
+      upstreamNames:    g.upstreamNames.slice(),
+    });
+  }
+  return { groups: validatedGroups };
+}
+
+/**
+ * Derive `[generated_backends]` rows from a resolved input spec + its
+ * (already-validated) `_meta.art.cloister/v1` block. When `meta` is
+ * `null` (no opt-in or non-JSON bytes), emits the heuristic-fallback
+ * single-backend row with `claims=[]`, `handlesPrefix=""`,
+ * `dynamicTools=true`.
+ *
+ * Each row carries `input` so operators can trace back to the source
+ * [inputs.<name>] block, plus `urlBinding`/`serviceBinding` inherited
+ * from the spec when set (downstream manifest emitter wires those to
+ * env bindings).
+ *
+ * Exported for unit tests.
+ */
+export function deriveGeneratedBackends(spec, meta) {
+  const urlBinding     = typeof spec.urlBinding     === "string" ? spec.urlBinding     : "";
+  const serviceBinding = typeof spec.serviceBinding === "string" ? spec.serviceBinding : "";
+
+  if (meta === null) {
+    // Heuristic fallback: one backend, claims=[] (legacy claim-all),
+    // handlesPrefix="", dynamicTools=true. Per the README §"Heuristic
+    // fallback": the resolver falls back to a documented single-backend
+    // default + warning when _meta.art.cloister/v1 is absent.
+    return [{
+      input:          spec.name,
+      name:           spec.name,
+      handlesPrefix:  "",
+      claims:         [],
+      dynamicTools:   true,
+      urlBinding,
+      serviceBinding,
+    }];
+  }
+
+  return meta.groups.map((g) => ({
+    input:          spec.name,
+    name:           g.name,
+    // Default advertisedPrefix to "" when callers feed pre-validated
+    // meta (parseServerJsonMeta fills the field) or when callers pass
+    // a raw group object — wire/meta-groups.md treats absence as "".
+    handlesPrefix:  typeof g.advertisedPrefix === "string" ? g.advertisedPrefix : "",
+    claims:         g.upstreamNames.slice(),
+    dynamicTools:   true,
+    urlBinding,
+    serviceBinding,
+  }));
+}
+
 // ── Lockfile shape ──────────────────────────────────────────────────────
 
 /**
@@ -305,13 +537,24 @@ export function rewriteIoGithubOrgSugar(ref) {
  * source cluster.toml's metadata + a generated-at timestamp. Each
  * input lands in its own `[inputs.<name>]` table mirroring the
  * source cluster.toml structure.
+ *
+ * Phase 3 (cloister-cb7263): when at least one resolved input carries
+ * a `generatedBackends` array (one backend declaration per
+ * `_meta.art.cloister/v1.groups[]` entry, or one heuristic-fallback
+ * backend when _meta is absent), the lockfile gains a
+ * `[[generated_backends]]` array-of-tables section. Operators commit
+ * this; the downstream manifest emitter consumes it to wire the rows
+ * into `cloister.capnp` backend declarations.
  */
 export function buildLockfile(clusterMetadata, resolvedInputs) {
   const doc = {
-    "_comment": "Generated by scripts/resolve-inputs.mjs (ADR-0026 Phase 1b). " +
+    "_comment": "Generated by scripts/resolve-inputs.mjs (ADR-0026 Phase 1b + Phase 3). " +
                 "Commit this file alongside cluster.toml — deploys verify each input's " +
-                "sha256 against the committed digest. Phase 3 will add Interlace receipt " +
-                "signatures (`signer` field populated from the input's actor).",
+                "sha256 against the committed digest. The [generated_backends] section " +
+                "(when present) records the resolver's _meta.art.cloister/v1 → " +
+                "backend-declaration mapping (cloister-cb7263, P3 of LLO arc). " +
+                "A future ADR-0026 phase will add Interlace receipt signatures " +
+                "(`signer` field populated from the input's actor).",
     "schema": "cloister/lockfile/v1",
     "cluster": clusterMetadata.name,
     "version": clusterMetadata.version,
@@ -329,6 +572,24 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
       ]),
     ),
   };
+
+  // Flatten every input's generated_backends[] into a single
+  // [[generated_backends]] array-of-tables. Each row carries its
+  // `input` field so the operator can trace which [inputs.<name>]
+  // block emitted it. Only emit the section when at least one row
+  // exists — back-compat with older lockfiles that pre-date P3.
+  const generatedRows = [];
+  for (const row of resolvedInputs) {
+    if (Array.isArray(row.generatedBackends)) {
+      for (const backend of row.generatedBackends) {
+        generatedRows.push(backend);
+      }
+    }
+  }
+  if (generatedRows.length > 0) {
+    doc.generated_backends = generatedRows;
+  }
+
   return doc;
 }
 
@@ -352,12 +613,18 @@ async function main() {
   const inputsTable = parsed.inputs ?? {};
   const specs = Object.entries(inputsTable).map(([name, spec]) => ({
     name,
-    ref:      typeof spec.ref      === "string" ? spec.ref      : "",
-    version:  typeof spec.version  === "string" ? spec.version  : "",
-    digest:   typeof spec.digest   === "string" ? spec.digest   : "",
-    from:     typeof spec.from     === "string" ? spec.from     : "",
-    provides: Array.isArray(spec.provides) ? spec.provides : [],
-    requires: Array.isArray(spec.requires) ? spec.requires : [],
+    ref:            typeof spec.ref            === "string" ? spec.ref            : "",
+    version:        typeof spec.version        === "string" ? spec.version        : "",
+    digest:         typeof spec.digest         === "string" ? spec.digest         : "",
+    from:           typeof spec.from           === "string" ? spec.from           : "",
+    // urlBinding / serviceBinding pass through to generated_backends
+    // rows (cloister-cb7263, P3). They name env bindings; the resolver
+    // doesn't dereference them — that's the downstream manifest
+    // emitter's job.
+    urlBinding:     typeof spec.urlBinding     === "string" ? spec.urlBinding     : "",
+    serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
+    provides:       Array.isArray(spec.provides) ? spec.provides : [],
+    requires:       Array.isArray(spec.requires) ? spec.requires : [],
   }));
 
   if (specs.length === 0) {
