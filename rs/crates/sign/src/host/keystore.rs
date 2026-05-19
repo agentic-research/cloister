@@ -693,6 +693,27 @@ fn parse_apple_password_remainder(remainder: &str) -> Result<(String, String), H
     Ok((server.to_owned(), rest.to_owned()))
 }
 
+/// Returns true if the operator-pinned subprocess binary at `env_var`
+/// is set + absolute + extant — i.e. the corresponding scheme (`op://`
+/// or `apple-password://`) would actually be invokable. Wrapper used
+/// by `/healthz` to report CLI presence without exposing the path
+/// itself. Per cloister-8d933d sub-piece #2.
+///
+/// Returns `false` (not None) when host-extras is off — the schemes
+/// don't exist on that build so the answer is unambiguous.
+#[cfg(feature = "host-extras")]
+pub fn cli_pinned_present(env_var: &str) -> bool {
+    pinned_subprocess_path(env_var).is_some()
+}
+
+/// Fallback when host-extras is off. The `op://` + `apple-password://`
+/// backends aren't compiled in, so neither CLI is reachable from this
+/// binary regardless of what the env vars say.
+#[cfg(not(feature = "host-extras"))]
+pub fn cli_pinned_present(_env_var: &str) -> bool {
+    false
+}
+
 /// Returns the env-var value as a PathBuf if it (a) is non-empty, (b) is
 /// absolute, and (c) points to an extant regular file.
 #[cfg(feature = "host-extras")]

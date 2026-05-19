@@ -887,3 +887,62 @@ async fn healthz_emits_platform_when_auth_disabled() {
         "dev-mode /healthz MUST emit a recognized `platform` string; got {platform:?}",
     );
 }
+
+// ── §17.11 sub-piece #2: CLI-presence section (cloister-8d933d) ───────────
+//
+// Operators wiring `op://` or `apple-password://` schemes pin absolute
+// binary paths via LEYLINE_SIGN_OP_BIN / LEYLINE_SIGN_SECURITY_BIN.
+// Dev-mode /healthz exposes the two presence flags so operators can
+// debug a misconfigured pin without triggering a real signing call.
+// Production-mode strips both — they leak platform info indirectly
+// (security_cli_present=true ≈ macOS).
+
+#[tokio::test]
+async fn healthz_strips_cli_presence_when_auth_required() {
+    let h = AdvHelper::start().await; // default_auth() = AuthConfig::Required
+    let body: Value = client()
+        .get(h.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    assert!(
+        body.get("op_cli_present").is_none(),
+        "auth-required /healthz MUST omit `op_cli_present` (cloister-8d933d sub-piece #2); got body: {body}",
+    );
+    assert!(
+        body.get("security_cli_present").is_none(),
+        "auth-required /healthz MUST omit `security_cli_present` (cloister-8d933d sub-piece #2); got body: {body}",
+    );
+}
+
+#[tokio::test]
+async fn healthz_emits_cli_presence_when_auth_disabled() {
+    let h = AdvHelper::start_with(1000, AuthConfig::Disabled, Vec::new()).await;
+    let body: Value = client()
+        .get(h.url("/healthz"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body.get("ok"), Some(&Value::Bool(true)));
+    // Both fields MUST be present as bools in dev-mode. Their values
+    // depend on whether the test environment has the env vars pinned;
+    // the test cares about the SHAPE (presence + bool type), not the
+    // value (operator-controlled).
+    let op_present = body.get("op_cli_present");
+    let security_present = body.get("security_cli_present");
+    assert!(
+        op_present.and_then(|v| v.as_bool()).is_some(),
+        "dev-mode /healthz MUST emit `op_cli_present` as a bool; got {op_present:?}",
+    );
+    assert!(
+        security_present.and_then(|v| v.as_bool()).is_some(),
+        "dev-mode /healthz MUST emit `security_cli_present` as a bool; got {security_present:?}",
+    );
+}
