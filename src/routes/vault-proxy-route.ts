@@ -77,6 +77,17 @@ export type LeaseVerifier = (
   parsed: { service: string; upstreamPath: string } | null,
 ) => Promise<{ ok: true; lease: VerifiedLease } | { ok: false; status: 401 | 503 }>;
 
+/**
+ * Default `bundleIdName` for vault-DO auto-selection. Per ADR-0021 each
+ * distinct value yields an independent `env.VAULT_STORE.idFromName(...)`
+ * instance. The literal `"router"` is the back-compat default for
+ * single-bundle deploys that shipped before X-3 (cloister-6f06cc).
+ *
+ * Operators override per-route via the manifest's `VaultProxySpec.bundleIdName`
+ * (runtime.ts:187 reads + threads through to `VaultProxyRouteDeps.bundleIdName`).
+ */
+export const DEFAULT_BUNDLE_ID_NAME = "router";
+
 export interface VaultProxyRouteDeps {
   credentials?:   CredentialStore;
   services?:      ServiceResolver;
@@ -84,6 +95,16 @@ export interface VaultProxyRouteDeps {
   receipts?:      ReceiptEmitter;
   metrics?:       MetricEmitter;
   leaseVerifier?: LeaseVerifier;
+  /**
+   * Logical bundle name passed to `env.VAULT_STORE.idFromName(...)` when
+   * auto-selecting the `VaultDoCredentialStore`. Per ADR-0021 each
+   * distinct value yields an independent vault DO instance with
+   * independent SQLite + rate buckets + inflight cap. Default + empty
+   * string both resolve to `DEFAULT_BUNDLE_ID_NAME` ("router") for
+   * back-compat with single-bundle deploys that shipped before X-3
+   * (cloister-6f06cc). Manifest-driven via `VaultProxySpec.bundleIdName`.
+   */
+  bundleIdName?: string;
 }
 
 export class VaultProxyRoute implements EdgeRoute {
@@ -94,6 +115,8 @@ export class VaultProxyRoute implements EdgeRoute {
   private readonly receipts?:              ReceiptEmitter;
   private readonly metrics?:               MetricEmitter;
   private readonly leaseVerifier:          LeaseVerifier;
+  /** Manifest-driven bundle name for vault DO addressing (X-3 / ADR-0021). */
+  private readonly bundleIdName:           string;
   /**
    * Lazily constructed when `env.VAULT_STORE` is present + the caller
    * didn't pass an explicit `deps.credentials`. Memoized across calls
@@ -110,6 +133,11 @@ export class VaultProxyRoute implements EdgeRoute {
     this.receipts             = deps.receipts;
     this.metrics              = deps.metrics;
     this.leaseVerifier        = deps.leaseVerifier ?? defaultLeaseVerifier;
+    // Empty string → default (back-compat with VaultProxySpec where
+    // operators may omit bundleIdName); explicit non-empty → use it.
+    this.bundleIdName         = (deps.bundleIdName ?? "").length > 0
+      ? deps.bundleIdName!
+      : DEFAULT_BUNDLE_ID_NAME;
   }
 
   /**
@@ -144,7 +172,7 @@ export class VaultProxyRoute implements EdgeRoute {
   private selectCredentialStore(env: Env): CredentialStore | null {
     if (this.credentialsExplicit)          return this.credentials;
     if (env.VAULT_STORE) {
-      this.vaultDoStore ??= new VaultDoCredentialStore({ env, bundleIdName: "router" });
+      this.vaultDoStore ??= new VaultDoCredentialStore({ env, bundleIdName: this.bundleIdName });
       return this.vaultDoStore;
     }
     if (!this.loggedVaultMissing) {

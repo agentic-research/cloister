@@ -210,7 +210,22 @@ export type RouteKind =
    *
    * See `src/routes/vault-proxy-route.ts`.
    */
-  | { vaultProxy:              null };
+  | { vaultProxy:              VaultProxySpec };
+
+/**
+ * Per-route config for the `vaultProxy` Route.kind. Mirror of
+ * `manifest/cloister.capnp:VaultProxySpec`.
+ *
+ * `bundleIdName` is the logical bundle name the route passes to
+ * `env.VAULT_STORE.idFromName(...)`. Per ADR-0021 each distinct value
+ * yields an independent vault DO instance with independent SQLite +
+ * rate buckets + inflight cap. Empty string defaults to `"router"`
+ * (back-compat with single-bundle deploys that shipped before X-3 /
+ * cloister-6f06cc).
+ */
+export interface VaultProxySpec {
+  bundleIdName: string;
+}
 
 export interface McpRouteSpec {
   backends: readonly Backend[];

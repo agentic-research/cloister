@@ -191,10 +191,16 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // Operators can override via deps at composition time for Logpush
     // / structured-telemetry sinks. Per cloister-6e888b.
     const registry = buildServiceRegistry(manifest.vaultProxyServices ?? []);
+    // X-3 / cloister-6f06cc: read `bundleIdName` from the route's
+    // VaultProxySpec and thread it to the route. Empty / unset defaults
+    // to "router" inside the route constructor (DEFAULT_BUNDLE_ID_NAME).
+    // Per ADR-0021 each distinct bundleIdName yields an independent
+    // env.VAULT_STORE.idFromName(...) instance.
     return new VaultProxyRoute({
-      services: (name) => registry.get(name) ?? null,
-      receipts: consoleReceiptEmitter(),
-      metrics:  consoleMetricEmitter(),
+      services:     (name) => registry.get(name) ?? null,
+      receipts:     consoleReceiptEmitter(),
+      metrics:      consoleMetricEmitter(),
+      bundleIdName: k.vaultProxy.bundleIdName,
     });
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
