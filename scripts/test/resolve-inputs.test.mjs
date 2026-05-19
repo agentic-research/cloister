@@ -29,6 +29,8 @@ import {
   parseGithubRef,
   githubRefToHttpsUrl,
   rewriteIoGithubOrgSugar,
+  parseServerJsonMeta,
+  deriveGeneratedBackends,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -557,5 +559,401 @@ test("resolveInput: github:// fetch failure surfaces both URLs in the error", as
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+// ── _meta.art.cloister/v1 — parser (cloister-cb7263, P3 of LLO-enablement arc) ─
+
+test("parseServerJsonMeta: non-JSON bytes returns null", () => {
+  // Bytes that don't parse as JSON (e.g. a tarball or arbitrary text)
+  // are legitimate — they mean "no _meta block available". The resolver
+  // falls back to single-backend heuristic.
+  const bytes = Buffer.from("\x1f\x8b\x08\x00not-json-just-some-bytes");
+  assert.equal(parseServerJsonMeta(bytes), null);
+});
+
+test("parseServerJsonMeta: JSON without _meta block returns null", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    name: "io.github.example/foo",
+    version: "0.1.0",
+  }));
+  assert.equal(parseServerJsonMeta(bytes), null);
+});
+
+test("parseServerJsonMeta: JSON with _meta but no art.cloister/v1 key returns null", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    name: "io.github.example/foo",
+    _meta: { "other.vendor/v1": { groups: [] } },
+  }));
+  assert.equal(parseServerJsonMeta(bytes), null);
+});
+
+test("parseServerJsonMeta: canonical LLO vector parses to three groups", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    name: "io.github.agentic-research/ley-line-open",
+    version: "0.2.0",
+    description: "...",
+    _meta: {
+      "art.cloister/v1": {
+        groups: [
+          { name: "lsp", advertisedPrefix: "lsp_", upstreamNames: ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"] },
+          { name: "lifecycle", advertisedPrefix: "", upstreamNames: ["status", "enrich", "reparse"] },
+          { name: "sheaf", advertisedPrefix: "sheaf_", upstreamNames: ["sheaf_set_topology"] },
+        ],
+      },
+    },
+  }));
+  const meta = parseServerJsonMeta(bytes);
+  assert.ok(meta, "must return parsed _meta block");
+  assert.equal(meta.groups.length, 3);
+  assert.equal(meta.groups[0].name, "lsp");
+  assert.deepEqual(meta.groups[0].upstreamNames, ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]);
+  assert.equal(meta.groups[1].advertisedPrefix, "");
+  assert.equal(meta.groups[2].name, "sheaf");
+});
+
+test("parseServerJsonMeta: empty groups[] returns null (treated as opt-out per wire spec)", () => {
+  // wire/meta-groups.md §"Top-level shape": "An empty `groups: []` means
+  // 'this server author opted in but declared no groups.' It is
+  // semantically equivalent to omitting `_meta.art.cloister/v1` entirely."
+  const bytes = Buffer.from(JSON.stringify({
+    name: "io.github.example/foo",
+    _meta: { "art.cloister/v1": { groups: [] } },
+  }));
+  assert.equal(parseServerJsonMeta(bytes), null);
+});
+
+// ── _meta.art.cloister/v1 — malformed input shape errors ─────────────────
+
+test("parseServerJsonMeta: groups not an array throws explanatory error", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    name: "io.github.example/foo",
+    _meta: { "art.cloister/v1": { groups: "lsp" } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("groups") && err.message.includes("array"),
+  );
+});
+
+test("parseServerJsonMeta: group missing name throws", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    _meta: { "art.cloister/v1": { groups: [{ upstreamNames: ["foo"] }] } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("name"),
+  );
+});
+
+test("parseServerJsonMeta: group with empty name throws", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    _meta: { "art.cloister/v1": { groups: [{ name: "", upstreamNames: ["foo"] }] } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("name"),
+  );
+});
+
+test("parseServerJsonMeta: group missing upstreamNames throws", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    _meta: { "art.cloister/v1": { groups: [{ name: "lsp" }] } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("upstreamNames"),
+  );
+});
+
+test("parseServerJsonMeta: group with empty upstreamNames throws", () => {
+  // wire/meta-groups.md: "Empty `upstreamNames` is a spec violation. A
+  // group that claims no tools is a no-op backend; the resolver SHOULD
+  // fail the build."
+  const bytes = Buffer.from(JSON.stringify({
+    _meta: { "art.cloister/v1": { groups: [{ name: "lsp", upstreamNames: [] }] } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("upstreamNames") && err.message.includes("empty"),
+  );
+});
+
+test("parseServerJsonMeta: duplicate group name within groups[] throws", () => {
+  // wire/meta-groups.md: "two groups in the same `server.json` with the
+  // same `name` is a spec violation."
+  const bytes = Buffer.from(JSON.stringify({
+    _meta: { "art.cloister/v1": { groups: [
+      { name: "lsp", upstreamNames: ["a"] },
+      { name: "lsp", upstreamNames: ["b"] },
+    ] } },
+  }));
+  assert.throws(
+    () => parseServerJsonMeta(bytes),
+    (err) => err.message.includes("duplicate") && err.message.includes("lsp"),
+  );
+});
+
+// ── deriveGeneratedBackends — one group → one backend row ────────────────
+
+test("deriveGeneratedBackends: canonical LLO vector emits three backends", () => {
+  const meta = {
+    groups: [
+      { name: "lsp", advertisedPrefix: "lsp_", upstreamNames: ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"] },
+      { name: "lifecycle", advertisedPrefix: "", upstreamNames: ["status", "enrich", "reparse"] },
+      { name: "sheaf", advertisedPrefix: "sheaf_", upstreamNames: ["sheaf_set_topology"] },
+    ],
+  };
+  const spec = specDefaults({ name: "llo" });
+  const rows = deriveGeneratedBackends(spec, meta);
+  assert.equal(rows.length, 3);
+
+  // Each row carries the source input name so operators can trace the
+  // generated backend back to its [inputs.<name>] origin.
+  for (const row of rows) {
+    assert.equal(row.input, "llo");
+    assert.equal(row.dynamicTools, true);
+  }
+
+  assert.equal(rows[0].name, "lsp");
+  assert.equal(rows[0].handlesPrefix, "lsp_");
+  assert.deepEqual(rows[0].claims, ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]);
+
+  assert.equal(rows[1].name, "lifecycle");
+  assert.equal(rows[1].handlesPrefix, "");
+  assert.deepEqual(rows[1].claims, ["status", "enrich", "reparse"]);
+
+  assert.equal(rows[2].name, "sheaf");
+  assert.equal(rows[2].handlesPrefix, "sheaf_");
+  assert.deepEqual(rows[2].claims, ["sheaf_set_topology"]);
+});
+
+test("deriveGeneratedBackends: single-group _meta emits one backend", () => {
+  const meta = {
+    groups: [{ name: "only", advertisedPrefix: "x_", upstreamNames: ["x_one"] }],
+  };
+  const rows = deriveGeneratedBackends(specDefaults({ name: "mono" }), meta);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "only");
+  assert.equal(rows[0].handlesPrefix, "x_");
+  assert.deepEqual(rows[0].claims, ["x_one"]);
+});
+
+test("deriveGeneratedBackends: group without advertisedPrefix defaults handlesPrefix to ''", () => {
+  // wire/meta-groups.md: "advertisedPrefix missing | OK; defaults to ''".
+  const meta = {
+    groups: [{ name: "bare", upstreamNames: ["status"] }],
+  };
+  const rows = deriveGeneratedBackends(specDefaults({ name: "x" }), meta);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].handlesPrefix, "");
+});
+
+test("deriveGeneratedBackends: inherits urlBinding/serviceBinding from input spec when present", () => {
+  // [inputs.<name>] may carry urlBinding/serviceBinding hints; the
+  // resolver threads them through onto the generated backend rows so
+  // the downstream manifest emitter has the binding info.
+  const meta = { groups: [{ name: "g", upstreamNames: ["t"] }] };
+  const spec = {
+    ...specDefaults({ name: "withBindings" }),
+    urlBinding:     "LLO_MCP_URL",
+    serviceBinding: "LLO_MCP",
+  };
+  const rows = deriveGeneratedBackends(spec, meta);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].urlBinding, "LLO_MCP_URL");
+  assert.equal(rows[0].serviceBinding, "LLO_MCP");
+});
+
+test("deriveGeneratedBackends: missing urlBinding/serviceBinding leaves them as empty string", () => {
+  const meta = { groups: [{ name: "g", upstreamNames: ["t"] }] };
+  const rows = deriveGeneratedBackends(specDefaults({ name: "noBindings" }), meta);
+  assert.equal(rows[0].urlBinding, "");
+  assert.equal(rows[0].serviceBinding, "");
+});
+
+// ── deriveGeneratedBackends — heuristic fallback (no _meta) ──────────────
+
+test("deriveGeneratedBackends: null _meta emits single-backend fallback with claim-all semantics", () => {
+  // README §"Heuristic fallback": when _meta is absent, the resolver
+  // MUST produce a single-backend default with claims=[], handlesPrefix="",
+  // dynamicTools=true (legacy "claim everything" shape).
+  const rows = deriveGeneratedBackends(specDefaults({ name: "legacyInput" }), null);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].input, "legacyInput");
+  // Per resolver convention: fallback backend name == input name.
+  assert.equal(rows[0].name, "legacyInput");
+  assert.equal(rows[0].handlesPrefix, "");
+  assert.deepEqual(rows[0].claims, [], "fallback uses empty claims = legacy claim-all");
+  assert.equal(rows[0].dynamicTools, true);
+});
+
+// ── resolveInput end-to-end with _meta-bearing fixture ───────────────────
+
+test("resolveInput: file:// pointing at server.json with canonical _meta produces 3 generatedBackends", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-meta-llo-"));
+  try {
+    const path = resolve(dir, "server.json");
+    const serverJson = {
+      "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+      name: "io.github.agentic-research/ley-line-open",
+      version: "0.2.0",
+      description: "...",
+      _meta: {
+        "art.cloister/v1": {
+          groups: [
+            { name: "lsp", advertisedPrefix: "lsp_", upstreamNames: ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"] },
+            { name: "lifecycle", advertisedPrefix: "", upstreamNames: ["status", "enrich", "reparse"] },
+            { name: "sheaf", advertisedPrefix: "sheaf_", upstreamNames: ["sheaf_set_topology"] },
+          ],
+        },
+      },
+    };
+    writeFileSync(path, JSON.stringify(serverJson, null, 2));
+
+    const row = await resolveInput(specDefaults({
+      name: "llo",
+      ref:  `file://${path}`,
+    }));
+    assert.equal(row.name, "llo");
+    assert.ok(Array.isArray(row.generatedBackends), "row carries generatedBackends[]");
+    assert.equal(row.generatedBackends.length, 3);
+    assert.equal(row.generatedBackends[0].name, "lsp");
+    assert.equal(row.generatedBackends[1].name, "lifecycle");
+    assert.equal(row.generatedBackends[2].name, "sheaf");
+    assert.deepEqual(
+      row.generatedBackends[0].claims,
+      ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveInput: file:// pointing at non-JSON bytes emits heuristic fallback + warning", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-meta-fallback-"));
+  try {
+    const path = resolve(dir, "tarball.bin");
+    writeFileSync(path, Buffer.from("\x1f\x8bnot json"));
+
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(" ")); };
+    try {
+      const row = await resolveInput(specDefaults({ name: "tarred", ref: `file://${path}` }));
+      assert.equal(row.generatedBackends.length, 1);
+      assert.deepEqual(row.generatedBackends[0].claims, [], "fallback claims=[]");
+      assert.equal(row.generatedBackends[0].handlesPrefix, "");
+      assert.equal(row.generatedBackends[0].dynamicTools, true);
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.ok(
+      warnings.some((w) => w.includes("tarred") && w.includes("_meta.art.cloister/v1") && w.includes("fallback")),
+      `expected fallback warning naming the input, got: ${JSON.stringify(warnings)}`,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveInput: file:// pointing at malformed _meta (empty upstreamNames) errors with input name", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-meta-malformed-"));
+  try {
+    const path = resolve(dir, "broken.json");
+    writeFileSync(path, JSON.stringify({
+      name: "broken",
+      _meta: { "art.cloister/v1": { groups: [
+        { name: "broken", upstreamNames: [] },
+      ] } },
+    }));
+
+    await assert.rejects(
+      () => resolveInput(specDefaults({ name: "brokenInput", ref: `file://${path}` })),
+      (err) => err.inputName === "brokenInput"
+        && err.detail.includes("upstreamNames")
+        && err.detail.includes("empty"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── buildLockfile augmentation — [generated_backends] section ────────────
+
+test("buildLockfile: emits [generated_backends] when rows carry generatedBackends[]", () => {
+  const metadata = { name: "test-cluster", version: "0.1.0" };
+  const inputs = [
+    {
+      name: "llo", ref: "file:///foo", resolved: "0.2.0",
+      sha256: "sha256:abc", fetched_from: "file:///foo", signer: "", bytes: 42,
+      generatedBackends: [
+        { input: "llo", name: "lsp", handlesPrefix: "lsp_", claims: ["lsp_hover", "lsp_defs"], dynamicTools: true, urlBinding: "", serviceBinding: "" },
+        { input: "llo", name: "lifecycle", handlesPrefix: "", claims: ["status"], dynamicTools: true, urlBinding: "", serviceBinding: "" },
+      ],
+    },
+  ];
+  const doc = buildLockfile(metadata, inputs);
+  assert.ok(Array.isArray(doc.generated_backends), "lockfile carries generated_backends[]");
+  assert.equal(doc.generated_backends.length, 2);
+  assert.equal(doc.generated_backends[0].input, "llo");
+  assert.equal(doc.generated_backends[0].name, "lsp");
+  assert.deepEqual(doc.generated_backends[0].claims, ["lsp_hover", "lsp_defs"]);
+  assert.equal(doc.generated_backends[1].name, "lifecycle");
+});
+
+test("buildLockfile: omits [generated_backends] when no input carries generated rows", () => {
+  // Back-compat: existing lockfiles without [generated_backends] are
+  // still valid. The resolver only emits the section when at least one
+  // input has produced backend rows.
+  const doc = buildLockfile({ name: "x", version: "0.0.1" }, [
+    { name: "alpha", ref: "file:///x", resolved: "0.1", sha256: "sha256:a", fetched_from: "file:///x", signer: "", bytes: 10 },
+  ]);
+  assert.equal(doc.generated_backends, undefined,
+    "no [generated_backends] section when no input carries rows");
+});
+
+// ── End-to-end recipe — LLO via canonical _meta vector ───────────────────
+
+test("e2e: file:// LLO server.json with canonical _meta block produces 3-backend lockfile", async () => {
+  // Stage the canonical LLO vector in a tmpdir, resolve via file://,
+  // assert the lockfile body has 3 [[generated_backends]] entries with
+  // names/handlesPrefix/claims matching the spec vector exactly.
+  const dir = mkdtempSync(resolve(tmpdir(), "e2e-llo-meta-"));
+  try {
+    const path = resolve(dir, "server.json");
+    const serverJson = {
+      "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+      name: "io.github.agentic-research/ley-line-open",
+      version: "0.2.0",
+      description: "...",
+      _meta: {
+        "art.cloister/v1": {
+          groups: [
+            { name: "lsp", advertisedPrefix: "lsp_", upstreamNames: ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"] },
+            { name: "lifecycle", advertisedPrefix: "", upstreamNames: ["status", "enrich", "reparse"] },
+            { name: "sheaf", advertisedPrefix: "sheaf_", upstreamNames: ["sheaf_set_topology"] },
+          ],
+        },
+      },
+    };
+    writeFileSync(path, JSON.stringify(serverJson, null, 2));
+
+    const row = await resolveInput(specDefaults({ name: "lloMcp", ref: `file://${path}` }));
+    const doc = buildLockfile({ name: "test-cluster", version: "0.1.0" }, [row]);
+    assert.ok(Array.isArray(doc.generated_backends));
+    assert.equal(doc.generated_backends.length, 3);
+
+    const byName = Object.fromEntries(doc.generated_backends.map((b) => [b.name, b]));
+    assert.deepEqual(byName.lsp.claims, ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]);
+    assert.equal(byName.lsp.handlesPrefix, "lsp_");
+    assert.equal(byName.lsp.input, "lloMcp");
+    assert.deepEqual(byName.lifecycle.claims, ["status", "enrich", "reparse"]);
+    assert.equal(byName.lifecycle.handlesPrefix, "");
+    assert.deepEqual(byName.sheaf.claims, ["sheaf_set_topology"]);
+    assert.equal(byName.sheaf.handlesPrefix, "sheaf_");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
