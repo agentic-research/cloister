@@ -190,7 +190,42 @@ function unflattenForSchema(raw) {
   if (Array.isArray(raw.wires)) {
     out.wires = raw.wires.map(unflattenWireTransport);
   }
+  // ADR-0026 / cloister-cf7a3b Phase 1a — `[inputs.<name>]` TOML blocks
+  // parse into an OBJECT keyed by name; zod expects an ARRAY of
+  // InputSpec where `name` is a first-class field. Convert here.
+  // Back-compat: missing/empty `inputs` table → empty array.
+  out.inputs = unflattenInputs(raw.inputs);
   return out;
+}
+
+function unflattenInputs(raw) {
+  if (raw === undefined || raw === null) return [];
+  if (Array.isArray(raw)) {
+    // Already-array shape (e.g. operator wrote `[[inputs]]` with explicit
+    // `name = ...` instead of the `[inputs.<name>]` table-key sugar).
+    return raw.map(normalizeInputDefaults);
+  }
+  if (typeof raw !== "object") return [];
+  // TOML `[inputs.<name>]` → { <name>: { ref, version, ... } }
+  return Object.entries(raw).map(([name, spec]) => normalizeInputDefaults({
+    name,
+    ...(spec && typeof spec === "object" ? spec : {}),
+  }));
+}
+
+function normalizeInputDefaults(spec) {
+  // Zod's strict shape requires all five Text fields + two List fields
+  // to be present. Empty-string / empty-array defaults are the
+  // canonical "unspecified" shape per the schema's $comment.
+  return {
+    name:     typeof spec.name === "string" ? spec.name : "",
+    ref:      typeof spec.ref === "string" ? spec.ref : "",
+    version:  typeof spec.version === "string" ? spec.version : "",
+    digest:   typeof spec.digest === "string" ? spec.digest : "",
+    from:     typeof spec.from === "string" ? spec.from : "",
+    provides: Array.isArray(spec.provides) ? spec.provides : [],
+    requires: Array.isArray(spec.requires) ? spec.requires : [],
+  };
 }
 
 function unflattenBundleKind(b) {
