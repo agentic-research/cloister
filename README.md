@@ -328,4 +328,4 @@ so `lsp_*` tools stay accurate inside long sessions. Config + tests:
 - **Operator setup** — [GETTING-STARTED.md](GETTING-STARTED.md) (install, run, wire upstreams, plugin)
 - **Substrate description** — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (runtime model, sequence diagrams, bindings, component map)
 - **All `docs/`** — [docs/README.md](docs/README.md) (orientation map for the 8 subdirs)
-- **Architectural decisions** — [docs/adr/](docs/adr/) (26 numbered ADRs; 0001–0026, with ADR-0022 added by `cloister-9443f0` as the schema-bridge + substrate-IDL positioning ADR; start with 0001 → 0002 → 0007 → 0011 for the core mental model). Per-ADR status table in [`docs/STATUS.md`](docs/STATUS.md).
+- **Architectural decisions** — [docs/adr/](docs/adr/) (27 numbered ADRs; 0001–0027, with ADR-0022 added by `cloister-9443f0` as the schema-bridge + substrate-IDL positioning ADR and ADR-0027 added by `cloister-1b59a2` as the substrate-as-kernel capability matchmaker; start with 0001 → 0002 → 0007 → 0011 for the core mental model). Per-ADR status table in [`docs/STATUS.md`](docs/STATUS.md).
