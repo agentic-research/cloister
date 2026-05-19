@@ -11,22 +11,28 @@
 //
 // Resolver schemes today:
 //
-//   - file://<abs-path>            — local filesystem (dev escape hatch +
-//                                    the simplest happy path for testing)
-//   - https://<url>                — direct HTTPS fetch (real deploy path)
-//   - github://owner/repo@<ref>    — whole-repo tarball via codeload.github.com
+//   - file://<abs-path>             — local filesystem (dev escape hatch +
+//                                     the simplest happy path for testing)
+//   - https://<url>                 — direct HTTPS fetch (real deploy path)
+//   - github://owner/repo@<ref>     — whole-repo tarball via codeload.github.com
 //   - github://owner/repo/<p>@<ref> — single file via raw.githubusercontent.com
+//   - io.github.org/owner/repo@<r>  — sugar for github://owner/repo@<r>; matches
+//                                     the public MCP-registry naming convention.
+//                                     Rewrites at parse time; otherwise identical
+//                                     to the github:// path.
 //
-// github:// refs MUST pin a git ref (`@<sha|tag|branch>`); no default-
-// branch sniffing — pinning is the whole point. The existing
-// content-addressed sha256 digest pin in `cluster.lock.toml` is what
-// makes the deploy reproducible regardless of branch-head drift.
+// github:// (and the io.github.org/ sugar form) refs MUST pin a git ref
+// (`@<sha|tag|branch>`); no default-branch sniffing — pinning is the
+// whole point. The existing content-addressed sha256 digest pin in
+// `cluster.lock.toml` is what makes the deploy reproducible regardless
+// of branch-head drift.
 //
-// Phase 2 remaining subpieces (cloister-cf7a3b follow-up):
-//   - subpiece 2 — `cloister add github://owner/repo` CLI that mutates
-//                  cluster.toml + invokes this resolver
-//   - subpiece 3 — io.github.org/repo registry resolution per ADR-0016
-//                  (cloister-as-private-MCP-registry surface)
+// Phase 2 follow-up (cloister-cf7a3b):
+//   - subpiece 3b — registry-backed io.github.org/ resolution per
+//                   ADR-0016. Today's sugar lands the URL convention;
+//                   a future evolution can route the rewrite through an
+//                   external registry consumer protocol without breaking
+//                   user-authored refs.
 // Phase 3 adds signature verification via Interlace receipts. Phase 4
 // adds the capability matchmaker that walks provides/requires.
 //
@@ -90,10 +96,15 @@ class ResolveError extends Error {
 export async function resolveInput(spec) {
   // `from` (dev-loop override) wins over `ref` per ADR-0026
   // §"Why filesystem from = ... is the dev-loop escape only".
-  const ref = (spec.from && spec.from.length > 0) ? spec.from : spec.ref;
-  if (!ref || ref.length === 0) {
+  const rawRef = (spec.from && spec.from.length > 0) ? spec.from : spec.ref;
+  if (!rawRef || rawRef.length === 0) {
     throw new ResolveError(spec.name, "neither `ref` nor `from` provided");
   }
+
+  // io.github.org/<owner>/<repo>[/<path>]@<ref> is sugar for the
+  // equivalent github:// form. Rewrite once at the top of resolve
+  // so the rest of the function only knows the canonical schemes.
+  const ref = rewriteIoGithubOrgSugar(rawRef);
 
   const scheme = ref.split(":")[0];
   let bytes;
@@ -149,10 +160,10 @@ export async function resolveInput(spec) {
       break;
     }
     default:
-      // io.github.org/<repo> registry refs land in Phase 2 subpiece 3.
       throw new ResolveError(
         spec.name,
-        `unsupported ref scheme "${scheme}" — supported: file://, https://, github://owner/repo@<ref>`,
+        `unsupported ref scheme "${scheme}" — supported: file://, https://, ` +
+        `github://owner/repo@<ref>, io.github.org/owner/repo@<ref>`,
       );
   }
 
@@ -255,6 +266,36 @@ export function githubRefToHttpsUrl({ owner, repo, path, gitRef }) {
     return `https://codeload.github.com/${owner}/${repo}/tar.gz/${gitRef}`;
   }
   return `https://raw.githubusercontent.com/${owner}/${repo}/${gitRef}/${path}`;
+}
+
+// ── io.github.org/ → github:// sugar ────────────────────────────────────
+
+const IO_GITHUB_ORG_PREFIX = "io.github.org/";
+
+/**
+ * Rewrite `io.github.org/<owner>/<repo>[/<path>]@<ref>` to its
+ * `github://<owner>/<repo>[/<path>]@<ref>` equivalent. Non-matching
+ * refs pass through unchanged.
+ *
+ * The sugar exists because the public MCP-registry naming convention
+ * names tools as `io.github.org/<owner>/<repo>`. Routing the rewrite
+ * at the top of resolveInput means the rest of the resolver only
+ * knows two URL schemes (file://, https://) plus github://; nothing
+ * else changes.
+ *
+ * Validation is intentionally light — the rewrite output goes back
+ * through `parseGithubRef`, which is the authoritative validator.
+ * Refusing here too would be double-bookkeeping. Just check that
+ * (a) the prefix matches and (b) the suffix is non-empty.
+ *
+ * Exported for unit tests.
+ */
+export function rewriteIoGithubOrgSugar(ref) {
+  if (typeof ref !== "string") return ref;
+  if (!ref.startsWith(IO_GITHUB_ORG_PREFIX)) return ref;
+  const suffix = ref.slice(IO_GITHUB_ORG_PREFIX.length);
+  if (suffix.length === 0) return ref; // pathological; let github parser surface the error
+  return `github://${suffix}`;
 }
 
 // ── Lockfile shape ──────────────────────────────────────────────────────
