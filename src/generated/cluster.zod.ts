@@ -72,12 +72,34 @@ export interface StoragePolicy {
   doStoragePath: string;
 }
 
+export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    ref: z.string(),
+    version: z.string(),
+    digest: z.string(),
+    from: z.string(),
+    provides: z.array(z.string()),
+    requires: z.array(z.string()),
+  }).strict());
+
+export interface InputSpec {
+  name: string;
+  ref: string;
+  version: string;
+  digest: string;
+  from: string;
+  provides: string[];
+  requires: string[];
+}
+
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
     bundles: z.array(BundleSchema),
     wires: z.array(WireSchema),
     storage: StoragePolicySchema,
+    inputs: z.array(InputSpecSchema),
   }).strict());
 
 export interface Cluster {
@@ -85,6 +107,7 @@ export interface Cluster {
   bundles: Bundle[];
   wires: Wire[];
   storage: StoragePolicy;
+  inputs: InputSpec[];
 }
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>

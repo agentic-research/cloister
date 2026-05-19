@@ -70,6 +70,7 @@ function minimalCluster() {
       },
     ],
     storage: { doStoragePath: "/data/do" },
+    inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
   };
 }
 
@@ -120,6 +121,7 @@ function richCluster() {
       },
     ],
     storage: { doStoragePath: "/data/do" },
+    inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
   };
 }
 
@@ -437,6 +439,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     bundles: [],
     wires: [],
     storage: { doStoragePath: "/data/do" },
+    inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);
@@ -579,4 +582,161 @@ test("cloister-fe891f: Taskfile cluster:toml entry has BOTH legs of the chain", 
     /cluster-to-toml\.mjs[^\n]*--write[^\n]*cluster\.toml/,
     "cluster:toml must chain the re-canonicalize step (cluster-to-toml.mjs --write cluster.toml) — per cloister-fe891f",
   );
+});
+
+// ── cloister-cf7a3b Phase 1a: [inputs.*] schema lands in bidi pipeline ───
+
+test("inputs: TOML [inputs.<name>] table roundtrips to InputSpec[] and back to byte-equal canonical TOML", async () => {
+  const { parseTomlToCluster, renderClusterTs } = await import("../toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+
+  // Inline TOML fixture covering: ref-only (no version), version-pinned,
+  // digest-pinned (defense-in-depth), dev-loop `from` override, and the
+  // lego-blocks provides/requires capability declarations.
+  const tomlIn = `
+[metadata]
+name    = "inputs-fixture"
+version = "0.0.1"
+
+[[bundles]]
+name                = "router"
+description         = "self-loop"
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "router:0.1"
+  ipcSocket = "/run/r.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "router"
+to        = "router"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[inputs.rosary]
+ref      = "io.github.jamestexas/rosary"
+version  = "^0.1"
+provides = ["cloister/mcp-tool/v1"]
+requires = ["cloister/credential-isolation/v1"]
+
+[inputs.python-tools]
+ref      = "skills.sh/python"
+version  = "^1.0"
+digest   = "sha256:deadbeef"
+provides = ["cloister/skill/v1", "cloister/python-runtime/v1"]
+
+[inputs.local-dev]
+ref     = "io.github.jamestexas/mache"
+version = "^0.3"
+from    = "file:///abs/path/to/mache"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.inputs.length, 3, "expected 3 inputs after unflatten");
+  const byName = Object.fromEntries(parsed.inputs.map((i) => [i.name, i]));
+  assert.equal(byName.rosary.ref, "io.github.jamestexas/rosary");
+  assert.equal(byName.rosary.version, "^0.1");
+  assert.deepEqual(byName.rosary.provides, ["cloister/mcp-tool/v1"]);
+  assert.deepEqual(byName.rosary.requires, ["cloister/credential-isolation/v1"]);
+  assert.equal(byName["python-tools"].digest, "sha256:deadbeef");
+  assert.equal(byName["local-dev"].from, "file:///abs/path/to/mache");
+
+  // Reverse leg: cluster object → canonical TOML. Two stringifications
+  // produce byte-identical bytes (existing deterministic-emit property
+  // extends to inputs).
+  const t1 = clusterToToml(parsed);
+  const t2 = clusterToToml(parsed);
+  assert.equal(t1, t2, "cluster-to-toml emit must be deterministic");
+
+  // The emitted TOML carries the three [inputs.<name>] table headers.
+  // Substring checks (not regex) so the intent is plain — we're
+  // asserting these exact strings appear, nothing fancier.
+  assert.ok(t1.includes("[inputs.rosary]"),       "missing [inputs.rosary] header");
+  assert.ok(t1.includes("[inputs.python-tools]"), "missing [inputs.python-tools] header");
+  assert.ok(t1.includes("[inputs.local-dev]"),    "missing [inputs.local-dev] header");
+
+  // Forward leg is idempotent: parsing the emitted TOML returns the
+  // same cluster shape (this is the load-bearing roundtrip property +
+  // also implicitly proves "empty fields omitted" — if cluster-to-toml
+  // emitted `digest = ""` for the rosary input, parseTomlToCluster
+  // would happily re-parse it back, so the deepEqual is the real test).
+  const reparsed = await parseTomlToCluster(t1);
+  assert.deepEqual(reparsed.inputs, parsed.inputs, "inputs must round-trip identity");
+
+  // renderClusterTs handles the inputs field (no crash); structural
+  // check on the rendered body — re-import via dynamic eval would be
+  // overkill, so we assert presence of the field via plain substring.
+  const tsBody = renderClusterTs(parsed);
+  assert.ok(tsBody.includes('"inputs"'), "rendered TS body must serialize the inputs field");
+  // Same body re-parsed as JSON (after stripping the TS wrapper) round-trips
+  // the inputs structurally.
+  const jsonBody = tsBody
+    .replace(/^[\s\S]*export const cluster: Cluster = /, "")
+    .replace(/ as const;\s*$/, "");
+  const reparsedFromTs = JSON.parse(jsonBody);
+  assert.deepEqual(reparsedFromTs.inputs, parsed.inputs);
+});
+
+test("inputs: cluster.toml with NO [inputs.*] tables parses to empty inputs array (back-compat)", async () => {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const tomlIn = `
+[metadata]
+name    = "no-inputs"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "alpha:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.deepEqual(parsed.inputs, [], "missing [inputs] table → empty array");
+});
+
+test("inputs: empty inputs array omits the [inputs] section from emitted TOML (back-compat)", async () => {
+  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const cluster = {
+    metadata: { name: "no-inputs", version: "0.0.1" },
+    bundles: [
+      {
+        name: "alpha", description: "", tier: "cluster",
+        holdsCredential: [], workerdServiceName: "", hypervisorRationale: "",
+        kind: { external: { image: "a:0.1", ipcSocket: "/run/a", httpPort: 0, args: [], env: [] } },
+      },
+    ],
+    wires: [{ from: "alpha", to: "alpha", binding: "SELF", transport: { uds: null } }],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+  };
+  const toml = clusterToToml(cluster);
+  // Substring check, not regex. The contract: any "[inputs" header
+  // would be a sign we emitted a stray section for an empty list.
+  assert.ok(!toml.includes("[inputs"), "empty inputs[] must NOT emit a [inputs] table");
 });

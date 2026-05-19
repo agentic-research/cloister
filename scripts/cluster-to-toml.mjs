@@ -81,7 +81,38 @@ function canonicalizeCluster(c) {
   if (c.metadata) out.metadata = sortKeys(c.metadata);
   out.bundles = (c.bundles ?? []).map(canonicalizeBundle);
   out.wires = (c.wires ?? []).map(canonicalizeWire);
+  // ADR-0026 / cloister-cf7a3b Phase 1a — inputs land BEFORE storage in
+  // the declaration order: identity → composition (bundles + wires) →
+  // external inputs (tools / skills / agent defs) → durable state.
+  // Emitted as a TOML table keyed by `name` (`[inputs.<name>]` blocks)
+  // which is the operator-friendly form. Omitted entirely if empty so
+  // pre-Phase-1 cluster.toml files don't gain a stray `[inputs]` line.
+  const inputsTable = canonicalizeInputs(c.inputs ?? []);
+  if (Object.keys(inputsTable).length > 0) out.inputs = inputsTable;
   if (c.storage) out.storage = sortKeys(c.storage);
+  return out;
+}
+
+/**
+ * Convert the zod-array shape `[{name, ref, ...}, ...]` into the TOML-
+ * table shape `{ <name>: { ref, ... } }` for emission as `[inputs.<name>]`
+ * blocks. Within each entry, scalars first then lists, all sorted.
+ * Drops empty strings + empty arrays from the emitted form so operators
+ * see only fields they actually populated.
+ */
+function canonicalizeInputs(arr) {
+  const out = {};
+  for (const inp of arr) {
+    if (!inp || typeof inp !== "object" || typeof inp.name !== "string" || inp.name === "") continue;
+    const body = {};
+    if (typeof inp.ref     === "string" && inp.ref     !== "") body.ref     = inp.ref;
+    if (typeof inp.version === "string" && inp.version !== "") body.version = inp.version;
+    if (typeof inp.digest  === "string" && inp.digest  !== "") body.digest  = inp.digest;
+    if (typeof inp.from    === "string" && inp.from    !== "") body.from    = inp.from;
+    if (Array.isArray(inp.provides) && inp.provides.length > 0) body.provides = [...inp.provides];
+    if (Array.isArray(inp.requires) && inp.requires.length > 0) body.requires = [...inp.requires];
+    out[inp.name] = body;
+  }
   return out;
 }
 

@@ -37,6 +37,12 @@ struct Cluster {
   bundles  @1 :List(Bundle);
   wires    @2 :List(Wire);
   storage  @3 :StoragePolicy;
+  # Per ADR-0026 / cloister-cf7a3b Phase 1a — composable inputs
+  # (tools / skills / agent defs / bundles). Operator names the input
+  # by `ref = "..."` + `version = "..."`; cloister resolves at compose
+  # time. Empty list = no external inputs (back-compat with pre-Phase-1
+  # cluster.toml). Resolver lands in Phase 1b (cloister-cf7a3b).
+  inputs   @4 :List(InputSpec);
 }
 
 struct ClusterMetadata {
@@ -231,4 +237,77 @@ struct StoragePolicy {
   # Operators MAY override per deployment (e.g. k8s PVC mounted elsewhere)
   # but the override has to match all three places.
   doStoragePath @0 :Text;
+}
+
+# ── InputSpec: composable tool / skill / agent-def inputs ────────────────
+#
+# ADR-0026 + cloister-cf7a3b. Operator declares external inputs by
+# logical name (`name`) + addressable reference (`ref`) + accepted
+# version range (`version`). Cloister's resolver (Phase 1b — landing
+# in a follow-up sub-bead) fetches + verifies + composes.
+#
+# Phase 1a (this schema add): operators CAN declare inputs in
+# cluster.toml without erroring; the resolver is a no-op until Phase 1b
+# wires it. This lets operators stage their declarations alongside the
+# substrate work that consumes them.
+#
+# Phase 2 adds registry resolution; Phase 3 adds signature verification.
+# See `docs/adr/0026-tool-composition-model.md`.
+
+struct InputSpec {
+  # Logical name used as the inputs-block key in cluster.toml. Must be
+  # unique within the cluster. e.g. "rosary", "mache", "python-tools".
+  name @0 :Text;
+
+  # Addressable reference. Resolver picks the scheme:
+  #   - "file:///abs/path" — local filesystem (dev escape hatch)
+  #   - "https://host/path" — direct HTTPS fetch (Phase 1b)
+  #   - "io.github.org/repo" — registry-resolved (Phase 2)
+  ref @1 :Text;
+
+  # Semver range OR exact version (no range = exact match).
+  # Empty string = no constraint (resolver picks latest, NOT recommended).
+  version @2 :Text;
+
+  # Optional: pre-resolved digest. When present, the resolver MUST
+  # verify the fetched bytes match this digest (defense against
+  # registry / network tamper). Format: "sha256:<hex>".
+  # Empty string = no pin; resolver writes one to cluster.lock.toml.
+  digest @3 :Text;
+
+  # Optional: dev-loop override pointing at a local checkout.
+  # Format: "file:///abs/path". CI rejects manifests with non-empty
+  # `from` (per ADR-0026 §"Why filesystem from = ... is the dev-loop
+  # escape only"). Empty string = use `ref` resolution.
+  from @4 :Text;
+
+  # ── Lego-blocks capability declarations (ADR-0027 forward-compat) ──
+  #
+  # The substrate-as-kernel framing (cloister-1b59a2) treats every input
+  # as a node in a capability lattice: studs out (provides), anti-studs
+  # in (requires). The matchmaker at compose time connects studs ↔
+  # anti-studs by capability name + version.
+  #
+  # Format: reverse-DNS capability identifier with version suffix, e.g.
+  # "cloister/mcp-tool/v1", "cloister/credential-isolation/v1",
+  # "cloister/skill/v1", "cloister/data-backend/v1".
+  #
+  # Phase 1a: schema only — fields land, resolver is a no-op, matchmaker
+  # is future work. This lets operators DECLARE capability intent ahead
+  # of the substrate that consumes the declaration; the contract is
+  # forward-compatible with ADR-0027 (when it lands the matchmaker
+  # implementation reads these directly without schema change).
+  #
+  # Empty lists = no capability declarations (current behavior — inputs
+  # are typed purely by ref/version, not by what they implement).
+
+  # Capabilities this input PROVIDES (studs out). The substrate matches
+  # these against routes / bindings / other inputs declaring matching
+  # `requires`.
+  provides @5 :List(Text);
+
+  # Capabilities this input REQUIRES (anti-studs in). Resolver picks
+  # other inputs in the cluster that `provides` the matching capability;
+  # surfaces an error if no input satisfies a `requires`.
+  requires @6 :List(Text);
 }

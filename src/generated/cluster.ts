@@ -129,5 +129,6 @@ export const cluster: Cluster = {
   ],
   "storage": {
     "doStoragePath": "/data/do"
-  }
+  },
+  "inputs": []
 } as const;

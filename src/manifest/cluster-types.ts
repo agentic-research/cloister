@@ -21,6 +21,44 @@ export interface Cluster {
   bundles:  readonly Bundle[];
   wires:    readonly Wire[];
   storage:  StoragePolicy;
+  /**
+   * Composable external inputs (ADR-0026 / cloister-cf7a3b). Each
+   * entry names a tool / skill / agent-def / bundle by `ref` +
+   * `version` (optionally `digest` for content-addressed pin or
+   * `from` for dev-loop filesystem override). The optional
+   * `provides`/`requires` lists carry the lego-blocks capability
+   * declarations the matchmaker uses to wire inputs together at
+   * compose time. Empty array = no external inputs (back-compat
+   * with pre-Phase-1a cluster.toml). Resolver lands in Phase 1b.
+   */
+  inputs:   readonly InputSpec[];
+}
+
+/**
+ * One composable input. Phase 1a is schema-only — operators can
+ * declare these in cluster.toml without erroring; resolver is a
+ * no-op until Phase 1b ships. Per ADR-0026.
+ *
+ * The `provides`/`requires` fields anticipate ADR-0027's lego-blocks
+ * capability matchmaker — operators can declare capability intent
+ * ahead of the substrate that consumes the declarations; the
+ * matchmaker reads these directly without schema change.
+ */
+export interface InputSpec {
+  /** Logical name (the `[inputs.<name>]` block key). Must be unique. */
+  name:     string;
+  /** Addressable ref — `file://`, `https://`, or registry id. */
+  ref:      string;
+  /** Semver range or exact version. Empty = no constraint. */
+  version:  string;
+  /** Optional content-addressed pin (`sha256:<hex>`). Empty = no pin. */
+  digest:   string;
+  /** Optional dev-loop override (`file:///abs/path`). Empty = use ref. */
+  from:     string;
+  /** Capabilities this input PROVIDES (`cloister/<name>/v<n>` shape). */
+  provides: readonly string[];
+  /** Capabilities this input REQUIRES. */
+  requires: readonly string[];
 }
 
 export interface ClusterMetadata {
