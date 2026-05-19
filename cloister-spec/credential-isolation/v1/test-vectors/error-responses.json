@@ -1,5 +1,5 @@
 {
-  "$comment": "Constant-time-shape error responses for 401 / 403 / 404. Per wire/proxy-envelope.md, 401 (lease invalid) and 404 (service not declared) share the SAME body shape so a caller cannot distinguish the two — preserving the enumeration-oracle closure. 403 (allowedSubs mismatch) has its own body but cannot distinguish 'credential exists but peer not allowed' from 'no credential for this service'. AMBIGUITY: README+wire/ are inconsistent about whether 403's body should also match 401/404 byte-for-byte; this corpus pins the wire/proxy-envelope.md text (distinct 403 body) — see ambiguity note in conformance/README.md.",
+  "$comment": "Constant-time-shape error responses for 401 / 404 (Shape R, access-failure class). Per wire/error-responses.md, ALL access-failure outcomes (401 lease invalid / 404 service undeclared / 404 allowedSubs-mismatch collapsed from 403 per cloister-aa9376 / 429 rate-limited) collapse to byte-equal Shape R bodies. The route boundary owns the wire contract; vault DO emits structured shapes internally but the route rewraps. This corpus pins the X-2 unification from cloister-6eba0a (2026-05-18 cycle) — distinct 403 body is HISTORY, the new canonical Shape R applies. See ambiguity note resolution in conformance/README.md.",
   "version": "cloister/credential-isolation/v1",
   "vectors": [
     {
@@ -13,18 +13,18 @@
       "expected_body_sha256_hex": "ea0cb215fca9e6532cfc10622c18d850fef582af2e6cdc3f5ee1af07645f55f9"
     },
     {
-      "name": "forbidden_403_allowed_subs_mismatch",
-      "description": "403 response when lease is valid but peerFp doesn't match the credential's allowedSubs glob. Per spec, the error MUST NOT distinguish 'credential exists, peer not allowed' from 'no credential for this service' — both return 403 with the same body. This is the per-peer enumeration-oracle closure.",
+      "name": "not_found_404_allowed_subs_collapsed",
+      "description": "404 response when lease is valid but peerFp doesn't match the credential's allowedSubs glob — historically a 403 'forbidden' shape, now collapsed to a 404 Shape R per cloister-aa9376 + 2026-05-18 cycle X-2 (cloister-6eba0a). The spec MUST NOT distinguish 'credential exists, peer not allowed' from 'no credential for this service' from 'service undeclared' — all three return the same Shape R body. This is the per-peer + per-service enumeration-oracle closure.",
       "inputs": {
         "scenario": "allowed_subs_mismatch"
       },
-      "expected_status": 403,
-      "expected_body": "{\"error\":\"forbidden\",\"reason\":\"caller not authorized for this credential\"}",
-      "expected_body_sha256_hex": "0c680fb1844b3a74e673aa77e1130cbe04d2510c31a2646731b65c63a855276e"
+      "expected_status": 404,
+      "expected_body": "{\"error\":\"unauthorized\",\"reason\":\"interlace lease verification failed\"}",
+      "expected_body_sha256_hex": "ea0cb215fca9e6532cfc10622c18d850fef582af2e6cdc3f5ee1af07645f55f9"
     },
     {
       "name": "not_found_404_service_undeclared",
-      "description": "404 when <service> is not a vaultProxyService in the manifest. Body MATCHES the 401 case byte-for-byte — same constant-time shape so the caller cannot use this endpoint to enumerate which services the operator has declared.",
+      "description": "404 when <service> is not a vaultProxyService in the manifest. Body MATCHES the 401 + allowed-subs-mismatch cases byte-for-byte — same constant-time Shape R so the caller cannot use this endpoint to enumerate which services the operator has declared.",
       "inputs": {
         "scenario": "service_undeclared"
       },

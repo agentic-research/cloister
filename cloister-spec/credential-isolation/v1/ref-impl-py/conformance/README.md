@@ -24,7 +24,7 @@ python3 conformance/run.py
 | proxy-envelope-canonical | `proxy-envelope-canonical.json` | Canonical request bytes + sha256 for 3 method+URL+body shapes |
 | receipt-commitment | `receipt-commitment.json` | Canonical receipt input + sha256 digest |
 | path-parsing | `path-parsing.json` | `/vault/proxy/<service>/<path>` split, accept + reject |
-| error-responses | `error-responses.json` | Constant-time-shape 401 / 403 / 404 body bytes |
+| error-responses | `error-responses.json` | Constant-time Shape R body bytes for 401 / 404 (allowedSubs-mismatch 403 collapsed to 404 per X-2 cycle, cloister-6eba0a) |
 | reserved-response-headers | `reserved-response-headers.json` | Headers proxy MUST set/overwrite vs pass through |
 | adversarial-malformed-envelope | `adversarial-malformed-envelope.json` | Reject malformed nonce / ts / sig / missing |
 | adversarial-credential-leak | `adversarial-credential-leak.json` | Reject receipt rows that commit to credential / allowedSubs / body |
