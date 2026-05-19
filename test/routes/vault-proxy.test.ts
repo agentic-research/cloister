@@ -17,7 +17,9 @@ import {
   parseVaultProxyPath,
   vaultProxyHandler,
   CONSTANT_TIME_ERROR_BODY,
+  REQUIRED_ERROR_HEADERS,
   __resetRateBuckets,
+  errorResponse,
   type MetricEmitter,
   type ProxyCallReceipt,
   type ReceiptEmitter,
@@ -25,6 +27,7 @@ import {
   type VaultProxyRequest,
   type VaultProxyService,
 } from "../../src/routes/vault-proxy.js";
+import { VaultProxyRoute } from "../../src/routes/vault-proxy-route.js";
 
 // Phase 6 + 7 — rate-limit state is module-scoped; reset between
 // every test so per-test budget assertions are deterministic.
@@ -689,4 +692,59 @@ async function expectFailingWithBody(
   expect(res.status).toBe(status);
   expect(await res.text()).toBe(body);
 }
+
+// ── cloister-6eba0a sub-fix: required error headers ─────────────────────
+//
+// `wire/error-responses.md` § "Header invariants on error paths" MUST
+// every error site set `Cache-Control: no-store` (closes the convergence
+// from the 2026-05-18 cycle: DoS F4 + Oracle O5 + Bundle F5). Pin the
+// `errorResponse` helper that all sites now route through.
+
+describe("errorResponse — required headers per wire/error-responses.md", () => {
+  it("sets cache-control: no-store on every emission (closes DoS F4 / Oracle O5 / Bundle F5)", () => {
+    const res = errorResponse(404, '{"error":"not_found"}');
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("sets content-type: application/json", () => {
+    const res = errorResponse(401, '{"error":"unauthorized"}');
+    expect(res.headers.get("content-type")).toBe("application/json");
+  });
+
+  it("sets x-content-type-options: nosniff", () => {
+    const res = errorResponse(500, '{"error":"oops"}');
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("passes the supplied status + body through verbatim", async () => {
+    const res = errorResponse(429, '{"error":"rate_limited","service":"openai"}');
+    expect(res.status).toBe(429);
+    expect(await res.text()).toBe('{"error":"rate_limited","service":"openai"}');
+  });
+
+  it("merges extra headers (e.g. retry-after on 429) without losing the required set", () => {
+    const res = errorResponse(429, '{"error":"rate_limited"}', { "retry-after": "7" });
+    expect(res.headers.get("retry-after")).toBe("7");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("content-type")).toBe("application/json");
+  });
+
+  it("exports REQUIRED_ERROR_HEADERS as the canonical set (so other modules don't drift)", () => {
+    expect(REQUIRED_ERROR_HEADERS["cache-control"]).toBe("no-store");
+    expect(REQUIRED_ERROR_HEADERS["content-type"]).toBe("application/json");
+    expect(REQUIRED_ERROR_HEADERS["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("emits cache-control: no-store on the lease-verifier failure path (route-level)", async () => {
+    // Smoke-check that route-level error sites use the helper.
+    const route = new VaultProxyRoute({
+      leaseVerifier: async () => ({ ok: false, status: 401 as const }),
+    });
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat"),
+      {} as never,
+    );
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
 

@@ -151,9 +151,9 @@ export async function vaultProxyHandler(
   // checks — they're authorized, just being slowed. No additional
   // oracle is leaked vs. the 200 they'd otherwise get.
   if (!consumeRateBudget(req.verifiedLease.peerFp, req.serviceConfig)) {
-    return new Response(
+    return errorResponse(
+      429,
       JSON.stringify({ error: "rate_limited", service: req.serviceConfig.name }),
-      { status: 429, headers: { "content-type": "application/json" } },
     );
   }
 
@@ -446,10 +446,7 @@ function methodCanHaveBody(method: string): boolean {
 }
 
 function rejection(status: 401 | 403 | 404): Response {
-  return new Response(CONSTANT_TIME_ERROR_BODY, {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+  return errorResponse(status, CONSTANT_TIME_ERROR_BODY);
 }
 
 /**
@@ -489,6 +486,46 @@ export const CONSTANT_TIME_ERROR_BODY = JSON.stringify({
   error: "unauthorized",
   reason: "credential not available or caller not authorized",
 });
+
+/**
+ * Required headers on every error-emission site across the
+ * cloister/credential-isolation/v1 surface. Per
+ * `wire/error-responses.md` § "Header invariants on error paths":
+ *
+ * - `content-type: application/json` — all error bodies are JSON
+ * - `cache-control: no-store` — MUST. Prevents intermediary caches
+ *   from amortizing oracle-shaped responses across many probers
+ *   (closes cloister-aa9376 § 9.4.b at the header layer; was the
+ *   convergence cluster across DoS F4 / Oracle O5 / Bundle F5 in
+ *   the 2026-05-18 adversarial cycle synthesis as part of X-2)
+ * - `x-content-type-options: nosniff` — SHOULD. Prevents
+ *   browsers from MIME-sniffing error bodies into different types
+ *
+ * Use `errorResponse(status, body)` (below) at every error-emission
+ * site so the header policy stays in one place.
+ */
+export const REQUIRED_ERROR_HEADERS = {
+  "content-type":            "application/json",
+  "cache-control":           "no-store",
+  "x-content-type-options":  "nosniff",
+} as const;
+
+/**
+ * Canonical error-Response builder. Sets `REQUIRED_ERROR_HEADERS`
+ * plus any caller-supplied extras (e.g. `retry-after` on 429s).
+ * `body` is the already-serialized JSON string (callers already
+ * have JSON.stringify in their hot path).
+ */
+export function errorResponse(
+  status: number,
+  body: string,
+  extraHeaders: Record<string, string> = {},
+): Response {
+  return new Response(body, {
+    status,
+    headers: { ...REQUIRED_ERROR_HEADERS, ...extraHeaders },
+  });
+}
 
 /**
  * The receipt commitment shape. Per

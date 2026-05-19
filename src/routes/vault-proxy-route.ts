@@ -33,6 +33,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import {
   CONSTANT_TIME_ERROR_BODY,
+  errorResponse,
   parseVaultProxyPath,
   vaultProxyHandler,
   type MetricEmitter,
@@ -148,9 +149,7 @@ export class VaultProxyRoute implements EdgeRoute {
     // distinguish lease-bad from service-missing).
     const verdict = await this.leaseVerifier(request, env, parsed);
     if (!verdict.ok) {
-      return new Response(CONSTANT_TIME_ERROR_BODY, {
-        status: verdict.status, headers: { "content-type": "application/json" },
-      });
+      return errorResponse(verdict.status, CONSTANT_TIME_ERROR_BODY);
     }
     const verifiedLease = verdict.lease;
 
@@ -164,9 +163,7 @@ export class VaultProxyRoute implements EdgeRoute {
     // an undeclared service is rejected at the route (404 constant-shape)
     // — vault DO never sees it. Preserves the §9.4.b oracle closure.
     if (parsed !== null && serviceConfig === null) {
-      return new Response(CONSTANT_TIME_ERROR_BODY, {
-        status: 404, headers: { "content-type": "application/json" },
-      });
+      return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
     }
 
     // Production forward path: when the store supports `forward`
