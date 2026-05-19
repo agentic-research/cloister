@@ -1303,3 +1303,128 @@ Combined from all six specialists' clear lists. The next reviewer can skip these
 - `docs/security/adversarial-cycles/2026-05-13-nono-swap.md` — full cycle report
 - `docs/adr/0019-sign-only-helper-protocol.md` — §"Implementation pins" updated for the supply-chain expansion
 - Beads: `cloister-2a0faa` (this swap) + `cloister-1f249f` (rotation parent) + follow-ups listed in §17.7 / §17.8 / §17.11
+
+## 18. Credential-isolation production-readiness (2026-05-18 cycle)
+
+Cycle report: `docs/security/adversarial-cycles/2026-05-18.md`.
+
+Four specialists ran in parallel against `main` @ `ae917f2` against
+the just-shipped DO saga (PRs #40–#42 + #44 + #47). 31 findings;
+synthesis identified three load-bearing cross-cuts (X-1, X-2, X-3)
+that broke / eroded three of cred-iso/v1's five master claims (#3
+audit-by-receipt FALSE; #4 constant-time-404 eroded; #5 per-bundle
+isolation held only by accident of single-bundle deploy).
+
+**All three cross-cuts shipped in this cycle's follow-up PRs:**
+PR #50 + #51 + #52 + #53 + #54 + #55 + #56.
+
+### Row 18.1 — X-1: forward path emits zero receipts/metrics/logs (CLOSED this cycle)
+
+**Pre-fix:** `VaultProxyRoute.handle`'s forward branch returned vault
+DO's Response verbatim, bypassing the only `ProxyCallReceipt` emit
+site. `runtime.ts` also instantiated the route with NO emitters at
+all, so even the resolve+inject path was silent. Six emit obligations
+collapsed onto a single bypassed return statement.
+
+**Master-claim impact:** #3 ("audit by receipt") was FALSE in
+production. Disclosure endpoint returned empty receipt sets for every
+peer for every outcome — silence ceased to be evidence, became the
+default.
+
+**Closed by:** PR #52 `forwardWithReceipt` shim mirrors
+`proxyWithReceipt`'s start-clock + capture-sizes + emit-in-finally
+shape. `runtime.ts` wires `consoleReceiptEmitter` + `consoleMetricEmitter`
+defaults. PR #53 fails closed on missing `env.VAULT_STORE` binding
+(Obs O-OBS-3). PR #54 structured catch-log on RPC throw (Obs O-OBS-4).
+
+**Closed source findings:** Obs O-OBS-1, O-OBS-2, O-OBS-3, O-OBS-4;
+Oracle O7; DoS F1 (signal portion only — per-peer denial counter
+remains a follow-up design-pass at `cloister-6e6bfb`).
+
+**Conformance test:** `test/routes/vault-proxy.test.ts` § "forwardWithReceipt"
++ § "consoleReceiptEmitter / consoleMetricEmitter" (10 tests).
+`test/routes/vault-proxy-route.test.ts` "fails CLOSED" + bundleIdName
+defaults tests. `test/routes/vault-do-credential-store.test.ts`
+structured catch-log tests.
+
+### Row 18.2 — X-2: error shapes silently encode substrate (CLOSED this cycle)
+
+**Pre-fix:** Three different body shapes + four different status
+codes + zero shared header policy across 7 error-emission sites
+fractured the constant-time-404 contract. Encoded three secrets onto
+the wire: substrate identity (Oracle O1), service-registry
+membership (Oracle O4), vault-binding state (Oracle O2 — undocumented
+503 `vault_unavailable` shape).
+
+**Master-claim impact:** #4 ("§9.4.b constant-time 404") eroded.
+Caching intermediary could amortize any of the three oracles across
+millions of probes for zero attacker cost (zero error sites set
+`Cache-Control: no-store` despite spec MUST).
+
+**Closed by:** PR #50 `Cache-Control: no-store` + `X-Content-Type-Options:
+nosniff` on every error site via shared `errorResponse()` helper.
+PR #51 wire-shape collapse at route boundary via `collapseWireShape`:
+401/403/404/429 → `CONSTANT_TIME_ERROR_BODY` (Shape R); 502/503 →
+`SHAPE_U_ERROR_BODY` (Shape U). Vault DO still emits structured
+shapes internally for direct callers; the route boundary rewraps.
+
+**Closed source findings:** Oracle O1, O2, O4, O5; Bundle F2, F5; DoS F4.
+
+**Conformance test:** `test/routes/vault-proxy.test.ts`
+§ "errorResponse — required headers" (7 tests) + § "collapseWireShape"
+(10 tests). `cloister-spec/credential-isolation/v1/wire/error-responses.md`
+rewritten as "Two canonical wire shapes" + "Internal shapes" sections.
+
+### Row 18.3 — X-3: bundleIdName hardcoded defeats per-bundle isolation (CLOSED this cycle)
+
+**Pre-fix:** Literal `bundleIdName: "router"` in `VaultProxyRoute`
+(`vault-proxy-route.ts:130`). Any second `vaultProxy` route declared
+in the manifest collapsed to the same vault DO instance, defeating
+ADR-0021's binding-layer isolation seam AND inheriting the shared
+MAX_INFLIGHT cap.
+
+**Master-claim impact:** #5 ("per-bundle isolation via `idFromName`")
+held only by accident of single-bundle deploy. Severity escalated to
+P1 the moment a second cluster-tier bundle declares a `vaultProxy`
+route (e.g. notme-as-bundle per cloister-db99cd).
+
+**Closed by:** PR #55 schema bump — new `VaultProxySpec` struct;
+`vaultProxy @11 :Void` → `vaultProxy @11 :VaultProxySpec` with
+`bundleIdName @0 :Text` field. `runtime.ts` reads + threads through
+to route deps. Empty / unset defaults to `DEFAULT_BUNDLE_ID_NAME =
+"router"` for back-compat. PR #56 per-peer sharded inflight cap
+(DoS F2) — even within a single bundle, one slow-upstream peer can
+no longer deny others.
+
+**Closed source findings:** Bundle F4; DoS F2, F6; Obs O-OBS-7;
+Oracle O8.
+
+**Conformance test:** `test/routes/vault-proxy-route.test.ts`
+manifest-supplied / empty / omitted bundleIdName paths.
+`test/vault-store.test.ts` § "per-peer inflight isolation" (2 tests).
+
+### Cycle close-out
+
+**Master claims status post-cycle:**
+- #1 (plaintext never crosses response boundary) — preserved ✓
+- #2 (identity-scoped access via allowedSubs) — preserved ✓
+- #3 (audit by receipt) — **restored** via X-1 ✓
+- #4 (§9.4.b constant-time 404) — **restored** via X-2 ✓
+- #5 (per-bundle isolation via idFromName) — **restored at the schema layer** via X-3 (operational when notme-as-bundle ships) ✓
+
+**Remaining open as follow-up:**
+- DoS F1 per-peer denial counter — design-pass (`cloister-6e6bfb`
+  parent tracker stays open until the storage decision lands)
+- Bundle F1 (manifest `defaultAllowedSubs` gate dead on forward path)
+  — `cloister-6ed9ae`, P2
+
+**Related:**
+- Cycle report: `docs/security/adversarial-cycles/2026-05-18.md`
+- ADR-0020 — adversarial-team charter
+- ADRs touched: ADR-0013 (slice-grant), ADR-0021 (per-bundle vault DO),
+  ADR-0024 (cred-iso capability)
+- Beads (closed this cycle): `cloister-6eba0a`, `cloister-6e888b`,
+  `cloister-6f06cc`, `cloister-6f21dc`
+- Beads (open follow-ups): `cloister-6e6bfb` (X-1 tracker — DoS F1
+  counter), `cloister-6ed9ae` (Bundle F1), `cloister-6f4284` (DoS F5
+  lease-verify cache design-pass)
