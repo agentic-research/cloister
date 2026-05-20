@@ -740,3 +740,134 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
   // would be a sign we emitted a stray section for an empty list.
   assert.ok(!toml.includes("[inputs"), "empty inputs[] must NOT emit a [inputs] table");
 });
+
+// ── cloister-05334b (P1 of LLO arc): urlBinding + serviceBinding on InputSpec ──
+//
+// The transport-binding hints thread through to [[generated_backends]] rows in
+// cluster.lock.toml when the resolved input carries _meta.art.cloister/v1
+// (or when the heuristic fallback fires). The downstream manifest emitter
+// (scripts/build-manifest.mjs) then wires the generated mcpProxy backend to
+// the right env-var bindings. Schema add: append-only ordinals @7 / @8 on
+// InputSpec per ADR-0004 schema-evolution rules.
+
+test("inputs: urlBinding + serviceBinding round-trip through cluster.toml (populated)", async () => {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const tomlIn = `
+[metadata]
+name    = "with-bindings"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "alpha:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[inputs.llo]
+ref            = "io.github.org/agentic-research/ley-line-open@main"
+version        = "0.4.5"
+urlBinding     = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.inputs.length, 1);
+  assert.equal(parsed.inputs[0].urlBinding, "LLO_MCP_URL", "urlBinding must thread through the parse");
+  assert.equal(parsed.inputs[0].serviceBinding, "LSP_MCP", "serviceBinding must thread through the parse");
+
+  // Forward then reverse leg — round-trip preserves the bindings.
+  const emitted = clusterToToml(parsed);
+  assert.ok(emitted.includes('urlBinding = "LLO_MCP_URL"'), "emitted TOML must carry urlBinding");
+  assert.ok(emitted.includes('serviceBinding = "LSP_MCP"'), "emitted TOML must carry serviceBinding");
+
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.inputs, parsed.inputs, "binding hints must round-trip identity");
+});
+
+test("inputs: omitting urlBinding + serviceBinding parses to empty strings (back-compat)", async () => {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const tomlIn = `
+[metadata]
+name    = "no-bindings"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "alpha:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[inputs.bare]
+ref = "file:///tmp/foo"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.inputs.length, 1);
+  // Defaults: empty strings (canonical "unspecified" shape).
+  assert.equal(parsed.inputs[0].urlBinding, "");
+  assert.equal(parsed.inputs[0].serviceBinding, "");
+
+  // Reverse leg must NOT emit empty-string bindings (canonicalization
+  // drops empty fields so operators see only what they set).
+  const emitted = clusterToToml(parsed);
+  assert.ok(!emitted.includes("urlBinding"), "empty urlBinding must NOT appear in canonical TOML");
+  assert.ok(!emitted.includes("serviceBinding"), "empty serviceBinding must NOT appear in canonical TOML");
+});
+
+test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up — was previously a reject)", async () => {
+  // Before this bead, the `.strict()` ClusterSchema rejected unknown
+  // keys on InputSpec, so the resolver couldn't thread urlBinding /
+  // serviceBinding from [inputs.*] through the bidi pipeline. This
+  // test pins the fix.
+  const { ClusterSchema } = await import("../../src/generated/cluster.zod.ts");
+  const sample = {
+    metadata: { name: "x", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [{
+      name: "llo", ref: "x", version: "1", digest: "", from: "",
+      provides: [], requires: [],
+      urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
+    }],
+  };
+  const out = ClusterSchema.parse(sample);
+  assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");
+  assert.equal(out.inputs[0].serviceBinding, "LSP_MCP");
+});

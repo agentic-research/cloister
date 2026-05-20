@@ -59,6 +59,24 @@ export interface InputSpec {
   provides: readonly string[];
   /** Capabilities this input REQUIRES. */
   requires: readonly string[];
+  /**
+   * Optional name of the env-var binding holding the upstream URL
+   * (e.g. `"LLO_MCP_URL"`). Threaded through to the
+   * `[[generated_backends]]` row in `cluster.lock.toml` so the
+   * downstream manifest emitter can wire the resulting `mcpProxy`
+   * backend to the right binding. Empty string = unset (the resolver
+   * still emits the generated backend but with `urlBinding=""`).
+   * Per cloister-05334b (Phase 1 of LLO arc).
+   */
+  urlBinding: string;
+  /**
+   * Optional name of a workerd `Fetcher` Service binding that resolves
+   * to the upstream (e.g. `"LSP_MCP"`). Same precedence rules apply as
+   * in `HttpForwardBackend.serviceBinding` — when set + bound, the
+   * runtime calls `env[serviceBinding].fetch(...)` and bypasses the
+   * `internet` ACL. Per cloister-05334b.
+   */
+  serviceBinding: string;
 }
 
 export interface ClusterMetadata {

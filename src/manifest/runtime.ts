@@ -319,9 +319,23 @@ function validate(g: Gateway): void {
         // can dispatch upstream tools before the cache populates. An empty
         // prefix would leave handles() returning false until refreshTools()
         // runs, which races with the first tools/call from the client.
-        if ("mcpProxy" in b.kind && b.kind.mcpProxy.dynamicTools && b.handlesPrefix === "") {
+        //
+        // Exception (cloister-8ede3f, P1): when `claims` is non-empty,
+        // claim-aware routing in `McpProxyToolBackend.handles()` (see
+        // src/manifest/backends/mcp-proxy.ts) dispatches by exact name
+        // match against the claims set — no prefix needed. This is the
+        // shape lockfile-generated backends use for groups without an
+        // `advertisedPrefix` (e.g. LLO's `lifecycle` group: status /
+        // enrich / reparse are bare names). Cloister-05334b (P1 of LLO
+        // arc).
+        if (
+          "mcpProxy" in b.kind &&
+          b.kind.mcpProxy.dynamicTools &&
+          b.handlesPrefix === "" &&
+          (b.kind.mcpProxy.claims?.length ?? 0) === 0
+        ) {
           throw new TypeError(
-            `manifest: backend "${b.name}" has dynamicTools=true but empty handlesPrefix; dynamic tools require a non-empty prefix (see ADR-0006)`,
+            `manifest: backend "${b.name}" has dynamicTools=true but empty handlesPrefix AND empty claims; dynamic tools require either a non-empty prefix (ADR-0006) or a non-empty claims set (cloister-8ede3f)`,
           );
         }
 

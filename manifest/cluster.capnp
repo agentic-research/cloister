@@ -310,4 +310,30 @@ struct InputSpec {
   # other inputs in the cluster that `provides` the matching capability;
   # surfaces an error if no input satisfies a `requires`.
   requires @6 :List(Text);
+
+  # ── Transport binding hints (cloister-05334b, P1 of LLO arc) ─────
+  #
+  # When this input resolves to an MCP server.json with
+  # `_meta.art.cloister/v1.groups[]`, the resolver writes one
+  # `[[generated_backends]]` row per group into `cluster.lock.toml`.
+  # The downstream manifest emitter (`scripts/build-manifest.mjs`) reads
+  # those rows + injects them into the appropriate `McpRouteSpec.backends`.
+  #
+  # `urlBinding` names the env-var binding that holds the upstream URL
+  # (e.g. "LLO_MCP_URL") — used at request time when the runtime can't
+  # reach the upstream through a workerd Service binding.
+  #
+  # `serviceBinding` names a workerd Fetcher binding (e.g. "LSP_MCP")
+  # that resolves to an `external` server entry in config.capnp.
+  # When set + bound, the runtime calls `env[serviceBinding].fetch(...)`
+  # and skips the `internet` ACL entirely. See HttpForwardBackend
+  # in manifest/cloister.capnp for the precedence rules.
+  #
+  # Both fields are optional. Phase 1 keeps existing hand-declared
+  # backend shells as the fallback; when both an [[generated_backends]]
+  # row AND a hand-shell with the same backend name exist, the emitter
+  # warns + prefers the generated row (so operators can stage the
+  # migration upstream by upstream).
+  urlBinding @7 :Text;
+  serviceBinding @8 :Text;
 }

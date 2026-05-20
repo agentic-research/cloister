@@ -138,7 +138,9 @@ export const cluster: Cluster = {
       "digest": "",
       "from": "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json",
       "provides": [],
-      "requires": []
+      "requires": [],
+      "urlBinding": "LLO_MCP_URL",
+      "serviceBinding": "LSP_MCP"
     }
   ]
 } as const;

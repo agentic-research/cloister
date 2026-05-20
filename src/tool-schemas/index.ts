@@ -10,23 +10,33 @@
 //
 // To add a new tool's schema:
 //   1. Add a zod schema export in the appropriate group module
-//      (beads.ts / lifecycle.ts), or create a new group.
+//      (beads.ts), or create a new group.
 //   2. Add it to that module's `schemas` map under its tool name.
 //   3. Add it to the merged `schemas` map below.
 //   4. The cloister.capnp tool entry NO LONGER needs `inputSchemaJson`
 //      — it's deprecated; the build step injects from here.
 //   5. `task lint:tool-schemas` enforces parity.
 //
-// Group ownership note (cloister-d9347e): the `lsp_*` family used to live
-// here as a mirror of LLO's canonical schemas. The mirror is gone — LLO's
-// `server.json` (`_meta.art.cloister/v1.groups[].name = "lsp"`) is the
-// source of truth, and cloister derives `lsp_*` tool definitions at
-// request time via the upstream `tools/list`. The `leyline-lifecycle`
-// group (`status` / `enrich` / `reparse`) still mirrors locally because
-// its backend has `handlesPrefix = ""`; until the manifest emitter
-// consumes `cluster.lock.toml` `[[generated_backends]]`, prefix-less
-// backends can't fall back to derived-cache claims and need the
-// asserted catalog.
+// Group ownership note (cloister-05334b, P1 of LLO arc): the root
+// `cloister.capnp` no longer asserts the `lsp_*` or `leyline-lifecycle`
+// (status / enrich / reparse) catalogs — they're generated from
+// `cluster.lock.toml` `[[generated_backends]]` rows produced by
+// scripts/resolve-inputs.mjs. The manifest emitter overlays them into
+// the /mcp McpRouteSpec.backends list at `task manifest` time.
+//
+// The `lifecycle` schemas (reparse / enrich / status) STAY exported
+// here because `recipes/rosary-dev/cloister.capnp` still uses the
+// hand-declared shell shape with `inputSchemaJson = ""` — the build-time
+// injector reads from this registry and would fail recipe builds if the
+// schemas vanished. Recipe migration to lockfile-driven backends is
+// Phase 3 (per the bead description); until then, the schemas live on
+// here as "recipes-only", documented in TOOL_SCHEMAS_RECIPES_ONLY below
+// so the orphan-detection test in test/manifest/tool-schemas.test.ts
+// knows to exempt them.
+//
+// The `bead_*` family also lives here because it's an in-process
+// Durable Object backend (not an mcpProxy upstream); the schemas serve
+// real runtime input validation, not just MCP `tools/list` advertising.
 
 import { z } from "zod";
 import { schemas as bead }      from "./beads.js";
@@ -37,6 +47,23 @@ export const schemas = {
   ...bead,
   ...lifecycle,
 } as const;
+
+/**
+ * Tool schemas that exist in this registry but are NOT present in the
+ * root manifest's static catalog (their runtime backend is dynamic via
+ * the lockfile-driven emitter, or they're consumed only by per-recipe
+ * cloister.capnp files like rosary-dev). The orphan-detection test in
+ * `test/manifest/tool-schemas.test.ts` exempts these names.
+ *
+ * Per cloister-05334b. Phase 3 of the LLO arc will migrate the recipe
+ * to lockfile-driven backends too, at which point this exemption set
+ * can shrink.
+ */
+export const TOOL_SCHEMAS_RECIPES_ONLY: ReadonlySet<string> = new Set<string>([
+  "reparse",
+  "enrich",
+  "status",
+]);
 
 /** Type of all known tool names — useful for handler dispatch. */
 export type ToolName = keyof typeof schemas;

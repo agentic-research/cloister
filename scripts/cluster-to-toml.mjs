@@ -105,10 +105,14 @@ function canonicalizeInputs(arr) {
   for (const inp of arr) {
     if (!inp || typeof inp !== "object" || typeof inp.name !== "string" || inp.name === "") continue;
     const body = {};
-    if (typeof inp.ref     === "string" && inp.ref     !== "") body.ref     = inp.ref;
-    if (typeof inp.version === "string" && inp.version !== "") body.version = inp.version;
-    if (typeof inp.digest  === "string" && inp.digest  !== "") body.digest  = inp.digest;
-    if (typeof inp.from    === "string" && inp.from    !== "") body.from    = inp.from;
+    if (typeof inp.ref            === "string" && inp.ref            !== "") body.ref            = inp.ref;
+    if (typeof inp.version        === "string" && inp.version        !== "") body.version        = inp.version;
+    if (typeof inp.digest         === "string" && inp.digest         !== "") body.digest         = inp.digest;
+    if (typeof inp.from           === "string" && inp.from           !== "") body.from           = inp.from;
+    // cloister-05334b (P1 of LLO arc): transport binding hints —
+    // pass through to [[generated_backends]] rows in cluster.lock.toml.
+    if (typeof inp.urlBinding     === "string" && inp.urlBinding     !== "") body.urlBinding     = inp.urlBinding;
+    if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
     if (Array.isArray(inp.provides) && inp.provides.length > 0) body.provides = [...inp.provides];
     if (Array.isArray(inp.requires) && inp.requires.length > 0) body.requires = [...inp.requires];
     out[inp.name] = body;

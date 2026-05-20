@@ -27,7 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 import { manifest } from "../../src/generated/manifest.js";
-import { schemas as tsSchemas } from "../../src/tool-schemas/index.js";
+import { schemas as tsSchemas, TOOL_SCHEMAS_RECIPES_ONLY } from "../../src/tool-schemas/index.js";
 
 /** Tool names declared anywhere in the manifest's mcp routes. */
 function manifestToolNames(): Set<string> {
@@ -69,6 +69,11 @@ describe("tool-schema parity (cloister-7ca96c)", () => {
     const manifestTools = manifestToolNames();
     const orphans: string[] = [];
     for (const name of Object.keys(tsSchemas)) {
+      // cloister-05334b: schemas that live on for per-recipe use
+      // (rosary-dev) but aren't in the root manifest are documented in
+      // TOOL_SCHEMAS_RECIPES_ONLY. The exemption is named so future
+      // readers see the why — not just a silent allow-list.
+      if (TOOL_SCHEMAS_RECIPES_ONLY.has(name)) continue;
       if (!manifestTools.has(name)) orphans.push(name);
     }
     expect(orphans, `TS schema(s) registered with no corresponding manifest entry: ${orphans.join(", ")}`).toEqual([]);

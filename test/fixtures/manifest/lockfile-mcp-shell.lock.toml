@@ -1,0 +1,30 @@
+_comment = "Fixture lockfile paired with lockfile-mcp-shell.capnp (cloister-05334b). Consumed by scripts/test/e2e-manifest-pipeline.test.mjs to assert the build-manifest emitter wires [[generated_backends]] rows into McpRouteSpec.backends."
+schema = "cloister/lockfile/v1"
+cluster = "lockfile-e2e"
+version = "0.0.0"
+
+[inputs.llo]
+ref = "file:///tmp/fake-llo"
+resolved = "0.4.5"
+sha256 = "sha256:deadbeef"
+fetched_from = "file:///tmp/fake-llo"
+signer = ""
+bytes = 0
+
+[[generated_backends]]
+input = "llo"
+name = "lsp"
+handlesPrefix = "lsp_"
+claims = ["lsp_hover", "lsp_defs"]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "llo"
+name = "lifecycle"
+handlesPrefix = ""
+claims = ["status", "enrich", "reparse"]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"

@@ -45,7 +45,7 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const BUILD_SCRIPT = resolve(REPO_ROOT, "scripts/build-manifest.mjs");
 const FIXTURES_DIR = resolve(REPO_ROOT, "test/fixtures/manifest");
 
-function runBuildManifest(fixtureName) {
+function runBuildManifest(fixtureName, opts = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), "e2e-manifest-"));
   const outFile = resolve(dir, "manifest.ts");
   const fixture = resolve(FIXTURES_DIR, fixtureName);
@@ -63,13 +63,24 @@ function runBuildManifest(fixtureName) {
   // not the underlying script's code. Tests assert non-zero + the
   // precise script diagnostic in stderr, which is what matters
   // operationally.
+  //
+  // `opts.lockfile` (cloister-05334b, P1 of LLO arc): when set, points
+  // the build script at a fixture lockfile so the [[generated_backends]]
+  // injection path can be exercised in isolation. The script reads the
+  // lockfile via CLOISTER_LOCKFILE env, defaulting to ./cluster.lock.toml
+  // (which is typically absent during e2e fixture runs, making the
+  // emitter's lockfile branch a no-op).
+  const env = {
+    ...process.env,
+    CLOISTER_MANIFEST: fixture,
+    CLOISTER_OUTPUT:   outFile,
+  };
+  if (opts.lockfile) {
+    env.CLOISTER_LOCKFILE = resolve(FIXTURES_DIR, opts.lockfile);
+  }
   const r = spawnSync("task", ["manifest", "--force"], {
     cwd: REPO_ROOT,
-    env: {
-      ...process.env,
-      CLOISTER_MANIFEST: fixture,
-      CLOISTER_OUTPUT:   outFile,
-    },
+    env,
     encoding: "utf8",
   });
   return { ...r, outFile, cleanup: () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} } };
@@ -143,4 +154,95 @@ test("the same buildServiceRegistry runs at build time + boot time (no parallel 
     "scripts/build-manifest.mjs must import buildServiceRegistry — not re-implement validation");
   assert.match(buildScript, /vault-proxy-services/,
     "scripts/build-manifest.mjs must import from src/manifest/vault-proxy-services (the pure module the runtime also imports)");
+});
+
+// ── cloister-05334b (P1 of LLO arc): lockfile → manifest emitter ─────────
+//
+// The emitter consumes [[generated_backends]] rows from cluster.lock.toml
+// and injects them into McpRouteSpec.backends in the emitted manifest.ts.
+// Coverage: empty-shell injection, urlBinding/serviceBinding threading,
+// claims threading, collision precedence (generated wins + warn).
+
+test("e2e lockfile: empty /mcp shell + lockfile with two generated backends → emitted manifest has both backends", () => {
+  const r = runBuildManifest("lockfile-mcp-shell.capnp", {
+    lockfile: "lockfile-mcp-shell.lock.toml",
+  });
+  try {
+    assert.equal(r.status, 0, `build failed unexpectedly\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
+    assert.ok(existsSync(r.outFile), "expected output file not written");
+
+    const emitted = readFileSync(r.outFile, "utf8");
+    // Both generated backend names must appear in the emitted manifest.
+    assert.match(emitted, /"name": "lsp"/, "lsp backend missing from emitted manifest");
+    assert.match(emitted, /"name": "lifecycle"/, "lifecycle backend missing from emitted manifest");
+
+    // The lsp backend's mcpProxy wiring threads urlBinding +
+    // serviceBinding from the lockfile through to the manifest. We
+    // assert on the JSON literal — order-independent because we check
+    // each key individually.
+    assert.match(emitted, /"urlBinding": "LLO_MCP_URL"/, "urlBinding from lockfile must thread through");
+    assert.match(emitted, /"serviceBinding": "LSP_MCP"/, "serviceBinding from lockfile must thread through");
+    // dynamicTools=true is the canonical shape for generated backends.
+    assert.match(emitted, /"dynamicTools": true/, "generated backends must set dynamicTools=true");
+    // Claims from the lockfile flow through onto the backend.
+    assert.match(emitted, /"lsp_hover"/, "claims from lockfile must thread through");
+    assert.match(emitted, /"status"/, "lifecycle claims (status/enrich/reparse) must thread through");
+  } finally { r.cleanup(); }
+});
+
+test("e2e lockfile: collision (hand-shell + generated with same name) → generated wins + warning emitted", () => {
+  const r = runBuildManifest("lockfile-collision.capnp", {
+    lockfile: "lockfile-collision.lock.toml",
+  });
+  try {
+    assert.equal(r.status, 0, `build failed unexpectedly\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
+    assert.ok(existsSync(r.outFile), "expected output file not written");
+
+    const emitted = readFileSync(r.outFile, "utf8");
+    // Generated wins: the lockfile's binding string + dynamicTools=true
+    // must appear. The hand-shell's `urlBinding = "HAND_BINDING"` +
+    // `dynamicTools = false` must NOT (the generated row replaces them).
+    assert.match(emitted, /"urlBinding": "LLO_MCP_URL"/);
+    assert.match(emitted, /"serviceBinding": "LSP_MCP"/);
+    assert.match(emitted, /"dynamicTools": true/);
+    assert.equal(emitted.includes("HAND_BINDING"), false,
+      "hand-shell urlBinding must NOT survive when a generated backend collides");
+
+    // The collision must be logged so the operator knows to delete the
+    // shell. Substring check on stderr — exact wording can evolve but
+    // the operator-facing surface must mention the collision.
+    assert.match(r.stderr, /collision|prefers? (the )?generated|overrid/i,
+      `expected collision warning in stderr; got: ${r.stderr}`);
+    // The shell's backend name appears in the warning so the operator
+    // can locate the offending block in their cloister.capnp.
+    assert.match(r.stderr, /"lsp"|backend.*lsp/, "warning must name the colliding backend");
+  } finally { r.cleanup(); }
+});
+
+test("e2e lockfile: no lockfile present → emitter is a no-op (back-compat)", () => {
+  // When CLOISTER_LOCKFILE points at a non-existent file, the emitter
+  // must NOT crash — it just skips the injection step. This preserves
+  // the pre-P1 build path for cluster.toml files without an [inputs] table.
+  const dir = mkdtempSync(resolve(tmpdir(), "e2e-no-lockfile-"));
+  const outFile = resolve(dir, "manifest.ts");
+  const fixture = resolve(FIXTURES_DIR, "lockfile-mcp-shell.capnp");
+  try {
+    const r = spawnSync("task", ["manifest", "--force"], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        CLOISTER_MANIFEST: fixture,
+        CLOISTER_OUTPUT:   outFile,
+        CLOISTER_LOCKFILE: resolve(dir, "missing.lock.toml"),
+      },
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, `build failed unexpectedly\nstderr: ${r.stderr}`);
+    const emitted = readFileSync(outFile, "utf8");
+    // The /mcp route has zero backends from the shell + no lockfile
+    // injection → the emitted backends array is empty.
+    assert.match(emitted, /"backends": \[\]/, "no-lockfile path must yield empty backends array");
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
 });

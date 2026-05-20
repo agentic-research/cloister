@@ -81,6 +81,8 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     from: z.string(),
     provides: z.array(z.string()),
     requires: z.array(z.string()),
+    urlBinding: z.string(),
+    serviceBinding: z.string(),
   }).strict());
 
 export interface InputSpec {
@@ -91,6 +93,8 @@ export interface InputSpec {
   from: string;
   provides: string[];
   requires: string[];
+  urlBinding: string;
+  serviceBinding: string;
 }
 
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
