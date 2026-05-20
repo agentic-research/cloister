@@ -111,48 +111,6 @@ export const manifest: Gateway = {
               }
             },
             {
-              "name": "lsp",
-              "handlesPrefix": "lsp_",
-              "kind": {
-                "mcpProxy": {
-                  "urlBinding": "LLO_MCP_URL",
-                  "tools": [],
-                  "dynamicTools": true,
-                  "requiresSession": false,
-                  "serviceBinding": "LSP_MCP"
-                }
-              }
-            },
-            {
-              "name": "leyline-lifecycle",
-              "handlesPrefix": "",
-              "kind": {
-                "mcpProxy": {
-                  "urlBinding": "LLO_MCP_URL",
-                  "tools": [
-                    {
-                      "name": "reparse",
-                      "description": "Re-run tree-sitter parsing over the source tree (or a single file via `source`).",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"},\"lang\":{\"type\":\"string\"}},\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "enrich",
-                      "description": "Run an enrichment pass (e.g. `lsp`, `embed`) optionally scoped to specific files.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{\"pass\":{\"type\":\"string\"},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"pass\"],\"additionalProperties\":false}"
-                    },
-                    {
-                      "name": "status",
-                      "description": "Daemon lifecycle status: phase, head_sha, last_reparse_at_ms, per-pass enrichment.",
-                      "inputSchemaJson": "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"
-                    }
-                  ],
-                  "dynamicTools": false,
-                  "requiresSession": false,
-                  "serviceBinding": "LSP_MCP"
-                }
-              }
-            },
-            {
               "name": "mache",
               "handlesPrefix": "mache_",
               "kind": {
@@ -163,6 +121,57 @@ export const manifest: Gateway = {
                   "stripPrefix": "mache_",
                   "requiresSession": true,
                   "serviceBinding": "MACHE_MCP"
+                }
+              }
+            },
+            {
+              "name": "lsp",
+              "handlesPrefix": "lsp_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "lsp_hover",
+                    "lsp_defs",
+                    "lsp_refs",
+                    "lsp_symbols",
+                    "lsp_diagnostics"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "lifecycle",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "status",
+                    "enrich",
+                    "reparse"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "sheaf",
+              "handlesPrefix": "sheaf_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "sheaf_set_topology"
+                  ]
                 }
               }
             }

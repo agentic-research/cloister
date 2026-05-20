@@ -214,17 +214,22 @@ function unflattenInputs(raw) {
 }
 
 function normalizeInputDefaults(spec) {
-  // Zod's strict shape requires all five Text fields + two List fields
-  // to be present. Empty-string / empty-array defaults are the
-  // canonical "unspecified" shape per the schema's $comment.
+  // Zod's strict shape requires every Text field + List field to be
+  // present. Empty-string / empty-array defaults are the canonical
+  // "unspecified" shape per the schema's $comment.
+  // `urlBinding` / `serviceBinding` (cloister-05334b, P1 of LLO arc)
+  // thread through to the [[generated_backends]] rows the resolver
+  // writes — see scripts/resolve-inputs.mjs.
   return {
-    name:     typeof spec.name === "string" ? spec.name : "",
-    ref:      typeof spec.ref === "string" ? spec.ref : "",
-    version:  typeof spec.version === "string" ? spec.version : "",
-    digest:   typeof spec.digest === "string" ? spec.digest : "",
-    from:     typeof spec.from === "string" ? spec.from : "",
-    provides: Array.isArray(spec.provides) ? spec.provides : [],
-    requires: Array.isArray(spec.requires) ? spec.requires : [],
+    name:           typeof spec.name === "string" ? spec.name : "",
+    ref:            typeof spec.ref === "string" ? spec.ref : "",
+    version:        typeof spec.version === "string" ? spec.version : "",
+    digest:         typeof spec.digest === "string" ? spec.digest : "",
+    from:           typeof spec.from === "string" ? spec.from : "",
+    provides:       Array.isArray(spec.provides) ? spec.provides : [],
+    requires:       Array.isArray(spec.requires) ? spec.requires : [],
+    urlBinding:     typeof spec.urlBinding === "string" ? spec.urlBinding : "",
+    serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
   };
 }
 

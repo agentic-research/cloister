@@ -1,0 +1,21 @@
+_comment = "Fixture lockfile paired with lockfile-collision.capnp (cloister-05334b). Exercises the collision precedence rule: same backend name on both sides — generated wins, hand-shell is replaced + the emitter warns."
+schema = "cloister/lockfile/v1"
+cluster = "lockfile-collision-e2e"
+version = "0.0.0"
+
+[inputs.llo]
+ref = "file:///tmp/fake-llo"
+resolved = "0.4.5"
+sha256 = "sha256:deadbeef"
+fetched_from = "file:///tmp/fake-llo"
+signer = ""
+bytes = 0
+
+[[generated_backends]]
+input = "llo"
+name = "lsp"
+handlesPrefix = "lsp_"
+claims = ["lsp_hover", "lsp_defs"]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"

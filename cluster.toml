@@ -88,6 +88,8 @@ transport = "uds"
 ref = "io.github.org/agentic-research/ley-line-open@main"
 version = "0.4.5"
 from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
 
 [storage]
 doStoragePath = "/data/do"

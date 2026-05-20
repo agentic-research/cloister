@@ -157,65 +157,15 @@ const gateway :Cloister.Gateway = (
             )),
           ),
 
-          # lsp_*  → LLO_MCP_URL.
-          # ADR-0015 Phase 1: migrated from `httpForward` → `mcpProxy`
-          # (same shape, spec-aligned name).
-          # cloister-b65a20: `serviceBinding = "LSP_MCP"` wins locally
-          # (workerd `external` service); `urlBinding` stays populated
-          # as the CF-prod fallback.
-          # cloister-d9347e (P5 of LLO arc): asserted catalog removed.
-          # The `lsp_*` tool definitions now live canonically in LLO's
-          # `server.json` (`_meta.art.cloister/v1.groups[]`); cloister
-          # learns them at request time via `tools/list` from the
-          # upstream. With `handlesPrefix = "lsp_"` and the upstream
-          # already advertising `lsp_*` names, the derived-cache filter
-          # (mcp-proxy.ts:captureDerivedTools) claims the right set, and
-          # the no-double-prefix rule (cloister-8ede3f, P1) keeps the
-          # advertised names verbatim. A future phase will wire
-          # `cluster.lock.toml` `[[generated_backends]]` into the
-          # manifest emitter, at which point the explicit `claims = [...]`
-          # populates from LLO's `_meta` block instead of relying on the
-          # prefix-based fallback.
-          ( name          = "lsp",
-            handlesPrefix = "lsp_",
-            kind = (mcpProxy = (
-              urlBinding     = "LLO_MCP_URL",
-              serviceBinding = "LSP_MCP",
-              tools          = [],
-              dynamicTools   = true,
-              # stripPrefix stays empty — LLO already prefixes its tools
-              # `lsp_*` and the no-double-prefix rule (mcp-proxy.ts:tools)
-              # advertises them verbatim. Empty stripPrefix + non-empty
-              # handlesPrefix is the "upstream-already-prefixed" shape
-              # documented in claimsUpstreamName().
-            )),
-          ),
-
-          # reparse | enrich | status — exact-match (handlesPrefix = "")
-          # because the upstream LLO daemon exposes them as bare names, not
-          # under a prefix. Routes to the same LLO_MCP_URL as lsp_*.
-          # ADR-0015 Phase 1: migrated from `httpForward` → `mcpProxy`.
-          # cloister-b65a20: same Service-binding shape as `lsp` above.
-          ( name          = "leyline-lifecycle",
-            handlesPrefix = "",
-            kind = (mcpProxy = (
-              urlBinding     = "LLO_MCP_URL",
-              serviceBinding = "LSP_MCP",
-              # Schemas in src/tool-schemas/lifecycle.ts; injected at build time.
-              tools = [
-                ( name = "reparse",
-                  description     = "Re-run tree-sitter parsing over the source tree (or a single file via `source`).",
-                  inputSchemaJson = "" ),
-                ( name = "enrich",
-                  description     = "Run an enrichment pass (e.g. `lsp`, `embed`) optionally scoped to specific files.",
-                  inputSchemaJson = "" ),
-                ( name = "status",
-                  description     = "Daemon lifecycle status: phase, head_sha, last_reparse_at_ms, per-pass enrichment.",
-                  inputSchemaJson = "" ),
-              ],
-            )),
-          ),
-
+          # NOTE — `lsp` + `leyline-lifecycle` (now `lifecycle`) +
+          # `sheaf` backends are generated from cluster.lock.toml's
+          # [[generated_backends]] rows at `task manifest` time per
+          # cloister-05334b (P1 of LLO arc). Their canonical declarations
+          # live in LLO's `server.json` (`_meta.art.cloister/v1.groups[]`)
+          # — see <repo>/cluster.toml `[inputs.llo]` for the resolver
+          # input + scripts/build-manifest.mjs `overlayLockfileBackends`
+          # for the injection logic. Hand-declared shells were removed
+          # by cloister-05334b once the generated emitter landed.
 
           # mache_*  → MACHE_MCP_URL with dynamicTools=true. mache exposes
           # ~17 MCP tools (get_overview, find_callers, search, …) on a

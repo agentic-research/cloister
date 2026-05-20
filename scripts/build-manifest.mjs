@@ -29,9 +29,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { parse as parseToml } from "@iarna/toml";
 
 const REPO          = process.cwd();
 const MANIFEST_FILE = process.env.CLOISTER_MANIFEST    ?? resolve(REPO, "cloister.capnp");
@@ -43,6 +45,17 @@ const OUTPUT_FILE   = process.env.CLOISTER_OUTPUT      ?? resolve(REPO, "src/gen
 // becomes either a parity check (must match) or empty (we inject).
 // Per cloister-7ca96c.
 const TOOL_SCHEMAS_FILE = process.env.CLOISTER_TOOL_SCHEMAS ?? resolve(REPO, "src/generated/tool-schemas.ts");
+// Lockfile produced by scripts/resolve-inputs.mjs. When present, its
+// [[generated_backends]] rows are merged into the manifest's /mcp
+// McpRouteSpec.backends list by `overlayLockfileBackends()` below.
+// Phase 1 of the LLO arc (cloister-05334b); the lockfile is a no-op
+// when the file is absent (back-compat with pre-P3 cluster.toml).
+//
+// Default: SIBLING of CLOISTER_MANIFEST (so each recipe gets its own
+// lockfile lookup; recipes without a `cluster.lock.toml` next to their
+// `cloister.capnp` see no overlay — exactly what `task lint:recipes`
+// needs to keep per-recipe builds independent of the repo-root lockfile).
+const LOCKFILE       = process.env.CLOISTER_LOCKFILE   ?? resolve(dirname(MANIFEST_FILE), "cluster.lock.toml");
 // Default import root: parent of the directory containing manifest/cloister.capnp.
 // e.g. SCHEMA_FILE = /work/cloister/manifest/cloister.capnp
 //      schemaDir   = /work/cloister/manifest
@@ -75,6 +88,15 @@ try {
 // Any drift fails the build with a precise error.
 
 await overlayToolSchemas(json);
+
+// ── Overlay [[generated_backends]] from cluster.lock.toml ────────────────
+//
+// Phase 1 of the LLO arc (cloister-05334b). Reads cluster.lock.toml when
+// present + injects one mcpProxy backend per [[generated_backends]] row
+// into the /mcp route's `backends` list. Hand-shells with the same name
+// as a generated row are replaced + a warning is logged so the operator
+// knows to delete the shell.
+overlayLockfileBackends(json);
 
 // ── Static validation (build-time, before the TS compiler sees this) ──────
 
@@ -297,4 +319,168 @@ async function overlayToolSchemas(g) {
 function relPath(p) {
   const r = p.startsWith(REPO + "/") ? p.slice(REPO.length + 1) : p;
   return r;
+}
+
+// ── Lockfile → /mcp backend overlay (cloister-05334b, P1 of LLO arc) ─────
+//
+// Reads `cluster.lock.toml` (when present) + injects one mcpProxy backend
+// per [[generated_backends]] row into the /mcp route. The lockfile is
+// produced by `scripts/resolve-inputs.mjs` from cluster.toml's `[inputs.*]`
+// blocks; each input resolves to bytes + (optionally) an
+// `_meta.art.cloister/v1.groups[]` block. Each group becomes one
+// generated backend row.
+//
+// Precedence (when a hand-shell in cloister.capnp and a generated row
+// share the same backend name):
+//
+//   GENERATED WINS. The hand-shell's mcpProxy payload is replaced with
+//   the generated shape. A warning is logged to stderr so the operator
+//   notices + can delete the shell. The Phase 1 goal is gradual
+//   migration: operators move upstream by upstream from hand-declared
+//   shells to lockfile-driven backends.
+//
+// No-op behavior:
+//
+//   - Lockfile file missing → silent skip (back-compat: pre-P3
+//     cluster.toml files without [inputs.*] don't get a lockfile).
+//   - Lockfile parses but carries no [[generated_backends]] rows →
+//     silent skip (the resolver only writes the section when at least
+//     one input produced rows).
+//   - Manifest has no /mcp route → log a warning; the generated
+//     backends have nowhere to land.
+//
+// Adding a new generated-backend FIELD (e.g. `stripPrefix`, `protocolMode`)
+// means extending the row→backend mapping inside this function; the
+// schema add at @ordinal lives in `manifest/cloister.capnp:HttpForwardBackend`.
+
+function overlayLockfileBackends(g) {
+  if (!existsSync(LOCKFILE)) {
+    return;
+  }
+  let doc;
+  try {
+    doc = parseToml(readFileSync(LOCKFILE, "utf8"));
+  } catch (e) {
+    fail(`failed to parse ${relPath(LOCKFILE)}: ${e?.message ?? e}`);
+  }
+  const rows = doc.generated_backends;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return;
+  }
+
+  // Locate the /mcp route's backends array. The manifest schema allows
+  // any path for the mcp route kind, but build-manifest's existing
+  // validation pins /mcp specifically; we mirror that here so the lookup
+  // is unambiguous.
+  const mcpRoute = (g.routes ?? []).find((r) => r?.kind?.mcp);
+  if (!mcpRoute) {
+    console.error(
+      `build-manifest: ${relPath(LOCKFILE)} declares ${rows.length} generated backend(s) ` +
+      `but the manifest has no /mcp route to inject them into — skipping`,
+    );
+    return;
+  }
+  const backends = mcpRoute.kind.mcp.backends ?? (mcpRoute.kind.mcp.backends = []);
+
+  // Index hand-shells by name so collision detection is O(N) not O(N*M).
+  const shellsByName = new Map(backends.map((b, i) => [b.name, i]));
+  const collisions = [];
+  let injected = 0;
+  let replaced = 0;
+
+  for (const row of rows) {
+    const backend = backendFromGeneratedRow(row);
+    if (backend === null) continue;
+
+    const existingIdx = shellsByName.get(backend.name);
+    if (existingIdx !== undefined) {
+      // Collision: a hand-shell with the same name already exists.
+      // Generated wins — replace the entry in place to keep the original
+      // declaration order stable.
+      backends[existingIdx] = backend;
+      shellsByName.set(backend.name, existingIdx);
+      collisions.push(backend.name);
+      replaced += 1;
+    } else {
+      backends.push(backend);
+      shellsByName.set(backend.name, backends.length - 1);
+      injected += 1;
+    }
+  }
+
+  if (collisions.length > 0) {
+    // One warning line per collision so a noisy lockfile surfaces every
+    // offender. The hint at the end tells the operator the fix.
+    for (const name of collisions) {
+      console.error(
+        `build-manifest: lockfile collision — backend "${name}" exists in ` +
+        `${relPath(MANIFEST_FILE)} as a hand-shell AND in ${relPath(LOCKFILE)} ` +
+        `as a [[generated_backends]] row. The generated row WINS (Phase 1 ` +
+        `precedence per cloister-05334b). Delete the hand-shell from ` +
+        `${relPath(MANIFEST_FILE)} once you've verified the generated backend works.`,
+      );
+    }
+  }
+  if (injected || replaced) {
+    console.error(
+      `build-manifest:   lockfile backends: ${injected} injected, ${replaced} replaced (collision precedence)`,
+    );
+  }
+}
+
+/**
+ * Convert one [[generated_backends]] row from cluster.lock.toml into a
+ * Backend declaration matching the manifest JSON shape. Returns `null`
+ * + logs a warning if the row is malformed (so a single bad row doesn't
+ * tank the whole build).
+ *
+ * Row shape (per scripts/resolve-inputs.mjs `deriveGeneratedBackends`):
+ *
+ *   { input, name, handlesPrefix, claims, dynamicTools,
+ *     urlBinding, serviceBinding }
+ *
+ * Backend output:
+ *
+ *   { name, handlesPrefix, kind: { mcpProxy: { urlBinding, tools: [],
+ *                                              dynamicTools, claims,
+ *                                              serviceBinding } } }
+ *
+ * `tools` is always `[]` — the catalog is derived at request time from
+ * the upstream's `tools/list` (the row's `dynamicTools: true` semantics).
+ * `claims` populates `HttpForwardBackend.claims` (cloister-8ede3f, P1)
+ * which filters the derived catalog to just the names the row owns.
+ */
+function backendFromGeneratedRow(row) {
+  if (!row || typeof row !== "object") {
+    console.error(`build-manifest: skipping malformed generated_backends row: ${JSON.stringify(row)}`);
+    return null;
+  }
+  if (typeof row.name !== "string" || row.name === "") {
+    console.error(`build-manifest: skipping generated_backends row with missing name: ${JSON.stringify(row)}`);
+    return null;
+  }
+  const handlesPrefix  = typeof row.handlesPrefix  === "string" ? row.handlesPrefix  : "";
+  const urlBinding     = typeof row.urlBinding     === "string" ? row.urlBinding     : "";
+  const serviceBinding = typeof row.serviceBinding === "string" ? row.serviceBinding : "";
+  const dynamicTools   = row.dynamicTools !== false; // default true
+  const claims         = Array.isArray(row.claims) ? row.claims.slice() : [];
+
+  const mcpProxy = {
+    urlBinding,
+    tools: [],
+    dynamicTools,
+  };
+  // Match the existing shape: serviceBinding + claims are only emitted
+  // when populated, to keep diffs tight when a backend doesn't use them.
+  // (capnp's JSON encoding for optional fields is "field-present-as-default"
+  // OR "field-absent"; the runtime types accept both. We emit them
+  // explicitly when populated.)
+  if (serviceBinding !== "") mcpProxy.serviceBinding = serviceBinding;
+  if (claims.length > 0)     mcpProxy.claims         = claims;
+
+  return {
+    name:          row.name,
+    handlesPrefix,
+    kind:          { mcpProxy },
+  };
 }
