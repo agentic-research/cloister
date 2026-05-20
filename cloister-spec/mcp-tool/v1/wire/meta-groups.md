@@ -1,10 +1,13 @@
 # Wire — `_meta.art.cloister/v1.groups[]`
 
 The detailed field schema for the `groups[]` array carried under an
-MCP `server.json`'s `_meta.art.cloister/v1` block. Pinned by
-`vectors/llo-groups.json` (the canonical LLO fixture); a second
-implementation is conformant when its emitted block byte-matches that
-vector modulo cosmetic whitespace.
+MCP `server.json`'s `_meta.art.cloister/v1` block. The synthetic
+fixture in `vectors/example-multi-group.json` exercises the three
+structural shapes v1 covers (prefixed-many, bare-name, prefixed-
+single). A second implementation is conformant when its emitted block
+satisfies the field schema below; byte-matching the fixture is useful
+for resolver-test parity, but real MCP servers are expected to carry
+their own group layouts, not a copy of the fixture.
 
 The load-bearing property: **partitioning is closed by design**. Each
 group's `upstreamNames` is an explicit, server-author-declared list of
@@ -49,7 +52,9 @@ The `name` is the operator-facing handle for the backend the resolver
 emits from this group. Operators see it in `cloister.capnp` /
 `cluster.capnp` after `task cluster:expand` resolves; in logs; in the
 disclosure endpoint output. Pick a short, descriptive name that reads
-well in those contexts — `lsp`, `lifecycle`, `sheaf` in the LLO vector.
+well in those contexts — e.g. `prefixed-many`, `bare`, `prefixed-
+single` in the synthetic fixture; a real server might use names like
+`lsp`, `lifecycle`, `search`, scoped to that server's domain.
 
 Conformance: two groups in the same `server.json` with the same `name`
 is a spec violation. The resolver SHOULD fail the build with a clear
@@ -102,67 +107,74 @@ advertises `lsp_hover` (not `lsp_lsp_hover`).
 When `advertisedPrefix` is the empty string (the default), tools are
 advertised bare — by their `upstreamNames` entry verbatim. This is the
 right choice when the server's tool names already carry semantic
-meaning operators want to see directly (e.g. `status`, `enrich`,
-`reparse` in the LLO `lifecycle` group).
+meaning operators want to see directly (e.g. `foo`, `bar`, `baz` in
+the fixture's `bare` group, or names like `status`/`enrich`/`reparse`
+in a real lifecycle-style group).
 
 ## Worked examples
 
-### Example 1 — prefixed group (LLO `lsp`)
+These mirror the three groups in `vectors/example-multi-group.json`.
+Real MCP servers will pick names that fit their domain (a code-
+intelligence server might use `lsp`/`lifecycle`/`sheaf`, a database
+server might use `query`/`schema`/`admin`); the structural shapes the
+spec needs to cover are the same.
+
+### Example 1 — prefixed group (fixture `prefixed-many`)
 
 ```json
 {
-  "name": "lsp",
-  "advertisedPrefix": "lsp_",
-  "upstreamNames": ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]
+  "name": "prefixed-many",
+  "advertisedPrefix": "pre_",
+  "upstreamNames": ["pre_alpha", "pre_beta", "pre_gamma", "pre_delta", "pre_epsilon"]
 }
 ```
 
 Resolver behavior:
 
-- Emits one backend with `name = "lsp"`, `handlesPrefix = "lsp_"`,
-  `claims = ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols",
-  "lsp_diagnostics"]`.
-- Advertises five tools to the public face: `lsp_hover`, `lsp_defs`,
-  `lsp_refs`, `lsp_symbols`, `lsp_diagnostics` — verbatim, because
-  every claim already starts with `"lsp_"`.
+- Emits one backend with `name = "prefixed-many"`,
+  `handlesPrefix = "pre_"`, `claims = ["pre_alpha", "pre_beta",
+  "pre_gamma", "pre_delta", "pre_epsilon"]`.
+- Advertises five tools to the public face: `pre_alpha`, `pre_beta`,
+  `pre_gamma`, `pre_delta`, `pre_epsilon` — verbatim, because every
+  claim already starts with `"pre_"`.
 
-### Example 2 — bare-name group (LLO `lifecycle`)
+### Example 2 — bare-name group (fixture `bare`)
 
 ```json
 {
-  "name": "lifecycle",
+  "name": "bare",
   "advertisedPrefix": "",
-  "upstreamNames": ["status", "enrich", "reparse"]
+  "upstreamNames": ["foo", "bar", "baz"]
 }
 ```
 
 Resolver behavior:
 
-- Emits one backend with `name = "lifecycle"`, `handlesPrefix = ""`,
-  `claims = ["status", "enrich", "reparse"]`.
-- Advertises three tools to the public face: `status`, `enrich`,
-  `reparse` — bare names, no prefix.
+- Emits one backend with `name = "bare"`, `handlesPrefix = ""`,
+  `claims = ["foo", "bar", "baz"]`.
+- Advertises three tools to the public face: `foo`, `bar`, `baz` —
+  bare names, no prefix.
 
 `advertisedPrefix` MAY be omitted entirely here; the default `""`
-applies. The LLO vector spells out `"advertisedPrefix": ""` explicitly
+applies. The fixture spells out `"advertisedPrefix": ""` explicitly
 to make the bare-name intent reviewer-visible.
 
-### Example 3 — single-claim group (LLO `sheaf`)
+### Example 3 — single-claim group (fixture `prefixed-single`)
 
 ```json
 {
-  "name": "sheaf",
-  "advertisedPrefix": "sheaf_",
-  "upstreamNames": ["sheaf_set_topology"]
+  "name": "prefixed-single",
+  "advertisedPrefix": "solo_",
+  "upstreamNames": ["solo_only"]
 }
 ```
 
 Resolver behavior:
 
-- Emits one backend with `name = "sheaf"`, `handlesPrefix = "sheaf_"`,
-  `claims = ["sheaf_set_topology"]`.
-- Advertises one tool: `sheaf_set_topology` (verbatim — the single
-  claim already starts with `"sheaf_"`).
+- Emits one backend with `name = "prefixed-single"`,
+  `handlesPrefix = "solo_"`, `claims = ["solo_only"]`.
+- Advertises one tool: `solo_only` (verbatim — the single claim
+  already starts with `"solo_"`).
 
 Single-claim groups are legal. They exist when a server author wants
 the per-backend split (separate identity in the manifest, separate
@@ -205,11 +217,15 @@ A `_meta.art.cloister/v1` block is conformant on this wire when:
 - The block parses as JSON.
 - Every group has non-empty `name` and non-empty `upstreamNames`.
 - `name` is unique within `groups[]`.
-- The block byte-matches `vectors/llo-groups.json` (for the LLO use
-  case specifically) modulo cosmetic whitespace.
+
+The synthetic fixture (`vectors/example-multi-group.json`) byte-
+matches itself modulo cosmetic whitespace; resolver tests use it to
+pin the field-shape contract. Real MCP servers are NOT expected to
+byte-match the fixture — they're expected to satisfy the per-field
+schema above with their own group layout.
 
 Whitespace tolerance: JSON-significant whitespace (between tokens) is
-not load-bearing. Field order within an object SHOULD match the
-canonical vector for reviewer-readability, but JSON object key order
-is not byte-significant for spec conformance — consumers MUST tolerate
-any key order.
+not load-bearing. Field order within an object SHOULD follow the
+fixture for reviewer-readability, but JSON object key order is not
+byte-significant for spec conformance — consumers MUST tolerate any
+key order.
