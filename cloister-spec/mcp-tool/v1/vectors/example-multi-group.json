@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.example/multi-group-fixture",
+  "version": "0.0.0",
+  "description": "Synthetic test fixture exercising cloister-spec/mcp-tool/v1. Not specific to any real MCP server. The three groups below cover the three shapes the spec needs to demonstrate: prefixed-many-claims, bare-name, and prefixed-single-claim. Real MCP servers may carry richer or more domain-specific group layouts; this vector pins the schema, not the use case.",
+  "_meta": {
+    "art.cloister/v1": {
+      "groups": [
+        {
+          "name": "prefixed-many",
+          "advertisedPrefix": "pre_",
+          "upstreamNames": ["pre_alpha", "pre_beta", "pre_gamma", "pre_delta", "pre_epsilon"]
+        },
+        {
+          "name": "bare",
+          "advertisedPrefix": "",
+          "upstreamNames": ["foo", "bar", "baz"]
+        },
+        {
+          "name": "prefixed-single",
+          "advertisedPrefix": "solo_",
+          "upstreamNames": ["solo_only"]
+        }
+      ]
+    }
+  }
+}

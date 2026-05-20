@@ -5,9 +5,13 @@ ADR-0026 in cloister and tracked under `cloister-cb0a47`)
 **Audience:** MCP server authors who want a single upstream server to
 land as multiple cloister-side backends (one per tool group), and the
 substrate-side resolver / second-implementation authors who consume the
-contract. If your `server.json`'s `_meta.art.cloister/v1` block matches
-the vector in `vectors/llo-groups.json` byte-for-byte (modulo cosmetic
-whitespace), you are conformant.
+contract. The fixture in `vectors/example-multi-group.json` is a
+**synthetic test vector** exercising the three structural shapes v1
+needs to cover (prefixed-many, bare-name, prefixed-single); a
+conformant `_meta.art.cloister/v1` block follows the field schema in
+`wire/meta-groups.md` regardless of which real tools it claims.
+Ley-line-open is one downstream consumer of this extension point, not
+its source of truth.
 
 **Non-goals:** v1 does NOT cover dynamic tool discovery (`tools/list`
 diffs at runtime), per-group transport overrides, per-group credential
@@ -98,17 +102,22 @@ This v1 is **CONSUMED BY**:
   reads a resolved `server.json`, walks `_meta.art.cloister/v1.groups`,
   and emits the N backend declarations into the generated manifest.
 - **P4 — LLO `server.json`** (downstream) — the first real MCP server
-  to ship a `_meta.art.cloister/v1` block. LLO's block MUST byte-match
-  `vectors/llo-groups.json` (modulo cosmetic whitespace).
+  to ship a `_meta.art.cloister/v1` block. LLO's block MUST be a valid
+  `_meta.art.cloister/v1` per `wire/meta-groups.md`; the concrete tool
+  names + group layout are LLO's, not this spec's. The fixture under
+  `vectors/example-multi-group.json` is a generic synthetic example,
+  not a copy of what LLO ships.
 
 ## Document map
 
 - `README.md` (this file) — the spec proper.
 - `wire/meta-groups.md` — the per-field schema for `groups[]`, with
   worked examples and the constraint matrix.
-- `vectors/llo-groups.json` — the canonical LLO fixture. Future LLO
-  `server.json` files MUST byte-match this vector (modulo cosmetic
-  whitespace) to be conformant.
+- `vectors/example-multi-group.json` — a synthetic multi-group fixture
+  exercising the three structural shapes (prefixed-many, bare-name,
+  prefixed-single). Used in resolver tests; not specific to any real
+  MCP server. Real `_meta.art.cloister/v1` blocks are conformant when
+  they satisfy the wire schema, not when they byte-match this file.
 
 A ref-impl + CONFORMANCE.md can land later if a second implementation
 surfaces; v1 ships with the spec + the canonical vector only.
@@ -116,31 +125,32 @@ surfaces; v1 ships with the spec + the canonical vector only.
 ## The `_meta.art.cloister/v1` shape (summary; see `wire/meta-groups.md`)
 
 A conformant MCP `server.json` opts in by adding a single block under
-`_meta`:
+`_meta`. The synthetic fixture (`vectors/example-multi-group.json`)
+shows the three structural cases:
 
 ```json
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.agentic-research/ley-line-open",
-  "version": "0.2.0",
-  "description": "...",
+  "name": "io.example/multi-group-fixture",
+  "version": "0.0.0",
+  "description": "Synthetic test fixture exercising cloister-spec/mcp-tool/v1.",
   "_meta": {
     "art.cloister/v1": {
       "groups": [
         {
-          "name": "lsp",
-          "advertisedPrefix": "lsp_",
-          "upstreamNames": ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]
+          "name": "prefixed-many",
+          "advertisedPrefix": "pre_",
+          "upstreamNames": ["pre_alpha", "pre_beta", "pre_gamma", "pre_delta", "pre_epsilon"]
         },
         {
-          "name": "lifecycle",
+          "name": "bare",
           "advertisedPrefix": "",
-          "upstreamNames": ["status", "enrich", "reparse"]
+          "upstreamNames": ["foo", "bar", "baz"]
         },
         {
-          "name": "sheaf",
-          "advertisedPrefix": "sheaf_",
-          "upstreamNames": ["sheaf_set_topology"]
+          "name": "prefixed-single",
+          "advertisedPrefix": "solo_",
+          "upstreamNames": ["solo_only"]
         }
       ]
     }
@@ -215,13 +225,13 @@ accept the fallback's single-backend shape.
 ## Versioning
 
 This is v1. Errata-only changes (README/wire-doc wording fixes that do
-NOT change the byte sequence of `vectors/llo-groups.json` modulo
-cosmetic whitespace) stay in this directory; the README gains an
-errata entry. Breaking changes — adding required fields, renaming
+NOT change the byte sequence of `vectors/example-multi-group.json`
+modulo cosmetic whitespace) stay in this directory; the README gains
+an errata entry. Breaking changes — adding required fields, renaming
 fields, changing the closed-list semantics — require a new directory
 (`cloister-spec/mcp-tool/v2/`) and a new manifest capability name
-(`cloister/mcp-tool/v2`). The vector is the load-bearing truth; prose
-bends to match.
+(`cloister/mcp-tool/v2`). The wire schema (`wire/meta-groups.md`) plus
+the synthetic vector are the load-bearing truth; prose bends to match.
 
 ## Errata + clarifications
 

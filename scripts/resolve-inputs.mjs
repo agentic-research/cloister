@@ -348,7 +348,7 @@ export function rewriteIoGithubOrgSugar(ref) {
 // ── `_meta.art.cloister/v1` parsing (cloister-cb7263, P3 of LLO arc) ────
 //
 // Spec: cloister-spec/mcp-tool/v1/README.md + wire/meta-groups.md.
-// Canonical fixture: cloister-spec/mcp-tool/v1/vectors/llo-groups.json.
+// Canonical fixture: cloister-spec/mcp-tool/v1/vectors/example-multi-group.json.
 //
 // The resolver consumes the `_meta.art.cloister/v1.groups[]` block out
 // of an MCP `server.json` document. Each group becomes one backend
