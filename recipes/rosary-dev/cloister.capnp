@@ -157,24 +157,14 @@ const gateway :Cloister.Gateway = (
             kind = (mcpProxy = (
               urlBinding     = "LLO_MCP_URL",
               serviceBinding = "LSP_MCP",
-              # Schemas in src/tool-schemas/lsp.ts; injected at build time.
-              tools = [
-                ( name = "lsp_hover",
-                  description     = "Position-based LSP hover; resolves (file, line, col) to the node and returns hover text.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_defs",
-                  description     = "Position-based LSP definitions.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_refs",
-                  description     = "Position-based LSP references.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_symbols",
-                  description     = "Document symbols for a file.",
-                  inputSchemaJson = "" ),
-                ( name = "lsp_diagnostics",
-                  description     = "Diagnostics for a file. LLO enriches on demand if the file hasn't been parsed yet.",
-                  inputSchemaJson = "" ),
-              ],
+              # Post cloister-d9347e: LLO is the canonical source of truth
+              # for lsp_* tool names + schemas. Recipe users add
+              # [inputs.llo] to their cluster.toml; resolver fetches LLO's
+              # server.json + _meta.art.cloister/v1.groups; mcp-proxy
+              # filters upstream tools/list by handlesPrefix at runtime
+              # (cloister-8ede3f).
+              tools          = [],
+              dynamicTools   = true,
             )),
           ),
 
