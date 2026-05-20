@@ -4,6 +4,19 @@ Per ADR-0019 ops §1: the helper MUST run under a user-scoped supervisor with
 restart-on-crash + bounded backoff. This directory ships templated units for
 macOS launchd and systemd-user.
 
+> **Naming note.** `leyline-sign-helper` is the cloister-side host signing
+> daemon (this crate's `host`-feature bin target). It is **not**
+> `signet-sign` — that's a separate sibling Rust library crate in the
+> [`signet`](https://github.com/agentic-research/signet) repo at
+> `signet/rs/crates/sign/`. The two crates share a directory path
+> (`rs/crates/sign/`) across the two repos, but they are different
+> crates with different purposes. The protocol name `"leyline"`
+> (no `-sign`, no `-net`) refers to the cloister ↔ companion signed-
+> capnp wire defined by [ADR-0005](../../../docs/adr/0005-internal-wire-leyline-net.md);
+> it is a protocol, not a crate. See
+> [`docs/glossary.md`](../../../docs/glossary.md) for the canonical
+> term definitions and cross-links.
+
 ## macOS (launchd)
 
 ```sh

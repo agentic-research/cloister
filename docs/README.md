@@ -20,6 +20,7 @@ Everything under `docs/` is one of these kinds:
 | [`mcp-seps/`](mcp-seps/) | Internal SEP drafts about the upstream MCP spec. **Not** submissions in flight — design notes for cloister's own framing. |
 | [`research/`](research/) | Design notes + surveys that inform decisions but aren't themselves decisions. |
 | [`tenants/`](tenants/) | Per-tenant docs (one page per backend: `bead-mcp.md`, `mache-mcp.md`, etc.). Drift-gated by `scripts/lint-tenant-docs.mjs`. |
+| [`glossary.md`](glossary.md) | Canonical definitions for terms that get conflated across cloister + sibling repos (e.g. `leyline` vs `leyline-sign` vs `signet-sign`). Add an entry when a name has shown up in more than one place with a different meaning. |
 
 ## If you're trying to...
 
