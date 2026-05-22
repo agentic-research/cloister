@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.cloister.build-cache.v1.config+json",
+    "digest": "sha256:1a8f93c163c836aecae2fd3e33b03644399c0888474e9d7b2c1f61877e8f8c49",
+    "size": 584
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.cloister.build-cache.v1.chunk",
+      "digest": "sha256:bfc7feb1382c50dfc6e389aa9b4c6608ca9a18d004b84b6959c624450da52f6a",
+      "size": 269,
+      "annotations": {
+        "org.cloister.build-cache.kind": "go-source",
+        "org.cloister.build-cache.path": "src/main.go"
+      }
+    },
+    {
+      "mediaType": "application/vnd.cloister.build-cache.v1.chunk",
+      "digest": "sha256:7e14934fd38caee251736be450b9c4e323def4292633aac9167ac7c7681dbc37",
+      "size": 163,
+      "annotations": {
+        "org.cloister.build-cache.kind": "go-source",
+        "org.cloister.build-cache.path": "src/auth.go"
+      }
+    }
+  ],
+  "annotations": {
+    "org.cloister.build-cache.producer": "mache",
+    "org.cloister.build-cache.producer_version": "0.7.1",
+    "org.cloister.build-cache.schema_version": "0.1.0"
+  }
+}
