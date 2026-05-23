@@ -1,0 +1,5 @@
+// GENERATED CHUNK 001 - cloister/build-cache/v1 conformance vector
+// Source: src/main.go, kind=go-source
+// This is faux parse output; real chunks would be capnp-encoded
+// _ast tables from mache. The point of this fixture is the
+// hash chain, not the chunk format.
