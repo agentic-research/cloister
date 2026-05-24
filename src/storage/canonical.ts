@@ -15,6 +15,8 @@
  * The digest is SHA-256 over the canonical bytes, hex-encoded lowercase.
  */
 
+import { blake3 } from "@noble/hashes/blake3.js";
+
 import { type Digest, asDigest } from "./types.js";
 
 export type CanonicalValue =
@@ -39,6 +41,21 @@ export async function digestBytes(bytes: Uint8Array): Promise<Digest> {
 /** Convenience: canonicalize then hash. */
 export async function digestValue(value: CanonicalValue): Promise<Digest> {
   return digestBytes(canonical(value));
+}
+
+/**
+ * BLAKE3-256 of arbitrary bytes, hex-encoded lowercase.
+ *
+ * The build-cache/v1 wire spec reuses the OCI `sha256:` digest prefix,
+ * but the bytes inside are BLAKE3 (per Σ §3.4 — LLO substrate is
+ * BLAKE3-locked). Cloister-as-build-cache-provider needs to verify
+ * uploads against BOTH algorithms: SHA-256 for OCI-native clients
+ * (Docker, ORAS, cosign), BLAKE3 for build-cache/v1 clients like
+ * `mache cache push --remote`. Pure-JS via @noble/hashes — runs in
+ * workerd without requiring crypto.subtle BLAKE3 support.
+ */
+export function blake3HexBytes(bytes: Uint8Array): string {
+  return toHex(blake3(bytes));
 }
 
 // ── internals ──────────────────────────────────────────────────────────────

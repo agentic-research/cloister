@@ -548,3 +548,45 @@ describe("OciRegistryRoute — auth gate (INTERLACE_ROOT_PUBKEY set)", () => {
     expect(body.errors[0]!.code).toBe("BLOB_UNKNOWN");
   });
 });
+
+// ── build-cache/v1 push surface (cloister-4d376e) ──────────────────────
+//
+// Tests cloister's `/v2/` as a build-cache/v1 provider. The build-cache/v1
+// wire spec (cloister-spec/build-cache/v1/README.md §"Digest encoding")
+// reuses the `sha256:` prefix but the bytes inside are BLAKE3. This
+// contradicts cloister's existing DIGEST_INVALID verification, which
+// computes real SHA-256. These tests surface that gap.
+
+import { blake3 } from "@noble/hashes/blake3.js";
+
+function blake3Hex(bytes: Uint8Array): string {
+  const hash = blake3(bytes);
+  return Array.from(hash)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality gap)", () => {
+  const route = new OciRegistryRoute();
+
+  it("POST /v2/<scope>/blobs/uploads/?digest=sha256:<blake3-hex> with body whose BLAKE3 matches", async () => {
+    const payload = new TextEncoder().encode(
+      "build-cache/v1 chunk content — would hash to BLAKE3, not SHA-256",
+    );
+    const wireDigest = "sha256:" + blake3Hex(payload);
+
+    // Per the spec, this SHOULD be accepted (digest claim is the BLAKE3
+    // hex with sha256: prefix; cloister-as-provider needs to honor it).
+    // Today this returns 400 DIGEST_INVALID because cloister verifies
+    // with real SHA-256.
+    const res = await route.handle(
+      mkReq(`/v2/mache/test-repo/abc123/blobs/uploads/?digest=${wireDigest}`, "POST", {
+        body: payload,
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.headers.get("docker-content-digest")).toBe(wireDigest);
+  });
+});

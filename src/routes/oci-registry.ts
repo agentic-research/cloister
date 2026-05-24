@@ -80,7 +80,7 @@
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import { type Digest, asDigest, isDigest } from "../storage/types.js";
-import { digestBytes } from "../storage/canonical.js";
+import { digestBytes, blake3HexBytes } from "../storage/canonical.js";
 import { verifyAndUpsertLease } from "./lease-middleware.js";
 import {
   CaUnavailableError,
@@ -400,22 +400,21 @@ export class OciRegistryRoute implements EdgeRoute {
     // client claims the digest up front. We hash + verify + persist in one
     // shot — no session bookkeeping needed.
     if (claimedDigest !== null) {
-      const parsed = parseSha256Param(claimedDigest);
-      if (parsed === null) {
+      if (parseSha256Param(claimedDigest) === null) {
         return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
       }
       const body = new Uint8Array(await request.arrayBuffer());
-      const computed = await digestBytes(body);
-      if (computed !== parsed) {
+      const verified = await verifyClaimedDigest(body, claimedDigest);
+      if (!verified.ok) {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `digest mismatch: client=${claimedDigest} computed=sha256:${computed}`,
+          `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
         );
       }
       const blob = blobStoreStub(env);
       await blob.put(body);
-      return blobCreatedResponse(name, asDigest(parsed));
+      return blobCreatedResponse(name, asDigest(verified.key));
     }
 
     // Otherwise: open a session. Per the spec, the body MAY contain initial
@@ -494,8 +493,7 @@ export class OciRegistryRoute implements EdgeRoute {
     if (claimedDigest === null) {
       return ociError(400, "DIGEST_INVALID", "finalize PUT requires ?digest=sha256:<hex>");
     }
-    const parsed = parseSha256Param(claimedDigest);
-    if (parsed === null) {
+    if (parseSha256Param(claimedDigest) === null) {
       return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
     }
 
@@ -507,10 +505,11 @@ export class OciRegistryRoute implements EdgeRoute {
       sess.size += trailing.byteLength;
     }
 
-    // Concat → hash → verify.
+    // Concat → hash → verify (SHA-256 fast path, BLAKE3 fallback per
+    // build-cache/v1 wire compatibility — see verifyClaimedDigest doc).
     const full = concatChunks(sess.chunks, sess.size);
-    const computed = await digestBytes(full);
-    if (computed !== parsed) {
+    const verified = await verifyClaimedDigest(full, claimedDigest);
+    if (!verified.ok) {
       // Don't drop the session — let the client retry the finalize (it
       // may have sent the wrong digest claim against the right bytes,
       // or vice versa). The OCI spec doesn't require we keep it, but
@@ -518,9 +517,10 @@ export class OciRegistryRoute implements EdgeRoute {
       return ociError(
         400,
         "DIGEST_INVALID",
-        `digest mismatch: client=${claimedDigest} computed=sha256:${computed}`,
+        `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
       );
     }
+    const parsed = verified.key;
 
     const blob = blobStoreStub(env);
     await blob.put(full);
@@ -841,6 +841,43 @@ function parseSha256Param(value: string): string | null {
   if (!value.startsWith("sha256:")) return null;
   const hex = value.slice("sha256:".length);
   return isDigest(hex) ? hex : null;
+}
+
+/**
+ * Verify a client's claimed digest against the body. Returns `ok: true`
+ * if the body hashes to the claimed hex under SHA-256 OR BLAKE3.
+ *
+ * The BLAKE3 fallback exists for build-cache/v1 wire compatibility
+ * (cloister-spec/build-cache/v1/README.md §"Digest encoding" reuses
+ * `sha256:` prefix for BLAKE3 hex). cloister-as-build-cache-provider
+ * needs to accept either; existing OCI-native clients (Docker, ORAS,
+ * cosign) hit the SHA-256 fast-path and never pay BLAKE3 compute.
+ *
+ * Returns `ok: false` with both computed hashes in the error payload
+ * so the client diagnostic names what cloister actually saw.
+ *
+ * Cryptographic argument: a collision in either SHA-256 or BLAKE3 is
+ * infeasible under current adversary budgets. A client that claims
+ * `sha256:<X>` and whose body hashes to X under either algorithm is
+ * either honest or has broken cryptography; either way, the substrate
+ * accepts the bytes as-claimed.
+ */
+async function verifyClaimedDigest(
+  body: Uint8Array,
+  claimedDigest: string,
+): Promise<
+  | { ok: true; key: string }
+  | { ok: false; sha256: string; blake3: string }
+> {
+  const parsed = parseSha256Param(claimedDigest);
+  if (parsed === null) {
+    return { ok: false, sha256: "?invalid-claim?", blake3: "?invalid-claim?" };
+  }
+  const sha256 = await digestBytes(body);
+  if (sha256 === parsed) return { ok: true, key: parsed };
+  const blake3 = blake3HexBytes(body);
+  if (blake3 === parsed) return { ok: true, key: parsed };
+  return { ok: false, sha256, blake3 };
 }
 
 /**
