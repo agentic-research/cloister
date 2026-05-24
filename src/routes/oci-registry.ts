@@ -187,12 +187,78 @@ interface UploadSession {
 
 // ── Public route ──────────────────────────────────────────────────────────
 
+/**
+ * Default upper bound on push body bytes. 256 MiB — chosen so that
+ * realistic mache `.db` chunks and OCI image layers fit comfortably,
+ * while a single push cannot exhaust workerd's per-isolate heap budget.
+ * Override per-instance via `new OciRegistryRoute({ maxBlobBytes })`
+ * or per-deployment via the bundle manifest once the env-binding
+ * surface lands.
+ *
+ * Adversarial review of cloister-667ea6 (dos-resilience-auditor)
+ * flagged the unbounded `arrayBuffer()` calls on every push verb as
+ * a cross-tenant memory-exhaustion vector — the cap closes that.
+ */
+export const DEFAULT_MAX_BLOB_BYTES = 256 * 1024 * 1024;
+
+export interface OciRegistryRouteOptions {
+  /** Maximum push body size in bytes. Defaults to DEFAULT_MAX_BLOB_BYTES. */
+  maxBlobBytes?: number;
+}
+
 export class OciRegistryRoute implements EdgeRoute {
   /**
    * Open upload sessions, keyed by an ephemeral UUID. Instance-local.
    * Cleared when the worker isolate restarts.
    */
   private readonly uploads = new Map<string, UploadSession>();
+
+  private readonly maxBlobBytes: number;
+
+  constructor(options: OciRegistryRouteOptions = {}) {
+    this.maxBlobBytes = options.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
+  }
+
+  /**
+   * Cheap-reject if the client's Content-Length header (if present and
+   * parseable) declares a body larger than the cap. Returns null when
+   * the request is within budget, or a 413 response when it isn't.
+   *
+   * This is the FAST PATH — rejects before `arrayBuffer()` is called,
+   * so the isolate never allocates the over-size body. Callers MUST
+   * still check actual size after buffering (sizeExceedsCap) in case
+   * the client omitted/spoofed Content-Length.
+   */
+  private checkContentLengthHeader(request: Request): Response | null {
+    const cl = request.headers.get("content-length");
+    if (cl === null) return null;
+    const declared = Number.parseInt(cl, 10);
+    if (!Number.isFinite(declared) || declared < 0) return null;
+    if (declared > this.maxBlobBytes) {
+      return ociError(
+        413,
+        "SIZE_INVALID",
+        `body of ${declared} bytes exceeds maxBlobBytes=${this.maxBlobBytes}`,
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Post-buffering check — catches clients that omit Content-Length
+   * or send a body larger than declared. Returns null when the size
+   * fits, or a 413 response when it doesn't.
+   */
+  private checkActualSize(actualBytes: number): Response | null {
+    if (actualBytes > this.maxBlobBytes) {
+      return ociError(
+        413,
+        "SIZE_INVALID",
+        `body of ${actualBytes} bytes exceeds maxBlobBytes=${this.maxBlobBytes}`,
+      );
+    }
+    return null;
+  }
 
   match(request: Request): boolean {
     const m = request.method;
@@ -403,7 +469,11 @@ export class OciRegistryRoute implements EdgeRoute {
       if (parseSha256Param(claimedDigest) === null) {
         return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
       }
+      const clReject = this.checkContentLengthHeader(request);
+      if (clReject !== null) return clReject;
       const body = new Uint8Array(await request.arrayBuffer());
+      const sizeReject = this.checkActualSize(body.byteLength);
+      if (sizeReject !== null) return sizeReject;
       const verified = await verifyClaimedDigest(body, claimedDigest);
       if (!verified.ok) {
         return ociError(
@@ -420,9 +490,13 @@ export class OciRegistryRoute implements EdgeRoute {
     // Otherwise: open a session. Per the spec, the body MAY contain initial
     // bytes (rare in practice — most clients send an empty POST, then one
     // or more PATCHes). We accept either.
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const uuid = newUploadId();
     const seed = await request.arrayBuffer();
     const seedBytes = new Uint8Array(seed);
+    const sizeReject = this.checkActualSize(seedBytes.byteLength);
+    if (sizeReject !== null) return sizeReject;
     this.uploads.set(uuid, {
       name,
       chunks: seedBytes.byteLength > 0 ? [seedBytes] : [],
@@ -456,7 +530,14 @@ export class OciRegistryRoute implements EdgeRoute {
     if (sess === undefined || sess.name !== name) {
       return ociError(404, "BLOB_UPLOAD_UNKNOWN", `upload not found: ${uuid}`);
     }
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const chunk = new Uint8Array(await request.arrayBuffer());
+    // Cumulative size check: this chunk PLUS already-accumulated session
+    // bytes must fit under the cap. Catches clients that pace small
+    // PATCHes to grow the session past the cap incrementally.
+    const sizeReject = this.checkActualSize(sess.size + chunk.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (chunk.byteLength > 0) {
       sess.chunks.push(chunk);
       sess.size += chunk.byteLength;
@@ -499,7 +580,13 @@ export class OciRegistryRoute implements EdgeRoute {
 
     // Append any trailing body — some clients (older docker) ship the
     // final chunk on the PUT itself rather than via a separate PATCH.
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const trailing = new Uint8Array(await request.arrayBuffer());
+    // Cumulative session bytes (previously accumulated + this trailing)
+    // must fit under the cap.
+    const sizeReject = this.checkActualSize(sess.size + trailing.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (trailing.byteLength > 0) {
       sess.chunks.push(trailing);
       sess.size += trailing.byteLength;
@@ -550,7 +637,11 @@ export class OciRegistryRoute implements EdgeRoute {
     const authResult = await this.gateWrite(request, env, name);
     if (authResult !== null) return authResult;
 
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const body = new Uint8Array(await request.arrayBuffer());
+    const sizeReject = this.checkActualSize(body.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (body.byteLength === 0) {
       return ociError(400, "MANIFEST_INVALID", "empty manifest body");
     }

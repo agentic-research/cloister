@@ -590,3 +590,108 @@ describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality
     expect(res.headers.get("docker-content-digest")).toBe(wireDigest);
   });
 });
+
+// ── Body-size cap (cloister: post-conformance hardening) ──────────────────
+//
+// PR #84's conformance harness proved the wire correctness. This describe
+// block covers the substrate-hardening surface — push paths MUST enforce
+// an upper bound on body bytes to defend against memory-exhaustion attacks
+// against the shared isolate. See cloister-667ea6 adversarial review
+// (dos-resilience-auditor) for the threat model.
+
+describe("OciRegistryRoute — body-size cap (push paths)", () => {
+  const CAP = 1024; // 1KiB — small enough to test without ballooning memory.
+
+  it("monolithic POST with body > cap returns 413 PAYLOAD_TOO_LARGE", async () => {
+    const route   = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const payload = new Uint8Array(CAP + 1); // 1 byte over
+    payload.fill(0x61); // ASCII 'a'
+    const digest  = await sha256Hex(payload);
+
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=sha256:${digest}`, "POST", { body: payload }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+    expect(body.errors[0].message).toContain(String(CAP));
+  });
+
+  it("monolithic POST with Content-Length header > cap returns 413 (without buffering)", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    // Small actual body but Content-Length claims big — the cheap check
+    // rejects on the header alone without paying arrayBuffer().
+    const tiny = new Uint8Array(10);
+    const digest = await sha256Hex(tiny);
+
+    const res = await route.handle(
+      new Request(`http://x/v2/notme/blobs/uploads/?digest=sha256:${digest}`, {
+        method: "POST",
+        body: tiny,
+        headers: { "content-length": String(CAP + 1) },
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("chunked upload PATCH accumulating > cap returns 413", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+
+    // Begin a chunked upload.
+    const begin = await route.handle(mkReq("/v2/notme/blobs/uploads/", "POST"), env);
+    expect(begin.status).toBe(202);
+    const loc = begin.headers.get("location")!;
+
+    // First PATCH fits.
+    const half1 = new Uint8Array(CAP / 2);
+    half1.fill(0x62);
+    const p1 = await route.handle(mkReq(loc, "PATCH", { body: half1 }), env);
+    expect(p1.status).toBe(202);
+
+    // Second PATCH would push cumulative over cap.
+    const half2over = new Uint8Array(CAP / 2 + 1);
+    half2over.fill(0x63);
+    const p2 = await route.handle(mkReq(loc, "PATCH", { body: half2over }), env);
+    expect(p2.status).toBe(413);
+    const body = await p2.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("manifest PUT with body > cap returns 413", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const oversize = new Uint8Array(CAP + 1);
+    oversize.fill(0x7b); // '{' — start of JSON, harmless for size check
+
+    const res = await route.handle(
+      mkReq("/v2/notme/manifests/v0", "PUT", {
+        body: oversize,
+        headers: { "content-type": "application/vnd.oci.image.manifest.v1+json" },
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("body exactly at cap is accepted (boundary — 201)", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const atCap = new Uint8Array(CAP);
+    atCap.fill(0x64);
+    const digest = await sha256Hex(atCap);
+
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=sha256:${digest}`, "POST", { body: atCap }),
+      env,
+    );
+
+    expect(res.status).toBe(201);
+  });
+});
