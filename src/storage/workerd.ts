@@ -14,7 +14,7 @@
  * isolation, or future per-namespace storage in a single bead DO).
  */
 
-import { digestBytes } from "./canonical.js";
+import { digestBytes, blake3HexBytes } from "./canonical.js";
 import {
   type BlobStore,
   type Digest,
@@ -72,7 +72,31 @@ export class WorkerdBlobStore implements BlobStore {
   }
 
   async put(bytes: Uint8Array, key?: Digest): Promise<Digest> {
-    const d = key ?? (await digestBytes(bytes));
+    let d: Digest;
+    if (key === undefined) {
+      // Default content-addressed path: substrate computes SHA-256.
+      d = await digestBytes(bytes);
+    } else {
+      // Caller-provided-key path (build-cache/v1 — see BlobStore interface
+      // doc and cloister-spec/build-cache/v1/README.md §"Digest encoding").
+      // Substrate re-verifies the body matches the key under SHA-256 OR
+      // BLAKE3 — defense-in-depth so a future contributor adding a put-
+      // with-key call site CAN'T accidentally store under an unverified
+      // key. Filed as cloister-7e631b after adversarial review of #84.
+      const sha = await digestBytes(bytes);
+      if (sha === key) {
+        d = key;
+      } else {
+        const blake = blake3HexBytes(bytes);
+        if (blake !== key) {
+          throw new Error(
+            `BlobStore.put: digest mismatch — key=${key} ` +
+              `sha256(body)=${sha} blake3(body)=${blake}`,
+          );
+        }
+        d = key;
+      }
+    }
     // INSERT OR IGNORE — put is idempotent; same digest → no duplicate row.
     // We don't care about rowcount here; idempotency is the contract, not a
     // signal to the caller.
