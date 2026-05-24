@@ -71,8 +71,8 @@ export class WorkerdBlobStore implements BlobStore {
     );
   }
 
-  async put(bytes: Uint8Array): Promise<Digest> {
-    const d = await digestBytes(bytes);
+  async put(bytes: Uint8Array, key?: Digest): Promise<Digest> {
+    const d = key ?? (await digestBytes(bytes));
     // INSERT OR IGNORE — put is idempotent; same digest → no duplicate row.
     // We don't care about rowcount here; idempotency is the contract, not a
     // signal to the caller.

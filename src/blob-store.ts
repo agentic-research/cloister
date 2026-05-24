@@ -100,7 +100,7 @@ export class BlobStore extends DurableObject {
    * exactly the bytes it was handed. That keeps the digest-to-bytes map
    * one-to-one and lets callers verify offline.
    */
-  async put(bytes: Uint8Array): Promise<Digest> {
+  async put(bytes: Uint8Array, key?: Digest): Promise<Digest> {
     // TEST-ONLY fault-injection seam (cloister-3dd355). The check is
     // inert in production: `globalThis.__cloisterTestFaults` is
     // `undefined` outside of cross-DO-recovery tests. See the
@@ -117,7 +117,7 @@ export class BlobStore extends DurableObject {
     if (checkAndConsumeFault("blobStorePut")) {
       return BLOB_PUT_FAULT_DIGEST;
     }
-    return this.inner.put(bytes);
+    return this.inner.put(bytes, key);
   }
 
   /** Read bytes by digest, or null if absent. */
