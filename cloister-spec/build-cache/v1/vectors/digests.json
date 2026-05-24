@@ -1,0 +1,34 @@
+{
+  "$comment": "cloister/build-cache/v1 conformance vector digests. blake3_hex matches the on-the-wire sha256:<hex> per the v1 digest-encoding decision; sha256_hex is the real SHA-256 for ecosystem-tools sidechannel (commit gates, git LFS, etc.). Both are over the file's bytes verbatim.",
+  "version": "cloister/build-cache/v1",
+  "manifest": {
+    "blake3_hex": "8c93ee7314cecf98a6dd04cbf7c38de1094720e36f1efd1316ec750b07e4b0d0",
+    "sha256_hex": "81ddf65f085e739f84ba7e401983387dd31fbd9262641d009c8f741c125fcd47",
+    "size": 1149
+  },
+  "lockfile_config": {
+    "blake3_hex": "1a8f93c163c836aecae2fd3e33b03644399c0888474e9d7b2c1f61877e8f8c49",
+    "sha256_hex": "2b099996d95901c97093f31b916169c1586eec9d7838d784ad395ae8c98bb6cb",
+    "size": 584
+  },
+  "chunks": [
+    {
+      "file": "chunk-001.bin",
+      "source_path": "src/main.go",
+      "kind": "go-source",
+      "chunk_blake3_hex": "bfc7feb1382c50dfc6e389aa9b4c6608ca9a18d004b84b6959c624450da52f6a",
+      "chunk_sha256_hex": "2a01fb8ef41e527a39d689b10eef44e1a73288f9c1e9effea691a94f040f6b90",
+      "input_blake3_hex": "c7595a1d4249635527deb2a9db6b2e9b4dc33c946a930f904eb5dafd7ca9ff48",
+      "chunk_size": 269
+    },
+    {
+      "file": "chunk-002.bin",
+      "source_path": "src/auth.go",
+      "kind": "go-source",
+      "chunk_blake3_hex": "7e14934fd38caee251736be450b9c4e323def4292633aac9167ac7c7681dbc37",
+      "chunk_sha256_hex": "3105b405d91e04f3b7e0fa05683cebabfa814f470af6c25ff6e9a1e213b37680",
+      "input_blake3_hex": "0e6e4a0d20a5820aef5e07cd2eeceae8170348c076a2eb3579e3223c45b2f81c",
+      "chunk_size": 163
+    }
+  ]
+}
