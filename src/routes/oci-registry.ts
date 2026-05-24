@@ -479,7 +479,7 @@ export class OciRegistryRoute implements EdgeRoute {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
+          `digest mismatch: client=${claimedDigest} body matches neither sha256 nor blake3`,
         );
       }
       const blob = blobStoreStub(env);
@@ -604,7 +604,7 @@ export class OciRegistryRoute implements EdgeRoute {
       return ociError(
         400,
         "DIGEST_INVALID",
-        `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
+        `digest mismatch: client=${claimedDigest} body matches neither sha256 nor blake3`,
       );
     }
     const parsed = verified.key;
@@ -659,7 +659,7 @@ export class OciRegistryRoute implements EdgeRoute {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `manifest digest mismatch: ref=${reference} sha256=${verified.sha256} blake3=${verified.blake3}`,
+          `manifest digest mismatch: ref=${reference} body matches neither sha256 nor blake3`,
         );
       }
       storageKey = verified.key;
@@ -680,7 +680,7 @@ export class OciRegistryRoute implements EdgeRoute {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `header digest mismatch: header=${headerDigest} sha256=${headerVerified.sha256} blake3=${headerVerified.blake3}`,
+          `header digest mismatch: header=${headerDigest} body matches neither sha256 nor blake3`,
         );
       }
     }
