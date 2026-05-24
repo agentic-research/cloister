@@ -695,3 +695,89 @@ describe("OciRegistryRoute — body-size cap (push paths)", () => {
     expect(res.status).toBe(201);
   });
 });
+
+// ── DIGEST_INVALID error shape — no hash disclosure (cloister-667ea6 P2) ──
+//
+// Adversarial review (enumeration-oracle-hunter, dos-resilience-auditor)
+// flagged that DIGEST_INVALID error responses included BOTH the computed
+// sha256= and blake3= hashes of the client-posted body — turning cloister
+// into a free hash-as-a-service oracle. The error MUST still tell the
+// client *which algorithm checks ran* so diagnostics aren't useless, but
+// MUST NOT leak the hex values themselves.
+
+describe("OciRegistryRoute — DIGEST_INVALID error shape (no hash disclosure)", () => {
+  const route = new OciRegistryRoute();
+  const HEX_64 = /\b[0-9a-f]{64}\b/g;
+
+  // Helper: assert the error body mentions sha256 + blake3 (so the client
+  // knows what was checked) but does NOT contain a bare 64-hex digest
+  // OTHER than the client's own claim (echoing the claim is fine — they
+  // already know it).
+  async function assertNoHashLeak(res: Response, clientClaim: string) {
+    expect(res.status).toBe(400);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("DIGEST_INVALID");
+    const msg = body.errors[0].message;
+    // Algorithm names MUST be present.
+    expect(msg.toLowerCase()).toContain("sha256");
+    expect(msg.toLowerCase()).toContain("blake3");
+    // Strip the client's claim before scanning — echoing it is OK.
+    const claimHex = clientClaim.startsWith("sha256:") ? clientClaim.slice(7) : "";
+    const stripped = claimHex ? msg.replaceAll(claimHex, "") : msg;
+    const leaked = stripped.match(HEX_64) ?? [];
+    expect(leaked).toEqual([]); // no other 64-hex strings = no body-hash leak
+  }
+
+  it("monolithic POST with mismatched digest does not leak computed hash", async () => {
+    const payload = new TextEncoder().encode("attacker-chosen-bytes-for-hash-oracle-probe");
+    const wrongClaim = "sha256:" + "0".repeat(64);
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=${wrongClaim}`, "POST", { body: payload }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongClaim);
+  });
+
+  it("chunked PUT finalize with mismatched digest does not leak computed hash", async () => {
+    const begin = await route.handle(mkReq("/v2/notme/blobs/uploads/", "POST"), env);
+    const loc = begin.headers.get("location")!;
+    const payload = new TextEncoder().encode("attacker-bytes-for-finalize-oracle");
+    await route.handle(mkReq(loc, "PATCH", { body: payload }), env);
+    const wrongClaim = "sha256:" + "1".repeat(64);
+    const fin = await route.handle(
+      mkReq(`${loc}?digest=${wrongClaim}`, "PUT"), env,
+    );
+    await assertNoHashLeak(fin, wrongClaim);
+  });
+
+  it("manifest PUT by digest with mismatched ref does not leak computed hash", async () => {
+    const payload = new TextEncoder().encode(JSON.stringify({ probe: "oracle" }));
+    const wrongRef = "sha256:" + "2".repeat(64);
+    const res = await route.handle(
+      mkReq(`/v2/notme/manifests/${wrongRef}`, "PUT", {
+        body: payload,
+        headers: { "content-type": "application/vnd.oci.image.manifest.v1+json" },
+      }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongRef);
+  });
+
+  it("manifest PUT with Docker-Content-Digest header mismatch does not leak", async () => {
+    // Manifest pushed by tag (reference is a tag, not a digest) but with
+    // a wrong Docker-Content-Digest header — exercises the header-mismatch path.
+    const payload = new TextEncoder().encode(JSON.stringify({ schemaVersion: 2 }));
+    const wrongHeader = "sha256:" + "3".repeat(64);
+    const res = await route.handle(
+      mkReq("/v2/notme/manifests/v9", "PUT", {
+        body: payload,
+        headers: {
+          "content-type": "application/vnd.oci.image.manifest.v1+json",
+          "docker-content-digest": wrongHeader,
+        },
+      }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongHeader);
+  });
+});
