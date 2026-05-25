@@ -24,6 +24,13 @@ interface TrustStoreRegistryRpc {
   ): Promise<void>;
   getRegistryManifestDigestForTag(repo: string, tag: string): Promise<string | null>;
   listRegistryTagsForRepo(repo: string): Promise<string[]>;
+  hasRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+  ): Promise<boolean>;
+  recordRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+    nowMs: number, peerFp?: string | null,
+  ): Promise<void>;
 }
 
 function blobStoreStub() {
@@ -382,11 +389,14 @@ describe("OciRegistryRoute — manifest PUT", () => {
 
     const cur = await trustStoreStub().getRegistryManifestDigestForTag("notme", "latest");
     expect(cur).toBe(`sha256:${digB}`);
-    // Both blobs still readable by digest (BlobStore is idempotent +
-    // additive).
-    const pullA = await route.handle(mkReq(`/v2/notme/blobs/sha256:${digA}`, "GET"), env);
+    // Both manifests still readable by digest (BlobStore is idempotent +
+    // additive). Pulled via /manifests/ since that's where they were
+    // pushed — ADR-0029 per-repo membership is kind-scoped, so a
+    // manifest PUT does not grant blob-kind membership on the same bytes
+    // (and shouldn't — OCI's pull surface separates the two).
+    const pullA = await route.handle(mkReq(`/v2/notme/manifests/sha256:${digA}`, "GET"), env);
     expect(pullA.status).toBe(200);
-    const pullB = await route.handle(mkReq(`/v2/notme/blobs/sha256:${digB}`, "GET"), env);
+    const pullB = await route.handle(mkReq(`/v2/notme/manifests/sha256:${digB}`, "GET"), env);
     expect(pullB.status).toBe(200);
   });
 });

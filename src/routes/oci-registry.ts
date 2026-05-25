@@ -160,6 +160,16 @@ interface TrustStoreRpc {
   upsertRegistryTag(
     repo: string, tag: string, manifestDigest: string, nowMs: number,
   ): Promise<void>;
+  // ADR-0029 (cloister-7c0a0b): per-repo blob/manifest membership index.
+  // hasRegistryMembership gates pull paths; recordRegistryMembership
+  // is written on every successful push.
+  hasRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+  ): Promise<boolean>;
+  recordRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+    nowMs: number, peerFp?: string | null,
+  ): Promise<void>;
 }
 
 // ── Upload sessions (Phase 2) ─────────────────────────────────────────────
@@ -383,6 +393,17 @@ export class OciRegistryRoute implements EdgeRoute {
           manifestDigest = asDigest(hex);
         }
 
+        // ADR-0029 pull-gate: consult per-repo membership BEFORE
+        // BlobStore.get/has. A `false` return collapses to the same
+        // constant-shape 404 a non-existent manifest would produce —
+        // the response body is byte-identical so an attacker probing
+        // cross-tenant namespace cannot distinguish "exists but not
+        // yours" from "doesn't exist anywhere" (§9.4 / ADR-0024).
+        const trustForRead = trustStoreStub(env);
+        const memberOK = await trustForRead.hasRegistryMembership(name, manifestDigest, "manifest");
+        if (!memberOK) {
+          return ociError(404, "MANIFEST_UNKNOWN", `manifest unknown: ${reference}`);
+        }
         const blob = blobStoreStub(env);
         if (isHead) {
           const exists = await blob.has(manifestDigest);
@@ -416,6 +437,13 @@ export class OciRegistryRoute implements EdgeRoute {
           return ociError(404, "BLOB_UNKNOWN", `blob unknown: ${digest}`);
         }
         const d = asDigest(hex);
+        // ADR-0029 pull-gate — see manifest pull above for rationale.
+        // Cross-tenant blob probes return constant-shape BLOB_UNKNOWN.
+        const trustForRead = trustStoreStub(env);
+        const memberOK = await trustForRead.hasRegistryMembership(name, d, "blob");
+        if (!memberOK) {
+          return ociError(404, "BLOB_UNKNOWN", `blob unknown: ${digest}`);
+        }
         const blob = blobStoreStub(env);
         if (isHead) {
           const exists = await blob.has(d);
@@ -484,6 +512,12 @@ export class OciRegistryRoute implements EdgeRoute {
       }
       const blob = blobStoreStub(env);
       await blob.put(body, asDigest(verified.key));
+      // ADR-0029 push-record: write per-repo membership so the
+      // subsequent pull (or any tenant's pull of the same digest)
+      // is gated correctly. Same ordering as the §"BlobStore.put
+      // first, then index" discipline from ADR-0012.
+      const trust = trustStoreStub(env);
+      await trust.recordRegistryMembership(name, verified.key, "blob", Date.now());
       return blobCreatedResponse(name, asDigest(verified.key));
     }
 
@@ -611,6 +645,9 @@ export class OciRegistryRoute implements EdgeRoute {
 
     const blob = blobStoreStub(env);
     await blob.put(full, asDigest(parsed));
+    // ADR-0029 push-record — see handleUploadBegin for rationale.
+    const trust = trustStoreStub(env);
+    await trust.recordRegistryMembership(name, parsed, "blob", Date.now());
     this.uploads.delete(uuid);
     return blobCreatedResponse(name, asDigest(parsed));
   }
@@ -691,6 +728,9 @@ export class OciRegistryRoute implements EdgeRoute {
     const blob  = blobStoreStub(env);
     const trust = trustStoreStub(env);
     await blob.put(body, asDigest(storageKey));
+    // ADR-0029 push-record: write per-repo membership so the manifest
+    // pull (this repo's, any tenant's) goes through the gate.
+    await trust.recordRegistryMembership(name, storageKey, "manifest", Date.now());
     if (!reference.startsWith("sha256:")) {
       await trust.upsertRegistryTag(name, reference, storageRef, Date.now());
     }
