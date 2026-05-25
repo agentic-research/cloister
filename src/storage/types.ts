@@ -36,10 +36,22 @@ export function asDigest(hex: string): Digest {
 
 export interface BlobStore {
   /**
-   * Write bytes; returns their digest. Idempotent: putting identical bytes
-   * twice yields the same Digest and is a no-op the second time.
+   * Write bytes; returns the storage key.
+   *
+   * Default behavior (`key` omitted): compute SHA-256 of `bytes` and store
+   * under that key — the substrate is content-addressed. Idempotent: putting
+   * identical bytes twice yields the same Digest and is a no-op the second
+   * time.
+   *
+   * Override (`key` provided): store under the caller-provided key. Used by
+   * the OCI registry route to honor the BLAKE3-in-`sha256:` convention from
+   * `cloister-spec/build-cache/v1` — the route has already verified the body
+   * matches the key under either SHA-256 or BLAKE3 via
+   * `verifyClaimedDigest()`, so the substrate's content-addressed invariant
+   * holds under the union "key is SHA-256 OR BLAKE3 of the bytes." Callers
+   * that pass a `key` are responsible for that verification.
    */
-  put(bytes: Uint8Array): Promise<Digest>;
+  put(bytes: Uint8Array, key?: Digest): Promise<Digest>;
 
   /** Read bytes by digest, or null if not present. */
   get(digest: Digest): Promise<Uint8Array | null>;
