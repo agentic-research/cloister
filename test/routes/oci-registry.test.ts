@@ -26,6 +26,17 @@ interface TrustStoreRegistryRpc {
   getRegistryManifestDigestForTag(repo: string, tag: string): Promise<string | null>;
   listRegistryTagsForRepo(repo: string): Promise<string[]>;
   listRegistryRepos(): Promise<string[]>;
+  // ADR-0029 (cloister-7c0a0b): the OCI pull route consults this.
+  // Tests that pre-populate BlobStore directly (bypassing the push
+  // route) MUST also write membership, otherwise the new pull-gate
+  // returns 404.
+  hasRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+  ): Promise<boolean>;
+  recordRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+    nowMs: number, peerFp?: string | null,
+  ): Promise<void>;
 }
 
 function blobStoreStub() {
@@ -227,6 +238,7 @@ describe("OciRegistryRoute — manifest pull", () => {
     const digest = await blob.put(manifestBytes);
     const trust  = trustStoreStub();
     await trust.upsertRegistryTag("notme", "0.1.0", "sha256:" + digest, 1_000);
+    await trust.recordRegistryMembership("notme", digest, "manifest", 1_000);
 
     const res = await route.handle(makeReq("/v2/notme/manifests/0.1.0"), env);
     expect(res.status).toBe(200);
@@ -246,6 +258,8 @@ describe("OciRegistryRoute — manifest pull", () => {
     );
     const blob   = blobStoreStub();
     const digest = await blob.put(bytes);
+    const trust  = trustStoreStub();
+    await trust.recordRegistryMembership("notme", digest, "manifest", 1_000);
 
     const res = await route.handle(
       makeReq(`/v2/notme/manifests/sha256:${digest}`),
@@ -263,6 +277,7 @@ describe("OciRegistryRoute — manifest pull", () => {
     const digest = await blob.put(bytes);
     const trust  = trustStoreStub();
     await trust.upsertRegistryTag("notme", "latest", "sha256:" + digest, 1_000);
+    await trust.recordRegistryMembership("notme", digest, "manifest", 1_000);
 
     const res = await route.handle(makeReq("/v2/notme/manifests/latest", "HEAD"), env);
     expect(res.status).toBe(200);
@@ -275,6 +290,8 @@ describe("OciRegistryRoute — manifest pull", () => {
     const bytes  = new TextEncoder().encode("not-json-bytes");
     const blob   = blobStoreStub();
     const digest = await blob.put(bytes);
+    const trust  = trustStoreStub();
+    await trust.recordRegistryMembership("x", digest, "manifest", 1_000);
 
     const res = await route.handle(
       makeReq(`/v2/x/manifests/sha256:${digest}`),
@@ -324,6 +341,8 @@ describe("OciRegistryRoute — blob pull", () => {
 
     const blob   = blobStoreStub();
     const digest = await blob.put(payload);
+    const trust  = trustStoreStub();
+    await trust.recordRegistryMembership("cloister", digest, "blob", 1_000);
 
     const res = await route.handle(
       makeReq(`/v2/cloister/blobs/sha256:${digest}`),
@@ -344,6 +363,8 @@ describe("OciRegistryRoute — blob pull", () => {
   it("HEAD returns 200 + content headers when blob exists", async () => {
     const blob   = blobStoreStub();
     const digest = await blob.put(new TextEncoder().encode("head-blob"));
+    const trust  = trustStoreStub();
+    await trust.recordRegistryMembership("cloister", digest, "blob", 1_000);
     const res    = await route.handle(
       makeReq(`/v2/cloister/blobs/sha256:${digest}`, "HEAD"),
       env,

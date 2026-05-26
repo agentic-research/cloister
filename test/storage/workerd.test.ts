@@ -198,3 +198,64 @@ describe("WorkerdRefStore", () => {
   });
 });
 
+
+// ── WorkerdBlobStore — caller-provided key verification (cloister-7e631b) ──
+//
+// PR #84 added `put(bytes, key?)` so the OCI route could honor the
+// build-cache/v1 BLAKE3-in-`sha256:` wire (key is BLAKE3 of body, not
+// SHA-256). All current callers verify body-against-key BEFORE calling put,
+// but that moves the content-addressed invariant from substrate-enforced to
+// caller-discipline — a future contributor could add a put-with-key site
+// without verification. cloister-7e631b restores the substrate-side
+// guarantee: put now re-verifies the body matches the key under SHA-256 OR
+// BLAKE3 when a key is provided. Adversarial review (bundle-isolation +
+// trust-root) flagged this as the right defense-in-depth seam.
+
+describe("WorkerdBlobStore — caller-provided key verification (cloister-7e631b)", () => {
+  it("put(bytes, sha256-of-bytes) accepts (default content-addressed path)", async () => {
+    const stub = freshStub();
+    const d = await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "v1");
+      const bytes = enc("substrate-verified-sha256");
+      const sha = await digestBytes(bytes);
+      return await blobs.put(bytes, sha);
+    });
+    expect(isDigest(d)).toBe(true);
+  });
+
+  it("put(bytes, blake3-of-bytes) accepts (build-cache/v1 path)", async () => {
+    // Use a known fixture: chunk-001.bin's BLAKE3 from cloister-spec.
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "v2");
+      const { blake3 } = await import("@noble/hashes/blake3.js");
+      const bytes = enc("substrate-verified-blake3");
+      const blake3Hex = Array.from(blake3(bytes))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      // Body's SHA-256 will NOT match this key — substrate must fall back
+      // to BLAKE3, find a match, and accept.
+      const d = await blobs.put(bytes, asDigest(blake3Hex));
+      expect(d).toBe(blake3Hex);
+    });
+  });
+
+  it("put(bytes, wrong-key) throws — substrate refuses to store under unverified key", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "v3");
+      const bytes = enc("real-bytes");
+      const wrongKey = asDigest("0".repeat(64)); // matches neither SHA-256 nor BLAKE3
+      await expect(blobs.put(bytes, wrongKey)).rejects.toThrow(/digest.*mismatch|verification/i);
+    });
+  });
+
+  it("put(bytes) with no key still works — default SHA-256 path unchanged", async () => {
+    const stub = freshStub();
+    const d = await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "v4");
+      return await blobs.put(enc("default-path"));
+    });
+    expect(isDigest(d)).toBe(true);
+  });
+});

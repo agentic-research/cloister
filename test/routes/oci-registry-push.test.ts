@@ -24,6 +24,13 @@ interface TrustStoreRegistryRpc {
   ): Promise<void>;
   getRegistryManifestDigestForTag(repo: string, tag: string): Promise<string | null>;
   listRegistryTagsForRepo(repo: string): Promise<string[]>;
+  hasRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+  ): Promise<boolean>;
+  recordRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+    nowMs: number, peerFp?: string | null,
+  ): Promise<void>;
 }
 
 function blobStoreStub() {
@@ -382,11 +389,14 @@ describe("OciRegistryRoute — manifest PUT", () => {
 
     const cur = await trustStoreStub().getRegistryManifestDigestForTag("notme", "latest");
     expect(cur).toBe(`sha256:${digB}`);
-    // Both blobs still readable by digest (BlobStore is idempotent +
-    // additive).
-    const pullA = await route.handle(mkReq(`/v2/notme/blobs/sha256:${digA}`, "GET"), env);
+    // Both manifests still readable by digest (BlobStore is idempotent +
+    // additive). Pulled via /manifests/ since that's where they were
+    // pushed — ADR-0029 per-repo membership is kind-scoped, so a
+    // manifest PUT does not grant blob-kind membership on the same bytes
+    // (and shouldn't — OCI's pull surface separates the two).
+    const pullA = await route.handle(mkReq(`/v2/notme/manifests/sha256:${digA}`, "GET"), env);
     expect(pullA.status).toBe(200);
-    const pullB = await route.handle(mkReq(`/v2/notme/blobs/sha256:${digB}`, "GET"), env);
+    const pullB = await route.handle(mkReq(`/v2/notme/manifests/sha256:${digB}`, "GET"), env);
     expect(pullB.status).toBe(200);
   });
 });
@@ -588,5 +598,196 @@ describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality
 
     expect(res.status).toBe(201);
     expect(res.headers.get("docker-content-digest")).toBe(wireDigest);
+  });
+});
+
+// ── Body-size cap (cloister: post-conformance hardening) ──────────────────
+//
+// PR #84's conformance harness proved the wire correctness. This describe
+// block covers the substrate-hardening surface — push paths MUST enforce
+// an upper bound on body bytes to defend against memory-exhaustion attacks
+// against the shared isolate. See cloister-667ea6 adversarial review
+// (dos-resilience-auditor) for the threat model.
+
+describe("OciRegistryRoute — body-size cap (push paths)", () => {
+  const CAP = 1024; // 1KiB — small enough to test without ballooning memory.
+
+  it("monolithic POST with body > cap returns 413 PAYLOAD_TOO_LARGE", async () => {
+    const route   = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const payload = new Uint8Array(CAP + 1); // 1 byte over
+    payload.fill(0x61); // ASCII 'a'
+    const digest  = await sha256Hex(payload);
+
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=sha256:${digest}`, "POST", { body: payload }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+    expect(body.errors[0].message).toContain(String(CAP));
+  });
+
+  it("monolithic POST with Content-Length header > cap returns 413 (without buffering)", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    // Small actual body but Content-Length claims big — the cheap check
+    // rejects on the header alone without paying arrayBuffer().
+    const tiny = new Uint8Array(10);
+    const digest = await sha256Hex(tiny);
+
+    const res = await route.handle(
+      new Request(`http://x/v2/notme/blobs/uploads/?digest=sha256:${digest}`, {
+        method: "POST",
+        body: tiny,
+        headers: { "content-length": String(CAP + 1) },
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("chunked upload PATCH accumulating > cap returns 413", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+
+    // Begin a chunked upload.
+    const begin = await route.handle(mkReq("/v2/notme/blobs/uploads/", "POST"), env);
+    expect(begin.status).toBe(202);
+    const loc = begin.headers.get("location")!;
+
+    // First PATCH fits.
+    const half1 = new Uint8Array(CAP / 2);
+    half1.fill(0x62);
+    const p1 = await route.handle(mkReq(loc, "PATCH", { body: half1 }), env);
+    expect(p1.status).toBe(202);
+
+    // Second PATCH would push cumulative over cap.
+    const half2over = new Uint8Array(CAP / 2 + 1);
+    half2over.fill(0x63);
+    const p2 = await route.handle(mkReq(loc, "PATCH", { body: half2over }), env);
+    expect(p2.status).toBe(413);
+    const body = await p2.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("manifest PUT with body > cap returns 413", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const oversize = new Uint8Array(CAP + 1);
+    oversize.fill(0x7b); // '{' — start of JSON, harmless for size check
+
+    const res = await route.handle(
+      mkReq("/v2/notme/manifests/v0", "PUT", {
+        body: oversize,
+        headers: { "content-type": "application/vnd.oci.image.manifest.v1+json" },
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("SIZE_INVALID");
+  });
+
+  it("body exactly at cap is accepted (boundary — 201)", async () => {
+    const route = new OciRegistryRoute({ maxBlobBytes: CAP });
+    const atCap = new Uint8Array(CAP);
+    atCap.fill(0x64);
+    const digest = await sha256Hex(atCap);
+
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=sha256:${digest}`, "POST", { body: atCap }),
+      env,
+    );
+
+    expect(res.status).toBe(201);
+  });
+});
+
+// ── DIGEST_INVALID error shape — no hash disclosure (cloister-667ea6 P2) ──
+//
+// Adversarial review (enumeration-oracle-hunter, dos-resilience-auditor)
+// flagged that DIGEST_INVALID error responses included BOTH the computed
+// sha256= and blake3= hashes of the client-posted body — turning cloister
+// into a free hash-as-a-service oracle. The error MUST still tell the
+// client *which algorithm checks ran* so diagnostics aren't useless, but
+// MUST NOT leak the hex values themselves.
+
+describe("OciRegistryRoute — DIGEST_INVALID error shape (no hash disclosure)", () => {
+  const route = new OciRegistryRoute();
+  const HEX_64 = /\b[0-9a-f]{64}\b/g;
+
+  // Helper: assert the error body mentions sha256 + blake3 (so the client
+  // knows what was checked) but does NOT contain a bare 64-hex digest
+  // OTHER than the client's own claim (echoing the claim is fine — they
+  // already know it).
+  async function assertNoHashLeak(res: Response, clientClaim: string) {
+    expect(res.status).toBe(400);
+    const body = await res.json() as { errors: { code: string; message: string }[] };
+    expect(body.errors[0].code).toBe("DIGEST_INVALID");
+    const msg = body.errors[0].message;
+    // Algorithm names MUST be present.
+    expect(msg.toLowerCase()).toContain("sha256");
+    expect(msg.toLowerCase()).toContain("blake3");
+    // Strip the client's claim before scanning — echoing it is OK.
+    const claimHex = clientClaim.startsWith("sha256:") ? clientClaim.slice(7) : "";
+    const stripped = claimHex ? msg.replaceAll(claimHex, "") : msg;
+    const leaked = stripped.match(HEX_64) ?? [];
+    expect(leaked).toEqual([]); // no other 64-hex strings = no body-hash leak
+  }
+
+  it("monolithic POST with mismatched digest does not leak computed hash", async () => {
+    const payload = new TextEncoder().encode("attacker-chosen-bytes-for-hash-oracle-probe");
+    const wrongClaim = "sha256:" + "0".repeat(64);
+    const res = await route.handle(
+      mkReq(`/v2/notme/blobs/uploads/?digest=${wrongClaim}`, "POST", { body: payload }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongClaim);
+  });
+
+  it("chunked PUT finalize with mismatched digest does not leak computed hash", async () => {
+    const begin = await route.handle(mkReq("/v2/notme/blobs/uploads/", "POST"), env);
+    const loc = begin.headers.get("location")!;
+    const payload = new TextEncoder().encode("attacker-bytes-for-finalize-oracle");
+    await route.handle(mkReq(loc, "PATCH", { body: payload }), env);
+    const wrongClaim = "sha256:" + "1".repeat(64);
+    const fin = await route.handle(
+      mkReq(`${loc}?digest=${wrongClaim}`, "PUT"), env,
+    );
+    await assertNoHashLeak(fin, wrongClaim);
+  });
+
+  it("manifest PUT by digest with mismatched ref does not leak computed hash", async () => {
+    const payload = new TextEncoder().encode(JSON.stringify({ probe: "oracle" }));
+    const wrongRef = "sha256:" + "2".repeat(64);
+    const res = await route.handle(
+      mkReq(`/v2/notme/manifests/${wrongRef}`, "PUT", {
+        body: payload,
+        headers: { "content-type": "application/vnd.oci.image.manifest.v1+json" },
+      }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongRef);
+  });
+
+  it("manifest PUT with Docker-Content-Digest header mismatch does not leak", async () => {
+    // Manifest pushed by tag (reference is a tag, not a digest) but with
+    // a wrong Docker-Content-Digest header — exercises the header-mismatch path.
+    const payload = new TextEncoder().encode(JSON.stringify({ schemaVersion: 2 }));
+    const wrongHeader = "sha256:" + "3".repeat(64);
+    const res = await route.handle(
+      mkReq("/v2/notme/manifests/v9", "PUT", {
+        body: payload,
+        headers: {
+          "content-type": "application/vnd.oci.image.manifest.v1+json",
+          "docker-content-digest": wrongHeader,
+        },
+      }),
+      env,
+    );
+    await assertNoHashLeak(res, wrongHeader);
   });
 });

@@ -160,6 +160,16 @@ interface TrustStoreRpc {
   upsertRegistryTag(
     repo: string, tag: string, manifestDigest: string, nowMs: number,
   ): Promise<void>;
+  // ADR-0029 (cloister-7c0a0b): per-repo blob/manifest membership index.
+  // hasRegistryMembership gates pull paths; recordRegistryMembership
+  // is written on every successful push.
+  hasRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+  ): Promise<boolean>;
+  recordRegistryMembership(
+    repo: string, digest: string, kind: "blob" | "manifest",
+    nowMs: number, peerFp?: string | null,
+  ): Promise<void>;
 }
 
 // ── Upload sessions (Phase 2) ─────────────────────────────────────────────
@@ -187,12 +197,78 @@ interface UploadSession {
 
 // ── Public route ──────────────────────────────────────────────────────────
 
+/**
+ * Default upper bound on push body bytes. 256 MiB — chosen so that
+ * realistic mache `.db` chunks and OCI image layers fit comfortably,
+ * while a single push cannot exhaust workerd's per-isolate heap budget.
+ * Override per-instance via `new OciRegistryRoute({ maxBlobBytes })`
+ * or per-deployment via the bundle manifest once the env-binding
+ * surface lands.
+ *
+ * Adversarial review of cloister-667ea6 (dos-resilience-auditor)
+ * flagged the unbounded `arrayBuffer()` calls on every push verb as
+ * a cross-tenant memory-exhaustion vector — the cap closes that.
+ */
+export const DEFAULT_MAX_BLOB_BYTES = 256 * 1024 * 1024;
+
+export interface OciRegistryRouteOptions {
+  /** Maximum push body size in bytes. Defaults to DEFAULT_MAX_BLOB_BYTES. */
+  maxBlobBytes?: number;
+}
+
 export class OciRegistryRoute implements EdgeRoute {
   /**
    * Open upload sessions, keyed by an ephemeral UUID. Instance-local.
    * Cleared when the worker isolate restarts.
    */
   private readonly uploads = new Map<string, UploadSession>();
+
+  private readonly maxBlobBytes: number;
+
+  constructor(options: OciRegistryRouteOptions = {}) {
+    this.maxBlobBytes = options.maxBlobBytes ?? DEFAULT_MAX_BLOB_BYTES;
+  }
+
+  /**
+   * Cheap-reject if the client's Content-Length header (if present and
+   * parseable) declares a body larger than the cap. Returns null when
+   * the request is within budget, or a 413 response when it isn't.
+   *
+   * This is the FAST PATH — rejects before `arrayBuffer()` is called,
+   * so the isolate never allocates the over-size body. Callers MUST
+   * still check actual size after buffering (sizeExceedsCap) in case
+   * the client omitted/spoofed Content-Length.
+   */
+  private checkContentLengthHeader(request: Request): Response | null {
+    const cl = request.headers.get("content-length");
+    if (cl === null) return null;
+    const declared = Number.parseInt(cl, 10);
+    if (!Number.isFinite(declared) || declared < 0) return null;
+    if (declared > this.maxBlobBytes) {
+      return ociError(
+        413,
+        "SIZE_INVALID",
+        `body of ${declared} bytes exceeds maxBlobBytes=${this.maxBlobBytes}`,
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Post-buffering check — catches clients that omit Content-Length
+   * or send a body larger than declared. Returns null when the size
+   * fits, or a 413 response when it doesn't.
+   */
+  private checkActualSize(actualBytes: number): Response | null {
+    if (actualBytes > this.maxBlobBytes) {
+      return ociError(
+        413,
+        "SIZE_INVALID",
+        `body of ${actualBytes} bytes exceeds maxBlobBytes=${this.maxBlobBytes}`,
+      );
+    }
+    return null;
+  }
 
   match(request: Request): boolean {
     const m = request.method;
@@ -317,6 +393,17 @@ export class OciRegistryRoute implements EdgeRoute {
           manifestDigest = asDigest(hex);
         }
 
+        // ADR-0029 pull-gate: consult per-repo membership BEFORE
+        // BlobStore.get/has. A `false` return collapses to the same
+        // constant-shape 404 a non-existent manifest would produce —
+        // the response body is byte-identical so an attacker probing
+        // cross-tenant namespace cannot distinguish "exists but not
+        // yours" from "doesn't exist anywhere" (§9.4 / ADR-0024).
+        const trustForRead = trustStoreStub(env);
+        const memberOK = await trustForRead.hasRegistryMembership(name, manifestDigest, "manifest");
+        if (!memberOK) {
+          return ociError(404, "MANIFEST_UNKNOWN", `manifest unknown: ${reference}`);
+        }
         const blob = blobStoreStub(env);
         if (isHead) {
           const exists = await blob.has(manifestDigest);
@@ -350,6 +437,13 @@ export class OciRegistryRoute implements EdgeRoute {
           return ociError(404, "BLOB_UNKNOWN", `blob unknown: ${digest}`);
         }
         const d = asDigest(hex);
+        // ADR-0029 pull-gate — see manifest pull above for rationale.
+        // Cross-tenant blob probes return constant-shape BLOB_UNKNOWN.
+        const trustForRead = trustStoreStub(env);
+        const memberOK = await trustForRead.hasRegistryMembership(name, d, "blob");
+        if (!memberOK) {
+          return ociError(404, "BLOB_UNKNOWN", `blob unknown: ${digest}`);
+        }
         const blob = blobStoreStub(env);
         if (isHead) {
           const exists = await blob.has(d);
@@ -403,26 +497,40 @@ export class OciRegistryRoute implements EdgeRoute {
       if (parseSha256Param(claimedDigest) === null) {
         return ociError(400, "DIGEST_INVALID", `digest must be sha256:<64-hex>: ${claimedDigest}`);
       }
+      const clReject = this.checkContentLengthHeader(request);
+      if (clReject !== null) return clReject;
       const body = new Uint8Array(await request.arrayBuffer());
+      const sizeReject = this.checkActualSize(body.byteLength);
+      if (sizeReject !== null) return sizeReject;
       const verified = await verifyClaimedDigest(body, claimedDigest);
       if (!verified.ok) {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
+          `digest mismatch: client=${claimedDigest} body matches neither sha256 nor blake3`,
         );
       }
       const blob = blobStoreStub(env);
-      await blob.put(body);
+      await blob.put(body, asDigest(verified.key));
+      // ADR-0029 push-record: write per-repo membership so the
+      // subsequent pull (or any tenant's pull of the same digest)
+      // is gated correctly. Same ordering as the §"BlobStore.put
+      // first, then index" discipline from ADR-0012.
+      const trust = trustStoreStub(env);
+      await trust.recordRegistryMembership(name, verified.key, "blob", Date.now());
       return blobCreatedResponse(name, asDigest(verified.key));
     }
 
     // Otherwise: open a session. Per the spec, the body MAY contain initial
     // bytes (rare in practice — most clients send an empty POST, then one
     // or more PATCHes). We accept either.
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const uuid = newUploadId();
     const seed = await request.arrayBuffer();
     const seedBytes = new Uint8Array(seed);
+    const sizeReject = this.checkActualSize(seedBytes.byteLength);
+    if (sizeReject !== null) return sizeReject;
     this.uploads.set(uuid, {
       name,
       chunks: seedBytes.byteLength > 0 ? [seedBytes] : [],
@@ -456,7 +564,14 @@ export class OciRegistryRoute implements EdgeRoute {
     if (sess === undefined || sess.name !== name) {
       return ociError(404, "BLOB_UPLOAD_UNKNOWN", `upload not found: ${uuid}`);
     }
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const chunk = new Uint8Array(await request.arrayBuffer());
+    // Cumulative size check: this chunk PLUS already-accumulated session
+    // bytes must fit under the cap. Catches clients that pace small
+    // PATCHes to grow the session past the cap incrementally.
+    const sizeReject = this.checkActualSize(sess.size + chunk.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (chunk.byteLength > 0) {
       sess.chunks.push(chunk);
       sess.size += chunk.byteLength;
@@ -499,7 +614,13 @@ export class OciRegistryRoute implements EdgeRoute {
 
     // Append any trailing body — some clients (older docker) ship the
     // final chunk on the PUT itself rather than via a separate PATCH.
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const trailing = new Uint8Array(await request.arrayBuffer());
+    // Cumulative session bytes (previously accumulated + this trailing)
+    // must fit under the cap.
+    const sizeReject = this.checkActualSize(sess.size + trailing.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (trailing.byteLength > 0) {
       sess.chunks.push(trailing);
       sess.size += trailing.byteLength;
@@ -517,13 +638,16 @@ export class OciRegistryRoute implements EdgeRoute {
       return ociError(
         400,
         "DIGEST_INVALID",
-        `digest mismatch: client=${claimedDigest} sha256=${verified.sha256} blake3=${verified.blake3}`,
+        `digest mismatch: client=${claimedDigest} body matches neither sha256 nor blake3`,
       );
     }
     const parsed = verified.key;
 
     const blob = blobStoreStub(env);
-    await blob.put(full);
+    await blob.put(full, asDigest(parsed));
+    // ADR-0029 push-record — see handleUploadBegin for rationale.
+    const trust = trustStoreStub(env);
+    await trust.recordRegistryMembership(name, parsed, "blob", Date.now());
     this.uploads.delete(uuid);
     return blobCreatedResponse(name, asDigest(parsed));
   }
@@ -550,37 +674,52 @@ export class OciRegistryRoute implements EdgeRoute {
     const authResult = await this.gateWrite(request, env, name);
     if (authResult !== null) return authResult;
 
+    const clReject = this.checkContentLengthHeader(request);
+    if (clReject !== null) return clReject;
     const body = new Uint8Array(await request.arrayBuffer());
+    const sizeReject = this.checkActualSize(body.byteLength);
+    if (sizeReject !== null) return sizeReject;
     if (body.byteLength === 0) {
       return ociError(400, "MANIFEST_INVALID", "empty manifest body");
     }
-    const computed = await digestBytes(body);
-    const computedRef = `sha256:${computed}`;
 
-    // If the reference itself is a digest, it MUST match the body hash.
+    // Determine the storage key. Two reference shapes:
+    //   - sha256:<hex>  → verify body matches it (SHA-256 fast path,
+    //                     BLAKE3 fallback per build-cache/v1). Storage
+    //                     key is the verified hex.
+    //   - <tag>         → no claim to verify; storage key is the body's
+    //                     real SHA-256 (OCI-native tag semantics).
+    let storageKey: string;
     if (reference.startsWith("sha256:")) {
-      if (reference !== computedRef) {
+      const verified = await verifyClaimedDigest(body, reference);
+      if (!verified.ok) {
         return ociError(
           400,
           "DIGEST_INVALID",
-          `manifest digest mismatch: ref=${reference} computed=${computedRef}`,
+          `manifest digest mismatch: ref=${reference} body matches neither sha256 nor blake3`,
         );
       }
+      storageKey = verified.key;
     } else {
-      // Tag reference — validate the tag grammar before persisting.
       if (!TAG_RE.test(reference)) {
         return ociError(400, "MANIFEST_INVALID", `invalid tag: ${reference}`);
       }
+      storageKey = await digestBytes(body);
     }
+    const storageRef = `sha256:${storageKey}`;
 
-    // Cross-check the client's optional `Docker-Content-Digest` header.
+    // Cross-check the client's optional `Docker-Content-Digest` header
+    // against either algorithm (matching the verifyClaimedDigest contract).
     const headerDigest = request.headers.get("docker-content-digest");
-    if (headerDigest !== null && headerDigest !== computedRef) {
-      return ociError(
-        400,
-        "DIGEST_INVALID",
-        `header digest mismatch: header=${headerDigest} computed=${computedRef}`,
-      );
+    if (headerDigest !== null) {
+      const headerVerified = await verifyClaimedDigest(body, headerDigest);
+      if (!headerVerified.ok) {
+        return ociError(
+          400,
+          "DIGEST_INVALID",
+          `header digest mismatch: header=${headerDigest} body matches neither sha256 nor blake3`,
+        );
+      }
     }
 
     // Persist bytes + tag. BlobStore.put is idempotent so re-pushing the
@@ -588,11 +727,14 @@ export class OciRegistryRoute implements EdgeRoute {
     // any existing mapping for (repo, tag).
     const blob  = blobStoreStub(env);
     const trust = trustStoreStub(env);
-    await blob.put(body);
+    await blob.put(body, asDigest(storageKey));
+    // ADR-0029 push-record: write per-repo membership so the manifest
+    // pull (this repo's, any tenant's) goes through the gate.
+    await trust.recordRegistryMembership(name, storageKey, "manifest", Date.now());
     if (!reference.startsWith("sha256:")) {
-      await trust.upsertRegistryTag(name, reference, computedRef, Date.now());
+      await trust.upsertRegistryTag(name, reference, storageRef, Date.now());
     }
-    return manifestCreatedResponse(name, reference, asDigest(computed));
+    return manifestCreatedResponse(name, reference, asDigest(storageKey));
   }
 
   /**
@@ -911,7 +1053,7 @@ function newUploadId(): string {
 interface BlobStoreRpc {
   has(digest: Digest): Promise<boolean>;
   get(digest: Digest): Promise<Uint8Array | null>;
-  put(bytes: Uint8Array): Promise<Digest>;
+  put(bytes: Uint8Array, key?: Digest): Promise<Digest>;
 }
 
 function blobStoreStub(env: Env): DurableObjectStub & BlobStoreRpc {

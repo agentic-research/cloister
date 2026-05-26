@@ -92,6 +92,13 @@ import {
   upsertTag as upsertTagHelper,
 } from "./storage/registry-tags.js";
 import {
+  SCHEMA_REGISTRY_BLOB_MEMBERSHIP,
+  hasMembership as hasMembershipHelper,
+  recordMembership as recordMembershipHelper,
+  listReposWithMembership as listReposWithMembershipHelper,
+  type MembershipKind,
+} from "./storage/registry-membership.js";
+import {
   DEFAULT_RECEIPT_RETENTION_MS,
   SCHEMA_PEER_RECEIPTS,
   findPeerReceipt as findPeerReceiptHelper,
@@ -115,6 +122,7 @@ ${SCHEMA_SEEN_NONCES}
 ${SCHEMA_PENDING_ATTESTATIONS}
 ${SCHEMA_PEER_ATTESTATIONS}
 ${SCHEMA_REGISTRY_TAGS}
+${SCHEMA_REGISTRY_BLOB_MEMBERSHIP}
 ${SCHEMA_PEER_RECEIPTS}
 ${SCHEMA_ACTOR_CA_BUNDLE}
 `;
@@ -706,6 +714,56 @@ export class TrustStore extends DurableObject {
   /** List all repos with at least one tag (lex ascending). */
   listRegistryRepos(): string[] {
     return listReposHelper(this.db);
+  }
+
+  // ── Registry blob membership (ADR-0029, cloister-7c0a0b) ────────────────
+  //
+  // Per-repo membership index over the cluster-singleton BlobStore. The
+  // OCI pull surface consults `hasRegistryMembership` BEFORE serving
+  // bytes from BlobStore; the push surface writes via
+  // `recordRegistryMembership` as a side effect of every successful
+  // blob/manifest persist. See docs/adr/0029-oci-per-repo-membership-
+  // boundary.md for the design rationale.
+
+  /**
+   * Record that `repo` has access to `digest` (under `kind`). Idempotent
+   * on the primary key (repo, digest, kind) — re-pushes refresh the
+   * recorded_at + recorded_by columns in place.
+   *
+   * `digest` MUST be the bare hex (caller strips the "sha256:" prefix).
+   * `peerFp` is the verified Interlace lease subject when available; null
+   * is acceptable for dev-mode pushes (no lease in flight) and for the
+   * initial deployment of this index before lease propagation lands.
+   */
+  recordRegistryMembership(
+    repo:    string,
+    digest:  string,
+    kind:    MembershipKind,
+    nowMs:   number,
+    peerFp?: string | null,
+  ): void {
+    recordMembershipHelper(this.db, repo, digest, kind, nowMs, peerFp);
+  }
+
+  /**
+   * Pull-side gate: does `repo` have access to `digest` (under `kind`)?
+   *
+   * A `false` return MUST translate to a constant-shape 404 at the OCI
+   * route (matching the §9.4 "exists but not yours" precedent — the
+   * response is indistinguishable from "digest doesn't exist anywhere"
+   * so that the index can't be used as a cross-tenant existence oracle).
+   */
+  hasRegistryMembership(
+    repo:   string,
+    digest: string,
+    kind:   MembershipKind,
+  ): boolean {
+    return hasMembershipHelper(this.db, repo, digest, kind);
+  }
+
+  /** Diagnostic: list repos with membership of a digest. NOT on pull path. */
+  listRegistryReposWithMembership(digest: string): string[] {
+    return listReposWithMembershipHelper(this.db, digest);
   }
 
   // ── Receipts (cloister-ae713f / RECEIPTS.md §2.2.2 + §2.3) ──────────────
