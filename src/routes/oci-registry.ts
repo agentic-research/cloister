@@ -1017,7 +1017,7 @@ async function verifyClaimedDigest(
   }
   const sha256 = await digestBytes(body);
   if (sha256 === parsed) return { ok: true, key: parsed };
-  const blake3 = blake3HexBytes(body);
+  const blake3 = await blake3HexBytes(body);
   if (blake3 === parsed) return { ok: true, key: parsed };
   return { ok: false, sha256, blake3 };
 }

@@ -567,14 +567,7 @@ describe("OciRegistryRoute — auth gate (INTERLACE_ROOT_PUBKEY set)", () => {
 // contradicts cloister's existing DIGEST_INVALID verification, which
 // computes real SHA-256. These tests surface that gap.
 
-import { blake3 } from "@noble/hashes/blake3.js";
-
-function blake3Hex(bytes: Uint8Array): string {
-  const hash = blake3(bytes);
-  return Array.from(hash)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+import { blake3Hex } from "../../src/wire/cas-hash.js";
 
 describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality gap)", () => {
   const route = new OciRegistryRoute();
@@ -583,7 +576,7 @@ describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality
     const payload = new TextEncoder().encode(
       "build-cache/v1 chunk content — would hash to BLAKE3, not SHA-256",
     );
-    const wireDigest = "sha256:" + blake3Hex(payload);
+    const wireDigest = "sha256:" + await blake3Hex(payload);
 
     // Per the spec, this SHOULD be accepted (digest claim is the BLAKE3
     // hex with sha256: prefix; cloister-as-provider needs to honor it).

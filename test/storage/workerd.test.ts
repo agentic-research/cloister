@@ -228,11 +228,9 @@ describe("WorkerdBlobStore — caller-provided key verification (cloister-7e631b
     const stub = freshStub();
     await runInDurableObject(stub, async (_inst, state) => {
       const blobs = new WorkerdBlobStore(state.storage.sql, "v2");
-      const { blake3 } = await import("@noble/hashes/blake3.js");
+      const { blake3Hex: blake3HexCas } = await import("../../src/wire/cas-hash.js");
       const bytes = enc("substrate-verified-blake3");
-      const blake3Hex = Array.from(blake3(bytes))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
+      const blake3Hex = await blake3HexCas(bytes);
       // Body's SHA-256 will NOT match this key — substrate must fall back
       // to BLAKE3, find a match, and accept.
       const d = await blobs.put(bytes, asDigest(blake3Hex));

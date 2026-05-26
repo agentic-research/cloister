@@ -16,7 +16,7 @@
 
 import { env, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { blake3 } from "@noble/hashes/blake3.js";
+import { blake3Hex as blake3HexCas } from "../../src/wire/cas-hash.js";
 import { OciRegistryRoute } from "../../src/routes/oci-registry.js";
 
 // ── Vectors ──────────────────────────────────────────────────────────────
@@ -53,10 +53,11 @@ function decodeB64(s: string): Uint8Array {
   return out;
 }
 
-function blake3Hex(bytes: Uint8Array): string {
-  let hex = "";
-  for (const b of blake3(bytes)) hex += b.toString(16).padStart(2, "0");
-  return hex;
+// blake3 hex helper now uses the wasm32 bridge (cloister-cas) — same
+// substrate as production callers, so the conformance test verifies the
+// real path.
+async function blake3Hex(bytes: Uint8Array): Promise<string> {
+  return blake3HexCas(bytes);
 }
 
 beforeEach(async () => {
@@ -68,10 +69,10 @@ beforeEach(async () => {
 
 describe("build-cache/v1 vectors — fixture integrity", () => {
   for (const [name, exp] of Object.entries(EXPECTED)) {
-    it(`${name}: matches committed (size=${exp.size}, blake3=${exp.blake3.slice(0, 12)}…)`, () => {
+    it(`${name}: matches committed (size=${exp.size}, blake3=${exp.blake3.slice(0, 12)}…)`, async () => {
       const bytes = decodeB64(VECTORS_B64[name]);
       expect(bytes.byteLength).toBe(exp.size);
-      expect(blake3Hex(bytes)).toBe(exp.blake3);
+      expect(await blake3Hex(bytes)).toBe(exp.blake3);
     });
   }
 });

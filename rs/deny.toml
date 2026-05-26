@@ -70,4 +70,11 @@ skip = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+  # LLO substrate primitives consumed via wasm32 FFI (cloister-713b4e).
+  # The crate IS the substrate definition (BLAKE3 lock, Σ §3.4) so
+  # depending on the source-of-truth git ref keeps cloister + LLO from
+  # drifting algorithmically. Each consuming crate pins a specific SHA
+  # so the dep is reproducible via Cargo.lock.
+  "https://github.com/agentic-research/ley-line-open",
+]
