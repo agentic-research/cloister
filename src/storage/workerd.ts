@@ -87,7 +87,7 @@ export class WorkerdBlobStore implements BlobStore {
       if (sha === key) {
         d = key;
       } else {
-        const blake = await blake3HexBytes(bytes);
+        const blake = blake3HexBytes(bytes);
         if (blake !== key) {
           throw new Error(
             `BlobStore.put: digest mismatch — key=${key} ` +

@@ -59,7 +59,7 @@ export async function digestValue(value: CanonicalValue): Promise<Digest> {
  * guarantee (BLAKE3 lock per Σ §3.4) is now enforced in Rust source
  * rather than pinned by an npm package version.
  */
-export async function blake3HexBytes(bytes: Uint8Array): Promise<string> {
+export function blake3HexBytes(bytes: Uint8Array): string {
   return blake3Hex(bytes);
 }
 

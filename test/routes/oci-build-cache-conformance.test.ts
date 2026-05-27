@@ -53,10 +53,7 @@ function decodeB64(s: string): Uint8Array {
   return out;
 }
 
-// blake3 hex helper now uses the wasm32 bridge (cloister-cas) — same
-// substrate as production callers, so the conformance test verifies the
-// real path.
-async function blake3Hex(bytes: Uint8Array): Promise<string> {
+function blake3Hex(bytes: Uint8Array): string {
   return blake3HexCas(bytes);
 }
 
@@ -69,10 +66,10 @@ beforeEach(async () => {
 
 describe("build-cache/v1 vectors — fixture integrity", () => {
   for (const [name, exp] of Object.entries(EXPECTED)) {
-    it(`${name}: matches committed (size=${exp.size}, blake3=${exp.blake3.slice(0, 12)}…)`, async () => {
+    it(`${name}: matches committed (size=${exp.size}, blake3=${exp.blake3.slice(0, 12)}…)`, () => {
       const bytes = decodeB64(VECTORS_B64[name]);
       expect(bytes.byteLength).toBe(exp.size);
-      expect(await blake3Hex(bytes)).toBe(exp.blake3);
+      expect(blake3Hex(bytes)).toBe(exp.blake3);
     });
   }
 });

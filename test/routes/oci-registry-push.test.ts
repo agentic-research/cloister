@@ -576,7 +576,7 @@ describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality
     const payload = new TextEncoder().encode(
       "build-cache/v1 chunk content — would hash to BLAKE3, not SHA-256",
     );
-    const wireDigest = "sha256:" + await blake3Hex(payload);
+    const wireDigest = "sha256:" + blake3Hex(payload);
 
     // Per the spec, this SHOULD be accepted (digest claim is the BLAKE3
     // hex with sha256: prefix; cloister-as-provider needs to honor it).

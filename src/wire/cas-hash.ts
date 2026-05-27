@@ -8,16 +8,19 @@
 // (BLAKE3 lock, Σ §3.4) is now enforced by LLO's Rust source instead of
 // pinned by a TS dependency that can semver-bump.
 //
-// Architecture mirrors src/wire/signet-verify.ts:
+// Architecture:
 //
 //   - `cloister_cas.wasm` is bundled via wrangler's
 //     `[[rules]] type = "CompiledWasm"` rule. Built by
 //     `task rs:cas:wasm`; the artifact lives at
 //     rs/target/wasm32-unknown-unknown/release/cloister_cas.wasm.
-//   - The wasm module is instantiated once per Worker isolate and
-//     reused across requests. Linear memory is shared; each call to
-//     `blake3Hash` allocs input + output buffers, hashes, copies output
-//     back, frees. try/finally guards the free path on throw.
+//   - The wasm module is instantiated synchronously via
+//     `new WebAssembly.Instance(module)` (workerd supports this for
+//     CompiledWasm imports). CAS hashing is on the attestation /
+//     provenance path and must never yield mid-digest.
+//   - Linear memory is shared; each call to `blake3Hash` allocs input +
+//     output buffers, hashes, copies output back, frees. try/finally
+//     guards the free path on throw.
 //   - Symbols exported by the wasm: `memory`, `cloister_cas_alloc`,
 //     `cloister_cas_free`, `leyline_hash_bytes` (the FFI surface from
 //     leyline-cas-ffi, carried through by the bridge crate's `pub use`).
@@ -46,25 +49,24 @@ interface CasWasmExports {
   ) => number;
 }
 
-// ── Module instance — lazy, memoized ─────────────────────────────────
+// ── Module instance — lazy, synchronous ──────────────────────────────
+//
+// workerd supports synchronous `new WebAssembly.Instance(module)` for
+// CompiledWasm imports. CAS hashing is on the attestation / provenance
+// path — it must be synchronous so callers never yield mid-digest.
 
-let _pending: Promise<WebAssembly.Instance> | null = null;
+let _instance: WebAssembly.Instance | null = null;
 
-/**
- * Get the wasm instance, instantiating on first call. Memoizes the
- * in-flight Promise so concurrent first calls share one instantiation
- * rather than racing through the await.
- */
-async function instance(): Promise<WebAssembly.Instance> {
-  if (!_pending) {
-    _pending = WebAssembly.instantiate(wasmModule);
+function instance(): WebAssembly.Instance {
+  if (!_instance) {
+    _instance = new WebAssembly.Instance(wasmModule);
   }
-  return _pending;
+  return _instance;
 }
 
 /** Test-only — drop the cached instance so a re-instantiation happens. */
 export function _resetInstance(): void {
-  _pending = null;
+  _instance = null;
 }
 
 // ── Buffer marshaling helpers ─────────────────────────────────────────
@@ -114,8 +116,8 @@ export const BLAKE3_DIGEST_LEN = 32;
  * SHA in `rs/crates/cas/Cargo.toml` — same hash function every consumer
  * of the substrate sees, byte-for-byte.
  */
-export async function blake3Hash(bytes: Uint8Array): Promise<Uint8Array> {
-  const inst = await instance();
+export function blake3Hash(bytes: Uint8Array): Uint8Array {
+  const inst = instance();
   const exports = inst.exports as unknown as CasWasmExports;
 
   const inPtr = copyIn(exports, bytes);
@@ -148,8 +150,8 @@ export async function blake3Hash(bytes: Uint8Array): Promise<Uint8Array> {
  * callers (verifyClaimedDigest, BlobStore.put substrate-verify) keep
  * working as drop-in.
  */
-export async function blake3Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await blake3Hash(bytes);
+export function blake3Hex(bytes: Uint8Array): string {
+  const digest = blake3Hash(bytes);
   let hex = "";
   for (const b of digest) hex += b.toString(16).padStart(2, "0");
   return hex;
