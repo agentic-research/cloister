@@ -2,7 +2,14 @@
 //
 // signet-verify.ts — TypeScript wrapper over the in-tree leyline-sign
 // wasm32 build. Provides a synchronous API for verifying CMS/PKCS#7
-// signatures from inside cloister's lease middleware.
+// signatures and Interlace cert chains from cloister's lease middleware.
+//
+// The name "signet" is historical — the CMS code originated in the Go
+// signet repo (agentic-research/signet, 2026-03-23) and was lifted
+// through ley-line into cloister's vendored rs/crates/sign/. This
+// wrapper has no dependency on the Go signet; it calls the vendored
+// leyline-sign wasm. The Rust crate convergence is tracked as
+// cloister-bd8c41 (see rs/crates/sign/src/lib.rs header + NOTICE).
 //
 // Phase 2 of cloister-bd5241. Phase 1 (rs/crates/sign/ with wasm32 build
 // pipeline + lsign_alloc/lsign_free exports) shipped at f587254.
