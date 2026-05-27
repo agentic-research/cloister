@@ -89,22 +89,23 @@ interface SignetWasmExports {
 
 // ── Module instance — lazy, memoized ─────────────────────────────────
 
-let _instance: WebAssembly.Instance | null = null;
+let _pending: Promise<WebAssembly.Instance> | null = null;
 
 /**
- * Get the wasm instance, instantiating on first call. Subsequent calls
- * reuse the same instance — workerd guarantees the module is shared
- * across requests within an isolate.
+ * Get the wasm instance, instantiating on first call. Memoizes the
+ * in-flight Promise so concurrent first calls share one instantiation
+ * rather than racing through the await.
  */
 async function instance(): Promise<WebAssembly.Instance> {
-  if (_instance) return _instance;
-  _instance = await WebAssembly.instantiate(wasmModule);
-  return _instance;
+  if (!_pending) {
+    _pending = WebAssembly.instantiate(wasmModule);
+  }
+  return _pending;
 }
 
 /** Test-only — drop the cached instance so a re-instantiation happens. */
 export function _resetInstance(): void {
-  _instance = null;
+  _pending = null;
 }
 
 // ── Buffer marshaling helpers ─────────────────────────────────────────
