@@ -81,19 +81,73 @@ mod tests {
     }
 
     #[test]
-    fn alloc_zero_size_is_safe() {
-        // Vec::with_capacity(0) returns a sentinel non-null ptr in stable
-        // Rust; alloc returning that is fine — free of (ptr, 0) is a
-        // no-op per the size > 0 guard.
+    fn alloc_zero_size_roundtrips() {
+        // Vec::with_capacity(0) returns a dangling-but-aligned pointer.
+        // The free guard (size > 0) makes this a no-op — but the pointer
+        // IS non-null, so callers that null-check won't false-alarm.
         let ptr = cloister_cas_alloc(0);
+        assert!(!ptr.is_null(), "zero-size alloc must return non-null sentinel");
         unsafe { cloister_cas_free(ptr, 0) };
     }
 
     #[test]
+    fn alloc_free_pairing_under_stress() {
+        // Soundness contract: every alloc(n) pairs with exactly one
+        // free(ptr, n). Run K iterations of alloc → write → hash →
+        // read → free and verify digests stay correct. Memory
+        // corruption from mismatched pairs would surface as wrong
+        // hashes or a crash.
+        const K: usize = 256;
+        let mut digests = Vec::with_capacity(K);
+
+        for i in 0..K {
+            let input = format!("pairing-stress-{i}");
+            let len = input.len();
+
+            let in_ptr = cloister_cas_alloc(len);
+            assert!(!in_ptr.is_null());
+            unsafe {
+                core::ptr::copy_nonoverlapping(input.as_ptr(), in_ptr, len);
+            }
+
+            let out_ptr = cloister_cas_alloc(32);
+            assert!(!out_ptr.is_null());
+
+            let rc = unsafe { leyline_hash_bytes(in_ptr, len, out_ptr, 32) };
+            assert_eq!(rc, 32, "hash failed on iteration {i}");
+
+            let mut digest = [0u8; 32];
+            unsafe { core::ptr::copy_nonoverlapping(out_ptr, digest.as_mut_ptr(), 32) };
+            digests.push(digest);
+
+            unsafe {
+                cloister_cas_free(in_ptr, len);
+                cloister_cas_free(out_ptr, 32);
+            }
+        }
+
+        // Verify each digest matches a fresh blake3::hash (no reuse of
+        // wasm-side buffers).
+        for i in 0..K {
+            let input = format!("pairing-stress-{i}");
+            let expected = blake3::hash(input.as_bytes());
+            assert_eq!(
+                &digests[i][..],
+                expected.as_bytes(),
+                "digest mismatch at iteration {i} — possible alloc/free pairing bug"
+            );
+        }
+    }
+
+    #[test]
+    fn free_null_is_noop() {
+        // The null + size > 0 guard must not crash.
+        unsafe { cloister_cas_free(core::ptr::null_mut(), 64) };
+        unsafe { cloister_cas_free(core::ptr::null_mut(), 0) };
+    }
+
+    #[test]
     fn hash_via_re_export_matches_blake3() {
-        // Sanity: the re-exported `leyline_hash_bytes` is reachable +
-        // produces BLAKE3 of the input. Full edge coverage lives in
-        // leyline-cas-ffi's own test suite.
         let input = b"bridge-check";
         let mut out = [0u8; 32];
         let rc = unsafe {

@@ -88,6 +88,13 @@ interface SignetWasmExports {
 }
 
 // ── Module instance — lazy, memoized ─────────────────────────────────
+//
+// TODO(sync-conversion): cas-hash.ts uses synchronous
+// `new WebAssembly.Instance(module)` because CAS hashing is on the
+// attestation/provenance path and must never yield mid-digest. The same
+// argument applies here — signet verification is also attestation-path.
+// Convert to sync instantiation for consistency. Separate bead; the
+// change touches every caller's return type.
 
 let _pending: Promise<WebAssembly.Instance> | null = null;
 
