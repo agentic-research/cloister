@@ -16,7 +16,7 @@
 
 import { env, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { blake3 } from "@noble/hashes/blake3.js";
+import { blake3Hex as blake3HexCas } from "../../src/wire/cas-hash.js";
 import { OciRegistryRoute } from "../../src/routes/oci-registry.js";
 
 // ── Vectors ──────────────────────────────────────────────────────────────
@@ -54,9 +54,7 @@ function decodeB64(s: string): Uint8Array {
 }
 
 function blake3Hex(bytes: Uint8Array): string {
-  let hex = "";
-  for (const b of blake3(bytes)) hex += b.toString(16).padStart(2, "0");
-  return hex;
+  return blake3HexCas(bytes);
 }
 
 beforeEach(async () => {

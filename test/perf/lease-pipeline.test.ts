@@ -189,8 +189,8 @@ describe("lease-pipeline bench (cloister-747d98)", () => {
     }));
 
     // Step 3: cert chain verify (wasm32). The hot, load-bearing one.
-    results.push(await benchStep("Cert chain verify (wasm32)", PER_STEP_N, async () => {
-      const r = await verifyCertChain(certDer, masterPubkey);
+    results.push(await benchStep("Cert chain verify (wasm32)", PER_STEP_N, () => {
+      const r = verifyCertChain(certDer, masterPubkey);
       if (!r.ok) throw new Error("chain failed: " + r.reason);
     }));
 

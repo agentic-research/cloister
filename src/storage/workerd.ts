@@ -78,11 +78,12 @@ export class WorkerdBlobStore implements BlobStore {
       d = await digestBytes(bytes);
     } else {
       // Caller-provided-key path (build-cache/v1 — see BlobStore interface
-      // doc and cloister-spec/build-cache/v1/README.md §"Digest encoding").
-      // Substrate re-verifies the body matches the key under SHA-256 OR
-      // BLAKE3 — defense-in-depth so a future contributor adding a put-
-      // with-key call site CAN'T accidentally store under an unverified
-      // key. Filed as cloister-7e631b after adversarial review of #84.
+      // doc and cloister-spec/build-cache/v1/wire/digest-encoding.md).
+      // build-cache/v1 clients send BLAKE3 hex inside an OCI sha256:
+      // prefix, so the key won't match a real SHA-256 of the body.
+      // Dual-verify: try SHA-256 first (OCI-native clients), fall back
+      // to BLAKE3 (build-cache/v1 clients). Reject if neither matches.
+      // Filed as cloister-7e631b after adversarial review of #84.
       const sha = await digestBytes(bytes);
       if (sha === key) {
         d = key;

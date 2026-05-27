@@ -404,6 +404,27 @@ graph LR
 Isolation is physical: separate SQLite files, separate DO instances, no
 shared state.
 
+## Content-addressing — two hash algorithms
+
+Cloister uses **two** content-addressing schemes at different layers:
+
+| Layer | Algorithm | Implementation | Used for |
+| --- | --- | --- | --- |
+| Application | SHA-256 | `crypto.subtle.digest` (`src/storage/canonical.ts`) | Bead `content_hash`, attestation references, default `BlobStore` key, OCI tag verification |
+| Substrate | BLAKE3-256 | wasm32 FFI to LLO `leyline-cas-ffi` (`src/wire/cas-hash.ts`) | Blob identity in build-cache/v1, arena roots, substrate content addressing (Σ §3.4) |
+
+Both produce 64-character lowercase hex digests. The BLAKE3 path is
+**synchronous** — CAS hashing is on the attestation / provenance path
+and must never yield mid-digest.
+
+**The build-cache/v1 wire overloads the OCI `sha256:` prefix with
+BLAKE3 hex** — `sha256:<blake3-hex>`, not `sha256:<sha256-hex>`. This
+is a deliberate v1 convention documented in
+`cloister-spec/build-cache/v1/wire/digest-encoding.md`. `BlobStore.put`
+dual-verifies caller-provided keys against both algorithms
+(`src/storage/workerd.ts`) so OCI-native and build-cache clients both
+work.
+
 ## Bindings
 
 Bindings live in two files that must stay in sync — one source of truth for

@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // signet-verify.ts — TypeScript wrapper over the in-tree leyline-sign
-// wasm32 build. Provides a clean async API for verifying CMS/PKCS#7
-// signatures from inside cloister's lease middleware.
+// wasm32 build. Provides a synchronous API for verifying CMS/PKCS#7
+// signatures and Interlace cert chains from cloister's lease middleware.
+//
+// The name "signet" is historical — the CMS code originated in the Go
+// signet repo (agentic-research/signet, 2026-03-23) and was lifted
+// through ley-line into cloister's vendored rs/crates/sign/. This
+// wrapper has no dependency on the Go signet; it calls the vendored
+// leyline-sign wasm. The Rust crate convergence is tracked as
+// cloister-bd8c41 (see rs/crates/sign/src/lib.rs header + NOTICE).
 //
 // Phase 2 of cloister-bd5241. Phase 1 (rs/crates/sign/ with wasm32 build
 // pipeline + lsign_alloc/lsign_free exports) shipped at f587254.
@@ -10,11 +17,13 @@
 // ## Architecture
 //
 // The wasm module is bundled into the Worker via the
-// `[[rules]] type = "CompiledWasm"` rule in wrangler.toml. At Worker
-// boot we instantiate it once; every request uses the same instance.
-// Linear memory is shared across requests — verifiers must alloc + free
-// per call to avoid leaking. The wrapper functions handle this for the
-// caller via try/finally.
+// `[[rules]] type = "CompiledWasm"` rule in wrangler.toml. Instantiated
+// synchronously via `new WebAssembly.Instance(module)` (workerd supports
+// this for CompiledWasm imports). Signet verification is on the
+// attestation path and must never yield mid-verify — same principle as
+// cas-hash.ts. Linear memory is shared across requests — verifiers must
+// alloc + free per call to avoid leaking. The wrapper functions handle
+// this for the caller via try/finally.
 //
 // ## Threat model boundary
 //
@@ -87,18 +96,14 @@ interface SignetWasmExports {
   ) => number;
 }
 
-// ── Module instance — lazy, memoized ─────────────────────────────────
+// ── Module instance — lazy, synchronous ──────────────────────────────
 
 let _instance: WebAssembly.Instance | null = null;
 
-/**
- * Get the wasm instance, instantiating on first call. Subsequent calls
- * reuse the same instance — workerd guarantees the module is shared
- * across requests within an isolate.
- */
-async function instance(): Promise<WebAssembly.Instance> {
-  if (_instance) return _instance;
-  _instance = await WebAssembly.instantiate(wasmModule);
+function instance(): WebAssembly.Instance {
+  if (!_instance) {
+    _instance = new WebAssembly.Instance(wasmModule);
+  }
   return _instance;
 }
 
@@ -160,12 +165,12 @@ const DEFAULT_CERT_OUT_LEN = 4096;
  * (cloister-e195ea for epoch, cloister-bd7770 for scope + TTL +
  * caller-binding).
  */
-export async function verifyCmsSignature(
+export function verifyCmsSignature(
   cmsSig: Uint8Array,
   data: Uint8Array,
   options: { certOutLen?: number } = {},
-): Promise<VerifyResult> {
-  const inst = await instance();
+): VerifyResult {
+  const inst = instance();
   const exports = inst.exports as unknown as SignetWasmExports;
   const certOutLen = options.certOutLen ?? DEFAULT_CERT_OUT_LEN;
 
@@ -206,12 +211,12 @@ export async function verifyCmsSignature(
  * The caller MUST pair this with `freeWasmBuffer(ptr, length)` — a
  * leaked alloc persists for the isolate's lifetime.
  */
-export async function allocWasmBuffer(bytes: Uint8Array): Promise<{
+export function allocWasmBuffer(bytes: Uint8Array): {
   ptr: number;
   length: number;
   exports: SignetWasmExports;
-}> {
-  const inst = await instance();
+} {
+  const inst = instance();
   const exports = inst.exports as unknown as SignetWasmExports;
   const ptr = copyIn(exports, bytes);
   return { ptr, length: bytes.length, exports };
@@ -266,16 +271,16 @@ const DEFAULT_CLAIMS_OUT_LEN = 1024;
  * into the typed `CertClaims` shape. Callers shouldn't need to touch
  * the JSON form directly.
  */
-export async function verifyCertChain(
+export function verifyCertChain(
   certDer: Uint8Array,
   masterPubkey: Uint8Array,
   options: { claimsOutLen?: number } = {},
-): Promise<CertChainResult> {
+): CertChainResult {
   if (masterPubkey.length !== 32) {
     return { ok: false, reason: "master pubkey must be 32 bytes (Ed25519)" };
   }
 
-  const inst = await instance();
+  const inst = instance();
   const exports = inst.exports as unknown as SignetWasmExports;
   const claimsOutLen = options.claimsOutLen ?? DEFAULT_CLAIMS_OUT_LEN;
 

@@ -13,5 +13,6 @@
 [workspace]
 members = [
   "crates/sign",
+  "crates/cas",
 ]
 resolver = "2"

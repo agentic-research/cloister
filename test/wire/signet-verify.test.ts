@@ -50,10 +50,10 @@ function b64uDecode(s: string): Uint8Array {
 afterEach(() => _resetInstance());
 
 describe("signet-verify wasm wrapper", () => {
-  it("loads the wasm module and exposes lsign_alloc / lsign_free / leyline_verify", async () => {
+  it("loads the wasm module and exposes lsign_alloc / lsign_free / leyline_verify", () => {
     // allocWasmBuffer instantiates lazily; if exports are missing this
     // would throw or return undefined.
-    const { exports, ptr, length } = await allocWasmBuffer(new Uint8Array([1, 2, 3]));
+    const { exports, ptr, length } = allocWasmBuffer(new Uint8Array([1, 2, 3]));
     try {
       expect(typeof exports.lsign_alloc).toBe("function");
       expect(typeof exports.lsign_free).toBe("function");
@@ -67,9 +67,9 @@ describe("signet-verify wasm wrapper", () => {
     }
   });
 
-  it("alloc + copy-in + read-back round-trips bytes exactly", async () => {
+  it("alloc + copy-in + read-back round-trips bytes exactly", () => {
     const bytes = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0xFF]);
-    const { exports, ptr, length } = await allocWasmBuffer(bytes);
+    const { exports, ptr, length } = allocWasmBuffer(bytes);
     try {
       const view = new Uint8Array(exports.memory.buffer, ptr, length);
       // The view aliases wasm memory; copy out before any subsequent
@@ -80,10 +80,10 @@ describe("signet-verify wasm wrapper", () => {
     }
   });
 
-  it("alloc handles zero-length buffer (defensive)", async () => {
+  it("alloc handles zero-length buffer (defensive)", () => {
     // Empty buffers are allowed; alloc returns a valid pointer (or a
     // sentinel that paired free can handle).
-    const { exports, ptr, length } = await allocWasmBuffer(new Uint8Array(0));
+    const { exports, ptr, length } = allocWasmBuffer(new Uint8Array(0));
     try {
       expect(length).toBe(0);
       // Don't assert ptr > 0 — Rust's Vec::with_capacity(0) is
@@ -95,8 +95,8 @@ describe("signet-verify wasm wrapper", () => {
     }
   });
 
-  it("verifyCmsSignature rejects garbage input", async () => {
-    const result = await verifyCmsSignature(
+  it("verifyCmsSignature rejects garbage input", () => {
+    const result = verifyCmsSignature(
       new Uint8Array([0x00, 0x01, 0x02, 0x03]),  // not a CMS signature
       new Uint8Array([0xAA]),                    // arbitrary data
     );
@@ -106,12 +106,12 @@ describe("signet-verify wasm wrapper", () => {
     }
   });
 
-  it("verifyCmsSignature rejects empty input", async () => {
-    const result = await verifyCmsSignature(new Uint8Array(0), new Uint8Array(0));
+  it("verifyCmsSignature rejects empty input", () => {
+    const result = verifyCmsSignature(new Uint8Array(0), new Uint8Array(0));
     expect(result.ok).toBe(false);
   });
 
-  it("verifyCmsSignature rejects truncated CMS-shaped input", async () => {
+  it("verifyCmsSignature rejects truncated CMS-shaped input", () => {
     // A SEQUENCE-tagged DER with a length field but truncated payload.
     // This exercises the parser-error path (rather than signature-
     // mismatch) — both should surface as ok=false.
@@ -121,21 +121,21 @@ describe("signet-verify wasm wrapper", () => {
       0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02,  // signedData OID
       // ... payload would follow but is truncated here
     ]);
-    const result = await verifyCmsSignature(cmsLike, new Uint8Array([0xAA]));
+    const result = verifyCmsSignature(cmsLike, new Uint8Array([0xAA]));
     expect(result.ok).toBe(false);
   });
 
-  it("multiple verify calls in sequence don't leak (allocs paired with frees)", async () => {
+  it("multiple verify calls in sequence don't leak (allocs paired with frees)", () => {
     // Run 50 verify calls; if free is missing, wasm linear memory grows
     // unboundedly. We check that memory.buffer.byteLength stays
     // bounded — a leak would push it past initial capacity.
     const garbage = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
 
-    const { exports } = await allocWasmBuffer(new Uint8Array(0));
+    const { exports } = allocWasmBuffer(new Uint8Array(0));
     const initialMemBytes = exports.memory.buffer.byteLength;
 
     for (let i = 0; i < 50; i++) {
-      const result = await verifyCmsSignature(garbage, garbage);
+      const result = verifyCmsSignature(garbage, garbage);
       expect(result.ok).toBe(false);
     }
 
@@ -179,9 +179,9 @@ describe("signet-verify wasm wrapper", () => {
 describe("verifyCertChain", () => {
   const masterPubkey = b64uDecode(MASTER_PUBKEY_B64);
 
-  it("happy path: full cert with all Interlace extensions returns expected claims", async () => {
+  it("happy path: full cert with all Interlace extensions returns expected claims", () => {
     const cert = b64uDecode(CERT_FULL_B64);
-    const result = await verifyCertChain(cert, masterPubkey);
+    const result = verifyCertChain(cert, masterPubkey);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;  // narrow
@@ -195,9 +195,9 @@ describe("verifyCertChain", () => {
     expect(result.claims.scope).toBe("bead_create:/repos/foo");
   });
 
-  it("happy path: minimal cert (no Interlace extensions) returns claims with undefined optionals", async () => {
+  it("happy path: minimal cert (no Interlace extensions) returns claims with undefined optionals", () => {
     const cert = b64uDecode(CERT_MINIMAL_B64);
-    const result = await verifyCertChain(cert, masterPubkey);
+    const result = verifyCertChain(cert, masterPubkey);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -211,71 +211,71 @@ describe("verifyCertChain", () => {
     expect(result.claims.scope).toBeUndefined();
   });
 
-  it("rejects cert when master pubkey doesn't match the issuer", async () => {
+  it("rejects cert when master pubkey doesn't match the issuer", () => {
     const cert = b64uDecode(CERT_FULL_B64);
     const wrongMaster = new Uint8Array(32).fill(0xAA);
-    const result = await verifyCertChain(cert, wrongMaster);
+    const result = verifyCertChain(cert, wrongMaster);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(/cert chain verify failed/i);
   });
 
-  it("rejects cert minted by a different master against the canonical master", async () => {
+  it("rejects cert minted by a different master against the canonical master", () => {
     const cert = b64uDecode(CERT_WRONG_MASTER_B64);
-    const result = await verifyCertChain(cert, masterPubkey);
+    const result = verifyCertChain(cert, masterPubkey);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(/cert chain verify failed/i);
   });
 
-  it("rejects garbage cert bytes", async () => {
-    const result = await verifyCertChain(
+  it("rejects garbage cert bytes", () => {
+    const result = verifyCertChain(
       new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]),
       masterPubkey,
     );
     expect(result.ok).toBe(false);
   });
 
-  it("rejects truncated cert (valid DER prefix, payload cut off)", async () => {
+  it("rejects truncated cert (valid DER prefix, payload cut off)", () => {
     const cert = b64uDecode(CERT_FULL_B64);
     const truncated = cert.slice(0, 32);
-    const result = await verifyCertChain(truncated, masterPubkey);
+    const result = verifyCertChain(truncated, masterPubkey);
     expect(result.ok).toBe(false);
   });
 
-  it("rejects empty cert", async () => {
-    const result = await verifyCertChain(new Uint8Array(0), masterPubkey);
+  it("rejects empty cert", () => {
+    const result = verifyCertChain(new Uint8Array(0), masterPubkey);
     expect(result.ok).toBe(false);
   });
 
-  it("rejects tampered cert (single byte flipped in signature region)", async () => {
+  it("rejects tampered cert (single byte flipped in signature region)", () => {
     const cert = b64uDecode(CERT_FULL_B64);
     const tampered = new Uint8Array(cert);
     // Flip a byte near the end — that's where the trailing Ed25519
     // signature lives, so this is a clean signature-mismatch path.
     tampered[tampered.length - 5] ^= 0xFF;
-    const result = await verifyCertChain(tampered, masterPubkey);
+    const result = verifyCertChain(tampered, masterPubkey);
     expect(result.ok).toBe(false);
   });
 
-  it("rejects master pubkey of wrong length (TS-side guard, never reaches wasm)", async () => {
-    const tooShort = await verifyCertChain(b64uDecode(CERT_FULL_B64), new Uint8Array(16));
+  it("rejects master pubkey of wrong length (TS-side guard, never reaches wasm)", () => {
+    const tooShort = verifyCertChain(b64uDecode(CERT_FULL_B64), new Uint8Array(16));
     expect(tooShort.ok).toBe(false);
     if (tooShort.ok) return;
     expect(tooShort.reason).toMatch(/master pubkey must be 32 bytes/i);
 
-    const tooLong = await verifyCertChain(b64uDecode(CERT_FULL_B64), new Uint8Array(64));
+    const tooLong = verifyCertChain(b64uDecode(CERT_FULL_B64), new Uint8Array(64));
     expect(tooLong.ok).toBe(false);
     if (tooLong.ok) return;
     expect(tooLong.reason).toMatch(/master pubkey must be 32 bytes/i);
   });
 
-  it("rejects when claims output buffer is too small", async () => {
+  it("rejects when claims output buffer is too small", () => {
     // Full cert claims serialize to ~120 bytes of JSON; bound the buffer
     // at 8 bytes so writeOut returns -1 inside the wasm.
-    const result = await verifyCertChain(
+    const result = verifyCertChain(
       b64uDecode(CERT_FULL_B64),
       masterPubkey,
       { claimsOutLen: 8 },
@@ -285,17 +285,17 @@ describe("verifyCertChain", () => {
     expect(result.reason).toMatch(/parse, sig, or buffer/i);
   });
 
-  it("rejects cert with critical unknown extension (RFC 5280 §4.2 / cloister-c71977)", async () => {
+  it("rejects cert with critical unknown extension (RFC 5280 §4.2 / cloister-c71977)", () => {
     const cert = b64uDecode(CERT_CRITICAL_UNKNOWN_EXT_B64);
-    const result = await verifyCertChain(cert, masterPubkey);
+    const result = verifyCertChain(cert, masterPubkey);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toMatch(/cert chain verify failed/i);
   });
 
-  it("accepts cert with non-critical unknown extension (RFC 5280 says MAY ignore)", async () => {
+  it("accepts cert with non-critical unknown extension (RFC 5280 says MAY ignore)", () => {
     const cert = b64uDecode(CERT_NONCRITICAL_UNKNOWN_EXT_B64);
-    const result = await verifyCertChain(cert, masterPubkey);
+    const result = verifyCertChain(cert, masterPubkey);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // The cert was minted with epoch=7 + peer_fp + scope, same as
@@ -303,14 +303,14 @@ describe("verifyCertChain", () => {
     expect(result.claims.epoch).toBe(7);
   });
 
-  it("multiple cert-chain verifies in sequence don't leak (allocs paired with frees)", async () => {
+  it("multiple cert-chain verifies in sequence don't leak (allocs paired with frees)", () => {
     const cert = b64uDecode(CERT_FULL_B64);
 
-    const { exports } = await allocWasmBuffer(new Uint8Array(0));
+    const { exports } = allocWasmBuffer(new Uint8Array(0));
     const initialMemBytes = exports.memory.buffer.byteLength;
 
     for (let i = 0; i < 25; i++) {
-      const result = await verifyCertChain(cert, masterPubkey);
+      const result = verifyCertChain(cert, masterPubkey);
       expect(result.ok).toBe(true);
     }
 

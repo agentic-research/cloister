@@ -424,9 +424,9 @@ export async function verifyAndUpsertLease(args: {
   if (active.length === 0) {
     return { code: ERR_CA_UNAVAILABLE, message: "CA bundle missing active master pubkey" };
   }
-  let chain = await verifyCertChain(headers.certDer, active);
+  let chain = verifyCertChain(headers.certDer, active);
   if (!chain.ok && prev !== undefined) {
-    chain = await verifyCertChain(headers.certDer, prev);
+    chain = verifyCertChain(headers.certDer, prev);
   }
   if (!chain.ok) {
     return {

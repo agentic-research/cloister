@@ -30,8 +30,8 @@ use crate::cms;
 // (alloc) and `Vec::from_raw_parts` (dealloc).
 
 /// Allocate `size` bytes in wasm linear memory; return pointer (caller
-/// owns and must free via `lsign_free`). Returns null on allocation
-/// failure.
+/// owns and must free via `lsign_free`). Aborts on OOM — the default
+/// wasm32 allocator traps rather than returning null.
 ///
 /// # Safety
 /// Caller must pair every `lsign_alloc(n)` with exactly one
