@@ -134,6 +134,16 @@ sufficient.
   from ADR-0007/0011/0012 frontmatter). Adding a new seam (cert mint,
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
+- **Two CAS hash algorithms, intentionally distinct.** SHA-256
+  (`crypto.subtle.digest`) is the application-layer digest: bead
+  `content_hash`, attestation references, default BlobStore keying.
+  BLAKE3-256 (wasm32 FFI to LLO `leyline-cas-ffi`, synchronous via
+  `src/wire/cas-hash.ts`) is the substrate digest: blob identity in
+  build-cache/v1, arena roots. The build-cache/v1 wire overloads the
+  OCI `sha256:` prefix with BLAKE3 hex — `BlobStore.put` dual-verifies
+  against both algorithms. See
+  `cloister-spec/build-cache/v1/wire/digest-encoding.md` for the full
+  encoding rule.
 
 ## In-flight substrate work (ADRs 0007–0025)
 
