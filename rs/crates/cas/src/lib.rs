@@ -37,8 +37,8 @@ pub use leyline_cas_ffi::ffi::leyline_hash_bytes;
 // surface.
 
 /// Allocate `size` bytes in wasm linear memory; return pointer (caller
-/// owns and must free via `cloister_cas_free`). Returns null on
-/// allocation failure.
+/// owns and must free via `cloister_cas_free`). Aborts on OOM — the
+/// default wasm32 allocator traps rather than returning null.
 ///
 /// # Safety
 /// Caller must pair every `cloister_cas_alloc(n)` with exactly one
