@@ -43,6 +43,11 @@ function runLint(recipesDir, opts = {}) {
       // top-level `task lint:recipes` (Phase 1 + Phase 2 combined) and
       // by the dedicated parse-check test below.
       LINT_RECIPES_SKIP_PARSE: opts.skipParse === false ? "" : "1",
+      // Phase 3 (cloister-6b572a / ADR-0031) parses cluster.toml through
+      // the bidi pipeline. Synthesized fixture recipes don't carry a
+      // valid Cluster schema; opt out for unit tests + flip on for the
+      // dedicated Phase 3 test cases below.
+      LINT_RECIPES_SKIP_TOML_PARSE: opts.skipTomlParse === false ? "" : "1",
     },
     encoding: "utf8",
   });
@@ -229,6 +234,51 @@ test("Phase 2: recipe WITHOUT cloister.capnp is skipped (cluster.toml-only recip
   try {
     const r = runLint(t.dir, { skipParse: false });
     // Phase 1 satisfied (README + one-of), Phase 2 no-op for cluster.toml-only.
+    assert.equal(r.status, 0, `expected ok, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
+  } finally {
+    t.cleanup();
+  }
+});
+
+// ── Phase 3 (cloister-6b572a / ADR-0031): cluster.toml parses through the bidi pipeline
+
+test("Phase 3: broken cluster.toml fails the lint", () => {
+  // Synthesize a recipe with a cluster.toml that violates the schema —
+  // missing the required `metadata` table. parseTomlToCluster should
+  // reject it; the lint should surface the rejection.
+  const t = makeRecipesDir({
+    "broken-toml-recipe": {
+      "README.md":   "# broken-toml\n\nlinks to docs/reference/bundle-topology.md\n",
+      // Valid TOML syntax but missing the required `metadata` field —
+      // zod's ClusterSchema.parse will reject this.
+      "cluster.toml": `# Intentionally schema-incomplete — no [metadata].
+[storage]
+doStoragePath = "/data/do"
+`,
+    },
+  });
+  try {
+    // Phase 3 ON, Phase 2 OFF (so the cloister.capnp parse doesn't get in the way).
+    const r = runLint(t.dir, { skipTomlParse: false });
+    assert.notEqual(r.status, 0, "expected lint to fail on broken cluster.toml");
+    assert.match(r.stdout + r.stderr, /cluster\.toml parse failed/);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("Phase 3: recipe WITHOUT cluster.toml is skipped", () => {
+  // Recipes that still ship only cloister.capnp must continue to pass —
+  // Phase 3 doesn't make cluster.toml mandatory, it just validates it
+  // when present.
+  const t = makeRecipesDir({
+    "capnp-only-recipe": {
+      "README.md":      "# capnp-only\n\nlinks to docs/reference/backend-kinds.md\n",
+      "cloister.capnp": "@0x0;\n",
+    },
+  });
+  try {
+    const r = runLint(t.dir, { skipTomlParse: false });
     assert.equal(r.status, 0, `expected ok, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
   } finally {
     t.cleanup();

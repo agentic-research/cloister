@@ -1,20 +1,27 @@
 #!/usr/bin/env node
 /**
- * scripts/lint-recipes.mjs — Phase 1 recipe smoke validation
- * (cloister-449f82).
+ * scripts/lint-recipes.mjs — recipe smoke validation (cloister-449f82
+ * Phase 1+2, cloister-6b572a / ADR-0031 Phase 3).
  *
  * Why this exists:
  *
  *   Recipes under `recipes/&lt;name&gt;/` ship as the operator-facing canonical
- *   examples of how to declare a cluster. Today nothing in `task lint`
- *   or `task verify` actually exercises them, so manifest schema
- *   changes / backend-kind renames / canonical-doc additions can
+ *   examples of how to declare a cluster. Without a CI gate, manifest
+ *   schema changes / backend-kind renames / canonical-doc additions can
  *   silently break a recipe nobody's testing.
  *
- *   This Phase 1 lint catches the cheap drift surface — file-presence
- *   + canonical-link convention. Phase 2 (deferred) adds capnp/TOML
- *   parse validation; Phase 3 (deferred further) adds local boot
- *   smoke under an opt-in env.
+ *   Phase 1 catches the cheap drift surface — file-presence + the
+ *   canonical-link convention.
+ *
+ *   Phase 2 drives each recipe's `cloister.capnp` through the real
+ *   `task manifest` pipeline (opt-out via `LINT_RECIPES_SKIP_PARSE=1`
+ *   for the unit harness).
+ *
+ *   Phase 3 (cloister-6b572a / ADR-0031): if a recipe ships a
+ *   `cluster.toml` (the post-Phase-3 operator surface), drive it
+ *   through `parseTomlToCluster` so schema drift in the TOML lane is
+ *   caught independently of the cloister.capnp lane. Opt-out via
+ *   `LINT_RECIPES_SKIP_TOML_PARSE=1`.
  *
  * Wire:
  *
@@ -40,6 +47,21 @@ const REPO_ROOT = resolve(HERE, "..");
 const RECIPES_DIR = process.env.RECIPES_DIR
   ? resolve(process.env.RECIPES_DIR)
   : resolve(REPO_ROOT, "recipes");
+
+// Lazy import — only loaded if at least one recipe ships a cluster.toml.
+// `parseTomlToCluster` lives next to this script; importing it pulls in
+// `../src/generated/cluster.zod.ts` (a TS file). Tests that synthesize
+// pure-fixture recipe trees don't need this and would fail on missing
+// generated files in non-cloister harnesses; the lazy import keeps the
+// Phase 1/2 happy path independent of the Phase 3 toml-parse check.
+let _parseTomlToCluster = null;
+async function getParseTomlToCluster() {
+  if (_parseTomlToCluster === null) {
+    const mod = await import(resolve(HERE, "toml-to-cluster.mjs"));
+    _parseTomlToCluster = mod.parseTomlToCluster;
+  }
+  return _parseTomlToCluster;
+}
 
 class ToolchainError extends Error {}
 
@@ -82,6 +104,47 @@ function discoverRecipes() {
  * harness — invoking `task manifest` requires the full toolchain so
  * isn't appropriate inside a focused unit test).
  */
+/**
+ * Phase 3 (cloister-6b572a / ADR-0031): if the recipe ships a
+ * `cluster.toml`, drive it through the bidi pipeline's parse leg
+ * (`parseTomlToCluster`) and assert it shapes cleanly into a validated
+ * Cluster. Catches schema drift independently of the Phase 2
+ * cloister.capnp check.
+ *
+ * Recipes that don't ship cluster.toml are skipped (back-compat for the
+ * Phase 1 contract; capnp-only recipes still pass).
+ *
+ * Opt-out env: `LINT_RECIPES_SKIP_TOML_PARSE=1` (used by the unit test
+ * harness — synthesized fixtures don't carry a valid Cluster schema).
+ *
+ * Failure surface: returns a string describing the parse error; null on
+ * success / skip. Same shape as parseCheckRecipe so checkRecipe's
+ * violation-list mechanism handles it uniformly.
+ */
+async function tomlParseCheckRecipe(recipe) {
+  if (process.env.LINT_RECIPES_SKIP_TOML_PARSE === "1") return null;
+  const toml = join(recipe.path, "cluster.toml");
+  if (!existsSync(toml)) return null; // only recipes with cluster.toml are checked
+
+  let tomlBody;
+  try {
+    tomlBody = readFileSync(toml, "utf8");
+  } catch (e) {
+    return `cluster.toml read failed: ${e.message}`;
+  }
+
+  try {
+    const parse = await getParseTomlToCluster();
+    await parse(tomlBody);
+    return null;
+  } catch (e) {
+    // Trim multi-line zod errors to the first 5 lines for the violation
+    // print — operators get the headline; the full body is one re-run away.
+    const msg = String(e?.message ?? e).split("\n").slice(0, 5).join("\n        ");
+    return `cluster.toml parse failed:\n        ${msg}`;
+  }
+}
+
 function parseCheckRecipe(recipe) {
   if (process.env.LINT_RECIPES_SKIP_PARSE === "1") return null;
   const capnp = join(recipe.path, "cloister.capnp");
@@ -115,7 +178,7 @@ function parseCheckRecipe(recipe) {
   }
 }
 
-function checkRecipe(recipe) {
+async function checkRecipe(recipe) {
   const violations = [];
   const warnings = [];
 
@@ -135,6 +198,16 @@ function checkRecipe(recipe) {
   const parseErr = parseCheckRecipe(recipe);
   if (parseErr !== null) {
     violations.push(parseErr);
+  }
+
+  // Phase 3 (cloister-6b572a / ADR-0031): parse the recipe's cluster.toml
+  // through the bidi pipeline. Catches schema-shape drift in cluster.toml
+  // independently of cloister.capnp (which Phase 2 already validates).
+  // Opt-out via `LINT_RECIPES_SKIP_TOML_PARSE=1` for the unit test harness
+  // (synthesized fixture recipes don't carry a valid schema).
+  const tomlErr = await tomlParseCheckRecipe(recipe);
+  if (tomlErr !== null) {
+    violations.push(tomlErr);
   }
 
   // Canonical-link convention: soft-required (warn only).
@@ -172,7 +245,10 @@ if (recipes.length === 0) {
   process.exit(2);
 }
 
-const results = recipes.map(checkRecipe);
+const results = [];
+for (const r of recipes) {
+  results.push(await checkRecipe(r));
+}
 const totalViolations = results.reduce((n, r) => n + r.violations.length, 0);
 const totalWarnings = results.reduce((n, r) => n + r.warnings.length, 0);
 
