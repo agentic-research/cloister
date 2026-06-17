@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
  * scripts/emit-cloister-capnp.mjs — generate cloister.capnp from
- * cluster.toml (routes).
+ * cluster.toml (routes + gateway).
  *
- * Phase 2 (Commit 3) of "cloister.capnp as build artifact" arc
- * (cloister-345ad1 / ADR-0031 draft pending in Commit 5).
+ * Phase 2 (Commit 3, cloister-345ad1) seeded this with the routes
+ * surface; Phase 4a (cloister-c919d7) extends it to consume the
+ * `[gateway]` block (metadata + actor + policy) so per-recipe
+ * `cloister.capnp` files can finally retire to a byte-identical
+ * drift gate (Hybrid Model A → Pure Model A).
  *
  * Pipeline:
  *
- *   cluster.toml → routes (cluster-toml-only; no lockfile overlay here)
+ *   cluster.toml → routes + gateway (cluster-toml-only; no lockfile overlay)
  *                       │
  *                       ▼
  *   render canonical cloister.capnp (deterministic text)
@@ -22,21 +25,22 @@
  *   overlay into `cloister.capnp`; if it did, build-manifest's
  *   pre-existing overlay would collide with itself on every run.
  *
- *   So this emitter writes ONLY the cluster.toml-declared routes
- *   into cloister.capnp. The lockfile injection still happens
+ *   So this emitter writes ONLY the cluster.toml-declared routes +
+ *   gateway into cloister.capnp. The lockfile injection still happens
  *   downstream at `task manifest` time, exactly as in Phase 1.
  *
  * Output is byte-stable: two consecutive runs on the same inputs
  * produce identical bytes. Makes the drift gate meaningful.
  *
- * What this emitter DOES NOT cover (Phase 2 scope):
+ * Gateway fall-through (Phase 4a back-compat):
  *
- *   - actor + policy + supportedProtocolVersions + vaultProxyServices.
- *     These Gateway-level fields aren't in cluster.toml today. The
- *     emitter carries them forward from a fixed default-template
- *     (matching the existing ART-default cloister.capnp). Phase 3+
- *     will add `[gateway]` to cluster.toml when an operator needs to
- *     override the defaults; until then the emitter pins them.
+ *   When the parsed `cluster.gateway` is all-empty (the canonical
+ *   default for pre-Phase-4a cluster.toml files that didn't declare
+ *   `[gateway]`), the emitter falls through to the ART-default
+ *   template — same shape as Phase 2's hardcoded values. This
+ *   preserves cluster.toml files that pre-date Phase 4a. A warning
+ *   gets written to stderr so operators see the fall-through path
+ *   when they regenerate.
  *
  * Usage:
  *   node scripts/emit-cloister-capnp.mjs                   # stdout
@@ -45,6 +49,9 @@
  * Env vars:
  *   CLUSTER_TOML       path to cluster.toml      (default: ./cluster.toml)
  *   CLOISTER_OUTPUT    path to write (default: stdout unless --write)
+ *   EMIT_CLOISTER_QUIET=1  silence the Phase 4a fall-through warning
+ *                          (used by drift gate / tests where stderr is
+ *                          checked separately).
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -58,18 +65,19 @@ const REPO_ROOT = resolve(HERE, "..");
 const DEFAULT_TOML = resolve(REPO_ROOT, "cluster.toml");
 const DEFAULT_OUTPUT = null; // stdout
 
-// ── Carried-forward Gateway defaults ──────────────────────────────────────
+// ── ART-default Gateway template (back-compat fall-through) ───────────────
 //
-// These fields aren't yet in cluster.toml. Phase 3+ will add a
-// `[gateway]` section to let operators override; until then the emitter
-// pins them to the ART-default values that already live in the existing
-// hand-edited cloister.capnp file. This keeps Commit 3's output
-// byte-compatible (modulo route + backend changes) with the current
-// file when an operator runs the emitter for the first time.
+// Phase 2 (cloister-345ad1) pinned these values as the only source for
+// gateway.metadata + actor + policy. Phase 4a (cloister-c919d7) makes
+// the values OPERATOR-AUTHORED via cluster.toml's `[gateway]` table —
+// the template below now serves a narrower purpose: a back-compat
+// fall-through when the parsed cluster's gateway is all-empty (the
+// pre-Phase-4a default for cluster.toml files that don't declare
+// `[gateway]`).
 //
-// The strings here are EXACTLY the ones in cloister.capnp at HEAD —
-// matching them is what makes Commit 4's "byte-identical or document
-// deltas" work in practice.
+// The strings here remain EXACTLY the ones in the root cloister.capnp
+// at HEAD — matching them is what makes the back-compat path
+// byte-identical with the Phase 2 emitter output.
 const DEFAULT_GATEWAY = {
   metadata: { name: "cloister-art", version: "0.1.0" },
   actor: {
@@ -97,28 +105,133 @@ const DEFAULT_GATEWAY = {
  * separate avoids "this row exists in both files" collisions when
  * cloister.capnp is regenerated.
  *
+ * Phase 4a (cloister-c919d7 / ADR-0031): consumes `cluster.gateway` from
+ * cluster.toml. Fall-through to ART-default template when the parsed
+ * gateway is the all-empty back-compat default (`isEmptyGateway`).
+ *
  * @param {object} cluster        validated Cluster object (from parseTomlToCluster)
+ * @param {object} [options]
+ * @param {boolean} [options.quiet=false]  silence the fall-through warning
  * @returns {string} cloister.capnp source text
  */
-export function emitCloisterCapnp(cluster) {
+export function emitCloisterCapnp(cluster, options = {}) {
   if (!cluster || typeof cluster !== "object") {
     throw new TypeError("emitCloisterCapnp: expected a Cluster object");
+  }
+  const { gateway, usedFallthrough } = resolveGateway(cluster.gateway);
+  if (usedFallthrough && !options.quiet && process.env.EMIT_CLOISTER_QUIET !== "1") {
+    // Document the fall-through path so operators see when they
+    // regenerate from a cluster.toml that doesn't declare `[gateway]`.
+    // Stderr only — the canonical capnp output is the load-bearing
+    // value on stdout, the warning is signal-only.
+    process.stderr.write(
+      "emit-cloister-capnp: [gateway] not declared in cluster.toml — falling " +
+      "through to the ART-default template (cloister-c919d7 / ADR-0031 Phase 4a back-compat).\n",
+    );
   }
   return renderCapnp({
     // gateway.metadata is the LOGICAL MANIFEST NAME (per ADR-0004:
     // "cloister-art", "cloister-mache", "cloister-constellation"), NOT
     // the cluster name. Cluster.metadata.name is the cluster identity
-    // ("art-default", visible in container labels). Until Phase 3 lands
-    // `[gateway]` in cluster.toml, the gateway metadata stays pinned
-    // to the ART-default template — matching the existing hand-edited
-    // cloister.capnp file at HEAD. Operators who want a different
-    // gateway.metadata name today must edit emit-cloister-capnp.mjs
-    // (and live with the deviation showing up in the drift gate).
-    metadata: DEFAULT_GATEWAY.metadata,
-    actor: DEFAULT_GATEWAY.actor,
-    policy: DEFAULT_GATEWAY.policy,
+    // ("art-default", visible in container labels). Phase 4a lifts
+    // this from `cluster.gateway` when set; falls through to the
+    // ART-default template otherwise.
+    metadata: gateway.metadata,
+    actor: gateway.actor,
+    policy: gateway.policy,
     routes: (cluster.routes ?? []).map((r) => cloneRoute(r)),
   });
+}
+
+/**
+ * Phase 4a resolver: pick between the operator-authored gateway (from
+ * cluster.toml `[gateway]`) and the ART-default template (back-compat
+ * for pre-Phase-4a TOML files).
+ *
+ * Two-state semantics (intentional simplification):
+ *   - All-empty gateway → ART-default template + fall-through warning.
+ *   - Any field populated → use the operator's values VERBATIM.
+ *
+ * No field-level merge. Operators who declare `[gateway]` in
+ * cluster.toml have opted into the operator-authored path; cherry-
+ * picking ART-default values into their explicit declarations would
+ * clobber legitimate operator intent (oss-launch-minimal explicitly
+ * sets `actor.fingerprint = ""` to disable Interlace discovery — a
+ * field-level merge would silently replace that with the placeholder).
+ *
+ * Returns the resolved gateway plus a `usedFallthrough` flag so the
+ * caller can emit the back-compat warning.
+ */
+function resolveGateway(g) {
+  if (isEmptyGateway(g)) {
+    return { gateway: DEFAULT_GATEWAY, usedFallthrough: true };
+  }
+  return {
+    gateway: normalizeGatewayForRender(g),
+    usedFallthrough: false,
+  };
+}
+
+/**
+ * "All-empty" predicate. A gateway is empty when EVERY field on
+ * metadata, actor, and policy is the zero value for its type:
+ *   - String fields → "" (empty)
+ *   - UInt32 (`maxCertLifetimeSeconds`) → 0
+ *   - Boolean (`requireInterlock`) → false
+ *
+ * Any populated field flips the predicate to false + opts the operator
+ * into the operator-authored path. Catches the back-compat case
+ * (pre-Phase-4a cluster.toml that didn't declare `[gateway]` —
+ * `parseTomlToCluster` defaults the whole struct to all-empty via
+ * `normalizeGateway`).
+ */
+function isEmptyGateway(g) {
+  if (!g || typeof g !== "object") return true;
+  const m = g.metadata ?? {};
+  const a = g.actor    ?? {};
+  const p = g.policy   ?? {};
+  return (
+    (m.name ?? "") === "" &&
+    (m.version ?? "") === "" &&
+    (a.fingerprint ?? "") === "" &&
+    (a.algorithm ?? "") === "" &&
+    (a.pubkeyBinding ?? "") === "" &&
+    (a.attestationRepo ?? "") === "" &&
+    (a.tunnelEndpoint ?? "") === "" &&
+    ((p.maxCertLifetimeSeconds ?? 0) === 0) &&
+    ((p.requireInterlock ?? false) === false) &&
+    ((p.minAlgorithm ?? "") === "")
+  );
+}
+
+/**
+ * Shape-only normalization for the render path — ensures every field
+ * on the gateway is the right type (string / number / bool) so the
+ * renderer's q() / interpolation can't crash on `undefined`. Does NOT
+ * fall through to ART-defaults; passes operator values verbatim.
+ */
+function normalizeGatewayForRender(g) {
+  const m = g.metadata ?? {};
+  const a = g.actor    ?? {};
+  const p = g.policy   ?? {};
+  return {
+    metadata: {
+      name:    typeof m.name    === "string" ? m.name    : "",
+      version: typeof m.version === "string" ? m.version : "",
+    },
+    actor: {
+      fingerprint:     typeof a.fingerprint     === "string" ? a.fingerprint     : "",
+      algorithm:       typeof a.algorithm       === "string" ? a.algorithm       : "",
+      pubkeyBinding:   typeof a.pubkeyBinding   === "string" ? a.pubkeyBinding   : "",
+      attestationRepo: typeof a.attestationRepo === "string" ? a.attestationRepo : "",
+      tunnelEndpoint:  typeof a.tunnelEndpoint  === "string" ? a.tunnelEndpoint  : "",
+    },
+    policy: {
+      maxCertLifetimeSeconds: typeof p.maxCertLifetimeSeconds === "number" ? p.maxCertLifetimeSeconds : 0,
+      requireInterlock:       typeof p.requireInterlock       === "boolean" ? p.requireInterlock       : false,
+      minAlgorithm:           typeof p.minAlgorithm           === "string"  ? p.minAlgorithm           : "",
+    },
+  };
 }
 
 function cloneRoute(r) {
@@ -163,11 +276,12 @@ function cloneRoute(r) {
 function renderCapnp(g) {
   const lines = [];
   lines.push("# cloister.capnp — AUTO-GENERATED by scripts/emit-cloister-capnp.mjs");
-  lines.push("# Phase 2 of \"cloister.capnp as build artifact\" arc (cloister-345ad1, ADR-0031).");
+  lines.push("# Per ADR-0031 (cloister-345ad1 Phase 2 + cloister-c919d7 Phase 4a).");
   lines.push("#");
-  lines.push("# Source: cluster.toml [[routes]] — the operator-authored route list.");
-  lines.push("# gateway.metadata + actor + policy stay pinned to ART-default values");
-  lines.push("# until Phase 3 lands a `[gateway]` operator surface in cluster.toml.");
+  lines.push("# Source: cluster.toml [[routes]] + [gateway] — the operator-authored");
+  lines.push("# route list + Gateway-level surface (metadata + actor + policy).");
+  lines.push("# When [gateway] is absent / all-empty, the emitter falls through to");
+  lines.push("# the ART-default template (back-compat for pre-Phase-4a cluster.toml).");
   lines.push("# The cluster.lock.toml [[generated_backends]] overlay is applied");
   lines.push("# DOWNSTREAM at `task manifest` time by scripts/build-manifest.mjs;");
   lines.push("# this file carries only the cluster.toml-declared routes.");

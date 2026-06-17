@@ -190,3 +190,121 @@ test("emit-cloister-capnp: closing tokens are balanced (count of '(' == count of
   const closeBrackets = (stripped.match(/\]/g) || []).length;
   assert.equal(openBrackets, closeBrackets, "structural bracket balance is required");
 });
+
+// ── Phase 4a (cloister-c919d7 / ADR-0031): emitter consumes [gateway] ────
+
+function clusterWithGateway(gateway) {
+  return {
+    metadata: { name: "with-gateway", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [{ path: "/health", kind: { health: null } }],
+    gateway,
+  };
+}
+
+test("Phase 4a: missing gateway field → fall through to ART-default + warn on stderr", () => {
+  // Pre-Phase-4a cluster.toml back-compat: the emitter's
+  // `isEmptyGateway` predicate triggers fall-through when the gateway
+  // is undefined OR all-empty. Output matches the Phase 2 hardcoded
+  // template byte-for-byte.
+  const out = emitCloisterCapnp(minimalCluster(), { quiet: true });
+  assert.match(out, /metadata = \(name = "cloister-art", version = "0\.1\.0"\)/);
+  assert.match(out, /fingerprint     = "sha256:placeholder-pinned-at-deploy-time"/);
+  assert.match(out, /requireInterlock       = true/);
+});
+
+test("Phase 4a: populated [gateway] → operator values land verbatim", () => {
+  const out = emitCloisterCapnp(clusterWithGateway({
+    metadata: { name: "cloister-custom", version: "1.2.3" },
+    actor: {
+      fingerprint:     "sha256:deadbeef",
+      algorithm:       "ml-dsa-44",
+      pubkeyBinding:   "MY_PUBKEY",
+      attestationRepo: "https://example.com/chain",
+      tunnelEndpoint:  "tunnel.example.com",
+    },
+    policy: {
+      maxCertLifetimeSeconds: 600,
+      requireInterlock:       false,
+      minAlgorithm:           "ml-dsa-44",
+    },
+  }), { quiet: true });
+  // Operator-authored metadata + actor + policy must render unchanged.
+  assert.match(out, /metadata = \(name = "cloister-custom", version = "1\.2\.3"\)/);
+  assert.match(out, /fingerprint     = "sha256:deadbeef"/);
+  assert.match(out, /algorithm       = "ml-dsa-44"/);
+  assert.match(out, /pubkeyBinding   = "MY_PUBKEY"/);
+  assert.match(out, /attestationRepo = "https:\/\/example\.com\/chain"/);
+  assert.match(out, /tunnelEndpoint  = "tunnel\.example\.com"/);
+  assert.match(out, /maxCertLifetimeSeconds = 600/);
+  assert.match(out, /requireInterlock       = false/);
+  assert.match(out, /minAlgorithm           = "ml-dsa-44"/);
+});
+
+test("Phase 4a: oss-launch-minimal shape (empty fingerprint to disable Interlace) lands verbatim", () => {
+  // Critical regression test: oss-launch-minimal explicitly sets
+  // `actor.fingerprint = ""` + `actor.pubkeyBinding = ""` to disable
+  // the `.well-known/interlace/` discovery doc. A naive field-level
+  // merge would clobber those explicit empty values with the
+  // placeholder template; this test pins the verbatim-pass behavior.
+  const out = emitCloisterCapnp(clusterWithGateway({
+    metadata: { name: "cloister-oss-minimal", version: "0.1.0" },
+    actor: {
+      fingerprint:     "",
+      algorithm:       "ed25519",
+      pubkeyBinding:   "",
+      attestationRepo: "",
+      tunnelEndpoint:  "",
+    },
+    policy: {
+      maxCertLifetimeSeconds: 300,
+      requireInterlock:       false,
+      minAlgorithm:           "ed25519",
+    },
+  }), { quiet: true });
+  assert.match(out, /fingerprint     = ""/);
+  assert.match(out, /pubkeyBinding   = ""/);
+  assert.match(out, /requireInterlock       = false/);
+  // Negative: the ART-default placeholder must NOT appear.
+  assert.doesNotMatch(out, /sha256:placeholder-pinned-at-deploy-time/);
+  assert.doesNotMatch(out, /INTERLACE_MASTER_PUBKEY/);
+});
+
+test("Phase 4a: byte-stable across two emit calls with populated gateway", () => {
+  const c = clusterWithGateway({
+    metadata: { name: "cloister-bytes", version: "0.0.1" },
+    actor: {
+      fingerprint:     "sha256:cafebabe",
+      algorithm:       "ed25519",
+      pubkeyBinding:   "INTERLACE_MASTER_PUBKEY",
+      attestationRepo: "",
+      tunnelEndpoint:  "",
+    },
+    policy: {
+      maxCertLifetimeSeconds: 300,
+      requireInterlock:       true,
+      minAlgorithm:           "ed25519",
+    },
+  });
+  const a = emitCloisterCapnp(c, { quiet: true });
+  const b = emitCloisterCapnp(c, { quiet: true });
+  assert.equal(a, b, "byte-stable output across runs is the drift-gate invariant");
+});
+
+test("Phase 4a: quiet option suppresses the fall-through warning", () => {
+  // Sanity check the quiet path — used by drift gate / tests where
+  // stderr is asserted-on separately. Default path emits to stderr;
+  // quiet must not.
+  const origWrite = process.stderr.write.bind(process.stderr);
+  let buf = "";
+  process.stderr.write = (chunk) => { buf += String(chunk); return true; };
+  try {
+    emitCloisterCapnp(minimalCluster(), { quiet: true });
+    assert.equal(buf, "", "quiet mode must not write to stderr");
+  } finally {
+    process.stderr.write = origWrite;
+  }
+});
