@@ -4,6 +4,16 @@ The full identity-on cloister deployment. cloister-router + notme +
 mache + companion, with the well-known discovery surface enabled and
 rsry over leyline-net.
 
+## Operator surface
+
+After scaffolding, edit `cluster.toml` — the operator-readable
+declaration of bundles, wires, storage, and routes. Per ADR-0031
+Phase 3 (cloister-6b572a), `cluster.toml` is the source-of-truth
+operator surface; `cloister.capnp` is the runtime artifact the workerd
+substrate consumes. Both ship in the scaffold output; Phase 4 will
+retire the hand-edited `cloister.capnp` once `[gateway]` lands in
+`cluster.toml`.
+
 ## What's included
 
 This recipe's bundles. Per-bundle tier + transport + purpose definitions

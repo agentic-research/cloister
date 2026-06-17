@@ -42,7 +42,11 @@ function discoverRecipes() {
     .filter(
       (name) =>
         existsSync(join(RECIPES_DIR, name, "cloister.capnp")) &&
-        existsSync(join(RECIPES_DIR, name, "cluster.compose.yaml")),
+        existsSync(join(RECIPES_DIR, name, "cluster.compose.yaml")) &&
+        // Phase 3 of ADR-0031 (cloister-6b572a) — cluster.toml is the
+        // operator-readable surface that ships in every recipe alongside
+        // the runtime cloister.capnp.
+        existsSync(join(RECIPES_DIR, name, "cluster.toml")),
     )
     .sort();
 }
@@ -203,6 +207,10 @@ for (const recipe of RECIPES) {
         "missing cloister.capnp",
       );
       assert.ok(
+        existsSync(resolve(tmp.dir, "cluster.toml")),
+        "missing cluster.toml (Phase 3 of ADR-0031, cloister-6b572a)",
+      );
+      assert.ok(
         existsSync(resolve(tmp.dir, "README.md")),
         "missing README.md",
       );
@@ -210,6 +218,11 @@ for (const recipe of RECIPES) {
       // Sanity: cloister.capnp body contains a Gateway literal.
       const body = readFileSync(resolve(tmp.dir, "cloister.capnp"), "utf8");
       assert.match(body, /const gateway :Cloister\.Gateway/);
+
+      // Sanity: cluster.toml body declares the metadata table (the
+      // operator-readable surface entry point).
+      const tomlBody = readFileSync(resolve(tmp.dir, "cluster.toml"), "utf8");
+      assert.match(tomlBody, /\[metadata\]/);
 
       // Sanity: compose body declares cloister-router.
       const compose = readFileSync(resolve(tmp.dir, "cluster.compose.yaml"), "utf8");

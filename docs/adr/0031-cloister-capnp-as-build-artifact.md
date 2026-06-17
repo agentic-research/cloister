@@ -1,7 +1,8 @@
 # ADR-0031 — cloister.capnp as build artifact
 
-- **Status:** Draft (2026-06-17)
-- **Tracking bead:** `cloister-345ad1`
+- **Status:** Accepted (Phase 2 shipped 2026-06-17 via `cloister-345ad1`;
+  Phase 3 shipped 2026-06-17 via `cloister-6b572a`)
+- **Tracking beads:** `cloister-345ad1` (Phase 2), `cloister-6b572a` (Phase 3)
 - **Pairs with:** ADR-0004 (capnp manifest, append-only schema
   evolution), ADR-0025 (bidi TOML ↔ capnp pipeline for `cluster.toml`),
   ADR-0026 (tool composition model + `[[generated_backends]]` in
@@ -77,15 +78,23 @@ Phase 2 (cloister-345ad1, this ADR — 2026-06-17)
   this repo's root. Per-recipe cloister.capnp still hand-edited
   (Phase 3 scope).
 
-Phase 3 (deferred — separate bead)
-  Recipes ship cluster.toml ONLY. Per-recipe cloister.capnp shells
-  retired; the emitter handles every recipe shape.
+Phase 3 (cloister-6b572a, this ADR — shipped 2026-06-17)
+  Each per-recipe directory ships cluster.toml as the operator-readable
+  surface. Hybrid Model A applied (see Phase 3 Consequences below):
+  cluster.toml + cloister.capnp BOTH ship; cluster.toml is the
+  source-of-truth declaration; cloister.capnp preserves per-recipe
+  gateway metadata until Phase 4 lands [gateway] in TOML. lint:recipes
+  gates the toml lane independently of the capnp lane. task init
+  scaffolds cluster.toml alongside the existing files.
 
-Phase 4 (deferred — per-upstream beads)
+Phase 4 (deferred — `cloister-8ff777` per-upstream beads + emitter
+        [gateway] extension)
   Mache + rsry + future upstreams join the lockfile-driven backend
   pattern. Cluster.toml's [[routes.mcp.backends]] shrinks to just
   intra-cluster backends (DO-backed). Mcp upstream backends become
-  lockfile-only.
+  lockfile-only. Emitter consumes `[gateway]` from cluster.toml so
+  the per-recipe hand-edited cloister.capnp can finally be retired
+  (full byte-drift gate ships at this phase).
 ```
 
 ### Phase 2 scope (what shipped)
@@ -136,6 +145,50 @@ injects the lockfile rows.
 
 The net effect on `src/generated/manifest.ts` is identical to Phase 1.
 
+## Phase 3 closure notes (added 2026-06-17, `cloister-6b572a`)
+
+Phase 3 migrated the three shipped recipes (`agent-cluster`,
+`oss-launch-minimal`, `rosary-dev`) to the post-Phase-2 shape. The
+implementation chose **Hybrid Model A** over pure Model A / Model B
+after evaluating both:
+
+- **Pure Model A (regenerate via emitter, drop hand-edited capnp):**
+  the Phase 2 emitter pins `gateway.metadata`, `actor`, and `policy` to
+  ART-default values (see "What's pinned in the emitter" above).
+  Running the emitter on the recipe TOMLs would regress
+  `cloister-agent-cluster` → `cloister-art` and turn
+  `oss-launch-minimal`'s permissive policy into identity-required.
+  Both are operator regressions — the recipes lose their distinctive
+  gateway identity until Phase 4.
+
+- **Model B (cluster.toml only, run emitter at scaffold time):** the
+  scaffolded recipe doesn't carry the emitter source. Operators would
+  need to either (a) install the cloister tooling separately to
+  regenerate cloister.capnp from cluster.toml, or (b) accept a
+  scaffold output that has no runtime manifest. Neither is acceptable
+  for a "scaffold and go" UX.
+
+- **Hybrid Model A (shipped):** both files ship per recipe. `cluster.toml`
+  is the operator-readable source; `cloister.capnp` stays hand-edited
+  to preserve per-recipe gateway metadata. `lint:recipes` Phase 3 gates
+  cluster.toml through `parseTomlToCluster` so schema drift in the TOML
+  lane is caught independently of the capnp lane. The full
+  byte-identical drift gate (capnp = emitter(toml)) ships at Phase 4
+  once the emitter consumes `[gateway]` from cluster.toml.
+
+Documented deltas between each recipe's cluster.toml routes and the
+hand-edited cloister.capnp at HEAD: **none on routes** — every route in
+each recipe's TOML matches the route list in the recipe's cloister.capnp.
+Phase 4's byte-identical regen needs the emitter to learn `[gateway]`
++ inline route comments; the route content itself is already aligned.
+
+For `rosary-dev`, the `lsp` and `leyline-lifecycle` backends in
+`cluster.toml [[routes.mcp.backends]]` are hand-declared (no lockfile
+overlay in the recipe — recipes don't ship `cluster.lock.toml`). This
+mirrors the existing hand-edited recipe cloister.capnp. Phase 4 retires
+both representations once recipes participate in the lockfile pattern
+(`cloister-8ff777`).
+
 ## Consequences
 
 ### Positive
@@ -166,10 +219,15 @@ The net effect on `src/generated/manifest.ts` is identical to Phase 1.
   (a) `cluster.toml` operator comments,
   (b) ADRs / `docs/security/threat-model.md` for the why-layer,
   (c) the schema (`manifest/cluster.capnp`) for the per-variant docstrings.
-- **Per-recipe hand-edited cloister.capnp still exist.** Phase 3
-  handles those — Phase 2 explicitly leaves them alone (the bead
-  said NOT TO TOUCH them, and the recipe lint
-  `lint:recipes` validates them as-is).
+- **Per-recipe hand-edited cloister.capnp still exist** (post Phase 3,
+  intentional). Phase 3 added a per-recipe `cluster.toml` alongside the
+  existing `cloister.capnp`; both ship. The capnp file preserves the
+  per-recipe `gateway.metadata` / `actor` / `policy` values that the
+  Phase 2 emitter can't yet produce (it pins them to ART-default).
+  Phase 4 lands `[gateway]` in cluster.toml + the emitter consumes it,
+  at which point per-recipe `cloister.capnp` becomes a generated
+  artifact and the full byte-drift gate ships. `lint:recipes` Phase 3
+  enforces that cluster.toml parses through the bidi pipeline.
 - **Gateway-level fields pinned in emitter source.** Until Phase 3
   adds `[gateway]` to `cluster.toml`, overriding `actor.fingerprint`
   for a real deployment means editing `emit-cloister-capnp.mjs`
@@ -261,4 +319,4 @@ tracks the unified arc.
 
 | Capability | Reference | Bead | Notes |
 |---|---|---|---|
-| `cloister.capnp` as build artifact | ADR-0031 | `cloister-345ad1` | Phase 2 of the arc (route surface in cluster.toml + emitter). Phase 3 (per-recipe migration) + Phase 4 (per-upstream backend retirement) deferred to separate beads. |
+| `cloister.capnp` as build artifact | ADR-0031 | `cloister-345ad1` (P2), `cloister-6b572a` (P3) | Phase 2 + Phase 3 shipped 2026-06-17. Phase 2: route surface in cluster.toml + emitter at repo root. Phase 3: per-recipe cluster.toml ships alongside per-recipe cloister.capnp (Hybrid Model A); lint:recipes Phase 3 gates the toml lane; task init scaffolds both files. Phase 4 (per-upstream backend retirement to lockfile pattern; emitter consumes [gateway] from cluster.toml so per-recipe cloister.capnp can be retired) deferred to `cloister-8ff777`. |

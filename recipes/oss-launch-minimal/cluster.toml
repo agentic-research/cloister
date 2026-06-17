@@ -1,0 +1,116 @@
+# Recipe: oss-launch-minimal — operator-readable cluster shape.
+#
+# Per ADR-0031 Phase 3 (cloister-6b572a), cluster.toml is the per-recipe
+# operator surface; cloister.capnp in this directory is the runtime
+# artifact consumers see at scaffold time (preserved hand-edited until
+# Phase 4 lands `[gateway]` in cluster.toml).
+#
+# Smallest viable cloister deployment: cloister-router (gateway + DO state)
+# + mache (code intelligence). No identity, no companion, no rosary.
+
+[metadata]
+name = "cloister-oss-minimal"
+version = "0.1.0"
+
+[[bundles]]
+description = "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+holdsCredential = [ "VAULT_KEK_SOURCE", "VAULT_STORE" ]
+hypervisorRationale = "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Singleton: the only TCP listener for external traffic. Three-criterion test per ADR-0011."
+kind = "external"
+name = "cloister-router"
+tier = "hypervisor"
+workerdServiceName = "cloister"
+
+  [bundles.external]
+  args = [ ]
+  env = [ ]
+  httpPort = 8_787
+  image = "cloister:0.1.0"
+  ipcSocket = "/run/cloister-uds/router.sock"
+
+[[bundles]]
+description = "Code intelligence — symbol search, definitions, callgraph"
+holdsCredential = [ ]
+hypervisorRationale = ""
+kind = "external"
+name = "mache"
+tier = "cluster"
+workerdServiceName = ""
+
+  [bundles.external]
+  args = [ "serve", "--http", "localhost:7532" ]
+  env = [ ]
+  httpPort = 7_532
+  image = "mache:0.8.0"
+  ipcSocket = ""
+
+[[wires]]
+binding = "MACHE_BUNDLE"
+from = "cloister-router"
+to = "mache"
+transport = "uds"
+
+[[routes]]
+kind = "health"
+path = "/health"
+
+[[routes]]
+kind = "mcp"
+path = "/mcp"
+
+[[routes.mcp.backends]]
+handlesPrefix = "bead_"
+kind = "durableObject"
+name = "bead"
+
+  [routes.mcp.backends.durableObject]
+  binding = "BEAD_STORE"
+  keyArg = "repo"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Create a new bead (work item) in the store for the given repo."
+    inputSchemaJson = ""
+    name = "bead_create"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Update fields on an existing bead."
+    inputSchemaJson = ""
+    name = "bead_update"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Full-text search beads by title/description."
+    inputSchemaJson = ""
+    name = "bead_search"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "List beads, optionally filtered by state."
+    inputSchemaJson = ""
+    name = "bead_list"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Mark a bead as done."
+    inputSchemaJson = ""
+    name = "bead_close"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Add a comment to a bead."
+    inputSchemaJson = ""
+    name = "bead_comment"
+
+[[routes.mcp.backends]]
+handlesPrefix = "mache_"
+kind = "mcpProxy"
+name = "mache"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [ ]
+  dynamicTools = true
+  protocolMode = ""
+  requiresSession = true
+  serviceBinding = "MACHE_MCP"
+  stripPrefix = "mache_"
+  tools = [ ]
+  urlBinding = "MACHE_MCP_URL"
+
+[storage]
+doStoragePath = "/data/do"
