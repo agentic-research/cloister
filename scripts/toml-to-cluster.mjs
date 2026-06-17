@@ -204,17 +204,73 @@ function unflattenForSchema(raw) {
 }
 
 /**
- * Phase 2 (Commit 1) shim: default missing `[[routes]]` to []. Commit 2
- * lands the full un-flatten + per-kind-payload translation. Keeping the
- * shim minimal here means the schema add is safe to merge ahead of bidi
- * pipeline work — back-compat with cluster.toml files that don't yet
- * carry routes.
+ * Phase 2 (Commit 2): un-flatten `[[routes]]` rows into the zod-nested
+ * Route shape. Per cloister-345ad1 / ADR-0031.
+ *
+ * TOML side carries the discriminated union as `kind = "<variant>"` +
+ * (for payload variants) a sibling `<variant> = {...}` table; the
+ * zod ClusterSchema expects `kind: { <variant>: <payload> }` where
+ * void variants set the payload to `null`. Same shape pattern the
+ * Bundle.kind + Wire.transport un-flatteners already use.
+ *
+ * `mcp` is the deepest nesting: route.kind.mcp.backends[] each carry
+ * their own union (BackendKind) which we delegate to the bundle-style
+ * un-flattener (kind = "<variant>" + sibling payload table).
  */
 function unflattenRoutes(raw) {
   if (!Array.isArray(raw)) return [];
-  // Commit 1 stub: pass through whatever's there; Commit 2 replaces
-  // with full per-kind union un-flatten.
-  return raw;
+  return raw.map(unflattenRoute);
+}
+
+/** Void route variants (no payload table) — must un-flatten to `{ <variant>: null }`. */
+const VOID_ROUTE_KINDS = new Set([
+  "health",
+  "wellKnownInterlace",
+  "disclosure",
+  "wellKnownIdentityBridge",
+  "ociRegistry",
+  "wellKnownMcpRegistry",
+  "caBundle",
+]);
+
+function unflattenRoute(r) {
+  // Already-nested form (e.g. constructed in JS, not from TOML).
+  if (r && typeof r === "object" && r.kind && typeof r.kind === "object" && !Array.isArray(r.kind)) {
+    return r;
+  }
+  if (!r || typeof r.kind !== "string") {
+    // Let zod surface the precise error.
+    return r;
+  }
+  const tag = r.kind;
+  const { kind: _kind, [tag]: payload, ...rest } = r;
+  if (VOID_ROUTE_KINDS.has(tag)) {
+    // Void variant — zod expects `null` payload.
+    return { ...rest, kind: { [tag]: null } };
+  }
+  // Payload variant — recurse for `mcp` (backends carry their own union).
+  if (tag === "mcp") {
+    return { ...rest, kind: { mcp: unflattenMcpRouteSpec(payload) } };
+  }
+  return { ...rest, kind: { [tag]: payload } };
+}
+
+function unflattenMcpRouteSpec(spec) {
+  if (!spec || typeof spec !== "object") return spec;
+  const backends = Array.isArray(spec.backends) ? spec.backends.map(unflattenBackend) : [];
+  return { ...spec, backends };
+}
+
+function unflattenBackend(b) {
+  if (b && typeof b === "object" && b.kind && typeof b.kind === "object" && !Array.isArray(b.kind)) {
+    return b;
+  }
+  if (!b || typeof b.kind !== "string") {
+    return b;
+  }
+  const tag = b.kind;
+  const { kind: _kind, [tag]: payload, ...rest } = b;
+  return { ...rest, kind: { [tag]: payload } };
 }
 
 function unflattenInputs(raw) {

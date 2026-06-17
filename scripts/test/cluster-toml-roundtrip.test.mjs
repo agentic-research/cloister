@@ -876,3 +876,430 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
   assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");
   assert.equal(out.inputs[0].serviceBinding, "LSP_MCP");
 });
+
+// ── cloister-345ad1 / ADR-0031 Phase 2 — [[routes]] bidi round-trip ─────
+//
+// The Route discriminated union has 11 variants. Operators write routes
+// in `cluster.toml` using the TOML-flat shape:
+//
+//   [[routes]]
+//   path = "/health"
+//   kind = "health"
+//
+//   [[routes]]
+//   path = "/identity"
+//   kind = "serviceBindingProxy"
+//     [routes.serviceBindingProxy]
+//     binding = "NOTME"
+//     upstreamHost = "notme-bot"
+//     stripPrefix = "/identity"
+//
+// The bidi pipeline un-flattens this to the zod-nested form
+// (`kind: { health: null }` for void variants;
+// `kind: { serviceBindingProxy: {...} }` for payload variants), and the
+// canonicalizer reverses on emit. Round-trip preserves every variant +
+// payload field, deterministically.
+
+test("routes: void variant (health) round-trips through TOML", async () => {
+  const tomlIn = `
+[metadata]
+name    = "routes-void"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/health"
+kind = "health"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.routes.length, 1, "expected 1 route after unflatten");
+  assert.equal(parsed.routes[0].path, "/health");
+  assert.deepEqual(parsed.routes[0].kind, { health: null });
+
+  const emitted = clusterToToml(parsed);
+  assert.ok(emitted.includes("[[routes]]"), "emitted TOML must carry [[routes]]");
+  assert.ok(emitted.includes('path = "/health"'));
+  assert.ok(emitted.includes('kind = "health"'));
+  // Void variant has NO [routes.health] subtable.
+  assert.ok(!emitted.includes("[routes.health]"), "void variant must NOT emit a subtable");
+
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.routes, parsed.routes, "void route must round-trip identity");
+});
+
+test("routes: serviceBindingProxy variant (payload) round-trips through TOML", async () => {
+  const tomlIn = `
+[metadata]
+name    = "routes-sbp"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/identity"
+kind = "serviceBindingProxy"
+  [routes.serviceBindingProxy]
+  binding      = "NOTME"
+  upstreamHost = "notme-bot"
+  stripPrefix  = "/identity"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.routes.length, 1);
+  assert.equal(parsed.routes[0].path, "/identity");
+  assert.deepEqual(parsed.routes[0].kind, {
+    serviceBindingProxy: {
+      binding: "NOTME",
+      upstreamHost: "notme-bot",
+      stripPrefix: "/identity",
+    },
+  });
+
+  // Round-trip the payload variant.
+  const emitted = clusterToToml(parsed);
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.routes, parsed.routes, "payload route must round-trip identity");
+});
+
+test("routes: mcp variant with durableObject + mcpProxy backends round-trips", async () => {
+  const tomlIn = `
+[metadata]
+name    = "routes-mcp"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/mcp"
+kind = "mcp"
+
+  [[routes.mcp.backends]]
+  name          = "bead"
+  handlesPrefix = "bead_"
+  kind          = "durableObject"
+    [routes.mcp.backends.durableObject]
+    binding = "BEAD_STORE"
+    keyArg  = "repo"
+    tools   = []
+
+  [[routes.mcp.backends]]
+  name          = "mache"
+  handlesPrefix = "mache_"
+  kind          = "mcpProxy"
+    [routes.mcp.backends.mcpProxy]
+    urlBinding      = "MACHE_MCP_URL"
+    serviceBinding  = "MACHE_MCP"
+    tools           = []
+    dynamicTools    = true
+    stripPrefix     = "mache_"
+    requiresSession = true
+    protocolMode    = ""
+    claims          = []
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.routes.length, 1);
+  assert.equal(parsed.routes[0].path, "/mcp");
+  const mcp = parsed.routes[0].kind.mcp;
+  assert.ok(mcp, "mcp payload must be present");
+  assert.equal(mcp.backends.length, 2);
+  assert.equal(mcp.backends[0].name, "bead");
+  assert.deepEqual(mcp.backends[0].kind.durableObject, {
+    binding: "BEAD_STORE",
+    keyArg: "repo",
+    tools: [],
+  });
+  assert.equal(mcp.backends[1].name, "mache");
+  assert.equal(mcp.backends[1].kind.mcpProxy.urlBinding, "MACHE_MCP_URL");
+  assert.equal(mcp.backends[1].kind.mcpProxy.serviceBinding, "MACHE_MCP");
+  assert.equal(mcp.backends[1].kind.mcpProxy.dynamicTools, true);
+  assert.equal(mcp.backends[1].kind.mcpProxy.requiresSession, true);
+
+  const emitted = clusterToToml(parsed);
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.routes, parsed.routes, "mcp route must round-trip identity");
+});
+
+test("routes: vaultProxy variant carries bundleIdName payload", async () => {
+  const tomlIn = `
+[metadata]
+name    = "routes-vp"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/vault/proxy"
+kind = "vaultProxy"
+  [routes.vaultProxy]
+  bundleIdName = "router"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.routes.length, 1);
+  assert.deepEqual(parsed.routes[0].kind, { vaultProxy: { bundleIdName: "router" } });
+
+  const emitted = clusterToToml(parsed);
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.routes, parsed.routes, "vaultProxy route must round-trip identity");
+});
+
+test("routes: all void variants emit + parse correctly", async () => {
+  // Every void Route.kind variant — sentinel markers for routes whose
+  // handler internally dispatches across multiple URLs (well-known
+  // discovery doc, OCI v2/*, MCP registry, CA bundle, identity bridge).
+  const voidVariants = [
+    "wellKnownInterlace",
+    "disclosure",
+    "wellKnownIdentityBridge",
+    "ociRegistry",
+    "wellKnownMcpRegistry",
+    "caBundle",
+  ];
+
+  for (const variant of voidVariants) {
+    const tomlIn = `
+[metadata]
+name    = "routes-void-${variant}"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/sentinel/${variant}"
+kind = "${variant}"
+`;
+    const parsed = await parseTomlToCluster(tomlIn);
+    assert.equal(parsed.routes.length, 1, `${variant}: expected 1 route`);
+    assert.deepEqual(
+      parsed.routes[0].kind,
+      { [variant]: null },
+      `${variant}: void variant must parse to { ${variant}: null }`,
+    );
+
+    const emitted = clusterToToml(parsed);
+    assert.ok(
+      emitted.includes(`kind = "${variant}"`),
+      `${variant}: emitted TOML must carry kind = "${variant}"`,
+    );
+    assert.ok(
+      !emitted.includes(`[routes.${variant}]`),
+      `${variant}: void variant must NOT emit a payload subtable`,
+    );
+    const reparsed = await parseTomlToCluster(emitted);
+    assert.deepEqual(reparsed.routes, parsed.routes, `${variant}: must round-trip identity`);
+  }
+});
+
+test("routes: empty routes array omits [[routes]] section from emitted TOML", async () => {
+  // Same back-compat contract as the [inputs] section — pre-Phase-2
+  // cluster.toml files don't gain a stray header for empty lists.
+  const cluster = {
+    metadata: { name: "no-routes", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [],
+  };
+  const toml = clusterToToml(cluster);
+  assert.ok(!toml.includes("[[routes]]"), "empty routes[] must NOT emit a [[routes]] section");
+});
+
+test("routes: cluster.toml with no [[routes]] tables parses to empty routes array (back-compat)", async () => {
+  const tomlIn = `
+[metadata]
+name    = "no-routes"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.deepEqual(parsed.routes, [], "missing [[routes]] → empty array");
+});
+
+test("routes: full repository fixture (health + sentinels + identity + mcp) round-trips byte-equal", async () => {
+  // The richest fixture — every variant the ART default deployment uses.
+  // If this passes, real `cluster.toml` migration in Commit 4 is safe.
+  const cluster = {
+    metadata: { name: "rich-routes", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [
+      { path: "/health", kind: { health: null } },
+      { path: "/.well-known/interlace/index.json", kind: { wellKnownInterlace: null } },
+      { path: "/interlace/peers/:fp", kind: { disclosure: null } },
+      { path: "/.well-known/identity-bridge", kind: { wellKnownIdentityBridge: null } },
+      { path: "/v2", kind: { ociRegistry: null } },
+      { path: "/.well-known/mcp-registry", kind: { wellKnownMcpRegistry: null } },
+      { path: "/interlace/ca-bundle", kind: { caBundle: null } },
+      {
+        path: "/identity",
+        kind: {
+          serviceBindingProxy: {
+            binding: "NOTME",
+            upstreamHost: "notme-bot",
+            stripPrefix: "/identity",
+          },
+        },
+      },
+      {
+        path: "/mcp",
+        kind: {
+          mcp: {
+            backends: [
+              {
+                name: "bead",
+                handlesPrefix: "bead_",
+                kind: {
+                  durableObject: {
+                    binding: "BEAD_STORE",
+                    keyArg: "repo",
+                    tools: [],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    ],
+  };
+  const t1 = clusterToToml(cluster);
+  const back = await parseTomlToCluster(t1);
+  assert.deepEqual(back.routes, cluster.routes, "round-trip must preserve all routes");
+  const t2 = clusterToToml(back);
+  assert.equal(t2, t1, "rich-routes canonical form must be byte-stable");
+});
