@@ -48,6 +48,18 @@ const workerConfig = {
       // production uses for macOS / Linux deployments. The miniflare
       // KEK_HELPER above intercepts the resolve call.
       VAULT_KEK_SOURCE: "keychain://vitest-kek",
+      // Explicit test defaults — override wrangler.toml's [vars] +
+      // any .env.local pollution. Without these, running `task lint`
+      // after `task dev:bootstrap` (which writes INTERLACE_ROOT_PUBKEY
+      // to .env.local) makes wrangler pick up the bootstrap'd value,
+      // the lease/auth gate engages in workerd routes (e.g. OCI
+      // registry, cred-iso/v1), and tests that don't explicitly
+      // scope auth-on get 401 instead of the expected 201/202/400.
+      // Per-test auth tests still work via per-test envWithGate(...)
+      // helpers that override these bindings. Per cloister-de6870.
+      INTERLACE_ROOT_PUBKEY: "",
+      INTERLACE_MASTER_PUBKEY: "",
+      INTERLACE_DISCLOSURE_HMAC_KEY: "",
     },
   },
 } as const;
