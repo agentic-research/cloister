@@ -263,5 +263,23 @@ export const cluster: Cluster = {
         }
       }
     }
-  ]
+  ],
+  "gateway": {
+    "metadata": {
+      "name": "cloister-art",
+      "version": "0.1.0"
+    },
+    "actor": {
+      "fingerprint": "sha256:placeholder-pinned-at-deploy-time",
+      "algorithm": "ed25519",
+      "pubkeyBinding": "INTERLACE_MASTER_PUBKEY",
+      "attestationRepo": "",
+      "tunnelEndpoint": ""
+    },
+    "policy": {
+      "maxCertLifetimeSeconds": 300,
+      "requireInterlock": true,
+      "minAlgorithm": "ed25519"
+    }
+  }
 } as const;

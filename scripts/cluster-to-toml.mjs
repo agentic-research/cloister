@@ -97,8 +97,84 @@ function canonicalizeCluster(c) {
   if (Array.isArray(c.routes) && c.routes.length > 0) {
     out.routes = c.routes.map(canonicalizeRoute);
   }
+  // Phase 4a (cloister-c919d7 / ADR-0031): emit `[gateway]` block when
+  // at least one field is populated. Skip the section entirely on the
+  // all-empty back-compat default so pre-Phase-4a cluster.toml files
+  // don't gain a stray `[gateway]` header on roundtrip — matches the
+  // shape of the `[inputs]` + `[[routes]]` emit rules.
+  const gatewayTable = canonicalizeGateway(c.gateway);
+  if (gatewayTable !== null) out.gateway = gatewayTable;
   if (c.storage) out.storage = sortKeys(c.storage);
   return out;
+}
+
+/**
+ * Phase 4a canonicalizer for the `[gateway]` block. Returns `null`
+ * when every field is empty (the back-compat default — caller omits
+ * the section); otherwise returns the canonical sub-table object.
+ *
+ * Emission rules per field:
+ *   - String fields: emit only when non-empty.
+ *   - UInt32 (`maxCertLifetimeSeconds`): emit only when > 0.
+ *   - Boolean (`requireInterlock`): emit whenever ANY other gateway
+ *     field is populated (so the operator's explicit `false` lands in
+ *     TOML for oss-launch-minimal, but truly-empty gateways stay
+ *     section-free).
+ *
+ * Keys inside each subtable are alphabetized to match the rest of
+ * the canonicalization rules (sortKeys + @iarna/toml's stable-emit
+ * shape).
+ */
+function canonicalizeGateway(g) {
+  if (!g || typeof g !== "object") return null;
+  const meta   = g.metadata && typeof g.metadata === "object" ? g.metadata : {};
+  const actor  = g.actor    && typeof g.actor    === "object" ? g.actor    : {};
+  const policy = g.policy   && typeof g.policy   === "object" ? g.policy   : {};
+
+  const metaBody = {};
+  if (typeof meta.name    === "string" && meta.name    !== "") metaBody.name    = meta.name;
+  if (typeof meta.version === "string" && meta.version !== "") metaBody.version = meta.version;
+
+  const actorBody = {};
+  if (typeof actor.fingerprint     === "string" && actor.fingerprint     !== "") actorBody.fingerprint     = actor.fingerprint;
+  if (typeof actor.algorithm       === "string" && actor.algorithm       !== "") actorBody.algorithm       = actor.algorithm;
+  if (typeof actor.pubkeyBinding   === "string" && actor.pubkeyBinding   !== "") actorBody.pubkeyBinding   = actor.pubkeyBinding;
+  if (typeof actor.attestationRepo === "string" && actor.attestationRepo !== "") actorBody.attestationRepo = actor.attestationRepo;
+  if (typeof actor.tunnelEndpoint  === "string" && actor.tunnelEndpoint  !== "") actorBody.tunnelEndpoint  = actor.tunnelEndpoint;
+
+  const policyBody = {};
+  if (typeof policy.maxCertLifetimeSeconds === "number" && policy.maxCertLifetimeSeconds > 0) {
+    policyBody.maxCertLifetimeSeconds = policy.maxCertLifetimeSeconds;
+  }
+  if (typeof policy.minAlgorithm === "string" && policy.minAlgorithm !== "") {
+    policyBody.minAlgorithm = policy.minAlgorithm;
+  }
+
+  // Boolean `requireInterlock` lands in TOML when at least one other
+  // policy field is already populated — preserves the operator's
+  // explicit `false` (oss-launch-minimal sets `requireInterlock = false`
+  // alongside `minAlgorithm = "ed25519"`) without sprinkling stray
+  // bools on partially-populated gateways where the operator hasn't
+  // touched the policy block. `maxCertLifetimeSeconds` follows the
+  // same "emit only when > 0" rule above (0 is the canonical unset
+  // sentinel for UInt32).
+  const policyHasContent = Object.keys(policyBody).length > 0;
+  if (policyHasContent && typeof policy.requireInterlock === "boolean") {
+    policyBody.requireInterlock = policy.requireInterlock;
+  }
+
+  if (
+    Object.keys(metaBody).length === 0 &&
+    Object.keys(actorBody).length === 0 &&
+    Object.keys(policyBody).length === 0
+  ) {
+    return null;
+  }
+  const out = {};
+  if (Object.keys(metaBody).length   > 0) out.metadata = sortKeys(metaBody);
+  if (Object.keys(actorBody).length  > 0) out.actor    = sortKeys(actorBody);
+  if (Object.keys(policyBody).length > 0) out.policy   = sortKeys(policyBody);
+  return sortKeys(out);
 }
 
 /**

@@ -1,13 +1,3 @@
-# Recipe: agent-cluster — operator-readable cluster shape.
-#
-# Per ADR-0031 Phase 3 (cloister-6b572a), cluster.toml is the per-recipe
-# operator surface; cloister.capnp in this directory is the runtime
-# artifact consumers see at scaffold time (preserved hand-edited until
-# Phase 4 lands `[gateway]` in cluster.toml).
-#
-# Full identity-on cluster: cloister-router + notme + mache + companion.
-# rsry_* tools route through cloister-companion via leyline-net (ADR-0005).
-
 [metadata]
 name = "cloister-agent-cluster"
 version = "0.1.0"
@@ -190,6 +180,20 @@ name = "rsry"
   companionUrlBinding = "COMPANION_URL"
   tools = [ ]
   upstreamId = "rosary"
+
+[gateway.actor]
+algorithm = "ed25519"
+fingerprint = "sha256:placeholder-pinned-at-deploy-time"
+pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
+
+[gateway.metadata]
+name = "cloister-agent-cluster"
+version = "0.1.0"
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+minAlgorithm = "ed25519"
+requireInterlock = true
 
 [storage]
 doStoragePath = "/data/do"

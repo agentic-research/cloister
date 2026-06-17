@@ -42,6 +42,20 @@ export interface Cluster {
    * cloister.capnp shells).
    */
   routes:   readonly Route[];
+  /**
+   * Operator-authored Gateway-level surface (metadata + actor +
+   * policy) the emitter lifts into the generated `cloister.capnp`
+   * (Phase 4a of the "cloister.capnp as build artifact" arc,
+   * cloister-c919d7 / ADR-0031). Mirrors the `Gateway` struct from
+   * `manifest/cloister.capnp` (same self-contained-schema rationale
+   * as `routes` above).
+   *
+   * All-empty value (the back-compat default for pre-Phase-4a
+   * cluster.toml) signals the emitter to fall through to the
+   * ART-default template + emit a warning to stderr; see
+   * `scripts/emit-cloister-capnp.mjs:emitCloisterCapnp`.
+   */
+  gateway:  Gateway;
 }
 
 /**
@@ -393,4 +407,72 @@ export interface McpToolSpec {
   description:     string;
   /** JSON Schema text, parsed once at boot. */
   inputSchemaJson: string;
+}
+
+// ── Gateway-level surface (Phase 4a of "cloister.capnp as build artifact" arc) ─
+//
+// Mirror of `manifest/cluster.capnp:Gateway` + `Actor` + `InterlacePolicy` +
+// `GatewayMetadata`. Same shape as the cloister.capnp-side Gateway struct
+// (the cloister.capnp emitter projects from this into the generated
+// `Cloister.Gateway` value). Mirroring (instead of importing) the
+// cloister.capnp shape keeps cluster.capnp self-contained — consumers
+// depend on one schema file, not two.
+//
+// Per cloister-c919d7 / ADR-0031 Phase 4a.
+
+/**
+ * Operator-authored Gateway-level fields. An all-empty value (every
+ * string `""`, every list `[]`, every bool `false`, every uint `0`)
+ * means "use the emitter's ART-default template" — preserved as a
+ * back-compat fall-through for pre-Phase-4a `cluster.toml` files.
+ */
+export interface Gateway {
+  metadata: GatewayMetadata;
+  actor:    Actor;
+  policy:   InterlacePolicy;
+}
+
+/**
+ * Logical manifest name + version. Distinct from `ClusterMetadata`:
+ * cluster.metadata.name = deployment identity ("art-default");
+ * gateway.metadata.name = manifest identity ("cloister-art",
+ * "cloister-agent-cluster"). Per ADR-0004 + ADR-0009.
+ */
+export interface GatewayMetadata {
+  /** e.g. "cloister-art". Empty ⇒ fall through to emitter default. */
+  name:    string;
+  /** Semver. Empty ⇒ fall through. */
+  version: string;
+}
+
+/**
+ * Interlace actor identity (ADR-0007). Empty `fingerprint` means
+ * Interlace discovery is disabled — the recipe that ships without a
+ * `.well-known/interlace/` doc.
+ */
+export interface Actor {
+  /** SHA-256 fingerprint of the master pubkey, "sha256:<hex>". */
+  fingerprint:     string;
+  /** "ed25519" or "ml-dsa-44". */
+  algorithm:       string;
+  /** Env-var binding holding the master pubkey (e.g. "INTERLACE_MASTER_PUBKEY"). */
+  pubkeyBinding:   string;
+  /** Off-platform attestation chain location, or empty for in-DO storage. */
+  attestationRepo: string;
+  /** Optional CF Tunnel / off-platform endpoint. */
+  tunnelEndpoint:  string;
+}
+
+/**
+ * Interlace policy declared in the `.well-known/interlace/` discovery
+ * doc — peers learn the actor's requirements before initiating
+ * (ADR-0007).
+ */
+export interface InterlacePolicy {
+  /** Max ephemeral cert lifetime in seconds (defaults to 300). */
+  maxCertLifetimeSeconds: number;
+  /** Whether peer interactions must carry interlock peer-refs (§6.2). */
+  requireInterlock:       boolean;
+  /** Minimum signature algorithm accepted on incoming certs. */
+  minAlgorithm:           string;
 }

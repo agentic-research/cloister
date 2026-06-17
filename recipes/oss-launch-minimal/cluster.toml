@@ -1,13 +1,3 @@
-# Recipe: oss-launch-minimal — operator-readable cluster shape.
-#
-# Per ADR-0031 Phase 3 (cloister-6b572a), cluster.toml is the per-recipe
-# operator surface; cloister.capnp in this directory is the runtime
-# artifact consumers see at scaffold time (preserved hand-edited until
-# Phase 4 lands `[gateway]` in cluster.toml).
-#
-# Smallest viable cloister deployment: cloister-router (gateway + DO state)
-# + mache (code intelligence). No identity, no companion, no rosary.
-
 [metadata]
 name = "cloister-oss-minimal"
 version = "0.1.0"
@@ -111,6 +101,18 @@ name = "mache"
   stripPrefix = "mache_"
   tools = [ ]
   urlBinding = "MACHE_MCP_URL"
+
+[gateway.actor]
+algorithm = "ed25519"
+
+[gateway.metadata]
+name = "cloister-oss-minimal"
+version = "0.1.0"
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+minAlgorithm = "ed25519"
+requireInterlock = false
 
 [storage]
 doStoragePath = "/data/do"

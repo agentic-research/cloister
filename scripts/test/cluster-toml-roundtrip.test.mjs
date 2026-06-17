@@ -38,6 +38,29 @@ const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
+/**
+ * Canonical "all-empty" Gateway value — the back-compat default for
+ * pre-Phase-4a cluster.toml files (cloister-c919d7 / ADR-0031).
+ * Schema requires the field; this is the zero value zod accepts.
+ * The emitter falls through to its ART-default template when it
+ * sees this exact shape.
+ */
+const EMPTY_GATEWAY = {
+  metadata: { name: "", version: "" },
+  actor: {
+    fingerprint: "",
+    algorithm: "",
+    pubkeyBinding: "",
+    attestationRepo: "",
+    tunnelEndpoint: "",
+  },
+  policy: {
+    maxCertLifetimeSeconds: 0,
+    requireInterlock: false,
+    minAlgorithm: "",
+  },
+};
+
 /** A minimal cluster shape that passes ClusterSchema. */
 function minimalCluster() {
   return {
@@ -72,6 +95,7 @@ function minimalCluster() {
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
 }
 
@@ -124,6 +148,7 @@ function richCluster() {
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
 }
 
@@ -443,6 +468,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);
@@ -738,6 +764,7 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
     storage: { doStoragePath: "/data/do" },
     inputs: [],
     routes: [],
+    gateway: EMPTY_GATEWAY,
   };
   const toml = clusterToToml(cluster);
   // Substring check, not regex. The contract: any "[inputs" header
@@ -871,6 +898,7 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
   const out = ClusterSchema.parse(sample);
   assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");
@@ -1209,6 +1237,7 @@ test("routes: empty routes array omits [[routes]] section from emitted TOML", as
     storage: { doStoragePath: "/data/do" },
     inputs: [],
     routes: [],
+    gateway: EMPTY_GATEWAY,
   };
   const toml = clusterToToml(cluster);
   assert.ok(!toml.includes("[[routes]]"), "empty routes[] must NOT emit a [[routes]] section");
@@ -1296,10 +1325,221 @@ test("routes: full repository fixture (health + sentinels + identity + mcp) roun
         },
       },
     ],
+    gateway: EMPTY_GATEWAY,
   };
   const t1 = clusterToToml(cluster);
   const back = await parseTomlToCluster(t1);
   assert.deepEqual(back.routes, cluster.routes, "round-trip must preserve all routes");
   const t2 = clusterToToml(back);
   assert.equal(t2, t1, "rich-routes canonical form must be byte-stable");
+});
+
+// ── cloister-c919d7 / ADR-0031 Phase 4a — [gateway] bidi round-trip ─────
+//
+// The `[gateway]` block carries operator-authored Gateway-level surface
+// (metadata + actor + policy). The bidi pipeline must round-trip every
+// field losslessly + drop empty fields on emission so the canonical
+// form stays minimal.
+
+test("gateway: TOML [gateway.metadata] + [gateway.actor] + [gateway.policy] roundtrip", async () => {
+  const tomlIn = `
+[metadata]
+name    = "with-gateway"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[gateway.metadata]
+name    = "cloister-test"
+version = "0.0.1"
+
+[gateway.actor]
+fingerprint     = "sha256:abc123"
+algorithm       = "ed25519"
+pubkeyBinding   = "INTERLACE_MASTER_PUBKEY"
+attestationRepo = ""
+tunnelEndpoint  = ""
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+requireInterlock       = true
+minAlgorithm           = "ed25519"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.gateway.metadata.name, "cloister-test");
+  assert.equal(parsed.gateway.metadata.version, "0.0.1");
+  assert.equal(parsed.gateway.actor.fingerprint, "sha256:abc123");
+  assert.equal(parsed.gateway.actor.algorithm, "ed25519");
+  assert.equal(parsed.gateway.actor.pubkeyBinding, "INTERLACE_MASTER_PUBKEY");
+  assert.equal(parsed.gateway.policy.maxCertLifetimeSeconds, 300);
+  assert.equal(parsed.gateway.policy.requireInterlock, true);
+  assert.equal(parsed.gateway.policy.minAlgorithm, "ed25519");
+
+  // Forward → reverse leg: roundtrip preserves every populated field.
+  const emitted = clusterToToml(parsed);
+  assert.ok(emitted.includes("[gateway.metadata]"),  "emitted TOML must carry [gateway.metadata]");
+  assert.ok(emitted.includes('name = "cloister-test"'), "metadata.name must round-trip");
+  assert.ok(emitted.includes("[gateway.actor]"),     "emitted TOML must carry [gateway.actor]");
+  assert.ok(emitted.includes('fingerprint = "sha256:abc123"'));
+  assert.ok(emitted.includes("[gateway.policy]"),    "emitted TOML must carry [gateway.policy]");
+  assert.ok(emitted.includes("maxCertLifetimeSeconds = 300"));
+  assert.ok(emitted.includes("requireInterlock = true"));
+
+  // Empty fields (attestationRepo, tunnelEndpoint) are dropped from the
+  // canonical emit so operators see only what they actually set.
+  assert.ok(!emitted.includes('attestationRepo = ""'), "empty fields must NOT appear in canonical TOML");
+  assert.ok(!emitted.includes('tunnelEndpoint = ""'), "empty fields must NOT appear in canonical TOML");
+
+  // Second roundtrip is a fixed point.
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.gateway, parsed.gateway, "gateway must round-trip identity");
+});
+
+test("gateway: cluster.toml with NO [gateway] table parses to all-empty default (back-compat)", async () => {
+  const tomlIn = `
+[metadata]
+name    = "no-gateway"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  // Schema requires the field; missing TOML block → canonical all-empty.
+  assert.deepEqual(parsed.gateway, EMPTY_GATEWAY, "missing [gateway] → all-empty default");
+});
+
+test("gateway: empty Gateway object omits the [gateway] section from emitted TOML (back-compat)", () => {
+  // Same contract as the [inputs] + [[routes]] empty-omit rules —
+  // pre-Phase-4a cluster.toml files don't gain a stray header for
+  // the all-empty back-compat default value.
+  const cluster = {
+    metadata: { name: "no-gateway-emit", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [],
+    gateway: EMPTY_GATEWAY,
+  };
+  const toml = clusterToToml(cluster);
+  assert.ok(!toml.includes("[gateway"), "all-empty gateway must NOT emit a [gateway] section");
+});
+
+test("gateway: partial population (only metadata.name) emits only that subtable", () => {
+  // Operator who sets only one field shouldn't see the other empty
+  // subtables in the canonical form — drops to minimal surface.
+  const cluster = {
+    metadata: { name: "partial", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [],
+    gateway: {
+      metadata: { name: "cloister-partial", version: "" },
+      actor: { fingerprint: "", algorithm: "", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
+      policy: { maxCertLifetimeSeconds: 0, requireInterlock: false, minAlgorithm: "" },
+    },
+  };
+  const toml = clusterToToml(cluster);
+  assert.ok(toml.includes("[gateway.metadata]"),  "populated metadata block must emit");
+  assert.ok(toml.includes('name = "cloister-partial"'));
+  assert.ok(!toml.includes("[gateway.actor]"),    "empty actor block must NOT emit");
+  assert.ok(!toml.includes("[gateway.policy]"),   "empty policy block must NOT emit");
+});
+
+test("gateway: requireInterlock = false lands in TOML when other fields are set (oss-launch-minimal shape)", () => {
+  // oss-launch-minimal explicitly sets `requireInterlock = false` to
+  // disable Interlace's bilateral chain requirement. That `false` is a
+  // meaningful operator choice + must appear in the canonical TOML
+  // when other gateway fields are populated.
+  const cluster = {
+    metadata: { name: "permissive", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [],
+    gateway: {
+      metadata: { name: "cloister-permissive", version: "0.0.1" },
+      actor: { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
+      policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
+    },
+  };
+  const toml = clusterToToml(cluster);
+  assert.ok(toml.includes("requireInterlock = false"), "explicit false must land in TOML");
+  assert.ok(toml.includes("algorithm = \"ed25519\""), "actor.algorithm must round-trip");
+  assert.ok(toml.includes("maxCertLifetimeSeconds = 300"));
+});
+
+test("gateway: canonical roundtrip is byte-equal across two emissions", async () => {
+  // The load-bearing drift gate property: emit → parse → emit
+  // produces identical bytes.
+  const cluster = {
+    metadata: { name: "bytes", version: "0.0.1" },
+    bundles: [],
+    wires: [],
+    storage: { doStoragePath: "/data/do" },
+    inputs: [],
+    routes: [],
+    gateway: {
+      metadata: { name: "cloister-bytes", version: "0.0.1" },
+      actor: {
+        fingerprint:     "sha256:placeholder-pinned-at-deploy-time",
+        algorithm:       "ed25519",
+        pubkeyBinding:   "INTERLACE_MASTER_PUBKEY",
+        attestationRepo: "",
+        tunnelEndpoint:  "",
+      },
+      policy: { maxCertLifetimeSeconds: 300, requireInterlock: true, minAlgorithm: "ed25519" },
+    },
+  };
+  const t1 = clusterToToml(cluster);
+  const back = await parseTomlToCluster(t1);
+  const t2 = clusterToToml(back);
+  assert.equal(t2, t1, "gateway canonical form must be byte-stable");
 });

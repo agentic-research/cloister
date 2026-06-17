@@ -54,6 +54,26 @@ struct Cluster {
   # declared (back-compat with pre-Phase-2 cluster.toml that left route
   # declarations in hand-edited `cloister.capnp` shells).
   routes   @5 :List(Route);
+  # ── Gateway (Phase 4a of "cloister.capnp as build artifact" arc,
+  # cloister-c919d7 / ADR-0031) ──────────────────────────────────────────
+  #
+  # Operator-authored Gateway-level surface (metadata + actor + policy)
+  # that the emitter lifts into the generated `cloister.capnp`. Mirrors
+  # the `Cloister.Gateway` struct from `manifest/cloister.capnp` (same
+  # rationale as `routes` above — cluster.capnp is the self-contained
+  # operator schema; cloister.capnp is downstream).
+  #
+  # Phase 4a closes the gap left by Phase 2: previously the emitter
+  # pinned `gateway.metadata` / `actor` / `policy` to ART-default
+  # values (the cloister-art template), which made the per-recipe
+  # `cloister.capnp` files hand-edited to preserve their distinctive
+  # identity (Phase 3 Hybrid Model A). With this field populated, the
+  # emitter consumes the TOML values; with it empty (back-compat for
+  # pre-Phase-4a cluster.toml), the emitter falls through to the
+  # ART-default template + emits a warning to stderr.
+  #
+  # Append-only ordinal per ADR-0004.
+  gateway  @6 :Gateway;
 }
 
 struct ClusterMetadata {
@@ -565,4 +585,79 @@ struct McpTool {
   # JSON Schema for the tool's input. Stored as raw JSON text to round-trip
   # without losing fidelity.
   inputSchemaJson @2 :Text;
+}
+
+# ── Gateway-level surface (Phase 4a of "cloister.capnp as build artifact"
+# arc, cloister-c919d7 / ADR-0031) ────────────────────────────────────────
+#
+# Mirrors `Cloister.Gateway` from `manifest/cloister.capnp` — operator-
+# authored manifest identity (metadata), Interlace identity (actor), and
+# Interlace policy. Same rationale as Route above: cluster.capnp is the
+# self-contained operator schema; cloister.capnp is the downstream
+# generated artifact. Mirroring keeps the two schemas independently
+# evolvable + decouples cluster.capnp consumers from the cloister.capnp
+# schema dependency.
+#
+# Append-only ordinals per ADR-0004. New optional fields land at higher
+# ordinals; never renumber. An all-empty Gateway value (the back-compat
+# default for pre-Phase-4a cluster.toml) signals the emitter to fall
+# through to the ART-default template + emit a warning to stderr; see
+# scripts/emit-cloister-capnp.mjs for the fall-through rule.
+
+struct Gateway {
+  # Logical manifest name + version. Distinct from `cluster.metadata`:
+  # cluster.metadata.name is the deployment identity ("art-default",
+  # surfaced in container labels); gateway.metadata.name is the manifest
+  # identity ("cloister-art", "cloister-agent-cluster", surfaced inside
+  # the workerd Worker's gateway). Per ADR-0004 + ADR-0009.
+  metadata @0 :GatewayMetadata;
+
+  # Interlace actor identity (ADR-0007). Empty `fingerprint` ⇒ Interlace
+  # discovery disabled (the recipe that ships without `.well-known/
+  # interlace/` — e.g. oss-launch-minimal).
+  actor    @1 :Actor;
+
+  # Interlace policy (ADR-0007) — peers learn the actor's requirements
+  # before initiating. Cert lifetime + interlock + min-algorithm.
+  policy   @2 :InterlacePolicy;
+}
+
+struct GatewayMetadata {
+  # e.g. "cloister-art", "cloister-agent-cluster". Distinct from
+  # cluster.metadata.name (the deployment identity). Empty string ⇒
+  # the emitter falls through to the ART-default template.
+  name    @0 :Text;
+  # Semver of the manifest, bumped by the consumer when their slice
+  # changes. Empty string ⇒ fall-through (same rule as `name`).
+  version @1 :Text;
+}
+
+struct Actor {
+  # SHA-256 fingerprint of the master public key, formatted as
+  # "sha256:<hex>". Empty string ⇒ Interlace discovery disabled.
+  fingerprint     @0 :Text;
+  # Master-key signature algorithm: "ed25519" or "ml-dsa-44".
+  algorithm       @1 :Text;
+  # Name of the env-var binding holding the master public key (e.g.
+  # "INTERLACE_MASTER_PUBKEY"). Key bytes never appear in the manifest.
+  pubkeyBinding   @2 :Text;
+  # Where this actor publishes its bilateral attestation chains. Empty
+  # ⇒ in-DO storage (the BeadStore `peer_attestations` table per
+  # ADR-0007).
+  attestationRepo @3 :Text;
+  # Optional CF Tunnel hostname or other off-platform endpoint.
+  tunnelEndpoint  @4 :Text;
+}
+
+struct InterlacePolicy {
+  # Maximum lifetime (seconds) for ephemeral certs the actor will accept.
+  # Defaults to 300 (5 min) per the spec; lower values tighten the
+  # blast radius of cert compromise.
+  maxCertLifetimeSeconds @0 :UInt32;
+  # Whether peer interactions must carry interlock peer-refs
+  # (Interlace §6.2). True ⇒ first-class bilateral chain; false ⇒
+  # leases-only relationship.
+  requireInterlock       @1 :Bool;
+  # Minimum signature algorithm the actor will accept on incoming certs.
+  minAlgorithm           @2 :Text;
 }

@@ -186,5 +186,19 @@ name = "mache"
   tools = [ ]
   urlBinding = "MACHE_MCP_URL"
 
+[gateway.actor]
+algorithm = "ed25519"
+fingerprint = "sha256:placeholder-pinned-at-deploy-time"
+pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
+
+[gateway.metadata]
+name = "cloister-art"
+version = "0.1.0"
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+minAlgorithm = "ed25519"
+requireInterlock = true
+
 [storage]
 doStoragePath = "/data/do"

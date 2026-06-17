@@ -48,6 +48,11 @@ function runLint(recipesDir, opts = {}) {
       // valid Cluster schema; opt out for unit tests + flip on for the
       // dedicated Phase 3 test cases below.
       LINT_RECIPES_SKIP_TOML_PARSE: opts.skipTomlParse === false ? "" : "1",
+      // Phase 4a (cloister-c919d7 / ADR-0031) Pure Model A drift gate.
+      // Most synthesized fixtures don't carry a real cluster.toml + a
+      // matching cloister.capnp; opt out by default + flip on for the
+      // dedicated drift-gate tests below.
+      LINT_RECIPES_SKIP_CAPNP_DRIFT: opts.skipCapnpDrift === false ? "" : "1",
     },
     encoding: "utf8",
   });
@@ -283,4 +288,160 @@ test("Phase 3: recipe WITHOUT cluster.toml is skipped", () => {
   } finally {
     t.cleanup();
   }
+});
+
+// ── Phase 4a (cloister-c919d7 / ADR-0031): Pure Model A drift gate ───────
+
+/**
+ * Helper: build a fixture cluster.toml + emit the matching cloister.capnp
+ * so the drift gate sees a Pure-Model-A-clean recipe. Returns the TOML
+ * + matching capnp text so callers can mutate either to synthesize
+ * drift.
+ */
+async function emitMatchingPair(tomlBody) {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { emitCloisterCapnp } = await import("../emit-cloister-capnp.mjs");
+  const cluster = await parseTomlToCluster(tomlBody);
+  const capnp = emitCloisterCapnp(cluster, { quiet: true });
+  return { toml: tomlBody, capnp };
+}
+
+const MINIMAL_CLUSTER_TOML = `[metadata]
+name = "test-pure-a"
+version = "0.0.1"
+
+[[bundles]]
+name = "alpha"
+description = ""
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+[bundles.external]
+image = "a:0.1"
+ipcSocket = "/run/a.sock"
+httpPort = 0
+args = []
+env = []
+
+[[wires]]
+from = "alpha"
+to = "alpha"
+binding = "SELF"
+transport = "uds"
+
+[[routes]]
+path = "/health"
+kind = "health"
+
+[gateway.metadata]
+name = "cloister-test"
+version = "0.0.1"
+
+[gateway.actor]
+fingerprint = "sha256:test"
+algorithm = "ed25519"
+pubkeyBinding = "TEST_BINDING"
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+requireInterlock = true
+minAlgorithm = "ed25519"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+
+test("Phase 4a: byte-identical cluster.toml + cloister.capnp pair passes the drift gate", async () => {
+  const pair = await emitMatchingPair(MINIMAL_CLUSTER_TOML);
+  const fx = makeRecipesDir({
+    "pure-a-clean": {
+      "README.md":      "# pure-a-clean\n\nlinks to docs/reference/bundle-topology.md\n",
+      "cluster.toml":   pair.toml,
+      "cloister.capnp": pair.capnp,
+    },
+  });
+  try {
+    // Phase 4a ON, other phases OFF for focus.
+    const r = runLint(fx.dir, { skipCapnpDrift: false });
+    assert.equal(r.status, 0, `expected pass, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
+  } finally { fx.cleanup(); }
+});
+
+test("Phase 4a: drifted cloister.capnp (hand-edit after cluster.toml change) fails the gate", async () => {
+  const pair = await emitMatchingPair(MINIMAL_CLUSTER_TOML);
+  // Append a stray comment to cloister.capnp — operator hand-edited
+  // without regenerating from cluster.toml. The drift gate catches it.
+  const drifted = pair.capnp + "\n# operator hand-edit — never regenerated from cluster.toml\n";
+  const fx = makeRecipesDir({
+    "pure-a-drifted": {
+      "README.md":      "# pure-a-drifted\n\nlinks to docs/reference/bundle-topology.md\n",
+      "cluster.toml":   pair.toml,
+      "cloister.capnp": drifted,
+    },
+  });
+  try {
+    const r = runLint(fx.dir, { skipCapnpDrift: false });
+    assert.notEqual(r.status, 0, "expected drift gate to fail");
+    assert.match(r.stdout, /Pure Model A invariant violated/);
+    assert.match(r.stdout, /first delta at line/);
+  } finally { fx.cleanup(); }
+});
+
+test("Phase 4a: recipe WITHOUT cluster.toml skips the drift gate (capnp-only is back-compat)", () => {
+  // Pre-Phase-3 recipes that ship only cloister.capnp pass the drift
+  // gate trivially — Pure Model A doesn't apply when there's no
+  // cluster.toml to project from.
+  const fx = makeRecipesDir({
+    "capnp-only": {
+      "README.md":      "# capnp-only\n\nlinks to docs/reference/backend-kinds.md\n",
+      "cloister.capnp": "@0x0;\n",
+    },
+  });
+  try {
+    const r = runLint(fx.dir, { skipCapnpDrift: false });
+    assert.equal(r.status, 0, `expected ok, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
+  } finally { fx.cleanup(); }
+});
+
+test("Phase 4a: recipe WITHOUT cloister.capnp skips the drift gate (cluster.toml-only is the future)", async () => {
+  // Forward-compat: once a recipe goes Pure Model A, it might choose
+  // to drop cloister.capnp entirely (the emitter regenerates it at
+  // build time). Phase 4a doesn't require the file to exist — it
+  // just gates drift WHEN both files are present.
+  const fx = makeRecipesDir({
+    "toml-only": {
+      "README.md":    "# toml-only\n\nlinks to docs/reference/bundle-topology.md\n",
+      "cluster.toml": MINIMAL_CLUSTER_TOML,
+    },
+  });
+  try {
+    const r = runLint(fx.dir, { skipCapnpDrift: false });
+    assert.equal(r.status, 0, `expected ok, got ${r.status}\nstdout: ${r.stdout}\nstderr: ${r.stderr}`);
+  } finally { fx.cleanup(); }
+});
+
+test("Phase 4a: minimal capnp emitter delta — gateway.metadata.name change triggers drift", async () => {
+  // The Pure Model A invariant means a one-character TOML edit must
+  // surface as a one-line capnp drift. Pins the gate's sensitivity.
+  const pair = await emitMatchingPair(MINIMAL_CLUSTER_TOML);
+  // Change just the gateway.metadata.name in cluster.toml so the
+  // emitter would produce a different cloister.capnp.
+  const tomlChanged = pair.toml.replace(
+    'name = "cloister-test"',
+    'name = "cloister-other"',
+  );
+  const fx = makeRecipesDir({
+    "pure-a-toml-changed": {
+      "README.md":      "# changed\n\nlinks to docs/reference/bundle-topology.md\n",
+      "cluster.toml":   tomlChanged,    // operator edited cluster.toml
+      "cloister.capnp": pair.capnp,     // but didn't regenerate cloister.capnp
+    },
+  });
+  try {
+    const r = runLint(fx.dir, { skipCapnpDrift: false });
+    assert.notEqual(r.status, 0, "expected drift gate to fail");
+    assert.match(r.stdout, /Pure Model A/);
+  } finally { fx.cleanup(); }
 });

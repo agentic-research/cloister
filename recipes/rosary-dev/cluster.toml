@@ -1,14 +1,3 @@
-# Recipe: rosary-dev — operator-readable cluster shape.
-#
-# Per ADR-0031 Phase 3 (cloister-6b572a), cluster.toml is the per-recipe
-# operator surface; cloister.capnp in this directory is the runtime
-# artifact consumers see at scaffold time (preserved hand-edited until
-# Phase 4 lands `[gateway]` in cluster.toml).
-#
-# Full ART development cluster. Mirrors the top-level cluster.toml at the
-# repo root — bead + mache + lsp + lifecycle + identity. Pick this when
-# you want the same surface the cloister authors use day-to-day.
-
 [metadata]
 name = "art-default"
 version = "0.1.0"
@@ -236,6 +225,20 @@ name = "mache"
   stripPrefix = "mache_"
   tools = [ ]
   urlBinding = "MACHE_MCP_URL"
+
+[gateway.actor]
+algorithm = "ed25519"
+fingerprint = "sha256:placeholder-pinned-at-deploy-time"
+pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
+
+[gateway.metadata]
+name = "cloister-art"
+version = "0.1.0"
+
+[gateway.policy]
+maxCertLifetimeSeconds = 300
+minAlgorithm = "ed25519"
+requireInterlock = true
 
 [storage]
 doStoragePath = "/data/do"
