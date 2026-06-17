@@ -944,11 +944,11 @@ and the closing playbook.
 |---|---|
 | **Adversary capability** | Any authenticated caller (or any caller, today, given 15.2). |
 | **Invariant** (ADR-0019 normative req. 3) | Request body MUST be ≤ 64 KiB. |
-| **Status** | **OPEN** — `content_length_guard` enforces the cap when a `Content-Length` header is present, but the fallthrough on missing CL lets the request through to axum's 2 MiB default (30× the spec'd ceiling). Helper's own source comment admits the gap and points at the unhandled fix. |
+| **Status** | **CLOSED** (2026-06-17, cloister-d0f0f3) — `tower_http::limit::RequestBodyLimitLayer::new(64 * 1024)` installed in `host::server::build_router`, layered around `content_length_guard`. The guard fast-paths the with-CL case to the spec'd `{"error":"payload_too_large", ...}` 413 JSON body; the layer is the safety net for the no-CL / chunked-transfer case. Original status (preserved for audit trail): "**OPEN** — `content_length_guard` enforces the cap when a `Content-Length` header is present, but the fallthrough on missing CL lets the request through to axum's 2 MiB default (30× the spec'd ceiling). Helper's own source comment admits the gap and points at the unhandled fix." |
 | **Detection** | None. |
 | **Recovery** | None needed (no key compromise), but allows amplifying request memory cost during DoS. |
-| **Closing playbook** | One-line fix: install `tower_http::limit::RequestBodyLimitLayer::new(64 * 1024)`. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::sign_must_enforce_body_size_cap`. |
-| **Tracking** | Bead `cloister-7c737a` (P2). |
+| **Closing playbook** | One-line fix: install `tower_http::limit::RequestBodyLimitLayer::new(64 * 1024)`. Test pinned at `rs/crates/sign/tests/host_adversarial.rs::sign_must_enforce_body_size_cap` (no-CL chunked path) and `::sign_body_size_cap_boundary` (with-CL 63/64/65 KiB boundary triple). **Rejection-signal note (cloister-d0f0f3):** the test accepts EITHER HTTP 413 (preferred — both the layer and the guard produce this) OR a connection-reset / empty response, because hyper's chunked-transfer abort path can RST the stream before the layer's IntoResponse runs. Both signals are equivalent for the invariant: the body never reaches the handler. The original "expect 413, exactly" assertion was the source of the parallel-test-load flake closed by cloister-d0f0f3. |
+| **Tracking** | Bead `cloister-7c737a` (P2, original); closed by `cloister-d0f0f3` (test de-flake + boundary test + layer install confirmation, 2026-06-17). |
 
 ### Row 15.7 — ed25519-dalek pin drift
 
