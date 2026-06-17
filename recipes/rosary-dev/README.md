@@ -5,6 +5,16 @@ and `cloister.capnp` checked into the repo root — bead + mache + lsp +
 lifecycle + identity. Pick this when you want the same surface
 the cloister authors use day-to-day.
 
+## Operator surface
+
+After scaffolding, edit `cluster.toml` — the operator-readable
+declaration of bundles, wires, storage, inputs (e.g. `[inputs.llo]` for
+the ley-line-open language server), and routes. Per ADR-0031 Phase 3
+(cloister-6b572a), `cluster.toml` is the source-of-truth operator
+surface; `cloister.capnp` is the runtime artifact the workerd substrate
+consumes. Both ship in the scaffold output; Phase 4 will retire the
+hand-edited `cloister.capnp` once `[gateway]` lands in `cluster.toml`.
+
 ## What's included
 
 | Bundle           | Tier        | Why it's here                                                |

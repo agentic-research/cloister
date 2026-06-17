@@ -3,6 +3,16 @@
 The smallest cluster that demonstrates the substrate-as-MCP-proxy
 pattern. Two bundles, two MCP backends, no identity surface.
 
+## Operator surface
+
+After scaffolding, edit `cluster.toml` — the operator-readable
+declaration of bundles, wires, storage, and routes. Per ADR-0031
+Phase 3 (cloister-6b572a), `cluster.toml` is the source-of-truth
+operator surface; `cloister.capnp` is the runtime artifact the workerd
+substrate consumes. Both ship in the scaffold output; Phase 4 will
+retire the hand-edited `cloister.capnp` once `[gateway]` lands in
+`cluster.toml`.
+
 ## What's included
 
 | Bundle           | Tier        | Why it's here                                        |
