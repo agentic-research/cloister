@@ -135,94 +135,22 @@ test("emit-cloister-capnp: mcp route renders durableObject backend with tools bl
   assert.match(out, /description = "Create a bead."/);
 });
 
-// ── Contract 7: lockfile [[generated_backends]] inject into /mcp ─────────
-
-test("emit-cloister-capnp: [[generated_backends]] rows inject into /mcp backends list", () => {
-  const c = clusterWithMcp();
-  const lockfile = {
-    schema: "cloister/lockfile/v1",
-    generated_backends: [
-      {
-        input: "llo",
-        name: "lsp",
-        handlesPrefix: "lsp_",
-        claims: ["lsp_hover", "lsp_defs"],
-        dynamicTools: true,
-        urlBinding: "LLO_MCP_URL",
-        serviceBinding: "LSP_MCP",
-      },
-    ],
-  };
-  const out = emitCloisterCapnp(c, lockfile);
-  assert.match(out, /name          = "lsp"/);
-  assert.match(out, /handlesPrefix = "lsp_"/);
-  assert.match(out, /urlBinding      = "LLO_MCP_URL"/);
-  assert.match(out, /serviceBinding  = "LSP_MCP"/);
-  assert.match(out, /dynamicTools    = true/);
-  assert.match(out, /claims          = \[ "lsp_hover", "lsp_defs" \]/);
-});
-
-// ── Contract 8: collision — generated row WINS over cluster.toml hand-shell ──
-
-test("emit-cloister-capnp: generated backend replaces hand-declared shell with same name", () => {
-  const c = clusterWithMcp();
-  // Add a hand-shell named "lsp" to /mcp.
-  c.routes[1].kind.mcp.backends.push({
-    name: "lsp",
-    handlesPrefix: "lsp_",
-    kind: {
-      mcpProxy: {
-        urlBinding: "OLD_URL",
-        tools: [],
-        dynamicTools: false,
-        stripPrefix: "",
-        requiresSession: false,
-        protocolMode: "",
-        serviceBinding: "",
-        claims: [],
-      },
-    },
-  });
-  const lockfile = {
-    generated_backends: [
-      {
-        input: "llo",
-        name: "lsp",
-        handlesPrefix: "lsp_",
-        claims: ["lsp_hover"],
-        dynamicTools: true,
-        urlBinding: "NEW_URL",
-        serviceBinding: "LSP_MCP",
-      },
-    ],
-  };
-  const out = emitCloisterCapnp(c, lockfile);
-  // The generated row's URL replaces the hand-shell's.
-  assert.ok(!out.includes("OLD_URL"), "hand-shell URL must be replaced by generated row");
-  assert.match(out, /urlBinding      = "NEW_URL"/);
-});
-
-// ── Contract 9: no /mcp route + generated backends → synthesized /mcp ────
-
-test("emit-cloister-capnp: lockfile with generated_backends + no /mcp route → synthesizes /mcp route", () => {
-  const c = minimalCluster(); // No /mcp route.
-  const lockfile = {
-    generated_backends: [
-      {
-        input: "x",
-        name: "gen",
-        handlesPrefix: "g_",
-        claims: ["g_a"],
-        dynamicTools: true,
-        urlBinding: "X_URL",
-        serviceBinding: "",
-      },
-    ],
-  };
-  const out = emitCloisterCapnp(c, lockfile);
-  assert.match(out, /\( path = "\/mcp",/);
-  assert.match(out, /name          = "gen"/);
-});
+// ── Contract 7: lockfile injection is a SEPARATE layer (build-manifest.mjs) ──
+//
+// The Phase 2 design keeps the [[generated_backends]] overlay where it
+// already lives — `scripts/build-manifest.mjs:overlayLockfileBackends`.
+// THIS emitter writes only the cluster.toml-declared routes. If we
+// merged lockfile rows here too, build-manifest would see them as
+// hand-shell collisions on every regeneration. Keep the layers
+// separate; one source of truth per overlay.
+//
+// (The pre-Commit-3 iteration injected lockfile rows; we backed that
+// out after observing the double-overlay collision in real
+// `task manifest` runs. Documented for the next person who's tempted
+// to re-add the injection — they'd hit the same problem.)
+//
+// No assertion here — the contract is documented absence, not a
+// behavior to test.
 
 // ── Contract 10: defaults — actor + policy come from the pinned template ─
 

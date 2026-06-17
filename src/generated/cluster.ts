@@ -143,5 +143,125 @@ export const cluster: Cluster = {
       "serviceBinding": "LSP_MCP"
     }
   ],
-  "routes": []
+  "routes": [
+    {
+      "path": "/health",
+      "kind": {
+        "health": null
+      }
+    },
+    {
+      "path": "/.well-known/interlace/index.json",
+      "kind": {
+        "wellKnownInterlace": null
+      }
+    },
+    {
+      "path": "/interlace/peers/:fp",
+      "kind": {
+        "disclosure": null
+      }
+    },
+    {
+      "path": "/.well-known/identity-bridge",
+      "kind": {
+        "wellKnownIdentityBridge": null
+      }
+    },
+    {
+      "path": "/v2",
+      "kind": {
+        "ociRegistry": null
+      }
+    },
+    {
+      "path": "/.well-known/mcp-registry",
+      "kind": {
+        "wellKnownMcpRegistry": null
+      }
+    },
+    {
+      "path": "/interlace/ca-bundle",
+      "kind": {
+        "caBundle": null
+      }
+    },
+    {
+      "path": "/identity",
+      "kind": {
+        "serviceBindingProxy": {
+          "binding": "NOTME",
+          "upstreamHost": "notme-bot",
+          "stripPrefix": "/identity"
+        }
+      }
+    },
+    {
+      "path": "/mcp",
+      "kind": {
+        "mcp": {
+          "backends": [
+            {
+              "name": "bead",
+              "handlesPrefix": "bead_",
+              "kind": {
+                "durableObject": {
+                  "binding": "BEAD_STORE",
+                  "keyArg": "repo",
+                  "tools": [
+                    {
+                      "name": "bead_create",
+                      "description": "Create a new bead (work item) in the store for the given repo.",
+                      "inputSchemaJson": ""
+                    },
+                    {
+                      "name": "bead_update",
+                      "description": "Update fields on an existing bead.",
+                      "inputSchemaJson": ""
+                    },
+                    {
+                      "name": "bead_search",
+                      "description": "Full-text search beads by title/description.",
+                      "inputSchemaJson": ""
+                    },
+                    {
+                      "name": "bead_list",
+                      "description": "List beads, optionally filtered by state.",
+                      "inputSchemaJson": ""
+                    },
+                    {
+                      "name": "bead_close",
+                      "description": "Mark a bead as done.",
+                      "inputSchemaJson": ""
+                    },
+                    {
+                      "name": "bead_comment",
+                      "description": "Add a comment to a bead.",
+                      "inputSchemaJson": ""
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "mache",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "stripPrefix": "mache_",
+                  "requiresSession": true,
+                  "protocolMode": "",
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": []
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
 } as const;

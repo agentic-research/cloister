@@ -718,8 +718,8 @@ tasks:
     deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:tenant-docs, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip, emit:cloister-capnp:drift]
 
   done:
     desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/` (mache-smell-rules-shaped). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
