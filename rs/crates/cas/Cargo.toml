@@ -13,12 +13,15 @@ description = "Wasm32 bridge crate exposing leyline-cas-ffi for cloister's bundl
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-# Pinned to the SHA that landed leyline-cas-ffi in LLO (PR #54).
-# Updating this rev is a deliberate, reviewable act — the substrate
-# (BLAKE3 lock, Σ §3.4) is the load-bearing thing; a rev bump means
-# the algorithm changed and the cross-runtime fixture suite must
-# re-verify. allow-git for this URL is set in rs/deny.toml.
-leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "afdb358dbf377c61e89d0b761b9b41533a675af8", package = "leyline-cas-ffi" }
+# Pinned to the SHA that landed leyline-cas-ffi in LLO + the license
+# field addition (ley-line-open-f2239c, SHA 593ee61). Updating this
+# rev is a deliberate, reviewable act — the substrate (BLAKE3 lock,
+# Σ §3.4) is the load-bearing thing; a rev bump means the algorithm
+# changed and the cross-runtime fixture suite must re-verify.
+# allow-git for this URL is set in rs/deny.toml. The `version` field
+# alongside the git+rev is required for cargo-deny's wildcards rule
+# (per cloister-eefd45 — git-only deps are treated as wildcards).
+leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "593ee610bf17dd8fc152d4c39472f24242da5cb0", version = "0.4.5", package = "leyline-cas-ffi" }
 
 [dev-dependencies]
 # Used in the bridge crate's tests to cross-check the re-exported FFI's
