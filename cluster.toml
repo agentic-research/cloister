@@ -91,5 +91,100 @@ from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
 
+[[routes]]
+kind = "health"
+path = "/health"
+
+[[routes]]
+kind = "wellKnownInterlace"
+path = "/.well-known/interlace/index.json"
+
+[[routes]]
+kind = "disclosure"
+path = "/interlace/peers/:fp"
+
+[[routes]]
+kind = "wellKnownIdentityBridge"
+path = "/.well-known/identity-bridge"
+
+[[routes]]
+kind = "ociRegistry"
+path = "/v2"
+
+[[routes]]
+kind = "wellKnownMcpRegistry"
+path = "/.well-known/mcp-registry"
+
+[[routes]]
+kind = "caBundle"
+path = "/interlace/ca-bundle"
+
+[[routes]]
+kind = "serviceBindingProxy"
+path = "/identity"
+
+  [routes.serviceBindingProxy]
+  binding = "NOTME"
+  stripPrefix = "/identity"
+  upstreamHost = "notme-bot"
+
+[[routes]]
+kind = "mcp"
+path = "/mcp"
+
+[[routes.mcp.backends]]
+handlesPrefix = "bead_"
+kind = "durableObject"
+name = "bead"
+
+  [routes.mcp.backends.durableObject]
+  binding = "BEAD_STORE"
+  keyArg = "repo"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Create a new bead (work item) in the store for the given repo."
+    inputSchemaJson = ""
+    name = "bead_create"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Update fields on an existing bead."
+    inputSchemaJson = ""
+    name = "bead_update"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Full-text search beads by title/description."
+    inputSchemaJson = ""
+    name = "bead_search"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "List beads, optionally filtered by state."
+    inputSchemaJson = ""
+    name = "bead_list"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Mark a bead as done."
+    inputSchemaJson = ""
+    name = "bead_close"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Add a comment to a bead."
+    inputSchemaJson = ""
+    name = "bead_comment"
+
+[[routes.mcp.backends]]
+handlesPrefix = "mache_"
+kind = "mcpProxy"
+name = "mache"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [ ]
+  dynamicTools = true
+  protocolMode = ""
+  requiresSession = true
+  serviceBinding = "MACHE_MCP"
+  stripPrefix = "mache_"
+  tools = [ ]
+  urlBinding = "MACHE_MCP_URL"
+
 [storage]
 doStoragePath = "/data/do"

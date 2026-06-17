@@ -97,6 +97,29 @@ export interface InputSpec {
   serviceBinding: string;
 }
 
+export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
+  z.object({
+    path: z.string(),
+    kind: z.union([
+      z.object({ health: z.null() }).strict(),
+      z.object({ mcp: McpRouteSpecSchema }).strict(),
+      z.object({ serviceBindingProxy: ServiceBindingProxySpecSchema }).strict(),
+      z.object({ httpProxy: HttpProxySpecSchema }).strict(),
+      z.object({ wellKnownInterlace: z.null() }).strict(),
+      z.object({ disclosure: z.null() }).strict(),
+      z.object({ wellKnownIdentityBridge: z.null() }).strict(),
+      z.object({ ociRegistry: z.null() }).strict(),
+      z.object({ wellKnownMcpRegistry: z.null() }).strict(),
+      z.object({ caBundle: z.null() }).strict(),
+      z.object({ vaultProxy: VaultProxySpecSchema }).strict(),
+    ]),
+  }).strict());
+
+export interface Route {
+  path: string;
+  kind: { health: null } | { mcp: McpRouteSpec } | { serviceBindingProxy: ServiceBindingProxySpec } | { httpProxy: HttpProxySpec } | { wellKnownInterlace: null } | { disclosure: null } | { wellKnownIdentityBridge: null } | { ociRegistry: null } | { wellKnownMcpRegistry: null } | { caBundle: null } | { vaultProxy: VaultProxySpec };
+}
+
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
@@ -104,6 +127,7 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     wires: z.array(WireSchema),
     storage: StoragePolicySchema,
     inputs: z.array(InputSpecSchema),
+    routes: z.array(RouteSchema),
   }).strict());
 
 export interface Cluster {
@@ -112,6 +136,7 @@ export interface Cluster {
   wires: Wire[];
   storage: StoragePolicy;
   inputs: InputSpec[];
+  routes: Route[];
 }
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
@@ -149,5 +174,150 @@ export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
 export interface EnvVar {
   name: string;
   value: string;
+}
+
+export const McpRouteSpecSchema: z.ZodType<McpRouteSpec> = z.lazy(() =>
+  z.object({
+    backends: z.array(BackendSchema),
+  }).strict());
+
+export interface McpRouteSpec {
+  backends: Backend[];
+}
+
+export const ServiceBindingProxySpecSchema: z.ZodType<ServiceBindingProxySpec> = z.lazy(() =>
+  z.object({
+    binding: z.string(),
+    upstreamHost: z.string(),
+    stripPrefix: z.string(),
+  }).strict());
+
+export interface ServiceBindingProxySpec {
+  binding: string;
+  upstreamHost: string;
+  stripPrefix: string;
+}
+
+export const HttpProxySpecSchema: z.ZodType<HttpProxySpec> = z.lazy(() =>
+  z.object({
+    urlBinding: z.string(),
+    stripPrefix: z.string(),
+  }).strict());
+
+export interface HttpProxySpec {
+  urlBinding: string;
+  stripPrefix: string;
+}
+
+export const VaultProxySpecSchema: z.ZodType<VaultProxySpec> = z.lazy(() =>
+  z.object({
+    bundleIdName: z.string(),
+  }).strict());
+
+export interface VaultProxySpec {
+  bundleIdName: string;
+}
+
+export const BackendSchema: z.ZodType<Backend> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    handlesPrefix: z.string(),
+    kind: z.union([
+      z.object({ durableObject: DoBackendSchema }).strict(),
+      z.object({ serviceBinding: ServiceBindingBackendSchema }).strict(),
+      z.object({ udsForward: UdsForwardBackendSchema }).strict(),
+      z.object({ leylineNet: LeylineNetBackendSchema }).strict(),
+      z.object({ mcpProxy: HttpForwardBackendSchema }).strict(),
+    ]),
+  }).strict());
+
+export interface Backend {
+  name: string;
+  handlesPrefix: string;
+  kind: { durableObject: DoBackend } | { serviceBinding: ServiceBindingBackend } | { udsForward: UdsForwardBackend } | { leylineNet: LeylineNetBackend } | { mcpProxy: HttpForwardBackend };
+}
+
+export const DoBackendSchema: z.ZodType<DoBackend> = z.lazy(() =>
+  z.object({
+    binding: z.string(),
+    keyArg: z.string(),
+    tools: z.array(McpToolSchema),
+  }).strict());
+
+export interface DoBackend {
+  binding: string;
+  keyArg: string;
+  tools: McpTool[];
+}
+
+export const ServiceBindingBackendSchema: z.ZodType<ServiceBindingBackend> = z.lazy(() =>
+  z.object({
+    binding: z.string(),
+    tools: z.array(McpToolSchema),
+  }).strict());
+
+export interface ServiceBindingBackend {
+  binding: string;
+  tools: McpTool[];
+}
+
+export const UdsForwardBackendSchema: z.ZodType<UdsForwardBackend> = z.lazy(() =>
+  z.object({
+    socketPath: z.string(),
+    tools: z.array(McpToolSchema),
+  }).strict());
+
+export interface UdsForwardBackend {
+  socketPath: string;
+  tools: McpTool[];
+}
+
+export const LeylineNetBackendSchema: z.ZodType<LeylineNetBackend> = z.lazy(() =>
+  z.object({
+    companionUrlBinding: z.string(),
+    upstreamId: z.string(),
+    tools: z.array(McpToolSchema),
+  }).strict());
+
+export interface LeylineNetBackend {
+  companionUrlBinding: string;
+  upstreamId: string;
+  tools: McpTool[];
+}
+
+export const HttpForwardBackendSchema: z.ZodType<HttpForwardBackend> = z.lazy(() =>
+  z.object({
+    urlBinding: z.string(),
+    tools: z.array(McpToolSchema),
+    dynamicTools: z.boolean(),
+    stripPrefix: z.string(),
+    requiresSession: z.boolean(),
+    protocolMode: z.string(),
+    serviceBinding: z.string(),
+    claims: z.array(z.string()),
+  }).strict());
+
+export interface HttpForwardBackend {
+  urlBinding: string;
+  tools: McpTool[];
+  dynamicTools: boolean;
+  stripPrefix: string;
+  requiresSession: boolean;
+  protocolMode: string;
+  serviceBinding: string;
+  claims: string[];
+}
+
+export const McpToolSchema: z.ZodType<McpTool> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    description: z.string(),
+    inputSchemaJson: z.string(),
+  }).strict());
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchemaJson: string;
 }
 

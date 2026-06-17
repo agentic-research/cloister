@@ -89,6 +89,14 @@ function canonicalizeCluster(c) {
   // pre-Phase-1 cluster.toml files don't gain a stray `[inputs]` line.
   const inputsTable = canonicalizeInputs(c.inputs ?? []);
   if (Object.keys(inputsTable).length > 0) out.inputs = inputsTable;
+  // Phase 2 (Commit 2): canonicalize `[[routes]]` rows. Flatten the
+  // zod-nested discriminated union (`kind: { health: null }` →
+  // `kind = "health"`; payload variants get a sibling table). Empty
+  // list = no [[routes]] emitted (back-compat with pre-Phase-2
+  // cluster.toml). Per cloister-345ad1 / ADR-0031.
+  if (Array.isArray(c.routes) && c.routes.length > 0) {
+    out.routes = c.routes.map(canonicalizeRoute);
+  }
   if (c.storage) out.storage = sortKeys(c.storage);
   return out;
 }
@@ -188,6 +196,96 @@ function canonicalizeWire(w) {
     throw new Error(
       `Wire (binding=${JSON.stringify(w.binding)}): transport union is malformed ` +
         `(expected { <variant>: null } or "<variant>", got ${JSON.stringify(transport)})`,
+    );
+  }
+  return sortKeys(flat);
+}
+
+/**
+ * Flatten one Route's discriminated union into the TOML-flat shape.
+ * Per cloister-345ad1 / ADR-0031 Phase 2.
+ *
+ * Zod-nested: `{ path, kind: { health: null } }`
+ * TOML-flat:  `{ path, kind: "health" }` (void variants)
+ *
+ * Zod-nested: `{ path, kind: { serviceBindingProxy: {...} } }`
+ * TOML-flat:  `{ path, kind: "serviceBindingProxy", serviceBindingProxy: {...} }`
+ *
+ * For `mcp`, recurses into backends — each backend has its own
+ * Backend.kind union that also gets flattened.
+ *
+ * Void variants emit just the discriminator string with NO sibling
+ * payload table (mirrors the Wire.transport pattern). Payload
+ * variants emit `kind = "<variant>"` + a sibling table; the table's
+ * keys are sorted alphabetically.
+ */
+function canonicalizeRoute(r) {
+  const { kind, ...scalars } = r;
+  const flat = { ...scalars };
+
+  if (kind && typeof kind === "object" && !Array.isArray(kind)) {
+    const tag = pickUnionTag(kind, "Route.kind");
+    flat.kind = tag;
+    const payload = kind[tag];
+    if (payload !== null) {
+      // Payload variant — emit a sibling subtable.
+      if (tag === "mcp") {
+        flat[tag] = canonicalizeMcpRouteSpec(payload);
+      } else {
+        flat[tag] = canonicalizeKindPayload(payload);
+      }
+    }
+    // Void variant (payload === null): emit just the discriminator.
+  } else if (typeof kind === "string") {
+    // Already TOML-flat (rare in practice; defense).
+    flat.kind = kind;
+    if (scalars[kind] !== undefined && scalars[kind] !== null) {
+      const tag = kind;
+      flat[tag] = tag === "mcp"
+        ? canonicalizeMcpRouteSpec(scalars[tag])
+        : canonicalizeKindPayload(scalars[tag]);
+    }
+  } else {
+    throw new Error(
+      `Route (path=${JSON.stringify(r.path)}): kind union is malformed ` +
+        `(expected { <variant>: payload | null } or "<variant>", got ${JSON.stringify(kind)})`,
+    );
+  }
+  return sortKeys(flat);
+}
+
+/**
+ * Canonicalize an McpRouteSpec payload. Sorts keys + flattens the
+ * Backend.kind discriminated union on each entry.
+ */
+function canonicalizeMcpRouteSpec(spec) {
+  if (!spec || typeof spec !== "object") return spec;
+  const backends = Array.isArray(spec.backends) ? spec.backends.map(canonicalizeBackend) : [];
+  return sortKeys({ ...spec, backends });
+}
+
+/**
+ * Flatten one Backend's discriminated union (durableObject / mcpProxy /
+ * serviceBinding / udsForward / leylineNet) into the TOML-flat shape.
+ * Same pattern as canonicalizeBundle.
+ */
+function canonicalizeBackend(b) {
+  const { kind, ...scalars } = b;
+  const flat = { ...scalars };
+  if (kind && typeof kind === "object" && !Array.isArray(kind)) {
+    const tag = pickUnionTag(kind, "Backend.kind");
+    const payload = kind[tag];
+    flat.kind = tag;
+    flat[tag] = canonicalizeKindPayload(payload);
+  } else if (typeof kind === "string") {
+    flat.kind = kind;
+    if (scalars[kind] !== undefined) {
+      flat[kind] = canonicalizeKindPayload(scalars[kind]);
+    }
+  } else {
+    throw new Error(
+      `Backend ${JSON.stringify(b.name)}: kind union is malformed ` +
+        `(expected { <variant>: payload } or "<variant>", got ${JSON.stringify(kind)})`,
     );
   }
   return sortKeys(flat);

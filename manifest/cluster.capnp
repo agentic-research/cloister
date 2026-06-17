@@ -43,6 +43,17 @@ struct Cluster {
   # time. Empty list = no external inputs (back-compat with pre-Phase-1
   # cluster.toml). Resolver lands in Phase 1b (cloister-cf7a3b).
   inputs   @4 :List(InputSpec);
+  # ── Routes (Phase 2 of "cloister.capnp as build artifact" arc,
+  # cloister-345ad1 / ADR-0031) ──────────────────────────────────────────
+  #
+  # Route declarations the emitter lifts into the generated `cloister.capnp`
+  # (Gateway value). Mirrors the Route struct + per-kind specs from
+  # `manifest/cloister.capnp`. The operator authors routes alongside
+  # bundles in `cluster.toml`; the emitter then projects the cluster's
+  # routes into the Gateway schema at build time. Empty list = no routes
+  # declared (back-compat with pre-Phase-2 cluster.toml that left route
+  # declarations in hand-edited `cloister.capnp` shells).
+  routes   @5 :List(Route);
 }
 
 struct ClusterMetadata {
@@ -281,6 +292,7 @@ struct InputSpec {
   # escape only"). Empty string = use `ref` resolution.
   from @4 :Text;
 
+
   # ── Lego-blocks capability declarations (ADR-0027 forward-compat) ──
   #
   # The substrate-as-kernel framing (cloister-1b59a2) treats every input
@@ -336,4 +348,221 @@ struct InputSpec {
   # migration upstream by upstream).
   urlBinding @7 :Text;
   serviceBinding @8 :Text;
+}
+
+# ── Route + per-kind specs (Phase 2 of "cloister.capnp as build artifact"
+# arc, cloister-345ad1 / ADR-0031) ────────────────────────────────────────
+#
+# Mirrors the Route struct + per-kind specs from `manifest/cloister.capnp`.
+# The cluster manifest pipeline (`scripts/build-manifest.mjs` emitter
+# extension in Phase 2) lifts these Route declarations into the generated
+# `cloister.capnp` Gateway value at build time.
+#
+# Why mirror instead of import the cloister.capnp definitions?
+#
+#   - cluster.capnp is the operator surface; it should be self-contained.
+#     A consumer manifest depends on ONE schema file, not two.
+#   - The cloister.capnp schema (Gateway) is a build artifact post-Phase-2;
+#     it shouldn't be a dependency of cluster.capnp going forward.
+#   - The two schemas evolve at different cadences. Mirroring lets each
+#     extend its own ordinals without coupling the other's evolution.
+#
+# Append-only ordinals per ADR-0004. New variants land at higher ordinal
+# tags; never renumber existing tags. When in doubt re-read the schema-
+# evolution rules at the top of this file.
+
+struct Route {
+  # Path prefix. The router does first-match-wins over the routes list.
+  path @0 :Text;
+
+  kind :union {
+    # GET <path> → liveness + backend snapshot.
+    health              @1 :Void;
+
+    # GET|POST <path> → MCP edge (JSON-RPC + SSE), aggregating ToolBackends.
+    mcp                 @2 :McpRouteSpec;
+
+    # <path>/* → service binding (Fetcher), with optional prefix strip.
+    serviceBindingProxy @3 :ServiceBindingProxySpec;
+
+    # <path>/* → HTTP forward to a URL (read from env var binding).
+    httpProxy           @4 :HttpProxySpec;
+
+    # GET <path> → Interlace `.well-known` discovery doc, body synthesized
+    # at request time from the Gateway's actor + policy fields and the
+    # capabilities aggregated across the manifest's mcp routes.
+    wellKnownInterlace  @5 :Void;
+
+    # GET <path>/:fp → Selective disclosure of peer_attestations rows.
+    # Lease-gated when INTERLACE_ROOT_PUBKEY is set.
+    disclosure          @6 :Void;
+
+    # Multi-format identity discovery bridge — surfaces the cluster's
+    # native Interlace identity under the OIDC, WebFinger, and Nostr
+    # NIP-05 well-known paths, plus a minimal `client_credentials` token
+    # endpoint. Sentinel `path`; handler dispatches by URL internally.
+    wellKnownIdentityBridge @7 :Void;
+
+    # OCI Distribution Spec (v1.1) registry. Sentinel `path`; URLPatterns
+    # inside the handler match `/v2/*` endpoints.
+    ociRegistry             @8 :Void;
+
+    # MCP Registry OpenAPI surface — cloister as a private MCP Registry.
+    # Sentinel `path`; URLPatterns inside the handler match the v0.1
+    # server-discovery sub-paths.
+    wellKnownMcpRegistry    @9 :Void;
+
+    # Interlace 0.2.0 archival CA bundle endpoint. Sentinel `path`;
+    # URLPatterns inside the handler match `/interlace/ca-bundle` +
+    # `/interlace/ca-bundle/<epoch>`.
+    caBundle                @10 :Void;
+
+    # `cloister/credential-isolation/v1` route. Sentinel `path`; handler
+    # matches `/vault/proxy/<service>/<rest...>` internally.
+    vaultProxy              @11 :VaultProxySpec;
+  }
+}
+
+# ── VaultProxySpec: per-route config for `vaultProxy` Route.kind ──────────
+struct VaultProxySpec {
+  # Logical bundle name passed to `env.VAULT_STORE.idFromName(...)`.
+  # Empty → defaults to "router".
+  bundleIdName @0 :Text;
+}
+
+# ── McpRouteSpec: ToolBackend dispatch layer ──────────────────────────────
+struct McpRouteSpec {
+  backends @0 :List(Backend);
+}
+
+struct Backend {
+  # Human-friendly id, must be unique within the McpRouteSpec.
+  name          @0 :Text;
+
+  # Tool-name prefix. Two backends sharing a prefix is a build error.
+  handlesPrefix @1 :Text;
+
+  kind :union {
+    # bead_*-style: stub.fetch keyed by an arg (typically `repo`).
+    durableObject  @2 :DoBackend;
+
+    # workerd Fetcher service binding (notme-bot, future internal Workers).
+    serviceBinding @3 :ServiceBindingBackend;
+
+    # Unix-domain-socket forward — placeholder; reserves the kind.
+    udsForward     @4 :UdsForwardBackend;
+
+    # leyline-net wire to cloister-companion (ADR-0005).
+    leylineNet     @5 :LeylineNetBackend;
+
+    # MCP Proxy Server upstream (ADR-0015 Phase 1).
+    mcpProxy       @6 :HttpForwardBackend;
+  }
+}
+
+# ── Backend kinds ─────────────────────────────────────────────────────────
+
+struct DoBackend {
+  # Name of the DurableObjectNamespace binding (e.g. "BEAD_STORE").
+  binding @0 :Text;
+
+  # Argument key whose value names the DO instance (e.g. "repo").
+  keyArg  @1 :Text;
+
+  # Tools this backend advertises in tools/list.
+  tools   @2 :List(McpTool);
+}
+
+struct HttpForwardBackend {
+  # Name of the text-var binding holding the URL (e.g. "LLO_MCP_URL").
+  urlBinding @0 :Text;
+
+  # Asserted catalog. With `dynamicTools = false` (default) this is the
+  # full tools/list. With `dynamicTools = true` this is an override set.
+  tools      @1 :List(McpTool);
+
+  # When true, cloister fetches `tools/list` from the upstream at request
+  # time and caches with a TTL.
+  dynamicTools @2 :Bool;
+
+  # Prefix to remove from tool names before forwarding `tools/call`.
+  stripPrefix @3 :Text;
+
+  # When true, cloister speaks MCP Streamable HTTP per spec (initialize +
+  # captured `Mcp-Session-Id` on every subsequent request).
+  requiresSession @4 :Bool;
+
+  # Per-upstream protocol mode (ADR-0015 Phase 2):
+  #   - "" / "current": legacy MCP 2025-11-25 lifecycle
+  #   - "next": sessionless
+  #   - "auto": try sessionless first, fall back to legacy on
+  #     UnsupportedProtocolVersionError
+  protocolMode @5 :Text;
+
+  # Name of a workerd Service binding (Fetcher) that resolves to this
+  # backend (e.g. "MACHE_MCP"). When non-empty + bound, the runtime
+  # calls `env[serviceBinding].fetch(...)` instead of routing through
+  # `fetch(env[urlBinding] + path)`.
+  serviceBinding @6 :Text;
+
+  # Explicit list of upstream tool names this backend handles. When
+  # non-empty, filters the derived catalog to just these names + advertises
+  # them verbatim (no prefix-add).
+  claims @7 :List(Text);
+}
+
+struct ServiceBindingBackend {
+  # Name of the Fetcher binding.
+  binding @0 :Text;
+
+  tools   @1 :List(McpTool);
+}
+
+struct UdsForwardBackend {
+  # Path to the UDS socket the upstream listens on.
+  socketPath @0 :Text;
+
+  tools      @1 :List(McpTool);
+}
+
+struct LeylineNetBackend {
+  # Name of the text-var binding holding cloister-companion's HTTP URL.
+  companionUrlBinding @0 :Text;
+
+  # Logical id the companion uses to route to the actual upstream.
+  upstreamId          @1 :Text;
+
+  tools               @2 :List(McpTool);
+}
+
+# ── Non-MCP routes ────────────────────────────────────────────────────────
+
+struct ServiceBindingProxySpec {
+  # Name of the Fetcher binding (e.g. "NOTME").
+  binding      @0 :Text;
+
+  # Hostname to use when constructing the upstream URL ("notme-bot").
+  upstreamHost @1 :Text;
+
+  # Prefix to strip from the request path before forwarding ("/identity").
+  stripPrefix  @2 :Text;
+}
+
+struct HttpProxySpec {
+  # Name of the text-var binding holding the upstream URL.
+  urlBinding  @0 :Text;
+
+  # Prefix to strip before forwarding (or empty).
+  stripPrefix @1 :Text;
+}
+
+# ── MCP tool descriptor ───────────────────────────────────────────────────
+
+struct McpTool {
+  name            @0 :Text;
+  description     @1 :Text;
+
+  # JSON Schema for the tool's input. Stored as raw JSON text to round-trip
+  # without losing fidelity.
+  inputSchemaJson @2 :Text;
 }

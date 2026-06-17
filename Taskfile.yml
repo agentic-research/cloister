@@ -249,6 +249,53 @@ tasks:
       - scripts/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
 
+  emit:cloister-capnp:
+    desc: "Phase 2 of \"cloister.capnp as build artifact\" arc (cloister-345ad1, ADR-0031) — generate cloister.capnp from cluster.toml ([[routes]] + [metadata]) + cluster.lock.toml ([[generated_backends]]). Byte-stable; safe to commit the output."
+    cmds:
+      - pnpm exec tsx scripts/emit-cloister-capnp.mjs --write cloister.capnp
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - scripts/emit-cloister-capnp.mjs
+      - scripts/toml-to-cluster.mjs
+    generates:
+      - cloister.capnp
+
+  emit:cloister-capnp:drift:
+    desc: "Drift gate — re-emit cloister.capnp to a tmp file + diff against the committed copy. Same shape as cluster:toml:roundtrip + cluster:zod:check-drift. Per cloister-345ad1 / ADR-0031."
+    cmds:
+      - |
+        set -eu
+        if [ ! -f cloister.capnp ]; then
+          echo "FAIL — cloister.capnp does not exist at repo root; run \`task emit:cloister-capnp\` to seed it" >&2
+          exit 1
+        fi
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        pnpm exec tsx scripts/emit-cloister-capnp.mjs --write "$TMPDIR/cloister.capnp" >/dev/null
+        if [ ! -f "$TMPDIR/cloister.capnp" ]; then
+          echo "FAIL — emit-cloister-capnp produced no output; check tsx stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u cloister.capnp "$TMPDIR/cloister.capnp"; then
+          echo "" >&2
+          echo "DRIFT — committed cloister.capnp differs from what" >&2
+          echo "emit-cloister-capnp.mjs would generate from the current" >&2
+          echo "cluster.toml + cluster.lock.toml. Run \`task emit:cloister-capnp\`" >&2
+          echo "to regenerate, then commit. Per cloister-345ad1 / ADR-0031." >&2
+          exit 1
+        fi
+        echo "OK — cloister.capnp matches the emit-cloister-capnp.mjs canonical output"
+
+  test:emit-cloister-capnp:
+    desc: "Phase 2 of cloister-345ad1 — contract tests for scripts/emit-cloister-capnp.mjs."
+    cmds:
+      - pnpm exec tsx --test scripts/test/emit-cloister-capnp.test.mjs
+    sources:
+      - scripts/test/emit-cloister-capnp.test.mjs
+      - scripts/emit-cloister-capnp.mjs
+      - scripts/toml-to-cluster.mjs
+
   cluster:resolve:
     desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
     cmds:
@@ -668,11 +715,11 @@ tasks:
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + cargo-pin lint. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:tenant-docs, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, lint:cargo-pins]
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:tenant-docs, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins]
 
   verify:
-    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate. Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip]
+    desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
+    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip, emit:cloister-capnp:drift]
 
   done:
     desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/` (mache-smell-rules-shaped). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
