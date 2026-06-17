@@ -89,6 +89,11 @@ function canonicalizeCluster(c) {
   // pre-Phase-1 cluster.toml files don't gain a stray `[inputs]` line.
   const inputsTable = canonicalizeInputs(c.inputs ?? []);
   if (Object.keys(inputsTable).length > 0) out.inputs = inputsTable;
+  // Phase 2 (Commit 1) stub: routes round-trip lossy until Commit 2
+  // adds the full per-kind canonicalizer. Empty list = no [[routes]]
+  // emitted (back-compat with pre-Phase-2 cluster.toml). Non-empty
+  // routes are passed through as-is; Commit 2 wires real canonicalize.
+  if (Array.isArray(c.routes) && c.routes.length > 0) out.routes = c.routes;
   if (c.storage) out.storage = sortKeys(c.storage);
   return out;
 }

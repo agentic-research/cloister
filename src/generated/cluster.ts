@@ -142,5 +142,6 @@ export const cluster: Cluster = {
       "urlBinding": "LLO_MCP_URL",
       "serviceBinding": "LSP_MCP"
     }
-  ]
+  ],
+  "routes": []
 } as const;

@@ -195,7 +195,26 @@ function unflattenForSchema(raw) {
   // InputSpec where `name` is a first-class field. Convert here.
   // Back-compat: missing/empty `inputs` table → empty array.
   out.inputs = unflattenInputs(raw.inputs);
+  // cloister-345ad1 / ADR-0031 Phase 2 — `[[routes]]` TOML blocks parse
+  // as an array-of-tables; each row's discriminated-union (kind = "...")
+  // needs un-flattening into the zod-nested shape. Back-compat: missing
+  // `[[routes]]` → empty array.
+  out.routes = unflattenRoutes(raw.routes);
   return out;
+}
+
+/**
+ * Phase 2 (Commit 1) shim: default missing `[[routes]]` to []. Commit 2
+ * lands the full un-flatten + per-kind-payload translation. Keeping the
+ * shim minimal here means the schema add is safe to merge ahead of bidi
+ * pipeline work — back-compat with cluster.toml files that don't yet
+ * carry routes.
+ */
+function unflattenRoutes(raw) {
+  if (!Array.isArray(raw)) return [];
+  // Commit 1 stub: pass through whatever's there; Commit 2 replaces
+  // with full per-kind union un-flatten.
+  return raw;
 }
 
 function unflattenInputs(raw) {

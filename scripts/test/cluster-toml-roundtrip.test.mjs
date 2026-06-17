@@ -71,6 +71,7 @@ function minimalCluster() {
     ],
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
+    routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
   };
 }
 
@@ -122,6 +123,7 @@ function richCluster() {
     ],
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
+    routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
   };
 }
 
@@ -440,6 +442,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     wires: [],
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
+    routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);
@@ -734,6 +737,7 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
     wires: [{ from: "alpha", to: "alpha", binding: "SELF", transport: { uds: null } }],
     storage: { doStoragePath: "/data/do" },
     inputs: [],
+    routes: [],
   };
   const toml = clusterToToml(cluster);
   // Substring check, not regex. The contract: any "[inputs" header
@@ -866,6 +870,7 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       provides: [], requires: [],
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
     }],
+    routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
   };
   const out = ClusterSchema.parse(sample);
   assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");

@@ -32,6 +32,16 @@ export interface Cluster {
    * with pre-Phase-1a cluster.toml). Resolver lands in Phase 1b.
    */
   inputs:   readonly InputSpec[];
+  /**
+   * Route declarations the manifest emitter lifts into the generated
+   * `cloister.capnp` Gateway value (Phase 2 of "cloister.capnp as
+   * build artifact" arc, cloister-345ad1 / ADR-0031). Mirrors the
+   * Route + per-kind-spec shape from `manifest/cloister.capnp`. Empty
+   * array = no routes declared in cluster.toml (back-compat with
+   * pre-Phase-2 cluster.toml that left routes in hand-edited
+   * cloister.capnp shells).
+   */
+  routes:   readonly Route[];
 }
 
 /**
@@ -267,4 +277,120 @@ export function validateCluster(c: Cluster): void {
       throw new TypeError(`cluster.wires[]: self-wire on "${w.from}" not allowed`);
     }
   }
+}
+
+// ── Routes (Phase 2 of "cloister.capnp as build artifact" arc) ────────────
+//
+// Mirror of `manifest/cluster.capnp:Route` + per-kind specs. Same shape
+// (modulo any post-Phase-2 schema additions) as `src/manifest/types.ts`'s
+// `Route` so the emitter can lift these declarations into the generated
+// `cloister.capnp` Gateway value without per-variant translation.
+//
+// Per cloister-345ad1 / ADR-0031.
+
+/**
+ * One route in the cluster's gateway. The `kind` discriminator picks the
+ * route variant; the runtime dispatches by `path` + first-match-wins.
+ */
+export interface Route {
+  /** Path prefix (or sentinel marker for routes that match internally). */
+  path: string;
+  /** Discriminated union: exactly one variant key present. */
+  kind: RouteKind;
+}
+
+/**
+ * Capnp unions encode in JSON as a single sibling field whose name is
+ * the active variant. The TS shape mirrors that with object-with-single-
+ * key. Void variants carry `null` as the payload (matches the zod side).
+ */
+export type RouteKind =
+  | { health:                  null }
+  | { mcp:                     McpRouteSpec }
+  | { serviceBindingProxy:     ServiceBindingProxySpec }
+  | { httpProxy:               HttpProxySpec }
+  | { wellKnownInterlace:      null }
+  | { disclosure:              null }
+  | { wellKnownIdentityBridge: null }
+  | { ociRegistry:             null }
+  | { wellKnownMcpRegistry:    null }
+  | { caBundle:                null }
+  | { vaultProxy:              VaultProxySpec };
+
+/** Per-route config for the `vaultProxy` Route.kind. */
+export interface VaultProxySpec {
+  /** Logical bundle name passed to `env.VAULT_STORE.idFromName(...)`. */
+  bundleIdName: string;
+}
+
+/** Per-route config for the `mcp` Route.kind. */
+export interface McpRouteSpec {
+  backends: readonly Backend[];
+}
+
+export interface Backend {
+  /** Human-friendly id, must be unique within the McpRouteSpec. */
+  name:          string;
+  /** Tool-name prefix. Two backends sharing a prefix is a build error. */
+  handlesPrefix: string;
+  /** Discriminated union picking the backend transport. */
+  kind:          BackendKind;
+}
+
+export type BackendKind =
+  | { durableObject:  DoBackend }
+  | { mcpProxy:       HttpForwardBackend }
+  | { serviceBinding: ServiceBindingBackend }
+  | { udsForward:     UdsForwardBackend }
+  | { leylineNet:     LeylineNetBackend };
+
+export interface DoBackend {
+  binding: string;
+  keyArg:  string;
+  tools:   readonly McpToolSpec[];
+}
+
+export interface HttpForwardBackend {
+  urlBinding:      string;
+  tools:           readonly McpToolSpec[];
+  dynamicTools:    boolean;
+  stripPrefix:     string;
+  requiresSession: boolean;
+  protocolMode:    string;
+  serviceBinding:  string;
+  claims:          readonly string[];
+}
+
+export interface ServiceBindingBackend {
+  binding: string;
+  tools:   readonly McpToolSpec[];
+}
+
+export interface UdsForwardBackend {
+  socketPath: string;
+  tools:      readonly McpToolSpec[];
+}
+
+export interface LeylineNetBackend {
+  companionUrlBinding: string;
+  upstreamId:          string;
+  tools:               readonly McpToolSpec[];
+}
+
+export interface ServiceBindingProxySpec {
+  binding:      string;
+  upstreamHost: string;
+  stripPrefix:  string;
+}
+
+export interface HttpProxySpec {
+  urlBinding:  string;
+  stripPrefix: string;
+}
+
+export interface McpToolSpec {
+  name:            string;
+  description:     string;
+  /** JSON Schema text, parsed once at boot. */
+  inputSchemaJson: string;
 }
