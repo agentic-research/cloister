@@ -63,6 +63,18 @@ async function getParseTomlToCluster() {
   return _parseTomlToCluster;
 }
 
+// Phase 4a (cloister-c919d7): same lazy-import pattern for the
+// cloister.capnp emitter. The drift gate compares emit(cluster.toml)
+// against the committed cloister.capnp byte-for-byte.
+let _emitCloisterCapnp = null;
+async function getEmitCloisterCapnp() {
+  if (_emitCloisterCapnp === null) {
+    const mod = await import(resolve(HERE, "emit-cloister-capnp.mjs"));
+    _emitCloisterCapnp = mod.emitCloisterCapnp;
+  }
+  return _emitCloisterCapnp;
+}
+
 class ToolchainError extends Error {}
 
 // ── Contract ─────────────────────────────────────────────────────────────
@@ -145,6 +157,93 @@ async function tomlParseCheckRecipe(recipe) {
   }
 }
 
+/**
+ * Phase 4a (cloister-c919d7 / ADR-0031): per-recipe Pure Model A drift
+ * gate. For recipes that ship BOTH `cluster.toml` AND `cloister.capnp`,
+ * regenerate the cloister.capnp from the cluster.toml via the emitter
+ * and assert it matches the committed copy byte-for-byte. Catches the
+ * case where an operator hand-edits a recipe's cloister.capnp without
+ * propagating the change to cluster.toml (the post-Phase-4a operator
+ * surface).
+ *
+ * Skipped (returns null) when:
+ *   - LINT_RECIPES_SKIP_CAPNP_DRIFT=1 (unit test harness opt-out)
+ *   - the recipe lacks cluster.toml (capnp-only recipe; Pure Model A
+ *     doesn't apply — the cloister.capnp IS the source of truth)
+ *   - the recipe lacks cloister.capnp (cluster.toml-only recipe;
+ *     the cluster.toml IS the source of truth, no drift to gate)
+ *
+ * Returns a violation string on drift; null on success / skip.
+ */
+async function capnpDriftCheckRecipe(recipe) {
+  if (process.env.LINT_RECIPES_SKIP_CAPNP_DRIFT === "1") return null;
+  const toml = join(recipe.path, "cluster.toml");
+  const capnp = join(recipe.path, "cloister.capnp");
+  if (!existsSync(toml) || !existsSync(capnp)) return null;
+
+  let tomlBody, capnpBody;
+  try {
+    tomlBody = readFileSync(toml, "utf8");
+  } catch (e) {
+    return `cluster.toml read failed: ${e.message}`;
+  }
+  try {
+    capnpBody = readFileSync(capnp, "utf8");
+  } catch (e) {
+    return `cloister.capnp read failed: ${e.message}`;
+  }
+
+  let parsed;
+  try {
+    const parse = await getParseTomlToCluster();
+    parsed = await parse(tomlBody);
+  } catch (e) {
+    // Schema-level parse errors surface via tomlParseCheckRecipe;
+    // skip the drift gate here so the operator only sees one violation.
+    return null;
+  }
+
+  let emitted;
+  try {
+    const emit = await getEmitCloisterCapnp();
+    // Quiet — the Phase 4a fall-through warning is signal for
+    // interactive emit calls, but the drift gate runs in CI where
+    // it'd just be noise.
+    emitted = emit(parsed, { quiet: true });
+  } catch (e) {
+    return `cloister.capnp emit failed: ${e.message}`;
+  }
+
+  if (emitted === capnpBody) return null;
+
+  // Provide a compact diff hint — the first divergent line points
+  // operators at the field they need to fix in cluster.toml (or to the
+  // file they hand-edited without canonicalizing).
+  const emittedLines = emitted.split("\n");
+  const capnpLines = capnpBody.split("\n");
+  const len = Math.max(emittedLines.length, capnpLines.length);
+  let firstDelta = null;
+  for (let i = 0; i < len; i++) {
+    if (emittedLines[i] !== capnpLines[i]) {
+      firstDelta = { i: i + 1, want: emittedLines[i] ?? "<EOF>", have: capnpLines[i] ?? "<EOF>" };
+      break;
+    }
+  }
+  let hint = "";
+  if (firstDelta) {
+    hint = `\n        first delta at line ${firstDelta.i}:\n` +
+           `          want (emit): ${firstDelta.want.slice(0, 80)}\n` +
+           `          have (file): ${firstDelta.have.slice(0, 80)}`;
+  }
+  return (
+    `cloister.capnp drift (Pure Model A invariant violated):\n` +
+    `        emit(cluster.toml) differs from the committed cloister.capnp.\n` +
+    `        Run \`task emit:cloister-capnp\` inside the recipe (or update\n` +
+    `        cluster.toml to match the desired cloister.capnp) and commit both.\n` +
+    `        Per cloister-c919d7 / ADR-0031 Phase 4a.${hint}`
+  );
+}
+
 function parseCheckRecipe(recipe) {
   if (process.env.LINT_RECIPES_SKIP_PARSE === "1") return null;
   const capnp = join(recipe.path, "cloister.capnp");
@@ -208,6 +307,18 @@ async function checkRecipe(recipe) {
   const tomlErr = await tomlParseCheckRecipe(recipe);
   if (tomlErr !== null) {
     violations.push(tomlErr);
+  }
+
+  // Phase 4a (cloister-c919d7 / ADR-0031): Pure Model A drift gate.
+  // For recipes shipping BOTH cluster.toml + cloister.capnp, the
+  // committed cloister.capnp MUST be byte-identical to
+  // emit(cluster.toml). Closes the gap left by Phase 3 Hybrid Model A
+  // (where the two files could drift independently because the emitter
+  // pinned gateway.metadata / actor / policy to ART-default).
+  // Opt-out via `LINT_RECIPES_SKIP_CAPNP_DRIFT=1` for the unit test harness.
+  const capnpDriftErr = await capnpDriftCheckRecipe(recipe);
+  if (capnpDriftErr !== null) {
+    violations.push(capnpDriftErr);
   }
 
   // Canonical-link convention: soft-required (warn only).
