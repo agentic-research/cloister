@@ -11,8 +11,8 @@
 //
 // Recipes are discovered at runtime by listing the `recipes/` directory
 // next to the script. Adding a new recipe means dropping a directory
-// containing `cluster.compose.yaml`, `cloister.capnp`, and `README.md`;
-// no CLI changes needed.
+// containing `cluster.compose.yaml`, `cloister.capnp`, `README.md`,
+// and (post Phase 3 of ADR-0031) `cluster.toml`; no CLI changes needed.
 //
 // The CLI is hand-rolled (no commander/yargs dep) — the surface is
 // small enough that pulling in a parser would be more cost than value.
@@ -61,9 +61,18 @@ export function findRecipesRoot(start) {
   return null;
 }
 
-/** Files every recipe ships. Order matters for the smoke test. */
+/**
+ * Files every recipe ships. Order matters for the smoke test.
+ *
+ * cluster.toml is the post-ADR-0031-Phase-3 operator-readable surface
+ * (cloister-6b572a). It's copied alongside cloister.capnp; both ship in
+ * the scaffold output so the operator can read the TOML and the
+ * runtime can consume the capnp. Phase 4 retires cloister.capnp once
+ * the emitter consumes `[gateway]` from cluster.toml.
+ */
 export const RECIPE_FILES = Object.freeze([
   "cluster.compose.yaml",
+  "cluster.toml",
   "cloister.capnp",
   "README.md",
 ]);
@@ -80,10 +89,14 @@ export function listRecipes(recipesRoot) {
     .filter((name) => {
       const full = join(recipesRoot, name);
       if (!statSync(full).isDirectory()) return false;
-      // A valid recipe ships at least cloister.capnp + cluster.compose.yaml.
+      // A valid recipe ships at least:
+      //   - cloister.capnp        (runtime artifact)
+      //   - cluster.compose.yaml  (compose topology)
+      //   - cluster.toml          (operator-readable surface, Phase 3 of ADR-0031)
       return (
         existsSync(join(full, "cloister.capnp")) &&
-        existsSync(join(full, "cluster.compose.yaml"))
+        existsSync(join(full, "cluster.compose.yaml")) &&
+        existsSync(join(full, "cluster.toml"))
       );
     })
     .sort();
@@ -231,8 +244,10 @@ export function runInit(opts, runOpts = {}) {
   for (const filename of RECIPE_FILES) {
     const src = join(srcDir, filename);
     if (!existsSync(src)) {
-      // README.md is the only file we permit to be missing; the other
-      // two are mandatory per RECIPE_FILES.
+      // README.md is the only file we permit to be missing; everything
+      // else in RECIPE_FILES is mandatory. cluster.toml is the post
+      // ADR-0031-Phase-3 operator surface and is required for every
+      // recipe in the cloister-6b572a shape.
       if (filename === "README.md") continue;
       throw new UsageError(
         `recipe ${opts.recipe} is missing required file: ${filename}`,
