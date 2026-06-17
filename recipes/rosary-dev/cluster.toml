@@ -1,0 +1,241 @@
+# Recipe: rosary-dev — operator-readable cluster shape.
+#
+# Per ADR-0031 Phase 3 (cloister-6b572a), cluster.toml is the per-recipe
+# operator surface; cloister.capnp in this directory is the runtime
+# artifact consumers see at scaffold time (preserved hand-edited until
+# Phase 4 lands `[gateway]` in cluster.toml).
+#
+# Full ART development cluster. Mirrors the top-level cluster.toml at the
+# repo root — bead + mache + lsp + lifecycle + identity. Pick this when
+# you want the same surface the cloister authors use day-to-day.
+
+[metadata]
+name = "art-default"
+version = "0.1.0"
+
+[[bundles]]
+description = "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+holdsCredential = [ "VAULT_KEK_SOURCE", "VAULT_STORE" ]
+hypervisorRationale = "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011."
+kind = "external"
+name = "cloister-router"
+tier = "hypervisor"
+workerdServiceName = "cloister"
+
+  [bundles.external]
+  args = [ ]
+  env = [ ]
+  httpPort = 8_787
+  image = "cloister:0.1.0"
+  ipcSocket = "/run/cloister-uds/router.sock"
+
+[[bundles]]
+description = "Identity authority — Signet master CA, lease cert mint"
+holdsCredential = [ ]
+hypervisorRationale = "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018."
+kind = "external"
+name = "notme-identity"
+tier = "hypervisor"
+workerdServiceName = ""
+
+  [bundles.external]
+  args = [ ]
+  env = [ ]
+  httpPort = 8_788
+  image = "notme:0.1.0"
+  ipcSocket = ""
+
+[[bundles]]
+description = "Code intelligence — symbol search, definitions, callgraph"
+holdsCredential = [ ]
+hypervisorRationale = ""
+kind = "external"
+name = "mache"
+tier = "cluster"
+workerdServiceName = ""
+
+  [bundles.external]
+  args = [ "serve", "--http", "localhost:7532" ]
+  env = [ ]
+  httpPort = 7_532
+  image = "mache:0.8.0"
+  ipcSocket = ""
+
+[[bundles]]
+description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
+holdsCredential = [ ]
+hypervisorRationale = ""
+kind = "external"
+name = "rosary"
+tier = "cluster"
+workerdServiceName = ""
+
+  [bundles.external]
+  args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
+  env = [ ]
+  httpPort = 0
+  image = "rosary:0.2.0"
+  ipcSocket = "/run/cloister-uds/rosary.sock"
+
+[[wires]]
+binding = "MACHE_BUNDLE"
+from = "cloister-router"
+to = "mache"
+transport = "uds"
+
+[[wires]]
+binding = "ROSARY_BUNDLE"
+from = "cloister-router"
+to = "rosary"
+transport = "uds"
+
+[[wires]]
+binding = "NOTME"
+from = "cloister-router"
+to = "notme-identity"
+transport = "uds"
+
+[inputs.llo]
+ref = "io.github.org/agentic-research/ley-line-open@main"
+version = "0.4.5"
+from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[routes]]
+kind = "health"
+path = "/health"
+
+[[routes]]
+kind = "wellKnownInterlace"
+path = "/.well-known/interlace/index.json"
+
+[[routes]]
+kind = "disclosure"
+path = "/interlace/peers/:fp"
+
+[[routes]]
+kind = "wellKnownIdentityBridge"
+path = "/.well-known/identity-bridge"
+
+[[routes]]
+kind = "ociRegistry"
+path = "/v2"
+
+[[routes]]
+kind = "wellKnownMcpRegistry"
+path = "/.well-known/mcp-registry"
+
+[[routes]]
+kind = "serviceBindingProxy"
+path = "/identity"
+
+  [routes.serviceBindingProxy]
+  binding = "NOTME"
+  stripPrefix = "/identity"
+  upstreamHost = "notme-bot"
+
+[[routes]]
+kind = "mcp"
+path = "/mcp"
+
+[[routes.mcp.backends]]
+handlesPrefix = "bead_"
+kind = "durableObject"
+name = "bead"
+
+  [routes.mcp.backends.durableObject]
+  binding = "BEAD_STORE"
+  keyArg = "repo"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Create a new bead (work item) in the store for the given repo."
+    inputSchemaJson = ""
+    name = "bead_create"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Update fields on an existing bead."
+    inputSchemaJson = ""
+    name = "bead_update"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Full-text search beads by title/description."
+    inputSchemaJson = ""
+    name = "bead_search"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "List beads, optionally filtered by state."
+    inputSchemaJson = ""
+    name = "bead_list"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Mark a bead as done."
+    inputSchemaJson = ""
+    name = "bead_close"
+
+    [[routes.mcp.backends.durableObject.tools]]
+    description = "Add a comment to a bead."
+    inputSchemaJson = ""
+    name = "bead_comment"
+
+[[routes.mcp.backends]]
+handlesPrefix = "lsp_"
+kind = "mcpProxy"
+name = "lsp"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [ ]
+  dynamicTools = true
+  protocolMode = ""
+  requiresSession = false
+  serviceBinding = "LSP_MCP"
+  stripPrefix = ""
+  tools = [ ]
+  urlBinding = "LLO_MCP_URL"
+
+[[routes.mcp.backends]]
+handlesPrefix = ""
+kind = "mcpProxy"
+name = "leyline-lifecycle"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [ ]
+  dynamicTools = false
+  protocolMode = ""
+  requiresSession = false
+  serviceBinding = "LSP_MCP"
+  stripPrefix = ""
+  urlBinding = "LLO_MCP_URL"
+
+    [[routes.mcp.backends.mcpProxy.tools]]
+    description = "Re-run tree-sitter parsing over the source tree (or a single file via `source`)."
+    inputSchemaJson = ""
+    name = "reparse"
+
+    [[routes.mcp.backends.mcpProxy.tools]]
+    description = "Run an enrichment pass (e.g. `lsp`, `embed`) optionally scoped to specific files."
+    inputSchemaJson = ""
+    name = "enrich"
+
+    [[routes.mcp.backends.mcpProxy.tools]]
+    description = "Daemon lifecycle status: phase, head_sha, last_reparse_at_ms, per-pass enrichment."
+    inputSchemaJson = ""
+    name = "status"
+
+[[routes.mcp.backends]]
+handlesPrefix = "mache_"
+kind = "mcpProxy"
+name = "mache"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [ ]
+  dynamicTools = true
+  protocolMode = ""
+  requiresSession = true
+  serviceBinding = "MACHE_MCP"
+  stripPrefix = "mache_"
+  tools = [ ]
+  urlBinding = "MACHE_MCP_URL"
+
+[storage]
+doStoragePath = "/data/do"
