@@ -263,5 +263,23 @@ export const cluster: Cluster = {
         }
       }
     }
-  ]
+  ],
+  "gateway": {
+    "metadata": {
+      "name": "",
+      "version": ""
+    },
+    "actor": {
+      "fingerprint": "",
+      "algorithm": "",
+      "pubkeyBinding": "",
+      "attestationRepo": "",
+      "tunnelEndpoint": ""
+    },
+    "policy": {
+      "maxCertLifetimeSeconds": 0,
+      "requireInterlock": false,
+      "minAlgorithm": ""
+    }
+  }
 } as const;

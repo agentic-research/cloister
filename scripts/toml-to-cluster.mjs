@@ -200,6 +200,12 @@ function unflattenForSchema(raw) {
   // needs un-flattening into the zod-nested shape. Back-compat: missing
   // `[[routes]]` → empty array.
   out.routes = unflattenRoutes(raw.routes);
+  // cloister-c919d7 / ADR-0031 Phase 4a — `[gateway]` TOML block carries
+  // operator-authored Gateway-level surface (metadata + actor + policy).
+  // Missing `[gateway]` → all-empty value (the emitter falls through to
+  // its ART-default template + emits a warning). Per the back-compat
+  // contract: pre-Phase-4a cluster.toml files keep working.
+  out.gateway = normalizeGateway(raw.gateway);
   return out;
 }
 
@@ -286,6 +292,51 @@ function unflattenInputs(raw) {
     name,
     ...(spec && typeof spec === "object" ? spec : {}),
   }));
+}
+
+/**
+ * Phase 4a (cloister-c919d7 / ADR-0031): normalize the `[gateway]` TOML
+ * block into the zod-expected Gateway shape. Missing block → all-empty
+ * value (zod still validates; the emitter's fall-through rule treats it
+ * as "use ART-default template").
+ *
+ * Every field defaults to the canonical "unspecified" shape per the
+ * schema's `$comment`:
+ *   - Text → "" (empty string)
+ *   - Bool → false
+ *   - UInt32 → 0
+ *
+ * Operators only need to supply the fields they want to override; the
+ * absent ones get the empty default. The emitter then chooses between
+ * (a) using TOML values when present, or (b) falling through to the
+ * ART-default template when the gateway is all-empty.
+ */
+function normalizeGateway(raw) {
+  const g = (raw && typeof raw === "object" && !Array.isArray(raw)) ? raw : {};
+  const metadata = (g.metadata && typeof g.metadata === "object") ? g.metadata : {};
+  const actor    = (g.actor    && typeof g.actor    === "object") ? g.actor    : {};
+  const policy   = (g.policy   && typeof g.policy   === "object") ? g.policy   : {};
+  return {
+    metadata: {
+      name:    typeof metadata.name    === "string" ? metadata.name    : "",
+      version: typeof metadata.version === "string" ? metadata.version : "",
+    },
+    actor: {
+      fingerprint:     typeof actor.fingerprint     === "string" ? actor.fingerprint     : "",
+      algorithm:       typeof actor.algorithm       === "string" ? actor.algorithm       : "",
+      pubkeyBinding:   typeof actor.pubkeyBinding   === "string" ? actor.pubkeyBinding   : "",
+      attestationRepo: typeof actor.attestationRepo === "string" ? actor.attestationRepo : "",
+      tunnelEndpoint:  typeof actor.tunnelEndpoint  === "string" ? actor.tunnelEndpoint  : "",
+    },
+    policy: {
+      maxCertLifetimeSeconds:
+        typeof policy.maxCertLifetimeSeconds === "number" ? policy.maxCertLifetimeSeconds : 0,
+      requireInterlock:
+        typeof policy.requireInterlock === "boolean" ? policy.requireInterlock : false,
+      minAlgorithm:
+        typeof policy.minAlgorithm === "string" ? policy.minAlgorithm : "",
+    },
+  };
 }
 
 function normalizeInputDefaults(spec) {

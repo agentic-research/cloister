@@ -38,6 +38,29 @@ const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
+/**
+ * Canonical "all-empty" Gateway value — the back-compat default for
+ * pre-Phase-4a cluster.toml files (cloister-c919d7 / ADR-0031).
+ * Schema requires the field; this is the zero value zod accepts.
+ * The emitter falls through to its ART-default template when it
+ * sees this exact shape.
+ */
+const EMPTY_GATEWAY = {
+  metadata: { name: "", version: "" },
+  actor: {
+    fingerprint: "",
+    algorithm: "",
+    pubkeyBinding: "",
+    attestationRepo: "",
+    tunnelEndpoint: "",
+  },
+  policy: {
+    maxCertLifetimeSeconds: 0,
+    requireInterlock: false,
+    minAlgorithm: "",
+  },
+};
+
 /** A minimal cluster shape that passes ClusterSchema. */
 function minimalCluster() {
   return {
@@ -72,6 +95,7 @@ function minimalCluster() {
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
 }
 
@@ -124,6 +148,7 @@ function richCluster() {
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
 }
 
@@ -443,6 +468,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     storage: { doStoragePath: "/data/do" },
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);
@@ -738,6 +764,7 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
     storage: { doStoragePath: "/data/do" },
     inputs: [],
     routes: [],
+    gateway: EMPTY_GATEWAY,
   };
   const toml = clusterToToml(cluster);
   // Substring check, not regex. The contract: any "[inputs" header
@@ -871,6 +898,7 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
+    gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
   };
   const out = ClusterSchema.parse(sample);
   assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");
@@ -1209,6 +1237,7 @@ test("routes: empty routes array omits [[routes]] section from emitted TOML", as
     storage: { doStoragePath: "/data/do" },
     inputs: [],
     routes: [],
+    gateway: EMPTY_GATEWAY,
   };
   const toml = clusterToToml(cluster);
   assert.ok(!toml.includes("[[routes]]"), "empty routes[] must NOT emit a [[routes]] section");
@@ -1296,6 +1325,7 @@ test("routes: full repository fixture (health + sentinels + identity + mcp) roun
         },
       },
     ],
+    gateway: EMPTY_GATEWAY,
   };
   const t1 = clusterToToml(cluster);
   const back = await parseTomlToCluster(t1);

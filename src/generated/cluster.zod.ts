@@ -120,6 +120,19 @@ export interface Route {
   kind: { health: null } | { mcp: McpRouteSpec } | { serviceBindingProxy: ServiceBindingProxySpec } | { httpProxy: HttpProxySpec } | { wellKnownInterlace: null } | { disclosure: null } | { wellKnownIdentityBridge: null } | { ociRegistry: null } | { wellKnownMcpRegistry: null } | { caBundle: null } | { vaultProxy: VaultProxySpec };
 }
 
+export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
+  z.object({
+    metadata: GatewayMetadataSchema,
+    actor: ActorSchema,
+    policy: InterlacePolicySchema,
+  }).strict());
+
+export interface Gateway {
+  metadata: GatewayMetadata;
+  actor: Actor;
+  policy: InterlacePolicy;
+}
+
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
@@ -128,6 +141,7 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     storage: StoragePolicySchema,
     inputs: z.array(InputSpecSchema),
     routes: z.array(RouteSchema),
+    gateway: GatewaySchema,
   }).strict());
 
 export interface Cluster {
@@ -137,6 +151,7 @@ export interface Cluster {
   storage: StoragePolicy;
   inputs: InputSpec[];
   routes: Route[];
+  gateway: Gateway;
 }
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
@@ -319,5 +334,46 @@ export interface McpTool {
   name: string;
   description: string;
   inputSchemaJson: string;
+}
+
+export const GatewayMetadataSchema: z.ZodType<GatewayMetadata> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    version: z.string(),
+  }).strict());
+
+export interface GatewayMetadata {
+  name: string;
+  version: string;
+}
+
+export const ActorSchema: z.ZodType<Actor> = z.lazy(() =>
+  z.object({
+    fingerprint: z.string(),
+    algorithm: z.string(),
+    pubkeyBinding: z.string(),
+    attestationRepo: z.string(),
+    tunnelEndpoint: z.string(),
+  }).strict());
+
+export interface Actor {
+  fingerprint: string;
+  algorithm: string;
+  pubkeyBinding: string;
+  attestationRepo: string;
+  tunnelEndpoint: string;
+}
+
+export const InterlacePolicySchema: z.ZodType<InterlacePolicy> = z.lazy(() =>
+  z.object({
+    maxCertLifetimeSeconds: z.number().int().nonnegative(),
+    requireInterlock: z.boolean(),
+    minAlgorithm: z.string(),
+  }).strict());
+
+export interface InterlacePolicy {
+  maxCertLifetimeSeconds: number;
+  requireInterlock: boolean;
+  minAlgorithm: string;
 }
 
