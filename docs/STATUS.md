@@ -29,7 +29,7 @@ work-tracking, follow the linked bead.
 | `task image:run` composable OCI image launcher | `cloister-a3681d` | closed | shipped 2026-05-16 |
 | DO SQLite unencrypted-at-rest disclaimer | `cloister-a3681d` | closed | shipped 2026-05-16 |
 | **Bidi TOML ↔ capnp pipeline (Phase 1)** — `cluster.toml` operator surface; `cluster:toml` / `:export` / `:roundtrip` Taskfile entries; drift gate in `task verify` | **ADR-0025**, `cluster.toml`, `scripts/toml-to-cluster.mjs`, `scripts/cluster-to-toml.mjs` | `cloister-ae06f3` | shipped 2026-05-17 (PR #9) |
-| **`cloister/credential-isolation/v1`** capability — first reference impl under the substrate-as-kernel framing. Operator declares services in `cloister.capnp` via `vaultProxyServices`; route mounts via `vaultProxy` Route.kind with `VaultProxySpec.bundleIdName`; production `VaultDoCredentialStore` auto-selects when `env.VAULT_STORE` is bound; plaintext credential bytes never cross the vault DO trust boundary (ADR-0013); per-bundle DO keying via `bundleIdName` schema field (ADR-0021); forward path emits `ProxyCallReceipt` + `vault_proxy_call` metric (audit claim #3); wire-shape collapse closes substrate/registry/binding oracles (claim #4); `Cache-Control: no-store` on every error site; per-peer sharded inflight cap. | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `src/routes/vault-proxy*`, `src/routes/vault-do-credential-store.ts`, [`docs/security/threat-model.md` §18](security/threat-model.md) | `cloister-8f57f0` | **Shipped 2026-05-18** (initial PRs #29-#34, #36-#37, #40-#42; 2026-05-18 adversarial cycle remediation PRs #50-#56). 1118 tests green. All five master claims restored after the 2026-05-18 cycle (report [`docs/security/adversarial-cycles/2026-05-18.md`](security/adversarial-cycles/2026-05-18.md); threat-model §18). Outstanding follow-ups (non-blocking): `cloister-6e6bfb` (X-1 tracker — DoS F1 per-peer denial counter, design-pass), `cloister-6ed9ae` (manifest `defaultAllowedSubs` gate on forward path, P2), `cloister-6f4284` (DoS F5 lease-verify cache, design-pass). |
+| **`cloister/credential-isolation/v1`** capability — first reference impl under the substrate-as-kernel framing. Operator declares services in `cloister.capnp` via `vaultProxyServices`; route mounts via `vaultProxy` Route.kind with `VaultProxySpec.bundleIdName`; production `VaultDoCredentialStore` auto-selects when `env.VAULT_STORE` is bound; plaintext credential bytes never cross the vault DO trust boundary (ADR-0013); per-bundle DO keying via `bundleIdName` schema field (ADR-0021); forward path emits `ProxyCallReceipt` + `vault_proxy_call` metric (audit claim #3); wire-shape collapse closes substrate/registry/binding oracles (claim #4); `Cache-Control: no-store` on every error site; per-peer sharded inflight cap. | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `src/routes/vault-proxy*`, `src/routes/vault-do-credential-store.ts`, [`docs/security/threat-model.md` §18](security/threat-model.md) | `cloister-8f57f0` | **Shipped 2026-05-18** (initial PRs #29-#34, #36-#37, #40-#42; 2026-05-18 adversarial cycle remediation PRs #50-#56). 1118 tests green. All five master claims restored after the 2026-05-18 cycle (report [`docs/security/adversarial-cycles/2026-05-18.md`](security/adversarial-cycles/2026-05-18.md); threat-model §18). Outstanding follow-ups (non-blocking): `cloister-6e6bfb` (X-1 tracker — DoS F1 per-peer denial counter, design-pass), `cloister-6f4284` (DoS F5 lease-verify cache, design-pass). `cloister-6ed9ae` (manifest `defaultAllowedSubs` gate on forward path) shipped via commit `3093044` / PR #58 — gate lives at `vault-proxy-route.ts:229-244`. |
 
 ## Drafted (design landed, no shipped behavior yet)
 
@@ -131,9 +131,12 @@ doesn't.
 
 - `tdd/credential-isolation-v1` — failing-test baseline for
   `cloister-8f57f0`. Impl PRs for Phases 1-11 branch from here.
-- `wip/credential-isolation-recipes` — speculative operator recipes
-  (OpenClaw / Claude Code / Codex). Lands as part of Phase 10 of
-  `cloister-8f57f0`.
+- `feat/credential-isolation-v1` — speculative operator recipes
+  (OpenClaw / Claude Code / Codex) at
+  `recipes/credential-isolation/{openclaw,claude-code,codex}/`. Lands
+  as part of Phase 10 of `cloister-8f57f0`. (Prior STATUS.md listed
+  this as `wip/credential-isolation-recipes`; the recipes were
+  consolidated onto the cred-iso work branch under commit `678aa79`.)
 
 ## Updating this file
 

@@ -1415,8 +1415,12 @@ manifest-supplied / empty / omitted bundleIdName paths.
 **Remaining open as follow-up:**
 - DoS F1 per-peer denial counter — design-pass (`cloister-6e6bfb`
   parent tracker stays open until the storage decision lands)
-- Bundle F1 (manifest `defaultAllowedSubs` gate dead on forward path)
-  — `cloister-6ed9ae`, P2
+- DoS F5 lease-verify cache — design-pass (`cloister-6f4284`)
+
+Bundle F1 (manifest `defaultAllowedSubs` gate dead on forward path) —
+`cloister-6ed9ae` shipped via commit `3093044` / PR #58. The gate now
+fires at the route boundary (`src/routes/vault-proxy-route.ts:229-244`)
+for BOTH the resolve+inject branch AND the forward branch.
 
 **Related:**
 - Cycle report: `docs/security/adversarial-cycles/2026-05-18.md`
@@ -1424,7 +1428,7 @@ manifest-supplied / empty / omitted bundleIdName paths.
 - ADRs touched: ADR-0013 (slice-grant), ADR-0021 (per-bundle vault DO),
   ADR-0024 (cred-iso capability)
 - Beads (closed this cycle): `cloister-6eba0a`, `cloister-6e888b`,
-  `cloister-6f06cc`, `cloister-6f21dc`
+  `cloister-6f06cc`, `cloister-6f21dc`, `cloister-6ed9ae` (Bundle F1
+  forward-path gate)
 - Beads (open follow-ups): `cloister-6e6bfb` (X-1 tracker — DoS F1
-  counter), `cloister-6ed9ae` (Bundle F1), `cloister-6f4284` (DoS F5
-  lease-verify cache design-pass)
+  counter), `cloister-6f4284` (DoS F5 lease-verify cache design-pass)
