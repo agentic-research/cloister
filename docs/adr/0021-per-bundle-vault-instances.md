@@ -144,7 +144,9 @@ before.
 unique (lint-tenant-docs enforces uniqueness in the route table).
 Reusing it as the DO instance name keeps the manifest minimal and
 makes the binding-to-bundle mapping discoverable by reading any
-bundle's declaration.
+bundle's declaration. *(Superseded — see Amendment 2026-05-18 (X-3)
+below; the cycle finding redirected the seam from `Bundle.name` to a
+new route-level `VaultProxySpec.bundleIdName` field.)*
 
 ## Consequences
 
@@ -210,3 +212,31 @@ future ADR. Today's default of `idFromName(bundleName)` covers the
 - Once implementation lands, the file header at
   `src/vault-store.ts:92-110` will be rewritten to document the
   decision rather than list open options.
+
+## Amendment 2026-05-18 (X-3, cloister-6f06cc) — `VaultProxySpec.bundleIdName` is the route-level seam
+
+The 2026-05-18 adversarial cycle (Bundle F4 + DoS F2 + F6, Obs O-OBS-7,
+Oracle O8) caught a literal `bundleIdName: "router"` hardcoded in
+`VaultProxyRoute` (`src/routes/vault-proxy-route.ts`): any second
+`vaultProxy` route declared in the manifest would have collapsed to
+the same vault DO instance and inherited the shared `MAX_INFLIGHT`
+cap, defeating this ADR's per-bundle isolation invariant the moment a
+second cluster-tier bundle shipped. The original "reuse `Bundle.name`
+as the DO instance name" plan can't carry the seam because routes in
+`cloister.capnp` are resolved before the bundles they bind to — the
+route handler has no `Bundle.name` in scope at instantiation.
+
+Resolution: PR #55 added a new route-level field, `VaultProxySpec.bundleIdName
+@0 :Text`, on the `vaultProxy` Route.kind. `runtime.ts` reads it and
+threads it through `VaultProxyRouteDeps.bundleIdName` to
+`VaultDoCredentialStore`'s `idFromName(...)` call. Empty / unset
+defaults to `"router"` for back-compat with the single-bundle deploys
+that shipped before X-3. A future `lint:vault-proxy-bundle-id-name`
+rule will fail the build if two `vaultProxy` routes resolve to the
+same effective `bundleIdName`. This supersedes the "no new manifest
+field" claim in the Decision + Consequences sections above; the rest
+of this ADR (per-bundle DO instances as the binding-layer seam,
+composite SQL PK as defense-in-depth, migration-with-ADR-0018) stands.
+
+See threat-model §18 row 18.3 + `docs/security/adversarial-cycles/2026-05-18.md`
+for the cycle finding and the full close-out.
