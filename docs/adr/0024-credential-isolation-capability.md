@@ -333,8 +333,14 @@ Summary of phases:
 7. **Phase 6 (rate limit)**: per-(peerFp, service) token bucket.
 8. **Phase 7 (no-plaintext invariants)**: error responses don't leak;
    tracing logs don't leak; metrics don't leak.
-9. **Phase 8 (capability registry)**:
-   `/.well-known/cloister-capabilities/v1/` lists this capability.
+9. **Phase 8 (capability registry)** — *deferred 2026-06-20 per cred-iso
+   audit R-5 (`cloister-12bf80`)*. Original spec: `/.well-known/cloister-
+   capabilities/v1/` lists this capability. Disposition: held pending
+   ADR-0027 matchmaker. The matchmaker surfaces capability discovery via
+   the input-resolution path (`[inputs.*]` in `cluster.toml`), which
+   makes a separate `/.well-known/` lookup likely redundant. Revisit
+   when the matchmaker lands or when a concrete consumer needs a stable
+   well-known surface independent of input resolution.
 10. **Phase 9 (conformance vectors)**: `cloister-spec/credential-
     isolation/v1/vectors/` populated; Python ref-impl driving them
     against the running cloister.
