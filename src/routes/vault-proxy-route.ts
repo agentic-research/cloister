@@ -158,10 +158,11 @@ export class VaultProxyRoute implements EdgeRoute {
    *    ergonomics path (stubs, in-memory fixtures); the operator/test
    *    has explicitly opted into a specific store and env is ignored.
    * 2. `env.VAULT_STORE` binding present → lazily construct a
-   *    `VaultDoCredentialStore` with `bundleIdName: "router"` and
-   *    memoize. Production path. Plaintext stays inside the DO trust
-   *    boundary (ADR-0013 slice-grant); the route delegates the entire
-   *    Request via `store.forward(...)` further down.
+   *    `VaultDoCredentialStore` with the route's resolved `bundleIdName`
+   *    (from `VaultProxySpec.bundleIdName`, defaulting to `"router"`
+   *    per ADR-0021 X-3) and memoize. Production path. Plaintext stays
+   *    inside the DO trust boundary (ADR-0013 slice-grant); the route
+   *    delegates the entire Request via `store.forward(...)` further down.
    * 3. Neither → return `null`. Handler treats this as fatal config
    *    error: 503 SHAPE_U + one-shot structured error log so the
    *    operator sees the misconfiguration in logs. The old silent

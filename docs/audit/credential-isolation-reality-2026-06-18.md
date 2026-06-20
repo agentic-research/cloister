@@ -142,7 +142,7 @@ Recommendation count: **5** (ranked).
 | `cloister-spec/credential-isolation/v1/wire/injection-strategies.md` | Present. |
 | `cloister-spec/credential-isolation/v1/wire/receipt-commitment.md` | Present. |
 | `cloister-spec/credential-isolation/v1/wire/error-responses.md` | Present; rewritten by X-2 (PR #51) for the "two canonical wire shapes" framing. |
-| `cloister-spec/credential-isolation/v1/test-vectors/*` | 10 files. `VECTORS.sha256` matches `shasum -a 256 test-vectors/*.json` byte-identically. ✓ |
+| `cloister-spec/credential-isolation/v1/test-vectors/*` | 10 files. The manifest `cloister-spec/credential-isolation/v1/VECTORS.sha256` (parent of `test-vectors/`) verifies clean against `shasum -a 256 -c VECTORS.sha256` run from `v1/`. ✓ |
 | `cloister-spec/credential-isolation/v1/test-vectors/README.md` | Present; the "Total: 10 JSON vector files. 34 distinct cases." claim is consistent with the file map. |
 | `cloister-spec/credential-isolation/v1/ref-impl-py/credisolation/` | 5 files (envelope / injection / receipt / validate / `__init__`), 557 LOC. |
 | `cloister-spec/credential-isolation/v1/ref-impl-py/conformance/run.py` | 432 LOC runner. Audit did NOT execute `python conformance/run.py` (would require Python + pip install); next iteration should add this to a Taskfile gate. | Recommendation R-3 below. |
