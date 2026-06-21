@@ -75,6 +75,7 @@ meet programmatically.
 | `urn:signet:cap:sign:artifact` | `cloister/sign-helper/v1` | leyline-sign-helper (`POST /sign`) invocation grant. |
 | `urn:signet:cap:read:disclosure:<fp>` | `cloister/interlace-discovery/v1` | Per-peer disclosure-endpoint read; `<fp>` is the target peer fingerprint. |
 | n/a (substrate-internal) | `cloister/mcp-tool/v1` | `_meta.art.cloister/v1` extension on MCP `server.json`; build-time partitioning hint for the resolver, not a wire surface a cert authorizes. Authorization for invoking the resulting MCP tools belongs to each upstream tool's own capability, not to the partitioning hint itself. |
+| n/a (OCI bearer-token) | `cloister/build-cache/v1` | Content-addressed blob transport (BLAKE3-keyed via OCI distribution). v1 spec is explicit (§Non-goals) that authentication beyond OCI's standard bearer-token flow is out of scope; a substrate cert grant is not in the v1 path. A future v2 may add a lane-1 grant if cluster-tier cache scoping becomes load-bearing. |
 
 This table is **non-exhaustive** today. As new capability specs land
 under `cloister-spec/<name>/v<n>/`, they MUST add their
