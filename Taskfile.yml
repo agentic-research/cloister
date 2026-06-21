@@ -699,9 +699,9 @@ tasks:
       - scripts/lint-doc-counts.mjs
 
   lint:recipes:
-    desc: "Phase 1 recipe smoke validation (cloister-449f82) — each recipes/<name>/ has README.md + (cloister.capnp OR cluster.toml); READMEs link to docs/reference/{bundle-topology,backend-kinds}.md per the canonical-link convention. Phase 2 will add capnp/TOML parse validation; Phase 3 will add local boot smoke."
+    desc: "Phase 1 recipe smoke validation (cloister-449f82) — each recipes/<name>/ has README.md + (cloister.capnp OR cluster.toml); READMEs link to docs/reference/{bundle-topology,backend-kinds}.md per the canonical-link convention. Phase 2 will add capnp/TOML parse validation; Phase 3 will add local boot smoke. Invoked via tsx because lint-recipes.mjs transitively dynamic-imports cluster.zod.ts at runtime (per toml-to-cluster.mjs ADR-0025 Phase 1); plain `node` can't load .ts."
     cmds:
-      - node scripts/lint-recipes.mjs
+      - pnpm exec tsx scripts/lint-recipes.mjs
     sources:
       - recipes/**/*
       - scripts/lint-recipes.mjs
@@ -709,7 +709,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - node --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/cli-add.test.mjs
+      - pnpm exec tsx --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/cli-add.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
