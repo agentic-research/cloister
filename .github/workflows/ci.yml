@@ -205,6 +205,18 @@ jobs:
         # into this command.
         run: cargo install --locked cargo-audit
 
+      - name: Install cargo-deny
+        # `task rs:audit` (a verify dep) also runs `cargo deny check`
+        # for the bans / advisories / licenses / sources gates.
+        # GH runner doesn't ship cargo-deny either; install + lock for
+        # the same reproducibility reasons as cargo-audit above.
+        # Missing this install was failing the verify job at
+        # `cargo deny check` ("no such command: deny") after the
+        # 2026-05-13 adversarial-cycle close added the gate (a9bc8fe)
+        # without a coordinated CI workflow change. No untrusted input
+        # flows into this command.
+        run: cargo install --locked cargo-deny
+
       - name: Verify (lint + capnp roundtrip + stub-companion smoke)
         # `task verify` adds the substrate-equivalence harness (production
         # codec ↔ capnp CLI ↔ production codec) and the stub-companion
