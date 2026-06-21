@@ -15,6 +15,23 @@ python3 conformance/run.py
 (Stdlib-only — no `uv sync` / dependency install required. See
 `../pyproject.toml` for why.)
 
+## CI integration
+
+Wired into `task verify` as `verify:cred-iso-conformance` per
+`cloister-138082` (cred-iso audit R-3). Runs in the `verify` GitHub
+Actions job alongside the Rust audit, capnp-roundtrip harness, and
+cluster.toml drift gate. **No CI workflow change was needed:**
+
+- `ubuntu-latest` (Ubuntu 24.04) ships `python3 ≥ 3.12` preinstalled,
+  satisfying this package's `requires-python = ">=3.11"` declared in
+  `../pyproject.toml`.
+- Zero pip / uv installs — `dependencies = []` is load-bearing (see
+  `../pyproject.toml` comment block); no dep cache to maintain.
+
+A vector divergence in CI fails the verify job deterministically:
+`run.py` exits 0 iff every assertion passes, and any divergence prints
+the suite, label, expected vs actual bytes with full context.
+
 ## What's covered
 
 | Suite | Vector file | Cases |
