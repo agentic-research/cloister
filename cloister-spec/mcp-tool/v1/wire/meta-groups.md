@@ -19,7 +19,8 @@ matching, no description parsing. If a tool is not named in any group's
 
 ```
 _meta.art.cloister/v1 = {
-  groups: Group[]
+  groups:   Group[]
+  tenancy?: Tenancy        // OPTIONAL, added 2026-06-22 per ADR-0030 §A5
 }
 
 Group = {
@@ -27,14 +28,78 @@ Group = {
   upstreamNames:    string[]              // REQUIRED, non-empty
   advertisedPrefix: string                // OPTIONAL, default ""
 }
+
+Tenancy = {
+  default_mode:        "co-located" | "external" | "per-tenant"
+  trusted_tier:        boolean             // default false
+  shares_workerd_with: string[]            // default []
+}
 ```
 
-Exactly one field is defined under `_meta.art.cloister/v1` in v1:
-`groups`. The `groups` array itself MAY be empty — an empty `groups: []`
-means "this server author opted in but declared no groups." It is
-semantically equivalent to omitting `_meta.art.cloister/v1` entirely
-(the resolver falls back per the README §Heuristic fallback). Authors
-SHOULD omit the block rather than ship an empty array.
+Two fields are defined under `_meta.art.cloister/v1`:
+
+- `groups` (REQUIRED-but-MAY-be-empty) — tool partitioning per
+  README §"What this capability is."
+- `tenancy` (OPTIONAL, added 2026-06-22 per ADR-0030 §A5) — the
+  server author's default tenancy declaration. The operator's
+  `cluster.toml [inputs.*].tenancy.*` block overrides these defaults.
+  Omitting `tenancy` is equivalent to all three sub-fields at their
+  defaults (`default_mode = "co-located"`, `trusted_tier = false`,
+  `shares_workerd_with = []`).
+
+The `groups` array MAY be empty — an empty `groups: []` means "this
+server author opted in but declared no groups." It is semantically
+equivalent to omitting `_meta.art.cloister/v1` entirely (the resolver
+falls back per the README §Heuristic fallback). Authors SHOULD omit
+the block rather than ship an empty array; if they need to declare
+`tenancy` alone, they ship `tenancy` with `groups: []`.
+
+### `tenancy` — OPTIONAL (added 2026-06-22)
+
+| Aspect | Rule |
+|---|---|
+| Type | object with the three sub-fields above |
+| Required | no |
+| Default when omitted | `{default_mode: "co-located", trusted_tier: false, shares_workerd_with: []}` |
+| Override surface | `cluster.toml [inputs.<name>].tenancy.*` |
+
+Per ADR-0030's composable-tenancy framing, the server author declares
+the input's preferred default tenancy; the operator overrides per
+deployment. The substrate resolves the (server.json-default,
+operator-override) tuple at compose time and writes the resolved
+declaration to `cluster.lock.toml`.
+
+#### `tenancy.default_mode` — string enum
+
+- `"co-located"` — input shares a workerd process with sibling inputs
+  declaring the same `workerdId`. OSS-launch default; matches today's
+  single-workerd shape.
+- `"external"` — input runs in its own process / container, reached
+  over an inter-process wire (UDS / loopback HTTP / CF tunnel).
+  Right answer for Go-native or non-V8 servers.
+- `"per-tenant"` — input gets its own workerd process per declared
+  tenant; strongest isolation under ADR-0030 §D1.
+
+Other values are a spec violation; resolvers SHOULD reject.
+
+#### `tenancy.trusted_tier` — boolean
+
+True = input may carry hypervisor-layer bindings (notme, TrustStore)
+and co-locate with the cloister-router workerd. False = tool-bundle
+Worker subject to ADR-0013 substrate-property lint.
+
+Defaults to false; substrate fails closed (only explicit `true` grants
+the tier).
+
+#### `tenancy.shares_workerd_with` — string[]
+
+Non-empty asserts these other inputs (by `name`) MUST be co-located
+with this one. Empty = no explicit co-tenancy constraint beyond what
+operator `workerdId` declarations establish.
+
+Asymmetric: if A declares `shares_workerd_with: ["B"]` but B does not
+declare A, the resolver enforces the constraint based on A's
+declaration. Mutual declaration is allowed but not required.
 
 ## Per-field semantics
 

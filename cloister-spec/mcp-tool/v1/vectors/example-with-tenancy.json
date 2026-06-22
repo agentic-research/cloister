@@ -1,0 +1,27 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.example/with-tenancy-fixture",
+  "version": "0.0.0",
+  "description": "Synthetic test fixture exercising cloister-spec/mcp-tool/v1's tenancy extension (added 2026-06-22 per ADR-0030 §A5). Pairs the existing groups[] partitioning with a tenancy declaration. Demonstrates the three modes (co-located, external, per-tenant) plus the trusted_tier hint and shares_workerd_with co-tenancy edge. Resolvers MUST honor the (default, operator-override) resolution rule per the spec README.",
+  "_meta": {
+    "art.cloister/v1": {
+      "groups": [
+        {
+          "name": "core",
+          "advertisedPrefix": "core_",
+          "upstreamNames": ["core_alpha", "core_beta"]
+        },
+        {
+          "name": "identity",
+          "advertisedPrefix": "",
+          "upstreamNames": ["identity_lookup", "identity_resolve"]
+        }
+      ],
+      "tenancy": {
+        "default_mode": "co-located",
+        "trusted_tier": true,
+        "shares_workerd_with": ["cloister-router"]
+      }
+    }
+  }
+}
