@@ -408,6 +408,145 @@ function checkInvariant3(cluster, violations) {
   }
 }
 
+/**
+ * Invariant 6 (ADR-0030 §"Substrate-property lint gains a property" /
+ * cloister-104199): tenancy.workerdId on every `[inputs.*]` MUST resolve
+ * to a bundle declared in `cluster.bundles[]`, AND the bundle's tier
+ * MUST align with the operator's trustedTier hint:
+ *
+ *   - tenancy.trustedTier = true   → bundle.tier MUST be "hypervisor"
+ *                                    (trusted-tier bundles carry
+ *                                    hypervisor-layer bindings per
+ *                                    ADR-0013).
+ *   - tenancy.trustedTier = false  → bundle.tier MUST be "cluster"
+ *                                    (tool-bundle workers are sandboxed
+ *                                    per the slice-grant model).
+ *
+ * Same-name fallback (rung 2 of emit-compose's resolveTenancy):
+ * empty `tenancy.workerdId` + a bundle named like the input → that
+ * bundle hosts it. Gateway fallback (rung 3): empty `workerdId` + no
+ * same-name → the hypervisor-tier bundle hosts it. Same three rungs
+ * the compose-emitter uses, so the lint matches what's actually
+ * generated.
+ *
+ * `tenancy.sharesWorkerdWith` consistency: each named co-tenant must
+ * exist as another `[inputs.*]` entry, and must resolve to the SAME
+ * workerdId. Asymmetric: A declaring shares-with-B is enough — B
+ * doesn't have to declare it back, but if it does, the resolved
+ * workerdIds must agree.
+ *
+ * Skipped (no-op) when the cluster has no inputs declared (pre-ADR-0030
+ * cluster.toml is back-compat by construction).
+ */
+function checkInvariant6(cluster, violations) {
+  const bundles = cluster.bundles ?? [];
+  const bundleByName = new Map(bundles.map((b) => [b.name, b]));
+  const gateway = bundles.find((b) => b.tier === "hypervisor");
+  const inputs = cluster.inputs ?? [];
+
+  // Index inputs by name for sharesWorkerdWith cross-checks.
+  const inputByName = new Map(inputs.map((i) => [i.name, i]));
+  const resolvedWorkerdId = new Map(); // input name → resolved workerd_id
+
+  for (const input of inputs) {
+    const t = input.tenancy ?? {};
+    const declared = typeof t.workerdId === "string" ? t.workerdId : "";
+    let workerdId;
+    if (declared !== "") {
+      // Rung 1: explicit declaration. Must resolve.
+      workerdId = declared;
+      if (!bundleByName.has(workerdId)) {
+        violations.push(
+          `lint-bundle-isolation: input "${input.name}" declares ` +
+          `tenancy.workerdId="${workerdId}" but no bundle of that name ` +
+          `exists in cluster.bundles[] — Inv 6, ADR-0030 §A5.`,
+        );
+        continue;
+      }
+    } else if (bundleByName.has(input.name)) {
+      // Rung 2: same-name bundle exists.
+      workerdId = input.name;
+    } else if (gateway) {
+      // Rung 3: back-compat fallback to the gateway / hypervisor-tier
+      // bundle. The compose-emitter does the same fallback; the lint
+      // matches the emitter's behavior.
+      workerdId = gateway.name;
+    } else {
+      violations.push(
+        `lint-bundle-isolation: input "${input.name}" has no resolvable ` +
+        `workerd_id — no explicit tenancy.workerdId, no same-name bundle, ` +
+        `and no hypervisor-tier bundle to fall back on. Declare a ` +
+        `tenancy.workerdId or add a [[bundles]] entry. Inv 6, ADR-0030 §A5.`,
+      );
+      continue;
+    }
+    resolvedWorkerdId.set(input.name, workerdId);
+
+    // Trusted-tier alignment check.
+    const trustedTier = t.trustedTier === true;
+    const bundle = bundleByName.get(workerdId);
+    if (!bundle) continue; // already flagged above
+    if (trustedTier && bundle.tier !== "hypervisor") {
+      violations.push(
+        `lint-bundle-isolation: input "${input.name}" declares ` +
+        `tenancy.trustedTier=true but its workerd_id "${workerdId}" ` +
+        `is bundle.tier="${bundle.tier}". Trusted-tier inputs MUST be ` +
+        `hosted on a hypervisor-tier bundle per ADR-0013 / threat-model ` +
+        `§13.7.4. Inv 6, ADR-0030 §A5.`,
+      );
+    }
+    if (!trustedTier && bundle.tier === "hypervisor") {
+      // Non-trusted-tier inputs landing on hypervisor IS allowed (the
+      // back-compat path: rung-3 fallback puts everything in the
+      // gateway). Warn rather than fail — the operator may have
+      // intentionally accepted the trade-off, OR may not have noticed.
+      //
+      // Implementation note: lint surfaces this as a violation when the
+      // operator EXPLICITLY declared the workerd_id; the same-name and
+      // gateway-fallback rungs get a pass (back-compat).
+      if (declared !== "") {
+        violations.push(
+          `lint-bundle-isolation: input "${input.name}" declares ` +
+          `tenancy.workerdId="${workerdId}" (a hypervisor-tier bundle) ` +
+          `but tenancy.trustedTier is not true. Either flip trustedTier ` +
+          `to acknowledge the trust grant, or pick a cluster-tier ` +
+          `bundle. Inv 6, ADR-0030 §A5.`,
+        );
+      }
+    }
+  }
+
+  // sharesWorkerdWith cross-checks. Asymmetric — A→B is enforced; B
+  // need not declare A. But if both declare each other, resolved
+  // workerd_ids must agree.
+  for (const input of inputs) {
+    const sharesWith = Array.isArray(input.tenancy?.sharesWorkerdWith)
+      ? input.tenancy.sharesWorkerdWith
+      : [];
+    for (const partner of sharesWith) {
+      const partnerInput = inputByName.get(partner);
+      if (!partnerInput) {
+        violations.push(
+          `lint-bundle-isolation: input "${input.name}" declares ` +
+          `tenancy.sharesWorkerdWith="${partner}" but no input of that ` +
+          `name exists in cluster.inputs[]. Inv 6, ADR-0030 §A5.`,
+        );
+        continue;
+      }
+      const myWid = resolvedWorkerdId.get(input.name);
+      const partnerWid = resolvedWorkerdId.get(partner);
+      if (myWid && partnerWid && myWid !== partnerWid) {
+        violations.push(
+          `lint-bundle-isolation: input "${input.name}" declares ` +
+          `sharesWorkerdWith="${partner}" but their resolved workerd_ids ` +
+          `differ ("${myWid}" vs "${partnerWid}"). Co-tenants must share ` +
+          `a workerd. Inv 6, ADR-0030 §A5.`,
+        );
+      }
+    }
+  }
+}
+
 function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violations) {
   if (tier !== "cluster") return;
   if (!bundleName) return; // already flagged by tier defaulting + Inv 3
@@ -519,6 +658,7 @@ try {
 }
 
 checkInvariant3(cluster, violations);
+checkInvariant6(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -551,4 +691,6 @@ const bundleCount = (cluster.bundles ?? []).length;
 console.log(`lint-bundle-isolation: clean ✓`);
 console.log(`  ${workerCount} workerd Worker(s) in config.capnp`);
 console.log(`  ${bundleCount} bundle(s) in src/generated/cluster.ts`);
-console.log(`  invariants 1–5 hold (ADR-0013 sandbox preserved)`);
+const inputCount = (cluster.inputs ?? []).length;
+console.log(`  ${inputCount} input(s) walked for tenancy resolution`);
+console.log(`  invariants 1–6 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy)`);

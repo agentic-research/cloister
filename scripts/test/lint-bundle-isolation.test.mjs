@@ -109,7 +109,7 @@ function runLint(workDir, clusterTsPath) {
 //
 // Returns a TS module string exporting `cluster`. Same shape as the
 // real src/generated/cluster.ts that toml-to-cluster.mjs emits.
-function clusterTs({ bundles, wires = [] }) {
+function clusterTs({ bundles, wires = [], inputs = [] }) {
   const cluster = {
     metadata: { name: "test", version: "0.0.1" },
     bundles: bundles.map(({
@@ -144,6 +144,26 @@ function clusterTs({ bundles, wires = [] }) {
       transport: { uds: null },
     })),
     storage: { doStoragePath: "/data/do" },
+    // ADR-0030 §A5 inputs with optional tenancy. Pass tenancy = {} to
+    // exercise the rung-2 / rung-3 fallbacks; pass {workerdId: "..."} to
+    // pin explicit declarations.
+    inputs: inputs.map((i) => ({
+      name: i.name,
+      ref: i.ref ?? `github://test/${i.name}@main`,
+      version: i.version ?? "^0.1",
+      digest: "",
+      from: "",
+      provides: [],
+      requires: [],
+      urlBinding: "",
+      serviceBinding: "",
+      tenancy: {
+        mode: i.mode ?? "",
+        workerdId: i.workerdId ?? "",
+        trustedTier: i.trustedTier ?? false,
+        sharesWorkerdWith: i.sharesWorkerdWith ?? [],
+      },
+    })),
   };
   // Pure data, no type annotations or imports — tsx loads this as
   // plain JS at runtime.
@@ -713,6 +733,233 @@ test("cloister-cf519b — lint detects a cluster.ts violation even when no clust
   } finally {
     scenario.cleanup();
   }
+});
+
+// ── Invariant 6 — ADR-0030 §A5 tenancy / workerd-boundary property ──────
+//
+// Per cloister-104199 (lint-1). These tests pin the contract added on
+// top of the existing 5 ADR-0013 invariants. Skip-by-construction for
+// pre-ADR-0030 cluster.toml (no inputs declared).
+
+test("Inv 6 — clusters with no inputs trivially pass (back-compat)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      wires: [],
+      inputs: [], // explicit empty
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected pass; got: ${r.stderr}`);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — input with explicit workerdId pointing at non-existent bundle fails", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [{ name: "ghost", workerdId: "phantom-bundle" }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /phantom-bundle/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — input with same-name bundle resolves cleanly (rung 2)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "mache", tier: "cluster" },
+      ],
+      inputs: [{ name: "mache" }], // empty workerdId → same-name bundle
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected pass; got: ${r.stderr}`);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — input with empty workerdId + no same-name bundle falls back to gateway (rung 3)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [{ name: "llo" }], // empty workerdId, no llo bundle → gateway fallback
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected pass via gateway fallback; got: ${r.stderr}`);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — input with empty workerdId + no gateway + no same-name fails", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "tool-only", tier: "cluster", workerdServiceName: "tool-only" }],
+      inputs: [{ name: "orphan" }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "tool-only", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    // Other invariants may fire too (tool-only has internet globalOutbound),
+    // but Inv 6 must surface in the error list.
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /orphan/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — trustedTier=true on non-hypervisor bundle is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "mache", tier: "cluster" },
+      ],
+      inputs: [{ name: "evil", workerdId: "mache", trustedTier: true }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /trustedTier=true/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — explicit workerdId pointing at hypervisor bundle without trustedTier is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      // explicit workerdId="cloister-router" (hypervisor) but trustedTier not declared
+      inputs: [{ name: "sneaky", workerdId: "cloister-router" }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /trustedTier/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — trustedTier=true on hypervisor bundle passes", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [{ name: "notme", workerdId: "cloister-router", trustedTier: true }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected pass; got: ${r.stderr}`);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — sharesWorkerdWith with non-existent partner is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [
+        { name: "a", workerdId: "cloister-router", trustedTier: true, sharesWorkerdWith: ["b"] },
+        // input "b" never declared
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /sharesWorkerdWith="b"/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — sharesWorkerdWith with disagreeing partner workerdId is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "side-workerd", tier: "cluster" },
+      ],
+      inputs: [
+        { name: "a", workerdId: "cloister-router", trustedTier: true, sharesWorkerdWith: ["b"] },
+        { name: "b", workerdId: "side-workerd" }, // disagrees with a's expectation
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /Co-tenants must share a workerd/);
+  } finally { scenario.cleanup(); }
+});
+
+test("Inv 6 — sharesWorkerdWith with matching partner workerdId passes", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [
+        { name: "notme", workerdId: "cloister-router", trustedTier: true, sharesWorkerdWith: ["identity-bridge"] },
+        { name: "identity-bridge", workerdId: "cloister-router", trustedTier: true },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected pass; got: ${r.stderr}`);
+  } finally { scenario.cleanup(); }
 });
 
 test("cloister-cf519b — lint exits 2 with helpful error when cluster.ts is missing", () => {
