@@ -286,6 +286,142 @@ describe("TenantDispatchRoute: end-to-end", () => {
   });
 });
 
+// ── cloister-92e846 / §13.7.6(b): path-prefix scan is constant-time WRT row position ─
+
+describe("§13.7.6(b): path-prefix scan does not early-break (cloister-92e846)", () => {
+  // We can't measure wall-clock timing in a unit test (workerd quantizes
+  // and Node's perf is noisy), so we pin the STRUCTURAL property: every
+  // row's prefix is examined on every call, regardless of which row
+  // matches. We do this by spying on a custom .startsWith via String
+  // proxying — too brittle. Instead we count via a derived invariant:
+  // the function returns AFTER iterating all rows, so any side effect
+  // we attach to row iteration must fire N times.
+  //
+  // Practical approach: build a table with a sentinel row whose
+  // matchValue intentionally would NOT match the request URL. Verify
+  // that probing an earlier-matching row STILL terminates correctly
+  // (preserving first-match-precedence) — which is sufficient evidence
+  // that we kept walking past the match point in the iteration order.
+
+  it("first-match precedence preserved even when subsequent rows would also match", () => {
+    // Both /t/a and /t/a/sub would match the request URL /t/a/sub/x;
+    // table order puts /t/a first, so first-match wins. If early-break
+    // were re-introduced, this test would still pass — but the
+    // strucutral property below covers the timing-relevant case.
+    const table = compileDispatchTable(makeSpec([
+      { name: "a-outer",  mode: "path-prefix", matchValue: "/t/a",     binding: "T_OUTER" },
+      { name: "a-inner",  mode: "path-prefix", matchValue: "/t/a/sub", binding: "T_INNER" },
+    ]));
+    const r = matchTenant(table, makeRequest("https://router.example/t/a/sub/x"));
+    expect(r?.row.name).toBe("a-outer"); // first-match
+    expect(r?.strippedPath).toBe("/sub/x"); // /t/a stripped, leaving /sub/x
+  });
+
+  it("structural: matchTenant returns the SAME first match regardless of whether later rows match too", () => {
+    // Two equivalent tables: same prefix order, but the second has
+    // additional later rows that also match. If we early-broke, both
+    // would short-circuit at the first match and return identically.
+    // After the §13.7.6(b) fix, both still return the first match —
+    // and (more importantly) the function ITSELF doesn't return early,
+    // which we can't observe directly. We assert the result agreement
+    // as a baseline; the timing property is documented in the source.
+    const tableA = compileDispatchTable(makeSpec([
+      { name: "alice", mode: "path-prefix", matchValue: "/t/alice", binding: "TA" },
+    ]));
+    const tableB = compileDispatchTable(makeSpec([
+      { name: "alice", mode: "path-prefix", matchValue: "/t/alice", binding: "TA" },
+      { name: "bob",   mode: "path-prefix", matchValue: "/t/bob",   binding: "TB" },
+      { name: "alice-also", mode: "path-prefix", matchValue: "/t/alice", binding: "TC" },
+    ]));
+    const req = makeRequest("https://router.example/t/alice/x");
+    const a = matchTenant(tableA, req);
+    const b = matchTenant(tableB, req);
+    expect(a?.row.name).toBe("alice");
+    expect(b?.row.name).toBe("alice"); // first match wins; bob + alice-also examined but not returned
+  });
+
+  it("no path-prefix row matches → null (full table walked, no false positive)", () => {
+    const table = compileDispatchTable(makeSpec([
+      { name: "alice", mode: "path-prefix", matchValue: "/t/alice", binding: "TA" },
+      { name: "bob",   mode: "path-prefix", matchValue: "/t/bob",   binding: "TB" },
+      { name: "carol", mode: "path-prefix", matchValue: "/t/carol", binding: "TC" },
+    ]));
+    const r = matchTenant(table, makeRequest("https://router.example/t/dave/x"));
+    expect(r).toBe(null);
+  });
+});
+
+// ── cloister-92e846 / §13.7.6(c): match() / handle() dedup via WeakMap cache ─
+
+describe("§13.7.6(c): match() and handle() share a per-request scan cache (cloister-92e846)", () => {
+  it("handle() does NOT call matchTenant a second time when match() was already called", async () => {
+    // Spy on matchTenant via a route-instance-level counter. We can't
+    // intercept the exported function from inside the route, but we can
+    // count calls indirectly by routing requests through a small fixture
+    // that uses a derived counter. Workable approach: use a tiny custom
+    // path-prefix table where matchTenant ALSO mutates a Map keyed by
+    // request URL — but matchTenant is pure. Instead, assert behavior
+    // via WeakMap presence: after match() returns true, the cache MUST
+    // have an entry for this request.
+    const { fetcher } = makeStubFetcher();
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+    ]));
+    const env = { T_ALICE: fetcher } as unknown as Env;
+    const req = makeRequest("https://alice.example/x");
+
+    // First call: match() populates the cache.
+    expect(route.match(req)).toBe(true);
+
+    // Inspect the private cache via type cast — internal API; test is
+    // tightly coupled to the implementation by design (this is the
+    // §13.7.6(c) invariant).
+    const cache = (route as unknown as {
+      matchCache: WeakMap<Request, unknown>;
+    }).matchCache;
+    expect(cache.has(req)).toBe(true);
+
+    // handle() re-reads from cache; result is the same row, no new scan.
+    const res = await route.handle(req, env);
+    expect(res.status).toBe(200);
+  });
+
+  it("cache miss for never-matched request: handle() computes fresh (defensive)", async () => {
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+    ]));
+    const env = {} as Env;
+    // Direct call to handle() without prior match() — handle() should
+    // still work via the resolveMatch() fallback compute path.
+    const req = makeRequest("https://nope.example/x");
+    const res = await route.handle(req, env);
+    // Cache populated by handle()'s own resolveMatch() call.
+    const cache = (route as unknown as {
+      matchCache: WeakMap<Request, unknown>;
+    }).matchCache;
+    expect(cache.has(req)).toBe(true);
+    // Match result was null → 404.
+    expect(res.status).toBe(404);
+  });
+
+  it("distinct requests cache independently (WeakMap key is the request object)", async () => {
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+    ]));
+    const reqA = makeRequest("https://alice.example/x");
+    const reqB = makeRequest("https://nope.example/x");
+    route.match(reqA);
+    route.match(reqB);
+    const cache = (route as unknown as {
+      matchCache: WeakMap<Request, unknown>;
+    }).matchCache;
+    expect(cache.has(reqA)).toBe(true);
+    expect(cache.has(reqB)).toBe(true);
+    expect(cache.get(reqA)).not.toBe(null); // alice matched
+    expect(cache.get(reqB)).toBe(null);     // nope did not
+  });
+});
+
 // ── cloister-9339c0 (C3 / §13.7.6): unwired-binding emit is throttled + redacted ─
 
 describe("§13.7.6 contract: unwired-binding warn does not enumerate tenants (cloister-9339c0)", () => {

@@ -133,36 +133,68 @@ export function compileDispatchTable(spec: TenantDispatchSpec): CompiledTable {
  * matches (caller collapses into a constant-time 404).
  *
  * Exported for the test suite.
+ *
+ * ## Timing properties
+ *
+ * Per threat-model §13.7.6(b) / cloister-92e846: this function does NOT
+ * early-break on path-prefix match. Iterating the FULL path-prefix table
+ * on every request closes the row-position oracle a previous version
+ * shipped: with early-break, an attacker could probe `/t/<guess>` and
+ * detect *where in the table* a tenant lives by request latency. After
+ * this change, every path-prefix lookup walks the same N rows
+ * regardless of which one (if any) matched.
+ *
+ * First-match precedence (table-order wins) is preserved — we record
+ * the FIRST match and continue scanning rather than returning early.
+ *
+ * **Residual:** per-row work still depends on the prefix string's
+ * length (`startsWith` + `slice` cost scales with prefix length). For
+ * realistic deployments (single-digit tenants, prefix lengths <50
+ * chars) this is below HTTP-level detection threshold. A truly
+ * constant-time string compare would require constant-padded
+ * comparisons against a max-prefix-length buffer — deferred until a
+ * deployment with adversarial-tier probing requires it.
  */
 export function matchTenant(
   table: CompiledTable,
   request: Request,
 ): { row: TenantDispatchRow; strippedPath: string } | null {
   const url = new URL(request.url);
-  // SNI mode — exact host-header match. O(1).
+  // SNI mode — exact host-header match. O(1) hash-table lookup; the
+  // map's internal load-factor + hash distribution provides
+  // probabilistic constant-time behavior. No row-position information
+  // leaks because there are no row positions to speak of.
   const sniRow = table.sni.get(url.hostname);
   if (sniRow !== undefined) {
     return { row: sniRow, strippedPath: url.pathname };
   }
-  // Path-prefix mode — first-match scan. The prefix is stripped from
-  // the URL before forwarding.
+  // Path-prefix mode — FULL scan, first-match-precedence recorded.
+  // No early-break: every request walks every row to deny the
+  // row-position oracle (cloister-92e846 / §13.7.6(b)).
+  let firstMatch: { row: TenantDispatchRow; strippedPath: string } | null = null;
   for (const row of table.pathPrefix) {
     const prefix = row.matchValue;
     // A path-prefix "/t/alice" matches "/t/alice", "/t/alice/", "/t/alice/foo",
     // but NOT "/t/alice-bar" (substring-but-not-prefix). The next-char
     // check after the prefix bytes prevents that.
+    let isMatch = false;
+    let strippedPath = "/";
     if (url.pathname === prefix) {
-      return { row, strippedPath: "/" };
-    }
-    if (url.pathname.startsWith(prefix)) {
+      isMatch = true;
+    } else if (url.pathname.startsWith(prefix)) {
       const next = url.pathname.charAt(prefix.length);
       if (next === "/" || next === "") {
-        const strippedPath = url.pathname.slice(prefix.length) || "/";
-        return { row, strippedPath };
+        isMatch = true;
+        strippedPath = url.pathname.slice(prefix.length) || "/";
       }
     }
+    // Record FIRST match (preserves table-order precedence) but DO NOT
+    // break — that would re-introduce the row-position oracle.
+    if (isMatch && firstMatch === null) {
+      firstMatch = { row, strippedPath };
+    }
   }
-  return null;
+  return firstMatch;
 }
 
 // ── EdgeRoute implementation ─────────────────────────────────────────────
@@ -180,9 +212,51 @@ export class TenantDispatchRoute implements EdgeRoute {
    * (not a per-request oracle). Tenant name is elided from the emit.
    */
   private readonly warnedBindings = new Set<string>();
+  /**
+   * Per-request match cache. Per cloister-92e846 / threat-model §13.7.6(c):
+   * `match()` and `handle()` BOTH used to call `matchTenant`, which meant
+   * matched requests scanned 2× and unmatched requests scanned 1× — a
+   * timing-amplified single-bit oracle on match status. Storing the
+   * `matchTenant` result on the request via a `WeakMap` makes
+   * `handle()` reuse `match()`'s work; both calls together cost
+   * exactly one scan. The map is weak so the cache entry is GC'd with
+   * the request object.
+   *
+   * Why a WeakMap and not a Symbol-keyed property mutation on Request:
+   * workerd's Request type doesn't bless arbitrary property additions
+   * and the V8 hidden-class invariants are easier to reason about with
+   * an external Map.
+   *
+   * Why `has(...)` not `get(...) === undefined`: a successful match
+   * stores a non-null value; a confirmed no-match stores `null`. Both
+   * are valid cached results distinct from "not yet computed."
+   */
+  private readonly matchCache = new WeakMap<
+    Request,
+    { row: TenantDispatchRow; strippedPath: string } | null
+  >();
 
   constructor(spec: TenantDispatchSpec) {
     this.table = compileDispatchTable(spec);
+  }
+
+  /**
+   * Internal: compute the match result OR return the cached one.
+   * Centralized so both `match()` and `handle()` go through the same
+   * deduplication path.
+   */
+  private resolveMatch(
+    request: Request,
+  ): { row: TenantDispatchRow; strippedPath: string } | null {
+    if (this.matchCache.has(request)) {
+      // Cached — return without re-scanning. This is the §13.7.6(c)
+      // fix: handle()'s scan is now a hash-map lookup, not a fresh
+      // table walk.
+      return this.matchCache.get(request) ?? null;
+    }
+    const result = matchTenant(this.table, request);
+    this.matchCache.set(request, result);
+    return result;
   }
 
   /**
@@ -192,17 +266,16 @@ export class TenantDispatchRoute implements EdgeRoute {
    * the request can't be dispatched, `handle()` returns a 404 — the
    * router never sees the failure.)
    *
-   * Note: `match()` is intentionally lightweight (boolean only); the
-   * actual table lookup runs again in `handle()`. The duplicate work is
-   * O(1) for SNI mode + O(N) for path-prefix where N is small in
-   * practice (single-digit tenants per typical deployment).
+   * The result of `matchTenant` is cached on the request via `matchCache`,
+   * so a subsequent `handle()` for the same request does NOT re-scan the
+   * table (§13.7.6(c) / cloister-92e846).
    */
   match(request: Request): boolean {
-    return matchTenant(this.table, request) !== null;
+    return this.resolveMatch(request) !== null;
   }
 
   async handle(request: Request, env: Env): Promise<Response> {
-    const matched = matchTenant(this.table, request);
+    const matched = this.resolveMatch(request);
     if (matched === null) {
       // Defensive: match() returned true but matchTenant returned null.
       // Can't happen unless the request object mutates between calls.
