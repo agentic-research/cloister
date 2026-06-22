@@ -76,6 +76,89 @@ self-hosters don't want. The schema permits adding `scripts/emit-pod.mjs`
 later without touching anything else; file a follow-up bead if you
 need it.
 
+## Tenancy modes (ADR-0030 §A5)
+
+Per ADR-0030, `cluster.toml [inputs.*]` blocks carry an optional
+`tenancy` sub-table that classifies how each input is hosted. The
+compose emitter (`scripts/emit-compose.mjs`) walks resolved tenancy
+declarations and annotates each service with a
+`cloister.colocated-inputs=<name>,<name>,...` label so operators can
+see at a glance which inputs share a workerd process.
+
+Three modes are first-class:
+
+| `tenancy.mode` | Shape | When it fits |
+|---|---|---|
+| **co-located** | Input shares a workerd process with the bundle named by `tenancy.workerdId` (default: the gateway). OSS-launch default; matches today's single-workerd shape. | Trusted-tier identity (notme), in-process tool bundles, OSS "docker run cloister" deployments. |
+| **external** | Input runs in its own process / container (its own `[[bundles]]` entry, reached over an IPC wire — UDS / loopback HTTP / CF tunnel). | Go-native or non-V8 servers like mache (per cloister-18f456 disposition); existing sidecar deployments. |
+| **per-tenant** | Input gets its own workerd process per declared tenant. The substrate provides the primitive; the operator instantiates by declaring multiple `workerdId` values for distinct tenants. Strongest isolation under ADR-0030 §D1. | Multi-tenant production where peers MUST be process-isolated (vault, future hosted-multi-org). |
+
+### Resolution order
+
+`emit-compose.mjs` resolves each input's `workerdId` via three rungs:
+
+1. **Explicit `tenancy.workerdId`** — the named bundle hosts it.
+   Violation if the bundle doesn't exist.
+2. **Empty `workerdId` + same-name bundle exists** — the bundle whose
+   `name` matches the input's `name` hosts it (e.g.
+   `[inputs.mache]` matches `[[bundles]] name="mache"`).
+3. **Empty `workerdId` + no same-name bundle** — falls back to the
+   gateway / hypervisor-tier bundle. **Back-compat path**: pre-
+   ADR-0030 cluster.toml has inputs that composed into the router
+   workerd implicitly, and that remains valid per ADR-0030 §"NOT a
+   forced-multi-workerd substrate."
+
+A cluster with NO hypervisor-tier bundle has nowhere for rung-3
+inputs to land; emit-compose surfaces this as a violation rather
+than silently dropping the input.
+
+### Example: notme as a tenant of the gateway
+
+```toml
+[inputs.notme]
+ref     = "github://agentic-research/notme@<SHA>"
+version = "^0.1"
+
+  [inputs.notme.tenancy]
+  mode              = "co-located"
+  workerdId         = "cloister-router"
+  trustedTier       = true
+  sharesWorkerdWith = []
+```
+
+The emitted compose service gains
+`labels: - "cloister.colocated-inputs=notme"` on `cloister-router`.
+Hot-path lease verification stays zero-copy (no inter-process hop);
+notme's master keys live in the same workerd as the gateway but in a
+separate V8 isolate per ADR-0013.
+
+### Example: external mache (Go-native)
+
+```toml
+[inputs.mache]
+ref     = "github://agentic-research/mache@<SHA>"
+version = "^0.8"
+
+  [inputs.mache.tenancy]
+  mode = "external"
+  # workerdId defaults to "mache" — must match a [[bundles]] entry
+```
+
+This matches the existing topology: a `[[bundles]] name="mache"`
+entry declares the OCI image + IPC socket; the input pins the
+upstream tool surface. Mache is world-3 (Go-native cgo through
+tree-sitter, per cloister-18f456); a workerd-bundle co-location is
+the WRONG direction regardless of ADR-0030.
+
+### Substrate-property lint will gate this
+
+`cloister-ac30e7` (extended by `cloister-104199`) will assert that the
+generated workerd config's process boundary matches the declared
+`tenancy.workerdId` for every input — operators get a fail-closed
+gate on tenant boundary drift. The lint blocks on vault-1
+(`cloister-0ffb3f`) landing the first concrete `Bundle.kind.workerd`
+Worker.
+
 ## Verifying your deployment
 
 `task cluster:test` (Tier 1 integration matrix, cloister-1b1124) is

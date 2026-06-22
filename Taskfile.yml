@@ -717,7 +717,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - pnpm exec tsx --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs
+      - pnpm exec tsx --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
