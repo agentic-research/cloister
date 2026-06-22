@@ -920,9 +920,9 @@ tenants**. This is explicit, not implicit.
 |---|---|
 | **Attack** | Attacker exfiltrates the cluster master KEK source (Keychain entry, file, sign-helper key, etc.). With the root, attacker derives every cluster-tier tenant's KEK via HKDF + the public tenant_name list. |
 | **Mitigation** | Cluster master source is operator-controlled via ADR-0014 URL-spec resolver. Operator picks the protection level (Keychain / libsecret / age-encrypted file / hardware-key-backed sign-helper). The substrate makes no claims about the operator's choice. |
-| **Independent surface** | **Service-tier KEKs survive cluster-master compromise.** Per ADR-0030 §A3, service-tier secrets are operator-provisioned per service (separate URL-spec resolver target). An attacker with the cluster master CANNOT derive a service-tier KEK without ALSO compromising that service's separate source. |
+| **Independent surface** | **Service-tier KEKs survive cluster-master compromise — DESIGN, not yet PROOF.** Per ADR-0030 §A3, service-tier secrets are operator-provisioned per service (separate URL-spec resolver target). An attacker with the cluster master CANNOT derive a service-tier KEK without ALSO compromising that service's separate source. **Empirical caveat (cloister-93d674 / C7-b):** as of 2026-06-22 there are NO service-tier consumers shipped in tree. The independent-surface property is structural-by-construction (HKDF input domains are different) but UNPROVEN against a deployed cross-tier read attempt because nothing tries to read across. First service-tier consumer to land MUST ship a property test that asserts cross-tier RPC returns "tier_mismatch" — see `vault/src/__tests__/kek-source.test.ts:"cross-tier reads rejected by type"` for the type-level pattern; the runtime-level pattern is open. |
 | **Adversary capabilities** | The substrate explicitly does NOT defend against operator-master compromise. The defense is operator opsec on the chosen URL-spec source. |
-| **Residual risk** | A deployment that uses cluster-tier for ALL secrets (no service-tier separation declared) has cluster-master-compromise = full-compromise. Operators who want service-tier separation MUST declare it. |
+| **Residual risk** | A deployment that uses cluster-tier for ALL secrets (no service-tier separation declared) has cluster-master-compromise = full-compromise. Operators who want service-tier separation MUST declare it. **Also:** until a service-tier consumer ships, the §A3 cross-tier defense is design-only — operators reading this section should NOT yet treat service-tier separation as a deployed mitigation. |
 | **Test ref** | secrets-three-tier `vault/src/__tests__/kek-source.test.ts` — same tenant_name → same KEK; different tenant_name → independent KEK; cross-tier reads rejected by type. Threat-model entry asserts but does NOT test the master-compromise → tenant-compromise property (it's structural by HKDF). |
 
 ### 13.7.4 Workerd-process termination is a denial vector
@@ -986,8 +986,26 @@ hypervisor case, not the transitively-resolved case via
 |---|---|
 | **Attack** | Operator declares `sharesWorkerdWith=["notme"]` (notme resolves to hypervisor) without explicit `workerdId` + without `trustedTier=true`. Pre-fix: Inv 6 passed because the explicit-workerdId branch was skipped. Cluster-tier tool code lands inside the trusted hypervisor workerd via the back-compat rung. |
 | **Mitigation (shipped)** | Inv 6 now runs the trustedTier-alignment check against the RESOLVED `workerd_id` from the three-rung resolver (explicit / same-name / sharesWorkerdWith-transitive). The narrow back-compat exemption is preserved ONLY for pure rung-3 gateway-fallback (empty workerdId + no same-name bundle + no sharesWorkerdWith) — that's the path pre-ADR-0030 cluster.toml used legitimately. Error message names the resolution rung so operators see WHICH lookup path led to the trust grant. Closed in `1d03ed9`. |
-| **Residual risk** | Pre-ADR-0030 deployments with empty `inputs[]` get no Inv 6 protection — acceptable, no cross-workerd dispatch is present in that shape. Documented residual. |
+| **Residual risk** | Pre-ADR-0030 deployments with empty `inputs[]` get no Inv 6 protection — acceptable, no cross-workerd dispatch is present in that shape, so there's no resolution-rung to bypass in the first place. **Made explicit per cloister-93d674 / C7-c:** the lint is a NO-OP on `cluster.inputs == []`, which is the correct behavior (nothing to check), but operators migrating an existing zero-input cluster.toml to ADR-0030 multi-workerd MUST re-run Inv 6 after adding the first `[inputs.*]` row. CI tracks this implicitly via `task lint` running on every PR; there is no manual reminder. |
 | **Test ref** | `scripts/test/lint-bundle-isolation.test.mjs` "Inv 6 (cloister-93132f / C2) — sharesWorkerdWith cluster-tier-on-hypervisor bypass is rejected" |
+
+### 13.7.8 Boot-time operator-config error channel (SNI dup-name + similar)
+
+**Added 2026-06-22 from adversarial cycle** (cloister-93d674 / C7-a). The
+manifest compiler in `src/routes/tenant-dispatch.ts:106-109`
+(`compileDispatchTable`) throws on operator config errors with a message
+that names BOTH conflicting tenant rows. That throw is a fail-fast boot
+gate — exactly what we want for misconfiguration — but the error
+*message* is a structured-log-tier surface: it carries both tenant names
+in plaintext.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | An observer with read access to the operator's boot logs (process supervisor stderr, CI job output, container logs aggregated to a third-party tier) learns tenant names from a duplicate-SNI compile failure. The compile-time errors that name both tenants today: duplicate `name` across rows; duplicate `matchValue` under `mode=sni` (`tenant-dispatch.ts:88-89` + `:106-109`); analogous `compose-emitter` validators. |
+| **Adversary model** | Boot-log-reader. Strictly inside the operator's trust boundary by definition — the operator *wrote* the names — but the trust boundary leaks if logs are aggregated to a coarser observer tier (centralized log SaaS, infra ops vendor, CI artifact archive). |
+| **Mitigation** | **Explicit non-mitigation.** Operator-facing config errors NEED both names for diagnosis — a redacted "duplicate SNI on two tenants" would force an unnecessary `git log -p cluster.toml` dive. The substrate refuses to weaken the diagnostic signal. The threat is the log-tier-boundary, not the error message: operators with a log-aggregator-tier threat model MUST scrub or scope these logs at the supervisor layer. |
+| **Residual risk** | Documented and explicit. The substrate trusts the operator's boot-log discipline. This applies to every fail-fast validator: `compileDispatchTable`, `buildKekScopeSource`'s mode collisions, the toml-to-cluster pipeline's `[[bundles]]` schema errors. **Not exhaustive list:** any new compile-time validator that names tenant rows in its error message inherits this residual; new validators do NOT need their own §13.7.8.x sub-entry, but their reviewer should sanity-check the error wording against the same threat model. |
+| **Test ref** | None — the property is "we keep both names in the error" which is asserted by the existing compile-error tests (`test/routes/tenant-dispatch.test.ts:"rejects duplicate SNI matchValue"`); the residual is doc-only. |
 
 ### 13.7 Summary
 
@@ -995,11 +1013,12 @@ hypervisor case, not the transitively-resolved case via
 |---|---|---|---|
 | §13.7.1 disclosure-per-tenant | One tenant's attestation chain | Cross-tenant peer enumeration | Router-table dispatch + per-tenant TrustStore DO + byte-equivalent 404 |
 | §13.7.2 silence-per-tenant | One tenant's chain integrity | Workerd termination as silencing | DO storage persistence + per-tenant chain ownership |
-| §13.7.3 cluster-master = all-cluster-tier | All cluster-tier tenants | Operator-master compromise | Service-tier separation (operator-declared, currently aspirational — no service-tier consumers shipped) |
+| §13.7.3 cluster-master = all-cluster-tier | All cluster-tier tenants | Operator-master compromise | Service-tier separation (operator-declared, **design-only — no consumer shipped, cross-tier reject is structural-not-empirical**) |
 | §13.7.4 supervisor = catastrophic | All tenants on that supervisor | Supervisor compromise | Explicit non-defense; operator opsec |
 | §13.7.5 app_protocol ≠ auth | Cross-tenant access control | Operator misconfiguration | Signet leases + per-tenant scopes (ADR-0007) |
-| §13.7.6 pre-auth pipeline | Tenant enumeration + body-bytes DoS | Pre-lease-verify dispatch surface | Byte-equivalent 404 shipped; timing-oracle + DoS mitigations pending |
-| §13.7.7 hybrid-tier alignment | Cluster-tier-on-hypervisor escalation | Lint resolution-rung bypass | Inv 6 runs against resolved workerd_id (cloister-93132f) |
+| §13.7.6 pre-auth pipeline | Tenant enumeration + body-bytes DoS | Pre-lease-verify dispatch surface | Byte-equivalent 404 + unwired-binding warn throttle + redaction (cloister-9339c0); timing-oracle + DoS mitigations pending |
+| §13.7.7 hybrid-tier alignment | Cluster-tier-on-hypervisor escalation | Lint resolution-rung bypass | Inv 6 runs against resolved workerd_id (cloister-93132f); no-op on empty `inputs[]` by design |
+| §13.7.8 boot-time config errors | Tenant-name leak via supervisor stderr | Log-aggregator-tier observer reading boot logs | Explicit non-mitigation; operator scrubs at log-supervisor layer |
 
 **Related:**
 - ADR-0030 — the substrate decision this defends

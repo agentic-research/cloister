@@ -245,6 +245,27 @@ ledger**, because T1's TrustStore DO lives in T1's workerd. The
 disclosure endpoint (ADR-0007 §discovery) becomes per-tenant
 dispatched.
 
+**Residual posture (post adversarial cycle 2026-06-22, cloister-93d674
+roll-up):** the per-tenant-workerd direction this ADR ratifies still
+carries three explicit residuals that operators reading this ADR
+should know up front, captured in full in threat-model §13.7.3 + §13.7.7
++ §13.7.8:
+
+1. **§13.7.3 service-tier separation is design-only.** No
+   service-tier consumer ships in tree as of 2026-06-22. The cross-tier
+   reject property is structural-by-HKDF-input but untested at runtime.
+   First service-tier consumer to land MUST ship a property test.
+2. **§13.7.7 Inv 6 is no-op on empty `inputs[]`.** Pre-ADR-0030
+   `cluster.toml` with no inputs gets no workerd-boundary lint
+   protection — correct (nothing to check), but operators migrating
+   to multi-workerd MUST re-run `task lint:bundle-isolation` after
+   adding the first `[inputs.*]` row.
+3. **§13.7.8 boot-time config errors name both tenants.** The
+   manifest compiler's fail-fast errors carry tenant names in
+   plaintext to operator logs by design — needed for diagnosis. Log-
+   aggregator-tier observers who can read boot stderr see tenant
+   names; mitigate at the supervisor layer, not in the substrate.
+
 ### Operational cost
 
 - Image size grows: each tenant carries a workerd binary + its
