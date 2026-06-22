@@ -890,7 +890,7 @@ disclosure MUST NOT reveal tenant T2's attestation chain.
 | Aspect | Detail |
 |---|---|
 | **Attack** | Cross-tenant peer enumeration: attacker probes `/interlace/peers/<fp>` against tenant T1's router endpoint hoping to learn T2's peer set or attestation state. |
-| **Mitigation** | Router dispatches by `route_mode` + `route_value` (SNI or path-prefix) per `[[tenants]]` BEFORE handing the request to disclosure. Each tenant's workerd has its OWN TrustStore DO; the disclosure handler can only see its own tenant's `peer_attestations` table. |
+| **Mitigation** | Router dispatches by `route_mode` + `route_value` (SNI or path-prefix) per `[[tenants]]` to the target tenant's workerd. **Lease verification runs INSIDE the target workerd, not at the router** — this means the router is a pre-auth dispatcher: it absorbs body bytes and forwards before any signature check. Pre-auth surface explicitly captured in §13.7.6. Each tenant's workerd has its OWN TrustStore DO; the disclosure handler inside the dispatched-to workerd can only see its own tenant's `peer_attestations` table. **Constant-time 404**: tenant-dispatch's no-match / no-binding response body MUST be byte-identical to disclosure's `constantTimeErrorResponse("not_found")` — see `cloister-92e846` (fixed in `1d03ed9`); previously a 10-byte vs 256-byte enumeration oracle. Pinned by golden test in `test/routes/tenant-dispatch.test.ts`. |
 | **Constant-time** | Cross-tenant lookups + unknown-tenant lookups both collapse to the same 404 response shape (constant-time per §9.2 / §9.4); no peer-existence oracle across tenants. |
 | **Residual risk** | A misconfigured router (operator declares tenant T1 with SNI `t1.example` but the workerd serving T1's TrustStore actually has T2's storage attached) defeats the boundary. Caught by `cloister-104199` (lint-1) workerd-boundary property check. |
 | **Test ref** | router-table tests in `test/routes/tenant-dispatch.test.ts`; vault-1's `test/security/cross-tenant-vault.test.ts` exercises the cross-tenant 404 path |
@@ -956,15 +956,50 @@ still flows through Signet leases + per-tenant scopes (ADR-0007).
 | **Residual risk** | Operators who treat `app_protocol` as a security boundary will be surprised. Doc states the property explicitly in ADR-0030 §A4 "What this is NOT" + this section. |
 | **Test ref** | app-protocol-validator's `scripts/test/lint-app-protocol.test.mjs` validates the NAMESPACE only; vault-1 integration tests assert that cross-tenant calls without a valid lease return 401 regardless of `app_protocol` value |
 
+### 13.7.6 Pre-auth pipeline surface (router DoS + timing)
+
+**Added 2026-06-22 from adversarial cycle** (cloister-92e846,
+cloister-9339c0). The router is a PRE-AUTH dispatcher: it forwards
+the request to the target tenant's workerd before any lease
+verification runs. This makes the router a body-bytes-absorption DoS
+surface and (because dispatch matching itself has structural timing
+characteristics) a tenant-enumeration surface.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Unauthenticated probe enumerates the tenant table via (a) constant-time 404 body-length differential (CLOSED in `1d03ed9`); (b) path-prefix O(N) linear-scan timing; (c) match()-then-handle() double-scan timing amplification; (d) unwired-binding `console.warn` log-channel leakage of tenant names; (e) tenant-existence DoS via unauthenticated body forwarding to target workerd. |
+| **Mitigation (shipped)** | (a) tenant-dispatch 404 uses `constantTimeErrorResponse("not_found")` — byte-equivalent with disclosure's 404; `cloister-92e846` closed in `1d03ed9`. |
+| **Mitigation (pending)** | (b) path-prefix table → longest-prefix trie OR sorted-by-length-desc scan with no early break (`cloister-92e846` follow-up); (c) `match()` / `handle()` consolidated into single-pass `matchAndClaim()` API (`cloister-92e846`); (d) redact tenant name from console.warn or move to structured metric (`cloister-9339c0`); (e) **non-mitigation — explicit residual**: body-bytes DoS persists until lease verification moves to the router or a per-tenant rate-bucket lands at the dispatch tier. |
+| **Adversary capabilities** | Anyone who can speak HTTP to the router can probe. Asymmetry: probe cost is O(1); target-tenant absorption is O(body-bytes). |
+| **Residual risk** | Body-bytes DoS + path-prefix timing oracle remain until follow-up beads land. Operators MUST front-end the router with their own rate limiter (CF WAF, cloudflared, etc.) if the deployment is exposed to untrusted peers. |
+| **Test ref** | Golden 404 byte-equivalence test at `test/routes/tenant-dispatch.test.ts` (covers (a)); path-prefix timing histogram test deferred to (b) follow-up. |
+
+### 13.7.7 Hybrid-tier alignment (Inv 6 resolution gap)
+
+**Added 2026-06-22 from adversarial cycle** (cloister-93132f). The
+`scripts/lint-bundle-isolation.mjs` Invariant 6 (workerd-boundary
+property) had a bypass: it only checked the explicit-workerdId-on-
+hypervisor case, not the transitively-resolved case via
+`sharesWorkerdWith` or the rung-3 gateway fallback.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Operator declares `sharesWorkerdWith=["notme"]` (notme resolves to hypervisor) without explicit `workerdId` + without `trustedTier=true`. Pre-fix: Inv 6 passed because the explicit-workerdId branch was skipped. Cluster-tier tool code lands inside the trusted hypervisor workerd via the back-compat rung. |
+| **Mitigation (shipped)** | Inv 6 now runs the trustedTier-alignment check against the RESOLVED `workerd_id` from the three-rung resolver (explicit / same-name / sharesWorkerdWith-transitive). The narrow back-compat exemption is preserved ONLY for pure rung-3 gateway-fallback (empty workerdId + no same-name bundle + no sharesWorkerdWith) — that's the path pre-ADR-0030 cluster.toml used legitimately. Error message names the resolution rung so operators see WHICH lookup path led to the trust grant. Closed in `1d03ed9`. |
+| **Residual risk** | Pre-ADR-0030 deployments with empty `inputs[]` get no Inv 6 protection — acceptable, no cross-workerd dispatch is present in that shape. Documented residual. |
+| **Test ref** | `scripts/test/lint-bundle-isolation.test.mjs` "Inv 6 (cloister-93132f / C2) — sharesWorkerdWith cluster-tier-on-hypervisor bypass is rejected" |
+
 ### 13.7 Summary
 
 | Property | Threat scope | Adversary boundary | Defense |
 |---|---|---|---|
-| §13.7.1 disclosure-per-tenant | One tenant's attestation chain | Cross-tenant peer enumeration | Router-table dispatch + per-tenant TrustStore DO |
+| §13.7.1 disclosure-per-tenant | One tenant's attestation chain | Cross-tenant peer enumeration | Router-table dispatch + per-tenant TrustStore DO + byte-equivalent 404 |
 | §13.7.2 silence-per-tenant | One tenant's chain integrity | Workerd termination as silencing | DO storage persistence + per-tenant chain ownership |
-| §13.7.3 cluster-master = all-cluster-tier | All cluster-tier tenants | Operator-master compromise | Service-tier separation (operator-declared) |
+| §13.7.3 cluster-master = all-cluster-tier | All cluster-tier tenants | Operator-master compromise | Service-tier separation (operator-declared, currently aspirational — no service-tier consumers shipped) |
 | §13.7.4 supervisor = catastrophic | All tenants on that supervisor | Supervisor compromise | Explicit non-defense; operator opsec |
 | §13.7.5 app_protocol ≠ auth | Cross-tenant access control | Operator misconfiguration | Signet leases + per-tenant scopes (ADR-0007) |
+| §13.7.6 pre-auth pipeline | Tenant enumeration + body-bytes DoS | Pre-lease-verify dispatch surface | Byte-equivalent 404 shipped; timing-oracle + DoS mitigations pending |
+| §13.7.7 hybrid-tier alignment | Cluster-tier-on-hypervisor escalation | Lint resolution-rung bypass | Inv 6 runs against resolved workerd_id (cloister-93132f) |
 
 **Related:**
 - ADR-0030 — the substrate decision this defends
