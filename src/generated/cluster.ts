@@ -140,7 +140,13 @@ export const cluster: Cluster = {
       "provides": [],
       "requires": [],
       "urlBinding": "LLO_MCP_URL",
-      "serviceBinding": "LSP_MCP"
+      "serviceBinding": "LSP_MCP",
+      "tenancy": {
+        "mode": "",
+        "workerdId": "",
+        "trustedTier": false,
+        "sharesWorkerdWith": []
+      }
     }
   ],
   "routes": [
@@ -281,5 +287,6 @@ export const cluster: Cluster = {
       "requireInterlock": true,
       "minAlgorithm": "ed25519"
     }
-  }
+  },
+  "edges": []
 } as const;
