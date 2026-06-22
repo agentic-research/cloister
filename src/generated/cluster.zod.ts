@@ -83,6 +83,7 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     requires: z.array(z.string()),
     urlBinding: z.string(),
     serviceBinding: z.string(),
+    tenancy: TenancySpecSchema,
   }).strict());
 
 export interface InputSpec {
@@ -95,6 +96,7 @@ export interface InputSpec {
   requires: string[];
   urlBinding: string;
   serviceBinding: string;
+  tenancy: TenancySpec;
 }
 
 export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
@@ -133,6 +135,21 @@ export interface Gateway {
   policy: InterlacePolicy;
 }
 
+export const EdgeSpecSchema: z.ZodType<EdgeSpec> = z.lazy(() =>
+  z.object({
+    from: z.string(),
+    to: z.string(),
+    appProtocol: z.string(),
+    transport: z.string(),
+  }).strict());
+
+export interface EdgeSpec {
+  from: string;
+  to: string;
+  appProtocol: string;
+  transport: string;
+}
+
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
@@ -142,6 +159,7 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     inputs: z.array(InputSpecSchema),
     routes: z.array(RouteSchema),
     gateway: GatewaySchema,
+    edges: z.array(EdgeSpecSchema),
   }).strict());
 
 export interface Cluster {
@@ -152,6 +170,7 @@ export interface Cluster {
   inputs: InputSpec[];
   routes: Route[];
   gateway: Gateway;
+  edges: EdgeSpec[];
 }
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
@@ -189,6 +208,21 @@ export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
 export interface EnvVar {
   name: string;
   value: string;
+}
+
+export const TenancySpecSchema: z.ZodType<TenancySpec> = z.lazy(() =>
+  z.object({
+    mode: z.string(),
+    workerdId: z.string(),
+    trustedTier: z.boolean(),
+    sharesWorkerdWith: z.array(z.string()),
+  }).strict());
+
+export interface TenancySpec {
+  mode: string;
+  workerdId: string;
+  trustedTier: boolean;
+  sharesWorkerdWith: string[];
 }
 
 export const McpRouteSpecSchema: z.ZodType<McpRouteSpec> = z.lazy(() =>

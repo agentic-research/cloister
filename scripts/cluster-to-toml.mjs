@@ -104,8 +104,28 @@ function canonicalizeCluster(c) {
   // shape of the `[inputs]` + `[[routes]]` emit rules.
   const gatewayTable = canonicalizeGateway(c.gateway);
   if (gatewayTable !== null) out.gateway = gatewayTable;
+  // ADR-0030 §A2 + §A4 (cloister-0e3004): emit `[[edges]]` array-of-
+  // tables when populated. Skip on empty so single-tenant deployments
+  // don't gain stray edge rows on roundtrip.
+  if (Array.isArray(c.edges) && c.edges.length > 0) {
+    out.edges = c.edges.map(canonicalizeEdge);
+  }
   if (c.storage) out.storage = sortKeys(c.storage);
   return out;
+}
+
+/**
+ * Canonicalize an EdgeSpec to TOML-row shape. Drops empty fields so
+ * partial edges don't emit stray empty-string keys (consistent with
+ * the inputs + routes emit rules).
+ */
+function canonicalizeEdge(e) {
+  const body = {};
+  if (typeof e.from        === "string" && e.from        !== "") body.from        = e.from;
+  if (typeof e.to          === "string" && e.to          !== "") body.to          = e.to;
+  if (typeof e.appProtocol === "string" && e.appProtocol !== "") body.appProtocol = e.appProtocol;
+  if (typeof e.transport   === "string" && e.transport   !== "") body.transport   = e.transport;
+  return body;
 }
 
 /**
@@ -199,6 +219,20 @@ function canonicalizeInputs(arr) {
     if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
     if (Array.isArray(inp.provides) && inp.provides.length > 0) body.provides = [...inp.provides];
     if (Array.isArray(inp.requires) && inp.requires.length > 0) body.requires = [...inp.requires];
+    // ADR-0030 §A5 (cloister-0e3004): emit a `[inputs.<name>.tenancy]`
+    // sub-table when any tenancy field is populated. Drop all-empty
+    // tenancy values so the emitted TOML stays minimal — operators
+    // only see fields they actually declared.
+    if (inp.tenancy && typeof inp.tenancy === "object" && !Array.isArray(inp.tenancy)) {
+      const tBody = {};
+      if (typeof inp.tenancy.mode      === "string" && inp.tenancy.mode      !== "") tBody.mode      = inp.tenancy.mode;
+      if (typeof inp.tenancy.workerdId === "string" && inp.tenancy.workerdId !== "") tBody.workerdId = inp.tenancy.workerdId;
+      if (inp.tenancy.trustedTier === true) tBody.trustedTier = true;
+      if (Array.isArray(inp.tenancy.sharesWorkerdWith) && inp.tenancy.sharesWorkerdWith.length > 0) {
+        tBody.sharesWorkerdWith = [...inp.tenancy.sharesWorkerdWith];
+      }
+      if (Object.keys(tBody).length > 0) body.tenancy = tBody;
+    }
     out[inp.name] = body;
   }
   return out;

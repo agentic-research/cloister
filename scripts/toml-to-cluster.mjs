@@ -206,7 +206,28 @@ function unflattenForSchema(raw) {
   // its ART-default template + emits a warning). Per the back-compat
   // contract: pre-Phase-4a cluster.toml files keep working.
   out.gateway = normalizeGateway(raw.gateway);
+  // ADR-0030 §A2 + §A4 / cloister-0e3004 — `[[edges]]` TOML array of
+  // cross-tenant edge declarations. Missing → empty array (back-compat:
+  // pre-ADR-0030 cluster.toml has no edges; single-tenant deployments
+  // never declare any).
+  out.edges = unflattenEdges(raw.edges);
   return out;
+}
+
+/**
+ * ADR-0030 §A2 + §A4 (cloister-0e3004): normalize `[[edges]]` TOML
+ * array-of-tables into the zod-expected EdgeSpec[] shape. Defaults
+ * every field to "" so partial declarations parse cleanly.
+ */
+function unflattenEdges(raw) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((e) => ({
+    from:        typeof e.from        === "string" ? e.from        : "",
+    to:          typeof e.to          === "string" ? e.to          : "",
+    appProtocol: typeof e.appProtocol === "string" ? e.appProtocol : "",
+    transport:   typeof e.transport   === "string" ? e.transport   : "",
+  }));
 }
 
 /**
@@ -346,6 +367,13 @@ function normalizeInputDefaults(spec) {
   // `urlBinding` / `serviceBinding` (cloister-05334b, P1 of LLO arc)
   // thread through to the [[generated_backends]] rows the resolver
   // writes — see scripts/resolve-inputs.mjs.
+  // `tenancy` (ADR-0030 §A5, cloister-0e3004) defaults to all-empty
+  // when absent → resolver inherits the input's server.json
+  // `_meta.art.cloister/v1.tenancy` defaults (or "co-located" if the
+  // server.json declares no tenancy either).
+  const rawTenancy = (spec.tenancy && typeof spec.tenancy === "object" && !Array.isArray(spec.tenancy))
+    ? spec.tenancy
+    : {};
   return {
     name:           typeof spec.name === "string" ? spec.name : "",
     ref:            typeof spec.ref === "string" ? spec.ref : "",
@@ -356,6 +384,12 @@ function normalizeInputDefaults(spec) {
     requires:       Array.isArray(spec.requires) ? spec.requires : [],
     urlBinding:     typeof spec.urlBinding === "string" ? spec.urlBinding : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
+    tenancy: {
+      mode:              typeof rawTenancy.mode      === "string" ? rawTenancy.mode      : "",
+      workerdId:         typeof rawTenancy.workerdId === "string" ? rawTenancy.workerdId : "",
+      trustedTier:       typeof rawTenancy.trustedTier === "boolean" ? rawTenancy.trustedTier : false,
+      sharesWorkerdWith: Array.isArray(rawTenancy.sharesWorkerdWith) ? rawTenancy.sharesWorkerdWith : [],
+    },
   };
 }
 

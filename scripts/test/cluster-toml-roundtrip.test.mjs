@@ -96,6 +96,7 @@ function minimalCluster() {
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    edges: [], // ADR-0030 / cloister-0e3004 — required schema field (back-compat: pre-ADR-0030 = empty)
   };
 }
 
@@ -149,6 +150,7 @@ function richCluster() {
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    edges: [], // ADR-0030 / cloister-0e3004 — required schema field (back-compat: pre-ADR-0030 = empty)
   };
 }
 
@@ -469,6 +471,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    edges: [], // ADR-0030 / cloister-0e3004 — required schema field
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);
@@ -896,13 +899,134 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       name: "llo", ref: "x", version: "1", digest: "", from: "",
       provides: [], requires: [],
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
+      tenancy: { mode: "", workerdId: "", trustedTier: false, sharesWorkerdWith: [] },
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    edges: [], // ADR-0030 / cloister-0e3004 — required schema field
   };
   const out = ClusterSchema.parse(sample);
   assert.equal(out.inputs[0].urlBinding, "LLO_MCP_URL");
   assert.equal(out.inputs[0].serviceBinding, "LSP_MCP");
+});
+
+// ── ADR-0030 §A5 / cloister-0e3004 — tenancy on InputSpec roundtrip ────
+
+test("inputs: tenancy block roundtrips byte-identically through cluster.toml (ADR-0030 §A5)", async () => {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+
+  const tomlIn = `
+[metadata]
+name    = "tenancy-roundtrip"
+version = "0.0.1"
+
+[[bundles]]
+name                = "router"
+description         = "self-loop"
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "router:0.1"
+  ipcSocket = "/run/r.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "router"
+to        = "router"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[inputs.notme]
+ref     = "github://agentic-research/notme"
+version = "^0.1"
+  [inputs.notme.tenancy]
+  mode              = "co-located"
+  workerdId         = "cloister-router"
+  trustedTier       = true
+  sharesWorkerdWith = ["router"]
+
+[inputs.mache]
+ref     = "github://agentic-research/mache"
+version = "^0.8"
+  [inputs.mache.tenancy]
+  mode = "external"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  // notme tenancy: full populate
+  const notme = parsed.inputs.find((i) => i.name === "notme");
+  assert.equal(notme.tenancy.mode, "co-located");
+  assert.equal(notme.tenancy.workerdId, "cloister-router");
+  assert.equal(notme.tenancy.trustedTier, true);
+  assert.deepEqual(notme.tenancy.sharesWorkerdWith, ["router"]);
+  // mache tenancy: partial — mode set, others default
+  const mache = parsed.inputs.find((i) => i.name === "mache");
+  assert.equal(mache.tenancy.mode, "external");
+  assert.equal(mache.tenancy.workerdId, "");
+  assert.equal(mache.tenancy.trustedTier, false);
+  assert.deepEqual(mache.tenancy.sharesWorkerdWith, []);
+  // Roundtrip preserves the populated tenancy declarations.
+  const t1 = clusterToToml(parsed);
+  const reparsed = await parseTomlToCluster(t1);
+  assert.deepEqual(reparsed.inputs, parsed.inputs, "tenancy must roundtrip");
+  // Reverse leg is deterministic.
+  const t2 = clusterToToml(parsed);
+  assert.equal(t1, t2, "cluster-to-toml must be deterministic with tenancy");
+});
+
+test("inputs: omitting tenancy parses to all-empty TenancySpec (back-compat)", async () => {
+  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const tomlIn = `
+[metadata]
+name = "no-tenancy"
+version = "0.0.1"
+
+[[bundles]]
+name = "x"
+description = "x"
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+  [bundles.external]
+  image = "x:0.1"
+  ipcSocket = "/x.sock"
+  httpPort = 0
+  args = []
+  env = []
+
+[[wires]]
+from = "x"
+to = "x"
+binding = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[inputs.legacy]
+ref = "x"
+version = "^0.1"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  const legacy = parsed.inputs.find((i) => i.name === "legacy");
+  // Pre-ADR-0030 cluster.toml continues to parse; tenancy block defaults
+  // to all-empty (resolver inherits server.json defaults).
+  assert.deepEqual(legacy.tenancy, {
+    mode: "",
+    workerdId: "",
+    trustedTier: false,
+    sharesWorkerdWith: [],
+  });
 });
 
 // ── cloister-345ad1 / ADR-0031 Phase 2 — [[routes]] bidi round-trip ─────
