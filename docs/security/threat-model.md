@@ -863,6 +863,119 @@ documented.
 - Bead `cloister-c1317c` — closes when this section lands
 
 
+## 13.7 Multi-workerd substrate (ADR-0030 / cloister-f289c8)
+
+Added 2026-06-22 to capture the threat-model invariants the ADR-0030
+multi-workerd direction extends — five new entries scoped to the
+substrate that workerd-process-per-tenant adds OUTSIDE V8's
+slice-grant boundary (ADR-0013 stays load-bearing INSIDE each
+per-tenant workerd).
+
+The §13.7 entries are the **contract** the implementation sub-beads
+test against:
+
+- vault-1 (`cloister-0ffb3f`) — tests against §13.7.1 + §13.7.2 +
+  §13.7.4
+- router-table (`cloister-0f144c`) — tests against §13.7.1 + §13.7.5
+- secrets-three-tier (`cloister-0f60a8`) — tests against §13.7.3
+- compose-emitter (`cloister-0ecb6c`) — tests against §13.7.4
+- app-protocol-validator (`cloister-0fa3d7`) — tests against §13.7.5
+
+### 13.7.1 Per-tenant disclosure dispatch
+
+The disclosure endpoint (`GET /interlace/peers/{fp}` per §9) becomes
+per-tenant routed under ADR-0030. A request for tenant T1's
+disclosure MUST NOT reveal tenant T2's attestation chain.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Cross-tenant peer enumeration: attacker probes `/interlace/peers/<fp>` against tenant T1's router endpoint hoping to learn T2's peer set or attestation state. |
+| **Mitigation** | Router dispatches by `route_mode` + `route_value` (SNI or path-prefix) per `[[tenants]]` BEFORE handing the request to disclosure. Each tenant's workerd has its OWN TrustStore DO; the disclosure handler can only see its own tenant's `peer_attestations` table. |
+| **Constant-time** | Cross-tenant lookups + unknown-tenant lookups both collapse to the same 404 response shape (constant-time per §9.2 / §9.4); no peer-existence oracle across tenants. |
+| **Residual risk** | A misconfigured router (operator declares tenant T1 with SNI `t1.example` but the workerd serving T1's TrustStore actually has T2's storage attached) defeats the boundary. Caught by `cloister-104199` (lint-1) workerd-boundary property check. |
+| **Test ref** | router-table tests in `test/routes/tenant-dispatch.test.ts`; vault-1's `test/security/cross-tenant-vault.test.ts` exercises the cross-tenant 404 path |
+
+### 13.7.2 Silence-is-evidence holds per-tenant
+
+§13.2's "silence on the chain = misbehavior" invariant must hold
+INSIDE each tenant's chain. Tenant T1's workerd terminating MUST NOT
+silence T1's attestation ledger, because T1's TrustStore DO lives in
+T1's workerd.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Attacker compromises the cluster supervisor (or operates one) and selectively terminates tenant T1's workerd to "rewind" its attestation chain (drop counter advances, hide bead_create entries). |
+| **Mitigation** | TrustStore state is **persistent on disk** (DO storage = SQLite per ADR-0021). A workerd termination doesn't lose committed state; restart picks up where the previous instance left off. A peer auditing T1's disclosure post-restart sees the same chain. |
+| **Adversary capabilities** | A privileged operator who CAN both (a) kill T1's workerd AND (b) tamper with T1's DO storage on disk can rewrite history. This is the explicit threat boundary in §13.7.4. |
+| **Residual risk** | Supervisor compromise + disk write IS a catastrophic compromise of one tenant. The substrate does NOT defend against the supervisor itself; it scopes the blast radius to ONE tenant's chain (vs all-tenants pre-ADR-0030). |
+| **Test ref** | vault-1's `test/security/cross-tenant-vault.test.ts` — boot 2 tenants, write to each, kill tenant-A's workerd mid-write, verify tenant-B's chain unaffected on read; restart tenant-A's workerd, verify chain rejoin |
+
+### 13.7.3 Cluster master compromise = explicit threat boundary
+
+Per ADR-0030 §A3, cluster-tier KEKs derive from one cluster master
+root via HKDF. Compromise of that root compromises **all cluster-tier
+tenants**. This is explicit, not implicit.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Attacker exfiltrates the cluster master KEK source (Keychain entry, file, sign-helper key, etc.). With the root, attacker derives every cluster-tier tenant's KEK via HKDF + the public tenant_name list. |
+| **Mitigation** | Cluster master source is operator-controlled via ADR-0014 URL-spec resolver. Operator picks the protection level (Keychain / libsecret / age-encrypted file / hardware-key-backed sign-helper). The substrate makes no claims about the operator's choice. |
+| **Independent surface** | **Service-tier KEKs survive cluster-master compromise.** Per ADR-0030 §A3, service-tier secrets are operator-provisioned per service (separate URL-spec resolver target). An attacker with the cluster master CANNOT derive a service-tier KEK without ALSO compromising that service's separate source. |
+| **Adversary capabilities** | The substrate explicitly does NOT defend against operator-master compromise. The defense is operator opsec on the chosen URL-spec source. |
+| **Residual risk** | A deployment that uses cluster-tier for ALL secrets (no service-tier separation declared) has cluster-master-compromise = full-compromise. Operators who want service-tier separation MUST declare it. |
+| **Test ref** | secrets-three-tier `vault/src/__tests__/kek-source.test.ts` — same tenant_name → same KEK; different tenant_name → independent KEK; cross-tier reads rejected by type. Threat-model entry asserts but does NOT test the master-compromise → tenant-compromise property (it's structural by HKDF). |
+
+### 13.7.4 Workerd-process termination is a denial vector
+
+A compromised tenant CANNOT terminate sibling tenants' workerds
+(kernel-enforced). A compromised supervisor CAN, and IS the explicit
+threat boundary.
+
+| Aspect | Detail |
+|---|---|
+| **Attack 1 (cross-tenant denial)** | Attacker inside tenant T1's workerd attempts to SIGTERM tenant T2's workerd, drain T2's disk, or starve T2 of CPU/memory. |
+| **Mitigation 1** | Process boundary is kernel-enforced. T1's workerd has no signal capability over T2's PID, no write access to T2's storage volume (per-tenant volume per A1 compose), no shared resource limits (compose `cpus:` + `mem_limit:` per-service). |
+| **Attack 2 (supervisor compromise)** | Attacker gains arbitrary code execution AS the compose runtime (Docker Desktop, colima, podman, nerdctl, docker) — kills, restarts, rebuilds any workerd. |
+| **Mitigation 2** | **The substrate does NOT defend against supervisor compromise.** This is the explicit threat boundary the ADR-0030 §A1 supervisor choice trades on: a compose-shape supervisor inherits the operator's runtime-trust model. The substrate's claim is "per-tenant workerd boundary scopes BLAST RADIUS"; it is not "supervisor cannot be compromised." |
+| **Adversary capabilities** | The substrate trusts the supervisor. Reducing supervisor trust is a v2 concern (cloister-owned supervisor, signed-bundle-only loads, etc.) — out of scope for ADR-0030. |
+| **Residual risk** | A compromised supervisor IS a cluster-wide compromise. Operators MUST harden the supervisor surface (rootless containers, supervisord with limited privilege, etc.) per their deployment. |
+| **Test ref** | compose-emitter integration test boots N tenants; integration-test.sh extension kills one workerd via the compose runtime and asserts siblings survive (mitigation 1). No test for mitigation 2 — it's an explicit non-property. |
+
+### 13.7.5 Cross-tenant edge labels are NOT authorization
+
+The `app_protocol` labels on `[[edges]]` (ADR-0030 §A4) classify
+traffic shape; they do NOT grant access. Cross-tenant authorization
+still flows through Signet leases + per-tenant scopes (ADR-0007).
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Attacker declares an `[[edges]]` row from tenant T1 to tenant T2 with `app_protocol = "art.mcp-jsonrpc"`, expecting the label to grant T1 access to T2's tools. |
+| **Mitigation** | Labels are operator-declared traffic shape metadata. The substrate uses them for routing + observability + future policy enforcement. The `app_protocol` value does NOT bypass lease verification: any cross-tenant call STILL requires a Signet lease covering the destination's scope per ADR-0007. |
+| **Validator** | `lint-app-protocol` (`cloister-0fa3d7`) enforces the namespace shape (`art.*` blessed + `x-<v>-*` extensible; other shapes rejected) but does NOT make any access-control claim. A well-formed label is a NECESSARY but NOT SUFFICIENT condition for the edge to function. |
+| **Adversary capabilities** | A misconfigured operator who omits per-tenant Signet lease scope declarations would have only `app_protocol` labels as the cross-tenant boundary — which is no boundary at all. Substrate cannot detect this; it's an operator misconfiguration. |
+| **Residual risk** | Operators who treat `app_protocol` as a security boundary will be surprised. Doc states the property explicitly in ADR-0030 §A4 "What this is NOT" + this section. |
+| **Test ref** | app-protocol-validator's `scripts/test/lint-app-protocol.test.mjs` validates the NAMESPACE only; vault-1 integration tests assert that cross-tenant calls without a valid lease return 401 regardless of `app_protocol` value |
+
+### 13.7 Summary
+
+| Property | Threat scope | Adversary boundary | Defense |
+|---|---|---|---|
+| §13.7.1 disclosure-per-tenant | One tenant's attestation chain | Cross-tenant peer enumeration | Router-table dispatch + per-tenant TrustStore DO |
+| §13.7.2 silence-per-tenant | One tenant's chain integrity | Workerd termination as silencing | DO storage persistence + per-tenant chain ownership |
+| §13.7.3 cluster-master = all-cluster-tier | All cluster-tier tenants | Operator-master compromise | Service-tier separation (operator-declared) |
+| §13.7.4 supervisor = catastrophic | All tenants on that supervisor | Supervisor compromise | Explicit non-defense; operator opsec |
+| §13.7.5 app_protocol ≠ auth | Cross-tenant access control | Operator misconfiguration | Signet leases + per-tenant scopes (ADR-0007) |
+
+**Related:**
+- ADR-0030 — the substrate decision this defends
+- ADR-0030 §A1-A5 — the five-property decision tree
+- ADR-0013 — V8 slice-grant inner ring this preserves
+- ADR-0021 — per-bundle vault DO instances inside each per-tenant workerd
+- §13.2 — original silence-is-evidence invariant (now scoped per-tenant)
+- §9 — disclosure endpoint (now per-tenant dispatched)
+- Beads: `cloister-f289c8` (epic), `cloister-0ffb3f` (vault-1 tests against §13.7.1+.2+.4), `cloister-0f144c` (router-table tests against §13.7.1+.5), `cloister-0f60a8` (secrets tests against §13.7.3), `cloister-0ecb6c` (compose-emitter tests against §13.7.4), `cloister-0fa3d7` (app-protocol-validator tests against §13.7.5)
+
+
 ## 15. Trust-anchor-helper attack surface (cloister-99165e / ADR-0019)
 
 Added 2026-05-12 by adversarial-cycle 2026-05-12 (see
