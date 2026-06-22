@@ -169,6 +169,17 @@ export function matchTenant(
 
 export class TenantDispatchRoute implements EdgeRoute {
   private readonly table: CompiledTable;
+  /**
+   * Bindings already warned about. Per cloister-9339c0 (C3 of adversarial
+   * cycle 2026-06-22 / threat-model §13.7.6): the unwired-binding emit
+   * used to fire on EVERY request, plus echoed `row.name` in plaintext.
+   * A log-aggregator-tier observer could then enumerate the tenant table
+   * by probing `/t/<guess>` against a deployment with any unwired binding.
+   * Now: one emit per (binding) per route lifetime — that's all an operator
+   * needs for triage, and the binding name is the manifest-static join key
+   * (not a per-request oracle). Tenant name is elided from the emit.
+   */
+  private readonly warnedBindings = new Set<string>();
 
   constructor(spec: TenantDispatchSpec) {
     this.table = compileDispatchTable(spec);
@@ -205,10 +216,23 @@ export class TenantDispatchRoute implements EdgeRoute {
       // — keeps the constant-time-404 invariant intact even under
       // misconfiguration. The misconfig surfaces in logs, not in the
       // response shape.
-      console.warn(
-        `tenant-dispatch: binding ${JSON.stringify(row.binding)} for tenant ` +
-          `${JSON.stringify(row.name)} is not bound (env[${row.binding}] is ${typeof fetcher})`,
-      );
+      //
+      // Throttle + redact per cloister-9339c0 (C3 / §13.7.6): one structured
+      // emit per (binding) over route lifetime, tenant name elided. The
+      // operator looks the binding up in cluster.toml's [[tenants]] list
+      // to find the misconfigured row; row.name in the log would only
+      // duplicate that information AND let a log-aggregator-tier observer
+      // enumerate the tenant table by request-driven probing.
+      if (!this.warnedBindings.has(row.binding)) {
+        this.warnedBindings.add(row.binding);
+        // eslint-disable-next-line no-console -- intentional structured emit
+        console.warn(JSON.stringify({
+          event:   "tenant_dispatch.unwired_binding",
+          binding: row.binding,
+          env_kind: typeof fetcher,
+          bead:    "cloister-9339c0",
+        }));
+      }
       return notFoundResponse();
     }
 

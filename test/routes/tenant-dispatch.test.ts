@@ -286,6 +286,83 @@ describe("TenantDispatchRoute: end-to-end", () => {
   });
 });
 
+// ── cloister-9339c0 (C3 / §13.7.6): unwired-binding emit is throttled + redacted ─
+
+describe("§13.7.6 contract: unwired-binding warn does not enumerate tenants (cloister-9339c0)", () => {
+  it("emit fires AT MOST ONCE per binding over route lifetime", async () => {
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+    ]));
+    const warnCalls: unknown[] = [];
+    const orig = console.warn;
+    console.warn = ((...args: unknown[]) => { warnCalls.push(args); });
+    try {
+      for (let i = 0; i < 5; i++) {
+        await route.handle(makeRequest("https://alice.example/x"), {} as Env);
+      }
+    } finally {
+      console.warn = orig;
+    }
+    // Five misconfigured-tenant probes → exactly one emit. Repeated probes
+    // can no longer enumerate the tenant table via log channel.
+    expect(warnCalls.length).toBe(1);
+  });
+
+  it("emit is structured JSON and OMITS the tenant name (only binding leaks, deploy-static)", async () => {
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE_SECRET_NAME" },
+    ]));
+    const warnArgs: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: string) => { warnArgs.push(arg); });
+    try {
+      await route.handle(makeRequest("https://alice.example/x"), {} as Env);
+    } finally {
+      console.warn = orig;
+    }
+    expect(warnArgs.length).toBe(1);
+    const emit = JSON.parse(warnArgs[0]!);
+    expect(emit.event).toBe("tenant_dispatch.unwired_binding");
+    expect(emit.binding).toBe("T_ALICE_SECRET_NAME");
+    expect(emit.bead).toBe("cloister-9339c0");
+    // CRITICAL: tenant row.name MUST NOT appear in the emit payload.
+    // The binding name above is deliberately distinct from "alice" so a
+    // substring search on the serialized JSON would catch any leak.
+    expect(warnArgs[0]).not.toContain("alice");
+    // No `name` field in the payload (defense against future regression
+    // where someone re-adds row.name as a "for ops triage" convenience).
+    expect(emit.name).toBeUndefined();
+    expect(emit.tenant).toBeUndefined();
+  });
+
+  it("distinct bindings each get their own one-shot emit (still O(N) tenants over process lifetime)", async () => {
+    const route = new TenantDispatchRoute(makeSpec([
+      { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+      { name: "bob",   mode: "sni", matchValue: "bob.example",   binding: "T_BOB" },
+    ]));
+    const warnCalls: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: string) => { warnCalls.push(arg); });
+    try {
+      // Two probes per tenant; expect 2 distinct one-shot emits.
+      await route.handle(makeRequest("https://alice.example/x"), {} as Env);
+      await route.handle(makeRequest("https://alice.example/x"), {} as Env);
+      await route.handle(makeRequest("https://bob.example/x"),   {} as Env);
+      await route.handle(makeRequest("https://bob.example/x"),   {} as Env);
+    } finally {
+      console.warn = orig;
+    }
+    expect(warnCalls.length).toBe(2);
+    const bindings = warnCalls.map((s) => JSON.parse(s).binding).sort();
+    expect(bindings).toEqual(["T_ALICE", "T_BOB"]);
+    // Tenant names still absent.
+    for (const arg of warnCalls) {
+      expect(arg).not.toContain("alice");
+      expect(arg).not.toContain("bob");
+    }
+  });
+});
+
 // ── §13.7.5 contract: app_protocol labels are NOT authorization ──────────
 
 describe("§13.7.5 contract: dispatch does not gate access (labels ≠ auth)", () => {
