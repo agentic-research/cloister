@@ -287,7 +287,64 @@ struct Route {
     # defaults to `"router"` for back-compat with single-bundle deploys.
     # Per cloister-6f06cc / X-3 cluster.
     vaultProxy              @11 :VaultProxySpec;
+
+    # Per-tenant dispatch route (ADR-0030 §A2 / cloister-0f144c).
+    # Routes inbound requests to the matching per-tenant workerd via a
+    # service-binding Fetcher declared in config.capnp. Two match
+    # modes (SNI + path-prefix) — operator picks per tenant in the
+    # routing table.
+    #
+    # The route is the entry-point for multi-tenant deployments; lease
+    # verification still happens BEFORE dispatch (the per-tenant scope
+    # is part of lease verification per ADR-0007). Unknown tenant
+    # collapses into a constant-time 404 per threat-model §13.7.1 (no
+    # peer-existence oracle across tenants).
+    tenantDispatch          @12 :TenantDispatchSpec;
   }
+}
+
+# ── TenantDispatchSpec (ADR-0030 §A2 / cloister-0f144c) ──────────────────
+#
+# Per-tenant dispatch table for the multi-tenant router. Each entry
+# names a tenant + match mode + match value + service binding to
+# forward to. The router does O(1) SNI hash-table lookup + first-match
+# path-prefix scan; mixed mode is permitted (different tenants may use
+# different modes within the same table).
+#
+# Operator declares the table in cluster.toml / cluster.capnp; the
+# corresponding service bindings are declared in config.capnp /
+# wrangler.toml (the standard cloister convention for Fetcher bindings
+# to sibling Workers).
+
+struct TenantDispatchSpec {
+  # Table rows. First-match-wins (matters for path-prefix; SNI uniqueness
+  # is asserted at instantiation).
+  tenants @0 :List(TenantDispatchRow);
+}
+
+struct TenantDispatchRow {
+  # Tenant identifier — must satisfy the kek-scope.ts tenantName
+  # validator (a-z / 0-9 / hyphen / dot) so it can serve as the HKDF
+  # info segment in cluster-tier KEK derivation (ADR-0030 §A3).
+  name @0 :Text;
+
+  # Match mode. Empty / unknown rejected at instantiation.
+  #   "sni"         — exact host-header match against `matchValue`
+  #   "path-prefix" — pathname starts-with match against `matchValue`;
+  #                   the prefix is STRIPPED before forwarding so the
+  #                   tenant sees the inner path
+  mode @1 :Text;
+
+  # Match value — interpretation depends on `mode`.
+  #   For "sni":         the hostname (e.g. "alice.cluster.example.com")
+  #   For "path-prefix": the path prefix (e.g. "/t/alice")
+  matchValue @2 :Text;
+
+  # Service binding name (Fetcher) to forward the request to. Must be
+  # declared in config.capnp / wrangler.toml. The runtime calls
+  # `env[binding].fetch(request)` after stripping the prefix (path-prefix
+  # mode) or as-is (sni mode).
+  binding @3 :Text;
 }
 
 # ── VaultProxySpec: per-route config for `vaultProxy` Route.kind ──────────

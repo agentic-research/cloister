@@ -35,6 +35,7 @@ import { OciRegistryRoute } from "../routes/oci-registry.js";
 import { WellKnownMcpRegistryRoute } from "../routes/well-known-mcp-registry.js";
 import { CaBundleRoute } from "../routes/ca-bundle.js";
 import { VaultProxyRoute } from "../routes/vault-proxy-route.js";
+import { TenantDispatchRoute } from "../routes/tenant-dispatch.js";
 import { consoleMetricEmitter, consoleReceiptEmitter } from "../routes/vault-proxy.js";
 import { buildServiceRegistry } from "./vault-proxy-services.js";
 import { DurableObjectToolBackend } from "./backends/durable-object.js";
@@ -202,6 +203,16 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
       metrics:      consoleMetricEmitter(),
       bundleIdName: k.vaultProxy.bundleIdName,
     });
+  }
+  if ("tenantDispatch" in k) {
+    // Per-tenant dispatch route — ADR-0030 §A2 / cloister-0f144c.
+    // Compiles the routing table at instantiation; validation throws
+    // on operator errors (empty fields, unknown mode, duplicate name,
+    // duplicate SNI matchValue). Lease verification happens BEFORE
+    // dispatch via the lease middleware on individual routes inside
+    // each tenant's workerd. Unknown tenant → constant-time 404 per
+    // threat-model §13.7.1.
+    return new TenantDispatchRoute(k.tenantDispatch);
   }
   // Exhaustiveness: kind is a discriminated union, so this is unreachable.
   const _exhaustive: never = k;

@@ -210,7 +210,19 @@ export type RouteKind =
    *
    * See `src/routes/vault-proxy-route.ts`.
    */
-  | { vaultProxy:              VaultProxySpec };
+  | { vaultProxy:              VaultProxySpec }
+  /**
+   * Per-tenant dispatch — routes inbound requests to the matching
+   * per-tenant workerd via a service-binding Fetcher. Two match modes
+   * (SNI / path-prefix) — operator picks per tenant in the table.
+   *
+   * Lease verification still happens BEFORE dispatch (the per-tenant
+   * scope is part of lease verification per ADR-0007). Unknown tenant
+   * collapses into a constant-time 404 per threat-model §13.7.1.
+   *
+   * See `src/routes/tenant-dispatch.ts`. ADR-0030 §A2 / cloister-0f144c.
+   */
+  | { tenantDispatch:          TenantDispatchSpec };
 
 /**
  * Per-route config for the `vaultProxy` Route.kind. Mirror of
@@ -225,6 +237,35 @@ export type RouteKind =
  */
 export interface VaultProxySpec {
   bundleIdName: string;
+}
+
+/**
+ * Per-tenant dispatch table for the multi-tenant router (ADR-0030 §A2
+ * / cloister-0f144c). Mirrors `manifest/cloister.capnp:TenantDispatchSpec`.
+ *
+ * The router does O(1) SNI hash-table lookup + first-match path-prefix
+ * scan; mixed mode is permitted (different tenants may use different
+ * modes within the same table).
+ */
+export interface TenantDispatchSpec {
+  readonly tenants: readonly TenantDispatchRow[];
+}
+
+/**
+ * One row in the per-tenant dispatch table.
+ *
+ * `name` — tenant identifier; must satisfy `vault/src/kek-scope.ts`
+ *          tenantName validator (a-z / 0-9 / hyphen / dot).
+ * `mode` — either `"sni"` (exact host-header match) or
+ *          `"path-prefix"` (prefix match, prefix stripped before forward).
+ * `matchValue` — interpretation depends on `mode`.
+ * `binding` — service binding name (Fetcher) declared in config.capnp.
+ */
+export interface TenantDispatchRow {
+  readonly name: string;
+  readonly mode: string;
+  readonly matchValue: string;
+  readonly binding: string;
 }
 
 export interface McpRouteSpec {

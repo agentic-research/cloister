@@ -542,6 +542,11 @@ struct Route {
     # `cloister/credential-isolation/v1` route. Sentinel `path`; handler
     # matches `/vault/proxy/<service>/<rest...>` internally.
     vaultProxy              @11 :VaultProxySpec;
+
+    # Per-tenant dispatch route (ADR-0030 §A2 / cloister-0f144c).
+    # Mirrors manifest/cloister.capnp's TenantDispatchSpec; see that
+    # file for the operator-facing semantics.
+    tenantDispatch          @12 :TenantDispatchSpec;
   }
 }
 
@@ -550,6 +555,21 @@ struct VaultProxySpec {
   # Logical bundle name passed to `env.VAULT_STORE.idFromName(...)`.
   # Empty → defaults to "router".
   bundleIdName @0 :Text;
+}
+
+# ── TenantDispatchSpec (ADR-0030 §A2 / cloister-0f144c) ──────────────────
+# Mirrors manifest/cloister.capnp's TenantDispatchSpec verbatim — the
+# cluster manifest carries the same routing-table shape so the emitter
+# can lift it into the generated cloister.capnp.
+struct TenantDispatchSpec {
+  tenants @0 :List(TenantDispatchRow);
+}
+
+struct TenantDispatchRow {
+  name       @0 :Text;
+  mode       @1 :Text;
+  matchValue @2 :Text;
+  binding    @3 :Text;
 }
 
 # ── McpRouteSpec: ToolBackend dispatch layer ──────────────────────────────
