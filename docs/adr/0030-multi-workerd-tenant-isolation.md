@@ -1,0 +1,334 @@
+---
+title: "ADR-0030: Multi-workerd substrate — process-level tenant isolation beyond V8 boundaries"
+status: Proposed (2026-06-21) — substrate-level direction; implementation lands incrementally, starting with vault per the cloister-153b18 epic
+date: 2026-06-21
+tags: [substrate, isolation, multi-tenancy, workerd, vault, deployment, networking]
+threat_model: docs/security/threat-model.md
+relates_to:
+  - 0007-interlace-substrate.md
+  - 0009-compute-substrate-portability.md
+  - 0010-vault-and-bundle-clusters.md
+  - 0011-hypervisor-bundle-boundary.md
+  - 0013-slice-grant-enforcement.md
+  - 0018-notme-co-location.md
+  - 0021-per-bundle-vault-instances.md
+  - 0024-credential-isolation-capability.md
+---
+
+## Context
+
+ADR-0013 ratified the slice-grant enforcement model: V8 isolate
+boundary + service-binding-as-syscall, with cross-bundle isolation
+sitting at the binding layer. ADR-0021 went one rung deeper:
+per-bundle vault DO instances so SQLite storage is also separated.
+The result is **multi-tenancy at the V8-isolate granularity** — N
+isolates inside one workerd process, with the substrate refusing
+cross-isolate reads through anything other than declared service
+bindings.
+
+But the **workerd process itself is shared**. Every tenant on the
+same workerd binary inherits:
+
+- The same kernel namespace, the same file-descriptor table, the
+  same network namespace, the same `/dev`.
+- The same workerd binary version — a workerd-level CVE compromises
+  every tenant on that process, not just the bundle that triggered
+  it.
+- The same V8 build — a V8 sandbox escape that breaks the isolate
+  boundary breaks ALL isolates in the process.
+- The same process-level resources — file handles, sockets, signal
+  handlers.
+
+ADR-0013's slice-grant claim is **load-bearing at the V8 layer and
+nowhere else**. The outer ring (workerd process + kernel + V8 binary)
+is implicitly trusted by every tenant. For deployments where
+tenants are mutually-distrusting peers, that implicit trust is the
+gap.
+
+The cred-iso/v2 disposition tracker (`cloister-153b18`, codified
+2026-06-19) gestured at a related-but-narrower direction: Path 4 —
+"nono sandbox wraps workerd, kernel-level outer-ring." That path
+re-uses one workerd and adds a sandbox AROUND it. This ADR goes
+further: **multiple workerd processes**, one per tenant, eliminating
+the shared-binary surface entirely.
+
+The trigger to ratify this now is operational, not theoretical: the
+substrate's published security claim ("a compromised bundle cannot
+read another tenant's vault") is binding only as far as V8's
+sandbox holds. Every published V8 0-day moves the goalposts. A
+multi-workerd shape lets us define a threat model in which a V8
+escape is **not catastrophic** because the blast radius is one
+tenant's workerd.
+
+## Decision
+
+Introduce a **multi-workerd substrate** with four load-bearing
+properties:
+
+### D1 — One workerd process per tenant (when isolated)
+
+The substrate gains a deployment shape where each tenant runs in
+its own `workerd` process. A compromised V8 isolate cannot reach
+another tenant's process address space, file descriptors, or
+sockets — process-level isolation provided by the kernel, not by
+V8.
+
+This **does not deprecate ADR-0013**. V8 isolate boundaries still
+matter inside each per-tenant workerd, for bundles sharing the
+same tenant. Slice-grant enforcement is now **two-layered**:
+
+  - **Outer (this ADR):** process-per-tenant. Kernel-enforced.
+  - **Inner (ADR-0013):** isolate-per-bundle within a tenant's
+    workerd. V8-enforced.
+
+The two compose: a bundle inside tenant T1's workerd cannot read
+bundle 2's heap inside T1 (V8 protects), and tenant T1's workerd
+cannot read tenant T2's vault DO storage (kernel protects).
+
+### D2 — Polymorphic tenant boundary
+
+The substrate does NOT pre-decide what counts as a tenant. Three
+expression modes are first-class, and a deployment may use any one
+(or compose them):
+
+| Mode | Boundary | When to use |
+|---|---|---|
+| **Per-peer** | One workerd per authenticated signet-identity peer (`subject_fp`) | Strongest isolation; highest process count. Right when peers are mutually-distrusting (e.g. agent constellations across orgs). |
+| **Per-bundle** | One workerd per `Bundle.name` in the manifest | Coarser; reuses ADR-0021's per-bundle vault DO seam. Right when bundles ARE the trust boundary and peers within a bundle are trusted. |
+| **Per-operator-declared** | A new `[[tenants]]` table in `cluster.toml` declares the boundary explicitly | Operator decides the granularity per deployment. Right for hybrid models — see D4. |
+
+The mechanism (workerd-process-per-tenant) is uniform; the
+**definition of tenant** is configurable. Implementation must keep
+the three modes expressible from the same substrate primitives.
+
+### D3 — Typed cross-tenant edges (Istio-AppProtocol pattern)
+
+Cross-tenant calls are **first-class**, not deferred. The substrate
+does not invent a new network plumbing layer — workerds reach each
+other over whatever the deployment provides (loopback HTTP for
+single-host pods, UDS for tightly-co-located processes,
+CF-tunnel/WARP for off-platform, real network for distributed
+deployments). The substrate is intentionally **not** prescribing the
+transport.
+
+What the substrate DOES add is a **network-type** label per
+cross-tenant edge, modeled on Istio's `AppProtocol` annotation. The
+label classifies the traffic semantically — the substrate uses it
+for routing, observability, and policy enforcement; the underlying
+transport is whatever the operator wires.
+
+Initial label set (extensible; see Open Questions):
+
+```
+app_protocol = "http" | "http2" | "grpc" | "tcp" | "tls"
+             | "mcp-jsonrpc" | "interlace-capnp" | "capnp-uds"
+```
+
+The substrate-specific labels (`mcp-jsonrpc`, `interlace-capnp`,
+`capnp-uds`) are first-class: they encode the protocol the substrate
+already understands and routes natively. Generic labels (`http`,
+`grpc`, etc.) are for tenants that publish non-MCP / non-Interlace
+surfaces (`cloister-6fc72e`).
+
+**Explicitly excluded:** raptorq from `ley-line`. raptorq is a
+UDP-based reliable transport; the substrate adopts the IDEA of
+typed edges but not the specific transport. The substrate stays
+transport-agnostic.
+
+### D4 — Vault first, hybrid model preserved
+
+The first concrete migration is the **vault DO**. Rationale:
+
+- Vault is the load-bearing trust boundary in cred-iso/v1
+  (ADR-0024). A V8 escape that reaches one tenant's vault reaches
+  every other tenant's credentials on the same workerd.
+- ADR-0021 already gave each bundle its own DO INSTANCE. The next
+  step is each tenant's vault DO living in its own WORKERD PROCESS.
+- The vault wire (`/vault/proxy/<service>/<upstream-path>` per
+  ADR-0024) is small and well-tested; the migration touches a
+  bounded surface.
+
+**Hybrid model.** Some bundles SHOULD remain co-located even in a
+multi-workerd world — notably trusted-tier identity (notme), where
+co-location with the router gains lease-verification latency that
+matters on every authenticated request, and the trust boundary
+between notme and router is intentionally shared. The two co-locate
+decision beads (`cloister-db99cd` for notme, `cloister-18f456` for
+mache) stay open under this ADR — they become questions about
+**which tenants share a workerd** rather than "consolidate vs
+split." Operator chooses per deployment.
+
+This means the substrate must support:
+
+- `tenant.workerd_id = "<process-name>"` — operator names which
+  workerd hosts the tenant.
+- Multiple tenants on the same workerd (the hybrid case): they
+  share process resources but get separate vault DOs (ADR-0021
+  still applies).
+- One tenant per workerd (the isolated case): the strict shape this
+  ADR adds.
+
+## Consequences
+
+### Manifest changes
+
+- New `[[tenants]]` table in `cluster.toml`:
+  ```toml
+  [[tenants]]
+  name = "alice"               # operator-chosen
+  mode = "per-peer"            # | "per-bundle" | "explicit"
+  workerd_id = "alice-vault"   # workerd process name; can be
+                               # shared across tenants in hybrid mode
+  ```
+- New `[[edges]]` table for cross-tenant routing:
+  ```toml
+  [[edges]]
+  from = "alice"
+  to = "shared-mcp"
+  app_protocol = "mcp-jsonrpc"
+  transport = "loopback-http"  # operator-specified plumbing
+  ```
+- Schema changes land in `manifest/cluster.capnp` (append-only
+  ordinals, per ADR-0004).
+
+### Process supervisor
+
+The substrate gains a **per-tenant workerd supervisor**. v1
+constraints:
+
+- Lifecycle: start / health-check / stop / restart per workerd.
+- Resource limits: per-workerd CPU/memory caps (kernel-enforced).
+- Crash isolation: one workerd crashing does NOT cascade.
+- Logging: per-workerd structured logs; tenant ID is the
+  correlation key.
+
+Concrete choice between systemd unit-per-workerd, supervisord,
+docker-compose `services:`, or a cloister-owned supervisor is
+**deferred to the implementation ADR** (`cloister-153b18` epic
+output). This ADR ratifies the requirement, not the choice.
+
+### DO state moves with the workerd
+
+Each per-tenant workerd owns its own DO storage (per workerd, per
+ADR-0007 + 0010 + 0021). Migrating a tenant from "shared workerd"
+to "own workerd" requires moving the DO's SQLite file. The
+migration is a one-time operator action, not a substrate
+auto-migration in v1.
+
+### Substrate-property lint gains a property
+
+`cloister-ac30e7` (substrate-property lint for workerd-bundle
+Workers) extends with a new gate: **workerd-process boundary
+matches tenant boundary in the manifest**. If `cluster.toml`
+declares tenant T1 with `workerd_id = "alice"` and the generated
+workerd config puts T1's bundles in a different workerd, the lint
+fails.
+
+### Routing layer
+
+The router (today `cloister-router`) becomes **a router per
+deployment, not per tenant**. It dispatches inbound traffic to the
+right per-tenant workerd based on:
+
+- SNI (for TLS-terminating deployments)
+- Path-prefix (for HTTP-routing deployments)
+- A new `routes_to_tenant` field in the manifest's route table
+
+The router workerd itself may host trusted-tier bundles (notme,
+TrustStore) under the hybrid model.
+
+### Threat model update
+
+Threat-model §13 (silence-is-evidence) extends to a new property:
+**tenant T1's workerd terminating does NOT silence T1's attestation
+ledger**, because T1's TrustStore DO lives in T1's workerd. The
+disclosure endpoint (ADR-0007 §discovery) becomes per-tenant
+dispatched.
+
+### Operational cost
+
+- Image size grows: each tenant carries a workerd binary + its
+  bundles. Mitigation: shared base layer, per-tenant overlay only
+  carries bundle code + state.
+- Memory footprint grows: each workerd is ~50-100MB resident
+  baseline. N tenants = N × baseline. Not free; not catastrophic.
+- Cold-start latency: per-tenant workerd cold start is independent.
+  Hot path is unchanged.
+
+## What this is NOT
+
+- **NOT a network-layer rewrite.** No new transport. The substrate
+  stays plumbing-agnostic; `app_protocol` labels are metadata, not
+  code. raptorq from `ley-line` is explicitly out of scope.
+- **NOT a deprecation of ADR-0013.** V8 isolate boundaries remain
+  load-bearing inside each per-tenant workerd. This ADR adds an
+  OUTER ring; the inner ring stays.
+- **NOT a replacement for ADR-0021.** Per-bundle vault DO instances
+  remain the bundle-level seam. This ADR's per-tenant workerd is
+  the tenant-level seam ABOVE that.
+- **NOT a forced-multi-workerd substrate.** Hybrid model means an
+  operator may run everything in one workerd (the current shape)
+  and that remains a valid deployment. Multi-workerd is opt-in via
+  the `[[tenants]]` declaration.
+- **NOT a per-request workerd spawn.** Workerds are long-lived per
+  tenant; we are not modeling FaaS-style cold spawn per request.
+
+## Open questions (to be resolved during implementation)
+
+1. **Process supervisor choice.** systemd / supervisord /
+   docker-compose / cloister-owned. Deferred to `cloister-153b18`
+   epic. Constraint: the choice must work both for cloister-on-CF
+   (where workers are CF-managed) and cloister-self-hosted (where
+   workerd is a process).
+
+2. **Routing fabric.** SNI vs path-prefix vs both. Likely both,
+   operator-configurable. The router needs a table.
+
+3. **Cross-workerd shared secrets.** Today `VAULT_KEK_SECRET` (now
+   ADR-0014 URL-spec resolver) is workerd-binding-scoped. With N
+   workerds, each needs its own KEK source — and either each KEK
+   must derive from a cluster-level root (HKDF, per ADR-0010's
+   original framing) or be operator-provisioned independently per
+   tenant. Resolve in the implementation ADR.
+
+4. **app_protocol extensibility.** The initial label set is finite.
+   How do new labels get added — operator-extensible or
+   substrate-controlled? Lean substrate-controlled v1 to avoid
+   sprawl; revisit if a real third-party tenant needs a new label.
+
+5. **Hybrid-mode density.** How many tenants can share a workerd
+   while still being meaningful? Probably 1 (strict isolation) or
+   "trusted-tier only" (notme + router) or "all in one" (the
+   current shape). Operator decides; substrate enforces what's
+   declared.
+
+## Tracking
+
+- **Epic:** `cloister-153b18` (cred-iso/v2 disposition tracker,
+  reframed 2026-06-21 from "nono-proxy credential-injection layer"
+  to "multi-workerd substrate, vault first").
+- **Co-locate decisions stay open:**
+  `cloister-db99cd` (notme), `cloister-18f456` (mache) — both
+  become "which tenants share which workerd" questions under the
+  hybrid model.
+- **Substrate-property lint extension:** `cloister-ac30e7` gains
+  the new workerd-boundary property when this ADR's implementation
+  lands.
+- **Threat-model §13 update:** required before the first multi-
+  workerd deployment.
+
+## References
+
+- ADR-0007 — Interlace substrate (per-actor lease + attestation
+  semantics; per-tenant workerd is a natural extension of per-actor
+  trust).
+- ADR-0013 — Slice-grant enforcement (the inner ring this ADR
+  preserves; the outer ring this ADR adds).
+- ADR-0021 — Per-bundle vault DO instances (the seam this ADR
+  builds atop).
+- ADR-0024 — `cloister/credential-isolation/v1` capability (the
+  first concrete migration target).
+- `cloister-153b18` — cred-iso/v2 disposition; reframed by this ADR
+  as the implementation epic.
+- Istio AppProtocol — the labeling pattern adopted for cross-tenant
+  edges. See `istio.io/docs/ops/configuration/traffic-management/protocol-selection`.
