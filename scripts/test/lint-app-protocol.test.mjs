@@ -159,7 +159,12 @@ test("collectViolations: surfaces each violating edge with from/to/value", () =>
 // ── Integration: invoke as subprocess against synthetic cluster.ts ───────
 
 function spawnLint(envOverride) {
-  return spawnSync(process.execPath, [LINT_SCRIPT], {
+  // Spawn via `pnpm exec tsx` (not plain `node`) because the lint script
+  // dynamic-imports cluster.ts at runtime. Plain node can't load .ts
+  // files; tsx wraps the loader to handle them. Same pattern as
+  // lint-recipes.test.mjs (cloister-8e40ad fix). The Taskfile invocation
+  // already uses `pnpm exec tsx`; the test must match.
+  return spawnSync("pnpm", ["exec", "tsx", LINT_SCRIPT], {
     env: { ...process.env, ...envOverride },
     encoding: "utf-8",
   });
