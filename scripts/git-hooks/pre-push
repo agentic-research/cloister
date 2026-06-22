@@ -1,65 +1,17 @@
-#!/usr/bin/env bash
-# pre-push — run the same CI gate that GitHub Actions runs, locally,
-# before allowing the push.
+#!/bin/sh
+# scripts/git-hooks/pre-push — runs `task pre-push` to catch CI failures before push.
 #
-# Install:
-#   ln -s ../../scripts/git-hooks/pre-push .git/hooks/pre-push
-#   # OR copy:
-#   cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Installed into `.git/hooks/pre-push` by `task install-hooks`.
+# Per cloister-8e40ad — preventing the "task lint green locally but
+# CI red on push" trap caused by Taskfile mtime caching.
 #
-# Bypass:
-#   git push --no-verify
+# To bypass once (e.g. emergency push), use: git push --no-verify
 #
-# Why exists: the CI workflow at `.github/workflows/ci.yml` runs `task lint`
-# (the PR gate) followed by `task verify` (the main-push gate). Both must
-# pass for a push to land cleanly. Running them locally before pushing
-# catches the failure on dev hardware in ~10s instead of waiting for CI.
-#
-# This hook mirrors `task ci` — that target exists for explicit invocation;
-# this script wires it to the push event for the forgetful (everyone).
+# The --force flag below bypasses Taskfile mtime caching, which can
+# silently mask failures when sources haven't changed but the test
+# logic did (the specific bug that broke CI multiple times historically).
 
-set -euo pipefail
-
-# Skip if pushing only tags / deletions / etc.
-push_has_commits=false
-while read -r local_ref local_sha remote_ref remote_sha; do
-  if [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
-    push_has_commits=true
-  fi
-done
-
-if ! $push_has_commits; then
-  exit 0
-fi
-
-# Detect `task` availability — give a helpful message if missing.
-if ! command -v task >/dev/null 2>&1; then
-  echo "pre-push: 'task' not found on PATH."
-  echo "          Install go-task (https://taskfile.dev) or skip with --no-verify."
-  exit 1
-fi
-
-echo "pre-push: running 'task ci' (mirrors .github/workflows/ci.yml)..."
-
+set -e
 cd "$(git rev-parse --show-toplevel)"
-
-if ! task ci; then
-  cat >&2 <<'EOF'
-
-pre-push: FAILED — 'task ci' did not pass.
-
-This is the same gate GitHub Actions runs on push. If you push now, CI
-will fail and the push will be visible to the project as a broken main.
-
-To inspect the failure locally:
-  task lint    # the PR gate (fast, ~10s)
-  task verify  # the main-push gate (slower, ~30s)
-
-To bypass intentionally (e.g. emergency hotfix):
-  git push --no-verify
-
-EOF
-  exit 1
-fi
-
-echo "pre-push: OK"
+echo "▸ pre-push: running task pre-push (forces Taskfile cache bypass)..."
+task --force pre-push

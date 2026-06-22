@@ -760,8 +760,26 @@ tasks:
       - task: verify
 
   pre-push:
-    desc: "Pre-push gate — alias for `task ci`. Wire into .git/hooks/pre-push (or just `task pre-push` manually) to catch CI failures before the push, not after."
+    desc: "Pre-push gate — alias for `task ci`. Wire into .git/hooks/pre-push via `task install-hooks` (or run `task pre-push` manually) to catch CI failures before the push, not after."
     deps: [ci]
+
+  install-hooks:
+    desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the pre-push gate fires automatically before every `git push`. The hook itself bypasses Taskfile mtime caching via `task --force pre-push` so test logic changes can't silently slip through when sources haven't visibly changed."
+    cmds:
+      - |
+        set -e
+        HOOK_DIR="$(git rev-parse --git-dir)/hooks"
+        for hook in scripts/git-hooks/*; do
+          name="$(basename "$hook")"
+          target="$HOOK_DIR/$name"
+          if [ -e "$target" ] && [ ! -L "$target" ]; then
+            echo "▸ $target exists and is NOT a symlink — back it up + re-run, or move aside manually."
+            exit 1
+          fi
+          ln -sf "$(pwd)/$hook" "$target"
+          echo "▸ wired $target -> $hook"
+        done
+        echo "▸ done. Hooks fire on next git operation."
 
   smoke:
     desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain
