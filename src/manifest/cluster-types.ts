@@ -56,6 +56,18 @@ export interface Cluster {
    * `scripts/emit-cloister-capnp.mjs:emitCloisterCapnp`.
    */
   gateway:  Gateway;
+  /**
+   * Cross-tenant edge declarations (ADR-0030 §A2 + §A4 /
+   * cloister-0e3004). Each entry names a `from` → `to` tenant pair
+   * and the `app_protocol` label classifying the traffic shape.
+   * Empty array = no cross-tenant edges (single-tenant deployments
+   * are the back-compat default).
+   *
+   * Optional in the TS mirror so pre-ADR-0030 cluster.toml continues
+   * to parse + type-check. When absent, the substrate treats it as
+   * an empty list.
+   */
+  edges?:   readonly EdgeSpec[];
 }
 
 /**
@@ -101,6 +113,76 @@ export interface InputSpec {
    * `internet` ACL. Per cloister-05334b.
    */
   serviceBinding: string;
+  /**
+   * Composable tenancy declaration (ADR-0030 §A5 / cloister-0e3004).
+   * Operator-set fields override the input's server.json
+   * `_meta.art.cloister/v1.tenancy` defaults. All-empty value = inherit
+   * server.json defaults (or "co-located" if the server.json doesn't
+   * declare tenancy either).
+   *
+   * Optional in the TS mirror so pre-ADR-0030 cluster.toml continues to
+   * parse + type-check. When absent, downstream emitters treat it as
+   * an all-empty TenancySpec (the inherit-defaults shape).
+   */
+  tenancy?: TenancySpec;
+}
+
+/**
+ * Composable tenancy declaration (ADR-0030 §A5 / cloister-0e3004).
+ * Mirrors `manifest/cluster.capnp` `TenancySpec` struct.
+ *
+ * Operator's `cluster.toml [inputs.*].tenancy.*` block OVERRIDES the
+ * input's server.json `_meta.art.cloister/v1.tenancy` defaults. Empty
+ * fields inherit from server.json (or substrate defaults if absent).
+ */
+export interface TenancySpec {
+  /**
+   * Tenancy mode:
+   *   - `"co-located"` — share workerd with siblings of same workerdId
+   *   - `"external"`   — own process/container, reached over wire
+   *   - `"per-tenant"` — own workerd per declared tenant (strongest)
+   *   - `""`           — inherit server.json default
+   */
+  mode?: string;
+  /** Workerd process name. Empty = emitter assigns from input name. */
+  workerdId?: string;
+  /**
+   * Trusted-tier hint. True = may carry hypervisor-layer bindings +
+   * co-locate with router workerd. False (or absent) = tool-bundle.
+   * Substrate fails closed: only explicit true grants the tier.
+   */
+  trustedTier?: boolean;
+  /**
+   * Explicit co-tenancy edges. Non-empty asserts these inputs share
+   * a workerd with this one (resolver enforces). Empty = no explicit
+   * co-tenancy beyond `workerdId`.
+   */
+  sharesWorkerdWith?: readonly string[];
+}
+
+/**
+ * Cross-tenant edge declaration (ADR-0030 §A2 + §A4 / cloister-0e3004).
+ * Mirrors `manifest/cluster.capnp` `EdgeSpec` struct.
+ *
+ * Used for routing (§A2) + observability/policy via app_protocol (§A4).
+ * Transport is operator-wired; substrate is intentionally transport-
+ * agnostic (raptorq from ley-line explicitly out of scope per ADR-0030
+ * §A4 / "What this is NOT").
+ */
+export interface EdgeSpec {
+  /** Source tenant — references TenancySpec.workerdId or InputSpec.name. */
+  from: string;
+  /** Destination tenant — same resolution rules. */
+  to: string;
+  /**
+   * Hybrid-namespace label per ADR-0030 §A4:
+   *   - `"art.*"`   — substrate-blessed canonical handling
+   *   - `"x-<v>-*"` — operator-extensible opaque pass-through
+   *   - other shapes rejected by `lint-app-protocol` (cloister-0fa3d7)
+   */
+  appProtocol: string;
+  /** Transport hint (e.g. `"loopback-http"`, `"uds:/path"`). Empty = default. */
+  transport: string;
 }
 
 export interface ClusterMetadata {

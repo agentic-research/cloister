@@ -74,6 +74,18 @@ struct Cluster {
   #
   # Append-only ordinal per ADR-0004.
   gateway  @6 :Gateway;
+  # ── Edges (Phase A of ADR-0030 multi-workerd substrate,
+  # cloister-f289c8 / cloister-0e3004) ──────────────────────────────
+  #
+  # Cross-tenant edge declarations. Each entry names a `from` → `to`
+  # tenant pair and the `app_protocol` label classifying the traffic.
+  # Per ADR-0030 §A2 (router-table) + §A4 (app_protocol namespace).
+  #
+  # Empty list = no cross-tenant edges (single-tenant deployments are
+  # the back-compat default; pre-ADR-0030 cluster.toml has no edges).
+  #
+  # Append-only ordinal per ADR-0004.
+  edges    @7 :List(EdgeSpec);
 }
 
 struct ClusterMetadata {
@@ -368,6 +380,96 @@ struct InputSpec {
   # migration upstream by upstream).
   urlBinding @7 :Text;
   serviceBinding @8 :Text;
+
+  # ── Tenancy declaration (ADR-0030 §A5, cloister-0e3004) ──────────
+  #
+  # Composable tenancy on top of ADR-0026 inputs. Per ADR-0030's
+  # substrate-as-kernel framing, tenancy is one more composition
+  # dimension the matchmaker resolves alongside provides/requires.
+  #
+  # The input's own server.json `_meta.art.cloister/v1.tenancy`
+  # declares the DEFAULT. This field is the OPERATOR OVERRIDE.
+  # Empty struct (all fields empty) = inherit server.json defaults.
+  #
+  # Append-only ordinal per ADR-0004.
+  tenancy @9 :TenancySpec;
+}
+
+# ── TenancySpec (ADR-0030 §A5 / cloister-0e3004) ─────────────────────────
+#
+# Composable tenancy declaration for an InputSpec. Operator-set fields
+# override the input's server.json `_meta.art.cloister/v1.tenancy`
+# defaults; empty fields inherit those defaults.
+#
+# Per ADR-0030's hybrid model: not every input gets its own workerd.
+# Operators declare per-input which workerd hosts it, and the resolver
+# composes those declarations into the workerd-config emitter.
+
+struct TenancySpec {
+  # Tenancy mode under ADR-0030's composition model:
+  #
+  #   "co-located"  — input shares a workerd process with sibling
+  #                   inputs declaring the same workerdId. OSS-launch
+  #                   default; matches today's single-workerd shape.
+  #   "external"    — input runs in its own process / container,
+  #                   reached over an inter-process wire (UDS /
+  #                   loopback HTTP / CF tunnel). Current behavior
+  #                   for Go-native / non-V8 inputs (e.g. mache).
+  #   "per-tenant"  — input gets its own workerd process per declared
+  #                   tenant; strongest isolation under ADR-0030 §D1.
+  #   ""            — empty defaults to the input's server.json
+  #                   `_meta.art.cloister/v1.tenancy.default_mode`
+  #                   (or "co-located" if absent). Validated at
+  #                   resolve time, not compile time.
+  mode @0 :Text;
+
+  # Workerd process name. When mode = "co-located", multiple inputs
+  # sharing this value collapse into one workerd in the emitted
+  # compose YAML. Empty string = emitter assigns a default based on
+  # the input's `name`.
+  workerdId @1 :Text;
+
+  # Trusted-tier hint. True = input may carry hypervisor-layer
+  # bindings (e.g. notme, TrustStore) and co-locate with the cloister-
+  # router workerd. False = tool-bundle Worker subject to ADR-0013
+  # substrate-property lint (cloister-ac30e7).
+  #
+  # Empty cluster.toml override OR explicit false = NOT trusted tier.
+  # The substrate fails closed: only explicit true grants the tier.
+  trustedTier @2 :Bool;
+
+  # Explicit co-tenancy edges. Non-empty list asserts these inputs
+  # are deployed in the same workerd as this one (resolver enforces).
+  # Empty = no explicit co-tenancy constraint beyond `workerdId`.
+  sharesWorkerdWith @3 :List(Text);
+}
+
+# ── EdgeSpec (ADR-0030 §A2 + §A4 / cloister-0e3004) ──────────────────────
+#
+# Cross-tenant edge declaration. The substrate uses these for routing
+# (§A2) and observability/policy classification via app_protocol (§A4);
+# the underlying transport is operator-wired (substrate is intentionally
+# transport-agnostic — see ADR-0030 §A4 "raptorq is out of scope").
+
+struct EdgeSpec {
+  # Source tenant. References either a TenancySpec.workerdId or the
+  # name of an InputSpec whose resolved tenancy.workerdId matches.
+  from @0 :Text;
+
+  # Destination tenant. Same resolution rules as `from`.
+  to @1 :Text;
+
+  # ADR-0030 §A4 hybrid namespace label:
+  #   - "art.*"    : substrate-blessed canonical handling
+  #   - "x-<v>-*"  : operator-extensible opaque pass-through
+  #   - other      : rejected by lint-app-protocol (cloister-0fa3d7)
+  appProtocol @2 :Text;
+
+  # Operator-specified transport hint (e.g. "loopback-http", "uds:/path",
+  # "cf-tunnel"). The substrate doesn't enforce semantics — this is
+  # observability + audit context. Empty string = emitter default
+  # (typically loopback HTTP within the compose).
+  transport @3 :Text;
 }
 
 # ── Route + per-kind specs (Phase 2 of "cloister.capnp as build artifact"
