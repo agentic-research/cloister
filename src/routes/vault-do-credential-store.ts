@@ -55,13 +55,59 @@ export interface VaultDoCredentialStoreDeps {
   bundleIdName: string;
 }
 
+/**
+ * Stable, non-cryptographic short fingerprint of a bundleIdName for
+ * structured-log distinguishability. Per cloister-938b32 (C5 of
+ * adversarial cycle 2026-06-22 / threat-model §13.7.6): the prior emit
+ * dropped `bundleIdName` plaintext into the structured error log on
+ * every decrypt-throw. Under a `VAULT_KEK_TENANT_SCOPED=0→1` rotation
+ * that's a flood of plaintext bundle names visible to log-aggregator-
+ * tier observers.
+ *
+ * FNV-1a 32-bit is sufficient because:
+ *   - The threat is "log reader sees the bundle name in cleartext", not
+ *     "attacker can reverse the hash" — a non-cryptographic stable hash
+ *     is the right tool.
+ *   - Operators with deploy-time access can precompute the same hash
+ *     locally to match a fingerprint back to a known bundle when
+ *     triaging.
+ *   - Synchronous (no `crypto.subtle` await in the error path).
+ */
+function bundleIdFp(name: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * Redact `bundleIdName` if it appears inside an exception message — a
+ * defensive belt-and-suspenders. Stub RPC errors from workerd don't
+ * normally echo our constructor args back at us, but a custom upstream
+ * error path could (e.g. "no DO with id-name 'alice-vault'"). One pass
+ * `replaceAll` covers it without depending on the exact error shape.
+ *
+ * If `bundleIdName` is empty (shouldn't happen — assertSubjectFp-style
+ * guard isn't present at the CredentialStore boundary) the redaction
+ * collapses to the identity function rather than `replaceAll("","X")`
+ * which would explode the string.
+ */
+function redactBundleId(message: string, bundleIdName: string): string {
+  if (bundleIdName.length === 0) return message;
+  return message.split(bundleIdName).join("<bundleIdName>");
+}
+
 export class VaultDoCredentialStore implements CredentialStore {
   private readonly env:          Env;
   private readonly bundleIdName: string;
+  private readonly bundleIdFp:   string;
 
   constructor(deps: VaultDoCredentialStoreDeps) {
     this.env          = deps.env;
     this.bundleIdName = deps.bundleIdName;
+    this.bundleIdFp   = bundleIdFp(deps.bundleIdName);
   }
 
   /**
@@ -106,14 +152,20 @@ export class VaultDoCredentialStore implements CredentialStore {
       const e = err instanceof Error ? err : new Error(String(err));
       // eslint-disable-next-line no-console -- intentional structured emit
       console.error(JSON.stringify({
-        kind:          "error",
-        source:        "cloister/credential-isolation/v1",
-        location:      "VaultDoCredentialStore.forward",
-        bundleIdName:  this.bundleIdName,
+        kind:            "error",
+        source:          "cloister/credential-isolation/v1",
+        location:        "VaultDoCredentialStore.forward",
+        // bundleIdName plaintext omitted per cloister-938b32 (C5 /
+        // §13.7.6). The fingerprint is the deploy-static join key for
+        // operator triage; the plaintext is needless surface for log-
+        // aggregator-tier observers, especially under VAULT_KEK_TENANT_
+        // SCOPED rotation when every old-ciphertext decrypt throws.
+        bundleIdFp:      this.bundleIdFp,
         service,
-        error_class:   e.name,
-        error_message: e.message,
-        bead:          "cloister-6e6bfb",
+        error_class:     e.name,
+        error_message:   redactBundleId(e.message, this.bundleIdName),
+        bead:            "cloister-6e6bfb",
+        c5_bead:         "cloister-938b32",
       }));
       return errorResponse(502, JSON.stringify({ error: "upstream_unavailable" }));
     }

@@ -146,7 +146,7 @@ describe("VaultDoCredentialStore.forward — failure propagation", () => {
     expect(JSON.stringify(body)).not.toContain("DO RPC");
   });
 
-  it("emits a structured console.error capturing the exception class + message on RPC throw (Obs O-OBS-4)", async () => {
+  it("emits a structured console.error capturing the exception class + message on RPC throw (Obs O-OBS-4 + cloister-938b32)", async () => {
     const { ns } = fakeNamespace({ throwWith: new TypeError("DO eviction during fetch") });
     const store = new VaultDoCredentialStore({ env: envWith(ns), bundleIdName: "router" });
     const errs: string[] = [];
@@ -162,11 +162,75 @@ describe("VaultDoCredentialStore.forward — failure propagation", () => {
     expect(parsed.kind).toBe("error");
     expect(parsed.source).toBe("cloister/credential-isolation/v1");
     expect(parsed.location).toBe("VaultDoCredentialStore.forward");
-    expect(parsed.bundleIdName).toBe("router");
+    // cloister-938b32 (C5 / §13.7.6): bundleIdName MUST NOT appear in plaintext.
+    // A stable short fingerprint is emitted instead so operators can match
+    // back to a known bundle by recomputing the same hash locally.
+    expect(parsed.bundleIdName).toBeUndefined();
+    expect(typeof parsed.bundleIdFp).toBe("string");
+    expect(parsed.bundleIdFp).toMatch(/^[0-9a-f]{8}$/);
+    expect(errs[0]).not.toContain("router");
     expect(parsed.service).toBe(TEST_SERVICE);
     expect(parsed.error_class).toBe("TypeError");
     expect(parsed.error_message).toBe("DO eviction during fetch");
     expect(parsed.bead).toBe("cloister-6e6bfb");
+    expect(parsed.c5_bead).toBe("cloister-938b32");
+  });
+
+  it("distinct bundleIdName values produce distinct stable fingerprints (FNV-1a 32-bit)", async () => {
+    // The fingerprint is the join key for operator triage when the
+    // plaintext name is elided. Two stores must NOT collide on the same
+    // fingerprint by accident under any realistic bundle-name choice.
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (line: string) => { errs.push(line); };
+    try {
+      const { ns: nsA } = fakeNamespace({ throwWith: new Error("RPC down") });
+      const { ns: nsB } = fakeNamespace({ throwWith: new Error("RPC down") });
+      const storeA = new VaultDoCredentialStore({ env: envWith(nsA), bundleIdName: "router" });
+      const storeB = new VaultDoCredentialStore({ env: envWith(nsB), bundleIdName: "notme" });
+      await storeA.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+      await storeB.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+    } finally {
+      console.error = orig;
+    }
+    const fpA = JSON.parse(errs[0]!).bundleIdFp;
+    const fpB = JSON.parse(errs[1]!).bundleIdFp;
+    expect(fpA).not.toBe(fpB);
+    // Determinism: same name → same fingerprint across stores.
+    const { ns: nsAprime } = fakeNamespace({ throwWith: new Error("RPC down") });
+    const storeAprime = new VaultDoCredentialStore({ env: envWith(nsAprime), bundleIdName: "router" });
+    const errs2: string[] = [];
+    const orig2 = console.error;
+    console.error = (line: string) => { errs2.push(line); };
+    try {
+      await storeAprime.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+    } finally {
+      console.error = orig2;
+    }
+    expect(JSON.parse(errs2[0]!).bundleIdFp).toBe(fpA);
+  });
+
+  it("redacts bundleIdName from error_message if the upstream error happens to echo it back (defensive)", async () => {
+    // Defensive: stub error paths normally don't include constructor args, but a
+    // future custom upstream could ("no DO with id-name 'router-prod'"). The
+    // redaction guarantees the plaintext doesn't smuggle into error_message.
+    const { ns } = fakeNamespace({
+      throwWith: new Error("no DO instance with id-name 'router-prod' — check binding"),
+    });
+    const store = new VaultDoCredentialStore({ env: envWith(ns), bundleIdName: "router-prod" });
+    const errs: string[] = [];
+    const orig = console.error;
+    console.error = (line: string) => { errs.push(line); };
+    try {
+      await store.forward(TEST_PEER_FP, TEST_SERVICE, TEST_CALLER, new Request("https://x/"));
+    } finally {
+      console.error = orig;
+    }
+    expect(errs.length).toBe(1);
+    const parsed = JSON.parse(errs[0]);
+    expect(parsed.error_message).not.toContain("router-prod");
+    expect(parsed.error_message).toContain("<bundleIdName>");
+    expect(errs[0]).not.toContain("router-prod");
   });
 
   it("structured log captures non-Error throws (string / object / undefined) safely", async () => {
