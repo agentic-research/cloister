@@ -130,6 +130,7 @@ import {
   type SealedCredential,
 } from "../vault/src/crypto.js";
 import { buildKekSource, type KekSource } from "../vault/src/kek-source.js";
+import { buildKekScopeSource } from "../vault/src/kek-scope.js";
 import { RATE_LIMITS, refillBucket, tryConsume } from "../vault/src/rate-bucket.js";
 import { errorResponse } from "./routes/vault-proxy.js";
 
@@ -566,9 +567,36 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
    * helper.
    *
    * Empty / unset throws `KekSourceUnset` with an actionable message.
+   *
+   * ## Tenant-scoped KEK (ADR-0030 §A3 — opt-in via `VAULT_KEK_TENANT_SCOPED=1`)
+   *
+   * When the env var `VAULT_KEK_TENANT_SCOPED` is set to `"1"`, the
+   * resolver wraps the URL-spec loader with `buildKekScopeSource`'s
+   * cluster-scope path: the raw root from the operator's URL spec
+   * gets HKDF-derived per tenant (tenantName = this DO's
+   * `bundleIdName`), so each tenant's vault DO holds a DIFFERENT KEK
+   * even though the operator manages ONE root.
+   *
+   * This is OPT-IN to preserve data-recoverability on existing
+   * deployments: flipping it on changes the derived KEK for every
+   * tenant, making existing encrypted credentials unrecoverable
+   * (different KEK → different AES key → ciphertext won't decrypt).
+   * Operators flipping this on MUST migrate their stored credentials
+   * — that's their explicit decision under threat-model §13.7.3.
+   *
+   * Default (env var absent / not "1"): legacy single-KEK derivation.
+   * The ADR-0030 §D2 polymorphic boundary still works at the DO
+   * INSTANCE level via ADR-0021 `idFromName(bundleIdName)` (different
+   * SQLite storage per tenant); only the KEK is shared. Acceptable for
+   * the OSS-launch default; insufficient for cluster-master-compromise
+   * defense — which is exactly the trade-off threat-model §13.7.3
+   * makes explicit.
    */
   #resolveKekSource(): KekSource {
-    const env = this.env as Env & { VAULT_KEK_SOURCE?: string };
+    const env = this.env as Env & {
+      VAULT_KEK_SOURCE?: string;
+      VAULT_KEK_TENANT_SCOPED?: string;
+    };
     const kekEnv = this.env as unknown as Record<string, unknown>;
     const explicit = typeof env.VAULT_KEK_SOURCE === "string"
       ? env.VAULT_KEK_SOURCE.trim()
@@ -581,6 +609,32 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
           "Dev setup: run `task dev:bootstrap`. " +
           "Production: `wrangler secret put VAULT_KEK_SOURCE` pointing at " +
           "your keystore / KMS / helper endpoint.",
+      );
+    }
+    const tenantScoped = typeof env.VAULT_KEK_TENANT_SCOPED === "string"
+      && env.VAULT_KEK_TENANT_SCOPED.trim() === "1";
+    if (tenantScoped) {
+      // ADR-0030 §A3 cluster-tier KEK: HKDF-derive per tenant from the
+      // operator's root URL spec. Service-tier KEKs (operator-provisioned
+      // per service) are not in scope here — vault-1 only consumes
+      // cluster-tier; service-tier loaders live with the per-service
+      // routes that consume them.
+      //
+      // The tenantName is the DO's id.name (set when the route stub
+      // constructed via `idFromName(bundleIdName)` — ADR-0021 X-3
+      // seam). When `ctx.id.name` is undefined (id created via a
+      // path other than `idFromName`), fall back to "cluster" as the
+      // sentinel tenant — same KEK derivation across all DOs of this
+      // class. Operators flipping VAULT_KEK_TENANT_SCOPED=1 are
+      // expected to construct DOs via idFromName per ADR-0021; this
+      // fallback prevents a misconfig from minting an undecryptable
+      // KEK (cred-iso conformance stays parseable).
+      const tenantName = this.ctx.id.name ?? "cluster";
+      return buildKekScopeSource(
+        { kind: "cluster", tenantName },
+        explicit,
+        new Map(),
+        kekEnv,
       );
     }
     return buildKekSource(explicit, kekEnv);
