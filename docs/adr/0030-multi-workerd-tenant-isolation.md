@@ -1,6 +1,6 @@
 ---
 title: "ADR-0030: Multi-workerd substrate — process-level tenant isolation beyond V8 boundaries"
-status: Proposed (2026-06-21) — substrate-level direction; implementation lands incrementally, starting with vault per the cloister-153b18 epic
+status: Proposed (2026-06-21) — substrate-level direction; implementation lands incrementally, starting with vault per the cloister-f289c8 epic
 date: 2026-06-21
 tags: [substrate, isolation, multi-tenancy, workerd, vault, deployment, networking]
 threat_model: docs/security/threat-model.md
@@ -45,7 +45,7 @@ is implicitly trusted by every tenant. For deployments where
 tenants are mutually-distrusting peers, that implicit trust is the
 gap.
 
-The cred-iso/v2 disposition tracker (`cloister-153b18`, codified
+The cred-iso/v2 disposition tracker (`cloister-f289c8`, codified
 2026-06-19) gestured at a related-but-narrower direction: Path 4 —
 "nono sandbox wraps workerd, kernel-level outer-ring." That path
 re-uses one workerd and adds a sandbox AROUND it. This ADR goes
@@ -204,7 +204,7 @@ constraints:
 
 Concrete choice between systemd unit-per-workerd, supervisord,
 docker-compose `services:`, or a cloister-owned supervisor is
-**deferred to the implementation ADR** (`cloister-153b18` epic
+**deferred to the implementation ADR** (`cloister-f289c8` epic
 output). This ADR ratifies the requirement, not the choice.
 
 ### DO state moves with the workerd
@@ -276,7 +276,7 @@ dispatched.
 ## Open questions (to be resolved during implementation)
 
 1. **Process supervisor choice.** systemd / supervisord /
-   docker-compose / cloister-owned. Deferred to `cloister-153b18`
+   docker-compose / cloister-owned. Deferred to `cloister-f289c8`
    epic. Constraint: the choice must work both for cloister-on-CF
    (where workers are CF-managed) and cloister-self-hosted (where
    workerd is a process).
@@ -304,7 +304,7 @@ dispatched.
 
 ## Tracking
 
-- **Epic:** `cloister-153b18` (cred-iso/v2 disposition tracker,
+- **Epic:** `cloister-f289c8` (cred-iso/v2 disposition tracker,
   reframed 2026-06-21 from "nono-proxy credential-injection layer"
   to "multi-workerd substrate, vault first").
 - **Co-locate decisions stay open:**
@@ -328,7 +328,7 @@ dispatched.
   builds atop).
 - ADR-0024 — `cloister/credential-isolation/v1` capability (the
   first concrete migration target).
-- `cloister-153b18` — cred-iso/v2 disposition; reframed by this ADR
+- `cloister-f289c8` — cred-iso/v2 disposition; reframed by this ADR
   as the implementation epic.
 - Istio AppProtocol — the labeling pattern adopted for cross-tenant
   edges. See `istio.io/docs/ops/configuration/traffic-management/protocol-selection`.

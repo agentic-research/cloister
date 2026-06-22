@@ -29,11 +29,14 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0029** (0001–0028 land). Most ADRs are Accepted;
+  number is **ADR-0032** (0001–0031 land). Most ADRs are Accepted;
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
-  ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028 are
-  Proposed; everything else 0011–0019, 0022–0025 is Accepted.
+  ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
+  ADR-0030 are Proposed; everything else 0011–0019, 0022–0025,
+  0029, 0031 is Accepted. ADR-0030 (2026-06-21) ratifies
+  workerd-process-per-tenant as the substrate direction —
+  `cloister-f289c8` is the implementation epic, vault first.
   ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker); ADR-0024
   specifies the `cloister/credential-isolation/v1` capability under
   the substrate-as-kernel framing; ADR-0025 ships the bidi
