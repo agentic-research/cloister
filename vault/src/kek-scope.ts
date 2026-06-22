@@ -69,22 +69,28 @@ const HKDF_INFO_PREFIX = "cloister/cred-iso/v1/tenant/";
  * independent KEK." This validator prevents an attacker who controls
  * tenantName from constructing collisions via whitespace / encoding
  * tricks — the byte stream that goes into HKDF is constrained.
+ *
+ * The validator detects WHICH rule rejected (for structured logging at
+ * the call site) but the rule kind is NOT returned to the caller —
+ * `validateTenantName` returns boolean. Per cloister-936890 (C4 from
+ * adversarial cycle 2026-06-22), exposing per-rule rejection strings +
+ * echoing the offending name back to the caller is a substring oracle
+ * for any path that lets attacker-controlled bytes reach the validator.
+ * Detailed reason goes to log; caller gets only "valid / invalid."
  */
-function validateTenantName(name: string): string | null {
-  if (typeof name !== "string") return "not a string";
-  if (name.length === 0) return "empty";
-  if (name.length > 253) return "exceeds 253 chars (DNS-style limit)";
+function isValidTenantName(name: unknown): boolean {
+  if (typeof name !== "string") return false;
+  if (name.length === 0) return false;
+  if (name.length > 253) return false;
   for (const ch of name) {
     const isLower = ch >= "a" && ch <= "z";
     const isDigit = ch >= "0" && ch <= "9";
-    if (!(isLower || isDigit || ch === "-" || ch === ".")) {
-      return `disallowed character ${JSON.stringify(ch)} (allowed: a-z, 0-9, -, .)`;
-    }
+    if (!(isLower || isDigit || ch === "-" || ch === ".")) return false;
   }
-  if (name.startsWith(".") || name.endsWith(".")) return "leading/trailing dot";
-  if (name.startsWith("-") || name.endsWith("-")) return "leading/trailing hyphen";
-  if (name.includes("..")) return "doubled dot";
-  return null;
+  if (name.startsWith(".") || name.endsWith(".")) return false;
+  if (name.startsWith("-") || name.endsWith("-")) return false;
+  if (name.includes("..")) return false;
+  return true;
 }
 
 /**
@@ -112,12 +118,12 @@ export async function deriveClusterTenantKek(
   rootKek: string,
   tenantName: string,
 ): Promise<string> {
-  const problem = validateTenantName(tenantName);
-  if (problem !== null) {
-    throw new Error(
-      `kek-scope: cluster-tier tenantName invalid (${problem}): ` +
-        JSON.stringify(tenantName),
-    );
+  if (!isValidTenantName(tenantName)) {
+    // Per cloister-936890 (C4): single message, no rule-detail echo,
+    // no JSON.stringify of the offending name. Operators inspecting
+    // build logs see one canonical error; structured logging at the
+    // call site can capture more detail behind a controlled channel.
+    throw new Error("kek-scope: tenantName failed validation");
   }
   if (typeof rootKek !== "string" || rootKek.length === 0) {
     throw new Error("kek-scope: rootKek must be a non-empty string");

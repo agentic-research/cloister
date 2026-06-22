@@ -251,23 +251,38 @@ describe("TenantDispatchRoute: end-to-end", () => {
     expect(route.match(req)).toBe(true);
     const res = await route.handle(req, env);
     expect(res.status).toBe(404);
-    expect(await res.text()).toBe("Not Found\n");
+    // Body is the 256-byte zero-padded constant-time shape, not the
+    // legacy "Not Found\n" (which was a 10-byte enumeration oracle —
+    // cloister-92e846 / C1 fix).
+    const body = await res.text();
+    expect(body.length).toBe(256);
+    expect(body).toBe("0".repeat(256));
   });
 
-  it("404 body bytes are constant-shape", async () => {
-    // The 404 response carries identical body bytes regardless of why
-    // the dispatch failed (no tenant, binding unwired, etc.). Verified
-    // by comparing the misconfigured-binding 404 to a hand-constructed
-    // not-found response shape.
+  it("404 body bytes are byte-equivalent with disclosure's constantTimeErrorResponse (cloister-92e846 fix)", async () => {
+    // CRITICAL property per threat-model §13.7.1 + §9.4.b: tenant-
+    // dispatch's no-match / no-binding 404 must be BYTE-IDENTICAL to
+    // the disclosure endpoint's 404 so an attacker probing
+    // `/t/<guess>/interlace/peers/<fp>` cannot distinguish
+    // tenant-existence by response length / shape.
+    const { constantTimeErrorResponse } = await import(
+      "../../src/storage/disclosure-cursor.js"
+    );
     const route = new TenantDispatchRoute(makeSpec([
       { name: "alice", mode: "sni", matchValue: "alice.cluster.example", binding: "T_ALICE" },
     ]));
     const env = {} as Env;
-    const res = await route.handle(makeRequest("https://alice.cluster.example/x"), env);
-    expect(res.status).toBe(404);
-    expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
-    expect(res.headers.get("content-length")).toBe(String("Not Found\n".length));
-    expect(res.headers.get("cache-control")).toBe("no-store");
+    const tenantRes = await route.handle(
+      makeRequest("https://alice.cluster.example/x"),
+      env,
+    );
+    const refRes = constantTimeErrorResponse("not_found");
+
+    expect(tenantRes.status).toBe(refRes.status);
+    expect(tenantRes.headers.get("content-type")).toBe(refRes.headers.get("content-type"));
+    expect(tenantRes.headers.get("content-length")).toBe(refRes.headers.get("content-length"));
+    expect(tenantRes.headers.get("cache-control")).toBe(refRes.headers.get("cache-control"));
+    expect(await tenantRes.text()).toBe(await refRes.text());
   });
 });
 

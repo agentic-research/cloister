@@ -496,21 +496,38 @@ function checkInvariant6(cluster, violations) {
       );
     }
     if (!trustedTier && bundle.tier === "hypervisor") {
-      // Non-trusted-tier inputs landing on hypervisor IS allowed (the
-      // back-compat path: rung-3 fallback puts everything in the
-      // gateway). Warn rather than fail — the operator may have
-      // intentionally accepted the trade-off, OR may not have noticed.
+      // Non-trusted-tier input lands on hypervisor bundle. RESOLVED-
+      // workerdId-aware check per cloister-93132f (C2) — fires
+      // regardless of how the input resolved (explicit, same-name,
+      // gateway-fallback, sharesWorkerdWith-transitive). Previously
+      // the check fired only on explicit declaration, which allowed
+      // an operator to bypass via sharesWorkerdWith or the rung-3
+      // back-compat gateway fallback.
       //
-      // Implementation note: lint surfaces this as a violation when the
-      // operator EXPLICITLY declared the workerd_id; the same-name and
-      // gateway-fallback rungs get a pass (back-compat).
-      if (declared !== "") {
+      // To preserve back-compat for pre-ADR-0030 cluster.toml (which
+      // typically has [inputs.llo] etc. that implicitly land on the
+      // gateway), the rung-3 gateway fallback is EXEMPTED — but ONLY
+      // when input.name doesn't suggest a trusted-tier shape and the
+      // operator hasn't declared workerdId/sharesWorkerdWith. That
+      // narrow exemption matches the historical shape (llo composed
+      // into the router with no explicit tenancy) without admitting
+      // the sharesWorkerdWith bypass.
+      const isPureRung3Fallback =
+        declared === "" &&
+        !bundleByName.has(input.name) &&
+        (!Array.isArray(t.sharesWorkerdWith) || t.sharesWorkerdWith.length === 0);
+      if (!isPureRung3Fallback) {
         violations.push(
-          `lint-bundle-isolation: input "${input.name}" declares ` +
-          `tenancy.workerdId="${workerdId}" (a hypervisor-tier bundle) ` +
-          `but tenancy.trustedTier is not true. Either flip trustedTier ` +
-          `to acknowledge the trust grant, or pick a cluster-tier ` +
-          `bundle. Inv 6, ADR-0030 §A5.`,
+          `lint-bundle-isolation: input "${input.name}" resolves to ` +
+          `workerd_id "${workerdId}" (a hypervisor-tier bundle) but ` +
+          `tenancy.trustedTier is not true. Either flip trustedTier ` +
+          `to acknowledge the trust grant, or move the input to a ` +
+          `cluster-tier bundle. Resolution rung: ${
+            declared !== "" ? "explicit" :
+            bundleByName.has(input.name) ? "same-name" :
+            (Array.isArray(t.sharesWorkerdWith) && t.sharesWorkerdWith.length > 0) ? "sharesWorkerdWith-transitive" :
+            "gateway-fallback"
+          }. Inv 6, ADR-0030 §A5.`,
         );
       }
     }

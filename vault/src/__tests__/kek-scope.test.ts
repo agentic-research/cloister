@@ -71,31 +71,31 @@ describe("deriveClusterTenantKek", () => {
 
 describe("deriveClusterTenantKek: tenantName validation", () => {
   it("rejects empty tenantName", async () => {
-    await expect(deriveClusterTenantKek("root", "")).rejects.toThrow(/empty/);
+    await expect(deriveClusterTenantKek("root", "")).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("rejects uppercase characters", async () => {
-    await expect(deriveClusterTenantKek("root", "Alice")).rejects.toThrow(/disallowed/);
+    await expect(deriveClusterTenantKek("root", "Alice")).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("rejects path-traversal attempts", async () => {
-    await expect(deriveClusterTenantKek("root", "../foo")).rejects.toThrow(/disallowed/);
-    await expect(deriveClusterTenantKek("root", "a/b")).rejects.toThrow(/disallowed/);
-    await expect(deriveClusterTenantKek("root", "a\\b")).rejects.toThrow(/disallowed/);
+    await expect(deriveClusterTenantKek("root", "../foo")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "a/b")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "a\\b")).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("rejects whitespace + control bytes", async () => {
-    await expect(deriveClusterTenantKek("root", "a b")).rejects.toThrow(/disallowed/);
-    await expect(deriveClusterTenantKek("root", "a\tb")).rejects.toThrow(/disallowed/);
-    await expect(deriveClusterTenantKek("root", "a\nb")).rejects.toThrow(/disallowed/);
+    await expect(deriveClusterTenantKek("root", "a b")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "a\tb")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "a\nb")).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("rejects leading/trailing/doubled dots + hyphens", async () => {
-    await expect(deriveClusterTenantKek("root", ".foo")).rejects.toThrow(/leading\/trailing dot/);
-    await expect(deriveClusterTenantKek("root", "foo.")).rejects.toThrow(/leading\/trailing dot/);
-    await expect(deriveClusterTenantKek("root", "foo..bar")).rejects.toThrow(/doubled dot/);
-    await expect(deriveClusterTenantKek("root", "-foo")).rejects.toThrow(/leading\/trailing hyphen/);
-    await expect(deriveClusterTenantKek("root", "foo-")).rejects.toThrow(/leading\/trailing hyphen/);
+    await expect(deriveClusterTenantKek("root", ".foo")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "foo.")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "foo..bar")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "-foo")).rejects.toThrow(/tenantName failed validation/);
+    await expect(deriveClusterTenantKek("root", "foo-")).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("accepts FQDN-shaped names", async () => {
@@ -110,11 +110,36 @@ describe("deriveClusterTenantKek: tenantName validation", () => {
 
   it("rejects names longer than 253 chars (DNS limit)", async () => {
     const long = "a".repeat(254);
-    await expect(deriveClusterTenantKek("root", long)).rejects.toThrow(/exceeds 253/);
+    await expect(deriveClusterTenantKek("root", long)).rejects.toThrow(/tenantName failed validation/);
   });
 
   it("rejects empty rootKek", async () => {
     await expect(deriveClusterTenantKek("", "alice")).rejects.toThrow(/non-empty/);
+  });
+
+  it("error does NOT echo the offending tenantName (cloister-936890 / C4 oracle fix)", async () => {
+    // Adversarial cycle 2026-06-22 caught: pre-fix the validator
+    // emitted `kek-scope: cluster-tier tenantName invalid (<reason>):
+    // "<echoed-name>"` — exposing both rule kind AND a substring of
+    // attacker-controlled bytes. Post-fix the message is a single
+    // canonical string with no name echo + no rule kind. Detail goes
+    // to log via the call site, not the thrown error.
+    const offender = "EVIL-uppercase-PROBE";
+    let caught: unknown = null;
+    try {
+      await deriveClusterTenantKek("root", offender);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const msg = (caught as Error).message;
+    expect(msg).toBe("kek-scope: tenantName failed validation");
+    expect(msg).not.toContain(offender);
+    expect(msg).not.toContain("EVIL");
+    expect(msg).not.toContain("PROBE");
+    expect(msg).not.toContain("uppercase");
+    expect(msg).not.toContain("disallowed");
+    expect(msg).not.toContain("leading");
   });
 });
 

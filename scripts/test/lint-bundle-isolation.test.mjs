@@ -942,6 +942,42 @@ test("Inv 6 — sharesWorkerdWith with disagreeing partner workerdId is rejected
   } finally { scenario.cleanup(); }
 });
 
+test("Inv 6 (cloister-93132f / C2) — sharesWorkerdWith cluster-tier-on-hypervisor bypass is rejected", () => {
+  // Adversarial cycle 2026-06-22 caught: operator declares
+  // `sharesWorkerdWith=["notme"]` (notme is on the hypervisor bundle)
+  // without explicit workerdId + without trustedTier=true. Pre-fix:
+  // the explicit-workerdId-on-hypervisor check only fired when
+  // workerdId was explicitly declared, so this bypass passed silently
+  // → cluster-tier tool code lands inside the hypervisor workerd.
+  // Post-fix: the resolved-workerdId check fires regardless of which
+  // rung resolved the binding (here: sharesWorkerdWith-transitive).
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+      inputs: [
+        { name: "notme", workerdId: "cloister-router", trustedTier: true },
+        // The attack: evil-tool wants in to the trusted workerd, but
+        // declares cluster-tier (trustedTier=false), no explicit
+        // workerdId. Uses sharesWorkerdWith=["notme"] to ride along.
+        { name: "evil-tool", sharesWorkerdWith: ["notme"], trustedTier: false },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Inv 6/);
+    assert.match(r.stderr, /evil-tool/);
+    // Resolution rung tag in the error message helps the operator
+    // see which lookup path led to the trust grant.
+    assert.match(r.stderr, /sharesWorkerdWith-transitive|gateway-fallback|same-name/);
+  } finally { scenario.cleanup(); }
+});
+
 test("Inv 6 — sharesWorkerdWith with matching partner workerdId passes", () => {
   const scenario = makeScenario({
     clusterTs: clusterTs({

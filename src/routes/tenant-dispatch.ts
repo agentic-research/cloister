@@ -34,24 +34,24 @@
 import type { EdgeRoute } from "../router.js";
 import type { TenantDispatchSpec, TenantDispatchRow } from "../manifest/types.js";
 import type { Env } from "../types.js";
+import { constantTimeErrorResponse } from "../storage/disclosure-cursor.js";
 
 /**
- * 404 body shape — exact bytes mirror the constant-time-error pattern
- * used elsewhere in cloister (e.g. `disclosure-cursor.ts`). Operators
- * can't distinguish "no such tenant" from "request didn't match any
- * tenant row" — both collapse to the same response.
+ * 404 response shape — REUSE `constantTimeErrorResponse` from the
+ * disclosure-cursor module so the bytes are BYTE-IDENTICAL to the
+ * disclosure endpoint's 404. Per threat-model §13.7.1 + §9.4.b, every
+ * 404 path on the substrate's outer wire MUST share the same shape so
+ * an attacker can't distinguish "no such tenant" from "no such peer"
+ * from "denied".
+ *
+ * Prior implementation used a 10-byte "Not Found\n" body — caught in
+ * adversarial cycle 2026-06-22 (cloister-92e846 / C1): an attacker
+ * probing `/t/<guess>/interlace/peers/<fp>` could distinguish
+ * tenant-existence by the response length (10 bytes for unmatched
+ * tenant vs 256 bytes for matched-but-no-peer). Now byte-equivalent.
  */
-const NOT_FOUND_BODY = "Not Found\n";
-
 function notFoundResponse(): Response {
-  return new Response(NOT_FOUND_BODY, {
-    status: 404,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      "content-length": String(NOT_FOUND_BODY.length),
-      "cache-control": "no-store",
-    },
-  });
+  return constantTimeErrorResponse("not_found");
 }
 
 // ── Compile-time route construction ──────────────────────────────────────
