@@ -302,6 +302,169 @@ dispatched.
    current shape). Operator decides; substrate enforces what's
    declared.
 
+## Amendment 2026-06-21 — Decisions ratified
+
+All five open questions above resolved per operator direction. This
+amendment captures the **aspirational goal state** of the substrate,
+not just current implementation. Doc honesty per session feedback:
+"we are aspirational in design and less good in documentation."
+
+### A1 — Process supervisor: compose-shape YAML, runtime operator-pick
+
+**Decision:** the supervisor declaration is a **docker-compose v3+
+YAML file** (`cluster.compose.yaml`); the operator picks the runtime
+from any compose-compatible engine (Docker Desktop on macOS, colima,
+podman, nerdctl, docker on Linux). On CF prod, CF's managed-worker
+scheduler IS the supervisor — the compose file is irrelevant there
+because the workers aren't host processes.
+
+Rationale: existing `task cluster:up` already shells out to
+compose-shape; CI uses Docker. Mac dev (Apple Silicon) works via
+Docker Desktop or colima. Linux works native. CF is already managed.
+**Zero new substrate primitive.**
+
+What this rules out: writing our own Rust supervisor (deferred to v2
+if real consumer demand emerges); requiring systemd (Linux-only);
+requiring supervisord (extra Python dep on host).
+
+### A2 — Routing fabric: both SNI + path-prefix, per-tenant operator-set
+
+**Decision:** the router data structure carries BOTH modes; operator
+declares per tenant which one applies.
+
+```toml
+[[tenants]]
+name = "alice"
+route_mode = "sni"           # | "path-prefix"
+route_value = "alice.cluster.example.com"   # for sni; or "/t/alice/" for path-prefix
+```
+
+SNI fits external-facing peers with their own cert chain; path-prefix
+fits internal/dev/single-host where TLS termination isn't worth the
+cert ops. Forcing one mechanism would exclude a real deployment.
+
+### A3 — Cross-workerd secrets: three-tier hierarchy
+
+**Decision:** three secret scopes, declared independently:
+
+| Scope | How keyed | Source |
+|---|---|---|
+| **cluster** | one root KEK per cluster | derived via HKDF(`cluster_kek`, `"cluster"`) where `cluster_kek` comes from the ADR-0014 URL-spec resolver (operator picks Keychain / libsecret / env / file / sign-helper) |
+| **service** | per service (per `[inputs.*]` or `[[services]]` entry) | declared in the input's `cluster.toml` block via ADR-0014 URL-spec resolver — operator-provisioned per service |
+| **user** | per authenticated peer (`subject_fp`) | **deferred to v2**. The other two tiers cover v1's needs. |
+
+Key derivation for the cluster tier follows ADR-0010's original
+framing (HKDF from the Signet master pubkey root). The service tier
+gives operators a separate provisioning surface for credentials that
+shouldn't share fate with the cluster master (e.g. an external
+service's API token).
+
+What this rules out: per-tenant KEK derivation as the ONLY model
+(too rigid — operators need a per-service escape hatch); pure
+operator-provisioning as the only model (HKDF-from-root is the
+substrate's identity rail and stays load-bearing).
+
+### A4 — `app_protocol` extensibility: hybrid namespace
+
+**Decision:** label namespace mirrors HTTP-header / OCI-media-type
+convention:
+
+- **`art.*`** — substrate-blessed canonical names. Substrate guarantees
+  semantic handling. Adding a name requires a PR + ADR amendment.
+  Initial set: `art.mcp-jsonrpc`, `art.interlace-capnp`, `art.capnp-uds`,
+  `art.http`, `art.http2`, `art.grpc`, `art.tcp`, `art.tls`.
+- **`x-<vendor>-*`** — operator-extensible experimental space. Substrate
+  routes as opaque pass-through; no semantic claims. Operators may use
+  for unblessed protocols (`x-myorg-redis`, `x-deploy-bespoke-rpc`).
+- **Other shapes** — rejected by the manifest validator.
+
+The hybrid namespace is declared in `cluster.toml [[edges]]`:
+
+```toml
+[[edges]]
+from = "alice"
+to = "shared-mcp"
+app_protocol = "art.mcp-jsonrpc"   # blessed
+# or
+app_protocol = "x-myorg-redis"     # experimental, opaque pass-through
+```
+
+Promotion path: an `x-*` label that proves load-bearing across enough
+operators moves to `art.*` via PR + ADR amendment. No silent sprawl.
+
+### A5 — Hybrid-mode density: COMPOSABLE via server.json `_meta`
+
+**Reframe**, not just a choice. Density isn't an operator-declared
+`[[tenants]]` table separate from the rest of the substrate — it's a
+**composition property** on top of ADR-0026 (`[inputs.*]`) and ADR-0027
+(matchmaker). The substrate-as-kernel framing already does this for
+capability composition; tenancy is the next dimension on the same
+mechanism.
+
+**How it works:**
+
+1. **An input's `server.json` declares its tenancy default.** The
+   `_meta.art.cloister/v1` block (per `cloister-spec/mcp-tool/v1`)
+   gains a `tenancy` field:
+
+   ```jsonc
+   {
+     "_meta": {
+       "art.cloister/v1": {
+         "tenancy": {
+           "default_mode": "external",          // co-located | external | per-tenant
+           "trusted_tier": false,               // hint for hybrid co-location
+           "shares_workerd_with": null          // explicit co-tenancy edges
+         }
+       }
+     }
+   }
+   ```
+
+2. **Operator includes via `[inputs.*]` with optional override.**
+
+   ```toml
+   [inputs.mache]
+   ref = "github://agentic-research/mache@<SHA>"
+   # No tenancy override → uses server.json default ("external" for mache; Go-native)
+
+   [inputs.notme]
+   ref = "github://agentic-research/notme@<SHA>"
+   tenancy.mode = "co-located"        # override server.json default
+   tenancy.workerd_id = "cloister-router"
+   ```
+
+3. **Lockfile caches per ADR-0026.** `cluster.lock.toml` carries the
+   resolved tenancy declaration (post-override) with a content-pinned
+   digest of the source `server.json`. Operator gets git-shaped review
+   of tenancy bumps — exactly the same flow as input version bumps.
+
+4. **Substrate emits workerd config from the resolved declarations.**
+   The matchmaker (ADR-0027) walks resolved tenancy declarations
+   alongside `provides`/`requires` capability graph; the workerd-config
+   emitter generates one workerd per distinct `workerd_id`.
+
+This makes the "how many tenants share a workerd" question answerable
+**per-deployment via composition** rather than via a separate static
+declaration. The composition substrate (ADR-0026 + ADR-0027) already
+solves the "how do operators include things with version pins +
+override" pattern; tenancy is just one more thing those mechanisms
+declare.
+
+What this rules out: a separate `[[tenants]]` table in cluster.toml
+(replaced by `[inputs.*].tenancy.*` overrides + server.json defaults);
+hardcoded density rules in the substrate (substrate enforces declared
+boundaries, doesn't gate-keep them).
+
+### Cross-cutting amendment: doc state-of-the-aspiration
+
+Per session feedback, every reference in this ADR to current
+implementation behavior is also tagged with the **goal state** the
+substrate is converging toward. The amendment's A1–A5 sections are
+goal-state by construction; the rest of the ADR keeps its 2026-06-21
+"Proposed" status until the implementation epic
+(`cloister-f289c8`) lands at least one tenant in production.
+
 ## Tracking
 
 - **Epic:** `cloister-f289c8` (cred-iso/v2 disposition tracker,
