@@ -606,6 +606,6 @@ never patch. Synthesis-lead integrates findings into
 - Add a new HTTP tenant: implement `EdgeRoute`, register via
   `cloister.capnp`'s `routes` list
 - Add a substrate-changing decision: draft a numbered ADR in
-  `docs/adr/` (next free is ADR-0032 — ADR-0030 reserved; rules at
-  the top of each ADR file)
+  `docs/adr/` (next free is ADR-0034 — ADR-0033 reserved for bd substrate
+  binding; rules at the top of each ADR file)
 - Plugin contract: [../hooks/README.md](../hooks/README.md)

@@ -29,7 +29,8 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0032** (0001–0031 land). Most ADRs are Accepted;
+  number is **ADR-0034** (0001–0031 + 0033 land; 0032 reserved-but-unused).
+  Most ADRs are Accepted;
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
   ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
