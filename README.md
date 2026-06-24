@@ -219,10 +219,27 @@ radius if compromised, singleton per cluster):
   per ADR-0012's four-step handoff.
 
 **At the bundle layer**: HTTP-shaped tenants registered in
-`cloister.capnp` (today: `bead_*`, `mache_*`, `lsp_*`, lifecycle, the
-identity bridge). Sibling bundles reach cloister-router via UDS service
-bindings — the full cluster bundle map (tier + transport + purpose) is
+`cloister.capnp` (today: `bead_*`, `rsry_*`, `mache_*`, `lsp_*`,
+lifecycle, the identity bridge). Sibling bundles reach cloister-router
+via UDS service bindings — the full cluster bundle map (tier +
+transport + purpose) is
 [`docs/reference/bundle-topology.md`](docs/reference/bundle-topology.md).
+
+**Multi-tenant deployments** — operators declare `[[bundles]]` with
+`perTenant = true` paired with a `[[routes]] kind = "tenantDispatch"`
+entry to scope bundles per-tenant. Lint Invariants 7–9 enforce the
+chain `tenantDispatch row.binding → wire → bundle ← input.workerdId`
+at `task lint` time. The substrate-property model is documented in
+[`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md);
+the smallest demonstration is at
+[`recipes/multi-tenant-smoke/`](recipes/multi-tenant-smoke/).
+
+**Bead substrate migration** — `BEAD_STORAGE_BACKEND` env var routes
+the `bead_create` orchestrator between cloister's BeadStore DO
+(default `"do"`) and rsry's `rsry_bead_create` via the rosary bundle
+(`"rsry"`). Per [ADR-0033](docs/adr/0033-bd-substrate-binding.md) D5
+amendment + cloister-c8b907 — both paths preserve the §13.4 audit
+chain via the `bead_id` column on TrustStore's `peer_attestations`.
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime
 model + component map + sequence diagrams.
