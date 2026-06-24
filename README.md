@@ -314,6 +314,16 @@ Full task surface: `task --list-all`.
   `LEYLINE_SIGN_RESOLVE_ALLOW`, `LEYLINE_SIGN_SIGN_ALLOW`,
   `LEYLINE_SIGN_OP_BIN`, `LEYLINE_SIGN_SECURITY_BIN`,
   `LEYLINE_SIGN_RESOLVE_TTL_MS`, `LEYLINE_SIGN_RESOLVE_CACHE_MAX`.
+- **`BEAD_STORAGE_BACKEND`** — routes the `bead_create` orchestrator's
+  Step 2 between cloister's BeadStore DurableObject (`"do"`, default)
+  and rsry's `rsry_bead_create` MCP tool via the rosary bundle
+  (`"rsry"`). Per
+  [ADR-0033](docs/adr/0033-bd-substrate-binding.md) D5 amendment +
+  `cloister-c8b907`. Both paths preserve the §13.4 audit chain via the
+  `bead_id` link on `peer_attestations`. Unknown / unset values fall
+  back to `"do"` with a one-shot structured log event
+  (`event: "bead_create.legacy_backend"`); operators opt into the new
+  backend explicitly.
 - **Container** — `task image` produces a distroless OCI image
   (`cloister.tar`), workerd + bundle only, no shell/pkgmgr, runs as
   uid `65532`. Mount `/data` for DO SQLite persistence.
