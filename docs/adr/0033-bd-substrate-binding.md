@@ -538,5 +538,8 @@ bundle owning its own credential, its own wire, or its own auth.
   path D4 reuses.
 - ADR-0030: multi-workerd substrate — sibling direction; this ADR
   composes inside the per-tenant workerd per ADR-0030 §A1.
+- ADR-0034: True multi-tenant access spec — downstream; reframes
+  D5's BeadStore-DO migration as "per-tenant rsry sidecar with
+  per-tenant `BEADS_DIR`" once multi-workerd lands.
 - LLO ADR-0022: shared-secret bearer token over UDS — the auth
   precedent D4 follows.

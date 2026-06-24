@@ -514,5 +514,8 @@ goal-state by construction; the rest of the ADR keeps its 2026-06-21
   first concrete migration target).
 - `cloister-f289c8` — cred-iso/v2 disposition; reframed by this ADR
   as the implementation epic.
+- ADR-0034 — True multi-tenant access spec (downstream — scopes the
+  per-tenant access surface across rosary/mache/notme that THIS
+  ADR's multi-workerd substrate enables).
 - Istio AppProtocol — the labeling pattern adopted for cross-tenant
   edges. See `istio.io/docs/ops/configuration/traffic-management/protocol-selection`.
