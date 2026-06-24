@@ -266,6 +266,7 @@ export async function runBeadCreateOrchestrator(args: {
   //           returned id flows into Step 3's bead_id-linked attestation,
   //           preserving the §13.4 audit chain across the migration.
   const backend = bedStorageBackend(args.env);
+  if (backend === "do") emitBeadStoreDoDeprecationWarningOnce();
   const beadResult: { id: string; title: string; state: BeadState } =
     backend === "rsry"
       ? await createBeadViaRsry(args.env, { ...a, id, repo, content_hash: digest })
@@ -358,6 +359,46 @@ function trustStoreStub(env: Env): DurableObjectStub & TrustStoreRpc {
 export function bedStorageBackend(env: Env): "do" | "rsry" {
   const raw = (env.BEAD_STORAGE_BACKEND ?? "").trim().toLowerCase();
   return raw === "rsry" ? "rsry" : "do";
+}
+
+/**
+ * One-shot deprecation log for the legacy BeadStore-DO path. Per c8b907
+ * sub-bead 3 prep: operators on the default ("do") backend get a clear
+ * signal that they're on the path scheduled for deletion in `cloister-f34f7b`.
+ * One emit per cold-start; not per-request.
+ *
+ * Structured JSON so log aggregators can alert on the event without
+ * needing string parsing. The `bead` field tracks the actual deletion
+ * bead (sub-bead 3) so operators can subscribe to its closure to know
+ * when the default flips.
+ *
+ * Module-level state so the cold-start guard survives across requests in
+ * the same isolate. Per-isolate scope is the right granularity — log once
+ * per workerd boot, not once per request.
+ */
+let beadStoreDoWarned = false;
+
+function emitBeadStoreDoDeprecationWarningOnce(): void {
+  if (beadStoreDoWarned) return;
+  beadStoreDoWarned = true;
+  // eslint-disable-next-line no-console -- intentional structured operator signal
+  console.warn(JSON.stringify({
+    event:        "bead_create.legacy_backend",
+    backend:      "do",
+    deprecation:  "cloister-f34f7b — BEAD_STORAGE_BACKEND default flips to 'rsry' in a future release",
+    actionable:   "set BEAD_STORAGE_BACKEND=\"rsry\" to opt into the new backend now",
+    parent_epic:  "cloister-c8b907",
+    related_adr:  "ADR-0033 D5 amendment (2026-06-24)",
+  }));
+}
+
+/**
+ * Test-only seam: reset the deprecation-warned flag so a test can verify
+ * the one-shot semantics across cases. Not exported via the production
+ * route surface.
+ */
+export function __resetBeadStoreDoWarnedForTest(): void {
+  beadStoreDoWarned = false;
 }
 
 /**
