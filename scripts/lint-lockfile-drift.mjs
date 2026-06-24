@@ -97,12 +97,25 @@ function main() {
     }
 
     const path = fileUrlToPath(from);
-    if (!path || !existsSync(path)) {
+    if (!path) {
       mismatches.push({
         name,
-        reason: `cluster.toml from = ${from} but path does not exist`,
-        fix:    `fix the from= path or remove the input`,
+        reason: `malformed file URL: ${from}`,
+        fix:    `fix the from= path`,
       });
+      continue;
+    }
+    if (!existsSync(path)) {
+      // file:// paths often point at developer-local checkouts that
+      // don't exist on CI or on other contributors' machines. Skip
+      // with a warning instead of failing — the lint is "if the
+      // source is here, it must match the lockfile", not "the
+      // source must be here". The operator who DOES have the file
+      // is the one whose run catches drift before push.
+      console.warn(
+        `lint-lockfile-drift: input ${name}: ${path} not present in this ` +
+        `checkout — skipping drift check (committed sha256 trusted).`,
+      );
       continue;
     }
 

@@ -112,7 +112,10 @@ test("input in cluster.toml but missing from lockfile → exit 1", () => {
   }
 });
 
-test("non-existent source path → exit 1 with fix hint", () => {
+test("non-existent source path → exit 0 with skip-warn (CI / cross-checkout safety)", () => {
+  // file:// inputs often point at developer-local checkouts not
+  // present on CI. The lint warns and skips rather than failing —
+  // see the script header for the rationale.
   const fixture = makeFixture({
     sourceBody: undefined,
     clusterToml: `[inputs.llo]\nref = "x"\nfrom = "file://{SOURCE}"\n`,
@@ -120,8 +123,9 @@ test("non-existent source path → exit 1 with fix hint", () => {
   });
   try {
     const r = runLint(fixture);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /path does not exist/);
+    assert.equal(r.status, 0, `expected exit 0, got ${r.status}\nstderr: ${r.stderr}`);
+    assert.match(r.stderr, /not present in this checkout — skipping/);
+    assert.match(r.stdout, /0 file:\/\/ input\(s\) verified/);
   } finally {
     fixture.cleanup();
   }
