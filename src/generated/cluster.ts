@@ -31,6 +31,7 @@ export const cluster: Cluster = {
       ],
       "workerdServiceName": "cloister",
       "hypervisorRationale": "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011.",
+      "perTenant": false,
       "kind": {
         "external": {
           "image": "cloister:0.1.0",
@@ -48,6 +49,7 @@ export const cluster: Cluster = {
       "holdsCredential": [],
       "workerdServiceName": "",
       "hypervisorRationale": "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018.",
+      "perTenant": false,
       "kind": {
         "external": {
           "image": "notme:0.1.0",
@@ -65,6 +67,7 @@ export const cluster: Cluster = {
       "holdsCredential": [],
       "workerdServiceName": "",
       "hypervisorRationale": "",
+      "perTenant": false,
       "kind": {
         "external": {
           "image": "mache:0.8.0",
@@ -86,6 +89,7 @@ export const cluster: Cluster = {
       "holdsCredential": [],
       "workerdServiceName": "",
       "hypervisorRationale": "",
+      "perTenant": false,
       "kind": {
         "external": {
           "image": "rosary:0.2.0",

@@ -240,6 +240,16 @@ export interface Bundle {
    * lint refuses unjustified tier promotion. Per math-friend gap 1.
    */
   hypervisorRationale: string;
+  /**
+   * When true, the emit-compose pipeline (Phase 2 piece 2, deferred)
+   * emits one bundle instance per tenant declared in `tenantDispatch`
+   * route, instead of a single cluster-wide bundle. Lint Invariants 8 + 9
+   * (`scripts/lint-bundle-isolation.mjs`) enforce that `perTenant=true`
+   * is paired with a `tenantDispatch` route + binding chain to the
+   * bundle. Default false for back-compat. Per ADR-0034 §Sequencing
+   * item #3 / cloister-cedcf3 Phase 1.
+   */
+  perTenant: boolean;
 }
 
 export type BundleKind =

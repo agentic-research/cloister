@@ -8,6 +8,7 @@ holdsCredential = [ "VAULT_KEK_SOURCE", "VAULT_STORE" ]
 hypervisorRationale = "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011."
 kind = "external"
 name = "cloister-router"
+perTenant = false
 tier = "hypervisor"
 workerdServiceName = "cloister"
 
@@ -24,6 +25,7 @@ holdsCredential = [ ]
 hypervisorRationale = "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018."
 kind = "external"
 name = "notme-identity"
+perTenant = false
 tier = "hypervisor"
 workerdServiceName = ""
 
@@ -40,6 +42,7 @@ holdsCredential = [ ]
 hypervisorRationale = ""
 kind = "external"
 name = "mache"
+perTenant = false
 tier = "cluster"
 workerdServiceName = ""
 
@@ -56,6 +59,7 @@ holdsCredential = [ ]
 hypervisorRationale = ""
 kind = "external"
 name = "rosary"
+perTenant = false
 tier = "cluster"
 workerdServiceName = ""
 
