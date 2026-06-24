@@ -170,6 +170,16 @@ export function emitCompose(cluster) {
     if (colocatedInputs.length > 0) {
       lines.push(`      - "cloister.colocated-inputs=${colocatedInputs.join(",")}"`);
     }
+    // cloister-cedcf3 Phase 2 prep: surface perTenant=true via a label.
+    // Today's emission is still one container per bundle (Phase 2 piece 2
+    // deferred for container-naming + volume-mount design); the label
+    // gives operators `docker inspect` visibility into which bundles
+    // are flagged tenant-scoped. Lint Inv 8 + Inv 9 already guarantee
+    // a tenantDispatch route + binding chain are in place when this
+    // label appears.
+    if (b.perTenant === true) {
+      lines.push(`      - "cloister.per-tenant=true"`);
+    }
 
     // Entrypoint args
     if (ext.args.length > 0) {

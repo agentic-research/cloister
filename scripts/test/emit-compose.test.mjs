@@ -299,6 +299,59 @@ test("regression: cluster with no inputs at all emits a valid compose body", () 
   assert.ok(yaml.endsWith("\n"));
 });
 
+// ── cedcf3 Phase 2 prep: perTenant=true emits a label for operator visibility ──
+
+test("emitCompose: bundle with perTenant=true emits cloister.per-tenant=true label", () => {
+  // Phase 2 piece 2 (per-tenant container splitting) is deferred, but the
+  // label gives operators `docker inspect` visibility into which bundles
+  // are flagged tenant-scoped. Lint Inv 8 + Inv 9 already guarantee a
+  // matching tenantDispatch route + binding chain when this appears.
+  const cluster = baseCluster({
+    bundles: [
+      ...baseCluster().bundles,
+      {
+        name: "rosary",
+        description: "Per-tenant bead orchestrator",
+        tier: "cluster",
+        holdsCredential: [],
+        workerdServiceName: "",
+        hypervisorRationale: "",
+        perTenant: true,
+        kind: {
+          external: {
+            image: "rosary:0.2.0",
+            ipcSocket: "/run/cloister-uds/rosary.sock",
+            httpPort: 0,
+            args: [],
+            env: [],
+          },
+        },
+      },
+    ],
+  });
+  const yaml = emitCompose(cluster);
+  assert.ok(yaml.includes('"cloister.per-tenant=true"'),
+    "perTenant=true bundle must emit cloister.per-tenant=true label");
+  // The label appears under the rosary service block, NOT the
+  // cloister-router block (which has no perTenant flag).
+  const rosaryIdx  = yaml.indexOf("  rosary:");
+  const routerIdx  = yaml.indexOf("  cloister-router:");
+  const labelIdx   = yaml.indexOf("cloister.per-tenant=true");
+  assert.ok(rosaryIdx >= 0);
+  assert.ok(labelIdx > rosaryIdx, "label must appear AFTER the rosary service line");
+  // And the router block (which precedes rosary) doesn't have it.
+  const routerBlock = yaml.slice(routerIdx, rosaryIdx);
+  assert.ok(!routerBlock.includes("cloister.per-tenant=true"),
+    "cloister-router block (no perTenant flag) must NOT emit the label");
+});
+
+test("emitCompose: bundle without perTenant (or false) emits NO per-tenant label (back-compat)", () => {
+  // Pre-cedcf3 cluster.toml: bundles have no perTenant field. Emitted
+  // compose YAML stays unchanged — no spurious label.
+  const yaml = emitCompose(baseCluster());
+  assert.ok(!yaml.includes("cloister.per-tenant"));
+});
+
 // ── Output determinism (same input twice → same bytes) ───────────────────
 
 test("emitCompose: deterministic — two emits produce byte-identical output", () => {
