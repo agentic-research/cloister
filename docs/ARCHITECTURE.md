@@ -225,7 +225,17 @@ sequenceDiagram
     ME-->>C: re-wrapped as MCP content
 ```
 
-### rsry_status — leylineNet via cloister-companion (ADR-0005)
+### Generic leylineNet via cloister-companion (ADR-0005)
+
+> **Note (2026-06-24)**: this section shows the leylineNet backend
+> flow generically, using `rsry_status` as the example tool name.
+> **The current cloister manifest does NOT use leylineNet for the
+> `rsry_*` surface** — per cloister-c2bd47, `rsry_*` tools are
+> dispatched via an `mcpProxy` backend with `serviceBinding =
+> "ROSARY_BUNDLE"` (HTTP MCP over UDS to the rosary bundle). The
+> leylineNet pattern remains the substrate's transport-agnostic
+> escape hatch for future tool surfaces that need cross-host AEAD-
+> wrapped wire.
 
 ```mermaid
 sequenceDiagram
