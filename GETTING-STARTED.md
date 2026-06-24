@@ -556,11 +556,14 @@ client POST /mcp ─→ McpEdgeRoute.handlePost
                         │           ↳ src/storage/bead-canonical.ts
                         │               → canonical bytes
                         │           ↳ BlobStore.put(bytes) → digest
-                        │           ↳ BeadStore.bead_create({digest, ...})
+                        │           ↳ Step 2: bedStorageBackend(env) ─→
+                        │              "do"   → BeadStore.bead_create({digest, ...})    (default; cloister-c8b907)
+                        │              "rsry" → rsry's rsry_bead_create via ROSARY_BUNDLE
                         │           ↳ TrustStore.applyAttestation({
                         │               peerFingerprint, contentHash=digest,
                         │               contentType="bead/v1", cert, sig,
-                        │               prevSelfRef, prevPeerRef, nowMs
+                        │               prevSelfRef, prevPeerRef, nowMs,
+                        │               beadId  ← from Step 2's response (cloister-dea77c)
                         │             })
                         │             ↳ on failure: pending_attestations
                         │                queue; drainPendingRetries retries
