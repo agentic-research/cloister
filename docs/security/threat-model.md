@@ -1057,14 +1057,18 @@ binding adds.
 | **Residual risk** | Single-host operator-tier attackers can rewrite local bead history. Multi-host deployments inherit Dolt's distributed-history-merkle-tree audit trail. |
 | **Test ref** | None — Dolt's merkle invariants are upstream-tested. The substrate-level assertion is that rsry + bd both use the same storage primitive (Dolt). |
 
-### 13.8.3 Two MCP surfaces (`bead_*` BeadStore DO + `rsry_*` rosary): coexistence is intentional
+### 13.8.3 Two MCP surfaces (`bead_*` BeadStore DO + `rsry_*` rosary): migration in flight (cloister-c8b907)
+
+**Amended 2026-06-24** — was framed as "coexistence is intentional" per ADR-0033 D5; updated post-`cloister-c8b907` migration to reflect deprecation direction.
 
 | Aspect | Detail |
 |---|---|
 | **Attack** | An operator confuses the two surfaces and writes to one expecting the other to see it. Or: a cluster-tier bundle accesses one expecting cred-iso/v1 scope checks from the other. |
-| **Mitigation** | Documented intentionally as ADR-0033 D5. `docs/tenants/rsry-mcp.md` explicitly enumerates the difference (DO SQLite tables vs `.beads/dolt/<repo>/`); `test/manifest/rsry-backend.test.ts` pins the `bead_*` routing-to-BeadStore-DO invariant (NEVER routes to rsry). The two surfaces have different threat models — BeadStore DO carries trust-mediation semantics per ADR-0012 (per-bundle scope, lease-gated, attestation chain); rsry/bd's wire is UDS-internal with no per-bundle scope yet. |
-| **Adversary model** | Misconfigured operator confusing the surfaces. Not adversarial; substrate documentation surfaces the difference. |
-| **Residual risk** | An operator who treats `rsry_*` as if it carried the `bead_*` DO's per-bundle scope guarantees would be surprised. Doc + tenant page explicit; no other defense. |
+| **Mitigation (current — transition state)** | The `bead_*` BeadStore DurableObject path is **deprecated** per ADR-0033 D5 amendment 2026-06-24. Operators can opt into the rsry path today via `BEAD_STORAGE_BACKEND=rsry`; default remains `"do"` with a one-shot structured deprecation warning (`event: "bead_create.legacy_backend"`) per `cloister-f34f7b`. Both paths preserve the §13.4 audit chain via the `bead_id` column on `peer_attestations` (`cloister-dea77c`). `test/manifest/rsry-backend.test.ts` still pins the `bead_*` routing-to-BeadStore-DO invariant for the legacy path. |
+| **§13.4 audit reconstitution query** | Post-migration, the bead row in rsry/bd's Dolt has no `content_hash` column. The audit chain reconstitutes via the `bead_id` link to TrustStore: <br><br>```sql<br>-- For a bead, recover the (content_hash, scope, peer_fp) audit tuple<br>SELECT a.content_hash, a.scope, a.peer_fingerprint, a.created_at<br>FROM peer_attestations a<br>WHERE a.bead_id = '<bead-id>'<br>ORDER BY a.created_at ASC<br>;<br>```<br><br>Helper: `attestationsForBead(sql, beadId): PeerAttestation[]` (`src/storage/peer-attestations.ts`). Beads created via direct rsry bypass (no orchestrator) have no attestation row — same posture as direct DO-RPC bypass today. |
+| **Adversary model** | Misconfigured operator confusing the surfaces during the transition. Not adversarial; structured deprecation log surfaces the issue. |
+| **Residual risk** | Until `cloister-f34f7b` ships the default flip + `src/beads.ts` deletion, both surfaces coexist. After flip, only `rsry_*` remains; `bead_*` namespace either retires or aliases. Doc + tenant page explicit; deprecation log gives ops visibility. |
+| **Migration sub-beads** | Sub-bead 1 (`cloister-dea77c`, shipped) — bead_id column + audit query path. Sub-bead 2 (`cloister-decf0d`, shipped) — `BEAD_STORAGE_BACKEND` flag + rsry-mode wire. Sub-bead 3 (`cloister-f34f7b`, deferred) — default flip + DO deletion. |
 
 ### 13.8.4 Coexistence with multi-tenant substrate (ADR-0030)
 
