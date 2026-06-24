@@ -24,8 +24,11 @@
 // through to applyAttestation in the rsry branch) without any signal.
 
 import { env, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
-import { runBeadCreateOrchestrator } from "../../src/routes/bead-create-orchestrator.js";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  runBeadCreateOrchestrator,
+  __resetBeadStoreDoWarnedForTest,
+} from "../../src/routes/bead-create-orchestrator.js";
 import { attestationsForBead } from "../../src/storage/peer-attestations.js";
 import type { Env } from "../../src/types.js";
 
@@ -100,6 +103,12 @@ function ctx(peerFp: string): {
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe("orchestrator rsry-mode integration (cloister-decf0d + dea77c)", () => {
+  // The deprecation-warning one-shot flag is module-level; reset between
+  // tests so the do-mode case observes a fresh fire.
+  afterEach(() => {
+    __resetBeadStoreDoWarnedForTest();
+  });
+
   it("rsry-mode: full chain lands a TrustStore attestation with bead_id linking to rsry's synthetic id", async () => {
     const peerFp = `sha256:rsry-mode-${Math.random()}`;
     const syntheticBeadId = `cloister-rsry-${Math.random().toString(36).slice(2, 10)}`;
@@ -202,5 +211,86 @@ describe("orchestrator rsry-mode integration (cloister-decf0d + dea77c)", () => 
       ).toArray();
       expect(rows.length).toBe(0);
     });
+  });
+
+  // ── cloister-f34f7b: deprecation-warning fire on legacy do-mode ────────
+
+  it("do-mode emits exactly ONE structured deprecation warning across multiple bead_create calls (c8b907 sub-bead 3 prep)", async () => {
+    // Capture console.warn. Three back-to-back do-mode calls should
+    // produce exactly ONE deprecation warning (module-level one-shot).
+    const warnings: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: unknown) => {
+      if (typeof arg === "string") warnings.push(arg);
+    }) as typeof console.warn;
+    try {
+      const customEnv = env as unknown as Env;
+      for (let i = 0; i < 3; i++) {
+        await runBeadCreateOrchestrator({
+          toolArgs: { repo: `/tmp/depwarn-${i}`, title: `bead ${i}` },
+          env: customEnv,
+          context: ctx(`sha256:depwarn-${Math.random()}-${i}`),
+          nowMs: 4_000_000 + i,
+        });
+      }
+    } finally {
+      console.warn = orig;
+    }
+
+    // Filter to deprecation events only (other unrelated warnings may
+    // appear in the workerd pool — rate-limit emits etc.).
+    const deprecationEmits = warnings.filter((w) => {
+      try {
+        return JSON.parse(w).event === "bead_create.legacy_backend";
+      } catch {
+        return false;
+      }
+    });
+    expect(deprecationEmits.length).toBe(1);
+
+    // Structured payload pinned: operators alerting on this event need
+    // the fields to remain stable.
+    const emit = JSON.parse(deprecationEmits[0]!);
+    expect(emit.event).toBe("bead_create.legacy_backend");
+    expect(emit.backend).toBe("do");
+    expect(emit.parent_epic).toBe("cloister-c8b907");
+    expect(emit.deprecation).toMatch(/cloister-f34f7b/);
+    expect(emit.actionable).toMatch(/BEAD_STORAGE_BACKEND="rsry"/);
+    expect(emit.related_adr).toMatch(/ADR-0033/);
+  });
+
+  it("rsry-mode does NOT emit the deprecation warning (only do-mode triggers it)", async () => {
+    const warnings: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: unknown) => {
+      if (typeof arg === "string") warnings.push(arg);
+    }) as typeof console.warn;
+    try {
+      const peerFp = `sha256:rsry-nowarn-${Math.random()}`;
+      const syntheticId = `cloister-${Math.random().toString(36).slice(2, 10)}`;
+      const { fetcher } = makeRsryStub(syntheticId);
+      const customEnv = {
+        ...env,
+        BEAD_STORAGE_BACKEND: "rsry",
+        ROSARY_BUNDLE: fetcher,
+      } as unknown as Env;
+      await runBeadCreateOrchestrator({
+        toolArgs: { repo: "/tmp/rsry-nowarn", title: "should-not-warn" },
+        env: customEnv,
+        context: ctx(peerFp),
+        nowMs: 5_000_000,
+      });
+    } finally {
+      console.warn = orig;
+    }
+
+    const deprecationEmits = warnings.filter((w) => {
+      try {
+        return JSON.parse(w).event === "bead_create.legacy_backend";
+      } catch {
+        return false;
+      }
+    });
+    expect(deprecationEmits.length).toBe(0);
   });
 });
