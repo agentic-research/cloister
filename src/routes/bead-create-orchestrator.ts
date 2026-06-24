@@ -323,9 +323,17 @@ export async function runBeadCreateOrchestrator(args: {
       // out. Surface as a 5xx; the caller can retry the whole bead_create,
       // which is safe because BlobStore + BeadStore are idempotent on the
       // pre-allocated id.
+      //
+      // Include `bead_id` in the message so operators following up on this
+      // failure can run `TrustStore.attestationsForBead(bead_id)` to
+      // verify the attestation didn't land (returns empty array) AND
+      // identify which bead row was committed without audit. Per
+      // cloister-dea77c — the bead_id link makes the §13.4 chain audit
+      // queryable.
       throw new JsonRpcInvocationError(
         -32603,
-        `bead_create: TrustStore.applyAttestation failed AND pending enqueue failed: ${err instanceof Error ? err.message : String(err)}`,
+        `bead_create: TrustStore.applyAttestation failed AND pending enqueue failed for bead ${beadResult.id} ` +
+        `(content_hash=${digest}): ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
