@@ -120,6 +120,53 @@ test("emit-cloister-capnp: vaultProxy + httpProxy variants emit their payload fi
   assert.match(out, /stripPrefix = "\/proxy"/);
 });
 
+// ── Contract 5b: tenantDispatch variant (ADR-0030 §A2 / cloister-0f144c) ──
+
+test("emit-cloister-capnp: tenantDispatch variant emits tenants table with name/mode/matchValue/binding", () => {
+  // Per ADR-0030 §A2: per-tenant SNI + path-prefix dispatch. The runtime
+  // class (TenantDispatchRoute) exists; the operator-facing emission to
+  // cloister.capnp lands here so the manifest pipeline can ship a
+  // multi-tenant config end-to-end.
+  const c = minimalCluster();
+  c.routes.push({
+    path: "/",
+    kind: {
+      tenantDispatch: {
+        tenants: [
+          { name: "alice", mode: "sni",         matchValue: "alice.cluster.example", binding: "T_ALICE" },
+          { name: "bob",   mode: "path-prefix", matchValue: "/t/bob",                 binding: "T_BOB"   },
+        ],
+      },
+    },
+  });
+  const out = emitCloisterCapnp(c);
+  // Variant marker emitted.
+  assert.match(out, /kind = \(tenantDispatch = \(/);
+  // Inline tenants list with each row's four fields.
+  assert.match(out, /name       = "alice"/);
+  assert.match(out, /mode       = "sni"/);
+  assert.match(out, /matchValue = "alice.cluster.example"/);
+  assert.match(out, /binding    = "T_ALICE"/);
+  assert.match(out, /name       = "bob"/);
+  assert.match(out, /mode       = "path-prefix"/);
+  assert.match(out, /matchValue = "\/t\/bob"/);
+  assert.match(out, /binding    = "T_BOB"/);
+});
+
+test("emit-cloister-capnp: tenantDispatch with empty tenants list emits an empty array (operator can ship a placeholder)", () => {
+  const c = minimalCluster();
+  c.routes.push({
+    path: "/",
+    kind: { tenantDispatch: { tenants: [] } },
+  });
+  const out = emitCloisterCapnp(c);
+  assert.match(out, /tenants = \[/);
+  // Empty list still produces a valid capnp List(TenantDispatchRow) syntax.
+  // The runtime's compileDispatchTable will accept an empty table (no
+  // routes match → request falls through), so the emitter doesn't
+  // pre-validate operator intent here.
+});
+
 // ── Contract 6: mcp route with durableObject backend (tools list rendered inline) ──
 
 test("emit-cloister-capnp: mcp route renders durableObject backend with tools block", () => {

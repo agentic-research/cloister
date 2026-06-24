@@ -348,6 +348,24 @@ function renderRoute(lines, r, isLast) {
     lines.push(`      kind = (vaultProxy = (`);
     lines.push(`        bundleIdName = ${q(payload.bundleIdName)},`);
     lines.push(`      )),`);
+  } else if (tag === "tenantDispatch") {
+    // ADR-0030 §A2 — per-tenant dispatch route. The operator declares
+    // `[[routes]] kind = "tenantDispatch"` with an inline `[[routes.tenantDispatch.tenants]]`
+    // array; the emitter projects it into cloister.capnp's TenantDispatchSpec.
+    // Mirrors the route's runtime in `src/routes/tenant-dispatch.ts`.
+    lines.push(`      kind = (tenantDispatch = (`);
+    lines.push(`        tenants = [`);
+    const rows = payload.tenants ?? [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const sep = i === rows.length - 1 ? "" : ",";
+      lines.push(`          ( name       = ${q(row.name)},`);
+      lines.push(`            mode       = ${q(row.mode)},`);
+      lines.push(`            matchValue = ${q(row.matchValue)},`);
+      lines.push(`            binding    = ${q(row.binding)} )${sep}`);
+    }
+    lines.push(`        ],`);
+    lines.push(`      )),`);
   } else {
     throw new Error(`renderRoute: unsupported payload variant "${tag}" on route ${r.path}`);
   }

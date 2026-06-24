@@ -1237,6 +1237,95 @@ kind = "mcp"
   assert.deepEqual(reparsed.routes, parsed.routes, "mcp route must round-trip identity");
 });
 
+test("routes: tenantDispatch variant carries inline tenants table (ADR-0030 §A2)", async () => {
+  // Per ADR-0030 §A2 / cloister-0f144c. Multi-tenant routing through
+  // SNI or path-prefix dispatch. The TenantDispatchRoute class exists
+  // (src/routes/tenant-dispatch.ts) and is referenced by
+  // src/manifest/runtime.ts:215. This test pins the operator-facing
+  // declaration shape end-to-end through the bidi pipeline.
+  const tomlIn = `
+[metadata]
+name    = "routes-tenant-dispatch"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alice-bundle"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "alice:0.1"
+  ipcSocket = "/run/alice.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[bundles]]
+name                = "bob-bundle"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "bob:0.1"
+  ipcSocket = "/run/bob.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alice-bundle"
+to        = "alice-bundle"
+binding   = "T_ALICE"
+transport = "uds"
+
+[[wires]]
+from      = "bob-bundle"
+to        = "bob-bundle"
+binding   = "T_BOB"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[routes]]
+path = "/"
+kind = "tenantDispatch"
+
+  [[routes.tenantDispatch.tenants]]
+  name       = "alice"
+  mode       = "sni"
+  matchValue = "alice.cluster.example"
+  binding    = "T_ALICE"
+
+  [[routes.tenantDispatch.tenants]]
+  name       = "bob"
+  mode       = "path-prefix"
+  matchValue = "/t/bob"
+  binding    = "T_BOB"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.routes.length, 1);
+  assert.deepEqual(parsed.routes[0].kind, {
+    tenantDispatch: {
+      tenants: [
+        { name: "alice", mode: "sni",         matchValue: "alice.cluster.example", binding: "T_ALICE" },
+        { name: "bob",   mode: "path-prefix", matchValue: "/t/bob",                 binding: "T_BOB"   },
+      ],
+    },
+  });
+
+  const emitted = clusterToToml(parsed);
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.routes, parsed.routes,
+    "tenantDispatch route must round-trip identity (operator config + canonical form agree)");
+});
+
 test("routes: vaultProxy variant carries bundleIdName payload", async () => {
   const tomlIn = `
 [metadata]

@@ -114,12 +114,13 @@ export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
       z.object({ wellKnownMcpRegistry: z.null() }).strict(),
       z.object({ caBundle: z.null() }).strict(),
       z.object({ vaultProxy: VaultProxySpecSchema }).strict(),
+      z.object({ tenantDispatch: TenantDispatchSpecSchema }).strict(),
     ]),
   }).strict());
 
 export interface Route {
   path: string;
-  kind: { health: null } | { mcp: McpRouteSpec } | { serviceBindingProxy: ServiceBindingProxySpec } | { httpProxy: HttpProxySpec } | { wellKnownInterlace: null } | { disclosure: null } | { wellKnownIdentityBridge: null } | { ociRegistry: null } | { wellKnownMcpRegistry: null } | { caBundle: null } | { vaultProxy: VaultProxySpec };
+  kind: { health: null } | { mcp: McpRouteSpec } | { serviceBindingProxy: ServiceBindingProxySpec } | { httpProxy: HttpProxySpec } | { wellKnownInterlace: null } | { disclosure: null } | { wellKnownIdentityBridge: null } | { ociRegistry: null } | { wellKnownMcpRegistry: null } | { caBundle: null } | { vaultProxy: VaultProxySpec } | { tenantDispatch: TenantDispatchSpec };
 }
 
 export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
@@ -267,6 +268,15 @@ export interface VaultProxySpec {
   bundleIdName: string;
 }
 
+export const TenantDispatchSpecSchema: z.ZodType<TenantDispatchSpec> = z.lazy(() =>
+  z.object({
+    tenants: z.array(TenantDispatchRowSchema),
+  }).strict());
+
+export interface TenantDispatchSpec {
+  tenants: TenantDispatchRow[];
+}
+
 export const BackendSchema: z.ZodType<Backend> = z.lazy(() =>
   z.object({
     name: z.string(),
@@ -368,6 +378,21 @@ export interface McpTool {
   name: string;
   description: string;
   inputSchemaJson: string;
+}
+
+export const TenantDispatchRowSchema: z.ZodType<TenantDispatchRow> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    mode: z.string(),
+    matchValue: z.string(),
+    binding: z.string(),
+  }).strict());
+
+export interface TenantDispatchRow {
+  name: string;
+  mode: string;
+  matchValue: string;
+  binding: string;
 }
 
 export const GatewayMetadataSchema: z.ZodType<GatewayMetadata> = z.lazy(() =>
