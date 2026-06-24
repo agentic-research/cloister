@@ -701,6 +701,66 @@ function checkInvariant8(cluster, violations) {
   }
 }
 
+/**
+ * Invariant 9 (ADR-0034 / cloister-cedcf3 Phase 2 piece 3): each
+ * perTenant=true bundle must be the `to` of at least one `[[wires]]`
+ * entry whose `binding` appears in a `tenantDispatch` row. Otherwise
+ * the perTenant declaration is reachable only via direct in-cluster
+ * bindings — external traffic can't dispatch to a per-tenant instance
+ * of the bundle.
+ *
+ * The chain Inv 9 enforces:
+ *
+ *   tenantDispatch row.binding ──► [[wires]].binding (same name)
+ *                                   └─► [[wires]].to == this perTenant bundle's name
+ *
+ * Without this chain, an operator might declare `perTenant=true` and a
+ * tenantDispatch route, but wire their tenantDispatch rows to a
+ * DIFFERENT bundle. Inv 8 catches the no-route case; Inv 9 catches the
+ * wrong-route case.
+ *
+ * Skipped (no-op) when there are no perTenant bundles OR no
+ * tenantDispatch routes (Inv 8 covers those edges).
+ */
+function checkInvariant9(cluster, violations) {
+  const bundles    = cluster.bundles ?? [];
+  const wires      = cluster.wires ?? [];
+  const routes     = cluster.routes ?? [];
+  const perTenantBundles = bundles.filter((b) => b.perTenant === true);
+  const tenantDispatchRoutes = routes.filter((r) => r.kind?.tenantDispatch);
+
+  // Both sides empty → Inv 8 handles edges; here just no-op.
+  if (perTenantBundles.length === 0) return;
+  if (tenantDispatchRoutes.length === 0) return; // Inv 8 already flagged
+
+  // Build the set of bindings referenced by any tenantDispatch row.
+  const dispatchedBindings = new Set();
+  for (const route of tenantDispatchRoutes) {
+    const tenants = route.kind.tenantDispatch.tenants ?? [];
+    for (const row of tenants) {
+      if (row.binding) dispatchedBindings.add(row.binding);
+    }
+  }
+
+  // For each perTenant bundle, find at least one wire whose `to` matches
+  // AND whose `binding` is in dispatchedBindings.
+  for (const b of perTenantBundles) {
+    const incomingWires = wires.filter((w) => w.to === b.name);
+    const matchingWire  = incomingWires.find((w) => dispatchedBindings.has(w.binding));
+    if (!matchingWire) {
+      const tenantBindingsList = Array.from(dispatchedBindings).sort().join(", ");
+      const incomingBindingsList = incomingWires.map((w) => w.binding).sort().join(", ") || "(none)";
+      violations.push(
+        `lint-bundle-isolation: perTenant=true bundle "${b.name}" has no [[wires]] ` +
+        `entry whose binding is referenced by any tenantDispatch row — Inv 9, ADR-0034 / cloister-cedcf3. ` +
+        `tenantDispatch bindings: [${tenantBindingsList}]; incoming wire bindings on this bundle: [${incomingBindingsList}]. ` +
+        `Either point a tenantDispatch row's binding at one of the incoming wires, or add a wire ` +
+        `to this bundle with binding matching a tenantDispatch row.`,
+      );
+    }
+  }
+}
+
 function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violations) {
   if (tier !== "cluster") return;
   if (!bundleName) return; // already flagged by tier defaulting + Inv 3
@@ -815,6 +875,7 @@ checkInvariant3(cluster, violations);
 checkInvariant6(cluster, violations);
 checkInvariant7(cluster, violations);
 checkInvariant8(cluster, violations);
+checkInvariant9(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -852,5 +913,5 @@ console.log(`  ${inputCount} input(s) walked for tenancy resolution`);
 const tenantDispatchCount = (cluster.routes ?? []).filter((r) => r.kind?.tenantDispatch).length;
 console.log(`  ${tenantDispatchCount} tenantDispatch route(s) walked for Inv 7`);
 const perTenantCount = (cluster.bundles ?? []).filter((b) => b.perTenant === true).length;
-console.log(`  ${perTenantCount} perTenant bundle(s) walked for Inv 8`);
-console.log(`  invariants 1–8 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing)`);
+console.log(`  ${perTenantCount} perTenant bundle(s) walked for Inv 8 + Inv 9`);
+console.log(`  invariants 1–9 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring)`);

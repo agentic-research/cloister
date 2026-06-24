@@ -1331,6 +1331,188 @@ test("Inv 8 — perTenant=true bundle WITH a tenantDispatch route is accepted", 
   }
 });
 
+// ── ADR-0034 / cloister-cedcf3: Inv 9 perTenant ↔ tenantDispatch binding chain ──
+
+test("Inv 9 — perTenant bundle with NO incoming wire matching any tenantDispatch binding is rejected", () => {
+  // Operator declared perTenant + tenantDispatch, but the
+  // tenantDispatch row's binding wires to a DIFFERENT bundle than the
+  // perTenant one. Inv 8 passes (route exists); Inv 9 catches the
+  // wrong-route case.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+        { name: "other",           tier: "cluster" }, // not perTenant
+      ],
+      wires: [
+        // Wire goes to OTHER, not rosary — broken chain.
+        { from: "cloister-router", to: "other", binding: "T_ALICE" },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+        { name: "other",    bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "perTenant bundle with no matching dispatch wire should fail");
+    assert.match(r.stderr, /Inv 9/);
+    assert.match(r.stderr, /rosary/);
+    assert.match(r.stderr, /no \[\[wires\]\] entry whose binding is referenced/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 9 — perTenant bundle WITH a wire whose binding is referenced by tenantDispatch is accepted", () => {
+  // Well-formed chain:
+  //   tenantDispatch row.binding "T_ROSARY"
+  //     ↔ [[wires]].binding "T_ROSARY" (to=rosary)
+  //       ↔ perTenant bundle "rosary"
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+      ],
+      wires: [
+        { from: "cloister-router", to: "rosary", binding: "T_ROSARY" },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ROSARY" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `well-formed chain should pass Inv 9; stderr:\n${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 9 — multiple tenantDispatch rows all sharing the same binding to a perTenant bundle is accepted", () => {
+  // Operator deploys per-tenant rsry; alice + bob + carol all dispatch
+  // to the same binding T_ROSARY (which gets emitted as per-tenant
+  // instances by emit-compose Phase 2). Inv 9 checks at-least-one-match
+  // semantics, so this aggregated shape is fine.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+      ],
+      wires: [
+        { from: "cloister-router", to: "rosary", binding: "T_ROSARY" },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ROSARY" },
+                { name: "bob",   mode: "sni", matchValue: "bob.example",   binding: "T_ROSARY" },
+                { name: "carol", mode: "sni", matchValue: "carol.example", binding: "T_ROSARY" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `multi-tenant dispatching to same perTenant bundle should pass; stderr:\n${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 9 — perTenant bundle with NO incoming wires at all is rejected with clear message", () => {
+  // Edge case: operator declared perTenant=true but forgot the wire
+  // entirely. Without wires, the bundle is unreachable from cloister-
+  // router. Inv 4 may also flag, but Inv 9 makes the perTenant-specific
+  // failure path explicit.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+      ],
+      // No wires at all.
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ROSARY" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "perTenant bundle with no wires should fail Inv 9");
+    assert.match(r.stderr, /Inv 9/);
+    assert.match(r.stderr, /\(none\)/); // empty incoming wires list rendered
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("Inv 8 — MULTIPLE perTenant bundles all flagged when no tenantDispatch route", () => {
   // If 3 bundles declare perTenant=true and no tenantDispatch route
   // exists, lint emits 3 violations (one per bundle) — operator sees
