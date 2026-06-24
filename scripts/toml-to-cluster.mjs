@@ -394,20 +394,30 @@ function normalizeInputDefaults(spec) {
 }
 
 function unflattenBundleKind(b) {
-  // Pass-through if already in zod-nested form.
+  // Pass-through if already in zod-nested form. Still applies the
+  // `perTenant` default below for forward-compat with pre-cedcf3 fixtures.
+  let result;
   if (b && typeof b === "object" && b.kind && typeof b.kind === "object" && !Array.isArray(b.kind)) {
-    return b;
-  }
-  if (!b || typeof b.kind !== "string") {
+    result = b;
+  } else if (!b || typeof b.kind !== "string") {
     // Leave malformed input alone; zod will reject it with a clear error.
     return b;
+  } else {
+    const tag = b.kind;
+    const payload = b[tag];
+    const remaining = { ...b };
+    delete remaining[tag];
+    delete remaining.kind;
+    result = { ...remaining, kind: { [tag]: payload } };
   }
-  const tag = b.kind;
-  const payload = b[tag];
-  const remaining = { ...b };
-  delete remaining[tag];
-  delete remaining.kind;
-  return { ...remaining, kind: { [tag]: payload } };
+  // cloister-cedcf3 Phase 1: `perTenant` defaults to false for back-compat
+  // with pre-ADR-0034 cluster.toml. Operators opt in by declaring it
+  // explicitly. Zod requires the field per the regen'd schema; this
+  // default makes the requirement transparent to existing configs.
+  if (typeof result.perTenant !== "boolean") {
+    result = { ...result, perTenant: false };
+  }
+  return result;
 }
 
 function unflattenWireTransport(w) {

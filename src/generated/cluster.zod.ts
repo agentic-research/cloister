@@ -29,6 +29,7 @@ export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
     holdsCredential: z.array(z.string()),
     workerdServiceName: z.string(),
     hypervisorRationale: z.string(),
+    perTenant: z.boolean(),
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
       z.object({ external: ExternalBundleSchema }).strict(),
@@ -42,6 +43,7 @@ export interface Bundle {
   holdsCredential: string[];
   workerdServiceName: string;
   hypervisorRationale: string;
+  perTenant: boolean;
   kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
 }
 

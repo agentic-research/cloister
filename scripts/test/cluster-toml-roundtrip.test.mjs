@@ -112,6 +112,7 @@ function richCluster() {
         holdsCredential: ["VAULT"],
         workerdServiceName: "router",
         hypervisorRationale: "Mediates all traffic. Singleton.",
+        perTenant: false,
         kind: {
           external: {
             image: "router:0.1",
@@ -129,6 +130,7 @@ function richCluster() {
         holdsCredential: [],
         workerdServiceName: "",
         hypervisorRationale: "",
+        perTenant: false,
         kind: { workerd: { entryPoint: "src/bundles/tool/index.ts" } },
       },
     ],
@@ -1755,4 +1757,87 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
   const back = await parseTomlToCluster(t1);
   const t2 = clusterToToml(back);
   assert.equal(t2, t1, "gateway canonical form must be byte-stable");
+});
+
+// ── cloister-cedcf3 Phase 1: perTenant field ────────────────────────────
+
+test("bundles: pre-cedcf3 cluster.toml WITHOUT perTenant defaults to false (back-compat)", async () => {
+  // Operators with existing cluster.toml that predates cloister-cedcf3
+  // MUST NOT have to add `perTenant = false` to every bundle. The
+  // unflattener defaults the field at parse time.
+  const tomlIn = `
+[metadata]
+name = "back-compat"
+version = "0.0.1"
+
+[[bundles]]
+name = "alpha"
+description = ""
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+kind = "external"
+  [bundles.external]
+  image = "alpha:0.1"
+  ipcSocket = "/run/alpha.sock"
+  httpPort = 0
+  args = []
+  env = []
+
+[[wires]]
+from = "alpha"
+to = "alpha"
+binding = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.bundles[0].perTenant, false, "perTenant must default to false");
+});
+
+test("bundles: explicit perTenant = true is preserved through the roundtrip", async () => {
+  // ADR-0034 acceptance: per-tenant rsry sidecar declares
+  // `perTenant = true`. Phase 1 of cedcf3 makes the field operator-
+  // declarable; Phase 2 makes emit-compose consume it.
+  const tomlIn = `
+[metadata]
+name = "per-tenant"
+version = "0.0.1"
+
+[[bundles]]
+name = "rosary"
+description = ""
+tier = "cluster"
+holdsCredential = []
+workerdServiceName = ""
+hypervisorRationale = ""
+perTenant = true
+kind = "external"
+  [bundles.external]
+  image = "rosary:0.2.0"
+  ipcSocket = "/run/rosary.sock"
+  httpPort = 0
+  args = []
+  env = []
+
+[[wires]]
+from = "rosary"
+to = "rosary"
+binding = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.equal(parsed.bundles[0].perTenant, true, "perTenant=true preserved through parse");
+
+  const emitted = clusterToToml(parsed);
+  assert.match(emitted, /perTenant = true/, "perTenant=true emitted into canonical TOML");
+
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.equal(reparsed.bundles[0].perTenant, true, "perTenant=true survives roundtrip");
 });

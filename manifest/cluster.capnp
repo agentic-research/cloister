@@ -179,6 +179,26 @@ struct Bundle {
   # Cluster-tier bundles may leave this empty; the field is required
   # only on the promotion path.
   hypervisorRationale @7 :Text;
+
+  # ── perTenant (ADR-0034 / cloister-cedcf3 Phase 1, foundational) ─────
+  #
+  # When true, the emit-compose pipeline produces one bundle instance
+  # PER tenant declared in the `tenantDispatch` route table, instead of
+  # a single cluster-wide bundle. Each tenant gets its own container
+  # with tenant-suffixed service name + tenant-scoped storage paths
+  # (e.g. `BEADS_DIR=/data/<tenant>/beads` for the rosary bundle).
+  #
+  # Default: false. A `perTenant=true` bundle WITHOUT a `tenantDispatch`
+  # route declared in `routes[]` is a lint error (Inv 7 extension —
+  # tracked under cloister-cedcf3 Phase 2).
+  #
+  # Phase 1 (this field): operator can declare it; emit-compose
+  # consumption is deferred to Phase 2. The schema is forward-compatible
+  # — recipes can land with the field set, and the runtime ignores it
+  # until emit-compose grows the awareness.
+  #
+  # Append-only ordinal per ADR-0004.
+  perTenant @8 :Bool;
 }
 
 enum Tier {
