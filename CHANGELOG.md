@@ -8,6 +8,118 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-06-22 – 2026-06-24
+
+Multi-cycle session covering an adversarial-cycle close-out, two new
+ADRs, the BeadStore-DO migration foundation, and three new
+substrate-property lint invariants.
+
+- **Adversarial cycle 2026-06-22 close-out** (`cloister-92e846` parent +
+  C1-C7 sub-beads) — §13.7.6 oracle posture fully closed:
+  - C3 (`cloister-9339c0`): `tenant-dispatch` unwired-binding warn
+    throttled to one emit per binding + tenant name elided from log
+    channel
+  - C5 (`cloister-938b32`): vault decrypt-error `bundleIdName` replaced
+    with stable FNV-1a fingerprint + defensive redaction in
+    `error_message`
+  - C6 (`cloister-93b0c2`): new `scripts/lint-vault-id-source.mjs`
+    forward-guard against `.newUniqueId()` on vault source files (per
+    ADR-0021)
+  - §13.7.6(b): path-prefix scan converted to full-walk
+    first-match-precedence (no early break)
+  - §13.7.6(c): `match()` + `handle()` share a per-request WeakMap
+    cache — matched requests cost exactly one scan
+  - C7 (`cloister-93d674`): §13.7.8 + §13.7.3 + §13.7.7 residual-posture
+    roll-up (boot-time config error channel; service-tier
+    consumer-aspiration framing; Inv 6 no-op on empty inputs)
+
+- **ADR-0033 — bd substrate binding** (`cloister-9d19e3`,
+  [ADR-0033](docs/adr/0033-bd-substrate-binding.md)) — rsry IS the MCP
+  server for the bead substrate; bd is the storage layer rsry consumes
+  underneath. Cloister-Worker reaches the bead substrate via a new
+  `rsry_*` `mcpProxy` backend routing to the existing rosary bundle.
+  No new bundle, no new wire, no MySQL in workerd. Multi-substrate
+  framing made explicit. Amendment 2026-06-23 corrects an early-draft
+  bd-has-MCP-server assumption after verifying against `bd 1.0.0`.
+
+- **ADR-0034 — multi-tenant access spec across the ecosystem**
+  (`cloister-cbfd7f`,
+  [ADR-0034](docs/adr/0034-multi-tenant-access-spec.md)) — classifies
+  rosary / mache / ley-line / notme / signet by required-vs-deferred
+  for true-multi-tenant deployments. Spawns 5 sub-beads for the
+  in-scope work (3 cloister-side, 1 notme, 1 mache).
+
+- **cloister-c8b907 BeadStore-DO deprecation migration** — three
+  sub-beads delivered:
+  - Sub-bead 1 (`cloister-dea77c`): TrustStore `peer_attestations`
+    gains a `bead_id TEXT NULL` column + partial index + ALTER TABLE
+    migration. New `attestationsForBead(sql, beadId)` helper. The
+    §13.4 audit chain now reconstitutes via a JOIN on `bead_id` —
+    rsry/bd-stored beads have no `content_hash` of their own, but
+    the TrustStore attestation row links them back.
+  - Sub-bead 2 (`cloister-decf0d`): `BEAD_STORAGE_BACKEND` env var
+    routes the `bead_create` orchestrator's Step 2 between
+    BeadStore DO (`"do"`, default) and rsry's `rsry_bead_create`
+    over `ROSARY_BUNDLE` (`"rsry"`). Both paths thread the new
+    bead_id into Step 3's attestation row. Operators can opt in
+    today; default flip stays deferred.
+  - Sub-bead 3 prep (`cloister-f34f7b`): one-shot structured
+    deprecation warning (`event: "bead_create.legacy_backend"`)
+    when an operator runs on the legacy path. Per-isolate module
+    flag prevents log spam.
+
+- **cloister-cedcf3 perTenant + Inv 7/8/9 lint coverage** (ADR-0034
+  §Sequencing item #3) — operator-facing multi-tenant substrate:
+  - Phase 1: `perTenant: Bool` field on `BundleSpec` in
+    `manifest/cluster.capnp` + `cluster.zod.ts` regen. Back-compat
+    via `unflattenBundleKind` default; existing cluster.toml parses
+    without modification.
+  - Inv 7 (`cloister-ce936e`): tenantDispatch row ↔ workerd-id
+    alignment via input.tenancy.workerdId. Skipped on empty
+    `inputs[]` (recipe-shape leniency).
+  - Inv 8 (`cloister-cedcf3` Phase 2 piece 1): `perTenant = true`
+    bundle MUST have a `tenantDispatch` route declared.
+  - Inv 9 (`cloister-cedcf3` Phase 2 piece 3): perTenant bundle MUST
+    be the `to` of at least one `[[wires]]` entry whose binding is
+    referenced by a `tenantDispatch` row (the full chain
+    `tenantDispatch row.binding → wire → bundle`).
+  - emit-compose surfaces `perTenant=true` as a `cloister.per-tenant`
+    container label (Phase 2 piece 2 — per-tenant container
+    splitting — deferred for naming/volume design).
+
+- **Threat-model §13.8 entries** — new bd-substrate binding section
+  covering UDS perimeter (§13.8.1), rsry↔bd Dolt storage boundary
+  (§13.8.2), the BeadStore-DO migration audit-chain reconstitution
+  (§13.8.3, with the operator-facing SQL query), multi-tenant
+  coexistence with ADR-0030 (§13.8.4). Summary table cross-links to
+  the migration sub-beads + lint invariants.
+
+- **Documentation + manifest plumbing**:
+  - New `docs/reference/tenancy-model.md` — operator-facing model of
+    the two existing tenancy primitives (per-input + per-route) and
+    how Inv 7/8/9 enforce their composition
+  - New `docs/tenants/rsry-mcp.md` — operator-facing tenant doc for
+    the new `rsry_*` backend
+  - New `recipes/multi-tenant-smoke/` — smallest demonstration of the
+    `tenantDispatch` routing primitive
+  - `task lint` deps extended with `cluster:zod:verify` — closes the
+    drift gap where schema-vs-runtime mismatch only surfaced under
+    `task verify`
+  - Bidi pipeline supports the new `tenantDispatch` route variant +
+    `perTenant` field via `scripts/emit-cloister-capnp.mjs` +
+    `scripts/toml-to-cluster.mjs` + roundtrip tests
+
+- **Test coverage** — 60+ new tests across 8 new test files (manifest
+  rsry-backend pin, rsry e2e, recipe→instantiate pipeline,
+  peer-attestations bead_id, orchestrator backend dispatch, rsry-mode
+  integration, multi-tenant smoke, recipe-multi-tenant integration).
+  Total: 84 test files / 1290 vitest + ~290 node:test, all green
+  through every commit.
+
+- **Cross-repo carry-overs cleaned up** (`cloister-a2809a` closed —
+  LLO `lsp_*` route shipped via manifest-driven mcpProxy; LLO ticket
+  marked retired with cross-link).
+
 ### Shipped 2026-05-17
 
 Eight feature PRs + ten stale-close reconciliations in a single
