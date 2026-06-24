@@ -279,6 +279,28 @@ export class TrustStore extends DurableObject {
 
   private initSchema(): void {
     this.db.exec(SCHEMA);
+
+    // ── cloister-c8b907 sub-bead 1 migration: bead_id column on
+    //    peer_attestations. CREATE TABLE IF NOT EXISTS doesn't add
+    //    columns to a pre-existing table; PRAGMA-detect + ALTER TABLE
+    //    when the column is missing.
+    //
+    // Same shape as vault-store.ts's destructive subject_fp migration
+    // (cloister-26546a), but additive — bead_id is NULL-able for old
+    // rows so no destructive recreate is required.
+    const cols = this.db
+      .exec("PRAGMA table_info(peer_attestations)")
+      .toArray() as unknown as Array<{ name: string }>;
+    const hasBeadId = cols.some((c) => c.name === "bead_id");
+    if (!hasBeadId && cols.length > 0) {
+      this.db.exec("ALTER TABLE peer_attestations ADD COLUMN bead_id TEXT");
+      // Re-create the partial index (CREATE INDEX IF NOT EXISTS in the
+      // SCHEMA is idempotent but only runs if the table CREATE ran).
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS peer_attestations_bead_id " +
+        "ON peer_attestations(bead_id) WHERE bead_id IS NOT NULL",
+      );
+    }
   }
 
   // The DO has no inbound HTTP handler today — it's accessed by other

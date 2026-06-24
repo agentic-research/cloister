@@ -43,10 +43,23 @@ CREATE TABLE IF NOT EXISTS peer_attestations (
   cert             BLOB NOT NULL,
   sig              BLOB NOT NULL,
   created_at       INTEGER NOT NULL,
+  -- bead_id: cloister-c8b907 sub-bead 1 / ADR-0033 D5 amendment 2026-06-24.
+  -- After BeadStore-DO deprecation the §13.4 audit chain reconstitutes via
+  -- a JOIN through this column: each attestation row knows which bead row
+  -- it audits, even when the bead row lives in rsry/bd's Dolt (which
+  -- doesn't carry content_hash). NULL is valid for pre-migration rows AND
+  -- for attestations that aren't bead-create (e.g. future state-boundary
+  -- writes against other DO state).
+  bead_id          TEXT,
   PRIMARY KEY (peer_fingerprint, seq)
 );
 CREATE INDEX IF NOT EXISTS peer_attestations_content
   ON peer_attestations(peer_fingerprint, content_hash);
+-- Non-unique index — a bead may in principle have multiple attestations
+-- across retries / recoveries. Single-attestation-per-bead is the common
+-- case but not an invariant.
+CREATE INDEX IF NOT EXISTS peer_attestations_bead_id
+  ON peer_attestations(bead_id) WHERE bead_id IS NOT NULL;
 `;
 
 /** Minimal SQL executor surface. */
@@ -67,6 +80,14 @@ export interface PeerAttestation {
   cert:             Uint8Array;
   sig:              Uint8Array;
   created_at:       number;
+  /**
+   * Cross-table link to the bead row this attestation audits. NULL means
+   * either (a) pre-migration row that predates `cloister-c8b907 sub-bead 1`,
+   * or (b) an attestation against state OTHER than a bead (future
+   * state-boundary writes — none today). cloister-c8b907 / ADR-0033 D5
+   * amendment 2026-06-24.
+   */
+  bead_id:          string | null;
 }
 
 /**
@@ -110,7 +131,7 @@ export function lastAttestationForPeer(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at
+              content_hash, content_type, scope, cert, sig, created_at, bead_id
          FROM peer_attestations
         WHERE peer_fingerprint = ?
      ORDER BY seq DESC
@@ -119,6 +140,33 @@ export function lastAttestationForPeer(
     )
     .toArray();
   return rows[0] ? rowToAttestation(rows[0]) : null;
+}
+
+/**
+ * Look up attestations by bead_id — the §13.4 audit query post-BeadStore-DO
+ * deprecation (cloister-c8b907 / ADR-0033 D5 amendment). Returns all
+ * attestation rows whose bead_id matches, ordered by created_at ASC. Empty
+ * list means either the bead has no attestation (created via direct rsry
+ * bypass, no orchestrator) or no rows match (the bead doesn't exist or
+ * was created pre-migration).
+ *
+ * `peer_attestations_bead_id` partial index covers this query.
+ */
+export function attestationsForBead(
+  sql: SqlExecutor,
+  beadId: string,
+): PeerAttestation[] {
+  const rows = sql
+    .exec(
+      `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
+              content_hash, content_type, scope, cert, sig, created_at, bead_id
+         FROM peer_attestations
+        WHERE bead_id = ?
+     ORDER BY created_at ASC`,
+      beadId,
+    )
+    .toArray();
+  return rows.map((r) => rowToAttestation(r));
 }
 
 /**
@@ -158,6 +206,13 @@ export function applyAttestation(
     prevPeerRef:     string | null;
     /** Server-side timestamp (Unix ms). */
     nowMs:           number;
+    /**
+     * Optional bead_id linking this attestation to a specific bead row.
+     * Set by the bead-create orchestrator (`src/routes/bead-create-orchestrator.ts`)
+     * after step 2 produces the bead row. Future state-boundary writes
+     * against non-bead state leave this null. Per cloister-c8b907 sub-bead 1.
+     */
+    beadId?:         string | null;
   },
 ): ApplyAttestationResult {
   const last = lastAttestationForPeer(sql, args.peerFingerprint);
@@ -175,11 +230,12 @@ export function applyAttestation(
   }
   const seq = (last?.seq ?? 0) + 1;
 
+  const beadId = args.beadId ?? null;
   sql.exec(
     `INSERT INTO peer_attestations
        (peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-        content_hash, content_type, scope, cert, sig, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        content_hash, content_type, scope, cert, sig, created_at, bead_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args.peerFingerprint,
     seq,
     args.prevSelfRef,
@@ -190,6 +246,7 @@ export function applyAttestation(
     args.cert,
     args.sig,
     args.nowMs,
+    beadId,
   );
 
   return {
@@ -206,6 +263,7 @@ export function applyAttestation(
       cert:             args.cert,
       sig:              args.sig,
       created_at:       args.nowMs,
+      bead_id:          beadId,
     },
   };
 }
@@ -225,7 +283,7 @@ export function listAttestationsForPeer(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at
+              content_hash, content_type, scope, cert, sig, created_at, bead_id
          FROM peer_attestations
         WHERE peer_fingerprint = ? AND seq >= ?
      ORDER BY seq ASC
@@ -252,7 +310,7 @@ export function findAttestationByContent(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at
+              content_hash, content_type, scope, cert, sig, created_at, bead_id
          FROM peer_attestations
         WHERE peer_fingerprint = ? AND content_hash = ?
      ORDER BY seq DESC
@@ -278,5 +336,9 @@ function rowToAttestation(r: Record<string, unknown>): PeerAttestation {
     cert:             r["cert"]             as Uint8Array,
     sig:              r["sig"]              as Uint8Array,
     created_at:       r["created_at"]       as number,
+    // bead_id: nullable per cloister-c8b907 sub-bead 1. Old rows
+    // pre-migration return undefined → coerce to null. Newer rows
+    // carry the bead_id from `applyAttestation.args.beadId`.
+    bead_id:          (r["bead_id"]         as string | null | undefined) ?? null,
   };
 }

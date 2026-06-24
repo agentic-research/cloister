@@ -274,6 +274,76 @@ on BeadStore DO. Cloister-Worker uses whichever it needs (or both).
 Phase 2 (future ADR): if the operator wants `bead_*` to live on bd,
 write the migration ADR.
 
+#### D5 amendment 2026-06-24 — `cloister-c8b907` migration shape
+
+The "coexist intentionally" framing above was a band-aid. The
+honest direction is **deprecate the BeadStore DurableObject** in
+favor of rsry/bd. User feedback on 2026-06-23 surfaced this as a
+substrate-cleanliness regression.
+
+**Technical investigation** (rosary repo, 2026-06-24):
+
+- rosary's `issues` table (the bead row store) does NOT have a
+  `content_hash` column — verified via `rs/rosary/src/dolt/migrate.rs`.
+  The `content_hash` column exists on `observations` (a different
+  table, append-only agent observations).
+- This means rsry's bead surface can't natively model the §13.4
+  content-addressed handoff invariant the way BeadStore DO does
+  (where `content_hash` is a first-class column on the row).
+
+**Migration shape (Option 3 from cloister-c8b907, with this resolution)**:
+
+The clean answer is **content_hash lives ONLY on the TrustStore
+attestation row, linked to the bead via `bead_id`**. The bead row
+in rsry doesn't store the hash — but it's recoverable from the
+audit chain by joining `bead_id`:
+
+```
+SELECT
+  i.id, i.title, i.description, ..., a.content_hash
+FROM beads.issues i
+LEFT JOIN truststore.peer_attestations a ON a.bead_id = i.id
+WHERE i.id = '<bead_id>'
+```
+
+The §13.4 audit invariant becomes: "every bead created via the
+cloister orchestrator MUST have a matching attestation row with
+content_hash". Beads created via direct `bd create` (CLI bypass)
+have no attestation row — which is the same posture as today's
+"bead created via direct DO RPC bypass." The chain isn't weaker,
+it just lives in a different table.
+
+The migration commits look like:
+
+1. **Add bead_id column to peer_attestations** (cloister-side
+   TrustStore DO migration). Today the attestation is keyed by
+   `(peer_fp, scope, content_hash)`; bead_id gets added as a
+   non-unique index so we can join.
+2. **Modify `src/routes/bead-create-orchestrator.ts`** to fetch
+   step 2 (BeadStore.bead_create) via rsry's `rsry_bead_create`
+   over the mcpProxy backend. rsry returns the new bead row's
+   `id`; orchestrator uses it to populate the TrustStore
+   attestation's `bead_id`.
+3. **Feature flag** (`BEAD_STORAGE_BACKEND=do|rsry`, default `do`
+   for back-compat). When `rsry`, the orchestrator does the rsry
+   route; when `do`, the existing BeadStore.bead_create path.
+4. **Per-route tests** verify both paths produce equivalent
+   attestation chains.
+5. **Phase 2 (future bead)**: flip the default to `rsry`. Phase 3:
+   delete `src/beads.ts` + the BeadStore DO binding.
+
+**Scope clarification**: this is genuinely multi-bead-commit work.
+Step 1 alone (TrustStore migration + bead_id column + lint update)
+is its own bead under `cloister-c8b907`. The orchestrator-refactor
+is the second bead. The default-flip is the third. None of these
+ship in a single cron loop fire.
+
+Tracking: `cloister-c8b907` becomes the parent. Sub-beads to
+spawn:
+- TrustStore bead_id column migration (cloister-side DO storage)
+- Orchestrator rsry-mode + feature flag (cloister-side route)
+- Default flip + DO deletion (cloister-side cleanup)
+
 ### D6 — Multi-substrate framing
 
 Cloister has been a multi-substrate mediator since ADR-0002 (the

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   AttestationIntegrityError,
   applyAttestation,
+  attestationsForBead,
   findAttestationByContent,
   lastAttestationForPeer,
   listAttestationsForPeer,
@@ -304,6 +305,95 @@ describe("disclosure-endpoint round-trip", () => {
       // each subsequent prev_self_ref points at previous content_hash
       expect(chain[1]!.prev_self_ref).toBe(chain[0]!.content_hash);
       expect(chain[2]!.prev_self_ref).toBe(chain[1]!.content_hash);
+    });
+  });
+});
+
+// ── cloister-c8b907 sub-bead 1: bead_id column + attestationsForBead ─────
+
+describe("bead_id column (cloister-c8b907)", () => {
+  it("applyAttestation persists beadId on the row and returns it in the result", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      const result = applyAttestation(
+        state.storage.sql,
+        applyArgs({ contentHash: HASH_A, beadId: "cloister-1abcde" }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.row.bead_id).toBe("cloister-1abcde");
+      }
+    });
+  });
+
+  it("applyAttestation without beadId defaults to null bead_id (back-compat for non-bead-create attestations)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      const result = applyAttestation(
+        state.storage.sql,
+        applyArgs({ contentHash: HASH_A }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.row.bead_id).toBeNull();
+      }
+    });
+  });
+
+  it("attestationsForBead returns rows matching the bead_id, ordered by created_at", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      // Two attestations for bead "cloister-aaa" (one per peer), one for bead "cloister-bbb".
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER, contentHash: HASH_A, prevSelfRef: null,
+        beadId: "cloister-aaa", nowMs: 1_000,
+      }));
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER2, contentHash: HASH_B, prevSelfRef: null,
+        beadId: "cloister-aaa", nowMs: 2_000,
+      }));
+      applyAttestation(state.storage.sql, applyArgs({
+        peerFingerprint: PEER, contentHash: HASH_C, prevSelfRef: HASH_A,
+        beadId: "cloister-bbb", nowMs: 3_000,
+      }));
+
+      const aaa = attestationsForBead(state.storage.sql, "cloister-aaa");
+      expect(aaa.length).toBe(2);
+      expect(aaa[0]!.created_at).toBe(1_000);
+      expect(aaa[1]!.created_at).toBe(2_000);
+      expect(aaa.map((r) => r.peer_fingerprint).sort()).toEqual([PEER, PEER2].sort());
+
+      const bbb = attestationsForBead(state.storage.sql, "cloister-bbb");
+      expect(bbb.length).toBe(1);
+      expect(bbb[0]!.content_hash).toBe(HASH_C);
+
+      const missing = attestationsForBead(state.storage.sql, "cloister-doesnotexist");
+      expect(missing).toEqual([]);
+    });
+  });
+
+  it("§13.4 audit-chain reconstitution: bead_id lets the audit query recover (bead, content_hash) pairs after BeadStore-DO deprecation", async () => {
+    // This is the LOAD-BEARING property for cloister-c8b907's migration:
+    // after the BeadStore DO retires, the bead row in rsry/bd has no
+    // content_hash column. The orchestrator's TrustStore attestation
+    // row carries both bead_id AND content_hash; this test pins the
+    // recovery query.
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_, state) => {
+      // Simulate the orchestrator's bead_create call: BlobStore.put →
+      // bead_id from rsry → applyAttestation(content_hash, bead_id).
+      applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A,
+        beadId:      "cloister-deadbeef",
+        prevSelfRef: null,
+        nowMs:       42_000,
+      }));
+
+      // Audit query: "what's the content_hash for cloister-deadbeef?"
+      const found = attestationsForBead(state.storage.sql, "cloister-deadbeef");
+      expect(found.length).toBe(1);
+      expect(found[0]!.content_hash).toBe(HASH_A);
+      // The §13.4 invariant: bead → attestation → content_hash. Recovered.
     });
   });
 });

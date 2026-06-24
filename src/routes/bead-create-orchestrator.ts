@@ -101,6 +101,14 @@ interface TrustStoreRpc {
     prevSelfRef:     string | null;
     prevPeerRef:     string | null;
     nowMs:           number;
+    /**
+     * Bead row id this attestation audits (cloister-c8b907 sub-bead 1).
+     * After BeadStore-DO deprecation the §13.4 chain reconstitutes via
+     * the bead_id link. Today's orchestrator passes it (we already have
+     * the id from step 1); future state-boundary writes against non-bead
+     * state may leave it undefined.
+     */
+    beadId?:         string;
   }): Promise<ApplyAttestationResult>;
   enqueuePendingAttestation(args: {
     peerFp:      string;
@@ -302,6 +310,11 @@ export async function runBeadCreateOrchestrator(args: {
       scope:           args.context.scope,
       cert:            args.context.certDer,
       sig:             args.context.sig,
+      // bead_id link per cloister-c8b907 sub-bead 1. The §13.4 audit
+      // chain reconstitutes via this column after BeadStore-DO is
+      // deprecated; the bead row in rsry/bd lacks content_hash but the
+      // join recovers it from the attestation row.
+      beadId:          beadResult.id,
       prevSelfRef,
       prevPeerRef:     null,
       nowMs:           args.nowMs,
