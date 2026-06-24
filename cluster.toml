@@ -192,50 +192,43 @@ kind = "mcpProxy"
 name = "rsry"
 
   [routes.mcp.backends.mcpProxy]
-  # Per ADR-0033: rsry is the MCP server for the bead substrate;
-  # bd is the storage layer rsry consumes. Cloister-Worker reaches
-  # rsry via the ROSARY_BUNDLE service binding (already declared in
-  # `[[wires]]`); rsry talks to bd's dolt sql-server internally.
-  # `dynamicTools = true` proxies rsry's tools/list so the full
-  # rsry_* surface is discoverable; the `claims` list is the static
-  # operator-declared subset.
   claims = [
-    "rsry_bead_create",
-    "rsry_bead_search",
-    "rsry_bead_close",
-    "rsry_bead_update",
-    "rsry_bead_comment",
-    "rsry_bead_comment_list",
-    "rsry_bead_comment_update",
-    "rsry_bead_comment_delete",
-    "rsry_bead_link",
-    "rsry_bead_import",
-    "rsry_list_beads",
-    "rsry_status",
-    "rsry_active",
-    "rsry_dispatch",
-    "rsry_dispatch_record",
-    "rsry_dispatch_history",
-    "rsry_scan",
-    "rsry_review",
-    "rsry_run_once",
-    "rsry_decompose",
-    "rsry_decade_list",
-    "rsry_decade_create",
-    "rsry_thread_list",
-    "rsry_thread_create",
-    "rsry_thread_assign",
-    "rsry_thread_reparent",
-    "rsry_workspace_create",
-    "rsry_workspace_checkpoint",
-    "rsry_workspace_cleanup",
-    "rsry_workspace_merge",
-    "rsry_repo_list",
-    "rsry_repo_register",
-    "rsry_pipeline_query",
-    "rsry_pipeline_upsert",
-    "rsry_ticket_load",
-  ]
+  "rsry_bead_create",
+  "rsry_bead_search",
+  "rsry_bead_close",
+  "rsry_bead_update",
+  "rsry_bead_comment",
+  "rsry_bead_comment_list",
+  "rsry_bead_comment_update",
+  "rsry_bead_comment_delete",
+  "rsry_bead_link",
+  "rsry_bead_import",
+  "rsry_list_beads",
+  "rsry_status",
+  "rsry_active",
+  "rsry_dispatch",
+  "rsry_dispatch_record",
+  "rsry_dispatch_history",
+  "rsry_scan",
+  "rsry_review",
+  "rsry_run_once",
+  "rsry_decompose",
+  "rsry_decade_list",
+  "rsry_decade_create",
+  "rsry_thread_list",
+  "rsry_thread_create",
+  "rsry_thread_assign",
+  "rsry_thread_reparent",
+  "rsry_workspace_create",
+  "rsry_workspace_checkpoint",
+  "rsry_workspace_cleanup",
+  "rsry_workspace_merge",
+  "rsry_repo_list",
+  "rsry_repo_register",
+  "rsry_pipeline_query",
+  "rsry_pipeline_upsert",
+  "rsry_ticket_load"
+]
   dynamicTools = true
   protocolMode = ""
   requiresSession = false
