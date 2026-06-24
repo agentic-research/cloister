@@ -30,6 +30,7 @@ Top-level files cover cross-cutting surfaces:
 | `cross-do-recovery.test.ts` | End-to-end fault injection of the BlobStore → BeadStore → TrustStore handoff. Closes the test-coverage gap acknowledged in threat-model §13.4. Per `cloister-fff647`. |
 | `disclosure-attestation-smoke.test.ts` | Production cross-DO `bead_create` orchestrator + the disclosure endpoint: signed envelope → orchestrator runs → JSONL chain returned. Per `cloister-492c08`. |
 | `prompt-injection.test.ts` | A fully-compromised bundle (attacker code in its own V8 isolate) cannot exfiltrate credentials outside its slice grant. Demonstrates the ADR-0013 enforcement claim. Per `cloister-74ce00`. |
+| `orchestrator-rsry-mode-integration.test.ts` | Full bead_create orchestrator with `BEAD_STORAGE_BACKEND="rsry"`: BlobStore.put → rsry stub → TrustStore.applyAttestation lands an attestation row with bead_id linking to rsry's synthetic id. Pins the §13.4 audit-chain reconstitution through the rsry mode + the do-mode bead_id symmetry + the rsry §13.4 short-circuit + the deprecation-warning one-shot semantics. Per `cloister-decf0d` + `cloister-f34f7b`. |
 
 ### `vault/`
 
@@ -51,6 +52,22 @@ Top-level files cover cross-cutting surfaces:
 `well-known.test.ts` — one suite per file under
 [`src/routes/`](../src/routes/) (the `mcp.ts` and `bead-create-orchestrator.ts`
 suites are at the top level because they touch multiple surfaces).
+Also `tenant-dispatch.test.ts` (per-tenant SNI + path-prefix routing
+per ADR-0030 §A2; full-walk constant-time scan + WeakMap match cache
+per `cloister-92e846` §13.7.6 b/c; unwired-binding throttle per
+`cloister-9339c0` §13.7.6(d)), `vault-do-credential-store.test.ts`
+(rsry/bd vault forward with bundleIdFp redaction per `cloister-938b32`),
+and `bead-create-orchestrator-backend.test.ts` (BEAD_STORAGE_BACKEND
+resolver + createBeadViaRsry MCP wire + deprecation-warning seam per
+`cloister-decf0d`).
+
+### `integration/` — pipeline-level e2e (added 2026-06-22 cycle)
+
+| File | What it asserts |
+|------|----------------|
+| `multi-tenant-dispatch.test.ts` | Multi-tenant reality smoke through `instantiate()` → TenantDispatchRoute → real fetch probes across 3 tenants (mixed SNI + path-prefix), byte-equivalent 404 across every "did not dispatch" path, concurrent probe stress on the WeakMap cache + unwired-binding throttle. Per `cloister-92e846` + `cloister-9339c0`. |
+| `recipe-multi-tenant-instantiate.test.ts` | `recipes/multi-tenant-smoke/cluster.toml` → `parseTomlToCluster` → Gateway construction → `instantiate()` → `TenantDispatchRoute.match()` semantics. Closes the gap between emitter contract tests + runtime instantiation. Per `cloister-c2bd47`. |
+| `rsry-backend-e2e.test.ts` | rsry_* mcpProxy backend tools/list passthrough (no double-prefixing per `cloister-8ede3f`), claim-routing logic, instantiate() integration, ADR-0033 Open Q #2 (prefix collision with bd_/bead_/mache_/lsp_). Per `cloister-c2bd47`. |
 
 ### `manifest/` — runtime + backends
 
@@ -58,7 +75,10 @@ suites are at the top level because they touch multiple surfaces).
 (cluster-manifest validation), and one suite per backend kind:
 `leyline-net-backend.test.ts`, `uds-forward-backend.test.ts`,
 `mcp-proxy-dynamic.test.ts`, `leyline-net-edge-integration.test.ts`,
-`tool-schemas.test.ts`.
+`tool-schemas.test.ts`. Also `rsry-backend.test.ts` (structural pin
+for the rsry_* mcpProxy backend declared in `cluster.toml` per
+`cloister-c2bd47` — handlesPrefix, serviceBinding=ROSARY_BUNDLE,
+claims, coexistence with bead_* BeadStore DO).
 
 ### `wire/` — codec tests
 
