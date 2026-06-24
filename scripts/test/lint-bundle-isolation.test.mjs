@@ -126,6 +126,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       workerdServiceName = "",
       holdsCredential = [],
       hypervisorRationale,
+      perTenant = false,
     }) => ({
       name,
       description: `${name} test bundle`,
@@ -135,6 +136,9 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       hypervisorRationale: hypervisorRationale ?? (tier === "hypervisor"
         ? "test hypervisor rationale"
         : ""),
+      // cloister-cedcf3 Phase 1: perTenant defaults false; tests override
+      // by passing perTenant: true on a bundle in the fixture.
+      perTenant,
       kind: {
         external: {
           image: `${name}:test`,
@@ -1223,6 +1227,139 @@ test("Inv 7 — empty inputs[] skips alignment check (recipe demos without full 
   try {
     const r = runLint(scenario.workDir, scenario.clusterTsPath);
     assert.equal(r.status, 0, `recipe-shape (no inputs) should pass Inv 7; stderr:\n${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+// ── ADR-0034 / cloister-cedcf3: Inv 8 perTenant ↔ tenantDispatch ────────
+
+test("Inv 8 — no perTenant bundles → no-op (back-compat for pre-cedcf3 deployments)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+      ],
+      // No perTenant bundles; pre-cedcf3 shape.
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [] }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `pre-cedcf3 deployment should pass; stderr:\n${r.stderr}`);
+    assert.match(r.stdout, /0 perTenant bundle\(s\)/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 8 — perTenant=true bundle WITHOUT any tenantDispatch route is rejected", () => {
+  // Operator declared `perTenant=true` but no [[routes]] kind="tenantDispatch"
+  // exists. The perTenant flag is operationally meaningless without a
+  // routing layer — lint surfaces the typo / forgotten-route case.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+      ],
+      // No tenantDispatch route — the gap Inv 8 catches.
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "perTenant without tenantDispatch should fail");
+    assert.match(r.stderr, /Inv 8/);
+    assert.match(r.stderr, /perTenant = true/);
+    assert.match(r.stderr, /rosary/);
+    assert.match(r.stderr, /NO tenantDispatch route/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 8 — perTenant=true bundle WITH a tenantDispatch route is accepted", () => {
+  // Well-formed: operator declared perTenant=true AND a tenantDispatch
+  // route exists. Phase 2 of cedcf3 will add the stricter check that
+  // at least one row binds to this bundle; today existence is enough.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+      ],
+      wires: [
+        { from: "cloister-router", to: "rosary", binding: "T_ROSARY" },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ROSARY" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `well-formed perTenant+tenantDispatch should pass; stderr:\n${r.stderr}`);
+    assert.match(r.stdout, /1 perTenant bundle\(s\)/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 8 — MULTIPLE perTenant bundles all flagged when no tenantDispatch route", () => {
+  // If 3 bundles declare perTenant=true and no tenantDispatch route
+  // exists, lint emits 3 violations (one per bundle) — operator sees
+  // the full set, not just the first.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary",          tier: "cluster", perTenant: true },
+        { name: "mache",           tier: "cluster", perTenant: true },
+        { name: "llo",             tier: "cluster", perTenant: true },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "rosary",   bindings: [] },
+        { name: "mache",    bindings: [] },
+        { name: "llo",      bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "3 perTenant bundles with no dispatch route should fail");
+    assert.match(r.stderr, /rosary/);
+    assert.match(r.stderr, /mache/);
+    assert.match(r.stderr, /llo/);
   } finally {
     scenario.cleanup();
   }

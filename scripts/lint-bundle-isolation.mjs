@@ -660,6 +660,47 @@ function checkInvariant7(cluster, violations) {
   }
 }
 
+/**
+ * Invariant 8 (ADR-0034 / cloister-cedcf3 Phase 2): a bundle declaring
+ * `perTenant = true` MUST have a `tenantDispatch` route declared in
+ * `cluster.routes`. Otherwise the per-tenant declaration is a no-op —
+ * the operator asked for tenant-scoped instances but provided no way to
+ * route external traffic to them.
+ *
+ * Stricter sub-check: if a `tenantDispatch` route exists, at least ONE
+ * of its tenants' `binding` values SHOULD wire to the perTenant bundle.
+ * Phase 1 implements only the existence check; the binding-wires-to-this-
+ * bundle correlation is deferred to a future Inv 9 (needs the wire graph
+ * walked + per-bundle binding resolution).
+ *
+ * Per `docs/reference/tenancy-model.md`. The substrate's `perTenant`
+ * field (cluster.capnp Bundle.perTenant @8) signals to emit-compose
+ * Phase 2 that one container per tenant should be emitted; this lint
+ * catches the typo / forgotten-route case at the manifest layer instead
+ * of surfacing as silent absence at boot.
+ *
+ * Skipped (no-op) when no perTenant bundles exist (pre-cedcf3
+ * deployments are back-compat by construction).
+ */
+function checkInvariant8(cluster, violations) {
+  const bundles = cluster.bundles ?? [];
+  const perTenantBundles = bundles.filter((b) => b.perTenant === true);
+  if (perTenantBundles.length === 0) return; // no-op for non-multi-tenant
+
+  const routes = cluster.routes ?? [];
+  const hasTenantDispatch = routes.some((r) => r.kind?.tenantDispatch);
+  if (!hasTenantDispatch) {
+    for (const b of perTenantBundles) {
+      violations.push(
+        `lint-bundle-isolation: bundle "${b.name}" declares perTenant = true but ` +
+        `cluster.routes has NO tenantDispatch route — Inv 8, ADR-0034 / cloister-cedcf3. ` +
+        `Add a [[routes]] entry with kind = "tenantDispatch" OR remove the ` +
+        `perTenant flag from this bundle.`,
+      );
+    }
+  }
+}
+
 function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violations) {
   if (tier !== "cluster") return;
   if (!bundleName) return; // already flagged by tier defaulting + Inv 3
@@ -773,6 +814,7 @@ try {
 checkInvariant3(cluster, violations);
 checkInvariant6(cluster, violations);
 checkInvariant7(cluster, violations);
+checkInvariant8(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -809,4 +851,6 @@ const inputCount = (cluster.inputs ?? []).length;
 console.log(`  ${inputCount} input(s) walked for tenancy resolution`);
 const tenantDispatchCount = (cluster.routes ?? []).filter((r) => r.kind?.tenantDispatch).length;
 console.log(`  ${tenantDispatchCount} tenantDispatch route(s) walked for Inv 7`);
-console.log(`  invariants 1–7 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment)`);
+const perTenantCount = (cluster.bundles ?? []).filter((b) => b.perTenant === true).length;
+console.log(`  ${perTenantCount} perTenant bundle(s) walked for Inv 8`);
+console.log(`  invariants 1–8 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing)`);
