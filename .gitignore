@@ -45,6 +45,18 @@ sbom-*.spdx.json
 .beads/dolt-server.pid
 .beads/dolt-server.port
 
+# bd (issues-tracker) local artifacts. bd ships with Homebrew and
+# auto-initializes a local backup + embedded-dolt store on first run.
+# These don't conflict with the canonical `.beads/dolt/` (rsry's store);
+# they're parallel state bd uses for its own bookkeeping. Don't commit:
+# - .beads/.local_version: bd's local version pin
+# - .beads/backup/: bd's checkpoint state
+# - .beads/embeddeddolt/: bd's embedded-mode storage (vs `.beads/dolt/`
+#   server-mode storage that IS tracked)
+.beads/.local_version
+.beads/backup/
+.beads/embeddeddolt/
+
 # Per-worktree bead pin used by the rsry commit-msg hook to auto-prefix
 # commits with the active bead id (Golden Rule 11). Workspace-local.
 .rsry-bead-id
