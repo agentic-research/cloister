@@ -1086,8 +1086,8 @@ binding adds.
 |---|---|---|---|
 | §13.8.1 cloister↔rsry UDS | Same-host process / co-tenant in shared workerd | UDS filesystem ACL | Mirror mache/llo posture; Phase 2 bearer token deferred |
 | §13.8.2 rsry↔bd Dolt | Single-host operator-tier attacker | Operator-trust boundary (per ADR-0030 §A4) | Dolt merkle invariants for distributed audit; single-host outside scope |
-| §13.8.3 two MCP surfaces | Misconfigured operator | Doc + test invariant | Documented coexistence; bead_* never routes to rsry |
-| §13.8.4 multi-tenant coexistence | Cross-tenant bead read/write | Single-tenant by deployment today | Phase 2 per-tenant rsry instances + bearer-token (deferred) |
+| §13.8.3 two MCP surfaces | Misconfigured operator | Doc + test invariant | **Migration in flight (cloister-c8b907)**: sub-bead 1 + 2 shipped; sub-bead 3 (default flip) deferred. Audit-chain reconstitutes via `bead_id` join (see §13.8.3 SQL snippet) |
+| §13.8.4 multi-tenant coexistence | Cross-tenant bead read/write | Single-tenant by deployment today | Phase 2 per-tenant rsry instances + bearer-token (deferred); **Inv 8 + Inv 9 lint** (shipped) gate operator-side perTenant declarations against the routing topology |
 
 **Related:**
 - ADR-0033 — bd substrate binding decision (rsry IS the MCP server; bd is storage)
