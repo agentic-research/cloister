@@ -6,10 +6,10 @@ version = "0.1.0"
 [inputs.llo]
 ref = "io.github.org/agentic-research/ley-line-open@main"
 resolved = "0.4.5"
-sha256 = "sha256:b2ec25fa305b822605b75decf60805a8344f97e49a376bf97f1edd3ebe72fa01"
+sha256 = "sha256:2138451c1d556a5f8b9470e035015d26e23326eb254c45b4f98c1365d5c1d509"
 fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
 signer = ""
-bytes = 1_213
+bytes = 2_603
 
 [[generated_backends]]
 input = "llo"
@@ -30,7 +30,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "lifecycle"
 handlesPrefix = ""
-claims = [ "status", "enrich", "reparse" ]
+claims = [ "status", "snapshot", "reparse", "enrich" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
@@ -39,7 +39,67 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "sheaf"
 handlesPrefix = "sheaf_"
-claims = [ "sheaf_set_topology" ]
+claims = [
+  "sheaf_set_topology",
+  "sheaf_invalidate",
+  "sheaf_defect",
+  "sheaf_stalks",
+  "sheaf_status",
+  "sheaf_learned_weights"
+]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "llo"
+name = "query"
+handlesPrefix = ""
+claims = [
+  "query",
+  "list_children",
+  "read_content",
+  "find_callers",
+  "find_defs",
+  "find_callees",
+  "get_refs_map",
+  "get_defs_map",
+  "get_schema",
+  "get_db_path",
+  "get_node",
+  "inspect_symbol",
+  "at_position",
+  "inspect_neighborhood",
+  "search_symbols",
+  "agreement"
+]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "llo"
+name = "wire"
+handlesPrefix = ""
+claims = [ "leyline_version" ]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "llo"
+name = "validate"
+handlesPrefix = ""
+claims = [ "validate" ]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "llo"
+name = "hdc"
+handlesPrefix = "hdc_"
+claims = [ "hdc_search", "hdc_calibrate", "hdc_density" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"

@@ -18,9 +18,17 @@ fails if a tenant declared in either file lacks a matching page here.
 | [bead-mcp](bead-mcp.md) | hypervisor | `durableObject` (`BEAD_STORE`) | `bead_` | `bead_create`, `bead_update`, `bead_search`, `bead_list`, `bead_close`, `bead_comment` — **deprecation in flight (cloister-c8b907), see [rsry-mcp](rsry-mcp.md)** |
 | [rsry-mcp](rsry-mcp.md) | cluster | `mcpProxy` (Service binding `ROSARY_BUNDLE`) | `rsry_` | ~35 `rsry_*` tools — `rsry_bead_create`, `rsry_bead_search`, `rsry_status`, `rsry_dispatch`, … (full list in `cluster.toml`) |
 | [mache-mcp](mache-mcp.md) | cluster | `mcpProxy` (Service binding `MACHE_MCP`) | `mache_` | `mache_*` — derived from upstream (ADR-0006) |
-| [lsp-mcp](lsp-mcp.md) | cluster | `mcpProxy` (Service binding `LSP_MCP`) | `lsp_` | `lsp_hover`, `lsp_defs`, `lsp_refs`, `lsp_symbols`, `lsp_diagnostics` |
-| [ley-line-mcp](ley-line-mcp.md) | cluster | `mcpProxy` (Service binding `LSP_MCP`) | *(none — exact-match)* | `reparse`, `enrich`, `status` |
 | [identity-bridge](identity-bridge.md) | hypervisor | `wellKnownIdentityBridge` | *(non-MCP)* | `/.well-known/openid-configuration`, `/.well-known/jwks.json`, `/.well-known/webfinger`, `/.well-known/nostr.json`, `/oauth/token` |
+
+`lsp_*` tools (`lsp_hover`, `lsp_defs`, `lsp_refs`, `lsp_symbols`,
+`lsp_diagnostics`) plus the `reparse` / `enrich` / `status` lifecycle
+tools are not declared as hand-coded backends in `cloister.capnp`. They
+arrive via the [`inputs.llo`](../../cluster.toml) declaration: the
+lockfile→backend emitter derives a `generatedBackend` from the LLO
+server.json that auto-claims those tool names against the `LSP_MCP`
+service binding. So they're real and live, but not first-class tenants
+— see the generated `[generated_backends]` block in
+`cluster.lock.toml` for the canonical list.
 
 Tier comes from [`cluster.capnp`](../../cluster.capnp) per ADR-0011's
 three-criterion test. Backend kind comes from the `kind :union` variant

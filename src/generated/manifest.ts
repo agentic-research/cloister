@@ -205,8 +205,9 @@ export const manifest: Gateway = {
                   "serviceBinding": "LSP_MCP",
                   "claims": [
                     "status",
-                    "enrich",
-                    "reparse"
+                    "snapshot",
+                    "reparse",
+                    "enrich"
                   ]
                 }
               }
@@ -221,7 +222,89 @@ export const manifest: Gateway = {
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
                   "claims": [
-                    "sheaf_set_topology"
+                    "sheaf_set_topology",
+                    "sheaf_invalidate",
+                    "sheaf_defect",
+                    "sheaf_stalks",
+                    "sheaf_status",
+                    "sheaf_learned_weights"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "query",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "query",
+                    "list_children",
+                    "read_content",
+                    "find_callers",
+                    "find_defs",
+                    "find_callees",
+                    "get_refs_map",
+                    "get_defs_map",
+                    "get_schema",
+                    "get_db_path",
+                    "get_node",
+                    "inspect_symbol",
+                    "at_position",
+                    "inspect_neighborhood",
+                    "search_symbols",
+                    "agreement"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "wire",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "leyline_version"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "validate",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "validate"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "hdc",
+              "handlesPrefix": "hdc_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "claims": [
+                    "hdc_search",
+                    "hdc_calibrate",
+                    "hdc_density"
                   ]
                 }
               }
