@@ -61,11 +61,33 @@ task cluster:emit          # produces cluster.compose.yaml
 task cluster:up            # boots the multi-bundle compose stack
 ```
 
+## Related: `perTenant = true` (cloister-cedcf3 Phase 1)
+
+This recipe demonstrates the **routing primitive** — explicit per-tenant
+bundles (`alice-tenant`, `bob-tenant`) hand-declared by the operator
+with the `tenantDispatch` route fanning external traffic out to them.
+
+The **next-step abstraction** (`perTenant: Bool` on a single bundle,
+shipped 2026-06-24) lets one bundle declare itself tenant-scoped and
+emit-compose Phase 2 (deferred) will spawn the per-tenant containers
+automatically. See [`docs/reference/tenancy-model.md`](../../docs/reference/tenancy-model.md)
+for the operator model + worked example. Lint Invariants 8 + 9
+(`scripts/lint-bundle-isolation.mjs`) enforce the chain at
+`task lint` time:
+
+| Inv | What it catches |
+|---|---|
+| 7 | tenantDispatch row.binding ↔ workerd-id alignment via input.workerdId |
+| 8 | `perTenant = true` bundle MUST have a `tenantDispatch` route declared |
+| 9 | perTenant bundle MUST be wired by at least one tenantDispatch row's binding |
+
 ## Cross-references
 
 - [ADR-0030](../../docs/adr/0030-multi-workerd-tenant-isolation.md) — multi-workerd tenant isolation
 - [ADR-0031](../../docs/adr/0031-cloister-capnp-as-build-artifact.md) — `cloister.capnp` as build artifact
-- [`docs/security/threat-model.md`](../../docs/security/threat-model.md) §13.7 — per-tenant security properties
+- [ADR-0034](../../docs/adr/0034-multi-tenant-access-spec.md) — true multi-tenant access spec
+- [`docs/reference/tenancy-model.md`](../../docs/reference/tenancy-model.md) — operator model for `perTenant` + Inv 7/8/9
+- [`docs/security/threat-model.md`](../../docs/security/threat-model.md) §13.7 + §13.8 — per-tenant security properties
 - [`docs/reference/backend-kinds.md`](../../docs/reference/backend-kinds.md) — wire formats per backend
 - [`docs/reference/bundle-topology.md`](../../docs/reference/bundle-topology.md) — hypervisor vs cluster tier
-- Tracking beads: `cloister-0f144c` (router-table tests), `cloister-92e846` (cycle parent — adversarial 2026-06-22), `cloister-9339c0` (unwired-binding warn redaction)
+- Tracking beads: `cloister-0f144c` (router-table tests), `cloister-92e846` (cycle parent — adversarial 2026-06-22), `cloister-9339c0` (unwired-binding warn redaction), `cloister-cedcf3` (perTenant + Inv 8 + Inv 9)
