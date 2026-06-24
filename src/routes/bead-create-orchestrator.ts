@@ -258,39 +258,18 @@ export async function runBeadCreateOrchestrator(args: {
     );
   }
 
-  // ── Step 2: BeadStore.bead_create — per-repo DO write. We forward the
-  //           pre-allocated id + content_hash so the row references the
-  //           same digest the attestation will reference.
-  const beadStoreStub = (args.env.BEAD_STORE.get(
-    args.env.BEAD_STORE.idFromName(repo),
-  ) as unknown) as BeadStoreFetch;
-  const innerReq: JsonRpcRequest = {
-    jsonrpc: "2.0",
-    method:  "bead_create",
-    params: {
-      ...a,
-      id,
-      repo,
-      content_hash: digest,
-    },
-    id: 0,
-  };
-  const beadRes = await beadStoreStub.fetch(new Request("https://internal/", {
-    method:  "POST",
-    body:    JSON.stringify(innerReq),
-    headers: { "content-type": "application/json" },
-  }));
-  const beadBody = await beadRes.json() as JsonRpcResponse;
-  if (beadBody.error !== undefined) {
-    // §13.4 short-circuit invariant: BeadStore failure means NO TrustStore
-    // write. The BlobStore put landed (idempotent CAS, retry-safe) but
-    // the chain MUST NOT advance for an absent bead row.
-    throw new JsonRpcInvocationError(
-      beadBody.error.code,
-      `bead_create: BeadStore.bead_create failed: ${beadBody.error.message}`,
-    );
-  }
-  const beadResult = beadBody.result as { id: string; title: string; state: BeadState };
+  // ── Step 2: write the bead row. Branch on BEAD_STORAGE_BACKEND
+  //           (cloister-decf0d / ADR-0033 D5 amendment): default "do"
+  //           uses cloister's BeadStore DurableObject (legacy path); "rsry"
+  //           writes via rsry's MCP `rsry_bead_create` over ROSARY_BUNDLE,
+  //           landing the row in bd-managed Dolt. Either path: the
+  //           returned id flows into Step 3's bead_id-linked attestation,
+  //           preserving the §13.4 audit chain across the migration.
+  const backend = bedStorageBackend(args.env);
+  const beadResult: { id: string; title: string; state: BeadState } =
+    backend === "rsry"
+      ? await createBeadViaRsry(args.env, { ...a, id, repo, content_hash: digest })
+      : await createBeadViaBeadStoreDO(args.env, repo, { ...a, id, repo, content_hash: digest });
 
   // ── Step 3: TrustStore.applyAttestation — singleton DO. We recompute
   //           prev_self_ref from the CURRENT chain head (per the
@@ -366,4 +345,166 @@ function blobStoreStub(env: Env): DurableObjectStub & BlobStoreRpc {
 
 function trustStoreStub(env: Env): DurableObjectStub & TrustStoreRpc {
   return env.TRUST_STORE.get(env.TRUST_STORE.idFromName("cluster")) as DurableObjectStub & TrustStoreRpc;
+}
+
+// ── cloister-decf0d: BEAD_STORAGE_BACKEND dispatch (sub-bead 2 of c8b907) ─
+
+/**
+ * Resolve the bead-storage backend from env. Unknown / empty / undefined
+ * values default to "do" — the legacy BeadStore DurableObject path. Per
+ * ADR-0033 D5 amendment 2026-06-24, "rsry" routes step 2 through rsry's
+ * MCP `rsry_bead_create` tool, landing the row in bd-managed Dolt.
+ */
+export function bedStorageBackend(env: Env): "do" | "rsry" {
+  const raw = (env.BEAD_STORAGE_BACKEND ?? "").trim().toLowerCase();
+  return raw === "rsry" ? "rsry" : "do";
+}
+
+/**
+ * Legacy Step 2 — BeadStore DurableObject write, per-repo, ACID. The
+ * pre-allocated id + content_hash flow through so the row references the
+ * same digest the attestation will reference. Throws JsonRpcInvocationError
+ * on JSON-RPC error response (§13.4 short-circuit invariant — no TrustStore
+ * write if BeadStore failed).
+ */
+async function createBeadViaBeadStoreDO(
+  env:    Env,
+  repo:   string,
+  params: Record<string, unknown>,
+): Promise<{ id: string; title: string; state: BeadState }> {
+  const beadStoreStub = (env.BEAD_STORE.get(
+    env.BEAD_STORE.idFromName(repo),
+  ) as unknown) as BeadStoreFetch;
+  const innerReq: JsonRpcRequest = {
+    jsonrpc: "2.0",
+    method:  "bead_create",
+    params,
+    id:      0,
+  };
+  const beadRes = await beadStoreStub.fetch(new Request("https://internal/", {
+    method:  "POST",
+    body:    JSON.stringify(innerReq),
+    headers: { "content-type": "application/json" },
+  }));
+  const beadBody = await beadRes.json() as JsonRpcResponse;
+  if (beadBody.error !== undefined) {
+    throw new JsonRpcInvocationError(
+      beadBody.error.code,
+      `bead_create: BeadStore.bead_create failed: ${beadBody.error.message}`,
+    );
+  }
+  return beadBody.result as { id: string; title: string; state: BeadState };
+}
+
+/**
+ * cloister-decf0d sub-bead 2 — write step 2 via rsry's `rsry_bead_create`
+ * MCP tool. The wire is a single `tools/call` JSON-RPC over the rosary
+ * bundle's service binding (preferred) OR the URL var fallback (dev).
+ *
+ * The rsry bead row does NOT carry `content_hash` (rosary's `issues`
+ * table predates ADR-0003 content-addressing — verified 2026-06-24 via
+ * `rs/rosary/src/dolt/migrate.rs`). The audit chain reconstitutes via
+ * the bead_id column on `peer_attestations` (sub-bead 1, cloister-dea77c).
+ *
+ * MCP response unwrap: `tools/call` returns `result.content[0].text` as a
+ * JSON-serialized payload — we parse and re-shape to `{id, title, state}`.
+ */
+export async function createBeadViaRsry(
+  env:    Env,
+  params: Record<string, unknown>,
+): Promise<{ id: string; title: string; state: BeadState }> {
+  // The mcpProxy wire (per ADR-0033 D1): ROSARY_BUNDLE service binding
+  // preferred, ROSARY_MCP_URL var fallback (dev). Mirrors mcp-proxy.ts's
+  // resolution shape but inlined to avoid the orchestrator depending on
+  // the backend's transport machinery.
+  const envAny = env as unknown as Record<string, unknown>;
+  const binding = envAny["ROSARY_BUNDLE"];
+  const url     = typeof env.ROSARY_MCP_URL === "string" ? env.ROSARY_MCP_URL : "";
+
+  const innerReq = {
+    jsonrpc: "2.0" as const,
+    id:      0,
+    method:  "tools/call",
+    params: {
+      name: "rsry_bead_create",
+      arguments: params,
+    },
+  };
+  const body    = JSON.stringify(innerReq);
+  const headers = { "content-type": "application/json" };
+
+  let res: Response;
+  try {
+    if (binding && typeof (binding as Fetcher).fetch === "function") {
+      // Production / workerd-native: ROSARY_BUNDLE service binding.
+      res = await (binding as Fetcher).fetch(
+        new Request("https://internal/mcp", { method: "POST", body, headers }),
+      );
+    } else if (url.length > 0) {
+      // Local-dev: URL var fallback to rsry MCP HTTP endpoint.
+      res = await fetch(url, { method: "POST", body, headers });
+    } else {
+      throw new JsonRpcInvocationError(
+        -32603,
+        "bead_create rsry-mode: neither ROSARY_BUNDLE service binding nor ROSARY_MCP_URL is wired",
+      );
+    }
+  } catch (e) {
+    if (e instanceof JsonRpcInvocationError) throw e;
+    throw new JsonRpcInvocationError(
+      -32603,
+      `bead_create rsry-mode: rsry unreachable: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new JsonRpcInvocationError(
+      -32603,
+      `bead_create rsry-mode: rsry returned ${res.status}: ${text.slice(0, 200)}`,
+    );
+  }
+
+  const body2 = await res.json() as JsonRpcResponse;
+  if (body2.error !== undefined) {
+    // §13.4 short-circuit — propagate so TrustStore write doesn't happen.
+    throw new JsonRpcInvocationError(
+      body2.error.code,
+      `bead_create: rsry_bead_create failed: ${body2.error.message}`,
+    );
+  }
+
+  // MCP `tools/call` response shape: `result.content` is an array of
+  // content blocks. The first block's `text` carries the tool's serialized
+  // return value — for rsry_bead_create that's the new bead row as JSON.
+  const result = body2.result as
+    | { content?: Array<{ type?: string; text?: string }> }
+    | undefined;
+  const text = result?.content?.[0]?.text;
+  if (typeof text !== "string") {
+    throw new JsonRpcInvocationError(
+      -32603,
+      "bead_create rsry-mode: rsry response missing result.content[0].text",
+    );
+  }
+  let parsed: { id?: string; title?: string; state?: BeadState };
+  try {
+    parsed = JSON.parse(text) as { id?: string; title?: string; state?: BeadState };
+  } catch (e) {
+    throw new JsonRpcInvocationError(
+      -32603,
+      `bead_create rsry-mode: rsry returned non-JSON tool result: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  if (typeof parsed.id !== "string") {
+    throw new JsonRpcInvocationError(
+      -32603,
+      "bead_create rsry-mode: rsry response missing `id` field",
+    );
+  }
+  return {
+    id:    parsed.id,
+    title: typeof parsed.title === "string" ? parsed.title : String(params.title ?? ""),
+    state: parsed.state ?? ("open" as BeadState),
+  };
 }

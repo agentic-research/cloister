@@ -122,6 +122,16 @@ export interface Env {
   /// cloister-companion endpoint (ADR-0005). Empty disables LeylineNet
   /// backends; `task companion:stub` provides a local-dev listener.
   COMPANION_URL?: string;
+  /// Bead storage backend (cloister-decf0d / ADR-0033 D5 amendment).
+  /// "do" (default) — Step 2 of the bead-create orchestrator writes to
+  ///                  cloister's BeadStore DurableObject. The legacy path.
+  /// "rsry" — Step 2 calls rsry's `rsry_bead_create` MCP tool via the
+  ///          ROSARY_BUNDLE service binding, landing the row in bd-managed
+  ///          Dolt. cloister-c8b907 migration toward BeadStore-DO deprecation.
+  /// Both paths preserve the §13.4 audit chain via the bead_id column on
+  /// TrustStore's peer_attestations (sub-bead 1, cloister-dea77c).
+  /// Empty / unset / unrecognized → defaults to "do" for back-compat.
+  BEAD_STORAGE_BACKEND?: string;
   /// Comma-separated list of allowed CORS origins. "*" (default) is wildcard
   /// — fine for local dev, tighten before prod. Example: "https://notme.bot,http://localhost:*"
   ALLOWED_ORIGINS?: string;
