@@ -1030,6 +1030,70 @@ in plaintext.
 - Beads: `cloister-f289c8` (epic), `cloister-0ffb3f` (vault-1 tests against §13.7.1+.2+.4), `cloister-0f144c` (router-table tests against §13.7.1+.5), `cloister-0f60a8` (secrets tests against §13.7.3), `cloister-0ecb6c` (compose-emitter tests against §13.7.4), `cloister-0fa3d7` (app-protocol-validator tests against §13.7.5)
 
 
+## 13.8 bd substrate binding (ADR-0033 / cloister-c2bd47)
+
+Added 2026-06-24 from the ADR-0033 Phase 1 wiring (`rsry_*` mcpProxy
+backend → ROSARY_BUNDLE service binding → rsry MCP server → bd's Dolt
+sql-server). Each subsection captures one attacker-facing seam the
+binding adds.
+
+### 13.8.1 Cloister-Worker → rsry: UDS perimeter, no wire auth in Phase 1
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | Same-user process on the cluster host (or co-tenant inside the workerd-process-shared substrate, ADR-0030 hybrid model) connects to `/run/cloister-uds/rosary.sock` and issues `rsry_bead_*` MCP calls without an attestation. |
+| **Mitigation (shipped Phase 1)** | UDS filesystem ACL is the perimeter — same posture as the existing `mache` + `lsp_*` backends (per `docs/tenants/rsry-mcp.md`). Inside the cluster trust boundary (post-V8-isolate per ADR-0013); no cross-tenant exposure in single-workerd deployments. |
+| **Mitigation (Phase 2, deferred)** | Bearer-token auth mediated by vault per ADR-0024 cred-iso/v1. Token injected by Vault DO at dispatch time; opaque to cloister; rotatable at deploy boundary. Triggers when a deployment shape needs cross-tenant rsry consumption (e.g. ADR-0030 multi-workerd-per-tenant with shared rsry; or external-network-reachable rsry). |
+| **Residual risk** | Phase 1 is unauthenticated. A bundle in the same workerd that compromises the V8 sandbox can read rsry's MCP surface. The threat boundary mirrors mache + llo — accepted as a substrate-default, not specific to bd. Phase 2 closes the gap when threat surfaces. |
+| **Test ref** | `test/manifest/rsry-backend.test.ts` (7 cases, structural pin); `test/integration/rsry-backend-e2e.test.ts` (9 cases, claim routing + tools/list passthrough); `test/integration/recipe-multi-tenant-instantiate.test.ts` (5 cases, end-to-end pipeline). |
+
+### 13.8.2 rsry → bd Dolt: storage trust boundary
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | A compromised bundle (or a same-user process on the host) writes directly to `.beads/dolt/<repo>/`'s noms files, bypassing rsry's MCP validation and bd's Dolt commit graph. |
+| **Mitigation** | rsry's storage is content-addressed via `refs/dolt/data` (per bd's storage model). A direct-noms tampering attempt either (a) breaks Dolt's merkle invariants and surfaces at next `bd dolt push/pull` as a chain divergence, or (b) becomes visible to any cloner who fetches the bead refs. **Silence-is-evidence does NOT hold** for direct-storage tampering at the single-host layer — Dolt's history-rewrite primitive lets a privileged attacker rewrite local history without immediate signal. **It DOES hold across distributed consumers**: once a `bd dolt push` lands on a remote, divergent histories fork on every subsequent pull. |
+| **Adversary model** | Privileged operator on the host (`uid` of the rsry/bd process) — explicitly outside the substrate's threat model. The substrate trusts the operator's host hardening, mirroring ADR-0030 §A4's supervisor-trust posture. |
+| **Residual risk** | Single-host operator-tier attackers can rewrite local bead history. Multi-host deployments inherit Dolt's distributed-history-merkle-tree audit trail. |
+| **Test ref** | None — Dolt's merkle invariants are upstream-tested. The substrate-level assertion is that rsry + bd both use the same storage primitive (Dolt). |
+
+### 13.8.3 Two MCP surfaces (`bead_*` BeadStore DO + `rsry_*` rosary): coexistence is intentional
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | An operator confuses the two surfaces and writes to one expecting the other to see it. Or: a cluster-tier bundle accesses one expecting cred-iso/v1 scope checks from the other. |
+| **Mitigation** | Documented intentionally as ADR-0033 D5. `docs/tenants/rsry-mcp.md` explicitly enumerates the difference (DO SQLite tables vs `.beads/dolt/<repo>/`); `test/manifest/rsry-backend.test.ts` pins the `bead_*` routing-to-BeadStore-DO invariant (NEVER routes to rsry). The two surfaces have different threat models — BeadStore DO carries trust-mediation semantics per ADR-0012 (per-bundle scope, lease-gated, attestation chain); rsry/bd's wire is UDS-internal with no per-bundle scope yet. |
+| **Adversary model** | Misconfigured operator confusing the surfaces. Not adversarial; substrate documentation surfaces the difference. |
+| **Residual risk** | An operator who treats `rsry_*` as if it carried the `bead_*` DO's per-bundle scope guarantees would be surprised. Doc + tenant page explicit; no other defense. |
+
+### 13.8.4 Coexistence with multi-tenant substrate (ADR-0030)
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | A per-tenant workerd in the ADR-0030 multi-workerd direction reaches the cluster-wide rsry MCP via its `ROSARY_BUNDLE` service binding and read/writes another tenant's beads. |
+| **Mitigation** | Today: not addressed. Phase 1 ships one cluster-wide rsry instance with no per-tenant scope on the wire. The threat surfaces ONLY when ADR-0030 multi-workerd ships AND rsry's wire becomes cross-tenant. Until then, rsry is single-tenant by deployment. |
+| **Mitigation (future, Phase 2)** | Per-tenant rsry instances (each tenant has its own `ROSARY_BUNDLE` service binding pointing at a tenant-scoped rsry sidecar), OR per-tenant scope on bd's storage (`BEADS_DIR=<tenant>` or similar), with bearer-token auth enforcing the tenant boundary. Lands when first multi-tenant bd consumer ships. |
+| **Residual risk** | Single-tenant only today; multi-tenant requires Phase 2 work. Documented as future-residual; tracked under `cloister-c2bd47` for the Phase 2 sub-bead. |
+| **Test ref** | None today (single-tenant deployments). When Phase 2 lands, add a cross-tenant property test against `cloister-c2bd47` Phase 2 wire. |
+
+### 13.8 Summary
+
+| Property | Threat scope | Adversary boundary | Defense |
+|---|---|---|---|
+| §13.8.1 cloister↔rsry UDS | Same-host process / co-tenant in shared workerd | UDS filesystem ACL | Mirror mache/llo posture; Phase 2 bearer token deferred |
+| §13.8.2 rsry↔bd Dolt | Single-host operator-tier attacker | Operator-trust boundary (per ADR-0030 §A4) | Dolt merkle invariants for distributed audit; single-host outside scope |
+| §13.8.3 two MCP surfaces | Misconfigured operator | Doc + test invariant | Documented coexistence; bead_* never routes to rsry |
+| §13.8.4 multi-tenant coexistence | Cross-tenant bead read/write | Single-tenant by deployment today | Phase 2 per-tenant rsry instances + bearer-token (deferred) |
+
+**Related:**
+- ADR-0033 — bd substrate binding decision (rsry IS the MCP server; bd is storage)
+- ADR-0024 — cred-iso/v1 capability (Phase 2 auth hook)
+- ADR-0021 — per-bundle vault DOs (Phase 2 multi-tenant pattern)
+- ADR-0030 — multi-workerd substrate (the future this Phase 2 work composes with)
+- `docs/tenants/rsry-mcp.md` — operator-facing tenant doc
+- Beads: `cloister-9d19e3` (design), `cloister-c2bd47` (impl Phase 1 shipped; Phase 2 deferred)
+
+
 ## 15. Trust-anchor-helper attack surface (cloister-99165e / ADR-0019)
 
 Added 2026-05-12 by adversarial-cycle 2026-05-12 (see
