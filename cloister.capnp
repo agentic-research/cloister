@@ -75,6 +75,18 @@ const gateway :Cloister.Gateway = (
               stripPrefix     = "mache_",
               requiresSession = true,
             )),
+          ),
+          ( name          = "rsry",
+            handlesPrefix = "rsry_",
+            kind = (mcpProxy = (
+              urlBinding      = "ROSARY_MCP_URL",
+              serviceBinding  = "ROSARY_BUNDLE",
+              tools           = [],
+              dynamicTools    = true,
+              stripPrefix     = "",
+              requiresSession = false,
+              claims          = [ "rsry_bead_create", "rsry_bead_search", "rsry_bead_close", "rsry_bead_update", "rsry_bead_comment", "rsry_bead_comment_list", "rsry_bead_comment_update", "rsry_bead_comment_delete", "rsry_bead_link", "rsry_bead_import", "rsry_list_beads", "rsry_status", "rsry_active", "rsry_dispatch", "rsry_dispatch_record", "rsry_dispatch_history", "rsry_scan", "rsry_review", "rsry_run_once", "rsry_decompose", "rsry_decade_list", "rsry_decade_create", "rsry_thread_list", "rsry_thread_create", "rsry_thread_assign", "rsry_thread_reparent", "rsry_workspace_create", "rsry_workspace_checkpoint", "rsry_workspace_cleanup", "rsry_workspace_merge", "rsry_repo_list", "rsry_repo_register", "rsry_pipeline_query", "rsry_pipeline_upsert", "rsry_ticket_load" ],
+            )),
           )
         ],
       )),

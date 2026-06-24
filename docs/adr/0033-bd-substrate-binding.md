@@ -1,8 +1,8 @@
 ---
-title: "ADR-0033: bd as cloister-mediated bead substrate"
-status: Proposed (2026-06-23)
+title: "ADR-0033: rsry-mediated bead substrate (with bd as the storage layer rsry reads)"
+status: Proposed (2026-06-23, **corrected 2026-06-24** — see Amendment 1)
 date: 2026-06-23
-tags: [substrate, beads, mcp, bd, dolt, multi-substrate]
+tags: [substrate, beads, mcp, bd, dolt, multi-substrate, rsry]
 threat_model: docs/security/threat-model.md
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
@@ -69,80 +69,125 @@ with rosary continuing to use embedded Dolt against the SAME
 `.beads/` directory (or a different one), or rosary could later flip
 to bd-managed without any cloister changes.
 
-## Decision
+## Amendment 1 (2026-06-24) — corrected architecture
 
-### D1 — bd is consumed as an external `mcpProxy` backend
+The original draft assumed `bd` ships an MCP server. **It does not.**
+Verifying against a local `bd 1.0.0` install (Homebrew):
 
-bd's MCP server is the integration surface. Cloister adds a new
-`mcpProxy` backend declaration pointing at the bd MCP endpoint:
+- `bd mcp` is not a subcommand. `bd setup claude|codex|...` writes
+  markdown integration recipes (instructions for AI tools on how to
+  USE the bd CLI), NOT an MCP server.
+- `bd dolt start|stop|status` is the dolt sql-server lifecycle.
+  That sql-server speaks MySQL on a UDS, not MCP.
+- bd's primary surface is the CLI (`bd create`, `bd search`,
+  `bd update`, `bd ready`, `bd close`, etc.), driven by a script or
+  shell.
 
-```capnp
-( name = "beads",
-  handlesPrefix = "bd_",
-  kind = (
-    mcpProxy = (
-      urlBinding = "BD_MCP_URL",
-      tools = [],
-      dynamicTools = true,
-      serviceBinding = "BD_MCP",
-      claims = [
-        "bd_create", "bd_search", "bd_update", "bd_ready",
-        "bd_dep",    "bd_prime",  "bd_remember"
-      ]
-    )
-  )
-)
-```
-
-This is **structurally identical** to the existing `mache` + `lsp_*`
-backends (`src/generated/manifest.ts:129-141`). No schema extension
-required; no new variant on `Backend.kind`.
-
-The `claims` list is the operator's pre-declared surface (per the
-ADR-0006 derived-tools discipline). `dynamicTools=true` allows bd to
-extend its tool set without a substrate redeploy — cloister proxies
-`tools/list` and aggregates.
-
-### D2 — bd MCP server runs as a cluster bundle (sidecar)
-
-bd is added to `cluster.toml` as a new `[[bundles]]` entry with
-`kind = external`, mirroring mache + rosary + ley-line-open + notme:
+The correct architecture has **rsry as the MCP server** sitting in
+front of the bead substrate. rsry already exists as a cluster
+bundle in `cluster.toml`:
 
 ```toml
 [[bundles]]
-name = "beads"
-description = "bd issue substrate — concurrent-writer dolt sql-server + MCP"
-holdsCredential = [ ]                      # see D4 for auth
-hypervisorRationale = ""                    # cluster-tier (sandboxed)
+name = "rosary"
+description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
 kind = "external"
 tier = "cluster"
-workerdServiceName = ""
-
   [bundles.external]
-  args = [ "mcp", "--listen-uds", "/run/cloister-uds/bd.sock" ]
-  env = [ ]
-  httpPort = 0                              # UDS-only
-  image = "bd:0.x.0"                        # pin per `task verify`'s lint:cargo-pins shape
-  ipcSocket = "/run/cloister-uds/bd.sock"
+  args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
+  image = "rosary:0.2.0"
+  ipcSocket = "/run/cloister-uds/rosary.sock"
 ```
 
-The cloister-router → bd wire is a **UDS service binding** per
-ADR-0023 host-path resolution. The MCP traffic goes through
-`notme-proxy`'s UDS forwarder (same pattern as `rosary` and
-`mache`), so workerd's HTTP fetch reaches a Unix socket without
-needing a TCP loopback hop.
+But it is **not currently exposed via cloister's `/mcp` route**. The
+`[[wires]]` declaration `binding = "ROSARY_BUNDLE"` wires the
+service binding to cloister-router; no `[[routes.mcp.backends]]`
+entry routes `rsry_*` (or `bead_*`) MCP calls to that bundle.
 
-Storage: bd's Dolt directory lives on the bundle's container volume,
-mounted from `.beads/dolt/cloister/` on the host so a `git pull`
-brings new bead history with the repo (per bd's `refs/dolt/data`
-storage model).
+**Today's surface** has cloister's `/mcp` serving `bead_*` tools
+from cloister's OWN BeadStore Durable Object (`binding =
+BEAD_STORE`, `kind = durableObject`) — a SEPARATE bead substrate
+from the rsry/bd store. That DO holds its own SQLite tables; it is
+NOT backed by the `.beads/dolt/*` store that rsry + bd both
+consume.
 
-### D3 — Wire: HTTP MCP over UDS, not MySQL
+The amended decisions below reflect the actual substrate shape: bd
+is just storage, rsry is the MCP layer, cloister's wiring need is
+adding an `rsry_*` mcpProxy backend (not a bd backend).
 
-Cloister-Worker speaks **HTTP MCP** to bd via the mcpProxy. workerd
-does not get a MySQL client. bd's internal Dolt sql-server is
-consumed only by bd itself (and other socket-mode consumers if any —
-e.g. rosary, if it later flips); cloister sees only the MCP layer.
+## Decision
+
+### D1 — rsry is the cloister-Worker-facing MCP backend; bd sits underneath as storage
+
+Cloister-Worker reaches the bead substrate via an `rsry_*` mcpProxy
+backend in `cluster.toml`:
+
+```toml
+[[routes.mcp.backends]]
+handlesPrefix = "rsry_"
+kind = "mcpProxy"
+name = "rsry"
+
+  [routes.mcp.backends.mcpProxy]
+  claims = [
+    "rsry_bead_create", "rsry_bead_search", "rsry_bead_close",
+    "rsry_bead_update", "rsry_bead_comment", "rsry_list_beads",
+    "rsry_status", "rsry_active", "rsry_dispatch",
+    # ... ~30 rsry_* tools total; dynamicTools=true picks the rest
+  ]
+  dynamicTools = true
+  requiresSession = false
+  serviceBinding = "ROSARY_BUNDLE"
+  stripPrefix = ""              # rsry's own names are already rsry_*
+  tools = [ ]
+  urlBinding = "RSRY_MCP_URL"   # dev-mode fallback
+```
+
+This is **structurally identical** to the existing `mache_*` +
+`lsp_*` backends (`src/generated/manifest.ts:129-141`). No schema
+extension required; no new variant on `Backend.kind`. The
+`serviceBinding = "ROSARY_BUNDLE"` matches the existing
+`[[wires]]` declaration; no wire change either.
+
+The `claims` list is the operator's pre-declared surface (per the
+ADR-0006 derived-tools discipline). `dynamicTools = true` allows
+rsry to extend its tool set without a substrate redeploy.
+
+### D2 — rsry bundle is the access layer; bd's dolt sql-server is the storage rsry reads
+
+rsry is already a cluster bundle (`cluster.toml [[bundles]] name =
+"rosary"`). Its `mcp --ipc-socket` mode is the MCP server endpoint
+cloister-Worker reaches via D1. No new bundle for bd is required —
+**bd's dolt sql-server runs inside the rosary bundle's container**
+(or on the host alongside it; see Amendment 1 below), accessed by
+rsry over a process-internal MySQL connection.
+
+The cloister-router → rsry wire is the existing UDS service binding
+through `notme-proxy`'s UDS forwarder. The MCP traffic from
+cloister-Worker → rsry uses workerd's HTTP fetch over the UDS
+service binding; rsry's internal MySQL traffic to bd's dolt
+sql-server is invisible to cloister.
+
+**Why not a separate bd bundle**: bd is a CLI + sql-server, not an
+MCP server. Wrapping it standalone would require either (a) a
+bd-mcp-adapter bundle that translates MCP → bd CLI calls, or (b)
+adding a MySQL client to workerd. Both add substrate complexity for
+no gain over having rsry — the existing MCP server — do the bd
+talking on cloister-Worker's behalf.
+
+Storage: bd manages `.beads/dolt/cloister/` (same Dolt store rsry
+embedded today). When rsry switches from embedded-mode to
+client-mode (connecting to a running dolt sql-server), they share
+the same on-disk store. The migration is a rsry config flip, not a
+cloister concern.
+
+### D3 — Wire: HTTP MCP over UDS, NOT MySQL
+
+Cloister-Worker speaks **HTTP MCP** to rsry via the existing
+mcpProxy mechanism + ROSARY_BUNDLE service binding. workerd does
+not get a MySQL client. bd's dolt sql-server is consumed only by
+rsry (and operators via `bd dolt sql` on the host); cloister sees
+only the MCP layer.
 
 Rationale:
 
@@ -150,21 +195,22 @@ Rationale:
 - Adding a MySQL client to workerd means either (a) raw TCP via
   `connect()` from `cloudflare:sockets` with a hand-rolled MySQL
   binary protocol implementation, or (b) a sidecar HTTP-to-MySQL
-  proxy with an extra hop. Both add substrate complexity for no gain
-  over the MCP shape bd already exposes.
-- MCP is the AGENT-facing surface; we want agents talking to agents,
-  not to SQL. SQL access is appropriate for operator workflows
-  (`bd dolt sql`), not for in-cluster bundle requests.
+  proxy with an extra hop. Both add substrate complexity for no
+  gain — rsry already speaks MCP and bridges to MySQL internally.
+- MCP is the AGENT-facing surface; we want agents talking to
+  agents, not to SQL. SQL access is appropriate for operator
+  workflows (`bd dolt sql`), not for in-cluster bundle requests.
 
 This decision **does not preclude** a future TCP/MySQL substrate
 binding for a different use case (e.g. analytics querying bead
-history at SQL granularity). If that need surfaces, a sibling ADR
-adds a `sqlServer` backend kind; bd's MCP binding here is independent.
+history at SQL granularity, or a non-rsry consumer). If that need
+surfaces, a sibling ADR adds a `sqlServer` backend kind; the rsry
+binding here is independent.
 
-### D4 — Auth: shared-secret token (LLO ADR-0022 precedent)
+### D4 — Auth: shared-secret token (LLO ADR-0022 precedent), applied at the rsry boundary
 
-bd's MCP server runs UDS-only inside the cluster trust boundary, so
-the threat model matches LLO's `ley-line-open daemon` precedent:
+The rsry MCP UDS runs inside the cluster trust boundary, so the
+threat model matches LLO's `ley-line-open daemon` precedent:
 
 - Same-user processes on the same host CAN reach the socket. The
   filesystem ACL on `/run/cloister-uds/` is the perimeter.
@@ -173,53 +219,60 @@ the threat model matches LLO's `ley-line-open daemon` precedent:
   can connect.
 
 Per LLO's ADR-0022 (cloister-side equivalent decision: cloister-side
-mcpProxy auth for LLO), the wire carries a **shared-secret bearer
-token** in an `Authorization: Bearer <token>` header. The token is:
+mcpProxy auth for LLO), the wire MAY carry a **shared-secret bearer
+token** in an `Authorization: Bearer <token>` header. **Phase 1 (this
+ADR)**: no auth on the wire — rsry's UDS socket is filesystem-ACL'd
+inside the cluster, mirroring today's mache + llo posture. **Phase 2
+(deferred to a follow-up bead)**: add bearer-token auth once a
+deployment shape needs cross-tenant rsry consumption.
+
+When Phase 2 lands, the token would be:
 
 - Provisioned in the cloister vault as a service credential under
   `cloister/credential-isolation/v1` (ADR-0024)
 - Injected by the Vault DO into the mcpProxy backend request at
   dispatch time (ADR-0013 slice-grant: plaintext never crosses the
   RPC boundary)
-- Rotated by re-provisioning at the bd-bundle deploy boundary
+- Rotated at the rosary-bundle deploy boundary
 
-bd's auth verifier is bd's responsibility; cloister provides the
-credential. The vault entry is declared in cluster.toml `[vault]`:
+vault entry sketch (Phase 2):
 
 ```toml
-[vault.services.bd]
-upstream_base_url = "http+uds:///run/cloister-uds/bd.sock/mcp"
+[vault.services.rsry]
+upstream_base_url = "http+uds:///run/cloister-uds/rosary.sock"
 default_allowed_subs = [ "sha256:<cloister-router-fp>" ]
 rate_limit_per_minute = 600
-[vault.services.bd.injection]
+[vault.services.rsry.injection]
 authorizationBearer = {}
 ```
 
-Per ADR-0024, the credential is opaque to cloister; vault holds the
-token, injects it, never logs it. The bundle `holdsCredential = [
-"BD_TOKEN" ]` declaration appears in `cluster.toml` and is enforced
-by `lint:bundle-isolation` Inv 2.
+Today's mache + llo backends ship without bearer auth and survive
+threat-model review because UDS + cluster-internal trust are
+sufficient. Same applies to rsry. Phase 1 ships unauthenticated;
+Phase 2 hardens when the threat surfaces.
 
-### D5 — Cloister's own beads move to bd-managed; rsry keeps reading them
+### D5 — Cloister's own beads: BEAD_STORE DO vs rsry/bd Dolt — coexist, decide later
 
-`.beads/dolt/cloister/` becomes bd-managed during the migration:
+There are now **TWO bead substrates** in cloister:
 
-1. Today: `rsry` writes the embedded Dolt via its own embedded
-   client.
-2. Migration: `bd backup init` against `.beads/dolt/cloister/`, then
-   `bd dolt sql-server --listen-uds /run/cloister-uds/bd.sock` reads
-   the same Dolt directory (or a checkpointed copy — see Open
-   Question 1).
-3. After: `rsry` can KEEP reading via embedded Dolt for the
-   single-writer dev path, OR be reconfigured to connect to bd's
-   sql-server over the socket (concurrent-writer path). Both work
-   against the same store; the decision is rosary's, not cloister's.
+1. **`bead_*` tools** → cloister's BeadStore DurableObject (today's
+   route). DO SQLite tables; not Dolt-backed; not visible to bd or
+   `git`-cloned consumers. Lives inside the cluster trust boundary.
+2. **`rsry_*` tools** → rosary bundle → bd's Dolt store at
+   `.beads/dolt/cloister/`. Travels with the repo; cloners get the
+   beads via `bd dolt pull`.
 
-The migration is **safe to defer** — cloister's mcpProxy binding to
-bd does not require the migration to complete. The `bd_*` tools
-work against bd's store; the existing `rsry_*` tools keep working
-against `.beads/dolt/cloister/`. Two MCP surfaces coexist until the
-operator decides which is canonical for cloister's own beads.
+These coexist intentionally. Both are real surfaces; operators
+choose per repo which is canonical. Migration of cloister's own
+BeadStore DO contents to bd-managed Dolt is **out of scope for this
+ADR** — it's a separate migration with its own threat-model review
+(BeadStore DO RPC carries trust-mediation semantics per ADR-0012
+that bd's MySQL backend doesn't model).
+
+Phase 1 (this ADR): wire `rsry_*` mcpProxy backend. `bead_*` stays
+on BeadStore DO. Cloister-Worker uses whichever it needs (or both).
+Phase 2 (future ADR): if the operator wants `bead_*` to live on bd,
+write the migration ADR.
 
 ### D6 — Multi-substrate framing
 
