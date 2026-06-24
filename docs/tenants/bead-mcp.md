@@ -1,11 +1,21 @@
 # bead-mcp
 
-The `bead_*` tools are cloister's only **first-party MCP tenant**: an
+The `bead_*` tools are cloister's first-party MCP tenant: an
 intra-cluster Durable Object, not a proxied upstream. They give MCP
 clients CRUD + full-text-search over per-repo bead (work-item) storage,
 backed by the `BeadStore` DO on hypervisor-managed SQLite. Per-repo
 isolation comes from `idFromName(args.repo)` — each repo string lands on
 its own DO instance.
+
+> ⚠️ **Deprecation in flight (cloister-c8b907 / ADR-0033 D5 amendment 2026-06-24).**
+> The BeadStore DurableObject is being deprecated in favor of `rsry/bd`.
+> Operators can opt in today via `BEAD_STORAGE_BACKEND=rsry`, routing
+> the `bead_create` orchestrator to rsry's `rsry_bead_create` MCP tool
+> (see [`rsry-mcp.md`](rsry-mcp.md)). Both paths preserve the §13.4
+> audit chain via the `bead_id` column on `peer_attestations`. The
+> default flip + `src/beads.ts` deletion are tracked under
+> `cloister-f34f7b` and gate on operator-rollout decisions. Until
+> then, this doc remains accurate for the legacy path.
 
 ## Wire (current as of 2026-05-12; see [`cloister.capnp`](../../cloister.capnp) for source of truth)
 
