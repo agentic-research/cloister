@@ -380,6 +380,25 @@ Production deploys use `wrangler secret put <NAME>` instead of
 `.dev.vars`. With the gate active, `POST /mcp` requires a Signet lease
 cert; bundles like notme issue them.
 
+**Optional — opt into the rsry/bd bead substrate** (cloister-c8b907):
+
+```sh
+# wrangler.toml [vars] or .dev.vars
+BEAD_STORAGE_BACKEND="rsry"
+```
+
+When unset / empty / unknown, defaults to `"do"` — the legacy
+BeadStore DurableObject path. Setting `"rsry"` routes Step 2 of the
+bead_create orchestrator through rsry's `rsry_bead_create` MCP tool
+via the ROSARY_BUNDLE service binding. Both paths preserve the §13.4
+audit chain via the bead_id link on `peer_attestations` (sub-bead 1).
+The structured log event `bead_create.legacy_backend` fires once per
+isolate cold-start when on the legacy path; grep for it in CF Workers
+Logs / wrangler tail to know which deployments are still on `"do"`.
+Default flip is tracked under `cloister-f34f7b`. See
+[ADR-0033](docs/adr/0033-bd-substrate-binding.md) D5 amendment for the
+full migration shape.
+
 **Other prod knobs:**
 - mount `/data` as a persistent volume for the DO SQLite files (the
   apko image expects `/data/do` writable; the local self-host workflow
