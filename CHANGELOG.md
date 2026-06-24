@@ -189,6 +189,23 @@ substrate-property lint invariants.
   array + `task test:lint-scripts`. 77 markdown files scanned on
   current main; all clean.
 
+- **schema-bridge: emit `readonly` on List fields** (commit
+  `eac436e`, half 1 of `cloister-818f2b`) — `tools/schema-bridge/
+  src/outputs/zod.rs::render_zod_type` and `render_ts_type` now
+  render `z.array(T).readonly()` + `readonly T[]` for capnp
+  `List(T)` fields. Zod v4's `ZodReadonly<ZodArray<T>>` infers its
+  output as `readonly T[]`, so the `z.ZodType<Bundle>` annotation
+  type-resolves cleanly. `src/generated/cluster.zod.ts` regenerated
+  — `holdsCredential`, `args`, `env`, `bundles`, `wires`, `claims`,
+  `subjects` all carry the modifier on both schema + interface
+  sides, matching what the hand-maintained `cluster-types.ts` has
+  declared all along. `Normalize<T>` in `bundle-drift-guard.ts`
+  stays as defense-in-depth. 2 integration tests updated; all 16
+  schema-bridge tests pass. Half 2 (capnp `# comment` → JSDoc
+  carry-through) remains open as the half-2 tracker on
+  `cloister-818f2b`; requires capnp-rust source-span access which
+  the parser doesn't surface today.
+
 ### Shipped 2026-05-17
 
 Eight feature PRs + ten stale-close reconciliations in a single
