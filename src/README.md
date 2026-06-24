@@ -12,7 +12,7 @@ src/
 ├── index.ts             # composition root — instantiate(manifest) → router
 ├── router.ts            # Router + EdgeRoute interface (outer-layer dispatch)
 ├── backends.ts          # ToolBackend interface (MCP-layer dispatch)
-├── beads.ts             # BeadStore Durable Object (per-repo bead state)
+├── beads.ts             # BeadStore Durable Object (per-repo bead state) — DEPRECATED per cloister-c8b907; rsry/bd is forward direction
 ├── blob-store.ts        # BlobStore Durable Object (content-addressed bytes, ADR-0003)
 ├── trust-store.ts       # TrustStore Durable Object (lease counters + receipts + CA bundles, ADR-0012)
 ├── vault-store.ts       # CredentialVault Durable Object (ADR-0013 + ADR-0014)
@@ -27,7 +27,7 @@ src/
 │   ├── well-known-identity.ts     # GET /.well-known/cloister/identity
 │   ├── well-known-mcp-registry.ts # GET /.well-known/cloister/mcp-registry (ADR-0016)
 │   ├── lease-middleware.ts        # Interlace lease verification (ADR-0007); gates /mcp + disclosure
-│   ├── bead-create-orchestrator.ts# Cross-DO bead_create handoff (ADR-0012 / §13.4)
+│   ├── bead-create-orchestrator.ts# Cross-DO bead_create handoff (ADR-0012 / §13.4) — Step 2 routes by BEAD_STORAGE_BACKEND env var (cloister-c8b907)
 │   ├── disclosure.ts              # GET /interlace/peers/{fp} (peer attestation chain)
 │   ├── ca-bundle.ts               # GET /interlace/ca-bundle/[epoch] (RECEIPTS.md §2.3)
 │   ├── receipt-emitter.ts         # Interlace-Receipt header construction (RECEIPTS.md)
