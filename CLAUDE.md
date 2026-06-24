@@ -167,7 +167,7 @@ sufficient.
   `cloister-spec/build-cache/v1/wire/digest-encoding.md` for the full
   encoding rule.
 
-## In-flight substrate work (ADRs 0007–0025)
+## In-flight substrate work (ADRs 0007–0034)
 
 Per-ADR status lives in [`docs/STATUS.md`](docs/STATUS.md); the table
 below names the post-0007 decade additions + their decade-thread
@@ -195,6 +195,15 @@ the decade-thread index only.
 | 0023 — host-path resolution (`CLOISTER_DO_PATH` macOS unblocker) | `interlace-substrate/adrs` |
 | 0024 — `cloister/credential-isolation/v1` capability | `interlace-substrate/credential-isolation` |
 | 0025 — bidi TOML ↔ capnp pipeline (`cluster.toml` operator surface) | `interlace-substrate/adrs` |
+| 0026 — tool composition model (Nix-flakes-shaped, MCP-registry-resolved, content-addressed, Interlace-signed) | `interlace-substrate/adrs` |
+| 0027 — substrate-as-kernel: capability matchmaker (n-dim) | `interlace-substrate/adrs` |
+| 0028 — capability identifier scheme (three concerns, three names) | `interlace-substrate/adrs` |
+| 0029 — per-repo membership boundary for OCI registry | `interlace-substrate/adrs` |
+| 0030 — multi-workerd substrate (process-level tenant isolation) | `interlace-substrate/adrs` |
+| 0031 — `cloister.capnp` as build artifact | `interlace-substrate/adrs` |
+| 0032 — *reserved-but-unused* | — |
+| 0033 — bd as cloister-mediated bead substrate (rsry MCP + bd storage) | `interlace-substrate/adrs` |
+| 0034 — true multi-tenant access spec across rosary/mache/ley-line/notme/signet | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
