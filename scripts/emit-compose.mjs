@@ -115,6 +115,46 @@ export function resolveTenancy(cluster) {
   return { colocation, violations };
 }
 
+// ── perTenant fanout (cedcf3 Phase 2 piece 2) ────────────────────────────
+
+/**
+ * Resolve the tenant rows that should fan out into per-tenant
+ * containers for a perTenant=true bundle. Walks the Inv-9 binding-
+ * correlation chain in reverse:
+ *
+ *   bundle.name === wire.to
+ *      → wire.binding
+ *      → tenantDispatch row.binding match
+ *      → tenant row
+ *
+ * Returns the matched rows in dispatch-table declaration order.
+ * Returns [] if no chain links exist — lint Inv 8 + Inv 9 should
+ * have caught that case before this script runs; this code falls
+ * back to single-emission rather than fail-late.
+ *
+ * The shared-binding case (all tenants share one `binding` per the
+ * docs/reference/tenancy-model.md §"Operator opt-in shape" example)
+ * means one wire entry yields N tenants here. The per-tenant-binding
+ * case (operator declares N wires + N matching dispatch rows) also
+ * works: each wire matches its corresponding row.
+ *
+ * Per cloister-cedcf3 Phase 2 piece 2.
+ */
+function perTenantInstancesFor(bundleName, cluster) {
+  const incomingBindings = new Set(
+    cluster.wires.filter((w) => w.to === bundleName).map((w) => w.binding),
+  );
+  if (incomingBindings.size === 0) return [];
+  const rows = [];
+  for (const route of cluster.routes ?? []) {
+    if (!("tenantDispatch" in route.kind)) continue;
+    for (const row of route.kind.tenantDispatch.tenants) {
+      if (incomingBindings.has(row.binding)) rows.push(row);
+    }
+  }
+  return rows;
+}
+
 // ── Compose YAML emitter ─────────────────────────────────────────────────
 
 /**
@@ -154,77 +194,18 @@ export function emitCompose(cluster) {
       // compose level — it runs inside the cloister-router service.
       continue;
     }
-    const ext = b.kind.external;
-    const colocatedInputs = colocation.get(b.name) ?? [];
-    lines.push(`  ${b.name}:`);
-    lines.push(`    image: ${ext.image}`);
-    lines.push(`    pull_policy: never`);
-    lines.push(`    container_name: cloister-${b.name}`);
-    lines.push(`    labels:`);
-    lines.push(`      - "cloister.bundle=${b.name}"`);
-    lines.push(`      - "cloister.tier=${b.tier}"`);
-    lines.push(`      - "cloister.description=${ext.image} — ${b.description}"`);
-    // ADR-0030 §A5: emit co-located input labels for observability.
-    // The label is a comma-joined list; empty means no inputs declare
-    // this workerd as their host.
-    if (colocatedInputs.length > 0) {
-      lines.push(`      - "cloister.colocated-inputs=${colocatedInputs.join(",")}"`);
-    }
-    // cloister-cedcf3 Phase 2 prep: surface perTenant=true via a label.
-    // Today's emission is still one container per bundle (Phase 2 piece 2
-    // deferred for container-naming + volume-mount design); the label
-    // gives operators `docker inspect` visibility into which bundles
-    // are flagged tenant-scoped. Lint Inv 8 + Inv 9 already guarantee
-    // a tenantDispatch route + binding chain are in place when this
-    // label appears.
-    if (b.perTenant === true) {
-      lines.push(`      - "cloister.per-tenant=true"`);
-    }
-
-    // Entrypoint args
-    if (ext.args.length > 0) {
-      lines.push(`    command:`);
-      for (const a of ext.args) lines.push(`      - ${JSON.stringify(a)}`);
-    }
-
-    if (b.name === "mache") {
-      lines.push(`    network_mode: "service:cloister-router"`);
-    }
-
-    // Port forwards (only for bundles with TCP listeners)
-    if (ext.httpPort > 0 && b.name !== "mache") {
-      lines.push(`    ports:`);
-      lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
-    }
-
-    // Volumes: every bundle gets the UDS dir + the DO storage path.
-    lines.push(`    volumes:`);
-    lines.push(`      - cloister-uds:/run/cloister-uds`);
-    if (b.name === "cloister-router") {
-      lines.push(`      - cloister-do:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
-    }
-
-    // Environment: wire bindings + bundle-declared env
-    const envVars = [];
-    for (const w of cluster.wires) {
-      if (w.from !== b.name) continue;
-      const target = cluster.bundles.find((x) => x.name === w.to);
-      if (target && "external" in target.kind && target.kind.external.ipcSocket) {
-        envVars.push(`${w.binding}=${target.kind.external.ipcSocket}`);
-      } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
-        if (w.to === "mache") {
-          envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
-        } else {
-          envVars.push(`${w.binding}=http://${w.to}:${target.kind.external.httpPort}`);
-        }
+    // perTenant=true bundles fan out to one container per matching
+    // tenantDispatch row (cedcf3 Phase 2 piece 2). If the chain
+    // resolves to zero rows (shouldn't — lint Inv 8 + Inv 9 catch
+    // that), fall back to single-emission.
+    const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
+    if (tenants.length > 0) {
+      for (const tenant of tenants) {
+        emitBundleContainer(lines, b, cluster, colocation, tenant);
       }
+    } else {
+      emitBundleContainer(lines, b, cluster, colocation, null);
     }
-    for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);
-    if (envVars.length > 0) {
-      lines.push(`    environment:`);
-      for (const e of envVars) lines.push(`      - ${JSON.stringify(e)}`);
-    }
-    lines.push(``);
   }
 
   lines.push(`volumes:`);
@@ -236,6 +217,115 @@ export function emitCompose(cluster) {
   lines.push(`    # SQLite DO storage — survives container restarts; backup target`);
 
   return lines.join("\n") + "\n";
+}
+
+/**
+ * Emit a single compose service block for one bundle instance. If
+ * `tenant` is non-null, this is a perTenant fanout instance — the
+ * service + container names get the `-<tenant.name>` suffix and the
+ * environment gets TENANT_ID + TENANT_MODE + TENANT_MATCH_VALUE so
+ * the in-container Worker can self-identify (the inbound dispatcher
+ * already knows which tenant a request belongs to via SNI / path
+ * prefix, but downstream code reading `env.TENANT_ID` needs this).
+ *
+ * What this does NOT do (intentional Phase 2 piece 2 scope):
+ *
+ *   - Per-tenant ipcSocket fanout. All tenant instances share the
+ *     bundle's declared `ipcSocket` path, which means the operator
+ *     either uses a shared UDS on the cloister-uds volume (fine if
+ *     the workers are happy with a shared bind point inside their
+ *     own filesystem namespace), or runs each tenant in its own
+ *     UDS-volume namespace (requires per-tenant compose project IDs
+ *     or named volumes — operator decision; not auto-generated).
+ *
+ *   - Per-tenant DO storage volume. The cloister-router gets the
+ *     `cloister-do:` volume; per-tenant bundles share that mount.
+ *     Real per-tenant storage isolation lands when the perTenant
+ *     bundle is also a hypervisor-tier DO host (not the shape today).
+ *
+ *   - Per-tenant wire env rewriting. The wire's binding env var
+ *     points at the bundle's declared ipcSocket / httpPort — same
+ *     value across tenant instances. A future iteration may derive
+ *     per-tenant socket paths and emit per-tenant env entries on
+ *     the source side of the wire.
+ *
+ * Per cloister-cedcf3 Phase 2 piece 2.
+ */
+function emitBundleContainer(lines, b, cluster, colocation, tenant) {
+  const ext = b.kind.external;
+  const colocatedInputs = colocation.get(b.name) ?? [];
+  const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
+  const containerName = `cloister-${serviceName}`;
+
+  lines.push(`  ${serviceName}:`);
+  lines.push(`    image: ${ext.image}`);
+  lines.push(`    pull_policy: never`);
+  lines.push(`    container_name: ${containerName}`);
+  lines.push(`    labels:`);
+  lines.push(`      - "cloister.bundle=${b.name}"`);
+  lines.push(`      - "cloister.tier=${b.tier}"`);
+  lines.push(`      - "cloister.description=${ext.image} — ${b.description}"`);
+  if (colocatedInputs.length > 0) {
+    lines.push(`      - "cloister.colocated-inputs=${colocatedInputs.join(",")}"`);
+  }
+  if (b.perTenant === true) {
+    lines.push(`      - "cloister.per-tenant=true"`);
+  }
+  if (tenant) {
+    lines.push(`      - "cloister.tenant=${tenant.name}"`);
+    lines.push(`      - "cloister.dispatch-mode=${tenant.mode}"`);
+    lines.push(`      - "cloister.dispatch-match=${tenant.matchValue}"`);
+  }
+
+  if (ext.args.length > 0) {
+    lines.push(`    command:`);
+    for (const a of ext.args) lines.push(`      - ${JSON.stringify(a)}`);
+  }
+
+  if (b.name === "mache") {
+    lines.push(`    network_mode: "service:cloister-router"`);
+  }
+
+  // Port forwards (only the lead instance gets host-port binding when
+  // we'd otherwise collide — per-tenant containers don't bind host
+  // ports by default; operators add explicit ports: in their compose
+  // overlay if they want per-tenant TCP exposure).
+  if (ext.httpPort > 0 && b.name !== "mache" && !tenant) {
+    lines.push(`    ports:`);
+    lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
+  }
+
+  lines.push(`    volumes:`);
+  lines.push(`      - cloister-uds:/run/cloister-uds`);
+  if (b.name === "cloister-router") {
+    lines.push(`      - cloister-do:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
+  }
+
+  const envVars = [];
+  for (const w of cluster.wires) {
+    if (w.from !== b.name) continue;
+    const target = cluster.bundles.find((x) => x.name === w.to);
+    if (target && "external" in target.kind && target.kind.external.ipcSocket) {
+      envVars.push(`${w.binding}=${target.kind.external.ipcSocket}`);
+    } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
+      if (w.to === "mache") {
+        envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
+      } else {
+        envVars.push(`${w.binding}=http://${w.to}:${target.kind.external.httpPort}`);
+      }
+    }
+  }
+  if (tenant) {
+    envVars.push(`TENANT_ID=${tenant.name}`);
+    envVars.push(`TENANT_MODE=${tenant.mode}`);
+    envVars.push(`TENANT_MATCH_VALUE=${tenant.matchValue}`);
+  }
+  for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);
+  if (envVars.length > 0) {
+    lines.push(`    environment:`);
+    for (const e of envVars) lines.push(`      - ${JSON.stringify(e)}`);
+  }
+  lines.push(``);
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────

@@ -364,3 +364,136 @@ test("emitCompose: deterministic — two emits produce byte-identical output", (
   const b = emitCompose(cluster);
   assert.equal(a, b);
 });
+
+// ── perTenant fanout (cedcf3 Phase 2 piece 2) ────────────────────────────
+
+/** Cluster fixture with one perTenant bundle + N tenantDispatch rows. */
+function perTenantCluster(tenants) {
+  return baseCluster({
+    bundles: [
+      {
+        name: "cloister-router",
+        description: "Router",
+        tier: "hypervisor",
+        holdsCredential: [],
+        workerdServiceName: "cloister",
+        hypervisorRationale: "test",
+        perTenant: false,
+        kind: { external: { image: "cloister:0.1", ipcSocket: "/run/cloister-uds/router.sock", httpPort: 8787, args: [], env: [] } },
+      },
+      {
+        name: "tenant-app",
+        description: "Per-tenant app",
+        tier: "cluster",
+        holdsCredential: [],
+        workerdServiceName: "",
+        hypervisorRationale: "",
+        perTenant: true,
+        kind: { external: { image: "cloister:0.1", ipcSocket: "/run/cloister-uds/tenant.sock", httpPort: 0, args: [], env: [] } },
+      },
+    ],
+    wires: [
+      { from: "cloister-router", to: "tenant-app", binding: "T_APP", transport: { uds: null } },
+    ],
+    routes: [
+      {
+        path: "/",
+        kind: { tenantDispatch: { tenants } },
+      },
+    ],
+  });
+}
+
+test("emitCompose: perTenant=true bundle fans out to one service per tenantDispatch row", () => {
+  const yaml = emitCompose(perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+    { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP" },
+  ]));
+  // Two service names derived from `<bundle>-<tenant>`.
+  assert.match(yaml, /^ {2}tenant-app-alice:$/m);
+  assert.match(yaml, /^ {2}tenant-app-bob:$/m);
+  // The bare bundle name does NOT appear as a service.
+  assert.doesNotMatch(yaml, /^ {2}tenant-app:$/m);
+});
+
+test("emitCompose: perTenant container names + labels + env", () => {
+  const yaml = emitCompose(perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+  ]));
+  assert.ok(yaml.includes("container_name: cloister-tenant-app-alice"));
+  assert.ok(yaml.includes('"cloister.tenant=alice"'));
+  assert.ok(yaml.includes('"cloister.dispatch-mode=sni"'));
+  assert.ok(yaml.includes('"cloister.dispatch-match=alice.example"'));
+  assert.ok(yaml.includes('"cloister.per-tenant=true"'));
+  assert.ok(yaml.includes('"TENANT_ID=alice"'));
+  assert.ok(yaml.includes('"TENANT_MODE=sni"'));
+  assert.ok(yaml.includes('"TENANT_MATCH_VALUE=alice.example"'));
+});
+
+test("emitCompose: perTenant containers do NOT bind host ports (avoid collision)", () => {
+  // Per-tenant instances must NOT each bind the same host port —
+  // collision would prevent docker compose up. Operators add explicit
+  // per-tenant ports via a compose overlay if they want TCP exposure.
+  const withPort = perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+  ]);
+  withPort.bundles.find((b) => b.name === "tenant-app").kind.external.httpPort = 9000;
+  const yaml = emitCompose(withPort);
+  const aliceIdx = yaml.indexOf("tenant-app-alice:");
+  const nextSvcIdx = yaml.indexOf("\nvolumes:", aliceIdx);
+  const aliceBlock = yaml.slice(aliceIdx, nextSvcIdx);
+  assert.ok(!aliceBlock.includes("ports:"), `tenant-app-alice block should not have ports: \n${aliceBlock}`);
+});
+
+test("emitCompose: perTenant=true with no dispatch chain → falls back to single-emission", () => {
+  // Lint Inv 8 + Inv 9 catch this case; the emitter falls back rather
+  // than fail-late, so a perTenant=true bundle without matching tenant
+  // rows still emits ONE container (the chain didn't resolve any
+  // tenants to fan out over).
+  const cluster = baseCluster({
+    bundles: [
+      {
+        name: "cloister-router",
+        description: "Router",
+        tier: "hypervisor",
+        holdsCredential: [],
+        workerdServiceName: "cloister",
+        hypervisorRationale: "test",
+        perTenant: false,
+        kind: { external: { image: "cloister:0.1", ipcSocket: "/run/cloister-uds/router.sock", httpPort: 8787, args: [], env: [] } },
+      },
+      {
+        name: "orphan",
+        description: "perTenant without dispatch",
+        tier: "cluster",
+        holdsCredential: [],
+        workerdServiceName: "",
+        hypervisorRationale: "",
+        perTenant: true,
+        kind: { external: { image: "cloister:0.1", ipcSocket: "/run/cloister-uds/orphan.sock", httpPort: 0, args: [], env: [] } },
+      },
+    ],
+    wires: [],
+    routes: [],
+  });
+  const yaml = emitCompose(cluster);
+  assert.match(yaml, /^ {2}orphan:$/m);
+  assert.ok(yaml.includes('"cloister.per-tenant=true"'));
+  assert.ok(!yaml.includes("cloister.tenant="));
+});
+
+test("emitCompose: per-tenant containers preserve wire env vars on the source side", () => {
+  // The router (wire source) still has its T_APP env var pointing at
+  // the bundle's declared ipcSocket. The fact that tenant-app fans
+  // out doesn't rewrite the wire on the source side — that's a known
+  // Phase 2 piece 2 limitation; operators handle per-tenant socket
+  // plumbing.
+  const yaml = emitCompose(perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+  ]));
+  const routerIdx = yaml.indexOf("cloister-router:");
+  const nextIdx = yaml.indexOf("\n  tenant-app-alice:", routerIdx);
+  const routerBlock = yaml.slice(routerIdx, nextIdx);
+  assert.ok(routerBlock.includes('"T_APP=/run/cloister-uds/tenant.sock"'),
+    `router block should keep T_APP wire env:\n${routerBlock}`);
+});

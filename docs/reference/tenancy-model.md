@@ -228,7 +228,7 @@ handles the rest.
 | 1 | `perTenant: Bool` field on BundleSpec | ✓ shipped |
 | 2 piece 1 | Inv 8 (perTenant requires tenantDispatch route) | ✓ shipped |
 | 2 piece 3 | Inv 9 (binding-correlation: wire reaches perTenant bundle) | ✓ shipped |
-| 2 piece 2 | emit-compose per-tenant container emission | Deferred (container naming + volume-mount design) |
+| 2 piece 2 | emit-compose per-tenant container emission | ✓ first-cut shipped 2026-06-24 — service name + container name + per-tenant labels + `TENANT_ID`/`TENANT_MODE`/`TENANT_MATCH_VALUE` env. Per-tenant ipcSocket fanout + per-tenant wire env rewriting NOT shipped (operator handles socket plumbing today). |
 
 ### Inv 9 binding-correlation chain
 
