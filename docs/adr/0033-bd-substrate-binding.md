@@ -390,14 +390,30 @@ bundle owning its own credential, its own wire, or its own auth.
 
 ## Open questions
 
-1. **Migration sequencing for `.beads/dolt/cloister/`.** Does bd's
+1. ~~**Migration sequencing for `.beads/dolt/cloister/`.** Does bd's
    `--listen-uds` against the same on-disk Dolt directory work
    concurrently with embedded `rsry` writes? Or does one have to
    stop the other? bd's README implies its dolt sql-server is the
    single writer when running; `rsry` would need to switch to
    client-mode (connect via MySQL/socket) for concurrent operation.
    Test against a real bd checkout before committing to D5's "both
-   coexist" claim.
+   coexist" claim.~~ **Resolved 2026-06-24**: structurally, the
+   tools use different default storage paths — rsry uses
+   `.beads/dolt/<repo>/` (verified via `lsof` against the live
+   dolt-sql-server PID, port 51256 against the cloister checkout),
+   bd uses `.beads/embeddeddolt/<repo>/` (per its Homebrew install).
+   There is no concurrent-writer race because they don't share
+   storage. **Sharing IS possible** but requires operator action:
+   either point `BEADS_DIR` at the rsry directory and stop bd's
+   default embedded mode, OR run bd's `dolt sql-server` against
+   the rsry directory and switch rsry to client-mode against the
+   bd-managed port. Neither is a default; both are unsupported
+   today. The ADR's D5 claim ("rsry + bd coexist; operator picks
+   canonical per repo") refers to coexistence of the TWO MCP
+   SURFACES (`bead_*` BeadStore DO + `rsry_*` rosary bundle), NOT
+   coexistence on the same Dolt directory. Migration path: switch
+   one tool's storage path to match the other and stop the
+   conflicting writer.
 
 2. **Tool-name prefix collision.** Today cloister's `bd_*` namespace
    is empty. Confirm bd doesn't reserve names that overlap with
