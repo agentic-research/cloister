@@ -188,6 +188,8 @@ The substrate's invariant chain:
 - The binding `T_ALICE` ↔ `[[wires]] binding = "T_ALICE"` ↔ `to = "alice"` bundle ↔ `[bundles.alice]`
 - Inv 6 verifies `workerdId == "alice"` matches a bundle named `"alice"`
 - Inv 7 verifies the dispatch row aligns: routing to T_ALICE reaches a bundle hosting an input with workerdId == "alice"
+- Inv 8 verifies that any bundle with `perTenant = true` has a `tenantDispatch` route declared (existence check)
+- Inv 9 verifies that the perTenant bundle is wired by at least one tenantDispatch row's binding (binding-correlation check)
 
 The naming convention (`tenant_name == bundle_name == workerdId`) is
 the only way to satisfy both Inv 6 and Inv 7. Operators who want
@@ -212,17 +214,73 @@ demonstrates it. New operators don't need to know about a third
 table; they declare inputs + a dispatch route, and the substrate
 handles the rest.
 
-## Per-bundle tenancy (future, deferred)
+## Per-bundle tenancy — `perTenant: Bool` (shipped Phase 1)
 
-Phase 2 of `cloister-cedcf3` (per-tenant rsry sidecar wiring) needs
-a `perTenant: Bool` field on `BundleSpec` so the emitter can spawn
-one bundle instance per `TenantDispatchRow.name` automatically
-(instead of the operator hand-declaring `rsry-alice` + `rsry-bob`
-as in the example above).
+`cloister-cedcf3` Phase 1 (2026-06-24) added `perTenant: Bool` to
+`BundleSpec`. Operators declare a bundle as tenant-scoped by setting
+`perTenant = true`; the emitter will (Phase 2) spawn one instance per
+`TenantDispatchRow.name` instead of one cluster-wide bundle.
 
-That's a NEW schema field, not a new top-level table — it composes
-into the existing tenancy primitives by sugaring the boilerplate.
-Deferred to cloister-cedcf3 implementation.
+### Status
+
+| Phase | Piece | Status |
+|---|---|---|
+| 1 | `perTenant: Bool` field on BundleSpec | ✓ shipped |
+| 2 piece 1 | Inv 8 (perTenant requires tenantDispatch route) | ✓ shipped |
+| 2 piece 3 | Inv 9 (binding-correlation: wire reaches perTenant bundle) | ✓ shipped |
+| 2 piece 2 | emit-compose per-tenant container emission | Deferred (container naming + volume-mount design) |
+
+### Inv 9 binding-correlation chain
+
+```
+[[routes.tenantDispatch.tenants]] row.binding
+    │
+    │  (same string)
+    ▼
+[[wires]].binding
+    │
+    │  to: ...
+    ▼
+[[bundles]] (perTenant = true)
+```
+
+Without all three links, Inv 8 OR Inv 9 fails at lint time:
+
+| Failure | Lint catches |
+|---|---|
+| No `tenantDispatch` route exists | Inv 8 — "NO tenantDispatch route" |
+| Route exists, but its bindings don't reach the perTenant bundle | Inv 9 — "no [[wires]] entry whose binding is referenced" |
+| Route + wire exist, but workerdId on inputs disagrees | Inv 7 (separate chain, for the per-input tenancy primitive) |
+
+### Operator opt-in shape (Phase 1 + 2 lint)
+
+```toml
+[[bundles]]
+name = "rosary"
+description = "Per-tenant bead orchestrator (perTenant=true)"
+tier = "cluster"
+kind = "external"
+perTenant = true                     # cedcf3 Phase 1
+
+[[wires]]
+from = "cloister-router"
+to = "rosary"
+binding = "T_ROSARY"
+transport = "uds"
+
+[[routes]]
+kind = "tenantDispatch"
+path = "/"
+  [[routes.tenantDispatch.tenants]]
+  name = "alice"
+  mode = "sni"
+  matchValue = "alice.cluster.example"
+  binding = "T_ROSARY"                # binding-correlation chain — Inv 9
+```
+
+`task lint` walks all three checks; once Phase 2 piece 2 lands, the
+same shape will emit `rosary-alice` + `rosary-bob` containers from
+emit-compose.
 
 ## Cross-references
 
@@ -233,4 +291,4 @@ Deferred to cloister-cedcf3 implementation.
 - [`docs/reference/bundle-topology.md`](bundle-topology.md) — the bundle classification this composes with
 - [`recipes/multi-tenant-smoke/`](../../recipes/multi-tenant-smoke/) — minimal multi-tenant recipe demonstrating `tenantDispatch`
 - `scripts/lint-bundle-isolation.mjs` — the lint enforcing Inv 1-7
-- Tracking beads: `cloister-ce936e` (this doc + Inv 7), `cloister-cedcf3` (per-tenant rsry impl), `cloister-cbfd7f` (ADR-0034 tracker)
+- Tracking beads: `cloister-ce936e` (this doc + Inv 7) — closed, `cloister-cedcf3` (perTenant Phase 1 + Inv 8 + Inv 9 shipped; Phase 2 piece 2 deferred), `cloister-cbfd7f` (ADR-0034 tracker) — closed

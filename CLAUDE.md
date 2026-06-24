@@ -64,6 +64,24 @@ task smoke           # end-to-end with leyline + cloister on private ports
 
 The `lint` is the inner-loop gate. Run it before every commit.
 
+### Substrate-property lint invariants (lint:bundle-isolation)
+
+`scripts/lint-bundle-isolation.mjs` runs nine invariants per `task lint`:
+
+| Inv | What | ADR |
+|---|---|---|
+| 1 | No globalOutbound to network / external on cluster-tier | ADR-0013 |
+| 2 | Vault / credential bindings only on declared holdsCredential bundles | ADR-0013 |
+| 3 | Every bundle has a tier + non-empty hypervisorRationale if hypervisor | ADR-0011 |
+| 4 | Cluster-tier service bindings resolve to a wire OR `external` service | ADR-0013 |
+| 5 | Hypervisor-to-hypervisor service bindings appear in `wires[]` | ADR-0018 gap 5 |
+| 6 | Input tenancy.workerdId resolves to a bundle; trustedTier alignment | ADR-0030 §A5 |
+| 7 | tenantDispatch row.binding ↔ workerd alignment via input.workerdId | ADR-0034 / cloister-ce936e |
+| 8 | perTenant=true bundle has a tenantDispatch route declared | ADR-0034 / cloister-cedcf3 |
+| 9 | perTenant bundle wired by at least one tenantDispatch binding | ADR-0034 / cloister-cedcf3 |
+
+Together they enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments. See [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md) for the operator-facing model.
+
 ## Commit conventions
 
 Every commit must reference a bead, enforced by the commit-msg hook
@@ -198,6 +216,23 @@ is tracked in the `mcp-spec-alignment` thread; draft SEP at
   the binding substrate. New bindings should land as `vaultSlice`
   declarations on a bundle, not as `[vars]` entries.
 - **Hand-coded route registration.** Goes in the manifest, not in TS.
+
+## Operator-facing knobs (2026-06-24 additions)
+
+- **`BEAD_STORAGE_BACKEND`** (env var, optional, default `"do"`) — per
+  ADR-0033 D5 amendment + cloister-c8b907 migration. Switches Step 2 of
+  the bead-create orchestrator between cloister's BeadStore DurableObject
+  (`"do"`) and rsry's `rsry_bead_create` MCP tool via ROSARY_BUNDLE
+  (`"rsry"`). Both paths preserve the §13.4 audit chain via the bead_id
+  link on `peer_attestations` (cloister-dea77c). When unset / unknown,
+  defaults to `"do"` with a one-shot deprecation warning per
+  cloister-f34f7b.
+- **`perTenant: Bool` on BundleSpec** (cluster.toml, default false) —
+  per ADR-0034 + cloister-cedcf3. Operator declares a bundle as
+  tenant-scoped; emit-compose Phase 2 (deferred) will emit one container
+  per tenant. Lint Inv 8 + Inv 9 enforce that perTenant=true requires a
+  matching `tenantDispatch` route + binding chain. See
+  [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md).
 
 ## When to write an ADR
 
