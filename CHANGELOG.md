@@ -143,6 +143,39 @@ substrate-property lint invariants.
   `[inputs.llo]`, not as a hand-coded tenant. `task lint:tenant-docs`
   still reports 4 docs accounted for — no drift introduced.
 
+- **LLO contract recovery** (commit `a062dd0`) — the committed
+  `cluster.lock.toml` had drifted to a stale snapshot of LLO's
+  `server.json` (bytes=1_213, 3 groups under
+  `_meta.art.cloister/v1.groups[]`) while the on-disk source had
+  advanced to v0.5.0 / 2603 bytes / 7 groups. Result: the
+  `src/generated/manifest.ts` emitted to production silently
+  dropped FOUR entire groups (`query`, `wire`, `validate`, `hdc`)
+  and truncated `lifecycle` (missing `snapshot`) + `sheaf`
+  (1-of-6 claims). The `query` group's 16 LLO TABLE_CONTRACT
+  nodes-surface tools (`get_node`, `inspect_symbol`, `at_position`,
+  `inspect_neighborhood`, `search_symbols`, `read_content`,
+  `find_callers/defs/callees`, `get_refs_map`, `get_defs_map`,
+  `get_schema`, `get_db_path`, `agreement`, `query`,
+  `list_children`) were unreachable through cloister's MCP face
+  until an operator noticed by hand. Re-ran `task cluster:resolve`
+  + `task manifest`; all 31 LLO tools now correctly claimed across
+  7 `mcpProxy` backends bound to `LSP_MCP` / `LLO_MCP_URL`.
+
+- **Lockfile-drift lint** (commits `33c140b` + `baacdd7`) — the
+  forward-guard against another LLO-contract incident.
+  [`scripts/lint-lockfile-drift.mjs`](scripts/lint-lockfile-drift.mjs)
+  parses `cluster.toml` + `cluster.lock.toml`, hashes each
+  `file://`-resourced input on disk, and fails with a per-input fix
+  hint (`run task cluster:resolve`) when the on-disk sha256 ≠ the
+  committed digest. Wired into `task lint:lockfile-drift` + the
+  `task lint` deps array + `task test:lint-scripts`. Six `node:test`
+  cases cover the matrix (match / drift / lockfile-missing /
+  source-missing-skip-with-warn / https-ignored / multi-input
+  partial drift). `https://` + `github://` inputs are intentionally
+  out of scope — their content-addressed pinning is load-bearing on
+  its own; an https:// drift check is a separate decision (likely
+  ADR-0026 Phase 3 + Interlace receipts).
+
 ### Shipped 2026-05-17
 
 Eight feature PRs + ten stale-close reconciliations in a single
