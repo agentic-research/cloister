@@ -109,9 +109,17 @@ function runLint(workDir, clusterTsPath) {
 //
 // Returns a TS module string exporting `cluster`. Same shape as the
 // real src/generated/cluster.ts that toml-to-cluster.mjs emits.
-function clusterTs({ bundles, wires = [], inputs = [] }) {
+function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
   const cluster = {
     metadata: { name: "test", version: "0.0.1" },
+    // ADR-0034 / Inv 7: routes optionally include tenantDispatch. Each
+    // entry takes { kind: { tenantDispatch: { tenants: [...] } } }; the
+    // tenants list is operator-declared rows pairing tenant names with
+    // routing predicates + service-binding targets.
+    routes: routes.map((r) => ({
+      path: r.path ?? "/",
+      kind: r.kind ?? { health: null },
+    })),
     bundles: bundles.map(({
       name,
       tier,
@@ -1015,6 +1023,206 @@ test("cloister-cf519b — lint exits 2 with helpful error when cluster.ts is mis
     assert.equal(r.status, 2, `missing cluster.ts should be a toolchain error (exit 2); got ${r.status}`);
     assert.match(r.stderr, /cluster source not found/);
     assert.match(r.stderr, /task cluster:toml/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+// ── ADR-0034 / cloister-ce936e: Inv 7 tenantDispatch ↔ workerd alignment ──
+
+test("Inv 7 — no tenantDispatch route → no-op (back-compat for single-tenant)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+      ],
+      // No routes; pre-ADR-0034 single-tenant shape.
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [] }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `pre-ADR-0034 single-tenant should pass; stderr:\n${r.stderr}`);
+    assert.match(r.stdout, /0 tenantDispatch route\(s\)/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 7 — tenantDispatch row whose binding has no [[wires]] entry is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE_ORPHAN" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [] }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "orphan tenant-dispatch binding should fail");
+    assert.match(r.stderr, /Inv 7/);
+    assert.match(r.stderr, /T_ALICE_ORPHAN/);
+    assert.match(r.stderr, /does not resolve to any/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 7 — tenantDispatch row with matching input.tenancy.workerdId is accepted", () => {
+  // alice's binding wires to a bundle named "alice"; an input declares
+  // tenancy.workerdId="alice" (must match a bundle name per Inv 6).
+  // The chain is well-formed: row.name "alice" matches the input's
+  // workerdId, the wire's `to` bundle is "alice", and Inv 6's
+  // bundle-existence check is satisfied.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "alice",           tier: "cluster" },
+      ],
+      wires: [
+        { from: "cloister-router", to: "alice", binding: "T_ALICE" },
+      ],
+      inputs: [
+        { name: "alice", workerdId: "alice", trustedTier: false },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "alice", bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `well-formed tenant-dispatch chain should pass; stderr:\n${r.stderr}`);
+    assert.match(r.stdout, /1 tenantDispatch route\(s\)/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 7 — tenant name mismatched against input workerdId is rejected (with inputs declared)", () => {
+  // Operator wires alice's binding to bundle "bob", but the dispatch
+  // row says binding T_ALICE for tenant "alice". The bundle's hosted
+  // input declares workerdId="bob" (per Inv 6 requirement). Row name
+  // "alice" doesn't match any input's workerdId on the target bundle.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "bob",             tier: "cluster" },
+      ],
+      wires: [
+        { from: "cloister-router", to: "bob", binding: "T_ALICE" },
+      ],
+      inputs: [
+        // Input on bundle "bob" declares workerdId="bob".
+        { name: "bob", workerdId: "bob", trustedTier: false },
+      ],
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "bob", bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, "mismatched tenant↔workerdId chain should fail");
+    assert.match(r.stderr, /Inv 7/);
+    assert.match(r.stderr, /alice/);
+    assert.match(r.stderr, /workerdId="alice"/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 7 — empty inputs[] skips alignment check (recipe demos without full inputs)", () => {
+  // recipes/multi-tenant-smoke/ demonstrates the routing primitive
+  // without declaring inputs — Inv 7 should be lenient here so the
+  // recipe lints clean.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "alice-bundle",    tier: "cluster" },
+      ],
+      wires: [
+        { from: "cloister-router", to: "alice-bundle", binding: "T_ALICE" },
+      ],
+      // inputs: [] — recipe shape
+      routes: [
+        {
+          path: "/",
+          kind: {
+            tenantDispatch: {
+              tenants: [
+                { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_ALICE" },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        { name: "cloister", bindings: [] },
+        { name: "alice-bundle", bindings: [] },
+      ],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `recipe-shape (no inputs) should pass Inv 7; stderr:\n${r.stderr}`);
   } finally {
     scenario.cleanup();
   }

@@ -564,6 +564,102 @@ function checkInvariant6(cluster, violations) {
   }
 }
 
+/**
+ * Invariant 7 (ADR-0034 / cloister-ce936e): every `TenantDispatchRow`
+ * in a `tenantDispatch` route MUST resolve to a `[[wires]]` entry
+ * whose `to` bundle hosts inputs sharing the same `workerdId` as the
+ * row's `name`. This is the tenant-dispatch ↔ workerd-alignment
+ * invariant — without it, an operator can declare routing to a
+ * tenant that has no actual workerd to receive it.
+ *
+ * Per `docs/reference/tenancy-model.md`. The substrate's two tenancy
+ * primitives (`InputSpec.tenancy` per-input + `TenantDispatchRow`
+ * per-route) compose via this invariant: the row's `binding` resolves
+ * a wire to a bundle; that bundle hosts inputs; those inputs declare a
+ * `workerdId` that MUST match the row's `name`.
+ *
+ * Skipped (no-op) when no tenantDispatch route is declared (pre-ADR-0034
+ * single-tenant deployments are back-compat by construction).
+ */
+function checkInvariant7(cluster, violations) {
+  const routes = cluster.routes ?? [];
+  const tenantDispatchRoutes = routes.filter((r) => r.kind?.tenantDispatch);
+  if (tenantDispatchRoutes.length === 0) return; // no-op: single-tenant
+
+  const wires    = cluster.wires ?? [];
+  const bundles  = cluster.bundles ?? [];
+  const inputs   = cluster.inputs ?? [];
+
+  // Index: binding name → wire.to bundle name
+  const bindingToBundle = new Map();
+  for (const w of wires) {
+    if (w.binding && w.to) bindingToBundle.set(w.binding, w.to);
+  }
+  // Index: bundle name → set of workerdIds hosted (from inputs declaring
+  // this bundle as their workerdId resolution target). Per ADR-0030 §A5
+  // resolution rules: explicit input.tenancy.workerdId wins; same-name
+  // bundle is fallback rung 2; gateway is rung 3.
+  const gateway = bundles.find((b) => b.tier === "hypervisor");
+  const workerdIdByInput = new Map();
+  for (const inp of inputs) {
+    const t = inp.tenancy ?? {};
+    const declared = typeof t.workerdId === "string" ? t.workerdId : "";
+    let workerdId;
+    if (declared !== "") workerdId = declared;
+    else if (bundles.some((b) => b.name === inp.name)) workerdId = inp.name;
+    else if (gateway) workerdId = gateway.name;
+    else continue;
+    workerdIdByInput.set(inp.name, workerdId);
+  }
+
+  for (const route of tenantDispatchRoutes) {
+    const tenants = route.kind.tenantDispatch.tenants ?? [];
+    for (const row of tenants) {
+      if (!row.binding) continue; // operator error caught elsewhere
+      const targetBundle = bindingToBundle.get(row.binding);
+      if (!targetBundle) {
+        violations.push(
+          `lint-bundle-isolation: tenantDispatch row "${row.name}" ` +
+          `(binding=${JSON.stringify(row.binding)}) does not resolve to any ` +
+          `[[wires]] entry — Inv 7, ADR-0034 / cloister-ce936e. Declare a ` +
+          `wire with binding=${JSON.stringify(row.binding)} OR remove the ` +
+          `tenant row.`,
+        );
+        continue;
+      }
+      // Find the set of workerdIds that inputs assign to this bundle.
+      // Phase 1 acceptance: if ANY input resolves to targetBundle with
+      // workerdId == row.name, the row aligns. Stricter checks (every
+      // input assigns the same workerdId) are deferred to a future Inv 8
+      // when per-bundle tenancy lands (cloister-cedcf3).
+      const aligned = Array.from(workerdIdByInput.entries()).some(
+        ([inputName, wid]) => {
+          // Input's workerdId resolution lands on this bundle: either
+          // input.name == bundle (rung 2) OR input.tenancy.workerdId
+          // names the bundle (rung 1).
+          if (wid !== targetBundle && inputName !== targetBundle) return false;
+          // And the workerdId matches the row's tenant name.
+          return wid === row.name;
+        },
+      );
+      // Soft check: when no inputs are declared (pre-ADR-0026 cluster.toml),
+      // skip the alignment check — the recipe demonstrates the routing
+      // primitive without requiring a full inputs declaration.
+      if (inputs.length === 0) continue;
+      if (!aligned) {
+        violations.push(
+          `lint-bundle-isolation: tenantDispatch row "${row.name}" routes to ` +
+          `bundle "${targetBundle}" (via binding ${JSON.stringify(row.binding)}) ` +
+          `but no input declares tenancy.workerdId="${row.name}" against ` +
+          `that bundle — Inv 7, ADR-0034. Add an [inputs.X].tenancy with ` +
+          `workerdId="${row.name}" OR rename the tenant row to match an ` +
+          `existing input's workerdId.`,
+        );
+      }
+    }
+  }
+}
+
 function checkInvariant4(workerSvc, tier, bundleName, cluster, services, violations) {
   if (tier !== "cluster") return;
   if (!bundleName) return; // already flagged by tier defaulting + Inv 3
@@ -676,6 +772,7 @@ try {
 
 checkInvariant3(cluster, violations);
 checkInvariant6(cluster, violations);
+checkInvariant7(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -710,4 +807,6 @@ console.log(`  ${workerCount} workerd Worker(s) in config.capnp`);
 console.log(`  ${bundleCount} bundle(s) in src/generated/cluster.ts`);
 const inputCount = (cluster.inputs ?? []).length;
 console.log(`  ${inputCount} input(s) walked for tenancy resolution`);
-console.log(`  invariants 1–6 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy)`);
+const tenantDispatchCount = (cluster.routes ?? []).filter((r) => r.kind?.tenantDispatch).length;
+console.log(`  ${tenantDispatchCount} tenantDispatch route(s) walked for Inv 7`);
+console.log(`  invariants 1–7 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment)`);
