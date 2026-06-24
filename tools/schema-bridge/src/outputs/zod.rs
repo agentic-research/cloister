@@ -188,7 +188,13 @@ fn render_zod_type(t: &FieldType) -> String {
         FieldType::Scalar(s) => render_zod_scalar(*s).to_owned(),
         FieldType::StructRef(name) => format!("{name}Schema"),
         FieldType::EnumRef(name) => format!("{name}Schema"),
-        FieldType::List(inner) => format!("z.array({})", render_zod_type(inner)),
+        // `z.array(T).readonly()` emits a schema whose inferred output
+        // type is `readonly T[]` (zod 4 ZodReadonly wrapping ZodArray).
+        // Pairs with the `readonly T[]` we emit on the matching TS
+        // interface field below — without both, the `z.ZodType<Bundle>`
+        // declaration would type-mismatch (zod's inferred type wouldn't
+        // include the readonly modifier). Per cloister-818f2b.
+        FieldType::List(inner) => format!("z.array({}).readonly()", render_zod_type(inner)),
     }
 }
 
@@ -214,12 +220,21 @@ fn render_ts_type(t: &FieldType) -> String {
         FieldType::StructRef(name) => name.clone(),
         FieldType::EnumRef(name) => name.clone(),
         FieldType::List(inner) => {
-            // `T[]` rather than `(T)[]` — TS array postfix is
-            // right-associative against itself + scalars + struct
-            // refs, so the bare form is unambiguous. When union types
-            // land they'll need explicit parens because `A | B[]`
-            // parses as `A | (B[])`; handle then, not now.
-            format!("{}[]", render_ts_type(inner))
+            // `readonly T[]` — capnp lists are conceptually read-only
+            // from the TS consumer's point of view (the wire is the
+            // source of truth; mutating an in-memory copy doesn't
+            // change anything load-bearing). Emitting readonly here
+            // pairs with the matching `z.array(...).readonly()` on
+            // the zod side; together they make immutability load-
+            // bearing at compile time. Per cloister-818f2b.
+            //
+            // `readonly T[]` rather than `(readonly T)[]` — TS array
+            // postfix binds tighter than readonly, so `readonly T[]`
+            // is `ReadonlyArray<T>`, which is what we want. The bare
+            // form is unambiguous for scalars + struct refs. When
+            // union types land they'll need explicit parens because
+            // `A | B[]` parses as `A | (B[])`; handle then, not now.
+            format!("readonly {}[]", render_ts_type(inner))
         }
     }
 }

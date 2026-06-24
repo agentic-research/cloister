@@ -243,11 +243,15 @@ fn list_of_scalars_emits_array() {
 
     let schema = parse(&message).expect("parse");
     let emitted = outputs::zod::emit(&schema).expect("emit");
+    // Lists emit `z.array(T).readonly()` on the zod side + `readonly T[]`
+    // on the interface — paired so `z.ZodType<HasList>` type-resolves
+    // (zod's ZodReadonly<ZodArray<…>> infers to `readonly T[]`). Per
+    // cloister-818f2b.
     assert!(
-        emitted.contains("tags: z.array(z.string())"),
+        emitted.contains("tags: z.array(z.string()).readonly()"),
         "emit:\n{emitted}"
     );
-    assert!(emitted.contains("tags: string[];"), "emit:\n{emitted}");
+    assert!(emitted.contains("tags: readonly string[];"), "emit:\n{emitted}");
 }
 
 // ── Golden: nested list of lists ───────────────────────────────────
@@ -278,11 +282,17 @@ fn list_of_lists_recurses() {
 
     let schema = parse(&message).expect("parse");
     let emitted = outputs::zod::emit(&schema).expect("emit");
+    // List<List<T>> recurses both readonly modifiers — outer + inner.
+    // The TS form `readonly readonly T[][]` reads `ReadonlyArray<ReadonlyArray<T>>`
+    // which is the correct nesting. Per cloister-818f2b.
     assert!(
-        emitted.contains("rows: z.array(z.array(z.number().int()))"),
+        emitted.contains("rows: z.array(z.array(z.number().int()).readonly()).readonly()"),
         "emit:\n{emitted}"
     );
-    assert!(emitted.contains("rows: number[][];"), "emit:\n{emitted}");
+    assert!(
+        emitted.contains("rows: readonly readonly number[][];"),
+        "emit:\n{emitted}"
+    );
 }
 
 // ── Regression-guard: list of an unmapped element still errors ────
