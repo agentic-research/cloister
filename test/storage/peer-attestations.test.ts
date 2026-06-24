@@ -372,6 +372,33 @@ describe("bead_id column (cloister-c8b907)", () => {
     });
   });
 
+  it("TrustStore.attestationsForBead RPC surfaces the audit query for operators (cloister-dea77c)", async () => {
+    // The `attestationsForBead` helper is exported from the storage
+    // module for in-DO calls; the TrustStore class also exposes it as an
+    // RPC method so operator-facing tooling can audit a bead without
+    // needing direct DO storage access. This test exercises the RPC
+    // surface (not the helper directly) to pin the operator-facing
+    // contract.
+    const stub = freshStub();
+    const beadId = "cloister-rpc-test";
+    await runInDurableObject(stub, async (instance, state) => {
+      applyAttestation(state.storage.sql, applyArgs({
+        contentHash: HASH_A,
+        beadId,
+        prevSelfRef: null,
+        nowMs: 100_000,
+      }));
+      const rpc = instance as unknown as {
+        attestationsForBead(beadId: string): unknown[];
+      };
+      const rows = rpc.attestationsForBead(beadId);
+      expect(rows.length).toBe(1);
+      const row = rows[0] as { bead_id: string; content_hash: string };
+      expect(row.bead_id).toBe(beadId);
+      expect(row.content_hash).toBe(HASH_A);
+    });
+  });
+
   it("§13.4 audit-chain reconstitution: bead_id lets the audit query recover (bead, content_hash) pairs after BeadStore-DO deprecation", async () => {
     // This is the LOAD-BEARING property for cloister-c8b907's migration:
     // after the BeadStore DO retires, the bead row in rsry/bd has no

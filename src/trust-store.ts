@@ -78,6 +78,7 @@ import {
   AttestationIntegrityError,
   SCHEMA_PEER_ATTESTATIONS,
   applyAttestation as applyAttestationHelper,
+  attestationsForBead as attestationsForBeadHelper,
   findAttestationByContent as findAttestationByContentHelper,
   lastAttestationForPeer as lastAttestationForPeerHelper,
   listAttestationsForPeer as listAttestationsForPeerHelper,
@@ -543,6 +544,28 @@ export class TrustStore extends DurableObject {
     options: { fromSeq?: number; limit?: number } = {},
   ): PeerAttestation[] {
     return listAttestationsForPeerHelper(this.db, peerFp, options);
+  }
+
+  /**
+   * §13.4 audit query — find every attestation row whose `bead_id` matches
+   * the given id. Returns rows ordered by `created_at` ASC. Per
+   * `cloister-dea77c` (sub-bead 1 of c8b907 / ADR-0033 D5 amendment): the
+   * BeadStore-DO deprecation moves the bead row to rsry/bd's Dolt where
+   * `content_hash` doesn't exist as a column. The attestation row
+   * preserves the (bead, content_hash, scope, peer_fp) tuple; this RPC
+   * surfaces the join for operator-facing audit tooling without exposing
+   * direct DO storage access.
+   *
+   * Returns an empty array when:
+   *   - The bead has no attestation row (created via direct rsry bypass,
+   *     no orchestrator)
+   *   - The bead_id pre-dates the c8b907 sub-bead 1 migration (NULL rows
+   *     don't match)
+   *
+   * Pairs with the SQL snippet documented in threat-model §13.8.3.
+   */
+  attestationsForBead(beadId: string): PeerAttestation[] {
+    return attestationsForBeadHelper(this.db, beadId);
   }
 
   /**
