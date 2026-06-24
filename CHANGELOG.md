@@ -120,6 +120,29 @@ substrate-property lint invariants.
   LLO `lsp_*` route shipped via manifest-driven mcpProxy; LLO ticket
   marked retired with cross-link).
 
+- **Bundle-type drift gate** (`cloister-204ac9`,
+  [src/manifest/bundle-drift-guard.ts](src/manifest/bundle-drift-guard.ts)) —
+  compile-time mutual-assignability check between the hand-maintained
+  `Bundle` / `WorkerdBundle` / `ExternalBundle` interfaces in
+  `src/manifest/cluster-types.ts` and the schema-bridge-generated
+  counterparts in `src/generated/cluster.zod.ts`. `task lint`'s tsc
+  pass fails fast on field-level divergence. `Normalize<T>` recurses
+  `ReadonlyArray<X>` → `X[]` and strips property-level readonly so
+  the gate ignores readonly-vs-mutable drift (schema-bridge doesn't
+  yet emit `readonly` — followup `cloister-818f2b`). Zero runtime
+  cost; consolidation deferred until 818f2b lands.
+
+- **Stale tenant-doc cleanup** (`cloister-cedcf3` doc-hygiene sweep) —
+  `docs/tenants/ley-line-mcp.md` deleted (orphaned: documented a
+  `leyline-lifecycle` backend that no longer exists in
+  `cloister.capnp` after the `[inputs.llo]` migration). Stale
+  `lsp-mcp.md` row removed from `docs/tenants/README.md` (broken
+  link since PR #94); replaced with a one-paragraph footnote
+  explaining that `lsp_*` + `reparse` / `enrich` / `status` arrive
+  via the lockfile→backend emitter as a `generatedBackend` keyed off
+  `[inputs.llo]`, not as a hand-coded tenant. `task lint:tenant-docs`
+  still reports 4 docs accounted for — no drift introduced.
+
 ### Shipped 2026-05-17
 
 Eight feature PRs + ten stale-close reconciliations in a single
