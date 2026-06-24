@@ -176,6 +176,19 @@ substrate-property lint invariants.
   its own; an https:// drift check is a separate decision (likely
   ADR-0026 Phase 3 + Interlace receipts).
 
+- **Doc-links drift gate** (commit `fd1d905`) — forward-guard for the
+  PR-#94 class of bug where deleting a doc leaves dangling
+  `[foo](foo.md)` refs in sibling pages.
+  [`scripts/lint-doc-links.mjs`](scripts/lint-doc-links.mjs) walks
+  `docs/**/*.md` + the canonical top-level docs and asserts every
+  relative URL resolves to a real file. Strips fenced + inline code
+  blocks before scanning so doc snippets showing example URLs
+  (e.g. the ellipsis-bearing `adr/0028-…` example in
+  `docs/cross-repo-audit.md`) don't false-flag. Seven `node:test`
+  cases. Wired into `task lint:doc-links` + the `task lint` deps
+  array + `task test:lint-scripts`. 77 markdown files scanned on
+  current main; all clean.
+
 ### Shipped 2026-05-17
 
 Eight feature PRs + ten stale-close reconciliations in a single
