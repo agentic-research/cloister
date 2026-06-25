@@ -542,6 +542,40 @@ test("emitCompose: per-tenant container gets TENANT_SOCKET env matching the deri
     `tenant-app-alice block should declare TENANT_SOCKET:\n${aliceBlock}`);
 });
 
+test("emitCompose: per-tenant container mounts its own cloister-do-<bundle>-<tenant> volume", () => {
+  // Phase 3 piece 2: each per-tenant container gets a dedicated named
+  // volume mounted at the cluster's storage.doStoragePath, so each
+  // tenant's SQLite/Dolt state is isolated and operationally
+  // offboardable with `docker volume rm cloister-do-<bundle>-<tenant>`.
+  const yaml = emitCompose(perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+    { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP" },
+  ]));
+  // Each per-tenant block declares its own volume mount.
+  const aliceIdx = yaml.indexOf("tenant-app-alice:");
+  const bobIdx = yaml.indexOf("tenant-app-bob:");
+  const volumesIdx = yaml.indexOf("\nvolumes:");
+  const aliceBlock = yaml.slice(aliceIdx, bobIdx);
+  const bobBlock = yaml.slice(bobIdx, volumesIdx);
+  assert.ok(aliceBlock.includes("- cloister-do-tenant-app-alice:/data/do"),
+    `alice should mount its own DO volume:\n${aliceBlock}`);
+  assert.ok(bobBlock.includes("- cloister-do-tenant-app-bob:/data/do"),
+    `bob should mount its own DO volume:\n${bobBlock}`);
+  // Top-level volumes: block declares each per-tenant volume exactly once.
+  const volumesBlock = yaml.slice(volumesIdx);
+  assert.ok(volumesBlock.includes("cloister-do-tenant-app-alice:"));
+  assert.ok(volumesBlock.includes("cloister-do-tenant-app-bob:"));
+});
+
+test("emitCompose: non-perTenant bundle does NOT get a per-tenant DO volume (single emission unchanged)", () => {
+  // The single-emission fallback path (bundle is perTenant=false, OR
+  // the dispatch chain is empty) must NOT emit per-tenant volumes —
+  // those only appear when fanout actually runs.
+  const cluster = baseCluster();
+  const yaml = emitCompose(cluster);
+  assert.ok(!yaml.includes("cloister-do-"), `single-emission should not declare per-tenant volumes:\n${yaml}`);
+});
+
 test("emitCompose: per-tenant socket derivation handles base path with no extension", () => {
   // Edge: bundle ipcSocket has no .ext (rare but legal — a bare socket
   // name). Tenant tag should append with `.` separator rather than

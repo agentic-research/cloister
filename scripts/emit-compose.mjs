@@ -250,6 +250,12 @@ export function emitCompose(cluster) {
   lines.push(``);
   lines.push(`services:`);
 
+  // Per-tenant DO volume names collected during bundle emission
+  // (cedcf3 Phase 3 piece 2). The `volumes:` section at the end of
+  // the YAML must declare each one. Set keeps emission deterministic
+  // (insertion order) without duplicates.
+  const perTenantDoVolumes = new Set();
+
   for (const b of cluster.bundles) {
     if (!("external" in b.kind)) {
       // workerd-bundle kind is in-process; nothing to emit at the
@@ -263,10 +269,10 @@ export function emitCompose(cluster) {
     const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes);
     }
   }
 
@@ -277,6 +283,14 @@ export function emitCompose(cluster) {
   lines.push(`  cloister-do:`);
   lines.push(`    driver: local`);
   lines.push(`    # SQLite DO storage — survives container restarts; backup target`);
+  // Per-tenant DO volumes — one per (perTenant bundle, tenant) pair.
+  // Operator offboarding is mechanically atomic: `docker volume rm
+  // cloister-do-<bundle>-<tenant>`. Per cedcf3 Phase 3 piece 2.
+  for (const name of perTenantDoVolumes) {
+    lines.push(`  ${name}:`);
+    lines.push(`    driver: local`);
+    lines.push(`    # Per-tenant SQLite DO storage; isolated per (bundle, tenant). Backup/offboard target.`);
+  }
 
   return lines.join("\n") + "\n";
 }
@@ -284,36 +298,21 @@ export function emitCompose(cluster) {
 /**
  * Emit a single compose service block for one bundle instance. If
  * `tenant` is non-null, this is a perTenant fanout instance — the
- * service + container names get the `-<tenant.name>` suffix and the
- * environment gets TENANT_ID + TENANT_MODE + TENANT_MATCH_VALUE so
- * the in-container Worker can self-identify (the inbound dispatcher
- * already knows which tenant a request belongs to via SNI / path
- * prefix, but downstream code reading `env.TENANT_ID` needs this).
+ * service + container names get the `-<tenant.name>` suffix, the
+ * environment gets `TENANT_ID` + `TENANT_MODE` + `TENANT_MATCH_VALUE`
+ * + `TENANT_SOCKET` (Phase 3 piece 1), and the container mounts its
+ * own `cloister-do-<bundle>-<tenant>` volume (Phase 3 piece 2 — added
+ * to the `perTenantDoVolumes` Set so the top-level `volumes:` section
+ * declares it). The shared `cloister-uds:` volume is still mounted so
+ * the router can reach each tenant's per-tenant UDS path.
  *
- * What this does NOT do (intentional Phase 2 piece 2 scope):
+ * Source-side wires targeting this bundle get their env vars rewritten
+ * by `perTenantSocketForWire` when the binding maps to exactly one
+ * dispatch row (Phase 3 piece 3).
  *
- *   - Per-tenant ipcSocket fanout. All tenant instances share the
- *     bundle's declared `ipcSocket` path, which means the operator
- *     either uses a shared UDS on the cloister-uds volume (fine if
- *     the workers are happy with a shared bind point inside their
- *     own filesystem namespace), or runs each tenant in its own
- *     UDS-volume namespace (requires per-tenant compose project IDs
- *     or named volumes — operator decision; not auto-generated).
- *
- *   - Per-tenant DO storage volume. The cloister-router gets the
- *     `cloister-do:` volume; per-tenant bundles share that mount.
- *     Real per-tenant storage isolation lands when the perTenant
- *     bundle is also a hypervisor-tier DO host (not the shape today).
- *
- *   - Per-tenant wire env rewriting. The wire's binding env var
- *     points at the bundle's declared ipcSocket / httpPort — same
- *     value across tenant instances. A future iteration may derive
- *     per-tenant socket paths and emit per-tenant env entries on
- *     the source side of the wire.
- *
- * Per cloister-cedcf3 Phase 2 piece 2.
+ * Per cloister-cedcf3 Phase 2 piece 2 + Phase 3 pieces 1, 2, 3.
  */
-function emitBundleContainer(lines, b, cluster, colocation, tenant) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
@@ -361,6 +360,15 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant) {
   lines.push(`      - cloister-uds:/run/cloister-uds`);
   if (b.name === "cloister-router") {
     lines.push(`      - cloister-do:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
+  }
+  // Per-tenant DO volume — one named volume per (bundle, tenant) pair,
+  // mounted at the same in-container path the router uses for its
+  // cloister-do mount. Operator offboarding is `docker volume rm
+  // cloister-do-<bundle>-<tenant>`. Per cedcf3 Phase 3 piece 2.
+  if (tenant) {
+    const doVol = `cloister-do-${b.name}-${tenant.name}`;
+    perTenantDoVolumes?.add(doVol);
+    lines.push(`      - ${doVol}:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
   }
 
   const envVars = [];
