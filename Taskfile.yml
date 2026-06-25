@@ -150,6 +150,69 @@ tasks:
       - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
       - src/generated/cluster.zod.ts
 
+  cluster:go:
+    desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). NOT a verify gate yet; run manually after cluster.capnp schema edits. Requires `capnp` CLI + `gofmt`."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same atomic-move pattern as cluster:zod (the plugin can
+        # silently write nothing on stderr; existence-check first).
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.go" ]; then
+          echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        # Pipe through `gofmt -s` (simplify) for canonical formatting.
+        # The Rust emitter intentionally doesn't do column alignment;
+        # gofmt is the authoritative formatter for Go. Per
+        # cloister-76a9ea hand-off note.
+        gofmt -s "$TMPDIR/cluster.go" > pkg/cluster/cluster.go
+    sources:
+      - manifest/cluster.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+    generates:
+      - pkg/cluster/cluster.go
+
+  cluster:go:check-drift:
+    desc: "Drift check — regenerate pkg/cluster/cluster.go into a temp file (gofmt'd) and diff against the committed copy. Fails if schema-bridge's Go output diverges from what's checked in. Opt-in; not part of `task verify` yet. Requires `capnp` + `gofmt`."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.go" ]; then
+          echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/cluster.go" > "$TMPDIR/cluster.gofmt.go"
+        if ! diff -u pkg/cluster/cluster.go "$TMPDIR/cluster.gofmt.go"; then
+          echo "" >&2
+          echo "DRIFT — committed pkg/cluster/cluster.go differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cluster:go\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — pkg/cluster/cluster.go matches the schema-bridge Go codegen output"
+    sources:
+      - manifest/cluster.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - pkg/cluster/cluster.go
+
+  cluster:go:verify:
+    desc: "End-to-end Go round-trip — the cluster const (dumped from src/generated/cluster.ts) must unmarshal into the generated Go types and round-trip without loss. Parallel to cluster:zod:verify. Requires Go toolchain."
+    cmds:
+      - tools/schema-bridge/scripts/verify-go.sh
+    sources:
+      - src/generated/cluster.ts
+      - pkg/cluster/cluster.go
+      - pkg/cluster/cluster_roundtrip_test.go
+      - tools/schema-bridge/scripts/verify-go.sh
+
   cluster:emit:
     desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
     deps: [cluster:manifest]
