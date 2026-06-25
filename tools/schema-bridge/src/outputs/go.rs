@@ -95,9 +95,15 @@ fn emit_enum(out: &mut String, e: &Enum) {
 }
 
 fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
-    // If there's a union, emit the nested helper type first so the
-    // struct field referencing it reads top-down.
-    if let Some(u) = &s.union {
+    // Named-group unions get a helper type emitted first so the struct
+    // field referencing it reads top-down. Anonymous-inline unions
+    // inline their variants directly into the parent struct as
+    // omitempty pointer fields — no helper type needed.
+    let named_union = s
+        .union
+        .as_ref()
+        .filter(|u| u.discriminant_name.is_some());
+    if let Some(u) = named_union {
         emit_union_type(out, &s.name, u);
         writeln!(out).unwrap();
     }
@@ -114,16 +120,42 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
         .unwrap();
     }
     if let Some(u) = &s.union {
-        // The union is a nested object under its discriminant name,
-        // matching capnp's JSON convention (`"kind": {"variant":…}`).
-        writeln!(
-            out,
-            "\t{field_name} {union_ty} `json:\"{wire}\"`",
-            field_name = pascal_case(&u.discriminant_name),
-            union_ty = union_type_name(&s.name, &u.discriminant_name),
-            wire = u.discriminant_name
-        )
-        .unwrap();
+        match &u.discriminant_name {
+            Some(disc) => {
+                // Named-group union: nested helper type, JSON nests
+                // the variant under the discriminant key.
+                writeln!(
+                    out,
+                    "\t{field_name} {union_ty} `json:\"{wire}\"`",
+                    field_name = pascal_case(disc),
+                    union_ty = union_type_name(&s.name, disc),
+                    wire = disc
+                )
+                .unwrap();
+            }
+            None => {
+                // Anonymous-inline union: variants encode flat as
+                // siblings of base fields. Each variant emits as a
+                // `*T` field with `omitempty` so the marshaler emits
+                // only the populated branch. Void variants emit as
+                // `*struct{}` (same shape as the named case; precise
+                // JSON-null encoding is bead C's job).
+                for variant in &u.variants {
+                    let ty = match &variant.ty {
+                        FieldType::Scalar(ScalarType::Void) => "*struct{}".to_owned(),
+                        FieldType::StructRef(name) => format!("*{name}"),
+                        other => format!("*{}", render_go_type(other)),
+                    };
+                    writeln!(
+                        out,
+                        "\t{field_name} {ty} `json:\"{wire},omitempty\"`",
+                        field_name = pascal_case(&variant.name),
+                        wire = variant.name
+                    )
+                    .unwrap();
+                }
+            }
+        }
     }
     writeln!(out, "}}").unwrap();
     Ok(())
@@ -136,7 +168,14 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
 // default encoder produces `{}` for a non-nil empty struct, which
 // round-trips imperfectly until C lands; D will catch the divergence.
 fn emit_union_type(out: &mut String, struct_name: &str, u: &Union) {
-    let union_name = union_type_name(struct_name, &u.discriminant_name);
+    // emit_union_type is only invoked for named-group unions
+    // (anonymous-inline emit inlines variants into the parent struct
+    // directly), so discriminant_name is guaranteed Some here.
+    let disc = u
+        .discriminant_name
+        .as_deref()
+        .expect("emit_union_type called with anonymous-inline union");
+    let union_name = union_type_name(struct_name, disc);
     writeln!(out, "type {union_name} struct {{").unwrap();
     for variant in &u.variants {
         let ty = match &variant.ty {

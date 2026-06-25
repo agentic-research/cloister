@@ -387,40 +387,13 @@ fn enum_emits_zod_enum_and_string_union() {
     assert!(emitted.contains("tier: Tier;"), "emit:\n{emitted}");
 }
 
-// ── Regression-guard: anonymous inline union ──────────────────────
+// ── (was: anonymous_inline_union_fails_fast — removed cloister-77172d) ──
 //
-// `struct Foo { union { … } }` (no group wrapper). Real capnp form
-// but cloister's schemas always use the `name :union { … }` sugar,
-// so we don't emit for it yet. Kept as a fail-fast so a schema
-// change to this form lights up.
-
-#[test]
-fn anonymous_inline_union_fails_fast() {
-    let mut message = Builder::new_default();
-    {
-        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
-        let mut nodes = request.init_nodes(2);
-        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
-
-        let mut node = nodes.reborrow().get(1);
-        node.set_id(0xAAAA);
-        node.set_display_name("test.capnp:Variant");
-        node.set_display_name_prefix_length("test.capnp:".len() as u32);
-        let mut s = node.init_struct();
-        s.set_discriminant_count(2);
-    }
-
-    let err = parse(&message).expect_err("must reject anonymous inline union");
-    match err {
-        SchemaBridgeError::UnmappedConstruct { kind, .. } => {
-            assert!(
-                kind.starts_with("anonymous inline union"),
-                "got kind {kind:?}"
-            );
-        }
-        other => panic!("expected UnmappedConstruct, got {other:?}"),
-    }
-}
+// The fail-fast guard for `struct Foo { union { … } }` (no group
+// wrapper) was removed when schema-bridge gained native support for
+// the construct. The activated emit test below
+// (`anonymous_inline_union_emits_flat`) is the new authoritative
+// behavior assertion.
 
 // ── Regression-guard: non-union group field ────────────────────────
 //
@@ -803,12 +776,132 @@ fn flat_union_emit_under_json_flatten() {
 
 // Anonymous inline unions (`struct Foo { union { ... } }` with no
 // group wrapping) encode flat — variant name is a sibling key on the
-// parent struct, not nested under any group name. Same emit shape as
-// $Json.flatten conceptually; different parse path.
+// parent struct, not nested under any group name. Activated by
+// cloister-77172d.
 #[test]
-#[ignore = "schema-bridge does not yet emit for anonymous inline unions"]
 fn anonymous_inline_union_emits_flat() {
-    unimplemented!("activate once schema-bridge handles anonymous inline unions")
+    // Mirrors notme's `Proof` struct shape:
+    //   struct Proof {
+    //     union {
+    //       ghaOidc       @0 :GHAClaims;
+    //       passkey       @1 :Data;
+    //       bootstrapCode @2 :Text;
+    //     }
+    //   }
+    // Empty base fields — pure inline union.
+    let mut message = Builder::new_default();
+    let proof_id: u64 = 0xAAAA;
+    let claims_id: u64 = 0xCAFE;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        // Proof struct: discriminant on the parent (not a group).
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(proof_id);
+            node.set_display_name("test.capnp:Proof");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(3);
+            let mut fields = s.init_fields(3);
+            // ghaOidc @0 :GHAClaims
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("ghaOidc");
+                field.set_code_order(0);
+                field.set_discriminant_value(0);
+                let mut slot = field.init_slot();
+                slot.reborrow().init_type().init_struct().set_type_id(claims_id);
+            }
+            // passkey @1 :Data
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("passkey");
+                field.set_code_order(1);
+                field.set_discriminant_value(1);
+                field.init_slot().init_type().set_data(());
+            }
+            // bootstrapCode @2 :Text
+            {
+                let mut field = fields.reborrow().get(2);
+                field.set_name("bootstrapCode");
+                field.set_code_order(2);
+                field.set_discriminant_value(2);
+                field.init_slot().init_type().set_text(());
+            }
+        }
+        // GHAClaims — trivial empty struct (variants need a referent).
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(claims_id);
+            node.set_display_name("test.capnp:GHAClaims");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            s.init_fields(0);
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::zod::emit(&schema).expect("emit");
+
+    // Zod: `z.union([branch1, branch2, branch3])` where each branch
+    // is a `z.object({ <variant>: T }).strict()`. No outer nested-
+    // discriminator wrapper.
+    assert!(
+        emitted.contains("export const ProofSchema: z.ZodType<Proof> = z.lazy(() =>"),
+        "schema decl missing:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("z.union(["),
+        "missing z.union — emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("z.object({\n      ghaOidc: GHAClaimsSchema,\n    }).strict()"),
+        "ghaOidc branch missing or wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("z.object({\n      passkey: z.instanceof(Uint8Array),\n    }).strict()"),
+        "passkey branch missing or wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("z.object({\n      bootstrapCode: z.string(),\n    }).strict()"),
+        "bootstrapCode branch missing or wrong shape:\n{emitted}"
+    );
+
+    // TS type alias (not interface) — discriminated union over flat
+    // single-key objects.
+    assert!(
+        emitted.contains("export type Proof = { ghaOidc: GHAClaims } | { passkey: Uint8Array } | { bootstrapCode: string };"),
+        "TS flat-union shape missing:\n{emitted}"
+    );
+
+    // Go: variants inline as omitempty pointer fields on the parent
+    // (no helper type). Pivot to the Go emitter too.
+    let emitted_go = outputs::go::emit(&schema, "test").expect("go emit");
+    assert!(
+        emitted_go.contains("type Proof struct {"),
+        "Go struct missing:\n{emitted_go}"
+    );
+    assert!(
+        emitted_go.contains("GhaOidc *GHAClaims `json:\"ghaOidc,omitempty\"`"),
+        "Go ghaOidc field missing:\n{emitted_go}"
+    );
+    assert!(
+        emitted_go.contains("Passkey *[]byte `json:\"passkey,omitempty\"`"),
+        "Go passkey field missing:\n{emitted_go}"
+    );
+    assert!(
+        emitted_go.contains("BootstrapCode *string `json:\"bootstrapCode,omitempty\"`"),
+        "Go bootstrapCode field missing:\n{emitted_go}"
+    );
+    // No helper union type for the anonymous-inline form.
+    assert!(
+        !emitted_go.contains("ProofUnion"),
+        "Go must NOT emit a helper union type for anonymous-inline; got:\n{emitted_go}"
+    );
 }
 
 // Non-union groups (`field :group { x @0 :T; y @1 :U; }`) are field

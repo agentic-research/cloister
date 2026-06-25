@@ -87,8 +87,17 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
             emit_zod_object(out, "  ", fields, None);
             writeln!(out, ");").unwrap();
         }
-        // Struct with a union — the union is a NESTED object under
-        // its discriminant name, matching capnp's JSON convention
+        // Struct with an anonymous-inline union (`struct Foo {
+        // union { … } }`) — variants encode flat as siblings of base
+        // fields. The whole schema is `z.union([variant-objects])`
+        // where each variant-object carries base fields + exactly one
+        // variant field.
+        (fields, Some(u)) if u.discriminant_name.is_none() => {
+            emit_zod_flat_union(out, "  ", fields, u);
+            writeln!(out, ");").unwrap();
+        }
+        // Struct with a named-group union — variants nest under the
+        // discriminant name, matching capnp's JSON convention
         // (`"kind": { "external": {…} }` for struct variants,
         // `"transport": { "uds": null }` for Void variants). Base
         // fields are siblings of that nested object.
@@ -102,6 +111,35 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
     emit_ts_type(out, s);
 
     Ok(())
+}
+
+// Flat-union shape for anonymous-inline unions. JSON encoding has the
+// variant field as a sibling of base fields (no discriminator
+// wrapper), so the schema must accept any of N branches where each
+// branch is `{ ...baseFields, oneVariant: T }.strict()`. Per
+// cloister-77172d.
+fn emit_zod_flat_union(out: &mut String, indent: &str, base_fields: &[StructField], u: &Union) {
+    writeln!(out, "{indent}z.union([").unwrap();
+    for variant in &u.variants {
+        let inner_indent = format!("{indent}  ");
+        writeln!(out, "{inner_indent}z.object({{").unwrap();
+        for field in base_fields {
+            writeln!(
+                out,
+                "{inner_indent}  {}: {},",
+                field.name,
+                render_field(field)
+            )
+            .unwrap();
+        }
+        let variant_ty = match &variant.ty {
+            FieldType::Scalar(ScalarType::Void) => "z.null()".to_owned(),
+            other => render_zod_type(other),
+        };
+        writeln!(out, "{inner_indent}  {}: {},", variant.name, variant_ty).unwrap();
+        writeln!(out, "{inner_indent}}}).strict(),").unwrap();
+    }
+    write!(out, "{indent}])").unwrap();
 }
 
 // `.strict()` rejects unknown keys at parse time — without it, zod's
@@ -118,7 +156,14 @@ fn emit_zod_object(out: &mut String, indent: &str, fields: &[StructField], union
         writeln!(out, "{indent}  {}: {},", field.name, rendered).unwrap();
     }
     if let Some(u) = union {
-        write!(out, "{indent}  {disc}: ", disc = u.discriminant_name).unwrap();
+        // emit_zod_object is only invoked for the named-group form
+        // (the anonymous-inline form routes to emit_zod_flat_union),
+        // so discriminant_name is guaranteed Some here.
+        let disc = u
+            .discriminant_name
+            .as_deref()
+            .expect("emit_zod_object called with anonymous-inline union — should route to emit_zod_flat_union");
+        write!(out, "{indent}  {disc}: ").unwrap();
         emit_zod_union(out, &format!("{indent}  "), u);
         writeln!(out, ",").unwrap();
     }
@@ -156,15 +201,46 @@ fn emit_ts_type(out: &mut String, s: &Struct) {
             }
             writeln!(out, "}}").unwrap();
         }
+        // Anonymous-inline union: a TS type alias (not interface),
+        // since the runtime shape is a discriminated union over flat
+        // objects. Each branch carries the base fields + exactly one
+        // variant field.
+        (fields, Some(u)) if u.discriminant_name.is_none() => {
+            writeln!(out, "export type {} = {};", s.name, render_ts_flat_union(fields, u)).unwrap();
+        }
         (fields, Some(u)) => {
             writeln!(out, "export interface {} {{", s.name).unwrap();
             for field in fields {
                 writeln!(out, "  {}: {};", field.name, render_ts_type(&field.ty)).unwrap();
             }
-            writeln!(out, "  {}: {};", u.discriminant_name, render_ts_union(u)).unwrap();
+            let disc = u
+                .discriminant_name
+                .as_deref()
+                .expect("named-group union missing discriminant_name");
+            writeln!(out, "  {}: {};", disc, render_ts_union(u)).unwrap();
             writeln!(out, "}}").unwrap();
         }
     }
+}
+
+// Flat-union TS shape: a union of single-variant objects, each
+// inlining the base fields. Mirror of emit_zod_flat_union on the
+// runtime side.
+fn render_ts_flat_union(base_fields: &[StructField], u: &Union) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for variant in &u.variants {
+        let mut props: Vec<String> = base_fields
+            .iter()
+            .map(|f| format!("{}: {}", f.name, render_ts_type(&f.ty)))
+            .collect();
+        let inner = match &variant.ty {
+            FieldType::Scalar(ScalarType::Void) => "null".to_owned(),
+            other => render_ts_type(other),
+        };
+        props.push(format!("{}: {}", variant.name, inner));
+        parts.push(format!("{{ {} }}", props.join("; ")));
+    }
+    parts.join(" | ")
 }
 
 fn render_ts_union(u: &Union) -> String {

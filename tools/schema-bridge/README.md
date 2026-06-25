@@ -54,9 +54,10 @@ regardless.
 | enum refs                              | `EnumRef(name)`             | `{Name}Schema` (where `{Name}Schema = z.enum`) |
 | `List(T)`                              | `List(Box<FieldType>)`      | `z.array(T)` (recurses)                         |
 | top-level `enum`                       | `Enum { name, variants }`   | `z.enum([…])` + `type X = "a" \| "b"`           |
-| `name :union { … }` (group form)       | `Struct.union: Some(Union)` | `z.union([z.object({ <variant>: <T> }).strict(), …])` — one strict single-key object per variant |
-| Void union variants                    | `UnionVariant.ty = Void`    | `z.object({ <variant>: z.null() }).strict()` inside the union |
-| union-only structs (no base fields)    | empty `fields`, `Some(union)` | same `z.union([…])` shape (no intersect wrapper) |
+| `name :union { … }` (group form)       | `Union { discriminant_name: Some(_) }` | nested: `z.object({ disc: z.union([{<variant>: <T>}, …]) })` |
+| `struct Foo { union { … } }` (anonymous inline) | `Union { discriminant_name: None }` | flat: `z.union([z.object({…base, <variant>: <T>}).strict(), …])` |
+| Void union variants                    | `UnionVariant.ty = Void`    | `{<variant>: z.null()}` inside the union (both shapes) |
+| union-only structs (no base fields)    | empty `fields`, `Some(union)` | same union shape, no base-field props |
 
 Verified end-to-end (run `capnp compile -oschema-bridge:<dir>` against
 each):
@@ -66,17 +67,24 @@ each):
 - `manifest/cloister.capnp` → 246 lines clean zod TS (13 structs,
   `Backend.kind` 6-variant union, `Route.kind` 10-variant mostly-Void
   union)
+- `manifest/identity.capnp` → 359 lines clean zod TS + 186 lines Go
+  (vendored from notme; covers `Proof`'s anonymous-inline union — the
+  second-schema proof per ADR-0036 Phase 1 piece E / cloister-77172d)
 
 | Deliberately unmapped (errors today)| reason                                       |
 |-------------------------------------|----------------------------------------------|
 | `interface`                         | RPC types — out of scope for now             |
-| `const`, `annotation` (top-level)   | not used at the schema surfaces we care about |
 | `anyPointer`                        | typed-erasure escape hatch; unmapped         |
 | generics (`$Foo(T)`)                | needs IR generics representation             |
-| anonymous inline union              | unused in cloister; the `name :union {…}` sugar covers all current use|
 | non-union group (field namespacing) | unused in cloister                           |
 | group variant inside a union        | legal capnp, unused in cloister              |
-| any annotation on a node/field      | including `$Json.flatten`, `$Json.discriminator`, `$Json.name`, `$Json.base64`, `$Json.hex`, `$Json.notification` (ids from `capnp/compat/json.capnp`) — affect JSON encoding and so MUST be handled or fail loudly; cloister capnp files use no annotations today |
+| annotation USES on a node/field     | including `$Json.flatten`, `$Json.discriminator`, `$Json.name`, `$Json.base64`, `$Json.hex`, `$Json.notification` (ids from `capnp/compat/json.capnp`) — affect JSON encoding and so MUST be handled or fail loudly. File-level annotation uses (e.g. `$Go.package` on the file node) are tolerated; node/field-level uses still fail-fast. |
+
+Top-level annotation DECLARATIONS (e.g. an imported `go.capnp` defining
+`annotation package(file) :Text;`) are skipped — they're metadata
+describing what annotations EXIST, not data to render. USES of those
+annotations on individual nodes/fields still fail-fast per the table
+above.
 
 Adding any of these is a focused change: extend the IR variant, add
 the emit in `outputs/zod.rs`, add one golden test + leave one
@@ -104,10 +112,14 @@ Today's `#[ignore]`'d stubs (search for them in
 
 - `flat_union_emit_under_json_flatten` — emit when `$Json.flatten`
   is on a union field
-- `anonymous_inline_union_emits_flat` — emit for
-  `struct Foo { union { … } }`
 - `non_union_group_emits_nested_object` — emit for
   `field :group { x; y; }` (field namespacing without discriminator)
+
+Closed gaps (no longer #[ignore]'d):
+
+- `anonymous_inline_union_emits_flat` — `struct Foo { union { … } }`
+  emits flat per cloister-77172d (the second-schema generalization,
+  needed for notme's `Proof` struct in `identity.capnp`)
 
 Constructs without aspirational stubs (`interface`, generics,
 `anyPointer`) are deferred indefinitely — they're non-goals for the

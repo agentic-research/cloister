@@ -150,7 +150,13 @@ pub fn parse(request: schema_capnp::code_generator_request::Reader<'_>) -> Resul
                 )?);
             }
             schema_capnp::node::Which::Annotation(_) => {
-                return Err(SchemaBridgeError::unmapped("annotation", location));
+                // Top-level annotation DECLARATIONS (e.g. `annotation
+                // package(file) :Text;` from an imported go.capnp).
+                // These are metadata definitions — they declare what
+                // annotations EXIST, not data we render. Skip them
+                // outright; their uses on real nodes are gated
+                // separately by `check_annotations`. Per cloister-77172d.
+                continue;
             }
         }
     }
@@ -572,19 +578,15 @@ fn parse_struct<'a>(
 ) -> Result<Struct> {
     let name = short_name(node)?;
 
-    // Direct anonymous union on the parent struct (`struct Foo {
-    // union { … } }`) is a real capnp form but doesn't appear in
-    // cloister today. Keep the error so it's visible the day someone
-    // writes it.
-    if s.get_discriminant_count() > 0 {
-        return Err(SchemaBridgeError::unmapped(
-            "anonymous inline union (use `name :union { … }` instead)",
-            format!("{location} ({name})"),
-        ));
-    }
-
     let mut fields = Vec::new();
     let mut union: Option<Union> = None;
+    // Variants collected from fields that carry a non-sentinel
+    // discriminant_value — only populated for anonymous-inline unions
+    // (`struct Foo { union { … } }`, where the discriminator lives on
+    // the parent struct itself rather than a nested group). Per
+    // cloister-77172d.
+    let is_anonymous_inline = s.get_discriminant_count() > 0;
+    let mut inline_variants: Vec<UnionVariant> = Vec::new();
 
     for field in s.get_fields()?.iter() {
         let field_name = field.get_name()?.to_str()?.to_owned();
@@ -593,14 +595,32 @@ fn parse_struct<'a>(
 
         check_annotations(field.get_annotations()?, &field_location)?;
 
+        // For anonymous-inline unions, a `discriminant_value !=
+        // NO_DISCRIMINANT` marks the field as a variant of the
+        // parent's union (vs a base field, which has
+        // discriminant_value == NO_DISCRIMINANT). For named-group
+        // unions, the discriminant_value on the parent struct's
+        // group field is also NO_DISCRIMINANT (it's the group that
+        // carries the discriminant_count, not the parent), so this
+        // partitioning is only meaningful when is_anonymous_inline.
+        let is_inline_variant =
+            is_anonymous_inline && field.get_discriminant_value() != NO_DISCRIMINANT;
+
         match field.which()? {
             schema_capnp::field::Which::Slot(slot) => {
                 let ty = field_type(slot.get_type()?, struct_names, enum_names, &field_location)?;
-                fields.push(StructField {
-                    name: field_name,
-                    ordinal,
-                    ty,
-                });
+                if is_inline_variant {
+                    inline_variants.push(UnionVariant {
+                        name: field_name,
+                        ty,
+                    });
+                } else {
+                    fields.push(StructField {
+                        name: field_name,
+                        ordinal,
+                        ty,
+                    });
+                }
             }
             schema_capnp::field::Which::Group(g) => {
                 // A group field points at an anonymous struct node.
@@ -645,6 +665,23 @@ fn parse_struct<'a>(
                 )?);
             }
         }
+    }
+
+    // Assemble the anonymous-inline union from collected variants, if
+    // we saw a discriminant on the parent struct. Mutually exclusive
+    // with the named-group case (capnp permits one union per struct,
+    // and the two shapes set discriminant_count at different levels).
+    if is_anonymous_inline {
+        if union.is_some() {
+            return Err(SchemaBridgeError::SchemaShape(format!(
+                "struct {name} has both an anonymous-inline union and a \
+                 named-group union; capnp permits only one"
+            )));
+        }
+        union = Some(Union {
+            discriminant_name: None,
+            variants: inline_variants,
+        });
     }
 
     Ok(Struct {
@@ -707,7 +744,7 @@ fn parse_union<'a>(
     }
 
     Ok(Union {
-        discriminant_name: discriminant_name.to_owned(),
+        discriminant_name: Some(discriminant_name.to_owned()),
         variants,
     })
 }

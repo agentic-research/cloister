@@ -213,6 +213,105 @@ tasks:
       - pkg/cluster/cluster_roundtrip_test.go
       - tools/schema-bridge/scripts/verify-go.sh
 
+  # identity:* — second schema for schema-bridge generalization proof
+  # (ADR-0036 Phase 1 piece E, cloister-77172d). manifest/identity.capnp
+  # is a vendored copy of notme's source-of-truth schema; these tasks
+  # regen + drift-check the generated artifacts. -I./wire adds the
+  # vendored go.capnp to capnp's import path (identity.capnp imports
+  # it for $Go.* annotations).
+  identity:zod:
+    desc: "Regenerate src/generated/identity.zod.ts via schema-bridge. NOT a verify gate yet; run manually after manifest/identity.capnp updates."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/identity.zod.ts" src/generated/identity.zod.ts
+    sources:
+      - manifest/identity.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+    generates:
+      - src/generated/identity.zod.ts
+
+  identity:zod:check-drift:
+    desc: "Drift check for identity.zod.ts (parallel to cluster:zod:check-drift)."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/identity.zod.ts "$TMPDIR/identity.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/identity.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task identity:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — identity.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/identity.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+      - src/generated/identity.zod.ts
+
+  identity:go:
+    desc: "Regenerate pkg/identity/identity.go via schema-bridge (Go emitter). NOT a verify gate yet."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.go" ]; then
+          echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/identity.go" > pkg/identity/identity.go
+    sources:
+      - manifest/identity.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+    generates:
+      - pkg/identity/identity.go
+
+  identity:go:check-drift:
+    desc: "Drift check for pkg/identity/identity.go (parallel to cluster:go:check-drift)."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.go" ]; then
+          echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/identity.go" > "$TMPDIR/identity.gofmt.go"
+        if ! diff -u pkg/identity/identity.go "$TMPDIR/identity.gofmt.go"; then
+          echo "" >&2
+          echo "DRIFT — committed pkg/identity/identity.go differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task identity:go\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — pkg/identity/identity.go matches the schema-bridge Go codegen output"
+    sources:
+      - manifest/identity.capnp
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - pkg/identity/identity.go
+
   cluster:emit:
     desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
     deps: [cluster:manifest]

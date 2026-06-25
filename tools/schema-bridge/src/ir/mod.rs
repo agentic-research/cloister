@@ -70,12 +70,16 @@ pub struct Struct {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Union {
-    // The discriminant in capnp is positional, not named — `name
-    // :union { … }` is sugar for `name :group { union { … } }`. We
-    // surface the group's name as the discriminant key so the
-    // emitted zod/TS reads like `kind: "durableObject"` rather than
-    // a synthesised `_tag`.
-    pub discriminant_name: String,
+    // `Some(name)` for the named-union-group form (`kind :union { … }`,
+    // which capnp sugars to `kind :group { union { … } }`); the group's
+    // name surfaces as the discriminant key so the JSON encoding nests
+    // the variant under it (`"kind": {"durableObject": {…}}`).
+    //
+    // `None` for the anonymous-inline form (`struct Foo { union { … } }`);
+    // variants encode flat — as siblings of the parent struct's base
+    // fields, with the variant name as the key (`{"ghaOidc": {…}}`).
+    // Per cloister-77172d.
+    pub discriminant_name: Option<String>,
     pub variants: Vec<UnionVariant>,
 }
 
