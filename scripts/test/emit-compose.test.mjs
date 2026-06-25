@@ -484,18 +484,78 @@ test("emitCompose: perTenant=true with no dispatch chain → falls back to singl
   assert.ok(!yaml.includes("cloister.tenant="));
 });
 
-test("emitCompose: per-tenant containers preserve wire env vars on the source side", () => {
-  // The router (wire source) still has its T_APP env var pointing at
-  // the bundle's declared ipcSocket. The fact that tenant-app fans
-  // out doesn't rewrite the wire on the source side — that's a known
-  // Phase 2 piece 2 limitation; operators handle per-tenant socket
-  // plumbing.
+test("emitCompose: shared binding across tenants → router env keeps the bundle's declared socket (operator owns dispatch)", () => {
+  // Two tenant rows share `binding = "T_APP"`. Per-tenant socket
+  // derivation is ambiguous (one binding → which tenant?), so the
+  // router's T_APP env var falls through to the bundle's declared
+  // ipcSocket. The dispatch behavior at that single socket is the
+  // operator's responsibility (front-load-balancer, internal tenant
+  // routing inside the worker, etc.).
+  const yaml = emitCompose(perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
+    { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP" },
+  ]));
+  const routerIdx = yaml.indexOf("cloister-router:");
+  const firstTenantIdx = yaml.indexOf("\n  tenant-app-", routerIdx);
+  const routerBlock = yaml.slice(routerIdx, firstTenantIdx);
+  assert.ok(routerBlock.includes('"T_APP=/run/cloister-uds/tenant.sock"'),
+    `shared binding → router falls back to declared ipcSocket:\n${routerBlock}`);
+});
+
+// ── cedcf3 Phase 3: per-tenant socket fanout + wire env rewriting ────────
+
+test("emitCompose: per-tenant binding shape → router env rewritten with per-tenant socket", () => {
+  // Operator declares one wire + one dispatch row per tenant, using
+  // distinct bindings (T_APP_ALICE, T_APP_BOB). Each wire's binding
+  // matches exactly one dispatch row, so the source-side env emit
+  // derives a per-tenant socket: /run/cloister-uds/tenant.sock →
+  // /run/cloister-uds/tenant.alice.sock (and tenant.bob.sock).
+  const cluster = perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP_ALICE" },
+    { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP_BOB" },
+  ]);
+  cluster.wires = [
+    { from: "cloister-router", to: "tenant-app", binding: "T_APP_ALICE", transport: { uds: null } },
+    { from: "cloister-router", to: "tenant-app", binding: "T_APP_BOB",   transport: { uds: null } },
+  ];
+  const yaml = emitCompose(cluster);
+  const routerIdx = yaml.indexOf("cloister-router:");
+  const firstTenantIdx = yaml.indexOf("\n  tenant-app-", routerIdx);
+  const routerBlock = yaml.slice(routerIdx, firstTenantIdx);
+  assert.ok(routerBlock.includes('"T_APP_ALICE=/run/cloister-uds/tenant.alice.sock"'),
+    `T_APP_ALICE should resolve to alice's socket:\n${routerBlock}`);
+  assert.ok(routerBlock.includes('"T_APP_BOB=/run/cloister-uds/tenant.bob.sock"'),
+    `T_APP_BOB should resolve to bob's socket:\n${routerBlock}`);
+});
+
+test("emitCompose: per-tenant container gets TENANT_SOCKET env matching the derived path", () => {
+  // The per-tenant container needs to know where to bind its UDS
+  // server so the router can reach it at the same path through the
+  // shared cloister-uds volume.
   const yaml = emitCompose(perTenantCluster([
     { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" },
   ]));
-  const routerIdx = yaml.indexOf("cloister-router:");
-  const nextIdx = yaml.indexOf("\n  tenant-app-alice:", routerIdx);
-  const routerBlock = yaml.slice(routerIdx, nextIdx);
-  assert.ok(routerBlock.includes('"T_APP=/run/cloister-uds/tenant.sock"'),
-    `router block should keep T_APP wire env:\n${routerBlock}`);
+  const aliceIdx = yaml.indexOf("tenant-app-alice:");
+  const nextSvcIdx = yaml.indexOf("\nvolumes:", aliceIdx);
+  const aliceBlock = yaml.slice(aliceIdx, nextSvcIdx);
+  assert.ok(aliceBlock.includes('"TENANT_SOCKET=/run/cloister-uds/tenant.alice.sock"'),
+    `tenant-app-alice block should declare TENANT_SOCKET:\n${aliceBlock}`);
+});
+
+test("emitCompose: per-tenant socket derivation handles base path with no extension", () => {
+  // Edge: bundle ipcSocket has no .ext (rare but legal — a bare socket
+  // name). Tenant tag should append with `.` separator rather than
+  // injecting before a non-existent extension.
+  const cluster = perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP_ALICE" },
+  ]);
+  cluster.bundles.find((b) => b.name === "tenant-app").kind.external.ipcSocket = "/run/cloister-uds/bare";
+  cluster.wires = [
+    { from: "cloister-router", to: "tenant-app", binding: "T_APP_ALICE", transport: { uds: null } },
+  ];
+  const yaml = emitCompose(cluster);
+  assert.ok(yaml.includes('"T_APP_ALICE=/run/cloister-uds/bare.alice"'),
+    `bare base + tenant should append with .: ${yaml.slice(yaml.indexOf("cloister-router:"), yaml.indexOf("\n  tenant-app"))}`);
+  assert.ok(yaml.includes('"TENANT_SOCKET=/run/cloister-uds/bare.alice"'),
+    `TENANT_SOCKET should match`);
 });

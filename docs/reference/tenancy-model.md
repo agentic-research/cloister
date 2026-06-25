@@ -228,7 +228,10 @@ handles the rest.
 | 1 | `perTenant: Bool` field on BundleSpec | ✓ shipped |
 | 2 piece 1 | Inv 8 (perTenant requires tenantDispatch route) | ✓ shipped |
 | 2 piece 3 | Inv 9 (binding-correlation: wire reaches perTenant bundle) | ✓ shipped |
-| 2 piece 2 | emit-compose per-tenant container emission | ✓ first-cut shipped 2026-06-24 — service name + container name + per-tenant labels + `TENANT_ID`/`TENANT_MODE`/`TENANT_MATCH_VALUE` env. Per-tenant ipcSocket fanout + per-tenant wire env rewriting NOT shipped (operator handles socket plumbing today). |
+| 2 piece 2 | emit-compose per-tenant container emission | ✓ first-cut shipped 2026-06-24 — service name + container name + per-tenant labels + `TENANT_ID`/`TENANT_MODE`/`TENANT_MATCH_VALUE` env. |
+| 3 piece 1 | per-tenant ipcSocket fanout (container `TENANT_SOCKET` env) | ✓ shipped 2026-06-24 — `perTenantSocketPath()` inserts `.<tenant>` before the socket's extension; each per-tenant container declares `TENANT_SOCKET` so the in-container Worker binds at the matching path on the shared `cloister-uds:` volume. |
+| 3 piece 3 | per-tenant wire env rewriting (router side) | ✓ shipped 2026-06-24 — when a wire targets a perTenant bundle AND its binding maps to exactly one dispatch row, the router's env var for that wire resolves to the per-tenant derived socket. Ambiguous (shared) bindings fall back to the bundle's declared `ipcSocket` (operator owns dispatch). |
+| 3 piece 2 | per-tenant DO storage volume | Deferred — only the router holds the `cloister-do` volume today; per-tenant DO storage would require splitting that mount per tenant, which is a separate operator-facing decision. |
 
 ### Inv 9 binding-correlation chain
 

@@ -155,6 +155,68 @@ function perTenantInstancesFor(bundleName, cluster) {
   return rows;
 }
 
+/**
+ * Derive a per-tenant ipcSocket path from a base socket + tenant name
+ * by inserting `.<tenant>` before the extension:
+ *
+ *   /run/cloister-uds/tenant.sock + "alice"
+ *     → /run/cloister-uds/tenant.alice.sock
+ *
+ * The shared `cloister-uds:` named volume is mounted into every
+ * container, so per-tenant sockets coexist on the same volume without
+ * filesystem-namespace collisions, and the router can reach each
+ * tenant's bind point through the same path the per-tenant container
+ * publishes. Bind point is the in-container path; the router sees the
+ * SAME path because the volume is shared.
+ *
+ * If the base socket has no extension, the tenant tag is appended
+ * with a `.` separator. Empty base returns the tag with a `.sock`
+ * extension as a safe default.
+ *
+ * Per cloister-cedcf3 Phase 3.
+ */
+function perTenantSocketPath(baseSocket, tenantName) {
+  if (!baseSocket) return `.${tenantName}.sock`;
+  const lastSlash = baseSocket.lastIndexOf("/");
+  const dir = lastSlash >= 0 ? baseSocket.slice(0, lastSlash + 1) : "";
+  const file = lastSlash >= 0 ? baseSocket.slice(lastSlash + 1) : baseSocket;
+  const lastDot = file.lastIndexOf(".");
+  if (lastDot <= 0) return `${dir}${file}.${tenantName}`;
+  const stem = file.slice(0, lastDot);
+  const ext = file.slice(lastDot);
+  return `${dir}${stem}.${tenantName}${ext}`;
+}
+
+/**
+ * Resolve the per-tenant socket path the SOURCE side of a wire should
+ * use to reach its perTenant target. Walks dispatch routes to find the
+ * unique tenant row whose binding matches this wire's binding; if
+ * exactly one row matches, returns the derived per-tenant socket. If
+ * zero or multiple rows match, returns null and the caller falls back
+ * to the bundle's declared ipcSocket (the operator opted into a shared
+ * binding shape — the dispatch path is their responsibility).
+ *
+ * Per cloister-cedcf3 Phase 3.
+ */
+function perTenantSocketForWire(wire, cluster, targetBundle) {
+  if (targetBundle?.perTenant !== true) return null;
+  if (!("external" in targetBundle.kind)) return null;
+  const baseSocket = targetBundle.kind.external.ipcSocket;
+  if (!baseSocket) return null;
+  let matched = null;
+  for (const route of cluster.routes ?? []) {
+    if (!("tenantDispatch" in route.kind)) continue;
+    for (const row of route.kind.tenantDispatch.tenants) {
+      if (row.binding === wire.binding) {
+        if (matched) return null; // ambiguous (shared binding); operator owns dispatch
+        matched = row;
+      }
+    }
+  }
+  if (!matched) return null;
+  return perTenantSocketPath(baseSocket, matched.name);
+}
+
 // ── Compose YAML emitter ─────────────────────────────────────────────────
 
 /**
@@ -306,7 +368,15 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant) {
     if (w.from !== b.name) continue;
     const target = cluster.bundles.find((x) => x.name === w.to);
     if (target && "external" in target.kind && target.kind.external.ipcSocket) {
-      envVars.push(`${w.binding}=${target.kind.external.ipcSocket}`);
+      // Per-tenant socket derivation (cedcf3 Phase 3): if the target
+      // bundle is perTenant=true AND this wire's binding maps to
+      // exactly one dispatch row, derive the per-tenant socket path so
+      // the router reaches the right tenant's bind point. Ambiguous
+      // bindings (shared across rows) fall through to the bundle's
+      // declared ipcSocket — that's the operator's shared-dispatch
+      // shape, not ours to second-guess.
+      const perTenantSocket = perTenantSocketForWire(w, cluster, target);
+      envVars.push(`${w.binding}=${perTenantSocket ?? target.kind.external.ipcSocket}`);
     } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
       if (w.to === "mache") {
         envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
@@ -319,6 +389,14 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant) {
     envVars.push(`TENANT_ID=${tenant.name}`);
     envVars.push(`TENANT_MODE=${tenant.mode}`);
     envVars.push(`TENANT_MATCH_VALUE=${tenant.matchValue}`);
+    // TENANT_SOCKET tells this per-tenant container where to bind its
+    // UDS so it's reachable from the router via the shared cloister-uds
+    // volume at the matching path (perTenantSocketForWire on the source
+    // side derives the same path from the wire binding). Per cedcf3
+    // Phase 3.
+    if (b.kind.external.ipcSocket) {
+      envVars.push(`TENANT_SOCKET=${perTenantSocketPath(b.kind.external.ipcSocket, tenant.name)}`);
+    }
   }
   for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);
   if (envVars.length > 0) {
