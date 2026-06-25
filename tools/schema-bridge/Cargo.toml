@@ -6,8 +6,14 @@ description = "Capnp + JSON-extension schemas → zod / TS / JSON Schema. Fail-f
 license = "AGPL-3.0-or-later"
 publish = false
 
+# One plugin binary per output format: capnp's PATH-search resolves
+# `-o<plugin>` to `capnpc-<plugin>`, so dispatch lives in the BINARY
+# NAME rather than an env var. main.rs reads argv[0] basename, strips
+# the `capnpc-schema-bridge-` prefix, parses the remainder as
+# OutputFormat. Bead cloister-75f6d5 adds the `capnpc-schema-bridge-go`
+# entry alongside. All bins compile from the same main.rs.
 [[bin]]
-name = "capnpc-schema-bridge"
+name = "capnpc-schema-bridge-zod"
 path = "src/main.rs"
 
 [lib]

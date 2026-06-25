@@ -1,11 +1,14 @@
-// capnpc-schema-bridge — capnp compiler plugin.
+// capnpc-schema-bridge-<format> — capnp compiler plugin family.
 //
-// Invoked by `capnp compile -oschema-bridge:<dir> <schema.capnp>`.
-// The output format is selected via the `SCHEMA_BRIDGE_FORMAT` env
-// var (default `zod`). capnp's `-oPLUGIN:DIR` syntax reserves the
-// colon-suffix for a real directory that capnp validates + chdirs
-// into, so format selection lives out-of-band — per
-// cloister-7585bc / ADR-0036 Phase 1 piece A.
+// One binary per output format, dispatched by argv[0] basename — same
+// shape as `capnpc-rust` / `capnpc-go` / `capnpc-c++`. capnp's PATH
+// search resolves `-o<plugin>` to `capnpc-<plugin>`, so invoking
+// `capnp compile -oschema-bridge-zod:<dir> <schema.capnp>` picks the
+// zod emitter via the binary's name. The colon-suffix is reserved by
+// capnp for a real directory (validated + chdir'd) so format
+// selection MUST live out of band; the binary name is the canonical
+// out-of-band channel for capnp plugins. Per cloister-7585bc /
+// ADR-0036 Phase 1 piece A.
 //
 // Reads a `CodeGeneratorRequest` from stdin, lowers to IR via
 // inputs::capnp, dispatches to the format's emitter, writes one file
@@ -93,19 +96,21 @@ fn derive_out_name(
 
 // Capnp passes the plugin's `-o<plugin>:<dir>` directory as argv[1]
 // (after validating it as a real directory + chdir-ing into it).
-// Format selection rides on `SCHEMA_BRIDGE_FORMAT` because capnp owns
-// the `:<dir>` slot — there's no spare argv slot for an in-band
-// selector. Default: Zod, so pre-multiplexer callers (Taskfile.yml
-// `cluster:zod`) keep working untouched. Bogus values fail loud
-// (UnknownOutputFormat) per the crate's "every gap is loud" invariant.
-// Fall back to CWD when no arg is given (manual debugging).
-const FORMAT_ENV: &str = "SCHEMA_BRIDGE_FORMAT";
-
+// Format selection comes from argv[0] basename via
+// `OutputFormat::from_binary_name` — the binary's name IS the typed
+// format identifier. Per-format Cargo `[[bin]]` entries declare the
+// dispatch table; mismatched basenames fail loud
+// (UnknownOutputFormat) per the crate's "every gap is loud"
+// invariant. Fall back to CWD when no dir arg is given (manual
+// debugging).
 fn parse_plugin_arg() -> Result<(OutputFormat, PathBuf), SchemaBridgeError> {
-    let format = match std::env::var(FORMAT_ENV) {
-        Ok(name) => OutputFormat::parse(&name)?,
-        Err(_) => OutputFormat::Zod,
-    };
+    let argv0 = std::env::args().next().unwrap_or_default();
+    let basename = std::path::Path::new(&argv0)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&argv0)
+        .to_owned();
+    let format = OutputFormat::from_binary_name(&basename)?;
     let dir = std::env::args()
         .nth(1)
         .map(PathBuf::from)

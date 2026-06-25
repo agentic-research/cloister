@@ -118,12 +118,18 @@ zod-validation surface today, not just "not yet."
 ```sh
 # As a capnp plugin (the supported invocation):
 capnp compile \
-  -o./target/release/capnpc-schema-bridge:./gen \
+  -o./target/release/capnpc-schema-bridge-zod:./gen \
   manifest/cli-config.capnp
 ```
 
+One binary per output format, dispatched by argv[0] basename — same
+shape as `capnpc-rust` / `capnpc-go` / `capnpc-c++`. Today only
+`capnpc-schema-bridge-zod`; bead cloister-75f6d5 adds
+`capnpc-schema-bridge-go` alongside (Cargo declares both `[[bin]]`
+entries; both compile from the same `src/main.rs`).
+
 `capnp compile` invokes the binary with the parsed `CodeGeneratorRequest`
-on stdin. The binary writes `<output-dir>/<schema-basename>.zod.ts`
+on stdin. The binary writes `<output-dir>/<schema-basename>.<format-suffix>`
 (e.g. `cluster.zod.ts` from `manifest/cluster.capnp`) — zod schemas
 plus TS interface declarations in one file. One emit per invocation
 today; per-file splitting is on the follow-on list.

@@ -80,7 +80,7 @@ tasks:
       - Cargo.toml
       - Cargo.lock
     generates:
-      - target/release/capnpc-schema-bridge
+      - target/release/capnpc-schema-bridge-zod
 
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
@@ -98,7 +98,7 @@ tasks:
         # :check-drift below.
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -106,7 +106,7 @@ tasks:
         mv "$TMPDIR/cluster.zod.ts" src/generated/cluster.zod.ts
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
     generates:
       - src/generated/cluster.zod.ts
 
@@ -132,7 +132,7 @@ tasks:
         # Check that the output file actually landed before diffing,
         # otherwise `diff` would fail on a missing file with a
         # misleading "DRIFT" framing.
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -147,7 +147,7 @@ tasks:
         echo "OK — cluster.zod.ts matches the schema-bridge codegen output"
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge
+      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
       - src/generated/cluster.zod.ts
 
   cluster:emit:

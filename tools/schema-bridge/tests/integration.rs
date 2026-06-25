@@ -1090,6 +1090,51 @@ fn output_format_file_suffix_zod_is_zod_ts() {
 }
 
 #[test]
+fn output_format_from_binary_name_zod() {
+    // Canonical happy path — Cargo `[[bin]]` ships
+    // `capnpc-schema-bridge-zod`; main.rs reads argv[0] basename and
+    // delegates here.
+    let fmt = OutputFormat::from_binary_name("capnpc-schema-bridge-zod")
+        .expect("parse capnpc-schema-bridge-zod");
+    assert_eq!(fmt, OutputFormat::Zod);
+}
+
+#[test]
+fn output_format_from_binary_name_rejects_unprefixed() {
+    // Legacy `capnpc-schema-bridge` (no `-<format>` suffix) was the
+    // pre-multiplexer name. Clean break — bare name now errors loudly
+    // so any consumer with a stale invocation lights up rather than
+    // silently routing to Zod.
+    let err = OutputFormat::from_binary_name("capnpc-schema-bridge")
+        .expect_err("must reject legacy unprefixed name");
+    match err {
+        SchemaBridgeError::UnknownOutputFormat { name, known } => {
+            assert_eq!(name, "capnpc-schema-bridge");
+            assert!(
+                known.contains("capnpc-schema-bridge-"),
+                "hint must surface required prefix: {known}"
+            );
+        }
+        other => panic!("expected UnknownOutputFormat, got {other:?}"),
+    }
+}
+
+#[test]
+fn output_format_from_binary_name_rejects_unknown_suffix() {
+    // `-bogus` parses past the prefix strip but fails on format match
+    // — different error path from the unprefixed case above; both
+    // must surface clearly.
+    let err = OutputFormat::from_binary_name("capnpc-schema-bridge-bogus")
+        .expect_err("must reject unknown format suffix");
+    match err {
+        SchemaBridgeError::UnknownOutputFormat { name, .. } => {
+            assert_eq!(name, "bogus");
+        }
+        other => panic!("expected UnknownOutputFormat, got {other:?}"),
+    }
+}
+
+#[test]
 fn emit_dispatches_zod_equivalently_to_outputs_zod() {
     // Sanity: the multiplexer's emit(&schema, Zod) must produce the
     // same source as the direct call. Any divergence means the

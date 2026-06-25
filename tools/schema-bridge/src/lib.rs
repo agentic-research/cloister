@@ -29,6 +29,12 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
+    // Per-format binary name prefix. argv[0] basenames look like
+    // `capnpc-schema-bridge-<format>`; `from_binary_name` strips this
+    // prefix before delegating to `parse`. Cargo `[[bin]]` entries
+    // declare one binary per format under this prefix.
+    pub const BIN_PREFIX: &'static str = "capnpc-schema-bridge-";
+
     // List of known format names, for both `parse` matching and the
     // error message body. Single source of truth so adding a variant
     // doesn't drift the parser away from the error hint.
@@ -48,6 +54,30 @@ impl OutputFormat {
                 .collect::<Vec<_>>()
                 .join(", "),
         })
+    }
+
+    // Resolve format from the plugin binary's argv[0] basename, e.g.
+    // `capnpc-schema-bridge-zod` → `Zod`. Errors loudly if the basename
+    // doesn't carry the `capnpc-schema-bridge-` prefix or names an
+    // unknown format. Used by main.rs so the OS process is the
+    // authoritative source of format selection (mirrors how
+    // `capnpc-rust` / `capnpc-go` / `capnpc-c++` self-identify).
+    pub fn from_binary_name(basename: &str) -> Result<Self> {
+        let suffix = basename.strip_prefix(Self::BIN_PREFIX).ok_or_else(|| {
+            SchemaBridgeError::UnknownOutputFormat {
+                name: basename.to_owned(),
+                known: format!(
+                    "binary name must start with `{}` (got `{basename}`); known suffixes: {}",
+                    Self::BIN_PREFIX,
+                    Self::KNOWN
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            }
+        })?;
+        Self::parse(suffix)
     }
 
     // Filename suffix written after the schema basename, e.g.
