@@ -302,10 +302,12 @@ test("regression: cluster with no inputs at all emits a valid compose body", () 
 // ── cedcf3 Phase 2 prep: perTenant=true emits a label for operator visibility ──
 
 test("emitCompose: bundle with perTenant=true emits cloister.per-tenant=true label", () => {
-  // Phase 2 piece 2 (per-tenant container splitting) is deferred, but the
-  // label gives operators `docker inspect` visibility into which bundles
-  // are flagged tenant-scoped. Lint Inv 8 + Inv 9 already guarantee a
-  // matching tenantDispatch route + binding chain when this appears.
+  // The label gives operators `docker inspect` visibility into which
+  // bundles are flagged tenant-scoped — appears on both the single-
+  // container fallback case (this test) and the fanned-out per-tenant
+  // case (the perTenantCluster suite below). Lint Inv 8 + Inv 9
+  // guarantee a matching tenantDispatch route + binding chain when
+  // this label appears.
   const cluster = baseCluster({
     bundles: [
       ...baseCluster().bundles,

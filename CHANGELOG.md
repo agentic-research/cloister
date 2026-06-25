@@ -128,9 +128,11 @@ substrate-property lint invariants.
   counterparts in `src/generated/cluster.zod.ts`. `task lint`'s tsc
   pass fails fast on field-level divergence. `Normalize<T>` recurses
   `ReadonlyArray<X>` → `X[]` and strips property-level readonly so
-  the gate ignores readonly-vs-mutable drift (schema-bridge doesn't
-  yet emit `readonly` — followup `cloister-818f2b`). Zero runtime
-  cost; consolidation deferred until 818f2b lands.
+  the gate ignores readonly-vs-mutable drift (818f2b half 1 has
+  since landed schema-bridge readonly emit, commit `eac436e`;
+  `Normalize<T>` stays as defense-in-depth). Full consolidation
+  (delete `cluster-types.ts`) deferred until 818f2b half 2 (JSDoc
+  carry-through) lands.
 
 - **Stale tenant-doc cleanup** (`cloister-cedcf3` doc-hygiene sweep) —
   `docs/tenants/ley-line-mcp.md` deleted (orphaned: documented a

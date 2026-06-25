@@ -291,4 +291,4 @@ emit-compose.
 - [`docs/reference/bundle-topology.md`](bundle-topology.md) — the bundle classification this composes with
 - [`recipes/multi-tenant-smoke/`](../../recipes/multi-tenant-smoke/) — minimal multi-tenant recipe demonstrating `tenantDispatch`
 - `scripts/lint-bundle-isolation.mjs` — the lint enforcing Inv 1-7
-- Tracking beads: `cloister-ce936e` (this doc + Inv 7) — closed, `cloister-cedcf3` (perTenant Phase 1 + Inv 8 + Inv 9 shipped; Phase 2 piece 2 deferred), `cloister-cbfd7f` (ADR-0034 tracker) — closed
+- Tracking beads: `cloister-ce936e` (this doc + Inv 7) — closed, `cloister-cedcf3` (perTenant Phase 1 + Inv 8 + Inv 9 + Phase 2 piece 2 first-cut all shipped; per-tenant socket / DO-volume / wire-env-rewrite are Phase 3 follow-ups), `cloister-cbfd7f` (ADR-0034 tracker) — closed
