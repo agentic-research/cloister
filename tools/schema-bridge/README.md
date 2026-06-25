@@ -121,6 +121,38 @@ Closed gaps (no longer #[ignore]'d):
   emits flat per cloister-77172d (the second-schema generalization,
   needed for notme's `Proof` struct in `identity.capnp`)
 
+## Go output — canonical Marshal/Unmarshal for Void union variants
+
+The Go emitter (v2, cloister-765d83) emits custom `MarshalJSON` +
+`UnmarshalJSON` methods on union helper types that contain at least
+one Void variant. Without these, `*struct{}{}` round-trips through
+Go's default JSON encoder as `{}`, but capnp's canonical JSON
+convention uses `null` for the void payload — and unmarshaling
+`{"variant":null}` with default decoding clears the pointer
+silently, losing the variant selection.
+
+The generated marshalers fix both directions:
+
+- **Marshal**: each variant with a non-nil pointer emits its key
+  with a `null` value for Void variants or the payload's `json.Marshal`
+  output for struct/scalar variants.
+- **Unmarshal**: KEY PRESENCE (not value) selects the Void variant.
+  Payload variants unmarshal normally.
+
+Payload-only unions (no Void variants) skip the custom marshalers —
+Go's default encoder handles them correctly, and adding noise to
+generated code without value is the wrong tradeoff.
+
+**Not yet emitted**: canonical CBOR. Cross-language canonical CBOR
+in the ART substrate today (signet's `BundleCanonical`) uses
+integer-keyed maps per the capnp ordinals, but the field-inclusion
+rules are protocol-specific (signet excludes the signature field
+from its signing input; other consumers would have different
+exclusions). Schema-bridge stays out of that decision; consumers
+that need canonical CBOR hand-roll the integer-key map from the
+generated types, using fxamacker/cbor's CanonicalEncOptions for
+deterministic byte output.
+
 Constructs without aspirational stubs (`interface`, generics,
 `anyPointer`) are deferred indefinitely — they're non-goals for the
 zod-validation surface today, not just "not yet."

@@ -7,6 +7,8 @@
 
 package cluster
 
+import "encoding/json"
+
 type Tier string
 
 const (
@@ -38,6 +40,30 @@ type Bundle struct {
 type WireTransportUnion struct {
 	Uds        *struct{} `json:"uds,omitempty"`
 	LeylineNet *struct{} `json:"leylineNet,omitempty"`
+}
+
+func (u WireTransportUnion) MarshalJSON() ([]byte, error) {
+	if u.Uds != nil {
+		return []byte(`{"uds":null}`), nil
+	}
+	if u.LeylineNet != nil {
+		return []byte(`{"leylineNet":null}`), nil
+	}
+	return []byte(`{}`), nil
+}
+
+func (u *WireTransportUnion) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["uds"]; ok {
+		u.Uds = &struct{}{}
+	}
+	if _, ok := raw["leylineNet"]; ok {
+		u.LeylineNet = &struct{}{}
+	}
+	return nil
 }
 
 type Wire struct {
@@ -77,6 +103,105 @@ type RouteKindUnion struct {
 	CaBundle                *struct{}                `json:"caBundle,omitempty"`
 	VaultProxy              *VaultProxySpec          `json:"vaultProxy,omitempty"`
 	TenantDispatch          *TenantDispatchSpec      `json:"tenantDispatch,omitempty"`
+}
+
+func (u RouteKindUnion) MarshalJSON() ([]byte, error) {
+	if u.Health != nil {
+		return []byte(`{"health":null}`), nil
+	}
+	if u.Mcp != nil {
+		return json.Marshal(map[string]any{"mcp": u.Mcp})
+	}
+	if u.ServiceBindingProxy != nil {
+		return json.Marshal(map[string]any{"serviceBindingProxy": u.ServiceBindingProxy})
+	}
+	if u.HttpProxy != nil {
+		return json.Marshal(map[string]any{"httpProxy": u.HttpProxy})
+	}
+	if u.WellKnownInterlace != nil {
+		return []byte(`{"wellKnownInterlace":null}`), nil
+	}
+	if u.Disclosure != nil {
+		return []byte(`{"disclosure":null}`), nil
+	}
+	if u.WellKnownIdentityBridge != nil {
+		return []byte(`{"wellKnownIdentityBridge":null}`), nil
+	}
+	if u.OciRegistry != nil {
+		return []byte(`{"ociRegistry":null}`), nil
+	}
+	if u.WellKnownMcpRegistry != nil {
+		return []byte(`{"wellKnownMcpRegistry":null}`), nil
+	}
+	if u.CaBundle != nil {
+		return []byte(`{"caBundle":null}`), nil
+	}
+	if u.VaultProxy != nil {
+		return json.Marshal(map[string]any{"vaultProxy": u.VaultProxy})
+	}
+	if u.TenantDispatch != nil {
+		return json.Marshal(map[string]any{"tenantDispatch": u.TenantDispatch})
+	}
+	return []byte(`{}`), nil
+}
+
+func (u *RouteKindUnion) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["health"]; ok {
+		u.Health = &struct{}{}
+	}
+	if msg, ok := raw["mcp"]; ok {
+		u.Mcp = &McpRouteSpec{}
+		if err := json.Unmarshal(msg, u.Mcp); err != nil {
+			return err
+		}
+	}
+	if msg, ok := raw["serviceBindingProxy"]; ok {
+		u.ServiceBindingProxy = &ServiceBindingProxySpec{}
+		if err := json.Unmarshal(msg, u.ServiceBindingProxy); err != nil {
+			return err
+		}
+	}
+	if msg, ok := raw["httpProxy"]; ok {
+		u.HttpProxy = &HttpProxySpec{}
+		if err := json.Unmarshal(msg, u.HttpProxy); err != nil {
+			return err
+		}
+	}
+	if _, ok := raw["wellKnownInterlace"]; ok {
+		u.WellKnownInterlace = &struct{}{}
+	}
+	if _, ok := raw["disclosure"]; ok {
+		u.Disclosure = &struct{}{}
+	}
+	if _, ok := raw["wellKnownIdentityBridge"]; ok {
+		u.WellKnownIdentityBridge = &struct{}{}
+	}
+	if _, ok := raw["ociRegistry"]; ok {
+		u.OciRegistry = &struct{}{}
+	}
+	if _, ok := raw["wellKnownMcpRegistry"]; ok {
+		u.WellKnownMcpRegistry = &struct{}{}
+	}
+	if _, ok := raw["caBundle"]; ok {
+		u.CaBundle = &struct{}{}
+	}
+	if msg, ok := raw["vaultProxy"]; ok {
+		u.VaultProxy = &VaultProxySpec{}
+		if err := json.Unmarshal(msg, u.VaultProxy); err != nil {
+			return err
+		}
+	}
+	if msg, ok := raw["tenantDispatch"]; ok {
+		u.TenantDispatch = &TenantDispatchSpec{}
+		if err := json.Unmarshal(msg, u.TenantDispatch); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Route struct {

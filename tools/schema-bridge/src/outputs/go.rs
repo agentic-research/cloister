@@ -46,6 +46,15 @@ pub fn emit(schema: &Schema, package_name: &str) -> Result<String> {
     writeln!(out, "package {package_name}").unwrap();
     writeln!(out).unwrap();
 
+    // Custom MarshalJSON/UnmarshalJSON for void-variant unions need
+    // the encoding/json package. Other emitters never call it
+    // explicitly (the default Go JSON encoder is invoked at use site,
+    // not from the generated file).
+    if schema_needs_json_import(schema) {
+        writeln!(out, r#"import "encoding/json""#).unwrap();
+        writeln!(out).unwrap();
+    }
+
     // Enums first: pure value types, no forward references.
     for e in &schema.enums {
         emit_enum(&mut out, e);
@@ -68,6 +77,22 @@ pub fn emit(schema: &Schema, package_name: &str) -> Result<String> {
     }
 
     Ok(out)
+}
+
+// True iff any struct in the schema has a union with at least one
+// Void variant — those structs need custom Marshal/UnmarshalJSON
+// methods to encode Void as `null` instead of `{}`. Per cloister-765d83.
+fn schema_needs_json_import(schema: &Schema) -> bool {
+    schema
+        .structs
+        .iter()
+        .any(|s| s.union.as_ref().is_some_and(union_has_void_variant))
+}
+
+fn union_has_void_variant(u: &Union) -> bool {
+    u.variants
+        .iter()
+        .any(|v| matches!(v.ty, FieldType::Scalar(ScalarType::Void)))
 }
 
 fn emit_enum(out: &mut String, e: &Enum) {
@@ -106,6 +131,20 @@ fn emit_struct(out: &mut String, s: &Struct) -> Result<()> {
     if let Some(u) = named_union {
         emit_union_type(out, &s.name, u);
         writeln!(out).unwrap();
+        // Custom marshalers when at least one variant is Void.
+        // Default Go json encoding of `*struct{}` (non-nil) is `{}`,
+        // but capnp's JSON convention is `null` for the void payload.
+        // Custom (Un)MarshalJSON closes that gap so Go ↔ JSON ↔ Go
+        // round-trips don't lose the variant selection. Per
+        // cloister-765d83 / ADR-0036 Phase 1 piece C.
+        if union_has_void_variant(u) {
+            let union_name = union_type_name(
+                &s.name,
+                u.discriminant_name.as_deref().expect("named union"),
+            );
+            emit_union_void_marshalers(out, &union_name, u);
+            writeln!(out).unwrap();
+        }
     }
 
     writeln!(out, "type {name} struct {{", name = s.name).unwrap();
@@ -191,6 +230,114 @@ fn emit_union_type(out: &mut String, struct_name: &str, u: &Union) {
         )
         .unwrap();
     }
+    writeln!(out, "}}").unwrap();
+}
+
+// Custom (Un)MarshalJSON for a union type containing Void variants.
+// Without these, `*struct{}` would marshal to `{}` instead of capnp's
+// canonical `null`, AND unmarshaling `null` would clear the pointer
+// (losing the variant selection). The generated marshalers preserve
+// both directions:
+//
+//   - Marshal: each non-nil variant emits as `{"name": payload}` or
+//     `{"name": null}` for Void. Mutually exclusive: the first
+//     non-nil pointer wins; subsequent ones are silently ignored
+//     since a union has exactly one set variant by capnp wire spec.
+//   - Unmarshal: KEY PRESENCE (regardless of value) selects the
+//     variant. For Void variants, the key being present at all sets
+//     the pointer to `&struct{}{}`. For payload variants, the key's
+//     value is unmarshaled into the variant type.
+//
+// Per cloister-765d83.
+fn emit_union_void_marshalers(out: &mut String, union_name: &str, u: &Union) {
+    // MarshalJSON.
+    writeln!(
+        out,
+        "func (u {union_name}) MarshalJSON() ([]byte, error) {{"
+    )
+    .unwrap();
+    for variant in &u.variants {
+        let field = pascal_case(&variant.name);
+        match &variant.ty {
+            FieldType::Scalar(ScalarType::Void) => {
+                // Void variant: emit literal `{"name":null}`. The
+                // value is intentionally null (not omitted) to match
+                // capnp's JSON convention.
+                writeln!(
+                    out,
+                    "\tif u.{field} != nil {{ return []byte(`{{\"{wire}\":null}}`), nil }}",
+                    wire = variant.name
+                )
+                .unwrap();
+            }
+            _ => {
+                // Payload variant: delegate to json.Marshal of a
+                // single-key map. Quoting through a map avoids
+                // having to escape the wire name into a printf
+                // template.
+                writeln!(
+                    out,
+                    "\tif u.{field} != nil {{ return json.Marshal(map[string]any{{\"{wire}\": u.{field}}}) }}",
+                    wire = variant.name
+                )
+                .unwrap();
+            }
+        }
+    }
+    // No variant set — emit `{}`. Callers shouldn't reach this; capnp
+    // unions always have exactly one variant. The empty-object
+    // fallback is safer than nil/error: downstream consumers can still
+    // unmarshal it (all-nil result), surfacing the bug at the
+    // construction site rather than here.
+    writeln!(out, "\treturn []byte(`{{}}`), nil").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // UnmarshalJSON.
+    writeln!(
+        out,
+        "func (u *{union_name}) UnmarshalJSON(data []byte) error {{"
+    )
+    .unwrap();
+    writeln!(out, "\tvar raw map[string]json.RawMessage").unwrap();
+    writeln!(out, "\tif err := json.Unmarshal(data, &raw); err != nil {{ return err }}")
+        .unwrap();
+    for variant in &u.variants {
+        let field = pascal_case(&variant.name);
+        match &variant.ty {
+            FieldType::Scalar(ScalarType::Void) => {
+                // Key presence selects the variant. Value is null per
+                // capnp's convention; we don't decode it.
+                writeln!(
+                    out,
+                    "\tif _, ok := raw[\"{wire}\"]; ok {{ u.{field} = &struct{{}}{{}} }}",
+                    wire = variant.name
+                )
+                .unwrap();
+            }
+            FieldType::StructRef(name) => {
+                writeln!(
+                    out,
+                    "\tif msg, ok := raw[\"{wire}\"]; ok {{ u.{field} = &{name}{{}}; if err := json.Unmarshal(msg, u.{field}); err != nil {{ return err }} }}",
+                    wire = variant.name
+                )
+                .unwrap();
+            }
+            other => {
+                // Scalars, lists, enum refs — decode through the
+                // generic FieldType's Go form. Allocate a new value of
+                // the right type and unmarshal into it.
+                let ty = render_go_type(other);
+                writeln!(
+                    out,
+                    "\tif msg, ok := raw[\"{wire}\"]; ok {{ var v {ty}; if err := json.Unmarshal(msg, &v); err != nil {{ return err }}; u.{field} = &v }}",
+                    wire = variant.name
+                )
+                .unwrap();
+            }
+        }
+    }
+    writeln!(out, "\treturn nil").unwrap();
     writeln!(out, "}}").unwrap();
 }
 

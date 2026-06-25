@@ -78,6 +78,28 @@ func TestClusterRoundTrip(t *testing.T) {
 		}
 	}
 
+	// Void-variant round-trip — Wire.transport unions use `*struct{}`
+	// pointers, and capnp's JSON encoding is `{"variant":null}`.
+	// Without C's custom (Un)MarshalJSON, the default Go decoder
+	// would treat `null` as "set the pointer to nil" — losing the
+	// variant selection silently. Guard: every wire must have
+	// EXACTLY ONE Transport variant populated after unmarshal.
+	for i, w := range first.Wires {
+		set := 0
+		if w.Transport.Uds != nil {
+			set++
+		}
+		if w.Transport.LeylineNet != nil {
+			set++
+		}
+		if set != 1 {
+			t.Errorf(
+				"wires[%d] (%s→%s): Transport must have exactly one variant populated after unmarshal, got %d (Uds=%v LeylineNet=%v) — Void-variant marshaler broken (cloister-765d83)",
+				i, w.From, w.To, set, w.Transport.Uds, w.Transport.LeylineNet,
+			)
+		}
+	}
+
 	// Go ↔ JSON ↔ Go round-trip must converge. Two unmarshals
 	// bracketed by one marshal: if the emitter drops a field on
 	// marshal (e.g. unexported, missing tag), the second value

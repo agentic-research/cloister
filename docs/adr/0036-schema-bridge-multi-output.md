@@ -39,7 +39,7 @@ Stays in cloister for iteration speed. Lands:
 
 The IR (`src/ir/mod.rs`) stays deliberately small. New constructs the IR doesn't model (interfaces, generics, anyPointer) remain `UnmappedConstruct` until a real schema needs them, per the IR's existing header invariant.
 
-Phase 1 tracking: `cloister-7536e7` umbrella; sub-beads `cloister-7585bc` (A — multiplexer), `cloister-75f6d5` (B — Go types), `cloister-765d83` (C — encoders, recommended-not-required), `cloister-76a9ea` (D — round-trip gate), `cloister-77172d` (E — second schema).
+Phase 1 tracking: `cloister-7536e7` umbrella; sub-beads `cloister-7585bc` (A — multiplexer), `cloister-75f6d5` (B — Go types), `cloister-765d83` (C — Void-variant marshalers), `cloister-76a9ea` (D — round-trip gate), `cloister-77172d` (E — second schema). Per the 2026-06-25 amendment below, **all five close Phase 1** (C is no longer "recommended-not-required" — its Void Marshal/Unmarshal closes a real wire-fidelity gap that D's round-trip gate would otherwise miss).
 
 ### Phase 2 — lift to LLO as `rs/ll-open/schema-bridge/`
 
@@ -78,6 +78,16 @@ The cost of Phase 1 staying in cloister: temporary code in cloister that will mo
 | IR creep — fixing IR gaps for one schema breaks another | Existing test fixtures + per-schema integration tests (E sub-bead seeds this). Lift to LLO inherits the test corpus. |
 | LLO maintainer review latency on Phase 2 lift | Phase 2 is one well-scoped PR (file move + license header + cargo workspace integration); no logic change. Same shape as leyline-sign lift which landed cleanly. |
 | Cross-repo adoption stalls — signet / notme don't migrate after Phase 2 | Adoption is each repo's call. Generated code can sit alongside hand-written for migration period; no big-bang required. |
+
+## Amendment 2026-06-25 (cloister-77172d / cloister-765d83): scope clarifications during Phase 1 execution
+
+Three corrections to the original framing surfaced while shipping the sub-beads:
+
+1. **C (cloister-765d83) is required, not "recommended-not-required."** B's Go emitter v1 leaves a real wire-fidelity gap on Void union variants — Go's default JSON encoder turns `*struct{}{}` into `{}` while capnp's canonical JSON convention uses `null`, AND unmarshaling `{"variant":null}` with default decoding silently clears the variant pointer. D's round-trip gate (Go ↔ JSON ↔ Go via reflect.DeepEqual) doesn't catch this because both sides agree on "all variants nil." C's custom `MarshalJSON`/`UnmarshalJSON` for void-bearing unions closes the gap; D's verify test was tightened in C's commit to assert exactly-one-variant-populated post-unmarshal. Phase 1 close criteria: **A + B + C + D + E**.
+
+2. **MarshalCBOR is out of scope for C.** Cross-language canonical CBOR in the ART substrate today (signet's `BundleCanonical`) uses integer-keyed maps per the capnp ordinals, but the field-inclusion rules are protocol-specific (signet excludes the signature field from signing input; future consumers would have different exclusions). Generated MarshalCBOR can't encode those exclusions without becoming a meta-protocol; consumers hand-roll the integer-key map using fxamacker/cbor's CanonicalEncOptions. If a generic canonical CBOR shape ever emerges, file a follow-up bead.
+
+3. **Two schema-bridge IR/parser gaps closed during E (cloister-77172d).** Adding `manifest/identity.capnp` as the second-schema proof required (a) skipping top-level annotation DECLARATION nodes (`import "/go.capnp"` pulls them in as metadata-not-data) and (b) emitting anonymous-inline unions (`struct Foo { union { … } }`). The latter promotes the README aspirational stub `anonymous_inline_union_emits_flat` to active. IR change: `Union.discriminant_name` becomes `Option<String>` (None = anonymous-inline = flat shape).
 
 ## References
 

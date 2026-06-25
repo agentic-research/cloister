@@ -1644,3 +1644,178 @@ fn go_format_parses_from_binary_name() {
     let fmt = OutputFormat::from_binary_name("capnpc-schema-bridge-go").expect("parse");
     assert_eq!(fmt, OutputFormat::Go);
 }
+
+// ── C: void-variant marshalers (cloister-765d83) ────────────────────
+//
+// Custom (Un)MarshalJSON close the round-trip gap left by B: default
+// Go encoding turns `*struct{}{}` into `{}`, but capnp's canonical
+// JSON convention uses `null` for void payload. Without C, unmarshal
+// of `{"uds":null}` zeroed the pointer; with C, key presence selects
+// the variant.
+
+#[test]
+fn go_emit_void_union_emits_custom_marshalers() {
+    let mut message = Builder::new_default();
+    let wire_id: u64 = 0xAAAA;
+    let transport_group_id: u64 = 0xBBBB;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(wire_id);
+            node.set_display_name("test.capnp:Wire");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("transport");
+            field.set_code_order(0);
+            field.set_discriminant_value(0xffff);
+            let mut group = field.init_group();
+            group.set_type_id(transport_group_id);
+        }
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(transport_group_id);
+            node.set_display_name("test.capnp:Wire.transport");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            for (i, name) in ["uds", "leylineNet"].iter().enumerate() {
+                let mut field = fields.reborrow().get(i as u32);
+                field.set_name(name);
+                field.set_code_order(i as u16);
+                field.set_discriminant_value(i as u16);
+                field.init_slot().init_type().set_void(());
+            }
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    // Imports encoding/json when marshalers reference json.RawMessage /
+    // json.Marshal.
+    assert!(
+        emitted.contains("import \"encoding/json\""),
+        "missing json import:\n{emitted}"
+    );
+    // Marshaler emits the canonical `{"variant":null}` shape.
+    assert!(
+        emitted.contains("func (u WireTransportUnion) MarshalJSON() ([]byte, error) {"),
+        "MarshalJSON missing:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"return []byte(`{"uds":null}`), nil"#),
+        "void marshaler for uds wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"return []byte(`{"leylineNet":null}`), nil"#),
+        "void marshaler for leylineNet wrong shape:\n{emitted}"
+    );
+    // Unmarshaler keys on PRESENCE, not value (since the value is null).
+    assert!(
+        emitted.contains("func (u *WireTransportUnion) UnmarshalJSON(data []byte) error {"),
+        "UnmarshalJSON missing:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"if _, ok := raw["uds"]; ok { u.Uds = &struct{}{} }"#),
+        "void unmarshaler for uds wrong shape:\n{emitted}"
+    );
+    assert!(
+        emitted.contains(r#"if _, ok := raw["leylineNet"]; ok { u.LeylineNet = &struct{}{} }"#),
+        "void unmarshaler for leylineNet wrong shape:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_payload_only_union_skips_custom_marshalers() {
+    // BackendKindUnion has only struct variants (no Void). Default Go
+    // encoder handles these correctly — we shouldn't emit custom
+    // marshalers (which would add complexity without value). Re-uses
+    // the same builder fixture as the existing named-union test.
+    let mut message = Builder::new_default();
+    let backend_id: u64 = 0xAAAA;
+    let kind_group_id: u64 = 0xBBBB;
+    let do_backend_id: u64 = 0xCCCC;
+    let http_backend_id: u64 = 0xDDDD;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(5);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(backend_id);
+            node.set_display_name("test.capnp:Backend");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("kind");
+            field.set_code_order(0);
+            field.set_discriminant_value(0xffff);
+            field.init_group().set_type_id(kind_group_id);
+        }
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(kind_group_id);
+            node.set_display_name("test.capnp:Backend.kind");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("durableObject");
+                field.set_code_order(0);
+                field.set_discriminant_value(0);
+                field.init_slot().init_type().init_struct().set_type_id(do_backend_id);
+            }
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("httpForward");
+                field.set_code_order(1);
+                field.set_discriminant_value(1);
+                field
+                    .init_slot()
+                    .init_type()
+                    .init_struct()
+                    .set_type_id(http_backend_id);
+            }
+        }
+        for (i, (id, name)) in [(do_backend_id, "DoBackend"), (http_backend_id, "HttpForwardBackend")]
+            .into_iter()
+            .enumerate()
+        {
+            let mut node = nodes.reborrow().get(3 + i as u32);
+            node.set_id(id);
+            node.set_display_name(&format!("test.capnp:{name}"));
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            s.init_fields(0);
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    // No void variants → no custom marshaler, no encoding/json import.
+    assert!(
+        !emitted.contains("MarshalJSON"),
+        "must NOT emit custom MarshalJSON for payload-only union:\n{emitted}"
+    );
+    assert!(
+        !emitted.contains("import \"encoding/json\""),
+        "must NOT import encoding/json for payload-only schema:\n{emitted}"
+    );
+}
