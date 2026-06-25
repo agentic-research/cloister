@@ -54,15 +54,17 @@ fn run() -> Result<(), SchemaBridgeError> {
     let message = serialize::read_message(&mut stdin, capnp::message::ReaderOptions::new())?;
     let request = message.get_root::<schema_capnp::code_generator_request::Reader>()?;
 
-    // Derive the output filename from the first requested file in the
-    // CodeGeneratorRequest. `capnp compile -oschema-bridge:dir
-    // manifest/cluster.capnp` puts `manifest/cluster.capnp` as the
-    // first requested file's name → output is `<dir>/cluster.<suffix>`
-    // where the suffix is format-driven (zod → `zod.ts`).
-    let out_name = derive_out_name(request, format)?;
+    // Derive the schema basename + output filename from the first
+    // requested file in the CodeGeneratorRequest. For
+    // `manifest/cluster.capnp` the basename is `cluster`; output is
+    // `<dir>/cluster.<format.file_suffix()>` (zod → `cluster.zod.ts`,
+    // go → `cluster.go`). The basename also flows into format
+    // emitters that need it — Go uses it as the package name.
+    let basename = derive_schema_basename(request)?;
+    let out_name = format!("{basename}.{}", format.file_suffix());
 
     let schema = inputs::capnp::parse(request)?;
-    let emitted = emit(&schema, format)?;
+    let emitted = emit(&schema, format, &basename)?;
 
     let out_path = out_dir.join(&out_name);
     if let Some(parent) = out_path.parent() {
@@ -74,24 +76,22 @@ fn run() -> Result<(), SchemaBridgeError> {
     Ok(())
 }
 
-fn derive_out_name(
+fn derive_schema_basename(
     request: schema_capnp::code_generator_request::Reader<'_>,
-    format: OutputFormat,
 ) -> Result<String, SchemaBridgeError> {
-    let suffix = format.file_suffix();
     let requested = request.get_requested_files()?;
     if requested.is_empty() {
         // Fallback for hand-driven invocations that don't set a
         // requested file (e.g. ad-hoc fixtures during debugging).
-        return Ok(format!("schema.{suffix}"));
+        return Ok("schema".to_owned());
     }
     let filename = requested.get(0).get_filename()?.to_str()?;
     // basename without the `.capnp` extension
-    let basename = std::path::Path::new(filename)
+    Ok(std::path::Path::new(filename)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("schema");
-    Ok(format!("{basename}.{suffix}"))
+        .unwrap_or("schema")
+        .to_owned())
 }
 
 // Capnp passes the plugin's `-o<plugin>:<dir>` directory as argv[1]

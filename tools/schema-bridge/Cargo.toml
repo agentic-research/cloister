@@ -10,10 +10,15 @@ publish = false
 # `-o<plugin>` to `capnpc-<plugin>`, so dispatch lives in the BINARY
 # NAME rather than an env var. main.rs reads argv[0] basename, strips
 # the `capnpc-schema-bridge-` prefix, parses the remainder as
-# OutputFormat. Bead cloister-75f6d5 adds the `capnpc-schema-bridge-go`
-# entry alongside. All bins compile from the same main.rs.
+# OutputFormat. All bins compile from the same main.rs; OutputFormat
+# variants in src/lib.rs are the authoritative list of supported
+# formats.
 [[bin]]
 name = "capnpc-schema-bridge-zod"
+path = "src/main.rs"
+
+[[bin]]
+name = "capnpc-schema-bridge-go"
 path = "src/main.rs"
 
 [lib]

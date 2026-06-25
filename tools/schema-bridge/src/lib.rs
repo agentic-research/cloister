@@ -26,6 +26,7 @@ use error::Result;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     Zod,
+    Go,
 }
 
 impl OutputFormat {
@@ -38,7 +39,10 @@ impl OutputFormat {
     // List of known format names, for both `parse` matching and the
     // error message body. Single source of truth so adding a variant
     // doesn't drift the parser away from the error hint.
-    const KNOWN: &'static [(&'static str, OutputFormat)] = &[("zod", OutputFormat::Zod)];
+    const KNOWN: &'static [(&'static str, OutputFormat)] = &[
+        ("zod", OutputFormat::Zod),
+        ("go", OutputFormat::Go),
+    ];
 
     pub fn parse(s: &str) -> Result<Self> {
         for (name, fmt) in Self::KNOWN {
@@ -86,6 +90,7 @@ impl OutputFormat {
     pub fn file_suffix(self) -> &'static str {
         match self {
             Self::Zod => "zod.ts",
+            Self::Go => "go",
         }
     }
 }
@@ -94,8 +99,20 @@ impl OutputFormat {
 // One arm per variant — the match is exhaustive so a new variant
 // without an emit wiring is a compile error, not a runtime fall-
 // through.
-pub fn emit(schema: &Schema, format: OutputFormat) -> Result<String> {
+//
+// `schema_basename` is the schema file's basename without the
+// `.capnp` extension (e.g. `cluster` from `manifest/cluster.capnp`).
+// Some emitters need it (Go uses it as the package name); others
+// ignore it (Zod). main.rs derives this from the
+// CodeGeneratorRequest's first requested file.
+pub fn emit(schema: &Schema, format: OutputFormat, schema_basename: &str) -> Result<String> {
     match format {
-        OutputFormat::Zod => outputs::zod::emit(schema),
+        OutputFormat::Zod => {
+            // Zod doesn't need the schema basename — TS imports resolve
+            // by path, not by package name.
+            let _ = schema_basename;
+            outputs::zod::emit(schema)
+        }
+        OutputFormat::Go => outputs::go::emit(schema, schema_basename),
     }
 }

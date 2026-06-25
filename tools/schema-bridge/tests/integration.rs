@@ -1160,6 +1160,394 @@ fn emit_dispatches_zod_equivalently_to_outputs_zod() {
 
     let schema = parse(&message).expect("parse");
     let direct = outputs::zod::emit(&schema).expect("direct emit");
-    let muxed = emit(&schema, OutputFormat::Zod).expect("mux emit");
+    let muxed = emit(&schema, OutputFormat::Zod, "test").expect("mux emit");
     assert_eq!(direct, muxed, "Zod dispatcher must be a pure passthrough");
+}
+
+// ── Go emitter (cloister-75f6d5) ──────────────────────────────────
+//
+// v1: types + json tags only. Canonical encoders land in C
+// (cloister-765d83). Tests mirror the zod tests' fixture-building
+// pattern so the same construct produces both outputs from one IR.
+
+#[test]
+fn go_emit_struct_scalars_has_package_and_json_tags() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Greeting");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(2);
+        {
+            let mut field = fields.reborrow().get(0);
+            field.set_name("subject");
+            field.set_code_order(0);
+            field.init_slot().init_type().set_text(());
+        }
+        {
+            let mut field = fields.reborrow().get(1);
+            field.set_name("loud");
+            field.set_code_order(1);
+            field.init_slot().init_type().set_bool(());
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    // Package name comes from the basename passed in (main.rs derives
+    // from the request's first requested file).
+    assert!(emitted.contains("package test"), "emit:\n{emitted}");
+    // Struct + PascalCased field names with `json:"<capnp-name>"`
+    // tags preserving the wire name.
+    assert!(emitted.contains("type Greeting struct {"), "emit:\n{emitted}");
+    assert!(
+        emitted.contains("Subject string `json:\"subject\"`"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("Loud bool `json:\"loud\"`"),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_enum_renders_typed_string_const_block() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut n = nodes.reborrow().get(1);
+        n.set_id(0xCCCC);
+        n.set_display_name("test.capnp:Tier");
+        n.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let e = n.init_enum();
+        let mut enumerants = e.init_enumerants(2);
+        enumerants.reborrow().get(0).set_name("hypervisor");
+        enumerants.reborrow().get(1).set_name("cluster");
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    assert!(emitted.contains("type Tier string"), "emit:\n{emitted}");
+    assert!(
+        emitted.contains("TierHypervisor Tier = \"hypervisor\""),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("TierCluster Tier = \"cluster\""),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_list_of_scalars_is_slice() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:HasList");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("tags");
+        field.set_code_order(0);
+        let mut slot = field.init_slot();
+        let list = slot.reborrow().init_type().init_list();
+        list.init_element_type().set_text(());
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    assert!(
+        emitted.contains("Tags []string `json:\"tags\"`"),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_named_union_struct_variants_emits_nested_union_type() {
+    // Mirrors `Backend.kind :union { durableObject @0 :DoBackend;
+    // httpForward @1 :HttpForwardBackend }`. Go shape: a sibling
+    // type `BackendKindUnion` with one nullable pointer per variant
+    // and `json:"<name>,omitempty"` so the marshaler emits only the
+    // set branch.
+    let mut message = Builder::new_default();
+    let backend_id: u64 = 0xAAAA;
+    let kind_group_id: u64 = 0xBBBB;
+    let do_backend_id: u64 = 0xCCCC;
+    let http_backend_id: u64 = 0xDDDD;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(5);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        // Backend struct: name + kind union.
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(backend_id);
+            node.set_display_name("test.capnp:Backend");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(2);
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("name");
+                field.set_code_order(0);
+                field.set_discriminant_value(0xffff);
+                field.init_slot().init_type().set_text(());
+            }
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("kind");
+                field.set_code_order(1);
+                field.set_discriminant_value(0xffff);
+                let mut group = field.init_group();
+                group.set_type_id(kind_group_id);
+            }
+        }
+        // kind group: union of two struct variants.
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(kind_group_id);
+            node.set_display_name("test.capnp:Backend.kind");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            {
+                let mut field = fields.reborrow().get(0);
+                field.set_name("durableObject");
+                field.set_code_order(0);
+                field.set_discriminant_value(0);
+                let mut slot = field.init_slot();
+                slot.reborrow().init_type().init_struct().set_type_id(do_backend_id);
+            }
+            {
+                let mut field = fields.reborrow().get(1);
+                field.set_name("httpForward");
+                field.set_code_order(1);
+                field.set_discriminant_value(1);
+                let mut slot = field.init_slot();
+                slot.reborrow()
+                    .init_type()
+                    .init_struct()
+                    .set_type_id(http_backend_id);
+            }
+        }
+        // DoBackend / HttpForwardBackend — trivial structs.
+        for (i, (id, name)) in [(do_backend_id, "DoBackend"), (http_backend_id, "HttpForwardBackend")]
+            .into_iter()
+            .enumerate()
+        {
+            let mut node = nodes.reborrow().get(3 + i as u32);
+            node.set_id(id);
+            node.set_display_name(&format!("test.capnp:{name}"));
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            s.init_fields(0);
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    // Helper type for the union.
+    assert!(
+        emitted.contains("type BackendKindUnion struct {"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("DurableObject *DoBackend `json:\"durableObject,omitempty\"`"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("HttpForward *HttpForwardBackend `json:\"httpForward,omitempty\"`"),
+        "emit:\n{emitted}"
+    );
+    // Outer struct carries the union field by helper-type name.
+    assert!(
+        emitted.contains("Name string `json:\"name\"`"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("Kind BackendKindUnion `json:\"kind\"`"),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_named_union_void_variants_uses_empty_struct_pointer() {
+    // `Wire.transport :union { uds @0 :Void; leylineNet @1 :Void; }`.
+    // Void variants type as `*struct{}` so the marshaler can
+    // distinguish "not this variant" (nil) from "this variant"
+    // (non-nil, payload empty).
+    let mut message = Builder::new_default();
+    let wire_id: u64 = 0xAAAA;
+    let transport_group_id: u64 = 0xBBBB;
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(wire_id);
+            node.set_display_name("test.capnp:Wire");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_discriminant_count(0);
+            let mut fields = s.init_fields(1);
+            let mut field = fields.reborrow().get(0);
+            field.set_name("transport");
+            field.set_code_order(0);
+            field.set_discriminant_value(0xffff);
+            let mut group = field.init_group();
+            group.set_type_id(transport_group_id);
+        }
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(transport_group_id);
+            node.set_display_name("test.capnp:Wire.transport");
+            node.set_display_name_prefix_length("test.capnp:".len() as u32);
+            let mut s = node.init_struct();
+            s.set_is_group(true);
+            s.set_discriminant_count(2);
+            let mut fields = s.init_fields(2);
+            for (i, name) in ["uds", "leylineNet"].iter().enumerate() {
+                let mut field = fields.reborrow().get(i as u32);
+                field.set_name(name);
+                field.set_code_order(i as u16);
+                field.set_discriminant_value(i as u16);
+                field.init_slot().init_type().set_void(());
+            }
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "test").expect("emit");
+
+    assert!(
+        emitted.contains("type WireTransportUnion struct {"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("Uds *struct{} `json:\"uds,omitempty\"`"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("LeylineNet *struct{} `json:\"leylineNet,omitempty\"`"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("Transport WireTransportUnion `json:\"transport\"`"),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_emit_scalar_const_emits_typed_const() {
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(3);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "with_const.capnp");
+
+        {
+            let mut node = nodes.reborrow().get(1);
+            node.set_id(0xC0DE_0001);
+            node.set_display_name("with_const.capnp:contractVersion");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            c.reborrow().init_type().set_int32(());
+            c.init_value().set_int32(7);
+        }
+        {
+            let mut node = nodes.reborrow().get(2);
+            node.set_id(0xC0DE_0002);
+            node.set_display_name("with_const.capnp:productName");
+            node.set_display_name_prefix_length("with_const.capnp:".len() as u32);
+            let mut c = node.init_const();
+            c.reborrow().init_type().set_text(());
+            c.init_value().set_text("notme");
+        }
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = outputs::go::emit(&schema, "with_const").expect("emit");
+
+    // Capnp camelCase const names → PascalCase Go names.
+    assert!(
+        emitted.contains("const ContractVersion int32 = 7"),
+        "emit:\n{emitted}"
+    );
+    assert!(
+        emitted.contains("const ProductName string = \"notme\""),
+        "emit:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_format_dispatch_routes_to_go_emitter() {
+    // Cross-format sanity: the lib-level `emit()` dispatcher must
+    // route OutputFormat::Go to outputs::go::emit, returning Go
+    // source rather than zod TS.
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Mux");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("name");
+        field.set_code_order(0);
+        field.init_slot().init_type().set_text(());
+    }
+
+    let schema = parse(&message).expect("parse");
+    let emitted = emit(&schema, OutputFormat::Go, "test").expect("mux emit");
+    assert!(emitted.contains("package test"), "emit:\n{emitted}");
+    assert!(emitted.contains("type Mux struct {"), "emit:\n{emitted}");
+    assert!(
+        !emitted.contains("import { z }"),
+        "must not be zod output:\n{emitted}"
+    );
+}
+
+#[test]
+fn go_format_suffix_is_go() {
+    assert_eq!(OutputFormat::Go.file_suffix(), "go");
+}
+
+#[test]
+fn go_format_parses_from_binary_name() {
+    let fmt = OutputFormat::from_binary_name("capnpc-schema-bridge-go").expect("parse");
+    assert_eq!(fmt, OutputFormat::Go);
 }
