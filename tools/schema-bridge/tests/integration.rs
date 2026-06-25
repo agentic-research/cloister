@@ -20,7 +20,7 @@ use capnp::traits::FromPointerBuilder;
 use capnp::Word;
 
 use schema_bridge::error::SchemaBridgeError;
-use schema_bridge::{inputs, outputs};
+use schema_bridge::{emit, inputs, outputs, OutputFormat};
 
 // Builder-side mirror of the parser's StructPeek wrapper: lets a test
 // initialize an `any_pointer` as a raw struct so we can poke individual
@@ -1052,4 +1052,69 @@ fn test_const_struct() {
         ),
         "struct const missing or wrong shape:\n{emitted}"
     );
+}
+
+// ── Output multiplexer ─────────────────────────────────────────────
+//
+// Phase 1 piece A (cloister-7585bc): the binary dispatches on an
+// [`OutputFormat`] so bead B (Go emitter) and beyond can drop in
+// without touching the dispatch site. Today only `Zod` exists; the
+// dispatcher is exercised through these tests so the seam stays
+// honest. Per ADR-0036.
+
+#[test]
+fn output_format_parses_known_zod() {
+    let fmt = OutputFormat::parse("zod").expect("parse zod");
+    assert_eq!(fmt, OutputFormat::Zod);
+}
+
+#[test]
+fn output_format_parse_rejects_unknown_with_known_list() {
+    let err = OutputFormat::parse("zods").expect_err("must reject typo");
+    match err {
+        SchemaBridgeError::UnknownOutputFormat { name, known } => {
+            assert_eq!(name, "zods");
+            // Hint must surface the live format list so the user
+            // doesn't guess. Today: just "zod"; bead B adds "go".
+            assert!(known.contains("zod"), "known list missing zod: {known}");
+        }
+        other => panic!("expected UnknownOutputFormat, got {other:?}"),
+    }
+}
+
+#[test]
+fn output_format_file_suffix_zod_is_zod_ts() {
+    // Drives `<basename>.<suffix>` filename derivation in main.rs.
+    // Bead B will assert "go" here for the Go variant.
+    assert_eq!(OutputFormat::Zod.file_suffix(), "zod.ts");
+}
+
+#[test]
+fn emit_dispatches_zod_equivalently_to_outputs_zod() {
+    // Sanity: the multiplexer's emit(&schema, Zod) must produce the
+    // same source as the direct call. Any divergence means the
+    // dispatcher grew side-effects it shouldn't have.
+    let mut message = Builder::new_default();
+    {
+        let request = message.init_root::<schema_capnp::code_generator_request::Builder>();
+        let mut nodes = request.init_nodes(2);
+        fill_file_node(nodes.reborrow().get(0), 0xFFFE, "test.capnp");
+
+        let mut node = nodes.reborrow().get(1);
+        node.set_id(0xAAAA);
+        node.set_display_name("test.capnp:Mux");
+        node.set_display_name_prefix_length("test.capnp:".len() as u32);
+        let mut s = node.init_struct();
+        s.set_discriminant_count(0);
+        let mut fields = s.init_fields(1);
+        let mut field = fields.reborrow().get(0);
+        field.set_name("name");
+        field.set_code_order(0);
+        field.init_slot().init_type().set_text(());
+    }
+
+    let schema = parse(&message).expect("parse");
+    let direct = outputs::zod::emit(&schema).expect("direct emit");
+    let muxed = emit(&schema, OutputFormat::Zod).expect("mux emit");
+    assert_eq!(direct, muxed, "Zod dispatcher must be a pure passthrough");
 }

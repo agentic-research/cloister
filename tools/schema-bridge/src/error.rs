@@ -41,6 +41,13 @@ pub enum SchemaBridgeError {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    // Caller passed a plugin-arg prefix that doesn't name a known
+    // output format (`<format>:<dir>`). Lists the formats we DO know
+    // so a typo (`zod` vs `zods`) surfaces immediately rather than
+    // silently routing to the default. Per cloister-7585bc.
+    #[error("unknown output format `{name}`: known formats are {known}")]
+    UnknownOutputFormat { name: String, known: String },
 }
 
 impl SchemaBridgeError {
