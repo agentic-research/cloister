@@ -31,6 +31,7 @@ import { CaUnavailableError, getCABundle } from "../storage/ca-bundle-cache.js";
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 import { buildDenialAuditEntry } from "../../vault/src/handler.js";
 import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
+import { preAuthBurstLimit } from "./pre-auth-budget.js";
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import {
@@ -202,6 +203,29 @@ export class VaultProxyRoute implements EdgeRoute {
   async handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const parsed = parseVaultProxyPath(url.pathname);
+
+    // ── pre-auth budget (cloister-1d2e89 / notme-693d63) ────────
+    //
+    // Cheap per-IP burst limit runs BEFORE lease verification. The
+    // verify path is expensive (wasm32 cert chain + Ed25519 sig +
+    // TrustStore DO RPC for seen-nonces); a flood of well-formed
+    // requests with valid signatures would otherwise saturate the
+    // gateway before the per-tenant rate-bucket in vault DO could
+    // gate them. The pre-auth bucket lives in-memory in the worker
+    // isolate — coarse but cheap, and the per-tenant bucket is the
+    // durable second line of defense.
+    const preAuth = preAuthBurstLimit(request);
+    if (!preAuth.ok) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "rate_limited_burst",
+        service: parsed?.service,
+        reason: "pre-auth IP burst limit (lease-verify protection)",
+        retryAfterSec: preAuth.retryAfterSec,
+      })));
+      return errorResponse(429, CONSTANT_TIME_ERROR_BODY, {
+        "retry-after": String(preAuth.retryAfterSec),
+      });
+    }
 
     // ── lease verification ──────────────────────────────────────
     //
