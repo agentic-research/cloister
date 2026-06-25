@@ -502,3 +502,129 @@ describe("CredentialVault DO — per-peer inflight isolation (cloister-6f21dc / 
     });
   });
 });
+
+// ── cloister-fbc6eb / VAULT_KEK_SOURCE spec pin (migrated from notme-69b3fd) ─
+//
+// The pin is the load-bearing fix for the config-write attack path:
+// a deployment that swaps VAULT_KEK_SOURCE from `keychain://prod` to
+// `env://ATTACKER` between DO instantiations would otherwise silently
+// derive a KEK from attacker-controlled bytes. With the pin, a spec
+// change between instantiations throws at the next KEK derive — the
+// operator sees it in `wrangler tail`.
+//
+// These tests use UNIQUE idFromName values per case so the
+// per-singleton vault_state row doesn't bleed between tests.
+
+describe("CredentialVault DO — VAULT_KEK_SOURCE pin (cloister-fbc6eb)", () => {
+  it("first putCredential writes the pin to vault_state", async () => {
+    const stub = env.VAULT_STORE!.get(
+      env.VAULT_STORE!.idFromName("pin-bootstrap"),
+    ) as DurableObjectStub & {
+      putCredential(
+        subjectFp: string,
+        service: string,
+        cred: {
+          upstream: string;
+          headers: Record<string, string>;
+          allowedSubs: string[];
+        },
+      ): Promise<void>;
+    };
+    // Trigger #getKEK() via a write path.
+    await stub.putCredential(SUBJECT_FP_A, "pin-test-svc", {
+      upstream: "https://example.test/api",
+      headers: { authorization: "Bearer x" },
+      allowedSubs: ["*"],
+    });
+    await runInDurableObject(stub, async (_inst, state) => {
+      const rows = state.storage.sql.exec(
+        "SELECT key, value FROM vault_state WHERE key IN ('kek_source', 'kek_tenant_scoped') ORDER BY key",
+      ).toArray() as unknown as Array<{ key: string; value: string }>;
+      expect(rows).toHaveLength(2);
+      // kek_source pin must equal whatever env supplied; non-empty.
+      const kekSource = rows.find((r) => r.key === "kek_source")?.value;
+      expect(kekSource).toBeDefined();
+      expect(kekSource!.length).toBeGreaterThan(0);
+      // kek_tenant_scoped is canonicalized to '0' or '1'.
+      const tenantScoped = rows.find((r) => r.key === "kek_tenant_scoped")?.value;
+      expect(tenantScoped === "0" || tenantScoped === "1").toBe(true);
+    });
+  });
+
+  it("pre-existing pin that mismatches env throws on next KEK derive", async () => {
+    const stub = env.VAULT_STORE!.get(
+      env.VAULT_STORE!.idFromName("pin-mismatch"),
+    ) as DurableObjectStub & {
+      putCredential(
+        subjectFp: string,
+        service: string,
+        cred: {
+          upstream: string;
+          headers: Record<string, string>;
+          allowedSubs: string[];
+        },
+      ): Promise<void>;
+    };
+    // Pre-seed a CONFLICTING pin row BEFORE first KEK derive.
+    // Simulates the config-write attack: storage records an old spec;
+    // env now provides a different one (the attacker's flip).
+    await runInDurableObject(stub, async (_inst, state) => {
+      state.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS vault_state (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `);
+      state.storage.sql.exec(
+        "INSERT OR REPLACE INTO vault_state (key, value) VALUES ('kek_source', ?)",
+        "env://ATTACKER_INJECTED_SPEC",
+      );
+      state.storage.sql.exec(
+        "INSERT OR REPLACE INTO vault_state (key, value) VALUES ('kek_tenant_scoped', ?)",
+        "0",
+      );
+    });
+    // Any RPC that derives the KEK must throw with the pin-mismatch
+    // hint. putCredential is the canonical write path → #writeRow →
+    // #getKEK → #assertKekSourceSpecPinned.
+    await expect(
+      stub.putCredential(SUBJECT_FP_A, "pin-mismatch-svc", {
+        upstream: "https://example.test/api",
+        headers: { authorization: "Bearer x" },
+        allowedSubs: ["*"],
+      }),
+    ).rejects.toThrow(/pin mismatch/);
+  });
+
+  it("matching pin allows operation (the happy path)", async () => {
+    // Bootstrap a DO, then re-call with the (still-matching) env →
+    // proves the pin check is silently OK when nothing changed.
+    const stub = env.VAULT_STORE!.get(
+      env.VAULT_STORE!.idFromName("pin-stable"),
+    ) as DurableObjectStub & {
+      putCredential(
+        subjectFp: string,
+        service: string,
+        cred: {
+          upstream: string;
+          headers: Record<string, string>;
+          allowedSubs: string[];
+        },
+      ): Promise<void>;
+      getCredentialMetadata(
+        subjectFp: string,
+        service: string,
+      ): Promise<{ upstream: string; allowedSubs: string[] } | null>;
+    };
+    // First call bootstraps the pin.
+    await stub.putCredential(SUBJECT_FP_A, "stable-svc", {
+      upstream: "https://example.test/api",
+      headers: { authorization: "Bearer x" },
+      allowedSubs: ["*"],
+    });
+    // Second call: pin must match env (it does) → no throw.
+    const meta = await stub.getCredentialMetadata(SUBJECT_FP_A, "stable-svc");
+    expect(meta).not.toBeNull();
+    expect(meta!.upstream).toBe("https://example.test/api");
+  });
+});

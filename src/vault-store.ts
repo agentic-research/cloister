@@ -123,6 +123,7 @@ import {
   type StoredCredential,
   type VaultStorage,
 } from "../vault/src/vault.js";
+import { buildDenialAuditEntry } from "../vault/src/handler.js";
 import {
   decrypt,
   deriveKEK,
@@ -211,6 +212,19 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
         subject_fp     TEXT    PRIMARY KEY,
         tokens         REAL    NOT NULL,
         last_refill_ms INTEGER NOT NULL
+      )
+    `);
+
+    // Vault-state table: scalar key/value pairs that need to survive
+    // DO eviction. Currently used to pin VAULT_KEK_SOURCE spec on
+    // first resolve so a config-write attacker can't swap the spec
+    // between DO instantiations (cloister-fbc6eb / notme-69b3fd).
+    // Per ADR-0014 v2 — the URL spec is a deployment-time decision,
+    // not a runtime one. Schema: `(key TEXT PRIMARY KEY, value TEXT)`.
+    ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS vault_state (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
       )
     `);
 
@@ -435,6 +449,16 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // other RPC methods which throw).
     const inflight = this.#checkInflight(subjectFp);
     if (!inflight.ok) {
+      // §13.6 audit emit (cloister-fb1ea2): structured log on the denial
+      // so an operator can see burst-overflow rates per tenant. Wire
+      // body stays constant-shape per the §9.4.b oracle invariant.
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "rate_limited_burst",
+        subjectFp,
+        callerSub,
+        service,
+        retryAfterSec: 1,
+      })));
       return errorResponse(
         429,
         JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
@@ -446,6 +470,13 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // highest — it does encrypt + SQL read + upstream fetch.
     const budget = this.#consumeBudget(subjectFp, RATE_LIMITS.COST.proxy);
     if (!budget.ok) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "rate_limited",
+        subjectFp,
+        callerSub,
+        service,
+        retryAfterSec: budget.retryAfterSec,
+      })));
       return errorResponse(
         429,
         JSON.stringify(buildErrorResponse("rate_limited", callerSub, service, null)),
@@ -497,6 +528,15 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       // doesn't leak existence. checkAccess against [] is always false;
       // result is intentionally discarded.
       void checkAccess([], callerSub);
+      // §13.6 audit emit (cloister-fb1ea2): structured log distinguishes
+      // missing-credential from ACL-deny INTERNALLY; the wire body
+      // stays byte-identical per §9.4.b.
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "credential_missing",
+        subjectFp,
+        callerSub,
+        service,
+      })));
       return errorResponse(
         404,
         JSON.stringify(buildErrorResponse("not_found", callerSub, service, null)),
@@ -512,6 +552,12 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       // omits `_cred` by construction (pinned by
       // test/security/prompt-injection.test.ts scenario 2), so this
       // path cannot leak upstream / headers / allowedSubs into the wire.
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "credential_denied",
+        subjectFp,
+        callerSub,
+        service,
+      })));
       return errorResponse(
         404,
         JSON.stringify(buildErrorResponse("not_found", callerSub, service, null)),
@@ -537,6 +583,17 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
   #getKEK(): Promise<CryptoKey> {
     if (!this.kekPromise) {
+      // Pin the VAULT_KEK_SOURCE spec to DO storage on first resolve;
+      // throw on subsequent mismatch. Blocks the config-write attack
+      // path (notme-69b3fd / cloister-fbc6eb): a deployment that
+      // flips spec from `keychain://prod` to `env://ATTACKER` between
+      // DO evictions would otherwise silently mint a new KEK from
+      // attacker-controlled bytes. Now: surface as a hard failure
+      // with operator guidance. The pin check is cheap (one
+      // SELECT + string compare); runs once per DO lifetime here at
+      // first KEK derive.
+      this.#assertKekSourceSpecPinned();
+
       // Memoize the in-flight derive so concurrent callers share work.
       // CRITICAL: clear the slot on rejection — otherwise a single
       // transient helper flake at cold-start caches a rejected promise
@@ -551,6 +608,94 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       this.kekPromise = p;
     }
     return this.kekPromise;
+  }
+
+  /**
+   * Pin VAULT_KEK_SOURCE on first call; require equality on every
+   * subsequent call. Throws with an actionable hint on mismatch.
+   *
+   * Per cloister-fbc6eb (migrated from notme-69b3fd): a config-write
+   * attacker can swap VAULT_KEK_SOURCE from `keychain://prod` to
+   * `env://ATTACKER` between DO instantiations. Without this pin, the
+   * new DO derives a KEK from attacker-controlled bytes and silently
+   * accepts new sealed credentials under that key. With the pin, the
+   * spec mismatch surfaces as a hard `Error` at the next KEK derive —
+   * the operator sees it in `wrangler tail`.
+   *
+   * Rotation playbook (intentional spec change): manually
+   * `DELETE FROM vault_state WHERE key = 'kek_source'`, then redeploy
+   * with the new spec. The OLD sealed credentials in `credentials`
+   * become undecryptable under the new KEK; operators MUST also
+   * `DELETE FROM credentials` and re-upload, OR ship a `rotateKEK()`
+   * admin RPC (deferred follow-up — out of scope for this bead).
+   *
+   * VAULT_KEK_TENANT_SCOPED flag is also pinned (same table, different
+   * key): flipping it on/off changes the derived KEK, same destructive
+   * recovery semantics.
+   */
+  #assertKekSourceSpecPinned(): void {
+    const env = this.env as Env & {
+      VAULT_KEK_SOURCE?: string;
+      VAULT_KEK_TENANT_SCOPED?: string;
+    };
+    const currentSpec = typeof env.VAULT_KEK_SOURCE === "string"
+      ? env.VAULT_KEK_SOURCE.trim()
+      : "";
+    const currentTenantScoped = typeof env.VAULT_KEK_TENANT_SCOPED === "string"
+      && env.VAULT_KEK_TENANT_SCOPED.trim() === "1"
+      ? "1"
+      : "0";
+
+    const rows = this.ctx.storage.sql.exec(
+      "SELECT key, value FROM vault_state WHERE key IN ('kek_source', 'kek_tenant_scoped')",
+    ).toArray() as unknown as Array<{ key: string; value: string }>;
+
+    const pinned = new Map(rows.map((r) => [r.key, r.value]));
+    const pinnedSpec = pinned.get("kek_source");
+    const pinnedTenantScoped = pinned.get("kek_tenant_scoped");
+
+    if (pinnedSpec === undefined) {
+      // First call: write the pin. Don't throw — this is the
+      // bootstrap path. Spec emptiness still fails in
+      // #resolveKekSource (KekSourceUnset) downstream, with a
+      // dedicated error message; this method is silent on bootstrap.
+      this.ctx.storage.sql.exec(
+        "INSERT INTO vault_state (key, value) VALUES ('kek_source', ?)",
+        currentSpec,
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO vault_state (key, value) VALUES ('kek_tenant_scoped', ?)",
+        currentTenantScoped,
+      );
+      return;
+    }
+
+    if (pinnedSpec !== currentSpec) {
+      throw new Error(
+        "vault: VAULT_KEK_SOURCE pin mismatch — the DO storage records " +
+          `kek_source=${JSON.stringify(pinnedSpec.slice(0, 40))}... but env ` +
+          `currently provides ${JSON.stringify(currentSpec.slice(0, 40))}...`
+          + " This DO was previously bootstrapped against a different spec. "
+          + "A spec change between DO instantiations is the config-write "
+          + "attack path described by notme-69b3fd / cloister-fbc6eb — refusing "
+          + "to derive a new KEK silently. To intentionally rotate: clear the "
+          + "pin (DELETE FROM vault_state WHERE key='kek_source') and reset "
+          + "credentials (DELETE FROM credentials) — the existing sealed rows "
+          + "become undecryptable under the new KEK.",
+      );
+    }
+
+    if (pinnedTenantScoped !== currentTenantScoped) {
+      throw new Error(
+        "vault: VAULT_KEK_TENANT_SCOPED pin mismatch — the DO storage records " +
+          `kek_tenant_scoped=${JSON.stringify(pinnedTenantScoped)} but env ` +
+          `currently provides ${JSON.stringify(currentTenantScoped)}.` +
+          " Toggling this flag mid-lifetime changes the derived KEK " +
+          "(per ADR-0030 §A3 HKDF), making existing sealed credentials " +
+          "undecryptable. To intentionally flip: clear the pin and reset " +
+          "credentials (same playbook as the kek_source rotation).",
+      );
+    }
   }
 
   /**

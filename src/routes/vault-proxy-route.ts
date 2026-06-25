@@ -29,6 +29,7 @@
 import { checkAccess } from "../../vault/src/vault.js";
 import { CaUnavailableError, getCABundle } from "../storage/ca-bundle-cache.js";
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
+import { buildDenialAuditEntry } from "../../vault/src/handler.js";
 import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
@@ -210,6 +211,15 @@ export class VaultProxyRoute implements EdgeRoute {
     // distinguish lease-bad from service-missing).
     const verdict = await this.leaseVerifier(request, env, parsed);
     if (!verdict.ok) {
+      // §13.6 audit emit (cloister-fb1ea2): wire body collapses to
+      // constant-shape; the structured log records the distinguishable
+      // failure category for operator visibility (401 = lease invalid;
+      // 503 = substrate dep down).
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: verdict.status === 503 ? "store_unavailable" : "lease_failed",
+        service: parsed?.service,
+        reason: `lease verifier status ${verdict.status}`,
+      })));
       return errorResponse(verdict.status, CONSTANT_TIME_ERROR_BODY);
     }
     const verifiedLease = verdict.lease;
@@ -224,6 +234,11 @@ export class VaultProxyRoute implements EdgeRoute {
     // an undeclared service is rejected at the route (404 constant-shape)
     // — vault DO never sees it. Preserves the §9.4.b oracle closure.
     if (parsed !== null && serviceConfig === null) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "service_undeclared",
+        callerSub: verifiedLease.peerFp,
+        service,
+      })));
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
     }
 
@@ -241,6 +256,11 @@ export class VaultProxyRoute implements EdgeRoute {
     // failure outcomes use (X-2 invariant from PR #51).
     if (parsed !== null && serviceConfig !== null
         && !checkAccess(serviceConfig.defaultAllowedSubs, verifiedLease.peerFp)) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "manifest_deny",
+        callerSub: verifiedLease.peerFp,
+        service,
+      })));
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
     }
 
@@ -251,6 +271,11 @@ export class VaultProxyRoute implements EdgeRoute {
     // hard signal in wrangler tail. Old silent dev-fallback in prod is
     // gone. Per cloister-6e6bfb / 2026-05-18 cycle.
     if (credentialStore === null) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "store_unavailable",
+        callerSub: verifiedLease.peerFp,
+        service,
+      })));
       return errorResponse(503, SHAPE_U_ERROR_BODY);
     }
 
