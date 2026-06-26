@@ -235,7 +235,7 @@ export class VaultProxyRoute implements EdgeRoute {
     // distinguish lease-bad from service-missing).
     const verdict = await this.leaseVerifier(request, env, parsed);
     if (!verdict.ok) {
-      // §13.6 audit emit (cloister-fb1ea2): wire body collapses to
+      // denial-audit emit (cloister-fb1ea2): wire body collapses to
       // constant-shape; the structured log records the distinguishable
       // failure category for operator visibility (401 = lease invalid;
       // 503 = substrate dep down).

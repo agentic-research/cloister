@@ -8,6 +8,71 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-06-25
+
+Two parallel workstreams: ADR-0036 schema-bridge Phase 1 (multi-output
+IR generalization) and vault security fixes migrated from notme after
+notme retired its vault.
+
+- **ADR-0036 Phase 1 — schema-bridge multi-output IR** (`cloister-7536e7`
+  epic, all 5 sub-beads closed):
+  - A (`cloister-7585bc`) — output multiplexer in `tools/schema-bridge`;
+    per-binary-name dispatch (`capnpc-schema-bridge-{zod,go}`) mirrors
+    capnpc-rust/go/c++ convention. argv[0] basename selects format.
+  - B (`cloister-75f6d5`) — Go emitter v1 (types + json tags). New
+    `tools/schema-bridge/src/outputs/go.rs`; covers struct, enum, list,
+    named/anonymous unions, void variants, consts.
+  - C (`cloister-765d83`) — Void-variant Marshal/Unmarshal closes the
+    wire-fidelity gap where Go's default encoder turned `*struct{}{}`
+    into `{}` instead of capnp's canonical `null`. Emitted only when
+    needed (union has at least one Void variant); payload-only unions
+    skip the custom marshalers.
+  - D (`cloister-76a9ea`) — `task cluster:go` + `cluster:go:check-drift`
+    + `cluster:go:verify` round-trip gate. New `go.mod` at repo root +
+    `pkg/cluster/cluster.go` (committed generated artifact) +
+    `tools/schema-bridge/scripts/verify-go.sh`.
+  - E (`cloister-77172d`) — second-schema proof; vendored notme's
+    `manifest/identity.capnp`. Surfaced two IR/parser gaps closed
+    in this bead: (a) skip top-level annotation DECLARATION nodes
+    (from `import "/go.capnp"`); (b) emit anonymous-inline unions
+    (`struct Foo { union { … } }` — flat shape). Promotes one README
+    `#[ignore]`'d stub to active. `pkg/identity/identity.go` +
+    `src/generated/identity.zod.ts` committed; `identity:{zod,go}` +
+    `:check-drift` tasks landed.
+  - ADR-0036 Amendment 2026-06-25 records three execution-time scope
+    corrections (C required not optional; MarshalCBOR out-of-scope;
+    IR gaps closed during E).
+  - 4 emit drift gates green; 1 round-trip verify gate green.
+
+- **Vault security migration from notme** (notme-9af5dd retired
+  notme/vault → cloister is canonical). 8 notme/vault beads triaged;
+  6 P1 + 2 P2:
+  - 3 P1s already-fixed/N/A in cloister, closed with evidence
+    (cloister-faa2a2 proxyRequest sub-pass; cloister-fcb3fc 404/403
+    oracle collapse; cloister-fc4bc1 DPoP audience N/A — cloister
+    uses leases).
+  - cloister-fb1ea2 — 8 vault denial sites now emit structured
+    `buildDenialAuditEntry` audit logs (bucketed cardinality on
+    subjectFp + callerSub). Wire body stays constant-shape per §9.4.b.
+  - cloister-fbc6eb — `VAULT_KEK_SOURCE` spec is pinned to DO storage
+    on first resolve; mismatch throws on subsequent derive. Blocks
+    the config-write attack where an attacker swaps `keychain://` for
+    `env://ATTACKER` between DO evictions.
+  - cloister-1d2e89 (P2 → P2 in cloister) — pre-auth IP burst limit
+    (`src/routes/pre-auth-budget.ts`) runs BEFORE `verifyAndUpsertLease`
+    on the vault-proxy-route. CF-Connecting-IP-keyed in-memory token
+    bucket per isolate (CAPACITY=300, REFILL=10/s, LRU-evicted at
+    10k IPs). Prevents lease-verify DoS amplification.
+  - cloister-1d952e (P3) — wire `op://` + `apple-password://` +
+    `keyring://` + `secret-tool://` KEK schemes via the existing
+    `KEK_HELPER` sidecar (ADR-0019). `HELPER_SCHEMES` const introduced
+    as single source of truth for the dispatch table.
+
+- **New deferred-design beads filed**:
+  - cloister-f34e2e (P3) — vault in-cluster bundle identity propagation
+    (a/b/c decision); deferred-design with re-open trigger tied to
+    the first in-cluster bundle Worker landing.
+
 ### Shipped 2026-06-22 – 2026-06-24
 
 Multi-cycle session covering an adversarial-cycle close-out, two new

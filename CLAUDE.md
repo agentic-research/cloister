@@ -34,8 +34,8 @@ top-level docs describe *what*.
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
   ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
-  ADR-0030 are Proposed; everything else 0011–0019, 0022–0025,
-  0029, 0031 is Accepted. ADR-0030 (2026-06-21) ratifies
+  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036 are Proposed;
+  everything else 0011–0019, 0022–0025, 0029, 0031 is Accepted. ADR-0030 (2026-06-21) ratifies
   workerd-process-per-tenant as the substrate direction —
   `cloister-f289c8` is the implementation epic, vault first.
   ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker); ADR-0024
@@ -167,7 +167,7 @@ sufficient.
   `cloister-spec/build-cache/v1/wire/digest-encoding.md` for the full
   encoding rule.
 
-## In-flight substrate work (ADRs 0007–0034)
+## In-flight substrate work (ADRs 0007–0036)
 
 Per-ADR status lives in [`docs/STATUS.md`](docs/STATUS.md); the table
 below names the post-0007 decade additions + their decade-thread
@@ -204,6 +204,8 @@ the decade-thread index only.
 | 0032 — *reserved-but-unused* | — |
 | 0033 — bd as cloister-mediated bead substrate (rsry MCP + bd storage) | `interlace-substrate/adrs` |
 | 0034 — true multi-tenant access spec across rosary/mache/ley-line/notme/signet | `interlace-substrate/adrs` |
+| 0035 — cloister ↔ LLO boundary (bridge crates in cloister, leyline-* in LLO) | `interlace-substrate/adrs` |
+| 0036 — schema-bridge multi-output IR (Phase 1 in cloister, Phase 2 lift to LLO) | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.

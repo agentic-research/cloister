@@ -33,16 +33,20 @@ loud. notme's older `capnp-to-ts.ts` (which this tool replaces in
 spirit) silently emitted `z.unknown()` for unrecognised constructs;
 that's the precise failure mode schema-bridge exists to prevent.
 
-**Today the codegen is opt-in** — `task cluster:zod` regenerates
-`src/generated/cluster.zod.ts` and `task cluster:zod:check-drift`
-verifies the committed copy matches. Neither task is wired into
-`task lint` or `task verify` yet, so an unmapped capnp construct
-won't break CI automatically; it WILL break the moment a developer
-runs the regen or drift-check task locally. The plan is to wire
-`cluster:zod:check-drift` into `task verify` once the schema-bridge
-mapping coverage stabilises (tracked separately) — at that point
-unmapped constructs become a hard CI failure. No silent fallbacks
-regardless.
+**Today the codegen is opt-in** — Taskfile entries per (schema, format)
+regenerate + drift-check, but none are wired into `task lint` or
+`task verify` yet:
+
+| schema | task | drift gate | verify gate |
+|---|---|---|---|
+| cluster.capnp | `cluster:zod` / `cluster:go` | `cluster:zod:check-drift` / `cluster:go:check-drift` | `cluster:go:verify` (round-trip; ADR-0036 D) |
+| identity.capnp | `identity:zod` / `identity:go` | `identity:zod:check-drift` / `identity:go:check-drift` | none yet (no canonical const) |
+
+An unmapped capnp construct won't break CI automatically; it WILL
+break the moment a developer runs any of the regen or drift-check
+tasks. The plan is to wire the drift gates into `task verify` once
+mapping coverage stabilises — at that point unmapped constructs
+become a hard CI failure. No silent fallbacks regardless.
 
 ## What's mapped today
 
@@ -59,17 +63,23 @@ regardless.
 | Void union variants                    | `UnionVariant.ty = Void`    | `{<variant>: z.null()}` inside the union (both shapes) |
 | union-only structs (no base fields)    | empty `fields`, `Some(union)` | same union shape, no base-field props |
 
-Verified end-to-end (run `capnp compile -oschema-bridge:<dir>` against
-each):
+Continuously emitted + drift-gated in cloister (via `task
+{cluster,identity}:{zod,go}` + `:check-drift`):
 
-- `manifest/cluster.capnp` → 136 lines clean zod TS (1 enum, 2 named
-  unions including all-Void `Wire.transport`)
-- `manifest/cloister.capnp` → 246 lines clean zod TS (13 structs,
-  `Backend.kind` 6-variant union, `Route.kind` 10-variant mostly-Void
-  union)
-- `manifest/identity.capnp` → 359 lines clean zod TS + 186 lines Go
-  (vendored from notme; covers `Proof`'s anonymous-inline union — the
-  second-schema proof per ADR-0036 Phase 1 piece E / cloister-77172d)
+- `manifest/cluster.capnp` → 440 lines zod TS (`src/generated/cluster.zod.ts`)
+  + 360 lines Go (`pkg/cluster/cluster.go`); includes the all-Void
+  `Wire.transport` union (drives the C void-marshaler emit) and the
+  6-variant `Bundle.kind` union
+- `manifest/identity.capnp` → 359 lines zod TS (`src/generated/identity.zod.ts`)
+  + 186 lines Go (`pkg/identity/identity.go`); vendored from notme,
+  covers `Proof`'s anonymous-inline union — the second-schema proof
+  per ADR-0036 Phase 1 piece E / cloister-77172d
+
+`manifest/cloister.capnp` is NOT in this list: it goes through the
+separate capnp-eval pipeline (`task manifest` → `src/generated/manifest.ts`)
+because it's evaluated as a value, not codegen'd to a type-only module.
+Schema-bridge has never processed `cloister.capnp`; if it ever did, this
+README would gain a third bullet.
 
 | Deliberately unmapped (errors today)| reason                                       |
 |-------------------------------------|----------------------------------------------|
@@ -163,14 +173,21 @@ zod-validation surface today, not just "not yet."
 # As a capnp plugin (the supported invocation):
 capnp compile \
   -o./target/release/capnpc-schema-bridge-zod:./gen \
-  manifest/cli-config.capnp
+  manifest/cluster.capnp
+# → ./gen/cluster.zod.ts
+
+# Same shape for Go output:
+capnp compile \
+  -o./target/release/capnpc-schema-bridge-go:./gen \
+  manifest/cluster.capnp
+# → ./gen/cluster.go
 ```
 
 One binary per output format, dispatched by argv[0] basename — same
-shape as `capnpc-rust` / `capnpc-go` / `capnpc-c++`. Today only
-`capnpc-schema-bridge-zod`; bead cloister-75f6d5 adds
-`capnpc-schema-bridge-go` alongside (Cargo declares both `[[bin]]`
-entries; both compile from the same `src/main.rs`).
+shape as `capnpc-rust` / `capnpc-go` / `capnpc-c++`. Today
+`capnpc-schema-bridge-zod` (cloister-7585bc) +
+`capnpc-schema-bridge-go` (cloister-75f6d5); Cargo declares both
+`[[bin]]` entries and they both compile from the same `src/main.rs`.
 
 `capnp compile` invokes the binary with the parsed `CodeGeneratorRequest`
 on stdin. The binary writes `<output-dir>/<schema-basename>.<format-suffix>`

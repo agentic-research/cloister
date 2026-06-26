@@ -449,7 +449,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     // other RPC methods which throw).
     const inflight = this.#checkInflight(subjectFp);
     if (!inflight.ok) {
-      // §13.6 audit emit (cloister-fb1ea2): structured log on the denial
+      // denial-audit emit (cloister-fb1ea2): structured log on the denial
       // so an operator can see burst-overflow rates per tenant. Wire
       // body stays constant-shape per the §9.4.b oracle invariant.
       console.log(JSON.stringify(buildDenialAuditEntry({
@@ -528,7 +528,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       // doesn't leak existence. checkAccess against [] is always false;
       // result is intentionally discarded.
       void checkAccess([], callerSub);
-      // §13.6 audit emit (cloister-fb1ea2): structured log distinguishes
+      // denial-audit emit (cloister-fb1ea2): structured log distinguishes
       // missing-credential from ACL-deny INTERNALLY; the wire body
       // stays byte-identical per §9.4.b.
       console.log(JSON.stringify(buildDenialAuditEntry({

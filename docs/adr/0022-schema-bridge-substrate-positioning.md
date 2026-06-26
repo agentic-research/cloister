@@ -261,9 +261,11 @@ only by the "don't renumber" social rule.
 ## Amendment 2026-06-25 (cloister-7585bc): per-format binary names
 
 ADR-0036 Phase 1 piece A renamed the single plugin binary
-`capnpc-schema-bridge` to a per-format family `capnpc-schema-bridge-<format>`
-(today only `capnpc-schema-bridge-zod`; bead `cloister-75f6d5` adds
-`-go` alongside). Same shape as `capnpc-rust` / `capnpc-go` /
-`capnpc-c++`: the binary's name IS the typed format identifier and
-capnp's PATH search is the dispatch mechanism. The single-binary name
-above is historical; current invocations use the suffixed form.
+`capnpc-schema-bridge` to a per-format family `capnpc-schema-bridge-<format>`.
+Today ships both `capnpc-schema-bridge-zod` (cloister-7585bc) and
+`capnpc-schema-bridge-go` (cloister-75f6d5); Cargo declares both
+`[[bin]]` entries and they both compile from the same `src/main.rs`.
+Same shape as `capnpc-rust` / `capnpc-go` / `capnpc-c++`: the binary's
+name IS the typed format identifier and capnp's PATH search is the
+dispatch mechanism. The single-binary name above is historical;
+current invocations use the suffixed form.
