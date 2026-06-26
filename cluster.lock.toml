@@ -6,7 +6,7 @@ version = "0.1.0"
 [inputs.llo]
 ref = "io.github.org/agentic-research/ley-line-open@main"
 resolved = "0.4.5"
-sha256 = "sha256:e919608490aedea27e075a6bfcd1773b13872b6aea1c25a9596dbccdeb729b93"
+sha256 = "sha256:e2bc3dc3bd3eb53e558a3b4c8108525096d70b85ad1cb99d260ae66e3d4c3b7a"
 fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
 signer = ""
 bytes = 2_603
