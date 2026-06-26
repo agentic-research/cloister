@@ -14,15 +14,26 @@
 //
 //   env://NAME              — plaintext from env binding NAME (legacy default)
 //   file:///path/to/file    — bytes from a workerd disk-service binding
-//   http://helper/...       — a generic HTTP service binding (sidecar)
+//   http(s)://helper/...    — a generic HTTP service binding (sidecar)
 //   keychain://service-name — sugar for the leyline-sign-helper macOS Keychain backend
-//   secret-tool://...       — sugar for the leyline-sign-helper Linux libsecret backend (future)
+//                              (via /usr/bin/security)
+//   secret-tool://attr/value — sugar for the leyline-sign-helper Linux
+//                              libsecret backend (via libsecret-tool)
+//   op://VAULT/ITEM         — sugar for the 1Password CLI backend
+//   apple-password://NAME   — sugar for the macOS Keychain Services API
+//                              (distinct from keychain:// which uses the
+//                              `security` CLI; this one uses the lower-
+//                              level Security framework via the helper)
+//   keyring://NAME          — sugar for the cross-platform keyring backend
+//                              (Linux/Win)
 //
-// Workerd is a sandboxed V8 isolate — no fs, no child_process. So
-// `keychain://` is implemented by the leyline-sign-helper Rust
-// binary (rs/crates/sign/, ADR-0019) that cloister talks to over a
-// service binding (KEK_HELPER). See ADR-0014 for the design
-// rationale.
+// Workerd is a sandboxed V8 isolate — no fs, no child_process. So all
+// the keystore-backed schemes are implemented by the leyline-sign-helper
+// Rust binary (rs/crates/sign/, ADR-0019) that cloister talks to over
+// a service binding (KEK_HELPER). The helper exposes a single
+// `GET /resolve?url=<encoded spec>` endpoint that dispatches on the
+// scheme internally. Adding a new scheme is a 2-line change here +
+// implementation in the helper. See ADR-0014 for the design rationale.
 
 /**
  * The minimal env shape this module reads.
@@ -54,6 +65,30 @@ export interface KekSource {
   resolve(): Promise<string>;
 }
 
+/**
+ * URL-scheme prefixes routed through `KEK_HELPER` (the leyline-sign-helper
+ * sidecar). All keystore-backed schemes go through the helper because
+ * workerd is a sandboxed isolate without process or filesystem access —
+ * actually fetching the secret requires shelling out, which only the
+ * helper can do. Adding a new scheme here is a 1-line change; the
+ * matching dispatch in the helper is required for it to actually
+ * resolve. Per ADR-0019.
+ *
+ * `http(s)://` is also helper-routed deliberately: we require KEK_HELPER
+ * binding even for plain HTTP to avoid accidentally minting traffic to
+ * the public internet for a secret. The helper can layer auth /
+ * scoping / TLS-pin on top.
+ */
+export const HELPER_SCHEMES = [
+  "keychain://",
+  "secret-tool://",
+  "op://",
+  "apple-password://",
+  "keyring://",
+  "http://",
+  "https://",
+] as const;
+
 /** Construct a `KekSource` for the given URL spec, bound to the given env. */
 export function buildKekSource(spec: string, env: KekSourceEnv): KekSource {
   if (!spec || typeof spec !== "string") {
@@ -71,23 +106,17 @@ export function buildKekSource(spec: string, env: KekSourceEnv): KekSource {
     return new FileKekSource(env, spec);
   }
 
-  // keychain://service-name — sugar for kek-helper /resolve?url=keychain://...
-  // The helper is the only thing that can actually shell to /usr/bin/security.
-  if (spec.startsWith("keychain://")) {
-    return new HelperKekSource(env, spec);
-  }
-
-  // http(s)://host/... — generic HTTP backend. Goes through KEK_HELPER
-  // if bound (so the helper can do auth, scoping, etc.); otherwise the
-  // caller can do `fetch()` directly. We require KEK_HELPER to avoid
-  // accidentally minting traffic to the public internet for a secret.
-  if (spec.startsWith("http://") || spec.startsWith("https://")) {
+  // All keystore-backed + HTTP schemes route through KEK_HELPER. The
+  // helper does the actual scheme-specific work (shells to `security`
+  // / `secret-tool` / `op` / etc.) and returns the secret bytes over
+  // HTTP.
+  if (HELPER_SCHEMES.some((prefix) => spec.startsWith(prefix))) {
     return new HelperKekSource(env, spec);
   }
 
   throw new Error(
     `kek-source: unsupported URL scheme in spec ${JSON.stringify(spec)} ` +
-      "(supported: env://, file://, keychain://, http(s)://)",
+      `(supported: env://, file://, ${HELPER_SCHEMES.join(", ")})`,
   );
 }
 

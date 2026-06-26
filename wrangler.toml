@@ -100,8 +100,11 @@ MACHE_MCP_URL   = "http://localhost:7532/mcp"
 # empty/missing with an actionable error pointing at `task dev:bootstrap`
 # for local work or `wrangler secret put VAULT_KEK_SOURCE` for prod.
 #
-# Schemes: keychain://, secret-tool://, file:///, env://?recipient=...
-# (age-encrypted carrier — never plaintext), http(s)://helper/.
+# Schemes (see vault/src/kek-source.ts HELPER_SCHEMES):
+#   keychain://, secret-tool://, op://, apple-password://, keyring://
+#   http(s)://helper/  — all route via KEK_HELPER (leyline-sign-helper)
+#   file:///path       — workerd disk-service binding
+#   env://NAME         — age-encrypted carrier (never plaintext)
 #
 # The legacy `VAULT_KEK_SECRET` text binding was removed in v2.
 # Plaintext key material is not representable in committed config.

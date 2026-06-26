@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildKekSource, type KekSourceEnv } from "../kek-source";
+import { buildKekSource, HELPER_SCHEMES, type KekSourceEnv } from "../kek-source";
 
 // ── env:// ──────────────────────────────────────────────────────────────────
 
@@ -186,6 +186,60 @@ describe("keychain:// + http(s):// KEK source (via KEK_HELPER)", () => {
     };
     const src = buildKekSource("http://my-helper.local/kek", env);
     await expect(src.resolve()).resolves.toBe("http-backed-kek");
+  });
+
+  // ── cloister-1d952e: additional helper-routed schemes ─────────────
+  //
+  // All four extra schemes use the same HelperKekSource path the
+  // keychain:// + http(s):// tests above exercise. The dispatch test
+  // here proves each scheme is recognized at construction (no
+  // "unsupported URL scheme" throw) AND routes through KEK_HELPER
+  // with the spec passed through to the helper unchanged. Per-scheme
+  // platform behavior (libsecret-tool, 1Password CLI, etc.) is the
+  // HELPER's responsibility — those tests live in the helper's repo.
+
+  it.each([
+    ["secret-tool://attribute/value",  "secret-tool-kek"],
+    ["op://Personal/cloister-kek",     "1password-kek"],
+    ["apple-password://com.cloister",  "apple-keychain-kek"],
+    ["keyring://cloister-kek",         "keyring-kek"],
+  ])("routes %s through KEK_HELPER with spec preserved", async (spec, body) => {
+    let seenUrl = "";
+    const env: KekSourceEnv = {
+      KEK_HELPER: fakeHelper((url) => {
+        seenUrl = url;
+        return new Response(body);
+      }),
+    };
+    const src = buildKekSource(spec, env);
+    await expect(src.resolve()).resolves.toBe(body);
+    // The spec must reach the helper verbatim (URL-encoded). If the
+    // dispatcher silently rewrote schemes (e.g. `op://` → something
+    // else), this assertion would fail.
+    expect(decodeURIComponent(seenUrl)).toContain(spec);
+  });
+
+  it.each([
+    "secret-tool://x",
+    "op://x/y",
+    "apple-password://x",
+    "keyring://x",
+  ])("%s throws when KEK_HELPER is unbound (same error path as keychain://)", async (spec) => {
+    const src = buildKekSource(spec, {});
+    await expect(src.resolve()).rejects.toThrow(/KEK_HELPER service binding/);
+  });
+
+  it("HELPER_SCHEMES is the authoritative list — dispatch routes every entry", async () => {
+    // Regression guard: if someone adds a scheme to HELPER_SCHEMES but
+    // forgets to verify it actually dispatches, this catches it. Every
+    // declared prefix MUST construct without throwing the "unsupported
+    // URL scheme" error.
+    for (const prefix of HELPER_SCHEMES) {
+      // Minimal valid spec per scheme — `<prefix>x` is enough since we
+      // only test construction routing, not the helper interaction.
+      const spec = `${prefix}x`;
+      expect(() => buildKekSource(spec, {})).not.toThrow(/unsupported URL scheme/);
+    }
   });
 });
 
