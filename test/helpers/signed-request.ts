@@ -18,6 +18,7 @@
 // from a value inside the cert validity window.
 
 import {
+  CERT_ADMIN_B64,
   CERT_FULL_B64,
   EPHEMERAL_PRIV_SEED_B64,
   EPHEMERAL_PUBKEY_B64,
@@ -32,6 +33,7 @@ interface SignedRequestArgs {
   url?: string;
   tsMs?: number;
   nonce?: Uint8Array;
+  certB64?: string;
 }
 
 export interface SignedRequestResult {
@@ -101,7 +103,7 @@ export async function signedMcpRequest(args: SignedRequestArgs): Promise<SignedR
     method: "POST",
     headers: {
       "content-type":   "application/json",
-      "authorization":  `Signet ${CERT_FULL_B64}`,
+      "authorization":  `Signet ${args.certB64 ?? CERT_FULL_B64}`,
       "x-signet-sig":   b64uEncode(sigBytes),
       "x-signet-ts":    String(tsMs),
       "x-signet-nonce": nonceB64,
@@ -111,3 +113,5 @@ export async function signedMcpRequest(args: SignedRequestArgs): Promise<SignedR
 
   return { request, body, nowMs: tsMs };
 }
+
+export { CERT_ADMIN_B64 };

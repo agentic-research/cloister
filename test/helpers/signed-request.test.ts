@@ -3,7 +3,7 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { verifyAndUpsertLease } from "../../src/routes/lease-middleware.js";
 import { MASTER_PUBKEY_B64_STD } from "../wire/fixtures/cert-chain.js";
-import { DEFAULT_NOW_MS, signedMcpRequest } from "./signed-request.js";
+import { CERT_ADMIN_B64, DEFAULT_NOW_MS, signedMcpRequest } from "./signed-request.js";
 
 // Smoke test for the signing helper itself: a request minted by
 // signedMcpRequest must pass through verifyAndUpsertLease cleanly.
@@ -94,5 +94,26 @@ describe("signedMcpRequest helper", () => {
       nowMs: customTs,
     });
     if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
+  });
+
+  it("can sign with an explicit admin proof cert", async () => {
+    const { request, body } = await signedMcpRequest({
+      method: "tools/list",
+      certB64: CERT_ADMIN_B64,
+    });
+
+    const result = await verifyAndUpsertLease({
+      req: request,
+      body,
+      id: 1,
+      method: "tools/list",
+      params: undefined,
+      env,
+      bundle: BUNDLE,
+      nowMs: DEFAULT_NOW_MS,
+    });
+
+    if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
+    expect(result.scope).toBe("*");
   });
 });

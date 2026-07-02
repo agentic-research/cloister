@@ -9,6 +9,7 @@ import {
   verifyCmsSignature,
 } from "../../src/wire/signet-verify.js";
 import {
+  CERT_ADMIN_B64,
   CERT_CRITICAL_UNKNOWN_EXT_B64,
   CERT_FULL_B64,
   CERT_MINIMAL_B64,
@@ -193,6 +194,18 @@ describe("verifyCertChain", () => {
     expect(result.claims.epoch).toBe(7);
     expect(result.claims.peerFp).toBe("sha256:abc123def456");
     expect(result.claims.scope).toBe("bead_create:/repos/foo");
+  });
+
+  it("happy path: admin proof cert carries wildcard scope", () => {
+    const cert = b64uDecode(CERT_ADMIN_B64);
+    const result = verifyCertChain(cert, masterPubkey);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.claims.epoch).toBe(7);
+    expect(result.claims.peerFp).toBe("sha256:abc123def456");
+    expect(result.claims.scope).toBe("*");
   });
 
   it("happy path: minimal cert (no Interlace extensions) returns claims with undefined optionals", () => {
