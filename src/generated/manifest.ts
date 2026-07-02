@@ -133,7 +133,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "stripPrefix": "",
-                  "requiresSession": false,
+                  "requiresSession": true,
                   "serviceBinding": "ROSARY_BUNDLE",
                   "claims": [
                     "rsry_bead_create",

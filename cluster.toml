@@ -235,7 +235,7 @@ name = "rsry"
 ]
   dynamicTools = true
   protocolMode = ""
-  requiresSession = false
+  requiresSession = true
   serviceBinding = "ROSARY_BUNDLE"
   stripPrefix = ""
   tools = [ ]
