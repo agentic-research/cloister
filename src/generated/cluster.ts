@@ -278,7 +278,7 @@ export const cluster: Cluster = {
                   "tools": [],
                   "dynamicTools": true,
                   "stripPrefix": "",
-                  "requiresSession": false,
+                  "requiresSession": true,
                   "protocolMode": "",
                   "serviceBinding": "ROSARY_BUNDLE",
                   "claims": [

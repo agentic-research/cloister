@@ -50,6 +50,13 @@ describe("ADR-0033 / cloister-c2bd47 — rsry_* mcpProxy backend pinned in manif
     }
   });
 
+  it("rsry backend requires an MCP Streamable HTTP session", () => {
+    const rsry = backends.find((b) => b.name === "rsry");
+    if (rsry && "mcpProxy" in rsry.kind) {
+      expect(rsry.kind.mcpProxy.requiresSession).toBe(true);
+    }
+  });
+
   it("rsry backend claims include core bead operations (operator-declared static surface)", () => {
     const rsry = backends.find((b) => b.name === "rsry");
     if (rsry && "mcpProxy" in rsry.kind) {
