@@ -44,6 +44,13 @@
  *
  *   CLUSTER_DEV_BIN_<NAME>=/path        # override binary lookup for bundle NAME
  *                                       # (NAME is upper-cased, hyphens → underscores)
+ *   CLUSTER_DEV_INSPECTOR_PORT_<NAME>=N # override wrangler dev inspector port
+ *   CLUSTER_DEV_INSPECTOR_PORT_BASE=N   # first auto-assigned inspector port (default 9229)
+ *   CLUSTER_DEV_INTERLACE_ROOT_PUBKEY=B64
+ *                                       # pass --var INTERLACE_ROOT_PUBKEY:B64
+ *                                       # to the router's wrangler dev process
+ *   CLUSTER_DEV_INTERLACE_MASTER_PUBKEY=B64
+ *                                       # pass --var INTERLACE_MASTER_PUBKEY:B64
  *   CLUSTER_DEV_RUN_DIR=/path           # default /tmp/cloister-dev/run
  *   CLUSTER_DEV_DO_DIR=/path            # default $HOME/.cache/cloister-dev/do
  *   CLUSTER_DEV_DRY_RUN=1               # print the plan, don't spawn anything
@@ -67,6 +74,7 @@ const DRY   = ENV.CLUSTER_DEV_DRY_RUN === "1";
 
 const RUN_DIR = ENV.CLUSTER_DEV_RUN_DIR ?? "/tmp/cloister-dev/run";
 const DO_DIR  = ENV.CLUSTER_DEV_DO_DIR  ?? join(homedir(), ".cache/cloister-dev/do");
+const INSPECTOR_PORT_BASE = parsePositiveInt(ENV.CLUSTER_DEV_INSPECTOR_PORT_BASE, 9229);
 
 // ── Load + validate the cluster manifest ──────────────────────────────────
 
@@ -120,6 +128,7 @@ class Launch {
 }
 
 const launches = [];
+let nextInspectorOffset = 0;
 for (const b of cluster.bundles) {
   if (!("external" in b.kind)) continue;
   const ext = b.kind.external;
@@ -174,7 +183,15 @@ for (const b of cluster.bundles) {
   let cwd = REPO;
   if (b.name === "cloister-router") {
     // wrangler dev binds to httpPort (default 8787 from cluster.capnp).
-    resolvedArgs = ["dev", "--local", "--port", String(ext.httpPort || 8787)];
+    resolvedArgs = [
+      "dev",
+      "--local",
+      "--port",
+      String(ext.httpPort || 8787),
+      "--inspector-port",
+      String(inspectorPortFor(b.name)),
+      ...interlaceWranglerVarArgs(),
+    ];
   } else if (b.name === "notme-identity") {
     // notme's worker is at ../notme/worker/ (sibling repo). Allow
     // CLUSTER_DEV_DIR_NOTME_IDENTITY to override the path for users
@@ -189,7 +206,14 @@ for (const b of cluster.bundles) {
       continue;
     }
     cwd = notmeDir;
-    resolvedArgs = ["dev", "--local", "--port", String(ext.httpPort || 8788)];
+    resolvedArgs = [
+      "dev",
+      "--local",
+      "--port",
+      String(ext.httpPort || 8788),
+      "--inspector-port",
+      String(inspectorPortFor(b.name)),
+    ];
   }
 
   launches.push(new Launch({
@@ -301,6 +325,16 @@ function cleanup() {
   try { rmSync(RUN_DIR, { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
+function interlaceWranglerVarArgs() {
+  const pairs = [
+    ["INTERLACE_ROOT_PUBKEY", ENV.CLUSTER_DEV_INTERLACE_ROOT_PUBKEY],
+    ["INTERLACE_MASTER_PUBKEY", ENV.CLUSTER_DEV_INTERLACE_MASTER_PUBKEY],
+  ];
+  return pairs.flatMap(([name, value]) =>
+    value === undefined ? [] : ["--var", `${name}:${value}`],
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function rel(p) {
@@ -311,6 +345,22 @@ function relocateSocket(declared) {
   // declared: "/run/cloister-uds/router.sock" → "/tmp/cloister-dev/run/router.sock"
   const base = declared.split("/").pop();
   return join(RUN_DIR, base);
+}
+
+function inspectorPortFor(bundleName) {
+  const overrideKey = `CLUSTER_DEV_INSPECTOR_PORT_${bundleName.toUpperCase().replace(/-/g, "_")}`;
+  if (ENV[overrideKey]) return parsePositiveInt(ENV[overrideKey], INSPECTOR_PORT_BASE);
+  return INSPECTOR_PORT_BASE + nextInspectorOffset++;
+}
+
+function parsePositiveInt(value, fallback) {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+    console.error(`cluster-dev: invalid port value "${value}"`);
+    process.exit(1);
+  }
+  return n;
 }
 
 function whichSync(bin) {
