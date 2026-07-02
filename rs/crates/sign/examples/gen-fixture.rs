@@ -63,6 +63,16 @@ fn main() {
         Some("bead_create:/repos/foo"),
     );
 
+    // Admin-scope cert for live proof harnesses that need to exercise
+    // generic JSON-RPC surfaces such as tools/list and dynamic MCP tools.
+    let cert_admin = mint_test_cert(
+        &master, &ephemeral,
+        not_before, not_after,
+        Some(7),
+        Some("sha256:abc123def456"),
+        Some("*"),
+    );
+
     // Cert without Interlace extensions (legacy mintBridgeCertPair shape).
     let cert_minimal = mint_test_cert(
         &master, &ephemeral,
@@ -98,6 +108,9 @@ fn main() {
     println!();
     println!("/** Cert with all Interlace extensions (epoch + peer_fp + scope). */");
     println!("export const CERT_FULL_B64 = \"{}\";",         b64(&cert_full));
+    println!();
+    println!("/** Cert with admin wildcard scope, used only by local proof harnesses. */");
+    println!("export const CERT_ADMIN_B64 = \"{}\";",        b64(&cert_admin));
     println!();
     println!("/** Cert without Interlace extensions (legacy / minimum-viable cert). */");
     println!("export const CERT_MINIMAL_B64 = \"{}\";",      b64(&cert_minimal));
