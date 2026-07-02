@@ -14,7 +14,7 @@ Everything under `docs/` is one of these kinds:
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The substrate description — *what* runs and how it composes. Read after the README + ADR-0011. |
 | [`security/`](security/) | Threat model + adversarial-cycle reports. `threat-model.md` is the contract (17 sections); `adversarial-cycles/` records red-team findings. |
 | [`perf/`](perf/) | Benchmark reports for the load-bearing perf claims (lease pipeline, dispatch, TrustStore contention, disclosure endpoint, cold start). |
-| [`deployment/`](deployment/) | Operator runbooks: cluster-in-a-pod, off-platform peers. |
+| [`deployment/`](deployment/) | Operator runbooks: cluster-in-a-pod, off-platform peers, secure ART tool operation. |
 | [`integration/`](integration/) | Client-side wiring (`mcp-client.md` — how external MCP clients connect to cloister). |
 | [`launch/`](launch/) | Pre-launch verification checklists. The current one is `PRE-LAUNCH-VERIFICATION.md`. |
 | [`mcp-seps/`](mcp-seps/) | Internal SEP drafts about the upstream MCP spec. **Not** submissions in flight — design notes for cloister's own framing. |
@@ -34,6 +34,7 @@ Everything under `docs/` is one of these kinds:
 | Add a new ADR | next free is **ADR-0026** (latest is 0025; 0022 reserved-but-not-drafted, see `cloister-ae587d`); see any 00*.md for the shape. Per-ADR status canonical in [STATUS.md](STATUS.md). |
 | Wire a client to `/mcp` | [`integration/mcp-client.md`](integration/mcp-client.md) |
 | Operate cloister in a cluster topology | [`deployment/cluster-in-a-pod.md`](deployment/cluster-in-a-pod.md) |
+| Run ART tools securely through cloister | [`deployment/secure-art-tools.md`](deployment/secure-art-tools.md) |
 
 ## Conventions
 

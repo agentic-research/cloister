@@ -12,6 +12,9 @@ drifting across 4 files; this page is the convergence point.
 
 For the deployment commands that actually launch the topology see
 [`docs/deployment/cluster-in-a-pod.md`](../deployment/cluster-in-a-pod.md).
+For the operator story around using the default ART tools securely
+through `/mcp`, see
+[`docs/deployment/secure-art-tools.md`](../deployment/secure-art-tools.md).
 For the schema decisions behind the bundle classification see
 [ADR-0011](../adr/0011-hypervisor-bundle-boundary.md) (the
 three-criterion test) and [ADR-0009](../adr/0009-compute-substrate-portability.md)
@@ -30,6 +33,12 @@ three-criterion test) and [ADR-0009](../adr/0009-compute-substrate-portability.m
 bundles reach UDS sockets (workerd cannot dial `AF_UNIX` from JS); it
 appears in some recipes as its own row and is folded into the
 "transport" column above. See ADR-0005 for the IPC seam.
+
+Future ART tools can join this table only after their bundle contract is
+explicit: packaging artifact, launch command, transport, auth material,
+tool prefix, storage, and tenant-isolation posture. Until then the
+secure operator runbook covers the two current cluster-tier tools:
+`mache` and `rosary`.
 
 ## Tier classification ([ADR-0011](../adr/0011-hypervisor-bundle-boundary.md))
 

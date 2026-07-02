@@ -350,6 +350,10 @@ so `lsp_*` tools stay accurate inside long sessions. Config + tests:
 | mache                                                        | Go binary            | Code intelligence FUSE                        |
 | signet                                                       | Go binary            | Key exchange                                  |
 
+For the secure operator path that serves ART tools through cloister's
+single `/mcp` face, see
+[`docs/deployment/secure-art-tools.md`](docs/deployment/secure-art-tools.md).
+
 ## Where to go next
 
 - **Operator setup** — [GETTING-STARTED.md](GETTING-STARTED.md) (install, run, wire upstreams, plugin)
