@@ -31,6 +31,9 @@ Start cloister with `task dev` (Path A in [GETTING-STARTED.md §3](../../GETTING
 restart your client, and `bead_*`, `lsp_*`, `mache_*`, `reparse`, `enrich`,
 `status` should appear in its tool list.
 
+For the ART tool runbook (`mache` and `rosary` / `rsry`), see
+[`docs/deployment/secure-art-tools.md`](../deployment/secure-art-tools.md).
+
 ## Pick the right URL
 
 | Where cloister is running | URL the client uses |
@@ -83,7 +86,7 @@ curl -s -X POST http://localhost:8787/mcp \
 ```
 
 You should see `bead_create`, `bead_search`, `lsp_hover`, `mache_get_overview`,
-… If the list is empty, the upstream backends are unwired (see
+`rsry_status`, … If the list is empty, the upstream backends are unwired (see
 [GETTING-STARTED.md §5](../../GETTING-STARTED.md#5-wire-upstreams-only-what-you-need)).
 
 ## Auth: when leases are on
@@ -123,6 +126,7 @@ For local dev, leave `INTERLACE_ROOT_PUBKEY` unset and skip auth entirely.
 | `bead_*` | BEAD_STORE DO (per-repo SQLite) | Issue tracking — create/search/list/comment/close beads. Same store rsry talks to directly. |
 | `lsp_*` | ley-line-open daemon via LLO_MCP_URL | Position-based LSP — hover, definitions, references, document symbols, diagnostics. |
 | `mache_*` | mache MCP server via MACHE_MCP_URL | Structural code intelligence — overview, communities, call graphs, semantic search, diagrams. Dynamic tool list (per ADR-0006). |
+| `rsry_*` | rosary MCP server via ROSARY_BUNDLE / ROSARY_MCP_URL | Rosary orchestration — beads, dispatch, workspace, thread, decade, and pipeline tools. |
 | `reparse` / `enrich` / `status` | ley-line-open lifecycle | Re-run parse / enrichment passes; report daemon state. |
 
 Tool input schemas are codegen'd from `src/tool-schemas/*.ts` and surfaced

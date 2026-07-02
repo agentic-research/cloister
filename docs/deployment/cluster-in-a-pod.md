@@ -48,6 +48,8 @@ Useful env vars:
 | `CLUSTER_DEV_DRY_RUN=1` | Print the launch plan, don't spawn |
 | `CLUSTER_DEV_BIN_<NAME>=/path` | Override the binary lookup for bundle NAME (upper-cased, hyphens → underscores) |
 | `CLUSTER_DEV_DIR_NOTME_IDENTITY=/path` | Override the notme worker dir (default `../notme/worker`) |
+| `CLUSTER_DEV_INTERLACE_ROOT_PUBKEY=<base64>` | Pass `--var INTERLACE_ROOT_PUBKEY:<base64>` to the router's Wrangler dev process |
+| `CLUSTER_DEV_INTERLACE_MASTER_PUBKEY=<base64>` | Pass `--var INTERLACE_MASTER_PUBKEY:<base64>` to the router's Wrangler dev process |
 | `CLUSTER_DEV_RUN_DIR=/path` | UDS dir (default `/tmp/cloister-dev/run`) |
 | `CLUSTER_DEV_DO_DIR=/path` | DO storage dir (default `$HOME/.cache/cloister-dev/do`) |
 
