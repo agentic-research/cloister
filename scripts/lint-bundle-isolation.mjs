@@ -118,7 +118,8 @@
 //   2 — toolchain error (capnp eval / dynamic import failed, source unreadable, etc.)
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
+import { parse as parseToml } from "@iarna/toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -858,6 +859,61 @@ try {
   process.exit(2);
 }
 
+// ADR-0038 (Inv 10): load each input's self-declared oci image from the
+// lockfile (resolve-inputs records packages[].oci there). CLOISTER_LOCKFILE
+// overrides the path (test fixtures). Missing/unreadable lockfile → empty
+// map → Inv 10 treats every image-less external bundle as un-derivable.
+function loadOciByInput() {
+  const map = new Map();
+  const lockfile = process.env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
+  if (!existsSync(lockfile)) return map;
+  try {
+    const lock = parseToml(readFileSync(lockfile, "utf8"));
+    for (const [name, row] of Object.entries(lock.inputs ?? {})) {
+      if (row && typeof row === "object" && row.oci && row.oci.identifier) {
+        map.set(name, row.oci);
+      }
+    }
+  } catch {
+    // Warn-level invariant: a bad lockfile never fails the substrate lint.
+  }
+  return map;
+}
+
+/**
+ * Inv 10 (ADR-0038, WARN-level) — an external bundle should have a
+ * resolvable container image: a non-empty operator `ext.image`, OR a linked
+ * input whose server.json declares a packages[].oci (recorded in
+ * cluster.lock.toml). Neither → warn. Fail-loud, NOT fail-closed: an
+ * operator mid-migration who dropped the hand-set image before the producer
+ * ships its oci is legitimate, so this must never block.
+ */
+function checkInvariant10(cluster, ociByInput, warnings) {
+  // bundle name → linked input names, matching emit-compose's resolveTenancy
+  // (explicit tenancy.workerdId, else the same-name rung).
+  const bundleNames = new Set((cluster.bundles ?? []).map((b) => b.name));
+  const inputsByBundle = new Map();
+  for (const input of cluster.inputs ?? []) {
+    const wid = input.tenancy?.workerdId || (bundleNames.has(input.name) ? input.name : "");
+    if (!wid) continue;
+    if (!inputsByBundle.has(wid)) inputsByBundle.set(wid, []);
+    inputsByBundle.get(wid).push(input.name);
+  }
+  for (const b of cluster.bundles ?? []) {
+    if (!("external" in b.kind)) continue;
+    if (b.kind.external.image) continue; // operator image present — fine
+    const linked = inputsByBundle.get(b.name) ?? [];
+    const derivable = linked.some((n) => ociByInput.get(n)?.identifier);
+    if (!derivable) {
+      warnings.push(
+        `bundle "${b.name}" (external) has no image — no operator ext.image and no ` +
+        `packages[].oci from a linked input (${linked.join(", ") || "none"}). Set image in ` +
+        `cluster.toml or add an oci package to the input's server.json (Inv 10, ADR-0038).`,
+      );
+    }
+  }
+}
+
 const violations = [];
 const warnings = [];
 
@@ -876,6 +932,7 @@ checkInvariant6(cluster, violations);
 checkInvariant7(cluster, violations);
 checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
+checkInvariant10(cluster, loadOciByInput(), warnings);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -914,4 +971,8 @@ const tenantDispatchCount = (cluster.routes ?? []).filter((r) => r.kind?.tenantD
 console.log(`  ${tenantDispatchCount} tenantDispatch route(s) walked for Inv 7`);
 const perTenantCount = (cluster.bundles ?? []).filter((b) => b.perTenant === true).length;
 console.log(`  ${perTenantCount} perTenant bundle(s) walked for Inv 8 + Inv 9`);
-console.log(`  invariants 1–9 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring)`);
+const imagelessExternal = (cluster.bundles ?? []).filter(
+  (b) => "external" in b.kind && !b.kind.external.image,
+).length;
+console.log(`  ${imagelessExternal} image-less external bundle(s) checked for Inv 10 (ADR-0038 oci derivation)`);
+console.log(`  invariants 1–10 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation)`);
