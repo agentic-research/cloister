@@ -12,57 +12,40 @@ tier = "hypervisor"
 workerdServiceName = "cloister"
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
   httpPort = 8_787
   image = "cloister:0.1.0"
   ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Identity authority — Signet master CA, lease cert mint"
-holdsCredential = [ ]
 hypervisorRationale = "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide (forge any peer's identity). Singleton per cluster (one master CA). Three-criterion test per ADR-0011, expanded in ADR-0018."
 kind = "external"
 name = "notme-identity"
 tier = "hypervisor"
-workerdServiceName = ""
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
   httpPort = 8_788
   image = "notme:0.1.0"
-  ipcSocket = ""
 
 [[bundles]]
 description = "Code intelligence — symbol search, definitions, callgraph"
-holdsCredential = [ ]
-hypervisorRationale = ""
 kind = "external"
 name = "mache"
 tier = "cluster"
-workerdServiceName = ""
 
   [bundles.external]
   args = [ "serve", "--http", "localhost:7532" ]
-  env = [ ]
   httpPort = 7_532
   image = "mache:0.8.0"
-  ipcSocket = ""
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
-holdsCredential = [ ]
-hypervisorRationale = ""
 kind = "external"
 name = "rosary"
 tier = "cluster"
-workerdServiceName = ""
 
   [bundles.external]
   args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
-  env = [ ]
-  httpPort = 0
   image = "rosary:0.2.0"
   ipcSocket = "/run/cloister-uds/rosary.sock"
 

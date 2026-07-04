@@ -340,6 +340,52 @@ test("cluster-to-toml: void union variants (transport.uds, transport.leylineNet)
   assert.equal(t.indexOf("[wires.leylineNet]"), -1, "void variants must NOT emit a payload subtable");
 });
 
+test("cluster-to-toml: omits bundle schema defaults while preserving semantic roundtrip", async () => {
+  const c = minimalCluster();
+  c.bundles[0] = {
+    ...c.bundles[0],
+    description: "",
+    holdsCredential: [],
+    workerdServiceName: "",
+    hypervisorRationale: "",
+    perTenant: false,
+    kind: {
+      external: {
+        image: "alpha:0.1",
+        ipcSocket: "/run/alpha.sock",
+        httpPort: 0,
+        args: [],
+        env: [],
+      },
+    },
+  };
+
+  const t = clusterToToml(c);
+
+  assert.match(t, /\[\[bundles\]\]/, "bundle row must still be emitted");
+  assert.match(t, /name = "alpha"/, "bundle identity must remain explicit");
+  assert.match(t, /tier = "cluster"/, "bundle tier must remain explicit");
+  assert.match(t, /kind = "external"/, "bundle kind must remain explicit");
+  assert.match(t, /image = "alpha:0\.1"/, "external image must remain explicit");
+  assert.match(t, /ipcSocket = "\/run\/alpha\.sock"/, "external ipcSocket must remain explicit");
+
+  assert.ok(!t.includes("description"), "empty description must not emit boilerplate");
+  assert.ok(!t.includes("holdsCredential"), "empty holdsCredential[] must not emit boilerplate");
+  assert.ok(!t.includes("hypervisorRationale"), "empty hypervisorRationale must not emit boilerplate");
+  assert.ok(!t.includes("workerdServiceName"), "empty workerdServiceName must not emit boilerplate");
+  assert.ok(!t.includes("perTenant"), "perTenant=false must not emit boilerplate");
+  assert.ok(!t.includes("args"), "empty external args[] must not emit boilerplate");
+  assert.ok(!t.includes("env"), "empty external env[] must not emit boilerplate");
+  assert.ok(!t.includes("httpPort"), "external httpPort=0 must not emit boilerplate");
+
+  const reparsed = await parseTomlToCluster(t);
+  assert.deepEqual(
+    ClusterSchema.parse(reparsed),
+    ClusterSchema.parse(c),
+    "parser defaults must restore omitted schema-default bundle fields",
+  );
+});
+
 // ── Contract 7: TOML → cluster.ts → TOML is byte-equal ────────────────────
 
 test("roundtrip: canonical TOML → cluster object → canonical TOML produces byte-equal output", async () => {
