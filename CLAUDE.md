@@ -29,12 +29,13 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0037** (0001–0031 + 0033 + 0034 + 0035 + 0036 land; 0032 reserved-but-unused).
+  number is **ADR-0039** (0001–0031 + 0033–0036 + 0038 land; 0032
+  reserved-but-unused; 0037 reserved for secure MCP ingress transports).
   Most ADRs are Accepted;
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
   ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
-  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036 are Proposed;
+  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038 are Proposed;
   everything else 0011–0019, 0022–0025, 0029, 0031 is Accepted. ADR-0030 (2026-06-21) ratifies
   workerd-process-per-tenant as the substrate direction —
   `cloister-f289c8` is the implementation epic, vault first.
