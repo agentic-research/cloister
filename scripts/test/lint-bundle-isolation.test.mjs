@@ -78,7 +78,7 @@ function makeScenario({ clusterTs, configCapnp, omitClusterTs = false }) {
   };
 }
 
-function runLint(workDir, clusterTsPath) {
+function runLint(workDir, clusterTsPath, lockfilePath) {
   // Invoke tsx directly via its node_modules/.bin path (not
   // `pnpm exec tsx`, which fails from a tmpdir cwd lacking a
   // package.json). tsx provides the .ts loader the lint script needs
@@ -88,9 +88,15 @@ function runLint(workDir, clusterTsPath) {
   // script would default-resolve to <cwd>/src/generated/cluster.ts
   // which is also fine here, but the explicit env-var keeps the
   // contract visible.
+  const env = { ...process.env, CLUSTER_TS: clusterTsPath ?? "" };
+  // ADR-0038 Inv 10: point at a fixture lockfile so the test controls which
+  // inputs carry oci — never the repo's real cluster.lock.toml. Unset →
+  // Inv 10 reads the repo lockfile (fine: existing fixtures set bundle
+  // images, so Inv 10 stays silent on them regardless).
+  if (lockfilePath !== undefined) env.CLOISTER_LOCKFILE = lockfilePath;
   return spawnSync(TSX_BIN, [LINT_SCRIPT], {
     cwd: workDir,
-    env: { ...process.env, CLUSTER_TS: clusterTsPath ?? "" },
+    env,
     encoding: "utf8",
   });
 }
@@ -127,6 +133,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       holdsCredential = [],
       hypervisorRationale,
       perTenant = false,
+      image = `${name}:test`,
     }) => ({
       name,
       description: `${name} test bundle`,
@@ -141,7 +148,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       perTenant,
       kind: {
         external: {
-          image: `${name}:test`,
+          image,
           ipcSocket: `/run/cloister-uds/${name}.sock`,
           httpPort: 0,
           args: [],
@@ -1542,6 +1549,81 @@ test("Inv 8 — MULTIPLE perTenant bundles all flagged when no tenantDispatch ro
     assert.match(r.stderr, /rosary/);
     assert.match(r.stderr, /mache/);
     assert.match(r.stderr, /llo/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+// ── Inv 10 (ADR-0038): bundle image derivable from packages[].oci ─────────
+
+const INV10_CONFIG = {
+  workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+  services: [{ name: "internet", network: { allow: ["public"] } }],
+};
+
+test("Inv 10 — image-less external bundle with no derivable oci → warn (non-fatal)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "mache", tier: "cluster", image: "" },
+      ],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    // Nonexistent lockfile → empty oci map → not derivable.
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, resolve(scenario.workDir, "no-such.lock.toml"));
+    assert.equal(r.status, 0, `Inv 10 is warn-level (non-fatal); got ${r.status}\n${r.stderr}`);
+    assert.match(r.stderr, /Inv 10/);
+    assert.match(r.stderr, /has no image/);
+    assert.match(r.stderr, /"mache"/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 10 — image-less external bundle with a linked input's oci is clean (derivable)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "mache", tier: "cluster", image: "" },
+      ],
+      inputs: [{ name: "mache" }], // empty workerdId → same-name rung → colocates to "mache"
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[inputs.mache]\nref = "github://test/mache@main"\nresolved = "0.13.0"\n' +
+      'sha256 = "sha256:aa"\nfetched_from = "file:///x"\nsigner = ""\nbytes = 10\n' +
+      '[inputs.mache.oci]\nidentifier = "ghcr.io/agentic-research/mache"\nversion = "0.13.0"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /Inv 10/, "an oci-derivable bundle must not warn");
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 10 — external bundle with an operator image never warns (image wins, no oci needed)", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "mache", tier: "cluster", image: "mache:0.13.0" },
+      ],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, resolve(scenario.workDir, "no-such.lock.toml"));
+    assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /Inv 10/);
   } finally {
     scenario.cleanup();
   }
