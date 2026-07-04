@@ -32,6 +32,7 @@ import {
   parseServerJsonMeta,
   deriveGeneratedBackends,
   deriveStripPrefix,
+  parsePackagesOci,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -1044,4 +1045,113 @@ test("e2e: file:// LLO server.json with canonical _meta block produces 3-backend
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── ADR-0038: packages[].oci → self-declared bundle image ────────────────
+
+test("parsePackagesOci: no packages[] → null", () => {
+  assert.equal(parsePackagesOci(Buffer.from(JSON.stringify({ name: "x", _meta: {} }))), null);
+});
+
+test("parsePackagesOci: non-JSON bytes → null", () => {
+  assert.equal(parsePackagesOci(Buffer.from("not json at all")), null);
+});
+
+test("parsePackagesOci: oci entry → identifier + version + empty digest", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [{ registryType: "oci", identifier: "ghcr.io/org/mache", version: "0.13.0" }],
+  }));
+  assert.deepEqual(parsePackagesOci(bytes), {
+    identifier: "ghcr.io/org/mache", version: "0.13.0", digest: "",
+  });
+});
+
+test("parsePackagesOci: snake_case registry_type is tolerated", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [{ registry_type: "oci", identifier: "ghcr.io/org/mache", version: "0.13.0" }],
+  }));
+  assert.equal(parsePackagesOci(bytes).identifier, "ghcr.io/org/mache");
+});
+
+test("parsePackagesOci: digest-pinned entry carries the digest", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [{ registryType: "oci", identifier: "ghcr.io/org/mache", digest: "sha256:abc123" }],
+  }));
+  const oci = parsePackagesOci(bytes);
+  assert.equal(oci.digest, "sha256:abc123");
+  assert.equal(oci.version, "");
+});
+
+test("parsePackagesOci: first oci entry wins; non-oci packages ignored", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [
+      { registryType: "npm", identifier: "@org/mache" },
+      { registryType: "oci", identifier: "ghcr.io/org/mache", version: "0.13.0" },
+    ],
+  }));
+  assert.equal(parsePackagesOci(bytes).identifier, "ghcr.io/org/mache");
+});
+
+test("parsePackagesOci: packages[] with only non-oci entries → null", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [{ registryType: "npm", identifier: "@org/mache", version: "1.0.0" }],
+  }));
+  assert.equal(parsePackagesOci(bytes), null);
+});
+
+test("parsePackagesOci: oci entry missing identifier throws (opt-in must be correct)", () => {
+  const bytes = Buffer.from(JSON.stringify({
+    packages: [{ registryType: "oci", version: "0.13.0" }],
+  }));
+  assert.throws(() => parsePackagesOci(bytes), /identifier/);
+});
+
+test("resolveInput: file:// server.json with oci packages populates row.oci", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-oci-"));
+  try {
+    const path = resolve(dir, "server.json");
+    writeFileSync(path, JSON.stringify({
+      name: "io.github.org/mache",
+      version: "0.13.0",
+      packages: [{ registryType: "oci", identifier: "ghcr.io/agentic-research/mache", version: "0.13.0" }],
+    }));
+    const row = await resolveInput(specDefaults({ name: "mache", ref: `file://${path}` }));
+    assert.deepEqual(row.oci, {
+      identifier: "ghcr.io/agentic-research/mache", version: "0.13.0", digest: "",
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveInput: file:// server.json with no packages → row.oci is null", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-nooci-"));
+  try {
+    const path = resolve(dir, "server.json");
+    writeFileSync(path, JSON.stringify({ name: "x", version: "1.0.0" }));
+    const row = await resolveInput(specDefaults({ name: "x", ref: `file://${path}` }));
+    assert.equal(row.oci, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildLockfile: emits inputs.<name>.oci (identifier+version) when a row carries oci", () => {
+  const doc = buildLockfile({ name: "c", version: "0.1.0" }, [{
+    name: "mache", ref: "io.github.org/mache@main", resolved: "0.13.0",
+    sha256: "sha256:aa", fetched_from: "file:///x", signer: "", bytes: 10,
+    generatedBackends: [],
+    oci: { identifier: "ghcr.io/agentic-research/mache", version: "0.13.0", digest: "" },
+  }]);
+  assert.deepEqual(doc.inputs.mache.oci, {
+    identifier: "ghcr.io/agentic-research/mache", version: "0.13.0",
+  });
+});
+
+test("buildLockfile: omits oci key when a row has no oci (back-compat)", () => {
+  const doc = buildLockfile({ name: "c", version: "0.1.0" }, [{
+    name: "llo", ref: "x", resolved: "1", sha256: "sha256:bb",
+    fetched_from: "file:///y", signer: "", bytes: 5, generatedBackends: [], oci: null,
+  }]);
+  assert.equal("oci" in doc.inputs.llo, false);
 });

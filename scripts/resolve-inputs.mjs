@@ -237,6 +237,16 @@ export async function resolveInput(spec) {
     );
   }
 
+  // ADR-0038: the tool's self-declared OCI image, if its server.json
+  // carries a `packages[]` oci entry. null → the emit step falls back to
+  // the operator's hand-set ext.image (or warns loudly if neither exists).
+  let oci = null;
+  try {
+    oci = parsePackagesOci(bytes);
+  } catch (e) {
+    throw new ResolveError(spec.name, e.message);
+  }
+
   return {
     name:              spec.name,
     ref:               spec.ref,
@@ -246,6 +256,7 @@ export async function resolveInput(spec) {
     signer:            "", // Interlace receipts will populate (future ADR-0026 phase)
     bytes:             bytes.length,
     generatedBackends,
+    oci,
   };
 }
 
@@ -492,6 +503,61 @@ export function parseServerJsonMeta(bytes) {
 }
 
 /**
+ * Parse the tool's self-declared container image from a resolved
+ * server.json's top-level `packages[]` (MCP registry field, sibling to
+ * `_meta`). Per ADR-0038, an `oci` package entry is how a tool tells
+ * cloister its own runtime image — the same way `_meta.art.cloister/v1`
+ * tells cloister its tool surface.
+ *
+ * Returns `{ identifier, version, digest }` for the FIRST
+ * `registryType == "oci"` entry, or `null` when the bytes aren't JSON,
+ * carry no `packages[]`, or carry no oci entry (→ emit falls back to the
+ * operator's `ext.image`). Throws when an oci entry is present but
+ * malformed (declared-but-no-identifier) — an opt-in must be correct,
+ * mirroring `parseServerJsonMeta`'s constraint handling.
+ */
+export function parsePackagesOci(bytes) {
+  let doc;
+  try {
+    const text = typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
+    doc = JSON.parse(text);
+  } catch {
+    return null; // Not JSON ⇒ no packages block.
+  }
+  if (!doc || typeof doc !== "object" || !Array.isArray(doc.packages)) {
+    return null;
+  }
+  // Tolerate both the camelCase (`registryType`) and snake_case
+  // (`registry_type`) spellings the MCP registry schema has used.
+  const oci = doc.packages.find(
+    (p) => p && typeof p === "object" && (p.registryType ?? p.registry_type) === "oci",
+  );
+  if (!oci) return null;
+
+  const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
+  if (!identifier) {
+    throw new Error(
+      `packages[] declares a registryType="oci" entry with no "identifier" — ` +
+      `an oci package must name a pullable image reference`,
+    );
+  }
+  const version = typeof oci.version === "string" ? oci.version.trim() : "";
+  const digest = typeof oci.digest === "string" ? oci.digest.trim() : "";
+  return { identifier, version, digest };
+}
+
+/**
+ * Shape an input's resolved oci package into the cluster.lock.toml row.
+ * Omits empty version/digest so the emitted TOML stays minimal.
+ */
+function ociLockfileRow(oci) {
+  const row = { identifier: oci.identifier };
+  if (oci.version) row.version = oci.version;
+  if (oci.digest) row.digest = oci.digest;
+  return row;
+}
+
+/**
  * Derive the `stripPrefix` a generated backend needs, given one group's
  * `advertisedPrefix` + `upstreamNames` (cloister-2d987e, Bug 3 of the
  * mache resolver migration).
@@ -639,6 +705,10 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
           fetched_from: row.fetched_from,
           signer:       row.signer,
           bytes:        row.bytes,
+          // ADR-0038: the tool's self-declared OCI image (packages[].oci),
+          // when present. Omitted for inputs whose server.json carries no
+          // oci package — back-compat with pre-ADR-0038 lockfiles.
+          ...(row.oci ? { oci: ociLockfileRow(row.oci) } : {}),
         },
       ]),
     ),
