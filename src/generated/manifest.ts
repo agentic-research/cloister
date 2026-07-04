@@ -311,7 +311,8 @@ export const manifest: Gateway = {
                     "get_architecture",
                     "get_diagram",
                     "get_communities"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             },
@@ -331,7 +332,8 @@ export const manifest: Gateway = {
                     "get_impact",
                     "search",
                     "resolve_ref"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             },
@@ -348,7 +350,8 @@ export const manifest: Gateway = {
                     "get_type_info",
                     "get_diagnostics",
                     "semantic_search"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             },
@@ -363,7 +366,8 @@ export const manifest: Gateway = {
                   "serviceBinding": "MACHE_MCP",
                   "claims": [
                     "get_sheaf_status"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             },
@@ -378,7 +382,8 @@ export const manifest: Gateway = {
                   "serviceBinding": "MACHE_MCP",
                   "claims": [
                     "find_smells"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             },
@@ -393,7 +398,8 @@ export const manifest: Gateway = {
                   "serviceBinding": "MACHE_MCP",
                   "claims": [
                     "write_file"
-                  ]
+                  ],
+                  "stripPrefix": "mache_"
                 }
               }
             }

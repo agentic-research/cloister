@@ -62,24 +62,23 @@ the duplicate-prefix check only fires when a claims-less backend would
 be involved (that backend genuinely falls back to prefix matching and
 would collide).
 
-**Known gap (tracked, not yet fixed):** the resolver never derives a
-`stripPrefix` for generated backends. mache's groups declare bare
-`upstreamNames` (e.g. `find_callers`, not `mache_find_callers`) under a
-non-empty `advertisedPrefix`. `tools()` correctly *advertises* each as
-`mache_find_callers` (mache-8ede3f's "don't re-prefix" rule doesn't
-apply — the bare upstream name doesn't already start with the prefix,
-so it gets prefixed once for advertisement). But `handles()` checks the
-**advertised** name (`mache_find_callers`) against `claims`, which only
-holds the **bare** upstream name (`find_callers`) — with `stripPrefix`
-unset, there's no fallback, so the call never matches. Practically:
-every one of mache's 6 backends is `tools/list`-visible but currently
-**not dispatchable** via `tools/call`. This mirrors the working
-hand-written shape it replaced (which set `stripPrefix = "mache_"`
-explicitly) — the resolver's `deriveGeneratedBackends` needs to derive
-an equivalent `stripPrefix` from `advertisedPrefix` when `upstreamNames`
-are bare. See the mache-resolver-migration PR discussion for the
-tracking issue; do not treat mache's tools as reachable until this
-lands.
+**`stripPrefix` derivation (fixed in cloister-2d987e):** mache's groups
+declare bare `upstreamNames` (e.g. `find_callers`, not
+`mache_find_callers`) under a non-empty `advertisedPrefix`. `tools()`
+correctly *advertises* each as `mache_find_callers` (the "don't
+re-prefix" rule doesn't apply — the bare upstream name doesn't already
+start with the prefix, so it gets prefixed once for advertisement). But
+`handles()` checks the **advertised** name (`mache_find_callers`)
+against `claims`, which only holds the **bare** upstream name
+(`find_callers`) — without a `stripPrefix` to reconcile the two, the
+call never matches. `scripts/resolve-inputs.mjs:deriveStripPrefix`
+derives `stripPrefix = advertisedPrefix` per group whenever that
+group's `upstreamNames` are bare (don't already start with
+`advertisedPrefix`) — mirroring the same bare-vs-prefixed condition
+`tools()` uses for the don't-double-prefix rule — and leaves it `""`
+for already-prefixed groups (llo's shape, unaffected). A group whose
+`upstreamNames` mix both shapes is rejected at resolve time (loud
+error naming the group) rather than silently mis-stripped.
 
 ## Cross-input name collisions
 

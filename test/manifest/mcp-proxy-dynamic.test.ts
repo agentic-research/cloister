@@ -623,6 +623,77 @@ describe("McpProxyToolBackend — claims filter (cloister-8ede3f)", () => {
     expect(b.handles("get_overview")).toBe(false);
   });
 
+  it("cloister-2d987e Bug 3: resolver-generated mache shape — non-empty claims + non-empty prefix + derived stripPrefix", async () => {
+    // The P3 resolver shape for a group like mache's "callgraph"
+    // (advertisedPrefix="mache_", upstreamNames=["find_callers", ...] —
+    // BARE, not already prefixed). Before cloister-2d987e's stripPrefix
+    // derivation fix, deriveGeneratedBackends never set stripPrefix, so
+    // handles("mache_find_callers") returned false: claims held the bare
+    // "find_callers", the advertised/incoming name was "mache_find_callers",
+    // and there was no stripPrefix to reconcile the two. mache's tools
+    // were tools/list-visible but NOT tools/call-dispatchable.
+    const spec: HttpForwardBackend = {
+      urlBinding:   "MACHE_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "mache_", // derived by resolve-inputs.mjs:deriveStripPrefix
+      claims:       ["find_callers", "find_callees"],
+    };
+    const upstream = {
+      tools: [
+        { name: "find_callers", description: "callers", inputSchema: { type: "object", properties: {}, required: [] } },
+        { name: "find_callees", description: "callees", inputSchema: { type: "object", properties: {}, required: [] } },
+        { name: "get_overview", description: "overview", inputSchema: { type: "object", properties: {}, required: [] } }, // belongs to a sibling group, not this backend's claims
+      ],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(upstream));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+
+    await b.refreshTools(envWith("http://mache.stub/mcp"));
+
+    // tools() advertises the bare upstream names under the prefix.
+    expect(b.tools().map(t => t.name).sort()).toEqual(["mache_find_callees", "mache_find_callers"]);
+
+    // The exact failure this bug produced, now fixed: the EXTERNALLY
+    // advertised/called name must dispatch to this backend.
+    expect(b.handles("mache_find_callers")).toBe(true);
+    expect(b.handles("mache_find_callees")).toBe(true);
+    // A sibling group's tool (same prefix, different claims) must NOT
+    // be claimed by this backend, in either the advertised or bare form.
+    expect(b.handles("mache_get_overview")).toBe(false);
+    expect(b.handles("get_overview")).toBe(false);
+    // handles() checks `claims.has(toolName)` verbatim BEFORE applying
+    // stripPrefix (see mcp-proxy.ts:handles()), so the bare upstream
+    // name also matches directly — stripPrefix is the fallback for the
+    // ADVERTISED name, not a requirement that the bare name stop
+    // matching. Both forms dispatching to this backend is correct.
+    expect(b.handles("find_callers")).toBe(true);
+  });
+
+  it("cloister-2d987e Bug 3 regression: llo's already-prefixed shape is unaffected by stripPrefix derivation", async () => {
+    // llo's groups declare upstreamNames that ALREADY carry
+    // advertisedPrefix (e.g. "lsp_hover" under advertisedPrefix "lsp_").
+    // deriveStripPrefix must leave stripPrefix="" for this shape — this
+    // pins that the Bug 3 fix doesn't regress the working already-
+    // prefixed case (llo is the only real-world producer of it today).
+    const spec: HttpForwardBackend = {
+      urlBinding:   "LLO_MCP_URL",
+      tools:        [],
+      dynamicTools: true,
+      stripPrefix:  "", // still empty — llo's upstreamNames are already prefixed
+      claims:       ["lsp_hover", "lsp_defs"],
+    };
+    const { fetcher } = mockFetch(() => jsonResponse(LLO_TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "lsp_", fetcher);
+
+    await b.refreshTools({ LLO_MCP_URL: "http://llo.stub/mcp" } as unknown as Env);
+
+    expect(b.tools().map(t => t.name).sort()).toEqual(["lsp_defs", "lsp_hover"]);
+    expect(b.handles("lsp_hover")).toBe(true);
+    expect(b.handles("lsp_defs")).toBe(true);
+    expect(b.handles("lsp_refs")).toBe(false); // claimed by a sibling group, not this one
+  });
+
   it("prefix-less + claims: empty handlesPrefix, claims drives selection — verbatim", async () => {
     const spec: HttpForwardBackend = {
       urlBinding:   "LLO_MCP_URL",

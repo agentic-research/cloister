@@ -215,7 +215,16 @@ export async function resolveInput(spec) {
 
   let generatedBackends;
   if (meta) {
-    generatedBackends = deriveGeneratedBackends(spec, meta);
+    try {
+      generatedBackends = deriveGeneratedBackends(spec, meta);
+    } catch (e) {
+      // deriveStripPrefix (cloister-2d987e, Bug 3) throws when a
+      // group's upstreamNames mix bare + already-prefixed names — a
+      // malformed group cloister can't safely derive routing for.
+      // Wrap as ResolveError so the CLI's per-input failure list names
+      // the input, matching the parseServerJsonMeta error handling above.
+      throw new ResolveError(spec.name, e.message);
+    }
   } else {
     generatedBackends = deriveGeneratedBackends(spec, null);
     // Warn so the operator knows they're getting a single backend
@@ -483,6 +492,63 @@ export function parseServerJsonMeta(bytes) {
 }
 
 /**
+ * Derive the `stripPrefix` a generated backend needs, given one group's
+ * `advertisedPrefix` + `upstreamNames` (cloister-2d987e, Bug 3 of the
+ * mache resolver migration).
+ *
+ * `McpProxyToolBackend.handles()` (src/manifest/backends/mcp-proxy.ts)
+ * checks the EXTERNAL/advertised tool name against `claims`, which holds
+ * the BARE `upstreamNames` verbatim. `tools()` advertises each upstream
+ * name as `advertisedPrefix + upstreamName` UNLESS the upstream name
+ * already starts with the prefix (the "don't-double-prefix" rule, per
+ * wire/meta-groups.md). So:
+ *
+ *   - already-prefixed upstreamNames (llo's shape: advertisedPrefix
+ *     "lsp_", upstreamNames ["lsp_hover", ...]) — the advertised name
+ *     equals the bare upstream name; claims already match; no stripping
+ *     needed. stripPrefix stays "".
+ *   - bare upstreamNames under a non-empty advertisedPrefix (mache's
+ *     shape: advertisedPrefix "mache_", upstreamNames ["find_callers",
+ *     ...]) — the advertised name is "mache_find_callers" but claims
+ *     only holds "find_callers". handles()'s claims check needs
+ *     stripPrefix = advertisedPrefix so it can un-prefix the incoming
+ *     call before matching against claims.
+ *
+ * A group whose upstreamNames MIX both shapes (some already start with
+ * advertisedPrefix, some don't) can't be given one correct stripPrefix —
+ * stripping would break the already-prefixed subset (double-strip) or
+ * leaving it unset would break the bare subset (Bug 3). That's a
+ * malformed group; this throws rather than silently guessing.
+ *
+ * Returns "" when advertisedPrefix is empty (no prefix to strip) or all
+ * upstreamNames are already prefixed.
+ *
+ * Exported for unit tests.
+ */
+export function deriveStripPrefix(group) {
+  const prefix = typeof group.advertisedPrefix === "string" ? group.advertisedPrefix : "";
+  if (prefix === "") return "";
+
+  const names = Array.isArray(group.upstreamNames) ? group.upstreamNames : [];
+  const bareCount     = names.filter((n) => !n.startsWith(prefix)).length;
+  const prefixedCount = names.length - bareCount;
+
+  if (bareCount > 0 && prefixedCount > 0) {
+    throw new Error(
+      `_meta.art.cloister/v1.groups (name="${group.name}"): upstreamNames mixes names ` +
+      `already prefixed with "${prefix}" and bare names that aren't — cloister can't ` +
+      `derive a single correct stripPrefix for this group. Either prefix every ` +
+      `upstreamNames entry with "${prefix}" or none of them.`,
+    );
+  }
+
+  // All-bare → strip the advertised prefix before matching claims.
+  // All-already-prefixed → advertised name already equals the claim;
+  // nothing to strip.
+  return bareCount > 0 ? prefix : "";
+}
+
+/**
  * Derive `[generated_backends]` rows from a resolved input spec + its
  * (already-validated) `_meta.art.cloister/v1` block. When `meta` is
  * `null` (no opt-in or non-JSON bytes), emits the heuristic-fallback
@@ -523,6 +589,11 @@ export function deriveGeneratedBackends(spec, meta) {
     // meta (parseServerJsonMeta fills the field) or when callers pass
     // a raw group object — wire/meta-groups.md treats absence as "".
     handlesPrefix:  typeof g.advertisedPrefix === "string" ? g.advertisedPrefix : "",
+    // stripPrefix (cloister-2d987e, Bug 3): only needed when
+    // upstreamNames are bare under a non-empty advertisedPrefix — see
+    // deriveStripPrefix's doc comment. "" for llo's already-prefixed
+    // shape preserves today's behavior exactly.
+    stripPrefix:    deriveStripPrefix(g),
     claims:         g.upstreamNames.slice(),
     dynamicTools:   true,
     urlBinding,
