@@ -75,6 +75,14 @@ const DRY   = ENV.CLUSTER_DEV_DRY_RUN === "1";
 const RUN_DIR = ENV.CLUSTER_DEV_RUN_DIR ?? "/tmp/cloister-dev/run";
 const DO_DIR  = ENV.CLUSTER_DEV_DO_DIR  ?? join(homedir(), ".cache/cloister-dev/do");
 const INSPECTOR_PORT_BASE = parsePositiveInt(ENV.CLUSTER_DEV_INSPECTOR_PORT_BASE, 9229);
+// Inspector ports the operator pinned via CLUSTER_DEV_INSPECTOR_PORT_<NAME>.
+// Auto-assignment skips these so an override can't collide with an
+// auto-assigned port regardless of bundle iteration order (cloister-31c844).
+const RESERVED_INSPECTOR_PORTS = new Set(
+  Object.entries(ENV)
+    .filter(([k]) => k.startsWith("CLUSTER_DEV_INSPECTOR_PORT_") && k !== "CLUSTER_DEV_INSPECTOR_PORT_BASE")
+    .map(([, v]) => parsePositiveInt(v, INSPECTOR_PORT_BASE)),
+);
 
 // ── Load + validate the cluster manifest ──────────────────────────────────
 
@@ -350,7 +358,9 @@ function relocateSocket(declared) {
 function inspectorPortFor(bundleName) {
   const overrideKey = `CLUSTER_DEV_INSPECTOR_PORT_${bundleName.toUpperCase().replace(/-/g, "_")}`;
   if (ENV[overrideKey]) return parsePositiveInt(ENV[overrideKey], INSPECTOR_PORT_BASE);
-  return INSPECTOR_PORT_BASE + nextInspectorOffset++;
+  let port = INSPECTOR_PORT_BASE + nextInspectorOffset++;
+  while (RESERVED_INSPECTOR_PORTS.has(port)) port = INSPECTOR_PORT_BASE + nextInspectorOffset++;
+  return port;
 }
 
 function parsePositiveInt(value, fallback) {
