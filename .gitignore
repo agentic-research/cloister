@@ -44,6 +44,11 @@ sbom-*.spdx.json
 # `rsry enable` / dolt server start.
 .beads/dolt-server.pid
 .beads/dolt-server.port
+# Dolt's derived statistics sub-store (query-optimizer cache). NOT bead
+# data — Dolt regenerates it from the tracked content store on access, so
+# it rewrites itself every session and only ever shows up as git churn.
+# The canonical bead content under .beads/dolt/**/noms/ stays tracked.
+.beads/dolt/**/stats/
 
 # bd (issues-tracker) local artifacts. bd ships with Homebrew and
 # auto-initializes a local backup + embedded-dolt store on first run.
