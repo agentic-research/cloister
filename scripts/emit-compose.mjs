@@ -31,7 +31,8 @@
  *   → writes cluster.compose.yaml in the repo root.
  */
 
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { parse as parseToml } from "@iarna/toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -225,7 +226,7 @@ function perTenantSocketForWire(wire, cluster, targetBundle) {
  *
  * Exported for tests.
  */
-export function emitCompose(cluster) {
+export function emitCompose(cluster, ociByInput = new Map()) {
   const { colocation, violations } = resolveTenancy(cluster);
   if (violations.length > 0) {
     const msg = violations
@@ -269,10 +270,10 @@ export function emitCompose(cluster) {
     const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput);
     }
   }
 
@@ -296,6 +297,33 @@ export function emitCompose(cluster) {
 }
 
 /**
+ * Resolve a bundle's container image (ADR-0038 precedence):
+ *   1. non-empty operator `ext.image` wins (mirror, fork, pinned digest);
+ *   2. else derive from the first linked input's self-declared oci package
+ *      — `<identifier>@<digest>` when digest-pinned, else
+ *      `<identifier>:<version>`, else bare `<identifier>` (registry default);
+ *   3. else warn loudly and return the (empty) `ext.image` — `compose up`
+ *      fails, not this emitter, and a blank image is never shipped silently.
+ */
+function resolveBundleImage(ext, colocatedInputs, ociByInput, bundleName) {
+  if (ext.image) return ext.image;
+  for (const inputName of colocatedInputs) {
+    const oci = ociByInput.get(inputName);
+    if (oci && oci.identifier) {
+      if (oci.digest)  return `${oci.identifier}@${oci.digest}`;
+      if (oci.version) return `${oci.identifier}:${oci.version}`;
+      return oci.identifier;
+    }
+  }
+  console.warn(
+    `emit-compose: bundle "${bundleName}" has no image — no operator ext.image ` +
+    `and no packages[].oci from a linked input (${colocatedInputs.join(", ") || "none"}). ` +
+    `Set image in cluster.toml or add an oci package to the input's server.json (ADR-0038).`,
+  );
+  return ext.image;
+}
+
+/**
  * Emit a single compose service block for one bundle instance. If
  * `tenant` is non-null, this is a perTenant fanout instance — the
  * service + container names get the `-<tenant.name>` suffix, the
@@ -312,20 +340,23 @@ export function emitCompose(cluster) {
  *
  * Per cloister-cedcf3 Phase 2 piece 2 + Phase 3 pieces 1, 2, 3.
  */
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map()) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
   const containerName = `cloister-${serviceName}`;
+  // ADR-0038: operator ext.image wins; else derive from a linked input's
+  // self-declared packages[].oci; else a loud warning + empty image.
+  const image = resolveBundleImage(ext, colocatedInputs, ociByInput, b.name);
 
   lines.push(`  ${serviceName}:`);
-  lines.push(`    image: ${ext.image}`);
+  lines.push(`    image: ${image}`);
   lines.push(`    pull_policy: never`);
   lines.push(`    container_name: ${containerName}`);
   lines.push(`    labels:`);
   lines.push(`      - "cloister.bundle=${b.name}"`);
   lines.push(`      - "cloister.tier=${b.tier}"`);
-  lines.push(`      - "cloister.description=${ext.image} — ${b.description}"`);
+  lines.push(`      - "cloister.description=${image} — ${b.description}"`);
   if (colocatedInputs.length > 0) {
     lines.push(`      - "cloister.colocated-inputs=${colocatedInputs.join(",")}"`);
   }
@@ -441,9 +472,28 @@ async function runCLI() {
   );
   validateCluster(cluster);
 
+  // ADR-0038: load each input's self-declared oci image from the lockfile
+  // (resolve-inputs records packages[].oci there). Absent lockfile / no oci
+  // → empty map → emitCompose falls back to the operator's ext.image as
+  // before (fully back-compat).
+  const ociByInput = new Map();
+  const LOCKFILE = process.env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
+  if (existsSync(LOCKFILE)) {
+    try {
+      const lock = parseToml(readFileSync(LOCKFILE, "utf8"));
+      for (const [name, row] of Object.entries(lock.inputs ?? {})) {
+        if (row && typeof row === "object" && row.oci && row.oci.identifier) {
+          ociByInput.set(name, row.oci);
+        }
+      }
+    } catch (e) {
+      console.warn(`emit-compose: could not read oci packages from ${LOCKFILE}: ${e.message}`);
+    }
+  }
+
   let body;
   try {
-    body = emitCompose(cluster);
+    body = emitCompose(cluster, ociByInput);
   } catch (e) {
     console.error(e.message);
     process.exit(1);
