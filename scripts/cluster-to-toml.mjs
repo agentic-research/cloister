@@ -245,20 +245,20 @@ function canonicalizeInputs(arr) {
  */
 function canonicalizeBundle(b) {
   const { kind, ...scalars } = b;
-  const flat = { ...scalars };
+  const flat = pruneBundleScalarDefaults(scalars);
 
   if (kind && typeof kind === "object" && !Array.isArray(kind)) {
     const tag = pickUnionTag(kind, "Bundle.kind");
     const payload = kind[tag];
     flat.kind = tag;
     // Payload may itself contain arrays-of-tables (env: [EnvVar]).
-    flat[tag] = canonicalizeKindPayload(payload);
+    flat[tag] = canonicalizeBundleKindPayload(tag, payload);
   } else if (typeof kind === "string") {
     // Already TOML-flat — pass through, but locate the sibling
     // payload so canonicalization applies uniformly.
     flat.kind = kind;
     if (scalars[kind] !== undefined) {
-      flat[kind] = canonicalizeKindPayload(scalars[kind]);
+      flat[kind] = canonicalizeBundleKindPayload(kind, scalars[kind]);
     }
   } else {
     // Malformed — let the writer fail loudly rather than silently
@@ -269,6 +269,35 @@ function canonicalizeBundle(b) {
     );
   }
   return sortKeys(flat);
+}
+
+/**
+ * Omit schema-zero bundle scalars from canonical TOML. The reader
+ * restores these defaults before zod validation, so the operator surface
+ * can stay terse without changing the typed Cluster shape.
+ */
+function pruneBundleScalarDefaults(scalars) {
+  const flat = { ...scalars };
+  if (flat.description === "") delete flat.description;
+  if (Array.isArray(flat.holdsCredential) && flat.holdsCredential.length === 0) delete flat.holdsCredential;
+  if (flat.workerdServiceName === "") delete flat.workerdServiceName;
+  if (flat.hypervisorRationale === "") delete flat.hypervisorRationale;
+  if (flat.perTenant === false) delete flat.perTenant;
+  return flat;
+}
+
+function canonicalizeBundleKindPayload(tag, payload) {
+  const sorted = canonicalizeKindPayload(payload);
+  if (tag !== "external" || !sorted || typeof sorted !== "object" || Array.isArray(sorted)) {
+    return sorted;
+  }
+
+  const pruned = { ...sorted };
+  if (pruned.ipcSocket === "") delete pruned.ipcSocket;
+  if (pruned.httpPort === 0) delete pruned.httpPort;
+  if (Array.isArray(pruned.args) && pruned.args.length === 0) delete pruned.args;
+  if (Array.isArray(pruned.env) && pruned.env.length === 0) delete pruned.env;
+  return pruned;
 }
 
 /**

@@ -12,27 +12,20 @@ tier = "hypervisor"
 workerdServiceName = "cloister"
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
   httpPort = 8_787
   image = "cloister:0.1.0"
   ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Code intelligence — symbol search, definitions, callgraph"
-holdsCredential = [ ]
-hypervisorRationale = ""
 kind = "external"
 name = "mache"
 tier = "cluster"
-workerdServiceName = ""
 
   [bundles.external]
   args = [ "serve", "--http", "localhost:7532" ]
-  env = [ ]
   httpPort = 7_532
   image = "mache:0.8.0"
-  ipcSocket = ""
 
 [[wires]]
 binding = "MACHE_BUNDLE"

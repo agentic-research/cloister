@@ -319,18 +319,11 @@ version = "0.0.1"
 
 [[bundles]]
 name = "alpha"
-description = ""
 tier = "cluster"
-holdsCredential = []
-workerdServiceName = ""
-hypervisorRationale = ""
 kind = "external"
 [bundles.external]
 image = "a:0.1"
 ipcSocket = "/run/a.sock"
-httpPort = 0
-args = []
-env = []
 
 [[wires]]
 from = "alpha"

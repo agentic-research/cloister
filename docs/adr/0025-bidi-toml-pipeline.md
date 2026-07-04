@@ -188,8 +188,6 @@ kind = "external"
 image = "cloister:0.1.0"
 ipcSocket = "/run/cloister-uds/router.sock"
 httpPort = 8787
-args = []
-env = []
 
 # Void variant (no payload):
 [[wires]]
@@ -203,6 +201,12 @@ The `kind` / `transport` discriminator is a sibling string field; the
 payload (when non-Void) is a nested table named after the variant.
 Void variants emit as just the string tag — no nested table, no `null`
 sentinel.
+
+Canonical TOML omits schema-zero bundle defaults: empty strings,
+empty lists, `perTenant = false`, and external `httpPort = 0` are
+restored by the reader before zod validation. Nonzero values and
+populated lists stay explicit (for example, `httpPort = 8787` or a
+non-empty `args` list).
 
 **Why not nest the union under a single key?**
 

@@ -23,41 +23,27 @@ tier = "hypervisor"
 workerdServiceName = "cloister"
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
   httpPort = 8_787
   image = "cloister:0.1.0"
   ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Tenant alice — echoes inbound request URLs as proof of routing"
-holdsCredential = [ ]
-hypervisorRationale = ""
 kind = "external"
 name = "alice-tenant"
 tier = "cluster"
-workerdServiceName = ""
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
-  httpPort = 0
   image = "cloister:0.1.0"
   ipcSocket = "/run/cloister-uds/alice.sock"
 
 [[bundles]]
 description = "Tenant bob — echoes inbound request URLs as proof of routing"
-holdsCredential = [ ]
-hypervisorRationale = ""
 kind = "external"
 name = "bob-tenant"
 tier = "cluster"
-workerdServiceName = ""
 
   [bundles.external]
-  args = [ ]
-  env = [ ]
-  httpPort = 0
   image = "cloister:0.1.0"
   ipcSocket = "/run/cloister-uds/bob.sock"
 
@@ -92,17 +78,17 @@ path = "/health"
 kind = "tenantDispatch"
 path = "/"
 
-  [[routes.tenantDispatch.tenants]]
-  name       = "alice"
-  mode       = "sni"
-  matchValue = "alice.cluster.example"
-  binding    = "T_ALICE"
+[[routes.tenantDispatch.tenants]]
+binding = "T_ALICE"
+matchValue = "alice.cluster.example"
+mode = "sni"
+name = "alice"
 
-  [[routes.tenantDispatch.tenants]]
-  name       = "bob"
-  mode       = "path-prefix"
-  matchValue = "/t/bob"
-  binding    = "T_BOB"
+[[routes.tenantDispatch.tenants]]
+binding = "T_BOB"
+matchValue = "/t/bob"
+mode = "path-prefix"
+name = "bob"
 
 [gateway.actor]
 algorithm = "ed25519"

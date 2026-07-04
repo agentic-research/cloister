@@ -417,6 +417,40 @@ function unflattenBundleKind(b) {
   if (typeof result.perTenant !== "boolean") {
     result = { ...result, perTenant: false };
   }
+  return normalizeBundleDefaults(result);
+}
+
+function normalizeBundleDefaults(bundle) {
+  if (!bundle || typeof bundle !== "object") return bundle;
+
+  let result = {
+    ...bundle,
+    description:         typeof bundle.description === "string" ? bundle.description : "",
+    holdsCredential:     Array.isArray(bundle.holdsCredential) ? bundle.holdsCredential : [],
+    workerdServiceName:  typeof bundle.workerdServiceName === "string" ? bundle.workerdServiceName : "",
+    hypervisorRationale: typeof bundle.hypervisorRationale === "string" ? bundle.hypervisorRationale : "",
+    perTenant:           typeof bundle.perTenant === "boolean" ? bundle.perTenant : false,
+  };
+
+  if (result.kind && typeof result.kind === "object" && !Array.isArray(result.kind) && result.kind.external) {
+    const external = result.kind.external && typeof result.kind.external === "object"
+      ? result.kind.external
+      : {};
+    result = {
+      ...result,
+      kind: {
+        ...result.kind,
+        external: {
+          image:     typeof external.image     === "string" ? external.image     : "",
+          ipcSocket: typeof external.ipcSocket === "string" ? external.ipcSocket : "",
+          httpPort:  typeof external.httpPort  === "number" ? external.httpPort  : 0,
+          args:      Array.isArray(external.args) ? external.args : [],
+          env:       Array.isArray(external.env)  ? external.env  : [],
+        },
+      },
+    };
+  }
+
   return result;
 }
 
