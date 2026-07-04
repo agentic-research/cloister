@@ -157,6 +157,7 @@ function validate(g) {
   const seenPaths = new Set();
   const seenToolNames = new Set();
   const seenPrefixes = new Set();
+  const seenClaimsPrefixes = new Set();
 
   for (const r of g.routes) {
     if (typeof r.path !== "string")  fail(`route.path missing on ${JSON.stringify(r)}`);
@@ -194,13 +195,35 @@ function validate(g) {
         if (typeof b.name !== "string")          fail(`backend.name missing on route ${r.path}`);
         if (typeof b.handlesPrefix !== "string") fail(`backend.handlesPrefix missing on ${b.name}`);
 
+        const hasClaims = (b.kind?.mcpProxy?.claims?.length ?? 0) > 0;
+
         // Empty prefix = exact-match-against-tool-list mode. Multiple
         // empty-prefix backends can coexist; the duplicate-prefix check
-        // applies only to non-empty prefixes.
+        // applies only to non-empty prefixes — UNLESS every backend
+        // sharing the prefix has a non-empty `claims` set. Mirrors
+        // src/manifest/runtime.ts's validate(): McpProxyToolBackend.handles()
+        // checks `claims` BEFORE falling back to prefix matching, so two
+        // claims-backed backends sharing a prefix dispatch by exact
+        // upstream tool name, not by prefix — no first-wins-shadow hazard.
+        // This is the shape the P3 resolver produces for a multi-group
+        // server.json whose groups share one `advertisedPrefix`
+        // (cloister-cb7263; e.g. mache's navigation/callgraph/lsp/
+        // lifecycle/linter/mutate groups all advertise under "mache_" but
+        // claim disjoint tool sets).
         if (b.handlesPrefix !== "") {
-          if (seenPrefixes.has(b.handlesPrefix)) {
+          const prefixSeenBefore = seenPrefixes.has(b.handlesPrefix);
+          const bothClaimsBacked = hasClaims && seenClaimsPrefixes.has(b.handlesPrefix);
+          if (prefixSeenBefore && !bothClaimsBacked) {
+            if (hasClaims || seenClaimsPrefixes.has(b.handlesPrefix)) {
+              fail(
+                `backend "${b.name}" shares prefix "${b.handlesPrefix}" with a claims-less ` +
+                `backend — the claims-less backend falls back to prefix matching in handles() ` +
+                `and would collide`,
+              );
+            }
             fail(`duplicate backend prefix: ${b.handlesPrefix}`);
           }
+          if (hasClaims) seenClaimsPrefixes.add(b.handlesPrefix);
           seenPrefixes.add(b.handlesPrefix);
         }
 
@@ -388,9 +411,41 @@ function overlayLockfileBackends(g) {
   let injected = 0;
   let replaced = 0;
 
+  // Names already claimed by a PRIOR generated row this pass, so a later
+  // row from a different input can be detected and qualified instead of
+  // silently overwriting the earlier one. meta-groups.md only promises
+  // group-name uniqueness WITHIN one server.json's groups[] (§`name`:
+  // "unique within the groups[] array of THIS server.json") — nothing
+  // stops two different inputs (e.g. llo and mache) from both naming a
+  // group "lsp"/"lifecycle". Before this fix, `shellsByName`'s "generated
+  // wins" precedence (meant for hand-shell-vs-generated) silently applied
+  // to generated-vs-generated too: whichever input's row came later in
+  // cluster.lock.toml's [[generated_backends]] array clobbered the
+  // earlier one under the SAME backend.name key, dropping the earlier
+  // input's tools with only a misleading "hand-shell collision" log line
+  // (there was no hand-shell at all).
+  const generatedNamesByInput = new Map(); // name -> input that generated it
+
   for (const row of rows) {
     const backend = backendFromGeneratedRow(row);
     if (backend === null) continue;
+
+    const priorInput = generatedNamesByInput.get(backend.name);
+    if (priorInput !== undefined && priorInput !== row.input) {
+      // Cross-input collision: qualify THIS row's name by its input so
+      // both backends survive instead of one clobbering the other.
+      // `${input}/${name}` mirrors the `input` field already carried on
+      // every generated_backends row for traceability.
+      const qualifiedName = `${row.input}/${row.name}`;
+      console.error(
+        `build-manifest: generated_backends name collision — "${backend.name}" is ` +
+        `declared by both input "${priorInput}" and input "${row.input}"; qualifying ` +
+        `the latter as "${qualifiedName}" so neither input's tools are dropped. ` +
+        `(meta-groups.md only guarantees group-name uniqueness within one server.json.)`,
+      );
+      backend.name = qualifiedName;
+    }
+    generatedNamesByInput.set(backend.name, row.input);
 
     const existingIdx = shellsByName.get(backend.name);
     if (existingIdx !== undefined) {

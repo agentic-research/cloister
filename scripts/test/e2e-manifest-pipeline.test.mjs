@@ -219,6 +219,36 @@ test("e2e lockfile: collision (hand-shell + generated with same name) → genera
   } finally { r.cleanup(); }
 });
 
+test("e2e lockfile: cross-input name collision → later input's row is qualified, not clobbered", () => {
+  // cloister-2d987e: llo and mache each declare a group named "lsp" in
+  // their own server.json's _meta.art.cloister/v1.groups[]. meta-groups.md
+  // only promises name-uniqueness WITHIN one server.json — nothing stops
+  // two different inputs from picking the same group name. Before the
+  // fix, overlayLockfileBackends's shellsByName index was keyed by name
+  // only, so mache's "lsp" row silently replaced llo's "lsp" row (logged
+  // as a misleading "hand-shell collision" even though neither is a
+  // hand-shell) — llo's lsp_hover/lsp_defs tools would vanish from the
+  // manifest with no build failure to catch it.
+  const r = runBuildManifest("lockfile-cross-input-collision.capnp", {
+    lockfile: "lockfile-cross-input-collision.lock.toml",
+  });
+  try {
+    assert.equal(r.status, 0, `build failed unexpectedly\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
+    assert.ok(existsSync(r.outFile), "expected output file not written");
+
+    const emitted = readFileSync(r.outFile, "utf8");
+    // llo's original "lsp" backend name + claims must survive untouched.
+    assert.match(emitted, /"name": "lsp"/, "llo's lsp backend missing from emitted manifest");
+    assert.match(emitted, /"lsp_hover"/, "llo's lsp claims must survive — not clobbered by mache's row");
+    // mache's colliding row is qualified by input so both backends coexist.
+    assert.match(emitted, /"name": "mache\/lsp"/, "mache's lsp row must be qualified as \"mache/lsp\"");
+    assert.match(emitted, /"get_type_info"/, "mache's lsp claims must also survive under the qualified name");
+
+    // The collision must be logged so the operator can see it happened.
+    assert.match(r.stderr, /name collision.*"lsp"/, `expected collision diagnostic in stderr; got: ${r.stderr}`);
+  } finally { r.cleanup(); }
+});
+
 test("e2e lockfile: no lockfile present → emitter is a no-op (back-compat)", () => {
   // When CLOISTER_LOCKFILE points at a non-existent file, the emitter
   // must NOT crash — it just skips the injection step. This preserves

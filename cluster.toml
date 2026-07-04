@@ -50,7 +50,7 @@ workerdServiceName = ""
   args = [ "serve", "--http", "localhost:7532" ]
   env = [ ]
   httpPort = 7_532
-  image = "mache:0.8.0"
+  image = "mache:0.13.0"
   ipcSocket = ""
 
 [[bundles]]
@@ -94,6 +94,13 @@ version = "0.4.5"
 from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+
+[inputs.mache]
+ref = "io.github.org/agentic-research/mache@main"
+version = "0.13.0"
+from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
 
 [[routes]]
 kind = "health"
@@ -174,21 +181,6 @@ name = "bead"
     description = "Add a comment to a bead."
     inputSchemaJson = ""
     name = "bead_comment"
-
-[[routes.mcp.backends]]
-handlesPrefix = "mache_"
-kind = "mcpProxy"
-name = "mache"
-
-  [routes.mcp.backends.mcpProxy]
-  claims = [ ]
-  dynamicTools = true
-  protocolMode = ""
-  requiresSession = true
-  serviceBinding = "MACHE_MCP"
-  stripPrefix = "mache_"
-  tools = [ ]
-  urlBinding = "MACHE_MCP_URL"
 
 [[routes.mcp.backends]]
 handlesPrefix = "rsry_"

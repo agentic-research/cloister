@@ -111,20 +111,6 @@ export const manifest: Gateway = {
               }
             },
             {
-              "name": "mache",
-              "handlesPrefix": "mache_",
-              "kind": {
-                "mcpProxy": {
-                  "urlBinding": "MACHE_MCP_URL",
-                  "tools": [],
-                  "dynamicTools": true,
-                  "stripPrefix": "mache_",
-                  "requiresSession": true,
-                  "serviceBinding": "MACHE_MCP"
-                }
-              }
-            },
-            {
               "name": "rsry",
               "handlesPrefix": "rsry_",
               "kind": {
@@ -305,6 +291,108 @@ export const manifest: Gateway = {
                     "hdc_search",
                     "hdc_calibrate",
                     "hdc_density"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "navigation",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "list_directory",
+                    "read_file",
+                    "get_overview",
+                    "get_architecture",
+                    "get_diagram",
+                    "get_communities"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "callgraph",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "find_callers",
+                    "find_callees",
+                    "find_definition",
+                    "get_impact",
+                    "search",
+                    "resolve_ref"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "mache/lsp",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "get_type_info",
+                    "get_diagnostics",
+                    "semantic_search"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "mache/lifecycle",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "get_sheaf_status"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "linter",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "find_smells"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "mutate",
+              "handlesPrefix": "mache_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "MACHE_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "MACHE_MCP",
+                  "claims": [
+                    "write_file"
                   ]
                 }
               }

@@ -11,6 +11,14 @@ fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json
 signer = ""
 bytes = 2_603
 
+[inputs.mache]
+ref = "io.github.org/agentic-research/mache@main"
+resolved = "0.13.0"
+sha256 = "sha256:d6ed96f5a23e8434e538a6678a534afa16ca5797e2ebe8036b624d7608d2ad52"
+fetched_from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
+signer = ""
+bytes = 4_177
+
 [[generated_backends]]
 input = "llo"
 name = "lsp"
@@ -103,3 +111,71 @@ claims = [ "hdc_search", "hdc_calibrate", "hdc_density" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "navigation"
+handlesPrefix = "mache_"
+claims = [
+  "list_directory",
+  "read_file",
+  "get_overview",
+  "get_architecture",
+  "get_diagram",
+  "get_communities"
+]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "callgraph"
+handlesPrefix = "mache_"
+claims = [
+  "find_callers",
+  "find_callees",
+  "find_definition",
+  "get_impact",
+  "search",
+  "resolve_ref"
+]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "lsp"
+handlesPrefix = "mache_"
+claims = [ "get_type_info", "get_diagnostics", "semantic_search" ]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "lifecycle"
+handlesPrefix = "mache_"
+claims = [ "get_sheaf_status" ]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "linter"
+handlesPrefix = "mache_"
+claims = [ "find_smells" ]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "mutate"
+handlesPrefix = "mache_"
+claims = [ "write_file" ]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"
