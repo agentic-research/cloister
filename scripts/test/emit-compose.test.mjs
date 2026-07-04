@@ -593,3 +593,46 @@ test("emitCompose: per-tenant socket derivation handles base path with no extens
   assert.ok(yaml.includes('"TENANT_SOCKET=/run/cloister-uds/bare.alice"'),
     `TENANT_SOCKET should match`);
 });
+
+// ── ADR-0038: derive bundle image from a linked input's packages[].oci ────
+
+function ociCluster(image, inputName = "mache") {
+  return baseCluster({
+    bundles: [{
+      name: "mache", description: "mache code intel", tier: "cluster",
+      holdsCredential: [], workerdServiceName: "", hypervisorRationale: "",
+      kind: { external: { image, ipcSocket: "", httpPort: 7532, args: [], env: [] } },
+    }],
+    // empty workerdId → resolveTenancy rung 2: colocates to the same-name bundle
+    inputs: [inputWithTenancy(inputName, {})],
+  });
+}
+
+test("emitCompose: operator ext.image wins over a linked input's oci (ADR-0038)", () => {
+  const oci = new Map([["mache", { identifier: "ghcr.io/org/mache", version: "0.13.0" }]]);
+  const yaml = emitCompose(ociCluster("mache:0.9.0-operator-pin"), oci);
+  assert.ok(yaml.includes("image: mache:0.9.0-operator-pin"), "operator image must win");
+  assert.ok(!yaml.includes("ghcr.io/org/mache"), "oci must not override an operator image");
+});
+
+test("emitCompose: empty ext.image derives identifier:version from oci", () => {
+  const oci = new Map([["mache", { identifier: "ghcr.io/org/mache", version: "0.13.0" }]]);
+  const yaml = emitCompose(ociCluster(""), oci);
+  assert.ok(yaml.includes("image: ghcr.io/org/mache:0.13.0"));
+});
+
+test("emitCompose: empty ext.image + digest-pinned oci derives identifier@digest", () => {
+  const oci = new Map([["mache", { identifier: "ghcr.io/org/mache", version: "", digest: "sha256:abc" }]]);
+  const yaml = emitCompose(ociCluster(""), oci);
+  assert.ok(yaml.includes("image: ghcr.io/org/mache@sha256:abc"));
+});
+
+test("emitCompose: empty ext.image + no oci → blank image (loud warn, no silent default)", () => {
+  const yaml = emitCompose(ociCluster(""), new Map());
+  assert.ok(/^ {4}image:\s*$/m.test(yaml), "image line present but blank — compose up fails, not the emitter");
+});
+
+test("emitCompose: no ociByInput arg → operator image verbatim (back-compat)", () => {
+  const yaml = emitCompose(ociCluster("mache:0.13.0"));
+  assert.ok(yaml.includes("image: mache:0.13.0"));
+});
