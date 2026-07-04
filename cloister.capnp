@@ -65,17 +65,6 @@ const gateway :Cloister.Gateway = (
               ],
             )),
           ),
-          ( name          = "mache",
-            handlesPrefix = "mache_",
-            kind = (mcpProxy = (
-              urlBinding      = "MACHE_MCP_URL",
-              serviceBinding  = "MACHE_MCP",
-              tools           = [],
-              dynamicTools    = true,
-              stripPrefix     = "mache_",
-              requiresSession = true,
-            )),
-          ),
           ( name          = "rsry",
             handlesPrefix = "rsry_",
             kind = (mcpProxy = (

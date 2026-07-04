@@ -70,7 +70,7 @@ export const cluster: Cluster = {
       "perTenant": false,
       "kind": {
         "external": {
-          "image": "mache:0.8.0",
+          "image": "mache:0.13.0",
           "ipcSocket": "",
           "httpPort": 7532,
           "args": [
@@ -145,6 +145,23 @@ export const cluster: Cluster = {
       "requires": [],
       "urlBinding": "LLO_MCP_URL",
       "serviceBinding": "LSP_MCP",
+      "tenancy": {
+        "mode": "",
+        "workerdId": "",
+        "trustedTier": false,
+        "sharesWorkerdWith": []
+      }
+    },
+    {
+      "name": "mache",
+      "ref": "io.github.org/agentic-research/mache@main",
+      "version": "0.13.0",
+      "digest": "",
+      "from": "file:///Users/jamesgardner/remotes/art/mache/server.json",
+      "provides": [],
+      "requires": [],
+      "urlBinding": "MACHE_MCP_URL",
+      "serviceBinding": "MACHE_MCP",
       "tenancy": {
         "mode": "",
         "workerdId": "",
@@ -250,22 +267,6 @@ export const cluster: Cluster = {
                       "inputSchemaJson": ""
                     }
                   ]
-                }
-              }
-            },
-            {
-              "name": "mache",
-              "handlesPrefix": "mache_",
-              "kind": {
-                "mcpProxy": {
-                  "urlBinding": "MACHE_MCP_URL",
-                  "tools": [],
-                  "dynamicTools": true,
-                  "stripPrefix": "mache_",
-                  "requiresSession": true,
-                  "protocolMode": "",
-                  "serviceBinding": "MACHE_MCP",
-                  "claims": []
                 }
               }
             },

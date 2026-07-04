@@ -1,0 +1,38 @@
+_comment = "Fixture lockfile paired with lockfile-cross-input-collision.capnp (cloister-2d987e). Two DIFFERENT inputs (llo, mache) each declare a group named \"lsp\" — asserts overlayLockfileBackends qualifies the second by input instead of silently clobbering the first."
+schema = "cloister/lockfile/v1"
+cluster = "lockfile-e2e"
+version = "0.0.0"
+
+[inputs.llo]
+ref = "file:///tmp/fake-llo"
+resolved = "0.4.5"
+sha256 = "sha256:deadbeef"
+fetched_from = "file:///tmp/fake-llo"
+signer = ""
+bytes = 0
+
+[inputs.mache]
+ref = "file:///tmp/fake-mache"
+resolved = "0.12.0"
+sha256 = "sha256:beadfeed"
+fetched_from = "file:///tmp/fake-mache"
+signer = ""
+bytes = 0
+
+[[generated_backends]]
+input = "llo"
+name = "lsp"
+handlesPrefix = "lsp_"
+claims = ["lsp_hover", "lsp_defs"]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+
+[[generated_backends]]
+input = "mache"
+name = "lsp"
+handlesPrefix = "mache_"
+claims = ["get_type_info", "get_diagnostics"]
+dynamicTools = true
+urlBinding = "MACHE_MCP_URL"
+serviceBinding = "MACHE_MCP"

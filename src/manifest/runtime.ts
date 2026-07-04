@@ -292,6 +292,7 @@ function escapeRegex(s: string): string {
 function validate(g: Gateway): void {
   const seenPaths = new Set<string>();
   const seenPrefixes = new Set<string>();
+  const seenClaimsPrefixes = new Set<string>();
   const seenToolNames = new Set<string>();
 
   for (const r of g.routes) {
@@ -302,17 +303,38 @@ function validate(g: Gateway): void {
 
     if ("mcp" in r.kind) {
       for (const b of r.kind.mcp.backends) {
+        const hasClaims = "mcpProxy" in b.kind && (b.kind.mcpProxy.claims?.length ?? 0) > 0;
+
         // Empty prefix = exact-match-against-tool-list mode. Multiple
         // empty-prefix backends can coexist; tool-name uniqueness (below)
         // is the right invariant. The duplicate-prefix check applies only
         // to non-empty prefixes (where two backends both claiming "x_"
-        // would silently first-wins shadow each other).
+        // would silently first-wins shadow each other) — UNLESS every
+        // backend sharing the prefix has a non-empty `claims` set.
+        // McpProxyToolBackend.handles() (mcp-proxy.ts) checks `claims`
+        // BEFORE falling back to prefix matching, so two claims-backed
+        // backends sharing a prefix dispatch by exact upstream tool name,
+        // not by prefix — no first-wins-shadow hazard. This is the shape
+        // the P3 resolver produces for a multi-group server.json whose
+        // groups share one `advertisedPrefix` (cloister-cb7263; e.g. mache's
+        // navigation/callgraph/lsp/lifecycle/linter/mutate groups all
+        // advertise under "mache_" but claim disjoint tool sets). A
+        // claims-less backend sharing that same prefix is still the
+        // original hazard (it falls back to prefix matching in
+        // `handles()`), so it's tracked + rejected separately.
         if (b.handlesPrefix !== "") {
-          if (seenPrefixes.has(b.handlesPrefix)) {
+          const prefixSeenBefore = seenPrefixes.has(b.handlesPrefix);
+          const bothClaimsBacked = hasClaims && seenClaimsPrefixes.has(b.handlesPrefix);
+          if (prefixSeenBefore && !bothClaimsBacked) {
             throw new TypeError(
-              `manifest: duplicate backend prefix "${b.handlesPrefix}" (backend "${b.name}")`,
+              hasClaims || seenClaimsPrefixes.has(b.handlesPrefix)
+                ? `manifest: backend "${b.name}" shares prefix "${b.handlesPrefix}" with a ` +
+                  `claims-less backend — the claims-less backend falls back to prefix matching ` +
+                  `in handles() and would collide`
+                : `manifest: duplicate backend prefix "${b.handlesPrefix}" (backend "${b.name}")`,
             );
           }
+          if (hasClaims) seenClaimsPrefixes.add(b.handlesPrefix);
           seenPrefixes.add(b.handlesPrefix);
         }
 

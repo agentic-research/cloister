@@ -38,6 +38,53 @@ describe("manifest runtime: validation", () => {
     expect(() => instantiate(m)).toThrow(/duplicate backend prefix/);
   });
 
+  // cloister-2d987e: the P3 resolver can emit multiple dynamicTools
+  // backends from ONE input's server.json that all share an
+  // `advertisedPrefix` (e.g. mache's navigation/callgraph/lsp/lifecycle/
+  // linter/mutate groups all advertise under "mache_"). Since each backend
+  // has a non-empty `claims` set, McpProxyToolBackend.handles() dispatches
+  // by exact upstream-name membership in `claims`, never falling back to
+  // prefix matching — so sharing a prefix across claims-backed backends
+  // is NOT the ADR-0002 first-wins-shadow hazard the original check
+  // guarded against.
+  it("allows multiple claims-backed backends to share a prefix (multi-group same-prefix server.json)", () => {
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/mcp", kind: { mcp: { backends: [
+          { name: "navigation", handlesPrefix: "mache_", kind: { mcpProxy: {
+            urlBinding: "MACHE_MCP_URL", dynamicTools: true, tools: [],
+            claims: ["get_overview", "list_directory"],
+          }}},
+          { name: "callgraph", handlesPrefix: "mache_", kind: { mcpProxy: {
+            urlBinding: "MACHE_MCP_URL", dynamicTools: true, tools: [],
+            claims: ["find_callers", "find_callees"],
+          }}},
+        ]}}},
+      ],
+    };
+    expect(() => instantiate(m)).not.toThrow();
+  });
+
+  it("still rejects a claims-backed backend sharing a prefix with a claims-less backend", () => {
+    // The claims-less backend falls back to prefix matching in handles()
+    // — the original first-wins-shadow hazard still applies here.
+    const m: Gateway = {
+      metadata: { name: "t", version: "0.0.0" },
+      routes: [
+        { path: "/mcp", kind: { mcp: { backends: [
+          { name: "a", handlesPrefix: "mache_", kind: { mcpProxy: {
+            urlBinding: "U", dynamicTools: true, tools: [], claims: ["find_callers"],
+          }}},
+          { name: "b", handlesPrefix: "mache_", kind: { mcpProxy: {
+            urlBinding: "U", tools: [mkTool("mache_other")],
+          }}},
+        ]}}},
+      ],
+    };
+    expect(() => instantiate(m)).toThrow(/shares prefix.*claims-less backend/);
+  });
+
   it("rejects duplicate tool names across backends with empty prefixes", () => {
     // Two backends use exact-match (empty prefix) and both advertise the
     // same tool name. The duplicate-tool-name check must catch this even
