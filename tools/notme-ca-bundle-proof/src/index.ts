@@ -6,9 +6,18 @@
 
 import type { CABundle } from "../../../src/storage/ca-bundle-cache.js";
 import { bundleCanonical } from "../../../src/storage/bundle-canonical.js";
+// Single source of truth for the test master keypair is the generated cert
+// fixtures. Importing (rather than re-pasting) means a fixture regen can't
+// silently leave this harness signing with a stale key (cloister-31c844).
+import {
+  MASTER_PUBKEY_B64_STD,
+  MASTER_PUBKEY_B64 as MASTER_PUBKEY_B64_URL,
+} from "../../../test/wire/fixtures/cert-chain.js";
 
-const MASTER_PUBKEY_B64_STD = "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=";
-const MASTER_PUBKEY_B64_URL = "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ";
+// Well-known test seed = raw bytes 0x01..0x20, the private half of the master
+// keypair whose public half is imported above. NOT a real secret; paired with
+// gen-fixture.rs. If the fixture master key ever rotates, signing fails
+// verification at proof-run time rather than silently.
 const MASTER_PRIV_SEED_B64_URL = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA";
 
 const BASE_BUNDLE: Omit<CABundle, "signature"> = {
