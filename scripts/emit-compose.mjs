@@ -14,6 +14,8 @@
  *     hosts this input).
  *   - Empty `workerdId` defaults to the bundle whose name matches the
  *     input's `name` (single-tenant convention).
+ *   - Empty `workerdId` with no same-name bundle falls back to the first
+ *     hypervisor/gateway bundle (back-compat all-in-one convention).
  *   - The emitter annotates each compose service with the co-located
  *     input names via `cloister.colocated-inputs` labels.
  *   - Multi-instantiation (one workerd per declared tenant under

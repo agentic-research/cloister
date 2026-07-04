@@ -122,6 +122,7 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 
 import { parse as parseToml } from "@iarna/toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveTenancy } from "./emit-compose.mjs";
 
 const REPO = process.cwd();
 
@@ -889,16 +890,10 @@ function loadOciByInput() {
  * ships its oci is legitimate, so this must never block.
  */
 function checkInvariant10(cluster, ociByInput, warnings) {
-  // bundle name → linked input names, matching emit-compose's resolveTenancy
-  // (explicit tenancy.workerdId, else the same-name rung).
-  const bundleNames = new Set((cluster.bundles ?? []).map((b) => b.name));
-  const inputsByBundle = new Map();
-  for (const input of cluster.inputs ?? []) {
-    const wid = input.tenancy?.workerdId || (bundleNames.has(input.name) ? input.name : "");
-    if (!wid) continue;
-    if (!inputsByBundle.has(wid)) inputsByBundle.set(wid, []);
-    inputsByBundle.get(wid).push(input.name);
-  }
+  // bundle name → linked input names, using the same three-rung tenancy
+  // resolution as emit-compose. If tenancy has violations, Inv 6 reports
+  // them; Inv 10 remains warn-level and uses the valid partial colocation.
+  const { colocation: inputsByBundle } = resolveTenancy(cluster);
   for (const b of cluster.bundles ?? []) {
     if (!("external" in b.kind)) continue;
     if (b.kind.external.image) continue; // operator image present — fine
