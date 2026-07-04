@@ -40,6 +40,17 @@ top-level **`packages[]`** array whose entries carry a `registryType`
 package entry *is* the tool declaring its own container image. cloister
 just doesn't read it.
 
+### Empirical confirmation (PR #96, `cloister-2d987e`)
+
+Confirmed against the live tree while migrating mache to the resolver
+pipeline: `emit-compose.mjs:322` reads a bundle's image straight from
+`cluster.toml`'s `[[bundles]].external.image`, and a grep across
+`emit-compose.mjs`, `emit-workerd-config.mjs`, and `resolve-inputs.mjs`
+finds **no** read of `packages`/OCI anywhere — the image is purely
+hand-maintained. This is precisely why mache's tag had silently drifted
+to `0.8.0` in `cluster.toml` and had to be hand-bumped to `0.13.0`
+mid-PR: the stale-tag failure this ADR closes at the source.
+
 ## Decision
 
 Extend the input→bundle derivation so a bundle's `image` **can be derived
