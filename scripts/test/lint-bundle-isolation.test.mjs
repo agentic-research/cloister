@@ -1610,6 +1610,34 @@ test("Inv 10 — image-less external bundle with a linked input's oci is clean (
   }
 });
 
+test("Inv 10 — image-less gateway bundle can derive oci from fallback-colocated input", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister", image: "" },
+      ],
+      // Empty workerdId + no same-name bundle exercises resolveTenancy rung 3:
+      // emit-compose colocates the input on the first hypervisor/gateway.
+      inputs: [{ name: "mache" }],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[inputs.mache]\nref = "github://test/mache@main"\nresolved = "0.13.0"\n' +
+      'sha256 = "sha256:aa"\nfetched_from = "file:///x"\nsigner = ""\nbytes = 10\n' +
+      '[inputs.mache.oci]\nidentifier = "ghcr.io/agentic-research/mache"\nversion = "0.13.0"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /Inv 10/, "gateway fallback-colocated oci must not warn");
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("Inv 10 — external bundle with an operator image never warns (image wins, no oci needed)", () => {
   const scenario = makeScenario({
     clusterTs: clusterTs({

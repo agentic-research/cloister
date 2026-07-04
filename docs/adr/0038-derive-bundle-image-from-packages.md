@@ -1,6 +1,7 @@
 # ADR-0038 — Derive bundle image from `server.json` `packages[].oci`
 
-- **Status:** Proposed (2026-07-03)
+- **Status:** Accepted (consumer side shipped 2026-07-04 via `cloister-505fb9`;
+  producer side tracked under `cloister-31a988`)
 - **Tracking bead:** `cloister-3c4b0c` (filed alongside this ADR)
 - **Pairs with:**
   - ADR-0026 (Tool composition model — derives *backends* from `_meta.art.cloister/v1`; this ADR extends the same input→manifest derivation to the *image*)
@@ -72,11 +73,16 @@ from the resolved input's `packages[]` entry** where `registryType ==
 ### The bundle ↔ input link
 
 Derivation requires knowing *which input backs which bundle*. The link is
-the existing name/binding correspondence: an input's `serviceBinding` /
-`urlBinding` already resolves to a bundle (this is what the substrate-
-isolation lint Inv 4–7 walk). Image derivation reuses that resolution —
-it introduces no new cross-reference, only a new *field* populated across
-the one that exists.
+the existing ADR-0030 §A5 tenancy resolution used by `emit-compose`:
+
+1. explicit `inputs.<name>.tenancy.workerdId` wins;
+2. otherwise, an input with the same name as a bundle colocates there;
+3. otherwise, the input falls back to the first hypervisor/gateway bundle.
+
+Image derivation reuses that resolution. It introduces no new
+cross-reference, only a new *field* populated across the one that exists.
+The substrate-isolation lint's Inv 10 uses the same resolver so warning
+behavior matches compose emission, including the gateway fallback path.
 
 ### Producer contract (`packages[]`)
 
@@ -99,8 +105,8 @@ build error.
   record the first `oci` package (`identifier`, `version`, optional
   `digest`) into the input's `cluster.lock.toml` row, alongside the
   existing `generated_backends`.
-- **`scripts/emit-compose.mjs` + `scripts/emit-workerd-config.mjs`** —
-  apply the precedence order above when emitting a bundle's image.
+- **`scripts/emit-compose.mjs`** — apply the precedence order above when
+  emitting a bundle's image. Workerd config does not emit OCI images.
 - **`scripts/lint-bundle-isolation.mjs`** — a new invariant: an external
   bundle whose image is neither operator-set nor derivable from a linked
   `oci` package is a warning (fail-loud, not fail-closed — an operator
@@ -139,9 +145,9 @@ tenancy precedence (`server.json` declares, operator overrides).
    (`tools/server-json-gen`) emits an `oci` package; its `cluster.toml`
    bundle keeps `image` set until the consumer side lands (rule 1 keeps
    it working throughout).
-2. **Consumer side** — resolver + emitters + lint, behind the loud
-   fallback so no existing deployment changes behavior until an operator
-   *removes* a hand-set image to opt into derivation.
+2. **Consumer side shipped** — resolver + `emit-compose` + lint, behind
+   the loud fallback so no existing deployment changes behavior until an
+   operator *removes* a hand-set image to opt into derivation.
 3. Existing recipes are unaffected: their bundles keep explicit images,
    which rule 1 honors.
 
@@ -183,6 +189,9 @@ tenancy precedence (`server.json` declares, operator overrides).
 
 ## Status
 
-Proposed (2026-07-03). Producer side (mache `packages[]`) can land
-immediately and independently; consumer side (resolver + emitters + lint)
-is the implementation bead to file against this ADR.
+Accepted. Consumer side shipped under `cloister-505fb9`: resolver parses
+`packages[].oci` into `cluster.lock.toml`, compose derives image when
+`ext.image` is empty, and bundle-isolation Inv 10 warns when neither an
+operator image nor a linked input's OCI package is available. Producer
+side remains tracked under `cloister-31a988` for mache's generated
+`server.json`.
