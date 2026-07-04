@@ -23,6 +23,7 @@ bytes = 4_177
 input = "llo"
 name = "lsp"
 handlesPrefix = "lsp_"
+stripPrefix = ""
 claims = [
   "lsp_hover",
   "lsp_defs",
@@ -38,6 +39,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "lifecycle"
 handlesPrefix = ""
+stripPrefix = ""
 claims = [ "status", "snapshot", "reparse", "enrich" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
@@ -47,6 +49,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "sheaf"
 handlesPrefix = "sheaf_"
+stripPrefix = ""
 claims = [
   "sheaf_set_topology",
   "sheaf_invalidate",
@@ -63,6 +66,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "query"
 handlesPrefix = ""
+stripPrefix = ""
 claims = [
   "query",
   "list_children",
@@ -89,6 +93,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "wire"
 handlesPrefix = ""
+stripPrefix = ""
 claims = [ "leyline_version" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
@@ -98,6 +103,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "validate"
 handlesPrefix = ""
+stripPrefix = ""
 claims = [ "validate" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
@@ -107,6 +113,7 @@ serviceBinding = "LSP_MCP"
 input = "llo"
 name = "hdc"
 handlesPrefix = "hdc_"
+stripPrefix = ""
 claims = [ "hdc_search", "hdc_calibrate", "hdc_density" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
@@ -116,6 +123,7 @@ serviceBinding = "LSP_MCP"
 input = "mache"
 name = "navigation"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [
   "list_directory",
   "read_file",
@@ -132,6 +140,7 @@ serviceBinding = "MACHE_MCP"
 input = "mache"
 name = "callgraph"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [
   "find_callers",
   "find_callees",
@@ -148,6 +157,7 @@ serviceBinding = "MACHE_MCP"
 input = "mache"
 name = "lsp"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [ "get_type_info", "get_diagnostics", "semantic_search" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
@@ -157,6 +167,7 @@ serviceBinding = "MACHE_MCP"
 input = "mache"
 name = "lifecycle"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [ "get_sheaf_status" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
@@ -166,6 +177,7 @@ serviceBinding = "MACHE_MCP"
 input = "mache"
 name = "linter"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [ "find_smells" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
@@ -175,6 +187,7 @@ serviceBinding = "MACHE_MCP"
 input = "mache"
 name = "mutate"
 handlesPrefix = "mache_"
+stripPrefix = "mache_"
 claims = [ "write_file" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"

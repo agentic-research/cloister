@@ -31,6 +31,7 @@ import {
   rewriteIoGithubOrgSugar,
   parseServerJsonMeta,
   deriveGeneratedBackends,
+  deriveStripPrefix,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -719,14 +720,76 @@ test("deriveGeneratedBackends: canonical LLO vector emits three backends", () =>
   assert.equal(rows[0].name, "lsp");
   assert.equal(rows[0].handlesPrefix, "lsp_");
   assert.deepEqual(rows[0].claims, ["lsp_hover", "lsp_defs", "lsp_refs", "lsp_symbols", "lsp_diagnostics"]);
+  // llo's upstreamNames already carry the prefix — no stripping needed.
+  assert.equal(rows[0].stripPrefix, "", "already-prefixed upstreamNames need no stripPrefix");
 
   assert.equal(rows[1].name, "lifecycle");
   assert.equal(rows[1].handlesPrefix, "");
   assert.deepEqual(rows[1].claims, ["status", "enrich", "reparse"]);
+  assert.equal(rows[1].stripPrefix, "", "empty advertisedPrefix needs no stripPrefix");
 
   assert.equal(rows[2].name, "sheaf");
   assert.equal(rows[2].handlesPrefix, "sheaf_");
   assert.deepEqual(rows[2].claims, ["sheaf_set_topology"]);
+  assert.equal(rows[2].stripPrefix, "");
+});
+
+// ── deriveStripPrefix (cloister-2d987e, Bug 3) ───────────────────────────
+//
+// The resolver never threaded a stripPrefix onto generated backends
+// before this fix. McpProxyToolBackend.handles() (mcp-proxy.ts) checks
+// the ADVERTISED/external tool name against `claims`, which holds the
+// BARE upstreamNames verbatim. When advertisedPrefix is non-empty and
+// upstreamNames are bare (mache's shape), the advertised name never
+// matches claims without stripping the prefix first — this is exactly
+// the bug the PR #96 discussion surfaced empirically.
+
+test("deriveStripPrefix: bare upstreamNames under a non-empty prefix → strips the prefix (mache shape)", () => {
+  const group = { name: "callgraph", advertisedPrefix: "mache_", upstreamNames: ["find_callers", "find_callees"] };
+  assert.equal(deriveStripPrefix(group), "mache_");
+});
+
+test("deriveStripPrefix: already-prefixed upstreamNames under a non-empty prefix → no strip (llo shape)", () => {
+  const group = { name: "lsp", advertisedPrefix: "lsp_", upstreamNames: ["lsp_hover", "lsp_defs"] };
+  assert.equal(deriveStripPrefix(group), "");
+});
+
+test("deriveStripPrefix: empty advertisedPrefix → no strip regardless of upstreamNames shape", () => {
+  const group = { name: "lifecycle", advertisedPrefix: "", upstreamNames: ["status", "enrich"] };
+  assert.equal(deriveStripPrefix(group), "");
+});
+
+test("deriveStripPrefix: missing advertisedPrefix (defaults to '') → no strip", () => {
+  const group = { name: "bare", upstreamNames: ["status"] };
+  assert.equal(deriveStripPrefix(group), "");
+});
+
+test("deriveStripPrefix: mixed bare + already-prefixed upstreamNames → throws (malformed group)", () => {
+  const group = {
+    name: "mixed",
+    advertisedPrefix: "mache_",
+    upstreamNames: ["find_callers", "mache_already_prefixed"],
+  };
+  assert.throws(
+    () => deriveStripPrefix(group),
+    (err) => {
+      assert.match(err.message, /mixed/);
+      assert.match(err.message, /mache_/);
+      return true;
+    },
+  );
+});
+
+test("deriveGeneratedBackends: mache-shape bare upstreamNames under non-empty prefix threads stripPrefix through", () => {
+  const meta = {
+    groups: [
+      { name: "callgraph", advertisedPrefix: "mache_", upstreamNames: ["find_callers", "find_callees"] },
+    ],
+  };
+  const rows = deriveGeneratedBackends(specDefaults({ name: "mache" }), meta);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].handlesPrefix, "mache_");
+  assert.equal(rows[0].stripPrefix, "mache_", "bare upstreamNames under a non-empty prefix must derive stripPrefix");
 });
 
 test("deriveGeneratedBackends: single-group _meta emits one backend", () => {
@@ -874,6 +937,31 @@ test("resolveInput: file:// pointing at malformed _meta (empty upstreamNames) er
       (err) => err.inputName === "brokenInput"
         && err.detail.includes("upstreamNames")
         && err.detail.includes("empty"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveInput: file:// pointing at a group with mixed bare + already-prefixed upstreamNames errors with input name (cloister-2d987e, Bug 3)", async () => {
+  // End-to-end: deriveStripPrefix's mixed-shape guard must surface as a
+  // ResolveError naming the input, not an uncaught crash — mirrors the
+  // malformed-_meta test above but exercises the newer stripPrefix path.
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-strip-mixed-"));
+  try {
+    const path = resolve(dir, "mixed.json");
+    writeFileSync(path, JSON.stringify({
+      name: "mixed",
+      _meta: { "art.cloister/v1": { groups: [
+        { name: "callgraph", advertisedPrefix: "mache_", upstreamNames: ["find_callers", "mache_already_prefixed"] },
+      ] } },
+    }));
+
+    await assert.rejects(
+      () => resolveInput(specDefaults({ name: "mixedInput", ref: `file://${path}` })),
+      (err) => err.inputName === "mixedInput"
+        && err.detail.includes("mixes")
+        && err.detail.includes("mache_"),
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -491,19 +491,28 @@ function overlayLockfileBackends(g) {
  *
  * Row shape (per scripts/resolve-inputs.mjs `deriveGeneratedBackends`):
  *
- *   { input, name, handlesPrefix, claims, dynamicTools,
+ *   { input, name, handlesPrefix, stripPrefix, claims, dynamicTools,
  *     urlBinding, serviceBinding }
  *
  * Backend output:
  *
  *   { name, handlesPrefix, kind: { mcpProxy: { urlBinding, tools: [],
  *                                              dynamicTools, claims,
+ *                                              stripPrefix,
  *                                              serviceBinding } } }
  *
  * `tools` is always `[]` — the catalog is derived at request time from
  * the upstream's `tools/list` (the row's `dynamicTools: true` semantics).
  * `claims` populates `HttpForwardBackend.claims` (cloister-8ede3f, P1)
  * which filters the derived catalog to just the names the row owns.
+ * `stripPrefix` (cloister-2d987e, Bug 3 of the mache resolver migration):
+ * `McpProxyToolBackend.handles()` checks the ADVERTISED tool name against
+ * `claims`, which holds the BARE upstreamNames. When a group's
+ * `advertisedPrefix` is non-empty but its `upstreamNames` are bare (e.g.
+ * mache: prefix "mache_", claim "find_callers"), the advertised name
+ * ("mache_find_callers") never matches `claims` without stripping the
+ * prefix first — `resolve-inputs.mjs:deriveStripPrefix` computes the
+ * right value; this function only threads it through.
  */
 function backendFromGeneratedRow(row) {
   if (!row || typeof row !== "object") {
@@ -515,6 +524,7 @@ function backendFromGeneratedRow(row) {
     return null;
   }
   const handlesPrefix  = typeof row.handlesPrefix  === "string" ? row.handlesPrefix  : "";
+  const stripPrefix    = typeof row.stripPrefix    === "string" ? row.stripPrefix    : "";
   const urlBinding     = typeof row.urlBinding     === "string" ? row.urlBinding     : "";
   const serviceBinding = typeof row.serviceBinding === "string" ? row.serviceBinding : "";
   const dynamicTools   = row.dynamicTools !== false; // default true
@@ -525,13 +535,14 @@ function backendFromGeneratedRow(row) {
     tools: [],
     dynamicTools,
   };
-  // Match the existing shape: serviceBinding + claims are only emitted
-  // when populated, to keep diffs tight when a backend doesn't use them.
-  // (capnp's JSON encoding for optional fields is "field-present-as-default"
-  // OR "field-absent"; the runtime types accept both. We emit them
-  // explicitly when populated.)
+  // Match the existing shape: serviceBinding + claims + stripPrefix are
+  // only emitted when populated, to keep diffs tight when a backend
+  // doesn't use them. (capnp's JSON encoding for optional fields is
+  // "field-present-as-default" OR "field-absent"; the runtime types
+  // accept both. We emit them explicitly when populated.)
   if (serviceBinding !== "") mcpProxy.serviceBinding = serviceBinding;
   if (claims.length > 0)     mcpProxy.claims         = claims;
+  if (stripPrefix !== "")    mcpProxy.stripPrefix     = stripPrefix;
 
   return {
     name:          row.name,
