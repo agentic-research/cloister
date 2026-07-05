@@ -1098,6 +1098,68 @@ binding adds.
 - Beads: `cloister-9d19e3` (design), `cloister-c2bd47` (impl Phase 1 shipped; Phase 2 deferred)
 
 
+## 13.9 Local DO SQLite at-rest / same-UID adversary (ADR-0039)
+
+Added 2026-07-05 (`cloister-ffd17b`). §13.7.2 + §13.7.4 defer disk
+tamper/read to "operator-tier" as an explicit boundary. That framing
+holds for a *server* deployment where the operator owns the box. It is
+**too cheap on a local dev machine that runs AI agents**: there, ANY
+same-UID process (a malicious skill, a compromised npm postinstall, a
+rogue tool — exactly the ADR-0024 adversary) is de-facto "operator-
+tier" — it opens the DO SQLite files directly, out of band from the DO
+runtime. Verified: all four local DO persistence paths
+(`.wrangler/state/v3/do/`, `~/.local/share/cloister/do/`, `/data/do`,
+`~/.cache/cloister-dev/do/`) are plaintext, mode 0644; live
+`peer_lease_counters` + `seen_nonces` rows read directly. workerd's
+`durableObjectStorage` union (`none | inMemory | localDisk`) has no
+encryption hook, so the DO runtime cannot seal them itself. ADR-0039
+tightens the boundary for local deployments.
+
+### 13.9.1 Same-UID at-rest read (confidentiality)
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | A same-UID process opens the DO SQLite directly and reads bead content, TrustStore attestations/lease counters, BlobStore CAS, vault metadata. (Credential *values* are already sealed AES-256-GCM per §18; vault *metadata* + all other DOs are plaintext.) Also covers backup/disk exfiltration (Time Machine, iCloud-synced path, stolen disk). |
+| **Mitigation (ADR-0039)** | At-rest encryption of the DO storage dir via a KEK held in the OS keystore — the vault KEK schemes ALREADY provide key custody (`apple-password://`/`keychain://` Mac; `secret-tool://`/`keyring://` Linux; `op://`). Mac-first Phase 1: encrypted APFS volume mounted at `CLOISTER_DO_PATH` (ADR-0023 indirection), passphrase in Keychain; covers the whole file incl WAL/-shm. Phase 3: selective column sealing (generalize the §18 vault envelope; HKDF sub-keys per `vault/src/kek-scope.ts`) for secret-valued columns that don't need SQL queryability. |
+| **Adversary capabilities** | Same-UID code execution, or offline access to a disk/backup copy. NOT root (§13.7.4 supervisor boundary unchanged). |
+| **Residual risk** | While the encrypted volume is MOUNTED, same-UID reads still succeed — Phase 1 defends the offline/backup case, not the live-mounted same-UID reader; Phase 3 column-sealing narrows that. FileVault covers stolen-disk but not backup-copy/synced-dir. |
+| **Test ref** | Deferred to ADR-0039 impl; `task dev:securevol` preflight asserts the mount before serve. |
+
+### 13.9.2 Same-UID at-rest tamper (integrity)
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | A same-UID process REWRITES the DO SQLite: bump `peer_lease_counters` epochs, delete `seen_nonces` to re-enable replay, edit a bead `content_hash`, or delete the plaintext `vault_state` KEK-pin row and re-pin to an attacker KEK spec (the `cloister-fbc6eb` attack). This silently rewrites the §13.2 "silence is evidence" audit chain. |
+| **Mitigation (ADR-0039)** | A BLAKE3 integrity manifest over each DO's canonical row-set (not the raw file — WAL makes file hashes unstable; reuse the `*-canonical.ts` serializers), root anchored OUTSIDE the rewritten filesystem (OS keystore or sign-helper), verified at DO-constructor time (same slot the vault runs `#assertKekSourceSpecPinned()`). Converts silent tamper → detected-at-boot. Encrypting the vault DO's own SQLite (§13.9.1) also closes the plaintext-KEK-pin re-pin loop. |
+| **Adversary capabilities** | Same-UID write access to the DO storage dir. |
+| **Residual risk** | The manifest DETECTS tamper, does not PREVENT it — pair with §13.9.1. Manifest write-ordering vs commits needs a dirty-shutdown ⇒ warn-not-fail state machine (else false-positive on crash). |
+| **Test ref** | Deferred to ADR-0039 Phase 2 impl bead. |
+
+### 13.9.3 Wiring gap: no KEK_HELPER binding on the serve path
+
+| Aspect | Detail |
+|---|---|
+| **Nature** | Correctness gap, not an attack — but it blocks the §13.9.1/.2 mitigations on the `workerd serve` path. |
+| **Detail** | Root `config.capnp` declares NO `KEK_HELPER` ExternalServer/service binding (it appears only in `wrangler.toml` comments + `scripts/dev-bootstrap.mjs`). Keystore-backed KEK schemes on `task serve:local` therefore can't reach the helper (127.0.0.1:8786). ADR-0039 Phase 1 must add this binding. |
+
+### 13.9 Summary
+
+| Property | Threat scope | Adversary boundary | Defense |
+|---|---|---|---|
+| §13.9.1 at-rest read | DO SQLite confidentiality (local) | Same-UID process / backup exfil | At-rest encryption via OS-keystore KEK (ADR-0039); refines §13.7.4 for local |
+| §13.9.2 at-rest tamper | DO SQLite integrity + §13.2 audit chain (local) | Same-UID write | BLAKE3 integrity manifest anchored outside FS (ADR-0039); detect-not-prevent |
+| §13.9.3 KEK_HELPER wiring | serve-path key custody | Correctness gap | Add KEK_HELPER binding to config.capnp (ADR-0039 Phase 1) |
+
+**Related:**
+- ADR-0039 — the local-DO-storage-security decision this defends
+- §13.7.2 + §13.7.4 — the operator-tier disk boundary this refines for local
+- §13.2 — silence-is-evidence (the audit chain §13.9.2 protects)
+- §18 — vault at-rest envelope (the pattern §13.9.1 Phase 3 generalizes)
+- ADR-0014 / ADR-0019 — KEK schemes + sign-helper (key-custody primitives)
+- ADR-0023 — `CLOISTER_DO_PATH` (the mount indirection Phase 1 uses)
+- Beads: `cloister-ffd17b` (research + ADR-0039)
+
+
 ## 15. Trust-anchor-helper attack surface (cloister-99165e / ADR-0019)
 
 Added 2026-05-12 by adversarial-cycle 2026-05-12 (see
