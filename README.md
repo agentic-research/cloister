@@ -1,54 +1,52 @@
 # cloister
 
-Cloister hosts AI tools (MCP servers, today) behind one HTTPS
-endpoint. You declare what to host in a config file; the same bundle
-runs locally on your machine for development and on Cloudflare Workers
-in production — no rewrites, no deployment-specific code.
+Cloister is a traceable way to bundle your AI tooling and use it with
+your favorite harness — Claude Code, Cursor, anything that speaks MCP.
+
+Declare the tools you want in one file. Cloister runs them behind a
+single endpoint, keeps a record of every call, and runs the same bundle
+on your laptop and in production — no rewrites.
 
 ```sh
-task serve:local                       # → http://localhost:8787
-curl http://localhost:8787/health
+task serve:local        # your bundled tools at http://localhost:8787/mcp
 ```
 
-**What you get for free:**
+Point your harness at that one URL and the whole bundle is available —
+and you can see exactly what ran. MCP tools today; skill and agent
+definitions next.
 
-- **Sandboxed tools.** Each hosted tool runs in its own isolate with
-  its own scoped credentials. A compromised tool can't reach the
-  others' secrets.
-- **Identity without bearer tokens.** Tools authenticate to each
-  other via short-lived certificates rather than long-lived API
-  keys — nothing to rotate, nothing to leak.
-- **Signed audit trail.** Every state-changing call leaves a
-  hash-chained, signed receipt. A third party can verify what
-  happened offline, with only the master public key.
+## Why you'd care
 
-**Three entry points depending on what brought you here:**
+- **Your tools never see your secrets.** Give a tool access to an API
+  key or token without handing it the secret — cloister keeps it in a
+  locked box, makes the call for the tool, and hands back only the
+  result. A leaky or compromised tool has nothing to leak.
+- **Everything's on the record.** Every state-changing call leaves a
+  signed, tamper-evident receipt — you, or anyone, can verify what
+  actually happened after the fact, offline.
+- **One bundle, laptop to production.** The exact same config runs
+  locally with no cloud account and deploys to Cloudflare Workers
+  unchanged. No rewrites, no deployment-specific code.
 
-- **Run it locally** → [GETTING-STARTED.md](GETTING-STARTED.md)
-- **Understand the architecture** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+## Where to go next
+
+- **Run it** → [GETTING-STARTED.md](GETTING-STARTED.md)
+- **How it works (the tech)** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Verify the security claims** → [docs/security/load-bearing-claims.md](docs/security/load-bearing-claims.md)
 
-## Architecture
+## How it works
 
-Cloister is a v8-isolate hypervisor on `workerd` with a declarative
-Cap'n Proto manifest. Routes, backends, and per-bundle credential
-scopes are substrate concerns — identity (Interlace), audit (signed
-receipts), and credential isolation are wired in at the substrate, not
-bolted on per-tenant. It's offline-first: runs locally on `workerd`
-with no cloud account required, and the same TypeScript bundle deploys
-to Cloudflare Workers when you want a public endpoint.
+Under the hood, cloister runs each tool in its own sandbox on `workerd`
+(the same isolate technology behind Cloudflare Workers), wired together
+by one declarative config. Identity, the "tools never see secrets"
+credential isolation, and the signed audit trail live in the *substrate*
+— not bolted onto each tool. Anything HTTP-shaped plugs into the same
+route table without touching the substrate; MCP servers are just the
+first tenants. Full detail, the manifest contract
+([`cloister.capnp`](cloister.capnp)), and the ADRs are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Today's primary application is hosting MCP servers behind one HTTP
-face. `bead_*`, `mache_*`, `lsp_*`, lifecycle
-(`reparse`/`enrich`/`status`), and the Interlace identity bridge are
-the first tenants — but the contract is
-[`cloister.capnp`](cloister.capnp): anything HTTP-shaped plugs into
-the same route table without touching the substrate. See
-[ADR-0004](docs/adr/0004-capnp-manifest.md) for the manifest shape,
-[ADR-0009](docs/adr/0009-compute-substrate-portability.md) for the
-substrate-portability claim, and
-[ADR-0011](docs/adr/0011-hypervisor-bundle-boundary.md) for what lives
-at the hypervisor layer vs the bundle layer.
+The shape, for the curious:
 
 ```mermaid
 graph TB
