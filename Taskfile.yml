@@ -779,6 +779,25 @@ tasks:
     cmds:
       - npx workerd serve dist/config.capnp --experimental
 
+  do:harden:
+    desc: "ADR-0039 Phase 0 — lock down the local Durable Object storage dir (chmod 700 + files 0600 + Time Machine exclusion). Zero-code at-rest hardening vs the same-UID / backup-exfil threat (threat-model §13.9). Honors CLOISTER_DO_PATH (default /data/do). Same-UID reads still possible until at-rest encryption lands (ADR-0039 Phase 1)."
+    cmds:
+      - |
+        set -eu
+        DIR="${CLOISTER_DO_PATH:-/data/do}"
+        mkdir -p "$DIR"
+        chmod 700 "$DIR"
+        find "$DIR" -type f -exec chmod 600 {} + 2>/dev/null || true
+        echo "do:harden: $DIR is now 0700 (files 0600) — ADR-0039 Phase 0."
+        echo "  same-UID reads still possible until at-rest encryption (ADR-0039 Phase 1)."
+        if command -v tmutil >/dev/null 2>&1; then
+          if tmutil addexclusion "$DIR" 2>/dev/null; then
+            echo "  added Time Machine exclusion for $DIR."
+          else
+            echo "  run 'sudo tmutil addexclusion $DIR' to exclude it from Time Machine."
+          fi
+        fi
+
   mermaid:lint:
     desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
     cmds:

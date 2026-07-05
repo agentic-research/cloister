@@ -81,10 +81,11 @@ layers (none substitutes for another):
 
 ## Phased plan (Mac-first, shortest secure path)
 
-- **Phase 0 — placement + permissions (zero code, today).** `umask
-  077` / `chmod 700` the DO dir + `0600` files; keep `CLOISTER_DO_PATH`
-  out of iCloud-synced dirs; document `tmutil addexclusion` for the DO
-  + `.wrangler` paths. Real wins against T1-lite, no code.
+- **Phase 0 — placement + permissions (SHIPPED — `task do:harden`).**
+  `chmod 700` the DO dir + `0600` files + a `tmutil addexclusion` (Time
+  Machine); honors `CLOISTER_DO_PATH`. Real wins against T1-lite, no
+  code in the substrate. Operators should still keep `CLOISTER_DO_PATH`
+  out of iCloud-synced dirs. (Same-UID reads persist until Phase 1.)
 - **Phase 1 — encrypted volume (confidentiality, layer 1).** `task
   dev:securevol`: create/mount an encrypted APFS sparse bundle at
   `CLOISTER_DO_PATH` (ADR-0023 indirection — no config forks),
