@@ -752,9 +752,19 @@ tasks:
       - pnpm exec tsc --noEmit
 
   dev:bootstrap:
-    desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent."
+    desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored) + installs rsry git hooks (post-merge closes beads on PR-merge). Idempotent."
     cmds:
       - node scripts/dev-bootstrap.mjs
+      # rsry git hooks: post-merge auto-closes beads whose PR just merged
+      # (reads the `[bead-id] … (#N)` squash commits `git pull` lands on
+      # main) + post-push syncs the bead store. Merge-aware: preserves the
+      # custom pre-push CI gate. Stops the "done-but-not-closed" drift.
+      - |
+        if command -v rsry >/dev/null 2>&1; then
+          rsry hooks install
+        else
+          echo "  (rsry not on PATH — run 'rsry hooks install' to enable bead auto-close on merge)"
+        fi
 
   dev:
     desc: Start local dev server on :8787 (sources .env.local for VAULT_KEK_SOURCE)
