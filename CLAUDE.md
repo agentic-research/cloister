@@ -35,8 +35,10 @@ top-level docs describe *what*.
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
   ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
-  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038, ADR-0039 are Proposed;
-  everything else 0011–0019, 0022–0025, 0029, 0031 is Accepted. ADR-0030 (2026-06-21) ratifies
+  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038 are Proposed;
+  ADR-0039 Accepted (2026-07-05; macOS local-DO-at-rest security shipped +
+  proven — Linux twin pending); everything else 0011–0019, 0022–0025, 0029,
+  0031 is Accepted. ADR-0030 (2026-06-21) ratifies
   workerd-process-per-tenant as the substrate direction —
   `cloister-f289c8` is the implementation epic, vault first.
   ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker); ADR-0024
