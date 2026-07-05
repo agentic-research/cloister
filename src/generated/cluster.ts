@@ -168,6 +168,23 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       }
+    },
+    {
+      "name": "rosary",
+      "ref": "io.github.org/agentic-research/rosary@main",
+      "version": "0.4.0",
+      "digest": "",
+      "from": "file:///Users/jamesgardner/remotes/art/rosary/server.json",
+      "provides": [],
+      "requires": [],
+      "urlBinding": "ROSARY_MCP_URL",
+      "serviceBinding": "ROSARY_MCP",
+      "tenancy": {
+        "mode": "",
+        "workerdId": "",
+        "trustedTier": false,
+        "sharesWorkerdWith": []
+      }
     }
   ],
   "routes": [
