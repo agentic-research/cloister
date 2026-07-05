@@ -31,7 +31,16 @@ work-tracking, follow the linked bead.
 | **Bidi TOML ↔ capnp pipeline (Phase 1)** — `cluster.toml` operator surface; `cluster:toml` / `:export` / `:roundtrip` Taskfile entries; drift gate in `task verify` | **ADR-0025**, `cluster.toml`, `scripts/toml-to-cluster.mjs`, `scripts/cluster-to-toml.mjs` | `cloister-ae06f3`; default-omission cleanup `cloister-146b50` | shipped 2026-05-17 (PR #9). 2026-07-04 follow-up: canonical TOML now omits schema-zero bundle defaults while the reader restores them before validation. |
 | **`cloister/credential-isolation/v1`** capability — first reference impl under the substrate-as-kernel framing. Operator declares services in `cloister.capnp` via `vaultProxyServices`; route mounts via `vaultProxy` Route.kind with `VaultProxySpec.bundleIdName`; production `VaultDoCredentialStore` auto-selects when `env.VAULT_STORE` is bound; plaintext credential bytes never cross the vault DO trust boundary (ADR-0013); per-bundle DO keying via `bundleIdName` schema field (ADR-0021); forward path emits `ProxyCallReceipt` + `vault_proxy_call` metric (audit claim #3); wire-shape collapse closes substrate/registry/binding oracles (claim #4); `Cache-Control: no-store` on every error site; per-peer sharded inflight cap. | **ADR-0024**, `cloister-spec/credential-isolation/v1/`, `src/routes/vault-proxy*`, `src/routes/vault-do-credential-store.ts`, [`docs/security/threat-model.md` §18](security/threat-model.md) | `cloister-8f57f0` | **Shipped 2026-05-18** (initial PRs #29-#34, #36-#37, #40-#42; 2026-05-18 adversarial cycle remediation PRs #50-#56). 1118 tests green. All five master claims restored after the 2026-05-18 cycle (report [`docs/security/adversarial-cycles/2026-05-18.md`](security/adversarial-cycles/2026-05-18.md); threat-model §18). Outstanding follow-ups (non-blocking): `cloister-6e6bfb` (X-1 tracker — DoS F1 per-peer denial counter, design-pass), `cloister-6f4284` (DoS F5 lease-verify cache, design-pass). `cloister-6ed9ae` (manifest `defaultAllowedSubs` gate on forward path) shipped via commit `3093044` / PR #58 — gate lives at `vault-proxy-route.ts:229-244`. |
 
-## Drafted (design landed, no shipped behavior yet)
+## Drafted / in-flight (ADR design — many rows already have shipped code)
+
+> **ADR status ≠ implementation status.** An ADR labeled "Proposed"
+> means the *design decision* isn't formally ratified yet — it does
+> **not** mean unimplemented. Several rows below are shipped and tested
+> in `main` today (e.g. **ADR-0026** tool composition, **ADR-0033** bd
+> substrate, **ADR-0034** multi-tenant lint + dispatch + compose emit,
+> **ADR-0038** image derivation). The **Notes** column is the source of
+> truth for what's actually running — docs lag code here, so read the
+> Notes, not the ADR label.
 
 | Capability | Reference | Bead | Notes |
 |---|---|---|---|
