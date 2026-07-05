@@ -232,7 +232,7 @@ Adversarial-test surface: [`rs/crates/sign/tests/host_adversarial.rs`](../../rs/
 3. **Read the adversarial cycle reports:** [`adversarial-cycles/`](adversarial-cycles/).
    Per-cycle findings + verification verdicts from the 7-role rotation
    (ADR-0020).
-4. **Run the helper end-to-end:** see [`docs/launch/PRE-LAUNCH-VERIFICATION.md`](../launch/PRE-LAUNCH-VERIFICATION.md)
+4. **Run the helper end-to-end:** see [`docs/launch/PRE-LAUNCH-VERIFICATION.md`](../archive/launch/PRE-LAUNCH-VERIFICATION.md)
    for the curl-demonstrable invariants on the trust-anchor-helper.
 5. **Cross-implementation byte-equality:** the Python reference impl
    in `interlace-spec/0.1.0/ref-impl-py/` shares 27 test vectors with

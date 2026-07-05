@@ -83,7 +83,7 @@ const SKIP_PATH_PREFIXES = [
   "docs/adr/",
   "docs/security/adversarial-cycles/",
   "docs/plans/archive/",
-  "docs/prompts/",
+  "docs/archive/",
 ];
 
 class ToolchainError extends Error {}

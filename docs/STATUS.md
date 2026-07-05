@@ -95,7 +95,7 @@ work-tracking, follow the linked bead.
 | `cloister-449f82` | CI: recipe smoke validation (parse + emit + canonical-link drift gate) | Phase 1 shipped (PR #35, 2026-05-18); Phase 2 (parse validation) + Phase 3 (local boot smoke) deferred |
 | `cloister-8e40ad` | Taskfile-as-source-of-truth audit + e2e manifest pipeline validation | Phase 1+2 shipped (PR #37 fixture-driven e2e, 2026-05-18; PR #39 generated-drift.yml `task <name>` refactor, 2026-05-18); Phase 3 (docs audit + `lint:task-invocation.mjs` drift gate) deferred until a trigger arrives |
 | `cloister-d9347e` | LSP tool ownership: move `lsp_*` tool definitions from cloister to ley-line-open | P2 — filed 2026-05-18 from ADR-0026 conversation; predecessor pattern for cloister-cf7a3b |
-| `cloister-d98db2` | cred-iso/v1: vault-DO-backed `CredentialStore` (production impl) | closed 2026-05-18 — DO saga complete via D1 PR #40 + D2 PR #41 + D3 PR #42. Resume prompt left at [`docs/prompts/finish-vault-do-saga.md`](prompts/finish-vault-do-saga.md) for posterity. |
+| `cloister-d98db2` | cred-iso/v1: vault-DO-backed `CredentialStore` (production impl) | closed 2026-05-18 — DO saga complete via D1 PR #40 + D2 PR #41 + D3 PR #42. Resume prompt left at [`docs/prompts/finish-vault-do-saga.md`](archive/prompts/finish-vault-do-saga.md) for posterity. |
 | `cloister-e26ea8` | D1 — `VaultDoCredentialStore` impl | closed 2026-05-18 (PR #40) |
 | `cloister-e2a12a` | D2 — wire `VaultDoCredentialStore` into vault-proxy route composition | closed 2026-05-18 (PR #41) |
 | `cloister-e2d38a` | D3 — end-to-end vault-DO-backed integration tests | closed 2026-05-18 (PR #42) |

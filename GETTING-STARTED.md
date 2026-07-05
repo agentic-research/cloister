@@ -372,7 +372,7 @@ RECEIPT_EPOCH=1
 > `.env.local` does NOT activate the lease gate — wrangler's dev
 > runtime doesn't auto-thread shell env to declared `[vars]`. This
 > was the discovery in
-> [`docs/launch/PRE-LAUNCH-VERIFICATION.md`](docs/launch/PRE-LAUNCH-VERIFICATION.md)
+> [`docs/launch/PRE-LAUNCH-VERIFICATION.md`](docs/archive/launch/PRE-LAUNCH-VERIFICATION.md)
 > (cloister-e14804, fixed by wiring the activation vars into
 > `wrangler.toml [vars]` with empty defaults).
 
