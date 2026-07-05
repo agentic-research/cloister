@@ -55,18 +55,35 @@ function asBlob(bytes: Uint8Array): ArrayBuffer {
   return buf;
 }
 
+// cloister-f193d3: chunk size for oversized blobs. 1 MiB stays well under
+// workerd DO-SQLite's ~2 MB per-value ceiling (SQLITE_TOOBIG).
+const BLOB_CHUNK_SIZE = 1 << 20;
+
 export class WorkerdBlobStore implements BlobStore {
   private readonly sql: Sql;
   private readonly blobs: string;
+  private readonly chunks: string;
 
   constructor(sqlStorage: SqlStorage, prefix: string = "store") {
     assertSafePrefix(prefix);
     this.sql = new Sql(sqlStorage);
     this.blobs = `${prefix}_blobs`;
+    this.chunks = `${prefix}_blob_chunks`;
     this.sql.run(
       `CREATE TABLE IF NOT EXISTS ${this.blobs} (
          digest TEXT PRIMARY KEY,
          bytes  BLOB NOT NULL
+       )`,
+    );
+    // cloister-f193d3: blobs larger than one DO-SQLite value (~2 MB) are
+    // split across this table and rejoined on read. Small blobs stay in
+    // the single-row table above (back-compat — untouched).
+    this.sql.run(
+      `CREATE TABLE IF NOT EXISTS ${this.chunks} (
+         digest TEXT NOT NULL,
+         seq    INTEGER NOT NULL,
+         bytes  BLOB NOT NULL,
+         PRIMARY KEY (digest, seq)
        )`,
     );
   }
@@ -98,16 +115,31 @@ export class WorkerdBlobStore implements BlobStore {
         d = key;
       }
     }
-    // INSERT OR IGNORE — put is idempotent; same digest → no duplicate row.
-    // We don't care about rowcount here; idempotency is the contract, not a
-    // signal to the caller.
-    countRows(
-      this.sql.run(
-        `INSERT OR IGNORE INTO ${this.blobs} (digest, bytes) VALUES (?, ?) RETURNING digest`,
-        d,
-        asBlob(bytes),
-      ),
-    );
+    // INSERT OR IGNORE — put is idempotent; same digest → same rows.
+    // cloister-f193d3: blobs at/under the chunk size take the original
+    // single-row path; larger ones split across the chunks table and rejoin
+    // transparently on read (a single DO-SQLite value over ~2 MB throws
+    // SQLITE_TOOBIG). A given digest is deterministically small-or-large,
+    // so the two paths never collide.
+    if (bytes.length <= BLOB_CHUNK_SIZE) {
+      countRows(
+        this.sql.run(
+          `INSERT OR IGNORE INTO ${this.blobs} (digest, bytes) VALUES (?, ?) RETURNING digest`,
+          d,
+          asBlob(bytes),
+        ),
+      );
+    } else {
+      for (let seq = 0, off = 0; off < bytes.length; seq++, off += BLOB_CHUNK_SIZE) {
+        const chunk = bytes.slice(off, Math.min(off + BLOB_CHUNK_SIZE, bytes.length));
+        this.sql.run(
+          `INSERT OR IGNORE INTO ${this.chunks} (digest, seq, bytes) VALUES (?, ?, ?)`,
+          d,
+          seq,
+          asBlob(chunk),
+        );
+      }
+    }
     return d;
   }
 
@@ -124,7 +156,32 @@ export class WorkerdBlobStore implements BlobStore {
       if (raw instanceof Uint8Array) return raw;
       return new Uint8Array(raw as ArrayBuffer);
     }
-    return null;
+    // Not stored as a single row — try the chunked path (cloister-f193d3).
+    return this.getChunked(digest);
+  }
+
+  /** Rejoin an oversized blob split across the chunks table, in seq order. */
+  private getChunked(digest: Digest): Uint8Array | null {
+    const cursor = this.sql.run<{ bytes: ArrayBuffer }>(
+      `SELECT bytes FROM ${this.chunks} WHERE digest = ? ORDER BY seq ASC`,
+      digest,
+    );
+    const parts: Uint8Array[] = [];
+    let total = 0;
+    for (const row of cursor) {
+      const raw: unknown = row.bytes;
+      const part = raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
+      parts.push(part);
+      total += part.length;
+    }
+    if (parts.length === 0) return null;
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      out.set(p, off);
+      off += p.length;
+    }
+    return out;
   }
 
   async has(digest: Digest): Promise<boolean> {
@@ -133,6 +190,11 @@ export class WorkerdBlobStore implements BlobStore {
       digest,
     );
     for (const _ of cursor) return true;
+    const chunked = this.sql.run<{ one: number }>(
+      `SELECT 1 AS one FROM ${this.chunks} WHERE digest = ? LIMIT 1`,
+      digest,
+    );
+    for (const _ of chunked) return true;
     return false;
   }
 }
