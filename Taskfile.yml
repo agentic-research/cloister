@@ -864,6 +864,54 @@ tasks:
       # Compose the Phase-0 permission lockdown onto the freshly-mounted volume.
       - task: do:harden
 
+  do:migrate-securevol:
+    desc: "ADR-0039 Phase 1 — migrate an EXISTING populated DO dir into a fresh encrypted volume (macOS), NON-DESTRUCTIVELY. Copies CLOISTER_DO_PATH into the encrypted volume, verifies the file count, moves the plaintext dir aside as a *.plaintext-backup (never deletes), then mounts the encrypted volume in its place + composes do:harden. Idempotent: no-op if already mounted. NOTE: writes Keychain + creates a disk image + moves your DO dir — review before running; delete the plaintext backup yourself once you've confirmed."
+    env:
+      CLOISTER_DO_PATH:
+        sh: echo "${CLOISTER_DO_PATH:-$HOME/.local/share/cloister/do}"
+    cmds:
+      - |
+        set -eu
+        [ "$(uname)" = "Darwin" ] || { echo "do:migrate-securevol: macOS-only (APFS). Linux: fscrypt/LUKS migration — see docs/adr/0039." >&2; exit 1; }
+        IMG="${CLOISTER_SECUREVOL:-$HOME/.local/share/cloister/cloister-do.sparsebundle}"
+        DST="$CLOISTER_DO_PATH"
+        KC="cloister-do-volume"
+        if mount | grep -q " on $DST "; then echo "do:migrate-securevol: $DST already mounted — nothing to migrate."; exit 0; fi
+        if [ ! -d "$DST" ] || [ -z "$(ls -A "$DST" 2>/dev/null)" ]; then
+          echo "do:migrate-securevol: $DST is empty — run \`task dev:securevol\` instead (nothing to migrate)." >&2; exit 1
+        fi
+        BAK="${DST}.plaintext-backup"
+        [ -e "$BAK" ] && { echo "do:migrate-securevol: backup path $BAK already exists — move it aside first." >&2; exit 1; }
+        mkdir -p "$(dirname "$IMG")"
+        # 1. Passphrase in Keychain (generate once).
+        if ! security find-generic-password -s "$KC" -a "$USER" >/dev/null 2>&1; then
+          security add-generic-password -s "$KC" -a "$USER" -w "$(openssl rand -base64 32)" -U
+          echo "do:migrate-securevol: generated volume passphrase → Keychain."
+        fi
+        PASS="$(security find-generic-password -s "$KC" -a "$USER" -w)"
+        # 2. Encrypted sparsebundle (create once).
+        if [ ! -d "$IMG" ]; then
+          printf '%s' "$PASS" | hdiutil create -type SPARSEBUNDLE -fs APFS -encryption AES-256 -stdinpass -volname cloister-do -size 10g "$IMG" >/dev/null
+          echo "do:migrate-securevol: created encrypted volume $IMG."
+        fi
+        # 3. Mount at a temp point, copy the data in, verify, unmount.
+        TMP="$(mktemp -d)"
+        printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$TMP" -nobrowse "$IMG" >/dev/null
+        echo "do:migrate-securevol: copying $DST → encrypted volume ..."
+        cp -a "$DST"/. "$TMP"/
+        SRC_N=$(find "$DST" -type f | wc -l | tr -d ' '); DST_N=$(find "$TMP" -type f | wc -l | tr -d ' ')
+        hdiutil detach "$TMP" >/dev/null 2>&1; rmdir "$TMP" 2>/dev/null || true
+        if [ "$SRC_N" != "$DST_N" ]; then
+          echo "do:migrate-securevol: FILE-COUNT MISMATCH (plaintext $SRC_N vs volume $DST_N) — aborting; your data is untouched at $DST." >&2; exit 1
+        fi
+        # 4. Move plaintext aside (backup, NEVER deleted), mount encrypted in place.
+        mv "$DST" "$BAK"
+        mkdir -p "$DST"
+        printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$DST" -nobrowse "$IMG" >/dev/null
+        echo "do:migrate-securevol: ✓ migrated $SRC_N files — $DST is now the ENCRYPTED volume."
+        echo "  plaintext backup at $BAK — verify the cluster reads fine, then: rm -rf '$BAK'"
+      - task: do:harden
+
   mermaid:lint:
     desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
     cmds:

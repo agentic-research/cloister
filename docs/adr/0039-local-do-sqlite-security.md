@@ -1,6 +1,6 @@
 # ADR-0039 — Securing local Durable Object SQLite at rest
 
-- **Status:** Proposed (2026-07-05)
+- **Status:** Accepted (2026-07-05) — macOS Phase 0/1 shipped + proven on real hardware; Linux twin + `serve:local` mount preflight are follow-up impl
 - **Tracking bead:** `cloister-ffd17b` (research + this ADR)
 - **Pairs with:**
   - ADR-0014 (Pluggable KEK source — the OS-keystore key custody this reuses)
@@ -92,9 +92,15 @@ layers (none substitutes for another):
   (write/read), `do:harden` composed. Guards against mounting over a
   non-empty `CLOISTER_DO_PATH` (would shadow existing DO data). The
   sparsebundle is the durable store — unmount/remount preserves all
-  data; it survives cluster teardown + reboots. *Remaining:* a
-  migration flow for an already-populated DO, the `serve:local` mount
-  preflight, and the Linux twin (fscrypt/LUKS + `secret-tool`). `task
+  data; it survives cluster teardown + reboots. `task
+  do:migrate-securevol` migrates an already-populated DO
+  non-destructively (copy in → verify file count → move plaintext aside
+  as `*.plaintext-backup` → mount encrypted in place). Compose can
+  bind-mount the DO tree from a host path (`CLOISTER_DO_BIND`) instead
+  of named docker volumes, so the running *cluster's* data is
+  host-owned, backup-able, and encryptable by the same volume.
+  *Remaining:* the `serve:local` mount preflight + the Linux twin
+  (fscrypt/LUKS + `secret-tool`). `task
   dev:securevol`: create/mount an encrypted APFS sparse bundle at
   `CLOISTER_DO_PATH` (ADR-0023 indirection — no config forks),
   passphrase generated once and stored via the same Keychain discipline

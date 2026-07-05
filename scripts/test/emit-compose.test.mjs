@@ -74,6 +74,21 @@ function inputWithTenancy(name, tenancy = {}) {
   };
 }
 
+// ── /data/do mount: named volume vs host bind (CLOISTER_DO_BIND) ──────────
+
+test("emitCompose: default → named cloister-do volume mount + top-level declaration", () => {
+  const out = emitCompose(baseCluster());
+  assert.match(out, /- cloister-do:\/data\/do/);
+  assert.match(out, /^ {2}cloister-do:/m); // declared under top-level volumes:
+});
+
+test("emitCompose: doBindPath → host bind-mount, no named cloister-do volume", () => {
+  const out = emitCompose(baseCluster(), new Map(), { doBindPath: "/host/data" });
+  assert.match(out, /- \/host\/data\/cloister-router:\/data\/do/); // owned host path
+  assert.doesNotMatch(out, /- cloister-do:\/data\/do/);           // no named-volume mount
+  assert.doesNotMatch(out, /^ {2}cloister-do:/m);                 // no top-level named volume
+});
+
 // ── resolveTenancy: validation paths ─────────────────────────────────────
 
 test("resolveTenancy: empty inputs → empty colocation + no violations", () => {

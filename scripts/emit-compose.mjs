@@ -228,7 +228,12 @@ function perTenantSocketForWire(wire, cluster, targetBundle) {
  *
  * Exported for tests.
  */
-export function emitCompose(cluster, ociByInput = new Map()) {
+export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
+  // CLOISTER_DO_BIND: when set to a host path, /data/do is mounted from host
+  // bind-mounts rooted there (one subdir per store) instead of named docker
+  // volumes — making the cluster's data an owned, backup-able, dev:securevol-
+  // encryptable file tree on the host. Unset → named volumes (default).
+  const doBindPath = opts.doBindPath || "";
   const { colocation, violations } = resolveTenancy(cluster);
   if (violations.length > 0) {
     const msg = violations
@@ -272,10 +277,10 @@ export function emitCompose(cluster, ociByInput = new Map()) {
     const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath);
     }
   }
 
@@ -283,9 +288,11 @@ export function emitCompose(cluster, ociByInput = new Map()) {
   lines.push(`  cloister-uds:`);
   lines.push(`    driver: local`);
   lines.push(`    # tmpfs is fine — UDS sockets are ephemeral; recreated on container start`);
-  lines.push(`  cloister-do:`);
-  lines.push(`    driver: local`);
-  lines.push(`    # SQLite DO storage — survives container restarts; backup target`);
+  if (!doBindPath) {
+    lines.push(`  cloister-do:`);
+    lines.push(`    driver: local`);
+    lines.push(`    # SQLite DO storage — survives container restarts; backup target`);
+  }
   // Per-tenant DO volumes — one per (perTenant bundle, tenant) pair.
   // Operator offboarding is mechanically atomic: `docker volume rm
   // cloister-do-<bundle>-<tenant>`. Per cedcf3 Phase 3 piece 2.
@@ -342,7 +349,7 @@ function resolveBundleImage(ext, colocatedInputs, ociByInput, bundleName) {
  *
  * Per cloister-cedcf3 Phase 2 piece 2 + Phase 3 pieces 1, 2, 3.
  */
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map()) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "") {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
@@ -391,17 +398,25 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
 
   lines.push(`    volumes:`);
   lines.push(`      - cloister-uds:/run/cloister-uds`);
+  const doPath = cluster.storage.doStoragePath || "/var/lib/cloister/do";
   if (b.name === "cloister-router") {
-    lines.push(`      - cloister-do:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
+    // doBindPath set → host bind-mount (owned/backup-able/encryptable);
+    // else the named docker volume (default). Same in-container path.
+    const src = doBindPath ? `${doBindPath}/cloister-router` : "cloister-do";
+    lines.push(`      - ${src}:${doPath}`);
   }
-  // Per-tenant DO volume — one named volume per (bundle, tenant) pair,
-  // mounted at the same in-container path the router uses for its
-  // cloister-do mount. Operator offboarding is `docker volume rm
-  // cloister-do-<bundle>-<tenant>`. Per cedcf3 Phase 3 piece 2.
+  // Per-tenant DO store — one per (bundle, tenant) pair at the same
+  // in-container path. Named volume (offboard: `docker volume rm
+  // cloister-do-<bundle>-<tenant>`), or a host bind subdir under
+  // CLOISTER_DO_BIND. Per cedcf3 Phase 3 piece 2.
   if (tenant) {
-    const doVol = `cloister-do-${b.name}-${tenant.name}`;
-    perTenantDoVolumes?.add(doVol);
-    lines.push(`      - ${doVol}:${cluster.storage.doStoragePath || "/var/lib/cloister/do"}`);
+    if (doBindPath) {
+      lines.push(`      - ${doBindPath}/${b.name}-${tenant.name}:${doPath}`);
+    } else {
+      const doVol = `cloister-do-${b.name}-${tenant.name}`;
+      perTenantDoVolumes?.add(doVol);
+      lines.push(`      - ${doVol}:${doPath}`);
+    }
   }
 
   const envVars = [];
@@ -495,7 +510,7 @@ async function runCLI() {
 
   let body;
   try {
-    body = emitCompose(cluster, ociByInput);
+    body = emitCompose(cluster, ociByInput, { doBindPath: process.env.CLOISTER_DO_BIND || "" });
   } catch (e) {
     console.error(e.message);
     process.exit(1);
