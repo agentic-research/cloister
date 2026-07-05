@@ -1135,12 +1135,12 @@ tightens the boundary for local deployments.
 | **Residual risk** | The manifest DETECTS tamper, does not PREVENT it — pair with §13.9.1. Manifest write-ordering vs commits needs a dirty-shutdown ⇒ warn-not-fail state machine (else false-positive on crash). |
 | **Test ref** | Deferred to ADR-0039 Phase 2 impl bead. |
 
-### 13.9.3 Wiring gap: no KEK_HELPER binding on the serve path
+### 13.9.3 Wiring gap: KEK_HELPER binding on the serve path (CLOSED)
 
 | Aspect | Detail |
 |---|---|
-| **Nature** | Correctness gap, not an attack — but it blocks the §13.9.1/.2 mitigations on the `workerd serve` path. |
-| **Detail** | Root `config.capnp` declares NO `KEK_HELPER` ExternalServer/service binding (it appears only in `wrangler.toml` comments + `scripts/dev-bootstrap.mjs`). Keystore-backed KEK schemes on `task serve:local` therefore can't reach the helper (127.0.0.1:8786). ADR-0039 Phase 1 must add this binding. |
+| **Nature** | Correctness gap, not an attack — it blocked the §13.9.1/.2 mitigations on the `workerd serve` path. |
+| **Detail** | ~~Root `config.capnp` declares NO `KEK_HELPER` binding.~~ **FIXED (ADR-0039 Phase 1):** `config.capnp` now declares a `kek-helper` ExternalServer (`127.0.0.1:8786`) + a `KEK_HELPER` service binding on the router. Keystore-backed KEK schemes (`keychain://`, `op://`, `secret-tool://`) now reach the helper on `task serve:local`. Local-only (like `do-storage`) — the helper is a host binary (ADR-0019); CF prod has no host access and `env.KEK_HELPER` is typed `Fetcher \| undefined`, so the absent-binding case is handled. Passes lint-bundle-isolation (KEK_HELPER resolves to an external service; Inv 4). |
 
 ### 13.9 Summary
 
