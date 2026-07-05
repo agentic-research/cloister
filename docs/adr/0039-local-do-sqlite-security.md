@@ -87,8 +87,14 @@ layers (none substitutes for another):
   code in the substrate. Operators should still keep `CLOISTER_DO_PATH`
   out of iCloud-synced dirs. (Same-UID reads persist until Phase 1.)
 - **Phase 1 — encrypted volume (confidentiality, layer 1).**
-  *Target SHIPPED* (`task dev:securevol`); the `serve:local` mount
-  preflight + the Linux twin remain. `task
+  *SHIPPED + PROVEN on real hardware* (`task dev:securevol`): AES-256
+  APFS sparsebundle created, Keychain-passphrase-gated mount verified
+  (write/read), `do:harden` composed. Guards against mounting over a
+  non-empty `CLOISTER_DO_PATH` (would shadow existing DO data). The
+  sparsebundle is the durable store — unmount/remount preserves all
+  data; it survives cluster teardown + reboots. *Remaining:* a
+  migration flow for an already-populated DO, the `serve:local` mount
+  preflight, and the Linux twin (fscrypt/LUKS + `secret-tool`). `task
   dev:securevol`: create/mount an encrypted APFS sparse bundle at
   `CLOISTER_DO_PATH` (ADR-0023 indirection — no config forks),
   passphrase generated once and stored via the same Keychain discipline

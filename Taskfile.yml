@@ -839,11 +839,28 @@ tasks:
         if mount | grep -q " on $MOUNT "; then
           echo "dev:securevol: already mounted at $MOUNT."
         else
+          # Refuse to mount over existing DO data. Mounting the (empty) volume
+          # here would SHADOW it — the cluster would see an empty store and the
+          # old beads/blobs/trust/vault would be hidden under the mount (not
+          # deleted, but invisible). Migrate first: mount the volume at a temp
+          # dir, `cp -a "$MOUNT"/. <tmp>/`, unmount, move the plaintext dir
+          # aside, then re-run so the volume mounts onto an empty path.
+          if [ -d "$MOUNT" ] && [ -n "$(ls -A "$MOUNT" 2>/dev/null)" ]; then
+            echo "dev:securevol: REFUSING — $MOUNT is non-empty (existing DO data)." >&2
+            echo "  Mounting here would shadow it. Migrate the data into the volume" >&2
+            echo "  first (see the task comment) or point CLOISTER_DO_PATH at an empty" >&2
+            echo "  dir. Your data is NOT touched." >&2
+            exit 1
+          fi
           mkdir -p "$MOUNT"
           printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$MOUNT" -nobrowse "$IMG" >/dev/null
           echo "dev:securevol: mounted (encrypted) at $MOUNT."
         fi
+        # The sparsebundle IS the durable store — persistent on disk, never
+        # auto-deleted. Unmount/remount preserves all data; detach with
+        # `hdiutil detach $MOUNT`. Data survives cluster teardown + reboots.
         echo "dev:securevol: export CLOISTER_DO_PATH=$MOUNT, then run task serve:local / task dev."
+        echo "dev:securevol: data persists in $IMG (unmount-safe); detach via hdiutil detach $MOUNT."
       # Compose the Phase-0 permission lockdown onto the freshly-mounted volume.
       - task: do:harden
 
