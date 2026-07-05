@@ -64,6 +64,15 @@ const config :Workerd.Config = (
     ( name = "companion-mcp",
       external = ( address = "127.0.0.1:8385", http = () ),
     ),
+    # leyline-sign-helper (ADR-0019) — the vault DO calls it via env.KEK_HELPER
+    # to resolve keystore-backed KEK schemes (keychain://, op://, secret-tool://).
+    # LOCAL-ONLY, like do-storage: the helper is a host binary (127.0.0.1:8786,
+    # `task helper:start`); CF prod has no host access + resolves the KEK
+    # differently, so this stays out of wrangler.toml. Closes threat-model §13.9.3
+    # (ADR-0039 Phase 1) — keystore KEK schemes now reach the helper on serve:local.
+    ( name = "kek-helper",
+      external = ( address = "127.0.0.1:8786", http = () ),
+    ),
 
     # Local disk for DO SQLite storage (one DB file per BeadStore instance)
     ( name = "do-storage",
@@ -182,6 +191,13 @@ const cloisterWorker :Workerd.Worker = (
     ),
     ( name = "COMPANION_MCP",
       service = "companion-mcp",
+    ),
+    # Vault DO → leyline-sign-helper for keystore-backed KEK resolution
+    # (ADR-0019 / threat-model §13.9.3, ADR-0039 Phase 1). Local-only;
+    # env.KEK_HELPER is typed `Fetcher | undefined`, so CF prod (no
+    # binding, resolves KEK differently) is handled.
+    ( name = "KEK_HELPER",
+      service = "kek-helper",
     ),
 
     # Non-workerd backends — HTTP URL vars. These remain populated as the
