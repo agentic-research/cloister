@@ -24,6 +24,23 @@ const dec = (b: Uint8Array) => new TextDecoder().decode(b);
 
 // ── WorkerdBlobStore ───────────────────────────────────────────────────────
 
+// Deterministic byte pattern so round-trips are verifiable (cloister-f193d3).
+function bigBlob(n: number): Uint8Array {
+  const b = new Uint8Array(n);
+  for (let i = 0; i < n; i++) b[i] = i & 0xff;
+  return b;
+}
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+function countRowsIn(sql: SqlStorage, table: string): number {
+  let n = 0;
+  for (const r of sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`)) n = r.n;
+  return n;
+}
+
 describe("WorkerdBlobStore", () => {
   it("put returns a 64-char lowercase hex Digest", async () => {
     const stub = freshStub();
@@ -59,6 +76,55 @@ describe("WorkerdBlobStore", () => {
       const got = await blobs.get(d);
       expect(got).not.toBeNull();
       expect(dec(got!)).toBe("round trip me");
+    });
+  });
+
+  it("large blob (> 2 MB) round-trips byte-for-byte via the chunks table (cloister-f193d3)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "big");
+      const bytes = bigBlob(3 * 1024 * 1024); // 3 MiB — over the ~2 MB single-value ceiling
+      const d = await blobs.put(bytes);
+      const got = await blobs.get(d);
+      expect(got).not.toBeNull();
+      expect(bytesEqual(got!, bytes)).toBe(true);
+      // Landed in the chunks table (3 × 1 MiB), NOT the single-row table.
+      expect(countRowsIn(state.storage.sql, "big_blobs")).toBe(0);
+      expect(countRowsIn(state.storage.sql, "big_blob_chunks")).toBe(3);
+    });
+  });
+
+  it("blob at the chunk-size boundary (1 MiB) stays single-row (back-compat)", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "bound");
+      const bytes = bigBlob(1 << 20); // exactly the chunk size → single row
+      const d = await blobs.put(bytes);
+      expect(bytesEqual((await blobs.get(d))!, bytes)).toBe(true);
+      expect(countRowsIn(state.storage.sql, "bound_blobs")).toBe(1);
+      expect(countRowsIn(state.storage.sql, "bound_blob_chunks")).toBe(0);
+    });
+  });
+
+  it("large-blob put is idempotent — no duplicate chunk rows", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "idem");
+      const bytes = bigBlob(3 * 1024 * 1024);
+      const d1 = await blobs.put(bytes);
+      const d2 = await blobs.put(bytes);
+      expect(d1).toBe(d2);
+      expect(countRowsIn(state.storage.sql, "idem_blob_chunks")).toBe(3);
+    });
+  });
+
+  it("has() finds a chunked blob", async () => {
+    const stub = freshStub();
+    await runInDurableObject(stub, async (_inst, state) => {
+      const blobs = new WorkerdBlobStore(state.storage.sql, "hasc");
+      const d = await blobs.put(bigBlob(3 * 1024 * 1024));
+      expect(await blobs.has(d)).toBe(true);
+      expect(await blobs.has(asDigest("a".repeat(64)))).toBe(false);
     });
   });
 
