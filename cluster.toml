@@ -81,6 +81,13 @@ from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
 
+[inputs.rosary]
+ref = "io.github.org/agentic-research/rosary@main"
+version = "0.4.0"
+from = "file:///Users/jamesgardner/remotes/art/rosary/server.json"
+urlBinding = "ROSARY_MCP_URL"
+serviceBinding = "ROSARY_MCP"
+
 [[routes]]
 kind = "health"
 path = "/health"
