@@ -11,6 +11,9 @@ fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json
 signer = ""
 bytes = 2_603
 
+  [inputs.llo.oci]
+  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.6"
+
 [inputs.mache]
 ref = "io.github.org/agentic-research/mache@main"
 resolved = "0.13.0"
