@@ -86,7 +86,9 @@ layers (none substitutes for another):
   Machine); honors `CLOISTER_DO_PATH`. Real wins against T1-lite, no
   code in the substrate. Operators should still keep `CLOISTER_DO_PATH`
   out of iCloud-synced dirs. (Same-UID reads persist until Phase 1.)
-- **Phase 1 — encrypted volume (confidentiality, layer 1).** `task
+- **Phase 1 — encrypted volume (confidentiality, layer 1).**
+  *Target SHIPPED* (`task dev:securevol`); the `serve:local` mount
+  preflight + the Linux twin remain. `task
   dev:securevol`: create/mount an encrypted APFS sparse bundle at
   `CLOISTER_DO_PATH` (ADR-0023 indirection — no config forks),
   passphrase generated once and stored via the same Keychain discipline
