@@ -139,7 +139,7 @@ test("ADR dir itself is skipped — ADR text may cite old numbers", () => {
   }
 });
 
-test("adversarial-cycles/ + plans/archive/ + prompts/ are skipped (historical narrative)", () => {
+test("adversarial-cycles/ + plans/archive/ + archive/ are skipped (historical narrative)", () => {
   const fx = makeFixture({
     adrNumbers:    [1, 2],
     markdownFiles: {
@@ -147,7 +147,7 @@ test("adversarial-cycles/ + plans/archive/ + prompts/ are skipped (historical na
         "At the time of this cycle, the repo had 17 numbered ADRs.\n",
       "docs/plans/archive/2026-01-old-plan.md":
         "Frozen at: 7 numbered ADRs.\n",
-      "docs/prompts/example.md":
+      "docs/archive/prompts/example.md":
         "Tell the agent: 'we have 99 numbered ADRs'.\n",
     },
   });
