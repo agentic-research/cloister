@@ -274,6 +274,11 @@ Two gotchas to know:
    checkout (e.g. point it at the main repo's parent dir if the bead
    doesn't change schema), or symlink the worktree directory so a
    parent named `cloister/` exists alongside it.
+3. **The pre-push hook enforces the pinned pnpm.** It reads
+   `package.json#packageManager` and refuses to run the gate with an
+   ambient mismatched `pnpm` (Codex's bundled runtime has exposed newer
+   pnpm versions). If it fails before Task starts, activate the pinned
+   version with Corepack or put a matching pnpm earlier on `PATH`.
 
-Tracking bead for both: file one when these bite a real piece of
+Tracking bead for these: file one when they bite a real piece of
 work.

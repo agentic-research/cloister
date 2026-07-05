@@ -10,8 +10,78 @@
 # The --force flag below bypasses Taskfile mtime caching, which can
 # silently mask failures when sources haven't changed but the test
 # logic did (the specific bug that broke CI multiple times historically).
+#
+# The package-manager check below keeps local hooks aligned with CI:
+# CI enables Corepack so `package.json#packageManager` supplies
+# pnpm@10.30.3. Local shells can have a different pnpm earlier on PATH
+# (Codex currently exposes pnpm 11.x), which fails before the real gate
+# runs because pnpm 11 no longer honors this package.json's pnpm
+# overrides. Prefer an already-installed matching pnpm; fall back to
+# Corepack when available; otherwise fail with a direct diagnostic. When
+# a matching pnpm is found later on PATH, expose it through a tiny temp
+# shim directory so selecting pnpm does not also change which `task`,
+# `node`, or other tools the hook resolves.
 
 set -e
 cd "$(git rev-parse --show-toplevel)"
+
+PACKAGE_MANAGER="$(node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager || ""; if (!p.startsWith("pnpm@")) { console.error(`pre-push: expected packageManager to start with pnpm@, got ${p || "<empty>"}`); process.exit(1); } process.stdout.write(p);')"
+EXPECTED_PNPM_VERSION="${PACKAGE_MANAGER#pnpm@}"
+
+pnpm_version() {
+  "$1" --version 2>/dev/null | tail -n 1
+}
+
+find_matching_pnpm() {
+  old_ifs="$IFS"
+  IFS=:
+  for dir in $PATH; do
+    if [ -z "$dir" ]; then
+      dir="."
+    fi
+    candidate="$dir/pnpm"
+    if [ -x "$candidate" ] && [ "$(pnpm_version "$candidate")" = "$EXPECTED_PNPM_VERSION" ]; then
+      IFS="$old_ifs"
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
+PNPM_BIN="$(find_matching_pnpm || true)"
+if [ -n "$PNPM_BIN" ]; then
+  PNPM_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cloister-pre-push-pnpm.XXXXXX")"
+  trap 'rm -rf "$PNPM_SHIM_DIR"' EXIT INT TERM
+  ln -s "$PNPM_BIN" "$PNPM_SHIM_DIR/pnpm"
+  export PATH="$PNPM_SHIM_DIR:$PATH"
+  hash -r 2>/dev/null || true
+elif command -v corepack >/dev/null 2>&1; then
+  echo "▸ pre-push: activating $PACKAGE_MANAGER via corepack..."
+  corepack enable >/dev/null
+  corepack prepare "$PACKAGE_MANAGER" --activate >/dev/null
+else
+  FOUND_PNPM="$(command -v pnpm || true)"
+  FOUND_VERSION="<missing>"
+  if [ -n "$FOUND_PNPM" ]; then
+    FOUND_VERSION="$(pnpm_version "$FOUND_PNPM")"
+  fi
+  cat >&2 <<EOF
+pre-push: expected $PACKAGE_MANAGER, but PATH resolves pnpm ${FOUND_VERSION} (${FOUND_PNPM:-not found}).
+Install/activate the pinned package manager first:
+  corepack enable && corepack prepare $PACKAGE_MANAGER --activate
+or put a pnpm $EXPECTED_PNPM_VERSION binary earlier on PATH.
+EOF
+  exit 1
+fi
+
+ACTUAL_PNPM_VERSION="$(pnpm --version 2>/dev/null | tail -n 1)"
+if [ "$ACTUAL_PNPM_VERSION" != "$EXPECTED_PNPM_VERSION" ]; then
+  echo "pre-push: expected $PACKAGE_MANAGER after activation, got pnpm $ACTUAL_PNPM_VERSION" >&2
+  exit 1
+fi
+
+echo "▸ pre-push: using pnpm $ACTUAL_PNPM_VERSION from $(command -v pnpm)"
 echo "▸ pre-push: running task pre-push (forces Taskfile cache bypass)..."
 task --force pre-push
