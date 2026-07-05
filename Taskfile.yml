@@ -468,6 +468,14 @@ tasks:
     generates:
       - cluster.lock.toml
 
+  inputs:pull:
+    desc: "ADR-0026 Phase 1c — pull the OCI images cluster.lock.toml pins (each input's server.json packages[].oci, ADR-0038) into the local container store, so `task cluster:up` boots offline (its compose emits pull_policy: never). The 'install' half of resolve → install → run. `task inputs:pull -- --print` previews without pulling. Runtime: $CONTAINER_CMD, else docker/nerdctl/podman."
+    cmds:
+      - pnpm exec tsx scripts/pull-inputs.mjs {{.CLI_ARGS}}
+    sources:
+      - cluster.lock.toml
+      - scripts/pull-inputs.mjs
+
   cluster:dev:
     desc: "Mac dev launcher — spawns cluster.capnp bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
     deps: [cluster:manifest]
