@@ -402,6 +402,60 @@ export const manifest: Gateway = {
                   "stripPrefix": "mache_"
                 }
               }
+            },
+            {
+              "name": "rosary",
+              "handlesPrefix": "rsry_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "ROSARY_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "ROSARY_MCP",
+                  "claims": [
+                    "rsry_bead_create",
+                    "rsry_bead_update",
+                    "rsry_bead_search",
+                    "rsry_bead_close",
+                    "rsry_bead_link",
+                    "rsry_bead_import",
+                    "rsry_bead_history",
+                    "rsry_bead_comment",
+                    "rsry_bead_comment_list",
+                    "rsry_bead_comment_update",
+                    "rsry_bead_comment_delete",
+                    "rsry_status",
+                    "rsry_list_beads",
+                    "rsry_scan",
+                    "rsry_active",
+                    "rsry_ticket_load",
+                    "rsry_review",
+                    "rsry_dispatch",
+                    "rsry_run_once",
+                    "rsry_decompose",
+                    "rsry_pipeline_upsert",
+                    "rsry_pipeline_query",
+                    "rsry_dispatch_record",
+                    "rsry_dispatch_history",
+                    "rsry_agent_run_event_record",
+                    "rsry_agent_run_events",
+                    "rsry_agent_session_addresses",
+                    "rsry_agent_session_message_record",
+                    "rsry_workspace_create",
+                    "rsry_workspace_checkpoint",
+                    "rsry_workspace_cleanup",
+                    "rsry_workspace_merge",
+                    "rsry_decade_create",
+                    "rsry_decade_list",
+                    "rsry_thread_create",
+                    "rsry_thread_list",
+                    "rsry_thread_assign",
+                    "rsry_thread_reparent",
+                    "rsry_repo_register",
+                    "rsry_repo_list"
+                  ]
+                }
+              }
             }
           ]
         }

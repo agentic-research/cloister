@@ -22,6 +22,18 @@ fetched_from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
 signer = ""
 bytes = 4_177
 
+[inputs.rosary]
+ref = "io.github.org/agentic-research/rosary@main"
+resolved = "0.4.0"
+sha256 = "sha256:ca894659246aef6fd00f04092d307a517cda7c3164c02561574eba3cddfa04e0"
+fetched_from = "file:///Users/jamesgardner/remotes/art/rosary/server.json"
+signer = ""
+bytes = 6_252
+
+  [inputs.rosary.oci]
+  identifier = "ghcr.io/agentic-research/rosary"
+  version = "0.4.0"
+
 [[generated_backends]]
 input = "llo"
 name = "lsp"
@@ -195,3 +207,54 @@ claims = [ "write_file" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+
+[[generated_backends]]
+input = "rosary"
+name = "rosary"
+handlesPrefix = "rsry_"
+stripPrefix = ""
+claims = [
+  "rsry_bead_create",
+  "rsry_bead_update",
+  "rsry_bead_search",
+  "rsry_bead_close",
+  "rsry_bead_link",
+  "rsry_bead_import",
+  "rsry_bead_history",
+  "rsry_bead_comment",
+  "rsry_bead_comment_list",
+  "rsry_bead_comment_update",
+  "rsry_bead_comment_delete",
+  "rsry_status",
+  "rsry_list_beads",
+  "rsry_scan",
+  "rsry_active",
+  "rsry_ticket_load",
+  "rsry_review",
+  "rsry_dispatch",
+  "rsry_run_once",
+  "rsry_decompose",
+  "rsry_pipeline_upsert",
+  "rsry_pipeline_query",
+  "rsry_dispatch_record",
+  "rsry_dispatch_history",
+  "rsry_agent_run_event_record",
+  "rsry_agent_run_events",
+  "rsry_agent_session_addresses",
+  "rsry_agent_session_message_record",
+  "rsry_workspace_create",
+  "rsry_workspace_checkpoint",
+  "rsry_workspace_cleanup",
+  "rsry_workspace_merge",
+  "rsry_decade_create",
+  "rsry_decade_list",
+  "rsry_thread_create",
+  "rsry_thread_list",
+  "rsry_thread_assign",
+  "rsry_thread_reparent",
+  "rsry_repo_register",
+  "rsry_repo_list"
+]
+dynamicTools = true
+urlBinding = "ROSARY_MCP_URL"
+serviceBinding = "ROSARY_MCP"
