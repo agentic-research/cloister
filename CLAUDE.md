@@ -29,16 +29,22 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0041** (0001–0031 + 0033–0036 + 0038–0040 land; 0032
+  number is **ADR-0042** (0001–0031 + 0033–0036 + 0038–0041 land; 0032
   reserved-but-unused; 0037 reserved for secure MCP ingress transports).
   ADR-0040 (2026-07-06, Proposed) formalizes harness-in-cloister —
   cloister as the control + credential + audit plane for agent
   harnesses (`cloister-f3e3ae` is the L1 vault-proxy build).
+  ADR-0041 (2026-07-06, Proposed) sets the OCI image-publish contract —
+  each backend repo (mache/rosary/llo) publishes its own distroless
+  image from its in-repo apko recipe; canonical `packages[].oci` =
+  `identifier` (no tag) + `version` + resolved `digest`; cloister pulls
+  by digest. Closes ADR-0038's publish + digest Opens (`cloister-bd73a7`).
   Most ADRs are Accepted;
   ADR-0008 Deferred (multi-companion scale not yet a real signal);
   ADR-0010 stays Proposed (manifest-side enforcement ratified by
   ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
-  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038, ADR-0040 are Proposed;
+  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038, ADR-0040,
+  ADR-0041 are Proposed;
   ADR-0039 Accepted (2026-07-05; macOS local-DO-at-rest security shipped +
   proven — Linux twin pending); everything else 0011–0019, 0022–0025, 0029,
   0031 is Accepted. ADR-0030 (2026-06-21) ratifies
@@ -212,6 +218,11 @@ the decade-thread index only.
 | 0034 — true multi-tenant access spec across rosary/mache/ley-line/notme/signet | `interlace-substrate/adrs` |
 | 0035 — cloister ↔ LLO boundary (bridge crates in cloister, leyline-* in LLO) | `interlace-substrate/adrs` |
 | 0036 — schema-bridge multi-output IR (Phase 1 in cloister, Phase 2 lift to LLO) | `interlace-substrate/adrs` |
+| 0037 — *reserved* (secure MCP ingress transports, `cloister-22a5ca`) | — |
+| 0038 — derive bundle image from `server.json` `packages[].oci` | `interlace-substrate/adrs` |
+| 0039 — securing local Durable Object SQLite at rest | `interlace-substrate/vault` |
+| 0040 — harness-in-cloister (control + credential + audit plane) | `interlace-substrate/adrs` |
+| 0041 — OCI image-publish contract (each backend repo publishes its own distroless image) | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
