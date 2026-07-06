@@ -39,6 +39,13 @@ const gateway :Cloister.Gateway = (
       defaultAllowedSubs = [],
       rateLimitPerMinute = 120,
       injection = (headerNamed = (name = "x-api-key")),
+    ),
+    (
+      name = "openai",
+      upstreamBaseUrl = "https://api.openai.com",
+      defaultAllowedSubs = [],
+      rateLimitPerMinute = 120,
+      injection = (authorizationBearer = void),
     )
   ],
 

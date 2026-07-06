@@ -248,5 +248,12 @@ upstreamBaseUrl = "https://api.anthropic.com"
   [gateway.vaultProxyServices.headerNamed]
   name = "x-api-key"
 
+[[gateway.vaultProxyServices]]
+defaultAllowedSubs = [ ]
+injection = "authorizationBearer"
+name = "openai"
+rateLimitPerMinute = 120
+upstreamBaseUrl = "https://api.openai.com"
+
 [storage]
 doStoragePath = "/data/do"

@@ -493,6 +493,15 @@ export const manifest: Gateway = {
           "name": "x-api-key"
         }
       }
+    },
+    {
+      "name": "openai",
+      "upstreamBaseUrl": "https://api.openai.com",
+      "defaultAllowedSubs": [],
+      "rateLimitPerMinute": 120,
+      "injection": {
+        "authorizationBearer": null
+      }
     }
   ]
 } as const;

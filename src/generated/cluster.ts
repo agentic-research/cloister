@@ -380,6 +380,15 @@ export const cluster: Cluster = {
             "name": "x-api-key"
           }
         }
+      },
+      {
+        "name": "openai",
+        "upstreamBaseUrl": "https://api.openai.com",
+        "defaultAllowedSubs": [],
+        "rateLimitPerMinute": 120,
+        "injection": {
+          "authorizationBearer": null
+        }
       }
     ]
   },
