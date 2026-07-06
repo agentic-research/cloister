@@ -113,8 +113,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install Node dependencies
+        # Project dependency policy lives in Taskfile.yml; workflow setup
+        # still owns OS packages, toolchains, and caches.
+        run: task deps:node
 
       - name: Pre-warm rustup toolchain
         # Belt-and-suspenders for the parallel rustup-download race.
@@ -187,8 +189,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install Node dependencies
+        # Project dependency policy lives in Taskfile.yml; workflow setup
+        # still owns OS packages, toolchains, and caches.
+        run: task deps:node
 
       - name: Pre-warm rustup toolchain
         # See the lint job's matching step. `task verify` fans out

@@ -1,0 +1,82 @@
+version: "3"
+
+tasks:
+  test:
+    desc: "Rust gates required before worker tests: wasm artifacts + host test suites. Sequenced to avoid Cargo package/artifact lock contention."
+    cmds:
+      - task: sign:wasm
+      - task: cas:wasm
+      - task: sign:host
+      - task: cas:test
+
+  verify:
+    desc: "Verify-only Rust gates. Runs after root `task lint`, so it avoids racing lint's Rust prerequisites."
+    cmds:
+      - task: sign:host-extras
+      - task: audit
+
+  sign:
+    desc: "Test the Rust leyline-sign crate (native build)"
+    cmds:
+      - cargo test -p leyline-sign
+
+  sign:wasm:
+    desc: "Build leyline-sign for wasm32 (cloister-bd5241). Requires `rustup target add wasm32-unknown-unknown` once."
+    cmds:
+      - cargo build --release --target wasm32-unknown-unknown -p leyline-sign
+      - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/leyline_sign.wasm ($(wc -c < target/wasm32-unknown-unknown/release/leyline_sign.wasm) bytes)"'
+    sources:
+      - crates/sign/src/**/*.rs
+      - crates/sign/Cargo.toml
+    generates:
+      - target/wasm32-unknown-unknown/release/leyline_sign.wasm
+
+  sign:host:
+    desc: "Test the leyline-sign crate with the host feature enabled (cloister-99165e). Includes the sign-only helper integration tests."
+    cmds:
+      - cargo test -p leyline-sign --features host
+
+  sign:host-extras:
+    desc: "Test the leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises opt-in host integrations and the nono closure flagged in threat-model §17.1."
+    cmds:
+      - cargo test -p leyline-sign --features 'host host-extras'
+
+  sign:helper:
+    desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target, host feature enabled."
+    cmds:
+      - cargo build --release --features host --bin leyline-sign-helper
+      - 'echo "binary: $(pwd)/target/release/leyline-sign-helper ($(wc -c < target/release/leyline-sign-helper) bytes)"'
+
+  sign:fixtures:
+    desc: "Mint cert-chain test fixtures (cloister-9d49eb). Generates test/wire/fixtures/cert-chain.ts from a fixed RNG seed for stable test output."
+    cmds:
+      - cargo run --example gen-fixture > ../test/wire/fixtures/cert-chain.ts
+      - 'echo "fixture wrote: $(wc -l < ../test/wire/fixtures/cert-chain.ts) lines"'
+    sources:
+      - crates/sign/examples/gen-fixture.rs
+      - crates/sign/src/cert_chain.rs
+    generates:
+      - ../test/wire/fixtures/cert-chain.ts
+
+  cas:wasm:
+    desc: "Build cloister-cas (LLO leyline-cas-ffi bridge) for wasm32 (cloister-713b4e). Requires `rustup target add wasm32-unknown-unknown` once."
+    cmds:
+      - cargo build --release --target wasm32-unknown-unknown -p cloister-cas
+      - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/cloister_cas.wasm ($(wc -c < target/wasm32-unknown-unknown/release/cloister_cas.wasm) bytes)"'
+    sources:
+      - crates/cas/src/**/*.rs
+      - crates/cas/Cargo.toml
+    generates:
+      - target/wasm32-unknown-unknown/release/cloister_cas.wasm
+
+  cas:test:
+    desc: "Test the cloister-cas bridge crate. Native tests only; wasm32 behavior is covered by the upstream leyline-cas-ffi test suite."
+    cmds:
+      - cargo test -p cloister-cas
+
+  audit:
+    desc: "Supply-chain audit for the Rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure."
+    cmds:
+      - 'grep -q ''channel = "1.95.0"'' rust-toolchain.toml || (echo "rs/rust-toolchain.toml: channel != 1.95.0 — see ADR-0019 §Implementation pins"; exit 1)'
+      - cargo audit --deny warnings
+      - cargo deny check

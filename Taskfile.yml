@@ -1,6 +1,23 @@
 version: "3"
 
+includes:
+  rs:
+    taskfile: ./rs/Taskfile.yml
+    dir: ./rs
+
 tasks:
+  deps:node:
+    desc: "Install Node dependencies from pnpm-lock.yaml. CI and local bootstrap use this; verification gates assume deps are already present and stay offline."
+    cmds:
+      - pnpm install --frozen-lockfile
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .npmrc
+    generates:
+      - node_modules/.modules.yaml
+
   build:
     desc: Bundle Worker for Cloudflare / wrangler dev
     deps: [manifest]
@@ -14,6 +31,7 @@ tasks:
 
   tool-schemas:
     desc: "Compile src/tool-schemas/*.ts (zod) → src/generated/tool-schemas.ts (cloister-7ca96c)"
+    run: once
     cmds:
       - pnpm exec tsx scripts/build-tool-schemas.mjs
     sources:
@@ -25,6 +43,7 @@ tasks:
   manifest:
     desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004). Overlays zod-derived tool schemas (cloister-7ca96c).
     deps: [tool-schemas]
+    run: once
     cmds:
       # `scripts/build-manifest.mjs` dynamically `import()`s
       # `src/generated/tool-schemas.ts` — a `.ts` file directly. Node 23+
@@ -51,6 +70,7 @@ tasks:
 
   cluster:manifest:
     desc: "Compile cluster.capnp → src/generated/cluster.ts (cloister-be0607a)"
+    run: once
     cmds:
       - node scripts/build-cluster.mjs
     sources:
@@ -534,80 +554,6 @@ tasks:
     generates:
       - test/wire/fixtures/canonical.ts
 
-  rs:sign:
-    desc: "Test the Rust leyline-sign crate (native build)"
-    dir: rs
-    cmds:
-      - cargo test -p leyline-sign
-
-  rs:sign:wasm:
-    desc: "Build leyline-sign for wasm32 (cloister-bd5241). Requires `rustup target add wasm32-unknown-unknown` once."
-    dir: rs
-    cmds:
-      - cargo build --release --target wasm32-unknown-unknown -p leyline-sign
-      - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/leyline_sign.wasm ($(wc -c < target/wasm32-unknown-unknown/release/leyline_sign.wasm) bytes)"'
-    sources:
-      - crates/sign/src/**/*.rs
-      - crates/sign/Cargo.toml
-    generates:
-      - target/wasm32-unknown-unknown/release/leyline_sign.wasm
-
-  rs:sign:host:
-    desc: "Test the leyline-sign crate with the host feature enabled (cloister-99165e). Includes the sign-only helper integration tests."
-    dir: rs
-    cmds:
-      - cargo test -p leyline-sign --features host
-
-  rs:cas:wasm:
-    desc: "Build cloister-cas (LLO leyline-cas-ffi bridge) for wasm32 (cloister-713b4e). Requires `rustup target add wasm32-unknown-unknown` once. LLO is fetched as a git dep pinned in crates/cas/Cargo.toml; cargo handles the checkout."
-    dir: rs
-    cmds:
-      - cargo build --release --target wasm32-unknown-unknown -p cloister-cas
-      - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/cloister_cas.wasm ($(wc -c < target/wasm32-unknown-unknown/release/cloister_cas.wasm) bytes)"'
-    sources:
-      - crates/cas/src/**/*.rs
-      - crates/cas/Cargo.toml
-    generates:
-      - target/wasm32-unknown-unknown/release/cloister_cas.wasm
-
-  rs:cas:test:
-    desc: "Test the cloister-cas bridge crate. Native (host) tests only — wasm32 behavior is covered by the upstream leyline-cas-ffi test suite."
-    dir: rs
-    cmds:
-      - cargo test -p cloister-cas
-
-  rs:sign:host-extras:
-    desc: "Test the leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises the op:// + apple-password:// scheme handlers + nono URI validators that are opt-in for production deploys. Pulls in nono = 0.54 + the sigstore-verify / aws-lc-rs / landlock closure flagged in threat-model §17.1 — that's the cost of running this target."
-    dir: rs
-    cmds:
-      - cargo test -p leyline-sign --features 'host host-extras'
-
-  rs:audit:
-    desc: "Supply-chain audit for the rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure. Closes 2026-05-13 adversarial cycle row 17.1 / 17.4."
-    dir: rs
-    cmds:
-      # 17.4 — toolchain pin matches the documented version. The grep
-      # asserts the exact channel string; a PR that deletes or bumps
-      # rust-toolchain.toml without coordinated ADR + Taskfile edit
-      # fails this gate.
-      - 'grep -q ''channel = "1.95.0"'' rust-toolchain.toml || (echo "rs/rust-toolchain.toml: channel != 1.95.0 — see ADR-0019 §Implementation pins"; exit 1)'
-      # 17.1 — supply-chain CVE scan. `cargo install --locked cargo-audit`
-      # if needed; CI installs once and caches. Local dev installs on
-      # first run (~30s). Failing on warnings ensures a new advisory
-      # against any nono transitive does not land silently.
-      - cargo audit --deny warnings
-      # `cargo deny check` enforces the bans / advisories / licenses /
-      # sources policy declared in deny.toml (next to Cargo.toml). The
-      # toml is part of this commit.
-      - cargo deny check
-
-  rs:sign:helper:
-    desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target, host feature enabled."
-    dir: rs
-    cmds:
-      - cargo build --release --features host --bin leyline-sign-helper
-      - 'echo "binary: $(pwd)/target/release/leyline-sign-helper ($(wc -c < target/release/leyline-sign-helper) bytes)"'
-
   helper:start:
     desc: "Start the leyline-sign-helper in the foreground on 127.0.0.1:8786 (cloister-99165e, ADR-0019). Builds first if needed."
     deps: [rs:sign:helper]
@@ -618,18 +564,6 @@ tasks:
     desc: "Probe GET /healthz to confirm the leyline-sign-helper is reachable (cloister-99165e)."
     cmds:
       - curl -fsS http://127.0.0.1:8786/healthz | jq .
-
-  rs:sign:fixtures:
-    desc: "Mint cert-chain test fixtures (cloister-9d49eb). Generates test/wire/fixtures/cert-chain.ts from a fixed RNG seed for stable test output."
-    dir: rs
-    cmds:
-      - cargo run --example gen-fixture > ../test/wire/fixtures/cert-chain.ts
-      - 'echo "fixture wrote: $(wc -l < ../test/wire/fixtures/cert-chain.ts) lines"'
-    sources:
-      - crates/sign/examples/gen-fixture.rs
-      - crates/sign/src/cert_chain.rs
-    generates:
-      - ../test/wire/fixtures/cert-chain.ts
 
   wire:verify-roundtrip:
     desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
@@ -696,7 +630,7 @@ tasks:
     # behavior. Without this wire-up, the failing tests don't gate the
     # merge — which defeats the entire point of the gate.
     desc: Run tests inside workerd (real DOs, real SQLite)
-    deps: [manifest, rs:sign:wasm, rs:sign:host, rs:cas:wasm, rs:cas:test]
+    deps: [manifest, rs:test]
     cmds:
       - pnpm exec vitest run
 
@@ -1077,7 +1011,13 @@ tasks:
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
-    deps: [lint, wire:verify-roundtrip, smoke:leyline-stub, rs:audit, rs:sign:host-extras, cluster:toml:roundtrip, emit:cloister-capnp:drift, verify:cred-iso-conformance]
+    cmds:
+      - task: lint
+      - task: verify:strict
+
+  verify:strict:
+    desc: "Strict-only gates run after `lint`: external-process equivalence, stub smoke, Rust audit/host-extras, and generated drift checks."
+    deps: [wire:verify-roundtrip, smoke:leyline-stub, rs:verify, cluster:toml:roundtrip, emit:cloister-capnp:drift, verify:cred-iso-conformance]
 
   done:
     desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/` (mache-smell-rules-shaped). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
@@ -1085,7 +1025,7 @@ tasks:
       - node scripts/done-runner.mjs
 
   ci:
-    desc: "Run the strict local CI gate once. `task verify` already depends on `task lint`, matching the main-push CI superset without running lint twice. Per cloister-8e40ad, `task lint` invokes `test:lint-scripts` which includes the e2e manifest pipeline (real fixture .capnp files driven through scripts/build-manifest.mjs, asserting happy + unhappy paths). Adding a new validator or schema invariant means adding a fixture here — never re-implementing the check in CI YAML."
+    desc: "Run the strict local CI gate once. `task verify` runs `task lint` first, then the strict-only extras, matching the main-push CI superset without running lint twice. Per cloister-8e40ad, `task lint` invokes `test:lint-scripts` which includes the e2e manifest pipeline (real fixture .capnp files driven through scripts/build-manifest.mjs, asserting happy + unhappy paths). Adding a new validator or schema invariant means adding a fixture here — never re-implementing the check in CI YAML."
     cmds:
       - 'echo "[ci] Running the exact gate CI runs. See .github/workflows/ci.yml for the workflow spec."'
       - task: verify
