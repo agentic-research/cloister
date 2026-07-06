@@ -357,7 +357,46 @@ function normalizeGateway(raw) {
       minAlgorithm:
         typeof policy.minAlgorithm === "string" ? policy.minAlgorithm : "",
     },
+    vaultProxyServices: normalizeVaultProxyServices(g.vaultProxyServices),
   };
+}
+
+function normalizeVaultProxyServices(raw) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((svc) => {
+    const s = svc && typeof svc === "object" && !Array.isArray(svc) ? svc : {};
+    return {
+      name: typeof s.name === "string" ? s.name : "",
+      upstreamBaseUrl: typeof s.upstreamBaseUrl === "string" ? s.upstreamBaseUrl : "",
+      defaultAllowedSubs: Array.isArray(s.defaultAllowedSubs) ? s.defaultAllowedSubs : [],
+      rateLimitPerMinute: typeof s.rateLimitPerMinute === "number" ? s.rateLimitPerMinute : 0,
+      injection: normalizeVaultProxyInjection(s),
+    };
+  });
+}
+
+function normalizeVaultProxyInjection(svc) {
+  if (svc && typeof svc.injection === "object" && !Array.isArray(svc.injection)) {
+    return svc.injection;
+  }
+  const tag = typeof svc?.injection === "string" ? svc.injection : "";
+  if (tag === "authorizationBearer") return { authorizationBearer: null };
+  if (tag === "authorizationBasic") return { authorizationBasic: null };
+  if (tag === "headerNamed") {
+    const payload = svc.headerNamed && typeof svc.headerNamed === "object" ? svc.headerNamed : {};
+    return { headerNamed: { name: typeof payload.name === "string" ? payload.name : "" } };
+  }
+  if (tag === "queryParam") {
+    const payload = svc.queryParam && typeof svc.queryParam === "object" ? svc.queryParam : {};
+    return { queryParam: { name: typeof payload.name === "string" ? payload.name : "" } };
+  }
+  if (tag === "bodyField") {
+    const payload = svc.bodyField && typeof svc.bodyField === "object" ? svc.bodyField : {};
+    return { bodyField: { path: typeof payload.path === "string" ? payload.path : "" } };
+  }
+  // Let zod/build-time validation surface malformed declarations.
+  return { [tag]: null };
 }
 
 function normalizeInputDefaults(spec) {

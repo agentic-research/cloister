@@ -120,6 +120,39 @@ test("emit-cloister-capnp: vaultProxy + httpProxy variants emit their payload fi
   assert.match(out, /stripPrefix = "\/proxy"/);
 });
 
+test("emit-cloister-capnp: gateway vaultProxyServices emit into Cloister.Gateway", () => {
+  const c = minimalCluster();
+  c.gateway = {
+    metadata: { name: "cloister-harness", version: "0.1.0" },
+    actor: { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
+    policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
+    vaultProxyServices: [
+      {
+        name: "anthropic",
+        upstreamBaseUrl: "https://api.anthropic.com",
+        defaultAllowedSubs: ["sha256:harness:*"],
+        rateLimitPerMinute: 120,
+        injection: { headerNamed: { name: "x-api-key" } },
+      },
+      {
+        name: "anthropic-compatible",
+        upstreamBaseUrl: "https://gw.example/anthropic",
+        defaultAllowedSubs: [],
+        rateLimitPerMinute: 60,
+        injection: { authorizationBearer: null },
+      },
+    ],
+  };
+  const out = emitCloisterCapnp(c);
+  assert.match(out, /vaultProxyServices = \[/);
+  assert.match(out, /name = "anthropic"/);
+  assert.match(out, /upstreamBaseUrl = "https:\/\/api\.anthropic\.com"/);
+  assert.match(out, /defaultAllowedSubs = \["sha256:harness:\*"\]/);
+  assert.match(out, /injection = \(headerNamed = \(name = "x-api-key"\)\)/);
+  assert.match(out, /name = "anthropic-compatible"/);
+  assert.match(out, /injection = \(authorizationBearer = void\)/);
+});
+
 // ── Contract 5b: tenantDispatch variant (ADR-0030 §A2 / cloister-0f144c) ──
 
 test("emit-cloister-capnp: tenantDispatch variant emits tenants table with name/mode/matchValue/binding", () => {

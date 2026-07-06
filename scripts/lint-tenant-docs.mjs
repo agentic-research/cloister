@@ -96,6 +96,10 @@ const SUBSTRATE_ROUTE_KINDS = new Set([
   "caBundle",               // Interlace 0.2.0 archival CA bundle endpoint
                             // (cloister-ae713f) — substrate-side identity
                             // surface, not a tenant. RECEIPTS.md §2.3, §2.7.
+  "vaultProxy",             // credential-isolation/v1 route (ADR-0024 /
+                            // ADR-0040) — substrate credential/audit
+                            // plane; service declarations live in
+                            // gateway.vaultProxyServices, not tenant docs.
 ]);
 
 // Compose services that are SUBSTRATE bundles (hypervisor tier in

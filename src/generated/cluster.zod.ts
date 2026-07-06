@@ -130,12 +130,14 @@ export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
     metadata: GatewayMetadataSchema,
     actor: ActorSchema,
     policy: InterlacePolicySchema,
+    vaultProxyServices: z.array(VaultProxyServiceSchema).readonly(),
   }).strict());
 
 export interface Gateway {
   metadata: GatewayMetadata;
   actor: Actor;
   policy: InterlacePolicy;
+  vaultProxyServices: readonly VaultProxyService[];
 }
 
 export const EdgeSpecSchema: z.ZodType<EdgeSpec> = z.lazy(() =>
@@ -436,5 +438,55 @@ export interface InterlacePolicy {
   maxCertLifetimeSeconds: number;
   requireInterlock: boolean;
   minAlgorithm: string;
+}
+
+export const VaultProxyServiceSchema: z.ZodType<VaultProxyService> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    upstreamBaseUrl: z.string(),
+    defaultAllowedSubs: z.array(z.string()).readonly(),
+    rateLimitPerMinute: z.number().int().nonnegative(),
+    injection: z.union([
+      z.object({ authorizationBearer: z.null() }).strict(),
+      z.object({ authorizationBasic: z.null() }).strict(),
+      z.object({ headerNamed: HeaderNamedSpecSchema }).strict(),
+      z.object({ queryParam: QueryParamSpecSchema }).strict(),
+      z.object({ bodyField: BodyFieldSpecSchema }).strict(),
+    ]),
+  }).strict());
+
+export interface VaultProxyService {
+  name: string;
+  upstreamBaseUrl: string;
+  defaultAllowedSubs: readonly string[];
+  rateLimitPerMinute: number;
+  injection: { authorizationBearer: null } | { authorizationBasic: null } | { headerNamed: HeaderNamedSpec } | { queryParam: QueryParamSpec } | { bodyField: BodyFieldSpec };
+}
+
+export const HeaderNamedSpecSchema: z.ZodType<HeaderNamedSpec> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+  }).strict());
+
+export interface HeaderNamedSpec {
+  name: string;
+}
+
+export const QueryParamSpecSchema: z.ZodType<QueryParamSpec> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+  }).strict());
+
+export interface QueryParamSpec {
+  name: string;
+}
+
+export const BodyFieldSpecSchema: z.ZodType<BodyFieldSpec> = z.lazy(() =>
+  z.object({
+    path: z.string(),
+  }).strict());
+
+export interface BodyFieldSpec {
+  path: string;
 }
 

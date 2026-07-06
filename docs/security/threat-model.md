@@ -1159,6 +1159,22 @@ tightens the boundary for local deployments.
 - ADR-0023 — `CLOISTER_DO_PATH` (the mount indirection Phase 1 uses)
 - Beads: `cloister-ffd17b` (research + ADR-0039)
 
+## 13.10 Harness L1 credential proxy (ADR-0040 / cloister-f3e3ae)
+
+Added 2026-07-06 to pin the security boundary for "harness through
+cloister" before enabling Anthropic-style API-key custody. This is a
+credential and audit plane, not a compute sandbox: Claude Code, Codex,
+or another harness still runs host-side unless ADR-0009 supplies a
+separate process substrate.
+
+| Aspect | Detail |
+|---|---|
+| **Attack** | A compromised host-side harness or spawned agent tries to read or exfiltrate the LLM API key, bypass cloister's audit trail, or use the proxy as a service-enumeration oracle. |
+| **Mitigation** | API-key credentials live in `CredentialVault`; the production forward path delegates the whole request to the vault DO so plaintext key bytes stay inside that trust boundary. `vaultProxy` is lease-gated, checks manifest `defaultAllowedSubs`, injects only the declared strategy, streams header/query injection responses with the upstream body, emits one receipt/metric per call, and collapses access failures to constant-shape denial bodies. `cluster.toml` is the source of truth for both the route and `gateway.vaultProxyServices`; the shipped Anthropic declaration is safe-closed (`defaultAllowedSubs = []`) until the operator grants a harness identity. |
+| **Adversary capabilities** | Host-side process compromise; read access to the harness environment; network access to `/vault/proxy/*`; log-reader access to route denial events. The model still trusts the declared upstream not to echo the credential in its response. |
+| **Residual risk** | Stock Claude Code can point at `ANTHROPIC_BASE_URL`, but it does not create Interlace lease headers by itself. A deployable L1 path needs a lease-aware local shim, mTLS edge, or enterprise gateway that binds the channel to the harness identity. Max/Pro OAuth subscription tokens remain client-keychain credentials, so cloister can receipt those calls only if traffic is routed through it; it cannot claim custody of that token. Body-field injection buffers JSON and is not an SSE path. |
+| **Test ref** | Existing cred-iso/v1 tests cover streaming-preserving forward semantics, constant-shape denials, receipts, per-bundle vault DO selection, and manifest service validation. This slice adds cluster.toml round-trip + capnp-emitter tests for `gateway.vaultProxyServices`; a live Claude Code SSE proof remains the acceptance test for the lease-aware adapter. |
+
 
 ## 15. Trust-anchor-helper attack surface (cloister-99165e / ADR-0019)
 

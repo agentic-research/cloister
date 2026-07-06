@@ -51,6 +51,15 @@ lease). Plaintext key bytes never cross back to the harness — the same
 decrypt-inside-the-DO discipline as the vault proxy (ADR-0013). Channel
 auth is mTLS + an Interlace lease, not a bearer token.
 
+Implementation note: the existing `vaultProxy` route is lease-gated.
+Stock Claude Code can use an `ANTHROPIC_BASE_URL`, but it does not mint
+Interlace lease headers by itself. A deployable Claude Code L1 therefore
+needs either a lease-aware local shim in front of Claude Code, an mTLS
+edge that mints/attaches the lease on behalf of the harness identity, or
+an enterprise gateway that already terminates that channel identity.
+Without that adapter, cloister can host the proxy surface but must reject
+the request safe-closed.
+
 **Boundary (explicit, not a gap).** The agent processes and the harness
 CLI **run host-side.** workerd can't contain them; cloister doesn't try.
 Sandboxing the *compute* is a different substrate (ADR-0009 —
@@ -70,6 +79,11 @@ The "harness never sees the key" claim is precise:
   **custody**. The receipt claim ("everything's on the record") holds
   for all shapes; the custody claim ("tools never see the key") holds
   only where cloister issues or holds the credential.
+- **Codex / non-Anthropic providers:** provider routing is a harness
+  concern, not a new proxy primitive. Cloister declares services by
+  upstream shape (`authorizationBearer`, `headerNamed`, etc.) and should
+  reuse the same provider-selection pattern the harness already uses
+  rather than forking an Anthropic-only path.
 
 ## Consequences
 

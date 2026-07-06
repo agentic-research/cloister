@@ -139,6 +139,7 @@ export function emitCloisterCapnp(cluster, options = {}) {
     metadata: gateway.metadata,
     actor: gateway.actor,
     policy: gateway.policy,
+    vaultProxyServices: gateway.vaultProxyServices ?? [],
     routes: (cluster.routes ?? []).map((r) => cloneRoute(r)),
   });
 }
@@ -190,6 +191,7 @@ function isEmptyGateway(g) {
   const m = g.metadata ?? {};
   const a = g.actor    ?? {};
   const p = g.policy   ?? {};
+  const services = Array.isArray(g.vaultProxyServices) ? g.vaultProxyServices : [];
   return (
     (m.name ?? "") === "" &&
     (m.version ?? "") === "" &&
@@ -200,7 +202,8 @@ function isEmptyGateway(g) {
     (a.tunnelEndpoint ?? "") === "" &&
     ((p.maxCertLifetimeSeconds ?? 0) === 0) &&
     ((p.requireInterlock ?? false) === false) &&
-    ((p.minAlgorithm ?? "") === "")
+    ((p.minAlgorithm ?? "") === "") &&
+    services.length === 0
   );
 }
 
@@ -214,6 +217,7 @@ function normalizeGatewayForRender(g) {
   const m = g.metadata ?? {};
   const a = g.actor    ?? {};
   const p = g.policy   ?? {};
+  const services = Array.isArray(g.vaultProxyServices) ? g.vaultProxyServices : [];
   return {
     metadata: {
       name:    typeof m.name    === "string" ? m.name    : "",
@@ -231,6 +235,20 @@ function normalizeGatewayForRender(g) {
       requireInterlock:       typeof p.requireInterlock       === "boolean" ? p.requireInterlock       : false,
       minAlgorithm:           typeof p.minAlgorithm           === "string"  ? p.minAlgorithm           : "",
     },
+    vaultProxyServices: services.map(normalizeVaultProxyServiceForRender),
+  };
+}
+
+function normalizeVaultProxyServiceForRender(svc) {
+  const s = svc && typeof svc === "object" && !Array.isArray(svc) ? svc : {};
+  return {
+    name: typeof s.name === "string" ? s.name : "",
+    upstreamBaseUrl: typeof s.upstreamBaseUrl === "string" ? s.upstreamBaseUrl : "",
+    defaultAllowedSubs: Array.isArray(s.defaultAllowedSubs) ? s.defaultAllowedSubs : [],
+    rateLimitPerMinute: typeof s.rateLimitPerMinute === "number" ? s.rateLimitPerMinute : 0,
+    injection: s.injection && typeof s.injection === "object" && !Array.isArray(s.injection)
+      ? s.injection
+      : { authorizationBearer: null },
   };
 }
 
@@ -269,9 +287,9 @@ function cloneRoute(r) {
  *     routes   = [ ... ],
  *   );
  *
- * Future Phase 3+ will add supportedProtocolVersions +
- * vaultProxyServices to the operator surface; for now the emitter omits
- * them (matches the ART-default cloister.capnp at HEAD).
+ * The emitter includes gateway.vaultProxyServices when declared in
+ * cluster.toml so the route and service registry share one operator
+ * source of truth.
  */
 function renderCapnp(g) {
   const lines = [];
@@ -309,6 +327,14 @@ function renderCapnp(g) {
   lines.push(`    minAlgorithm           = ${q(g.policy.minAlgorithm)},`);
   lines.push("  ),");
   lines.push("");
+  if (Array.isArray(g.vaultProxyServices) && g.vaultProxyServices.length > 0) {
+    lines.push("  vaultProxyServices = [");
+    for (let i = 0; i < g.vaultProxyServices.length; i++) {
+      renderVaultProxyService(lines, g.vaultProxyServices[i], i === g.vaultProxyServices.length - 1);
+    }
+    lines.push("  ],");
+    lines.push("");
+  }
   lines.push("  routes = [");
   for (let i = 0; i < g.routes.length; i++) {
     renderRoute(lines, g.routes[i], i === g.routes.length - 1);
@@ -317,6 +343,28 @@ function renderCapnp(g) {
   lines.push(");");
   lines.push("");
   return lines.join("\n");
+}
+
+function renderVaultProxyService(lines, svc, isLast) {
+  const tag = pickTag(svc.injection, `VaultProxyService.injection (name=${svc.name})`);
+  lines.push("    (");
+  lines.push(`      name = ${q(svc.name)},`);
+  lines.push(`      upstreamBaseUrl = ${q(svc.upstreamBaseUrl)},`);
+  lines.push(`      defaultAllowedSubs = [${svc.defaultAllowedSubs.map(q).join(", ")}],`);
+  lines.push(`      rateLimitPerMinute = ${svc.rateLimitPerMinute},`);
+  const payload = svc.injection[tag];
+  if (payload === null) {
+    lines.push(`      injection = (${tag} = void),`);
+  } else if (tag === "headerNamed") {
+    lines.push(`      injection = (headerNamed = (name = ${q(payload.name ?? "")})),`);
+  } else if (tag === "queryParam") {
+    lines.push(`      injection = (queryParam = (name = ${q(payload.name ?? "")})),`);
+  } else if (tag === "bodyField") {
+    lines.push(`      injection = (bodyField = (path = ${q(payload.path ?? "")})),`);
+  } else {
+    throw new Error(`renderVaultProxyService: unsupported payload variant "${tag}"`);
+  }
+  lines.push(`    )${isLast ? "" : ","}`);
 }
 
 function renderRoute(lines, r, isLast) {

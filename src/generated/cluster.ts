@@ -231,6 +231,14 @@ export const cluster: Cluster = {
       }
     },
     {
+      "path": "/vault/proxy",
+      "kind": {
+        "vaultProxy": {
+          "bundleIdName": "cloister-router"
+        }
+      }
+    },
+    {
       "path": "/identity",
       "kind": {
         "serviceBindingProxy": {
@@ -360,7 +368,20 @@ export const cluster: Cluster = {
       "maxCertLifetimeSeconds": 300,
       "requireInterlock": true,
       "minAlgorithm": "ed25519"
-    }
+    },
+    "vaultProxyServices": [
+      {
+        "name": "anthropic",
+        "upstreamBaseUrl": "https://api.anthropic.com",
+        "defaultAllowedSubs": [],
+        "rateLimitPerMinute": 120,
+        "injection": {
+          "headerNamed": {
+            "name": "x-api-key"
+          }
+        }
+      }
+    ]
   },
   "edges": []
 } as const;

@@ -32,6 +32,16 @@ const gateway :Cloister.Gateway = (
     minAlgorithm           = "ed25519",
   ),
 
+  vaultProxyServices = [
+    (
+      name = "anthropic",
+      upstreamBaseUrl = "https://api.anthropic.com",
+      defaultAllowedSubs = [],
+      rateLimitPerMinute = 120,
+      injection = (headerNamed = (name = "x-api-key")),
+    )
+  ],
+
   routes = [
     ( path = "/health", kind = (health = void) ),
     ( path = "/.well-known/interlace/index.json", kind = (wellKnownInterlace = void) ),
@@ -40,6 +50,11 @@ const gateway :Cloister.Gateway = (
     ( path = "/v2", kind = (ociRegistry = void) ),
     ( path = "/.well-known/mcp-registry", kind = (wellKnownMcpRegistry = void) ),
     ( path = "/interlace/ca-bundle", kind = (caBundle = void) ),
+    ( path = "/vault/proxy",
+      kind = (vaultProxy = (
+        bundleIdName = "cloister-router",
+      )),
+    ),
     ( path = "/identity",
       kind = (serviceBindingProxy = (
         binding      = "NOTME",

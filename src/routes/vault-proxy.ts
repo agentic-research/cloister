@@ -1,8 +1,10 @@
 // src/routes/vault-proxy.ts — `cloister/credential-isolation/v1` route.
 //
-// Stub module. Defines the type surface against which failing tests
-// link; impl is "not implemented" until the phased plan in
-// docs/plans/credential-isolation-capability.md walks it green.
+// Route handler module. The phased plan in
+// docs/plans/credential-isolation-capability.md started with this type
+// surface; the success path now injects a vaulted credential, forwards
+// the request, streams the upstream response body, and emits call
+// telemetry through the route wrapper.
 //
 // Spec: cloister-spec/credential-isolation/v1/
 // ADR: docs/adr/0024-credential-isolation-capability.md
@@ -24,9 +26,9 @@ export type InjectionStrategy =
   | { kind: "bodyField"; path: string };
 
 /**
- * Per-service config the proxy consumes — either from a manifest
- * extension (Phase 11) or, until then, from a side-channel
- * TOML file at cloister-spec/credential-isolation/v1/example-services.toml.
+ * Per-service config the proxy consumes from the manifest's
+ * `Gateway.vaultProxyServices` registry. `cluster.toml` is the operator
+ * source of truth and the capnp manifest is emitted from it.
  */
 export interface VaultProxyService {
   /** Logical service name, e.g. "openai". Matches the path segment. */
@@ -127,9 +129,8 @@ export interface VaultProxyRequest {
  * enumeration-oracle closure mirrored from vault DO's §9.4.b
  * collapse (cloister-aa9376).
  *
- * Phases 2+ (header injection, query/body injection, streaming,
- * receipts, rate limit, no-leak invariants) replace the success-path
- * `throw` below.
+ * The success path handles header/query/body injection, streaming,
+ * receipts, rate limit, and no-leak invariants.
  */
 export async function vaultProxyHandler(
   req: VaultProxyRequest,
@@ -387,8 +388,8 @@ function generateNonceHex(): string {
  * being trusted not to echo, which is the contract operators sign
  * up for when they declare a service in the manifest).
  *
- * Phases 3+ add query-param + body-field injection, streaming
- * pass-through, receipts, rate limit, and the no-leak defense in depth.
+ * Header/query strategies preserve streaming pass-through; body-field
+ * injection buffers by design because it must edit JSON before forward.
  */
 async function proxyToUpstream(
   req: VaultProxyRequest,
@@ -551,8 +552,8 @@ function rejection(status: 401 | 403 | 404): Response {
  * Parse `/vault/proxy/<service>/<rest...>` into a service + upstream
  * path. Returns null if the path doesn't match the proxy shape.
  *
- * This is the only piece small enough to land in Phase 0 — the type
- * surface for tests to assert against. The handler stays a stub.
+ * The route wrapper uses this before lease verification so audit logs
+ * can include the service name when parsing succeeds.
  */
 export function parseVaultProxyPath(
   pathname: string,

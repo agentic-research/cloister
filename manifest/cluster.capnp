@@ -733,12 +733,12 @@ struct McpTool {
 # arc, cloister-c919d7 / ADR-0031) ────────────────────────────────────────
 #
 # Mirrors `Cloister.Gateway` from `manifest/cloister.capnp` — operator-
-# authored manifest identity (metadata), Interlace identity (actor), and
-# Interlace policy. Same rationale as Route above: cluster.capnp is the
-# self-contained operator schema; cloister.capnp is the downstream
-# generated artifact. Mirroring keeps the two schemas independently
-# evolvable + decouples cluster.capnp consumers from the cloister.capnp
-# schema dependency.
+# authored manifest identity (metadata), Interlace identity (actor),
+# Interlace policy, and credential-isolation service declarations. Same
+# rationale as Route above: cluster.capnp is the self-contained operator
+# schema; cloister.capnp is the downstream generated artifact. Mirroring
+# keeps the two schemas independently evolvable + decouples cluster.capnp
+# consumers from the cloister.capnp schema dependency.
 #
 # Append-only ordinals per ADR-0004. New optional fields land at higher
 # ordinals; never renumber. An all-empty Gateway value (the back-compat
@@ -762,7 +762,43 @@ struct Gateway {
   # Interlace policy (ADR-0007) — peers learn the actor's requirements
   # before initiating. Cert lifetime + interlock + min-algorithm.
   policy   @2 :InterlacePolicy;
+
+  # `cloister/credential-isolation/v1` service registry (ADR-0024).
+  # The emitter projects this list into `Cloister.Gateway.vaultProxyServices`
+  # so `cluster.toml` remains the operator source of truth for both the
+  # vaultProxy route and its upstream service declarations. Empty list =
+  # no services declared; `/vault/proxy/*` stays safe-closed.
+  #
+  # Append-only ordinal per ADR-0004.
+  vaultProxyServices @3 :List(VaultProxyService);
 }
+
+struct VaultProxyService {
+  # Logical service name — matches `/vault/proxy/<name>/<rest>`.
+  name @0 :Text;
+
+  # Upstream base URL; the route appends `<rest>` from the inbound path.
+  upstreamBaseUrl @1 :Text;
+
+  # Glob list of `peerFp` values authorized to use this service.
+  # Empty list = deny-all.
+  defaultAllowedSubs @2 :List(Text);
+
+  # Per-(peerFp, service) bucket capacity in calls/minute. 0 = unlimited.
+  rateLimitPerMinute @3 :UInt32;
+
+  injection :union {
+    authorizationBearer @4 :Void;
+    authorizationBasic  @5 :Void;
+    headerNamed         @6 :HeaderNamedSpec;
+    queryParam          @7 :QueryParamSpec;
+    bodyField           @8 :BodyFieldSpec;
+  }
+}
+
+struct HeaderNamedSpec { name @0 :Text; }
+struct QueryParamSpec  { name @0 :Text; }
+struct BodyFieldSpec   { path @0 :Text; }
 
 struct GatewayMetadata {
   # e.g. "cloister-art", "cloister-agent-cluster". Distinct from

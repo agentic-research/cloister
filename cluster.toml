@@ -117,6 +117,13 @@ kind = "caBundle"
 path = "/interlace/ca-bundle"
 
 [[routes]]
+kind = "vaultProxy"
+path = "/vault/proxy"
+
+  [routes.vaultProxy]
+  bundleIdName = "cloister-router"
+
+[[routes]]
 kind = "serviceBindingProxy"
 path = "/identity"
 
@@ -232,6 +239,16 @@ version = "0.1.0"
 maxCertLifetimeSeconds = 300
 minAlgorithm = "ed25519"
 requireInterlock = true
+
+[[gateway.vaultProxyServices]]
+defaultAllowedSubs = [ ]
+injection = "headerNamed"
+name = "anthropic"
+rateLimitPerMinute = 120
+upstreamBaseUrl = "https://api.anthropic.com"
+
+  [gateway.vaultProxyServices.headerNamed]
+  name = "x-api-key"
 
 [storage]
 doStoragePath = "/data/do"

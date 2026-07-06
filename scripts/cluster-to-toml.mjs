@@ -150,6 +150,9 @@ function canonicalizeGateway(g) {
   const meta   = g.metadata && typeof g.metadata === "object" ? g.metadata : {};
   const actor  = g.actor    && typeof g.actor    === "object" ? g.actor    : {};
   const policy = g.policy   && typeof g.policy   === "object" ? g.policy   : {};
+  const vaultProxyServices = Array.isArray(g.vaultProxyServices)
+    ? g.vaultProxyServices.map(canonicalizeVaultProxyService)
+    : [];
 
   const metaBody = {};
   if (typeof meta.name    === "string" && meta.name    !== "") metaBody.name    = meta.name;
@@ -186,7 +189,8 @@ function canonicalizeGateway(g) {
   if (
     Object.keys(metaBody).length === 0 &&
     Object.keys(actorBody).length === 0 &&
-    Object.keys(policyBody).length === 0
+    Object.keys(policyBody).length === 0 &&
+    vaultProxyServices.length === 0
   ) {
     return null;
   }
@@ -194,7 +198,31 @@ function canonicalizeGateway(g) {
   if (Object.keys(metaBody).length   > 0) out.metadata = sortKeys(metaBody);
   if (Object.keys(actorBody).length  > 0) out.actor    = sortKeys(actorBody);
   if (Object.keys(policyBody).length > 0) out.policy   = sortKeys(policyBody);
+  if (vaultProxyServices.length > 0) out.vaultProxyServices = vaultProxyServices;
   return sortKeys(out);
+}
+
+function canonicalizeVaultProxyService(svc) {
+  const body = {};
+  if (typeof svc.name === "string" && svc.name !== "") body.name = svc.name;
+  if (typeof svc.upstreamBaseUrl === "string" && svc.upstreamBaseUrl !== "") {
+    body.upstreamBaseUrl = svc.upstreamBaseUrl;
+  }
+  if (Array.isArray(svc.defaultAllowedSubs)) {
+    body.defaultAllowedSubs = [...svc.defaultAllowedSubs];
+  }
+  if (typeof svc.rateLimitPerMinute === "number") {
+    body.rateLimitPerMinute = svc.rateLimitPerMinute;
+  }
+
+  const injection = svc.injection && typeof svc.injection === "object" && !Array.isArray(svc.injection)
+    ? svc.injection
+    : {};
+  const tag = pickUnionTag(injection, `gateway.vaultProxyServices[${svc.name ?? "?"}].injection`);
+  body.injection = tag;
+  const payload = injection[tag];
+  if (payload !== null) body[tag] = canonicalizeKindPayload(payload);
+  return sortKeys(body);
 }
 
 /**
