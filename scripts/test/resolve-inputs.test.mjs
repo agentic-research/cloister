@@ -11,16 +11,15 @@
 //     pin verification, error shapes
 //   - buildLockfile(): cluster.lock.toml document shape
 //
-// Synthesizes file:// fixtures in a tmpdir. The https:// path is
-// tested with a local server (ephemeral port) so we don't depend on
-// any external service. No regex assertions per operator request —
-// substring checks + structural deep-equals only.
+// Synthesizes file:// fixtures in a tmpdir and mocks fetch() for
+// network-shaped refs so tests don't depend on sockets or external
+// services. No regex assertions per operator request — substring
+// checks + structural deep-equals only.
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import {
@@ -104,39 +103,32 @@ test("resolveInput: `from` (dev-loop override) wins over `ref`", async () => {
   }
 });
 
-// ── https:// resolver (local stub server) ────────────────────────────────
-
-async function withHttpServer(handler, fn) {
-  const server = createServer(handler);
-  await new Promise((res) => server.listen(0, "127.0.0.1", res));
-  const { port } = server.address();
-  try {
-    return await fn(`http://127.0.0.1:${port}`);
-  } finally {
-    await new Promise((res) => server.close(res));
-  }
-}
+// ── https:// resolver ────────────────────────────────────────────────────
 
 test("resolveInput: https:// — happy path fetches + hashes", async () => {
   const payload = Buffer.from("https-fetched content");
-  await withHttpServer(
-    (_req, res) => { res.writeHead(200).end(payload); },
-    async (base) => {
-      // The resolver requires https://; we coerce by lying about the scheme
-      // ... actually we can't — http is rejected. So this test uses a
-      // localhost https server would require certs. Instead test the
-      // resolver via a direct call path that uses fetch() — Node's fetch
-      // handles http://127.0.0.1 fine; the resolver's http-rejection is
-      // for the SCHEME literal in the ref. We test rejection separately
-      // below and the success path with file:// (which exercises the same
-      // hash + lockfile-row code).
-      void base;
-    },
-  );
-  // Sanity placeholder — the file:// happy path test above exercises the
-  // same row-shape code; the https-specific branch is covered by the
-  // http-rejection test below + the structural lockfile test.
-  assert.ok(true);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(url, "https://example.com/server.json");
+    return new Response(payload, { status: 200, statusText: "OK" });
+  };
+
+  try {
+    const row = await resolveInput(specDefaults({
+      name: "remote",
+      ref: "https://example.com/server.json",
+      version: "1.2.3",
+    }));
+
+    assert.equal(row.name, "remote");
+    assert.equal(row.ref, "https://example.com/server.json");
+    assert.equal(row.resolved, "1.2.3");
+    assert.equal(row.fetched_from, "https://example.com/server.json");
+    assert.equal(row.bytes, payload.length);
+    assert.equal(row.sha256, `sha256:${sha256hex(payload)}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("resolveInput: http:// (unencrypted) is rejected with explicit error", async () => {

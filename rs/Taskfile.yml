@@ -1,5 +1,11 @@
 version: "3"
 
+env:
+  # Verification gates should not depend on machine-global Cargo wrappers
+  # such as sccache. Sandboxed local flows can deny wrapper IPC even though
+  # plain rustc works, and reproducibility matters more here than cache speed.
+  RUSTC_WRAPPER: ""
+
 tasks:
   test:
     desc: "Rust gates required before worker tests: wasm artifacts + host test suites. Sequenced to avoid Cargo package/artifact lock contention."

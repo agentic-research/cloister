@@ -70,7 +70,7 @@ export const cluster: Cluster = {
       "perTenant": false,
       "kind": {
         "external": {
-          "image": "mache:0.13.0",
+          "image": "mache:0.14.0",
           "ipcSocket": "",
           "httpPort": 7532,
           "args": [
@@ -92,7 +92,7 @@ export const cluster: Cluster = {
       "perTenant": false,
       "kind": {
         "external": {
-          "image": "rosary:0.2.0",
+          "image": "rosary:0.4.0",
           "ipcSocket": "/run/cloister-uds/rosary.sock",
           "httpPort": 0,
           "args": [
@@ -154,10 +154,10 @@ export const cluster: Cluster = {
     },
     {
       "name": "mache",
-      "ref": "io.github.org/agentic-research/mache@main",
-      "version": "0.13.0",
+      "ref": "github://agentic-research/mache/server.json@v0.14.0",
+      "version": "0.14.0",
       "digest": "",
-      "from": "file:///Users/jamesgardner/remotes/art/mache/server.json",
+      "from": "",
       "provides": [],
       "requires": [],
       "urlBinding": "MACHE_MCP_URL",
@@ -171,10 +171,10 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "ref": "io.github.org/agentic-research/rosary@main",
+      "ref": "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4",
       "version": "0.4.0",
       "digest": "",
-      "from": "file:///Users/jamesgardner/remotes/art/rosary/server.json",
+      "from": "",
       "provides": [],
       "requires": [],
       "urlBinding": "ROSARY_MCP_URL",

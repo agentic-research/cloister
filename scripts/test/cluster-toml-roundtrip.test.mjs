@@ -3,7 +3,7 @@
 // Bidi TOML ↔ cluster.ts roundtrip tests (cloister-ae06f3, ADR-0025).
 //
 // Run with:
-//   pnpm exec tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
+//   node --import tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
 //
 // Lives under scripts/test/ (not test/) for the same reason
 // cli-init.test.mjs and lint-bundle-isolation.test.mjs do: vitest-
@@ -32,7 +32,7 @@ import { ClusterSchema } from "../../src/generated/cluster.zod.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
-const TSX_BIN = resolve(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 const TOML_TO_CLUSTER = resolve(REPO_ROOT, "scripts/toml-to-cluster.mjs");
 const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
 
@@ -578,7 +578,7 @@ transport = "uds"
 
 function runChain(workDir, tomlPath, tsPath) {
   // Forward: parse cluster.toml → render cluster.ts.
-  const fwd = spawnSync(TSX_BIN, [TOML_TO_CLUSTER], {
+  const fwd = spawnSync(process.execPath, ["--import", TSX_LOADER, TOML_TO_CLUSTER], {
     cwd: workDir,
     env: { ...process.env, CLUSTER_TOML: tomlPath, CLUSTER_OUTPUT: tsPath },
     encoding: "utf8",
@@ -587,7 +587,7 @@ function runChain(workDir, tomlPath, tsPath) {
     throw new Error(`toml-to-cluster failed: exit=${fwd.status}\nstderr:\n${fwd.stderr}\nstdout:\n${fwd.stdout}`);
   }
   // Reverse: render cluster.ts → canonical cluster.toml (overwriting input).
-  const rev = spawnSync(TSX_BIN, [CLUSTER_TO_TOML, "--write", tomlPath], {
+  const rev = spawnSync(process.execPath, ["--import", TSX_LOADER, CLUSTER_TO_TOML, "--write", tomlPath], {
     cwd: workDir,
     env: { ...process.env, CLUSTER_TS: tsPath },
     encoding: "utf8",

@@ -36,7 +36,7 @@ tier = "cluster"
   [bundles.external]
   args = [ "serve", "--http", "localhost:7532" ]
   httpPort = 7_532
-  image = "mache:0.13.0"
+  image = "mache:0.14.0"
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
@@ -46,7 +46,7 @@ tier = "cluster"
 
   [bundles.external]
   args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
-  image = "rosary:0.2.0"
+  image = "rosary:0.4.0"
   ipcSocket = "/run/cloister-uds/rosary.sock"
 
 [[wires]]
@@ -75,16 +75,14 @@ urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
 
 [inputs.mache]
-ref = "io.github.org/agentic-research/mache@main"
-version = "0.13.0"
-from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
+ref = "github://agentic-research/mache/server.json@v0.14.0"
+version = "0.14.0"
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
 
 [inputs.rosary]
-ref = "io.github.org/agentic-research/rosary@main"
+ref = "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4"
 version = "0.4.0"
-from = "file:///Users/jamesgardner/remotes/art/rosary/server.json"
 urlBinding = "ROSARY_MCP_URL"
 serviceBinding = "ROSARY_MCP"
 
