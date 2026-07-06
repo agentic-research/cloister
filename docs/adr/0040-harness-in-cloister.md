@@ -81,9 +81,15 @@ The "harness never sees the key" claim is precise:
   only where cloister issues or holds the credential.
 - **Codex / non-Anthropic providers:** provider routing is a harness
   concern, not a new proxy primitive. Cloister declares services by
-  upstream shape (`authorizationBearer`, `headerNamed`, etc.) and should
-  reuse the same provider-selection pattern the harness already uses
-  rather than forking an Anthropic-only path.
+  upstream shape (`authorizationBearer`, `headerNamed`, etc.) and reuses
+  the same provider-selection pattern the harness already uses rather than
+  forking an Anthropic-only path. **Shipped:** two vaultProxyServices are
+  declared — `anthropic` (`x-api-key`, for Claude Code via
+  `ANTHROPIC_BASE_URL`) and `openai` (`authorizationBearer`, for Codex via
+  `OPENAI_BASE_URL`). Both ride the one lease-gated `/vault/proxy/<name>`
+  surface; adding a third provider (Gemini, a Bedrock/Vertex edge) is a
+  manifest entry, not a code change — the five injection strategies in
+  `src/routes/vault-proxy.ts` are exhaustiveness-checked.
 
 ## Consequences
 
