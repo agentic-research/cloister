@@ -1,0 +1,15 @@
+packages:
+  - .
+
+allowBuilds:
+  cbor-extract: true
+  esbuild: true
+  sharp: true
+  workerd: true
+
+# Pin transitive undici past Dependabot advisories in the wrangler@4/miniflare@4
+# tree. vite/esbuild move with the vitest toolchain; this keeps the lockfile's
+# override policy visible to pnpm 10 and pnpm 11+.
+overrides:
+  "undici@>=7.0.0 <7.28.0": ^7.28.0
+  "esbuild@>=0.27.0 <0.28.1": ^0.28.1

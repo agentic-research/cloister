@@ -51,12 +51,5 @@
     "@iarna/toml": "^2.2.5",
     "cbor-x": "^1.6.4",
     "zod": "^4.4.3"
-  },
-  "pnpm": {
-    "comment": "Pin transitive undici past its Dependabot advisories (TLS-bypass + SOCKS5 highs, header-injection, etc). Scoped to the 7.x instance (wrangler@4/miniflare@4 tree); the undici@5.x instance under wrangler@3 clears when wrangler is bumped to 4. vite/esbuild are peer-provided by the vitest toolchain and move with a toolchain bump, not an override.",
-    "overrides": {
-      "undici@>=7.0.0 <7.28.0": "^7.28.0",
-      "esbuild@>=0.27.0 <0.28.1": "^0.28.1"
-    }
   }
 }
