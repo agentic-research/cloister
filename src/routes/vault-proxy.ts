@@ -23,7 +23,13 @@ export type InjectionStrategy =
   | { kind: "authorizationBasic" }
   | { kind: "headerNamed"; name: string }
   | { kind: "queryParam"; name: string }
-  | { kind: "bodyField"; path: string };
+  | { kind: "bodyField"; path: string }
+  // Audit passthrough (ADR-0040 amendment): inject NOTHING; forward the
+  // caller's own request + auth headers and receipt it. For OAuth-subscription
+  // harnesses (Claude Code Max) with no key to vault — audit, not custody.
+  // Handled at the route level (vault-proxy-route.ts) before credential
+  // lookup; never reaches the credential-injecting handler below.
+  | { kind: "passthrough" };
 
 /**
  * Per-service config the proxy consumes from the manifest's
@@ -409,6 +415,15 @@ async function proxyToUpstream(
   }
 
   const strategy = cfg.injection;
+
+  // passthrough is handled at the route level (before credential lookup);
+  // it must never reach this credential-injecting path.
+  if (strategy.kind === "passthrough") {
+    throw new Error(
+      "cloister/credential-isolation/v1: passthrough injection must be handled at the route level, not proxyToUpstream",
+    );
+  }
+
   const username = req.storedUsername ?? cfg.name;
 
   // ── header-shaped strategies (Phase 2) ─────────────────────────────
@@ -474,6 +489,54 @@ function buildUpstreamRequest(
     init.body = req.request.body;
   }
   return new Request(url, init);
+}
+
+/**
+ * Audit passthrough (ADR-0040 amendment) — forward the caller's OWN request to
+ * the service upstream, **preserving its auth headers** (e.g. Claude Code Max's
+ * OAuth credential in `anthropic-beta` / a bearer), injecting NOTHING. Strips
+ * only cloister-internal `x-interlace-*` headers and `host` (the upstream URL
+ * sets its own). Streams the response through. The route wraps this in
+ * `forwardWithReceipt`, so the call is still on the receipt chain — this is
+ * **audit, not custody**: cloister observes + records but holds no credential.
+ */
+export function passthroughToUpstream(
+  cfg: VaultProxyService,
+  upstreamPath: string,
+  request: Request,
+  upstream: UpstreamFetcher,
+): Promise<Response> {
+  const baseUrl = cfg.upstreamBaseUrl.replace(/\/+$/, "") + upstreamPath;
+  const headers = new Headers(request.headers);
+  for (const key of Array.from(headers.keys())) {
+    const k = key.toLowerCase();
+    // Strip cloister-internal lease + hop-by-hop headers — the upstream must
+    // NEVER see the Signet lease (`Authorization: Signet`, `x-signet-*`) or the
+    // interlace headers. `host` is set by the upstream URL.
+    if (
+      k.startsWith("x-interlace-") ||
+      k.startsWith("x-signet-") ||
+      k === "authorization" ||
+      k === "host"
+    ) {
+      headers.delete(key);
+    }
+  }
+  // Restore the harness's own credential: the shim side-channels it to
+  // `x-harness-authorization` so it doesn't collide with `Authorization: Signet`
+  // on the shim→cloister hop. Put it back on `Authorization` for the upstream.
+  const harnessAuth = request.headers.get("x-harness-authorization");
+  if (harnessAuth) {
+    headers.set("authorization", harnessAuth);
+    headers.delete("x-harness-authorization");
+  }
+  const init: RequestInit = {
+    method: request.method,
+    headers,
+    signal: request.signal,
+  };
+  if (methodCanHaveBody(request.method)) init.body = request.body;
+  return upstream.fetch(new Request(baseUrl, init));
 }
 
 function applyHeaderInjection(

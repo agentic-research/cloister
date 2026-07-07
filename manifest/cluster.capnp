@@ -793,6 +793,12 @@ struct VaultProxyService {
     headerNamed         @6 :HeaderNamedSpec;
     queryParam          @7 :QueryParamSpec;
     bodyField           @8 :BodyFieldSpec;
+    # NOTE (ADR-0040 amendment): `passthrough @9` exists in the CONSUMER
+    # schema (manifest/cloister.capnp) + runtime, and is reachable in dev via
+    # the DEV_PASSTHROUGH_SERVICES overlay. Declaring it here — so operators
+    # can set `injection = "passthrough"` in cluster.toml for a production
+    # Max/audit deployment — is a follow-up (needs the zod/Go schema-bridge
+    # regen). Keep the ordinal reserved as @9 when it lands.
   }
 }
 

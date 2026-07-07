@@ -30,14 +30,17 @@ const CLOISTER_BASE = "http://127.0.0.1:8787";
 const SERVICE = "anthropic";
 const UPSTREAM = "https://api.anthropic.com";
 
-const apiKey = process.env.ANTHROPIC_API_KEY ?? (SETUP_ONLY ? "sk-ant-setup-only-placeholder" : undefined);
-if (!apiKey) {
-  console.error(
-    "harness:dev — set ANTHROPIC_API_KEY. The key is vaulted (written to .dev.vars\n" +
-    "as the seed, injected inside the vault DO) and never reaches the harness env.",
-  );
+// Mode. AUDIT (Claude Code Max / OAuth): no key to vault — forward the
+// harness's OWN auth + receipt (ADR-0040 amendment). CUSTODY (API key): vault
+// the key + inject it. Audit is chosen explicitly (--audit) or automatically
+// when no ANTHROPIC_API_KEY is set.
+const apiKey = process.env.ANTHROPIC_API_KEY;
+const AUDIT = process.argv.includes("--audit") || (!apiKey && !SETUP_ONLY) || (SETUP_ONLY && !apiKey);
+if (!AUDIT && !apiKey && !SETUP_ONLY) {
+  console.error("harness:dev — custody mode needs ANTHROPIC_API_KEY (vaulted, never in the harness env), or pass --audit for a Max/OAuth subscription.");
   process.exit(2);
 }
+console.error(`harness:dev — ${AUDIT ? "AUDIT mode (Max/OAuth — forward harness auth + receipt; no key vaulted)" : "CUSTODY mode (API key vaulted + injected)"}.`);
 
 // 1. Mint a fresh dev identity.
 console.error("harness:dev — minting a fresh ephemeral dev master + cert…");
@@ -48,24 +51,25 @@ const dev = JSON.parse(
   }),
 );
 
-// 2. .dev.vars — wrangler dev binds these into the Worker env.
-const seed = JSON.stringify({
-  peerFp: dev.peerFp,
-  service: SERVICE,
-  upstream: UPSTREAM,
-  headers: { "x-api-key": apiKey },
-  allowedSubs: [dev.peerFp],
-});
-const devVars =
-  [
-    `CLOISTER_MODE = "dev"`,
-    `DEV_CA_MASTER = ${JSON.stringify(dev.masterPubB64Std)}`,
-    `DEV_CA_EPOCH = ${JSON.stringify(String(dev.epoch))}`,
-    `DEV_ALLOWED_SUBS = ${JSON.stringify(JSON.stringify([dev.peerFp]))}`,
-    `DEV_VAULT_SEED = ${JSON.stringify(seed)}`,
-  ].join("\n") + "\n";
-writeFileSync(resolve(ROOT, ".dev.vars"), devVars);
-console.error(`harness:dev — wrote .dev.vars (peerFp ${dev.peerFp}, service ${SERVICE}).`);
+// 2. .dev.vars — wrangler dev binds these into the Worker env. Common seams
+// (dev CA master + gate + authz overlay) apply to both modes; the credential
+// path differs.
+const common = [
+  `CLOISTER_MODE = "dev"`,
+  `DEV_CA_MASTER = ${JSON.stringify(dev.masterPubB64Std)}`,
+  `DEV_CA_EPOCH = ${JSON.stringify(String(dev.epoch))}`,
+  `DEV_ALLOWED_SUBS = ${JSON.stringify(JSON.stringify([dev.peerFp]))}`,
+];
+const modeVars = AUDIT
+  // Audit: force the service to passthrough — no seed, no vaulted key.
+  ? [`DEV_PASSTHROUGH_SERVICES = ${JSON.stringify(SERVICE)}`]
+  // Custody: seed the vaulted key for injection.
+  : [`DEV_VAULT_SEED = ${JSON.stringify(JSON.stringify({
+      peerFp: dev.peerFp, service: SERVICE, upstream: UPSTREAM,
+      headers: { "x-api-key": apiKey }, allowedSubs: [dev.peerFp],
+    }))}`];
+writeFileSync(resolve(ROOT, ".dev.vars"), [...common, ...modeVars].join("\n") + "\n");
+console.error(`harness:dev — wrote .dev.vars (peerFp ${dev.peerFp}, service ${SERVICE}, ${AUDIT ? "passthrough" : "vaulted"}).`);
 
 if (SETUP_ONLY) {
   console.error("harness:dev — --setup-only: skipping launch. .dev.vars is ready.");
@@ -86,13 +90,23 @@ const shim = spawn(process.execPath, ["--import", "tsx", "tools/harness-shim/ind
     HARNESS_SHIM_CERT_B64: dev.certDerB64Url,
     HARNESS_SHIM_PRIV_SEED_B64: dev.ephemeralPrivSeedB64Url,
     HARNESS_SHIM_PUBKEY_B64: dev.ephemeralPubB64Url,
+    // Audit mode preserves the harness's own Authorization (OAuth) through to
+    // cloister's passthrough proxy; custody strips it (cloister injects).
+    ...(AUDIT ? { HARNESS_SHIM_PRESERVE_AUTH: "1" } : {}),
   },
 });
 
 const bar = "─".repeat(64);
 console.error(`\n${bar}\nharness:dev — ready. In your harness shell:\n`);
 console.error(`  export ANTHROPIC_BASE_URL="http://127.0.0.1:${SHIM_PORT}/vault/proxy/anthropic"`);
-console.error(`  claude          # no ANTHROPIC_API_KEY needed — the key is vaulted`);
+if (AUDIT) {
+  console.error(`  # DO NOT set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN — either leaves your`);
+  console.error(`  # Max subscription. Base-URL only keeps the subscription; cloister receipts`);
+  console.error(`  # each call (audit, not custody — there's no key to vault).`);
+} else {
+  console.error(`  # no ANTHROPIC_API_KEY on the harness — the key is vaulted in cloister.`);
+}
+console.error(`  claude`);
 console.error(`${bar}\n`);
 
 const cleanup = () => {

@@ -1,8 +1,10 @@
 # Wire — injection strategies
 
-The five strategies a `cloister/credential-isolation/v1` proxy MUST
-support, with their wire shapes. Pinned by the route handler's
-discriminated-union `InjectionStrategy` type (`src/routes/vault-proxy.ts:19`).
+The strategies a `cloister/credential-isolation/v1` proxy MUST support,
+with their wire shapes — five that inject a stored credential, plus
+`passthrough` (ADR-0040 amendment) which injects **none** and forwards the
+caller's own auth for audit. Pinned by the route handler's discriminated-union
+`InjectionStrategy` type (`src/routes/vault-proxy.ts:19`).
 
 The strategy is declared per-service in the substrate's manifest. The
 caller does NOT pick the strategy; the operator binds one per service
@@ -20,6 +22,7 @@ InjectionStrategy =
   | { kind: "headerNamed", name: string }
   | { kind: "queryParam",  name: string }
   | { kind: "bodyField",   path:  string }
+  | { kind: "passthrough" }
 ```
 
 A second implementation MUST emit byte-equal upstream requests for
@@ -106,11 +109,30 @@ values, numeric precision). Implementations MAY canonicalize
 whitespace between keys, but two implementations MUST emit
 byte-equal bodies given the same input JSON + path + credential.
 
+### `passthrough` (ADR-0040 amendment — audit, not custody)
+
+The odd one out: it injects **nothing**. The proxy forwards the caller's
+**own** request + auth headers to the upstream and emits the receipt, looking
+up no stored credential. It runs after the lease + service-declaration +
+`allowedSubs` gates, so cloister's access control still applies, but the
+upstream credential is the caller's, not the vault's.
+
+- **Use case:** OAuth-subscription harnesses (Claude Code Max) where there is
+  no key to vault. cloister provides **audit** (receipts), not custody.
+- **Lease hygiene (MUST):** the proxy MUST strip the cloister lease headers
+  (`Authorization: Signet`, `x-signet-*`, `x-interlace-*`) so they never reach
+  the upstream. Where a harness's own `Authorization` would collide with the
+  lease on the inbound hop, it is carried in `X-Harness-Authorization` and
+  restored to `Authorization` before forwarding.
+- **No credential-required 404:** the `storedCredential === null → 404` gate is
+  skipped for this kind (there is intentionally no stored credential).
+
 ## Closed-by-design
 
-Adding a sixth strategy is a spec extension (new v1.x or v2). v1
+Adding a further strategy is a spec extension (new v1.x or v2). v1
 implementations MUST reject manifests declaring unknown strategy
-kinds at load time, not at request time.
+kinds at load time, not at request time. `passthrough` was added by the
+ADR-0040 amendment (2026-07-07) as the audit/no-injection variant.
 
 ## What strategies do NOT cover
 

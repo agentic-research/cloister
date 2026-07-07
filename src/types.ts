@@ -195,4 +195,11 @@ export interface Env {
   /// the manifest-side gate (which is `[]` = deny-all by default). Dev-only;
   /// production opts peers in via the committed manifest. Per ADR-0042.
   DEV_ALLOWED_SUBS?: string;
+  /// Dev passthrough (audit-mode) overlay (comma-separated service names).
+  /// When `CLOISTER_MODE === "dev"`, the vault-proxy route forces these
+  /// services to `injection = passthrough` — forward the caller's own auth,
+  /// inject no key, receipt the call. For OAuth-subscription harnesses (Claude
+  /// Code Max) run locally: audit, not custody. Dev-only; production declares
+  /// passthrough in the committed manifest. Per ADR-0040 amendment + ADR-0042.
+  DEV_PASSTHROUGH_SERVICES?: string;
 }

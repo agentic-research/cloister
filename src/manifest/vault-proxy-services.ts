@@ -138,6 +138,7 @@ function toRouteInjection(
 ): RouteVaultProxyService["injection"] {
   if ("authorizationBearer" in inj) return { kind: "authorizationBearer" };
   if ("authorizationBasic" in inj)  return { kind: "authorizationBasic" };
+  if ("passthrough" in inj)         return { kind: "passthrough" };
   if ("headerNamed" in inj) {
     const n = inj.headerNamed?.name;
     if (typeof n !== "string" || n === "") {
