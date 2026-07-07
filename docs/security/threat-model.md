@@ -1745,3 +1745,30 @@ for BOTH the resolve+inject branch AND the forward branch.
   forward-path gate)
 - Beads (open follow-ups): `cloister-6e6bfb` (X-1 tracker — DoS F1
   counter), `cloister-6f4284` (DoS F5 lease-verify cache design-pass)
+
+## 19. Dev-mode boundary (ADR-0042 — `task harness:dev`)
+
+The turnkey local run relaxes **where the trust anchors come from**, never the
+per-request verification. All relaxations are gated by a single
+`CLOISTER_MODE=dev` flag and are structurally barred from production by
+`lint:no-dev-mode` (fails the strict gate if any committed config enables a dev
+seam).
+
+| Seam | What dev relaxes | Why local-only-safe | Prod path |
+|---|---|---|---|
+| `devCaBundle` | Static CA bundle from `DEV_CA_MASTER` instead of the notme fetch; bundle-signature verify skipped | The dev master is provided locally by the operator — there is no fetch to MITM and no signature to forge. `verifyAndUpsertLease` still runs the **full** cert-chain + Ed25519 request-sig + scope + replay against `keys[active]`. | `notmeBundleFetcher` + signature verify |
+| `#maybeDevSeed` (vault DO) | Ingests `DEV_VAULT_SEED` via existing `putCredential` on first `proxyRequest` | **In-boundary** — no external write route is added; the seed never crosses the DO trust boundary; plaintext is AES-GCM-sealed at rest (ADR-0039). Idempotent; failures logged not thrown. | Designed ingestion surface (own ADR) |
+| `applyDevAllowedSubs` | Overlays `DEV_ALLOWED_SUBS` onto the matched service's `defaultAllowedSubs` | Opens the deny-all manifest gate for the **dev identity only**; the per-request lease still binds that identity cryptographically. | Committed manifest `defaultAllowedSubs` |
+
+**Non-weakening invariant.** This is the same discipline as ADR-0007's rejection
+of `INTERLACE_DEV_BYPASS`: **no per-request bypass exists.** Dev mode changes the
+*source* of the cert, bundle, and credential (local, ephemeral, gitignored) at
+deployment-binding granularity. A dev-mode request that passes exercised the
+real cert-chain + signature + scope + replay pipeline — a dev *pass* is a real
+gate pass, not a skip. Dev key material (master, cert, seed) is regenerated per
+run and never committed; `lint:no-dev-mode` guarantees no committed config can
+turn a production deployment into a dev one.
+
+**Related:** ADR-0042; `scripts/lint-no-dev-mode.mjs`;
+`test/routes/vault-proxy-dev-mode.test.ts`. Open: notme-minting `CertSource`
+(`cloister-c3c7b9`); prod credential-ingestion surface (own ADR).

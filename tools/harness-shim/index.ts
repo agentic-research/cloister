@@ -136,8 +136,9 @@ function loadConfig(getEnv: (k: string) => string | undefined): ShimConfig {
   return { port, cloisterBaseUrl, identity: envCertSource(getEnv) };
 }
 
-// Entrypoint — only runs when invoked directly (`node index.js`), not on import.
-if (process.argv[1]?.endsWith("index.js")) {
+// Entrypoint — only runs when invoked directly (`node index.js` or via tsx as
+// `index.ts`), not on import.
+if (process.argv[1] !== undefined && /index\.(ts|js)$/.test(process.argv[1])) {
   const getEnv = (k: string) => process.env[k];
   const cfg = loadConfig(getEnv);
   createShimServer(cfg, () => cfg.identity).listen(cfg.port, "127.0.0.1", () => {
