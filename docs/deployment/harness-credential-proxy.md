@@ -83,6 +83,31 @@ signer↔gate contract is proven end-to-end in
 `test/routes/vault-proxy-lease-gate.test.ts` (shim-signed → `200` +
 vaulted key injected; tampered sig → `401`; bare request → `401`).
 
+## Claude Code **Max** (OAuth subscription) — audit mode
+
+A Max/Pro subscription has **no API key to vault** — it authenticates via OAuth.
+So the custody path above doesn't apply; the **audit** path does (ADR-0040
+amendment). Per the [Claude Code docs](https://code.claude.com/docs/en/llm-gateway),
+a subscription routes through a proxy with **`ANTHROPIC_BASE_URL` alone**:
+
+```sh
+task harness:dev --audit    # (or just `task harness:dev` with no ANTHROPIC_API_KEY)
+# then, in your harness shell:
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8799/vault/proxy/anthropic"
+claude
+```
+
+- **Do NOT set `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`** — either one
+  *leaves* the Max subscription and shifts billing off it. Base-URL-only keeps
+  the subscription.
+- cloister's `anthropic` service runs as `injection = passthrough`: it forwards
+  Claude Code's **own** OAuth-authenticated request and emits a receipt,
+  injecting nothing. The lease headers (`Authorization: Signet`, `x-signet-*`)
+  are stripped so they never reach Anthropic; the harness's own auth is
+  side-channeled through `X-Harness-Authorization` and restored upstream.
+- You get **audit** (every call receipted), not **custody** (there's no key to
+  hold). That's the honest ceiling for a subscription.
+
 ## What the claim is (and isn't)
 
 Per ADR-0040 "Scope of the credential claim":

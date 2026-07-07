@@ -114,3 +114,45 @@ The "harness never sees the key" claim is precise:
   mTLS + lease binds the channel to an attested identity.
 - **Do nothing (status quo).** The key stays in the harness env, calls
   stay unaudited. This ADR exists to replace that.
+
+## Amendment (2026-07-07) — audit passthrough for OAuth subscriptions (Claude Code Max)
+
+The "Scope of the credential claim" section above says Max/Pro OAuth gets
+**audit** (receipts), not **custody**. This amendment specifies the proxy-layer
+mechanism that realizes it, added after verifying Claude Code's behavior against
+the docs ([code.claude.com/docs/en/llm-gateway](https://code.claude.com/docs/en/llm-gateway)):
+
+- **Max routes through a proxy with `ANTHROPIC_BASE_URL` alone** — no API key,
+  no auth token. Claude Code keeps the subscription active and forwards its own
+  OAuth credential; setting `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` would
+  *leave* the subscription (billing shifts). So the Max path is base-URL-only
+  and there is **no key for cloister to vault**.
+
+- **New injection kind: `passthrough`.** A `vaultProxyService` may declare
+  `injection = passthrough`. The route (`vault-proxy-route.ts`) forwards the
+  caller's **own** request + auth headers to the upstream and emits the
+  `ProxyCallReceipt`, injecting nothing and looking up no credential. It runs
+  *after* the lease + service-declaration + `allowedSubs` gates, so cloister's
+  own access control still applies. This is **audit, not custody** — cloister
+  records every call but holds no credential.
+
+- **The lease/credential header collision is side-channeled.** The lease
+  occupies `Authorization: Signet` on the shim→cloister hop, but the harness's
+  own credential may also want `Authorization`. The shim (audit mode,
+  `HARNESS_SHIM_PRESERVE_AUTH`) moves the harness's `Authorization` to
+  `X-Harness-Authorization`; `passthroughToUpstream` strips the lease headers
+  (`Authorization: Signet`, `x-signet-*`, `x-interlace-*`) so they **never**
+  reach the upstream, then restores `X-Harness-Authorization` → `Authorization`.
+  `anthropic-beta` (which carries the OAuth capability) passes through untouched.
+
+- **Reachable today via the dev overlay.** `task harness:dev --audit` (or
+  auto-selected when no `ANTHROPIC_API_KEY` is set) forces the service to
+  passthrough via the `DEV_PASSTHROUGH_SERVICES` dev-mode overlay (ADR-0042),
+  runs the shim with `HARNESS_SHIM_PRESERVE_AUTH`, and prints a base-URL-only
+  export. Proof: `test/routes/vault-proxy-dev-mode.test.ts`. Operator-declared
+  `injection = "passthrough"` in `cluster.toml` (production audit deployments)
+  is a follow-up — the ordinal `@9` is reserved in both manifest schemas.
+
+The custody claim is unchanged: **API-key shapes get custody; Max/OAuth gets
+audit.** This amendment makes the audit path real without pretending to hold a
+key that doesn't exist.

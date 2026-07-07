@@ -41,6 +41,7 @@ import {
   errorResponse,
   forwardWithReceipt,
   parseVaultProxyPath,
+  passthroughToUpstream,
   vaultProxyHandler,
   type MetricEmitter,
   type ReceiptEmitter,
@@ -251,7 +252,10 @@ export class VaultProxyRoute implements EdgeRoute {
     // ── service config + credential store + lookup ──────────────
     const service      = parsed?.service ?? "";
     const upstreamPath = parsed?.upstreamPath ?? "/";
-    const serviceConfig = applyDevAllowedSubs(parsed === null ? null : this.services(service), env);
+    const serviceConfig = applyDevPassthrough(
+      applyDevAllowedSubs(parsed === null ? null : this.services(service), env),
+      env,
+    );
     const credentialStore = this.selectCredentialStore(env);
 
     // Service-declaration check fires BEFORE any forward delegation so
@@ -286,6 +290,26 @@ export class VaultProxyRoute implements EdgeRoute {
         service,
       })));
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
+    }
+
+    // Audit passthrough (ADR-0040 amendment) — for OAuth-subscription
+    // harnesses (Claude Code Max), there is no key to vault. Skip the
+    // credential store entirely: forward the caller's OWN request + auth
+    // headers to the upstream and emit the receipt. This is audit, not
+    // custody — cloister records the call but holds no credential. Runs
+    // AFTER lease + service-declaration + allowedSubs gates, so cloister's
+    // own access control still applies.
+    if (serviceConfig !== null && serviceConfig.injection.kind === "passthrough") {
+      const res = await forwardWithReceipt({
+        receipts:         this.receipts,
+        metrics:          this.metrics,
+        peerFp:           verifiedLease.peerFp,
+        cfg:              serviceConfig,
+        upstreamPath,
+        requestSizeBytes: Number.parseInt(request.headers.get("content-length") ?? "0", 10) || 0,
+        forward: () => passthroughToUpstream(serviceConfig, upstreamPath, request, this.upstream),
+      });
+      return collapseWireShape(res);
     }
 
     // Fail-closed on missing credential store (Obs O-OBS-3): when
@@ -409,6 +433,23 @@ export function applyDevAllowedSubs(
   }
   if (subs.length === 0) return cfg;
   return { ...cfg, defaultAllowedSubs: [...cfg.defaultAllowedSubs, ...subs] };
+}
+
+/**
+ * Dev passthrough (audit-mode) overlay (ADR-0040 amendment + ADR-0042). In dev
+ * mode, force the named services to `injection = passthrough` so a locally-run
+ * OAuth harness (Claude Code Max) forwards its own credential and cloister
+ * injects nothing — audit, not custody. No-op outside dev mode or when unset,
+ * so production honors the committed manifest injection kind.
+ */
+export function applyDevPassthrough(
+  cfg: VaultProxyService | null,
+  env: Env,
+): VaultProxyService | null {
+  if (cfg === null || env.CLOISTER_MODE !== "dev" || !env.DEV_PASSTHROUGH_SERVICES) return cfg;
+  const names = env.DEV_PASSTHROUGH_SERVICES.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!names.includes(cfg.name)) return cfg;
+  return { ...cfg, injection: { kind: "passthrough" } };
 }
 
 const defaultLeaseVerifier: LeaseVerifier = async (request, env, parsed) => {

@@ -32,6 +32,14 @@ interface ShimConfig {
   cloisterBaseUrl: string;
   /** Where the ephemeral lease identity comes from. */
   identity: EphemeralIdentity;
+  /**
+   * Audit mode (ADR-0040 amendment). When true, the caller's own
+   * `Authorization` header is **preserved** (not stripped) so an
+   * OAuth-subscription harness (Claude Code Max) can forward its credential
+   * through to cloister's passthrough proxy. Off (custody mode) strips it —
+   * cloister injects the vaulted key instead.
+   */
+  preserveAuth: boolean;
 }
 
 /**
@@ -57,7 +65,11 @@ function required(getEnv: (k: string) => string | undefined, key: string): strin
 }
 
 /** Hop-by-hop + identity headers the shim must not forward verbatim. */
-const STRIP_INBOUND = new Set(["host", "connection", "content-length", "authorization"]);
+// Always stripped (hop-by-hop / recomputed). `authorization` is stripped too
+// in custody mode (harness sends none; cloister injects the vaulted key), but
+// PRESERVED in audit mode (`preserveAuth`) so a Max/OAuth harness's own
+// credential reaches cloister's passthrough proxy. Per ADR-0040 amendment.
+const STRIP_ALWAYS = new Set(["host", "connection", "content-length"]);
 
 /**
  * Handle one inbound harness request: sign over the CLOISTER url (what the
@@ -80,9 +92,20 @@ async function handleRequest(
 
   const outHeaders = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
-    if (v === undefined || STRIP_INBOUND.has(k.toLowerCase())) continue;
-    outHeaders.set(k, Array.isArray(v) ? v.join(", ") : v);
+    const lk = k.toLowerCase();
+    if (v === undefined || STRIP_ALWAYS.has(lk)) continue;
+    const val = Array.isArray(v) ? v.join(", ") : v;
+    if (lk === "authorization") {
+      // The lease occupies `Authorization: Signet` on this hop. In audit mode,
+      // side-channel the harness's own Authorization (e.g. Max OAuth) so
+      // cloister can restore it upstream; in custody mode, drop it (cloister
+      // injects the vaulted key). Per ADR-0040 amendment.
+      if (cfg.preserveAuth) outHeaders.set("x-harness-authorization", val);
+      continue;
+    }
+    outHeaders.set(k, val);
   }
+  // Lease headers set LAST so `Authorization: Signet` wins on this hop.
   for (const [k, v] of Object.entries(signet)) outHeaders.set(k, v);
 
   const upstream = await fetch(cloisterUrl, {
@@ -133,7 +156,8 @@ export function createShimServer(cfg: ShimConfig, source: CertSource) {
 function loadConfig(getEnv: (k: string) => string | undefined): ShimConfig {
   const port = Number.parseInt(getEnv("HARNESS_SHIM_PORT") ?? "8799", 10);
   const cloisterBaseUrl = required(getEnv, "CLOISTER_BASE_URL").replace(/\/+$/, "");
-  return { port, cloisterBaseUrl, identity: envCertSource(getEnv) };
+  const preserveAuth = (getEnv("HARNESS_SHIM_PRESERVE_AUTH") ?? "") !== "";
+  return { port, cloisterBaseUrl, identity: envCertSource(getEnv), preserveAuth };
 }
 
 // Entrypoint — only runs when invoked directly (`node index.js` or via tsx as

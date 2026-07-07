@@ -76,7 +76,8 @@ export type VaultProxyInjection =
   | { authorizationBasic:  null }
   | { headerNamed:         { name: string } }
   | { queryParam:          { name: string } }
-  | { bodyField:           { path: string } };
+  | { bodyField:           { path: string } }
+  | { passthrough:         null };
 
 export interface Metadata {
   name:    string;

@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   VaultProxyRoute,
   applyDevAllowedSubs,
+  applyDevPassthrough,
   devCaBundle,
 } from "../../src/routes/vault-proxy-route.js";
 import { InMemoryCredentialStore } from "../../src/routes/vault-proxy-credential-store.js";
@@ -136,5 +137,55 @@ describe("dev-mode seams are pure + gated (ADR-0042)", () => {
     expect(applyDevAllowedSubs(cfg, devEnv())?.defaultAllowedSubs).toEqual([DEV_PEER_FP]);
     // comma-separated form also accepted
     expect(applyDevAllowedSubs(cfg, devEnv({ DEV_ALLOWED_SUBS: "a,b" }))?.defaultAllowedSubs).toEqual(["a", "b"]);
+  });
+
+  it("applyDevPassthrough: forces passthrough in dev for named services only", () => {
+    const cfg = anthropicService(); // headerNamed x-api-key (custody)
+    expect(applyDevPassthrough(cfg, devEnv({ CLOISTER_MODE: "prod", DEV_PASSTHROUGH_SERVICES: "anthropic" }))?.injection.kind).toBe("headerNamed");
+    expect(applyDevPassthrough(cfg, devEnv({ DEV_PASSTHROUGH_SERVICES: "anthropic" }))?.injection.kind).toBe("passthrough");
+    expect(applyDevPassthrough(cfg, devEnv({ DEV_PASSTHROUGH_SERVICES: "openai" }))?.injection.kind).toBe("headerNamed");
+  });
+});
+
+describe("vault proxy — audit passthrough (ADR-0040 amendment)", () => {
+  it("forwards the harness's own auth + anthropic-beta, injects nothing, needs no credential, hides the lease", async () => {
+    const body = JSON.stringify({ model: "claude-sonnet-5", messages: [] });
+    const headers = await signLeaseHeaders({ method: "POST", url: CLOISTER_URL, body, identity: DEV_IDENTITY });
+    const HARNESS_OAUTH = "Bearer max-oauth-token-xyz";
+
+    let seen: Record<string, string | null> = {};
+    const upstream: UpstreamFetcher = {
+      fetch: async (r) => {
+        seen = {
+          auth:        r.headers.get("authorization"),
+          beta:        r.headers.get("anthropic-beta"),
+          xApiKey:     r.headers.get("x-api-key"),
+          signetSig:   r.headers.get("x-signet-sig"),
+          harnessAuth: r.headers.get("x-harness-authorization"),
+        };
+        return new Response("data: ok\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+      },
+    };
+
+    // Empty credential store — passthrough must NOT need one.
+    const route = new VaultProxyRoute({
+      credentials: new InMemoryCredentialStore(),
+      services: (n) => (n === "anthropic" ? anthropicService() : null),
+      upstream,
+    });
+
+    const h = new Headers(Object.entries(headers));
+    h.set("x-harness-authorization", HARNESS_OAUTH); // shim side-channels the harness's OAuth
+    h.set("anthropic-beta", "oauth-2024-01");
+    const req = new Request(CLOISTER_URL, { method: "POST", headers: h, body });
+
+    const res = await route.handle(req, devEnv({ DEV_PASSTHROUGH_SERVICES: "anthropic" }) as unknown as Env);
+
+    expect(res.status).toBe(200);
+    expect(seen.auth).toBe(HARNESS_OAUTH);     // harness's own auth restored upstream
+    expect(seen.beta).toBe("oauth-2024-01");   // preserved
+    expect(seen.xApiKey).toBeNull();           // nothing injected — audit, not custody
+    expect(seen.signetSig).toBeNull();         // lease headers NOT leaked upstream
+    expect(seen.harnessAuth).toBeNull();       // side-channel consumed
   });
 });

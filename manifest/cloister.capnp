@@ -120,6 +120,13 @@ struct VaultProxyService {
     # Buffers the request body to merge the credential at the named
     # path; incompatible with streaming bodies (handler-side tradeoff).
     bodyField           @8 :BodyFieldSpec;
+
+    # Audit passthrough (ADR-0040 amendment): inject NOTHING. Forward the
+    # caller's own request + auth headers to the upstream and emit the
+    # receipt. For OAuth-subscription harnesses (Claude Code Max) where
+    # there is no key to vault — cloister provides audit (receipts), not
+    # custody. The credential-required 404 is skipped for this kind.
+    passthrough         @9 :Void;
   }
 }
 
