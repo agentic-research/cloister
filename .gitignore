@@ -86,3 +86,7 @@ tools/*/target/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# ADR-0042 harness:dev — runtime dev-mode material (never committed)
+.dev.vars
+.harness-dev/

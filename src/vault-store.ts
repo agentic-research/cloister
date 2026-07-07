@@ -435,6 +435,50 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     return this.#listRows(subjectFp);
   }
 
+  /** Ephemeral in-instance guard so the dev seed runs at most once per DO. */
+  #devSeeded = false;
+
+  /**
+   * Dev boot-seed (ADR-0042). When `CLOISTER_MODE === "dev"` and
+   * `DEV_VAULT_SEED` is set, ingest one credential via the existing
+   * `putCredential` on first `proxyRequest` — in-boundary, no external write
+   * route. Idempotent (`putCredential` overwrites); the flag just avoids
+   * re-parsing per request. A no-op outside dev mode, so production is
+   * untouched. Failures are logged, never thrown — a bad seed must not brick
+   * the proxy path.
+   */
+  async #maybeDevSeed(): Promise<void> {
+    if (this.#devSeeded) return;
+    this.#devSeeded = true;
+    const env = this.env as Env;
+    if (env.CLOISTER_MODE !== "dev" || !env.DEV_VAULT_SEED) return;
+    try {
+      const seed = JSON.parse(env.DEV_VAULT_SEED) as {
+        peerFp: string;
+        service: string;
+        upstream: string;
+        headers: Record<string, string>;
+        allowedSubs?: string[];
+      };
+      await this.putCredential(seed.peerFp, seed.service, {
+        upstream: seed.upstream,
+        headers: seed.headers,
+        allowedSubs: seed.allowedSubs ?? [],
+      });
+      // eslint-disable-next-line no-console -- operator-facing dev signal
+      console.log(JSON.stringify({
+        kind: "info", source: "cloister/dev", event: "vault_seeded",
+        service: seed.service, peerFp: seed.peerFp,
+      }));
+    } catch (e) {
+      // eslint-disable-next-line no-console -- operator-facing dev signal
+      console.error(JSON.stringify({
+        kind: "error", source: "cloister/dev", event: "vault_seed_failed",
+        message: e instanceof Error ? e.message : String(e),
+      }));
+    }
+  }
+
   async proxyRequest(
     subjectFp: string,
     service: string,
@@ -442,6 +486,11 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     incomingRequest: Request,
   ): Promise<Response> {
     assertSubjectFp(subjectFp);
+
+    // Dev boot-seed (ADR-0042) — ingest DEV_VAULT_SEED on first use when
+    // CLOISTER_MODE=dev, via the existing putCredential (in-boundary, no
+    // external write route). No-op outside dev mode.
+    await this.#maybeDevSeed();
 
     // F1 burst gate: concurrent in-flight proxies are capped because
     // each one holds the DO during upstream fetch. Reject overflow with

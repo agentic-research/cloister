@@ -898,6 +898,29 @@ tasks:
       - src/routes/vault-proxy-credential-store.ts
       - scripts/lint-vault-id-source.mjs
 
+  harness:dev:
+    desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the ANTHROPIC_BASE_URL to export. Set ANTHROPIC_API_KEY first (it's vaulted, never seen by the harness). Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config."
+    cmds:
+      - node scripts/harness-dev.mjs
+
+  harness:dev:setup:
+    desc: "ADR-0042 — mint + write .dev.vars only, no launch (for verifying the dev-identity + seed wiring). `task harness:dev` runs this then launches."
+    cmds:
+      - node scripts/harness-dev.mjs --setup-only
+
+  lint:no-dev-mode:
+    desc: "ADR-0042 safety rail — fail if any committed config enables a dev-mode harness seam (CLOISTER_MODE=dev or a DEV_* binding with a value). Dev mode is runtime-only via `task harness:dev`; it must never ship in config.capnp / wrangler.toml / cluster.toml / generated runtime."
+    cmds:
+      - node scripts/lint-no-dev-mode.mjs
+    sources:
+      - config.capnp
+      - wrangler.toml
+      - cluster.toml
+      - cluster.lock.toml
+      - src/generated/cluster.ts
+      - src/generated/manifest.ts
+      - scripts/lint-no-dev-mode.mjs
+
   lint:shim:
     desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
     cmds:
@@ -1010,7 +1033,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:capability-mapping-coverage, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins, lint:vault-id-source, lint:shim, cluster:zod:verify]
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:capability-mapping-coverage, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins, lint:vault-id-source, lint:shim, lint:no-dev-mode, cluster:zod:verify]
 
   verify:cred-iso-conformance:
     desc: "Run cloister/credential-isolation/v1 Python ref-impl conformance vectors (cloister-138082, cred-iso audit R-3). Asserts byte-equality between the Python reference and the pinned test vectors. Stdlib-only — no deps to install. A divergence between Python and any other implementation (TS, Rust, Go) is a finding worth a bead; do NOT auto-fix the Python to match — the spec is the contract."
