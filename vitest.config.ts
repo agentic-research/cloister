@@ -68,6 +68,19 @@ export default defineConfig({
   plugins: [cloudflareTest(workerConfig)],
   test: {
     pool: cloudflarePool(workerConfig),
+    // Integration timeout. These run in REAL workerd against REAL DOs, so
+    // some cases are inherently slower than a unit test — e.g. the disclosure
+    // pagination tests mint 105/150 attestation rows via sequential cross-DO
+    // RPCs before asserting. Vitest's default is 5000ms (a unit-test default);
+    // under the pre-push gate's full parallel load (cargo wasm/host builds +
+    // ~18 lint-script node processes + vitest all contending for CPU, observed
+    // import wall-clock >700s) those tests get starved and trip the 5s deadline
+    // despite passing in ~2s in isolation. 30s keeps the integration suite
+    // reliable as a DEFAULT gate — it is NOT disabled or skipped — without
+    // masking a genuine hang (a real deadlock still fails in 30s). Per
+    // cloister-f3e3ae (flaky disclosure pagination under pre-push contention).
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     // The CC plugin lives at hooks/ and is tested via node --test (not vitest)
     // because workerd has no `node:test`. Keep its tests off vitest's path.
     // `test/perf/**` is opt-in (cloister-747d98) — not part of the lint gate;
