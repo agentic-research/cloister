@@ -5,6 +5,11 @@ includes:
     taskfile: ./rs/Taskfile.yml
     dir: ./rs
 
+vars:
+  # Use tsx as a Node loader instead of the tsx CLI. The CLI opens an IPC
+  # pipe even for simple script runs, which fails in sandboxed local flows.
+  NODE_TSX: node --import tsx
+
 tasks:
   deps:node:
     desc: "Install Node dependencies from pnpm-lock.yaml. CI and local bootstrap use this; verification gates assume deps are already present and stay offline."
@@ -33,7 +38,7 @@ tasks:
     desc: "Compile src/tool-schemas/*.ts (zod) → src/generated/tool-schemas.ts (cloister-7ca96c)"
     run: once
     cmds:
-      - pnpm exec tsx scripts/build-tool-schemas.mjs
+      - "{{.NODE_TSX}} scripts/build-tool-schemas.mjs"
     sources:
       - src/tool-schemas/**/*.ts
       - scripts/build-tool-schemas.mjs
@@ -54,7 +59,7 @@ tasks:
       # Node 20 OR build-tool-schemas emits .mjs (the latter would
       # break tsc on src/generated/tool-schemas.ts; pick the right path
       # then, not now).
-      - pnpm exec tsx scripts/build-manifest.mjs
+      - "{{.NODE_TSX}} scripts/build-manifest.mjs"
     sources:
       - cloister.capnp
       - manifest/cloister.capnp
@@ -133,7 +138,7 @@ tasks:
   cluster:zod:verify:
     desc: "End-to-end semantic check — ClusterSchema (from cluster.zod.ts) must accept the real cluster const (from cluster.ts). Surfaced the union-shape bug during the initial schema-bridge wiring; lives here to lock that property in."
     cmds:
-      - pnpm exec tsx scripts/validate-cluster-zod.mjs
+      - "{{.NODE_TSX}} scripts/validate-cluster-zod.mjs"
     sources:
       - src/generated/cluster.ts
       - src/generated/cluster.zod.ts
@@ -333,8 +338,8 @@ tasks:
       - pkg/identity/identity.go
 
   cluster:emit:
-    desc: "Emit deployment artifacts (compose YAML) from cluster.capnp"
-    deps: [cluster:manifest]
+    desc: "Emit deployment artifacts (compose YAML) from cluster.toml via the canonical TOML → cluster.ts pipeline"
+    deps: [cluster:toml]
     cmds:
       - node scripts/emit-compose.mjs
     sources:
@@ -357,7 +362,7 @@ tasks:
   #                                        on drift. Same shape as
   #                                        `cluster:zod:check-drift`.
   #
-  # The tasks require `pnpm exec tsx` because the scripts dynamically
+  # The tasks require the tsx loader because the scripts dynamically
   # import the .ts ClusterSchema from src/generated/cluster.zod.ts.
   cluster:toml:
     desc: "Operator workflow — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts, then re-canonicalize cluster.toml (cloister-ae06f3 + cloister-fe891f, ADR-0025)."
@@ -369,8 +374,8 @@ tasks:
     # cluster.zod.ts. The chain is the SPEC of the workflow; the
     # cluster-toml contract test pins it.
     cmds:
-      - pnpm exec tsx scripts/toml-to-cluster.mjs
-      - pnpm exec tsx scripts/cluster-to-toml.mjs --write cluster.toml
+      - "{{.NODE_TSX}} scripts/toml-to-cluster.mjs"
+      - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs --write cluster.toml"
     sources:
       - cluster.toml
       - scripts/toml-to-cluster.mjs
@@ -382,7 +387,7 @@ tasks:
   cluster:toml:export:
     desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
     cmds:
-      - pnpm exec tsx scripts/cluster-to-toml.mjs {{.CLI_ARGS}}
+      - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs {{.CLI_ARGS}}"
     sources:
       - src/generated/cluster.ts
       - scripts/cluster-to-toml.mjs
@@ -403,10 +408,9 @@ tasks:
         fi
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        # `tsx` on a script that errors exits non-zero — `set -eu` will
-        # surface that. Use `--write` so any successful write commits
-        # atomically to the tmpdir before diff.
-        pnpm exec tsx scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
+        # Use `--write` so any successful write commits atomically to the
+        # tmpdir before diff; `set -eu` surfaces script failures.
+        {{.NODE_TSX}} scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
         if [ ! -f "$TMPDIR/cluster.toml" ]; then
           echo "FAIL — cluster-to-toml produced no output; check tsx stderr above" >&2
           exit 1
@@ -424,7 +428,7 @@ tasks:
   test:cluster-toml:
     desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the scripts can dynamically import src/generated/cluster.zod.ts."
     cmds:
-      - pnpm exec tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
+      - "{{.NODE_TSX}} --test scripts/test/cluster-toml-roundtrip.test.mjs"
     sources:
       - scripts/test/cluster-toml-roundtrip.test.mjs
       - scripts/toml-to-cluster.mjs
@@ -434,7 +438,7 @@ tasks:
   emit:cloister-capnp:
     desc: "Phase 2 of \"cloister.capnp as build artifact\" arc (cloister-345ad1, ADR-0031) — generate cloister.capnp from cluster.toml ([[routes]] + [metadata]) + cluster.lock.toml ([[generated_backends]]). Byte-stable; safe to commit the output."
     cmds:
-      - pnpm exec tsx scripts/emit-cloister-capnp.mjs --write cloister.capnp
+      - "{{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write cloister.capnp"
     sources:
       - cluster.toml
       - cluster.lock.toml
@@ -454,7 +458,7 @@ tasks:
         fi
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        pnpm exec tsx scripts/emit-cloister-capnp.mjs --write "$TMPDIR/cloister.capnp" >/dev/null
+        {{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write "$TMPDIR/cloister.capnp" >/dev/null
         if [ ! -f "$TMPDIR/cloister.capnp" ]; then
           echo "FAIL — emit-cloister-capnp produced no output; check tsx stderr above" >&2
           exit 1
@@ -472,7 +476,7 @@ tasks:
   test:emit-cloister-capnp:
     desc: "Phase 2 of cloister-345ad1 — contract tests for scripts/emit-cloister-capnp.mjs."
     cmds:
-      - pnpm exec tsx --test scripts/test/emit-cloister-capnp.test.mjs
+      - "{{.NODE_TSX}} --test scripts/test/emit-cloister-capnp.test.mjs"
     sources:
       - scripts/test/emit-cloister-capnp.test.mjs
       - scripts/emit-cloister-capnp.mjs
@@ -481,7 +485,7 @@ tasks:
   cluster:resolve:
     desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
     cmds:
-      - pnpm exec tsx scripts/resolve-inputs.mjs
+      - "{{.NODE_TSX}} scripts/resolve-inputs.mjs"
     sources:
       - cluster.toml
       - scripts/resolve-inputs.mjs
@@ -491,7 +495,7 @@ tasks:
   inputs:pull:
     desc: "ADR-0026 Phase 1c — pull the OCI images cluster.lock.toml pins (each input's server.json packages[].oci, ADR-0038) into the local container store, so `task cluster:up` boots offline (its compose emits pull_policy: never). The 'install' half of resolve → install → run. `task inputs:pull -- --print` previews without pulling. Runtime: $CONTAINER_CMD, else docker/nerdctl/podman."
     cmds:
-      - pnpm exec tsx scripts/pull-inputs.mjs {{.CLI_ARGS}}
+      - "{{.NODE_TSX}} scripts/pull-inputs.mjs {{.CLI_ARGS}}"
     sources:
       - cluster.lock.toml
       - scripts/pull-inputs.mjs
@@ -894,10 +898,19 @@ tasks:
       - src/routes/vault-proxy-credential-store.ts
       - scripts/lint-vault-id-source.mjs
 
+  lint:shim:
+    desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
+    cmds:
+      - pnpm exec tsc -p tools/harness-shim/tsconfig.json
+    sources:
+      - tools/harness-shim/*.ts
+      - tools/harness-shim/node-shims.d.ts
+      - tools/harness-shim/tsconfig.json
+
   lint:bundle-isolation:
     desc: "Validate ADR-0013 substrate invariants on src/generated/cluster.ts + config.capnp (cloister-ac30e7 + cloister-cf519b) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings. Reads cluster.ts via tsx (the canonical derived artifact per ADR-0025)."
     cmds:
-      - pnpm exec tsx scripts/lint-bundle-isolation.mjs
+      - "{{.NODE_TSX}} scripts/lint-bundle-isolation.mjs"
     sources:
       - src/generated/cluster.ts
       - config.capnp
@@ -906,7 +919,7 @@ tasks:
   lint:capability-scheme:
     desc: "ADR-0028 §6 lane discipline — fails if any [inputs.*].provides/requires value isn't cloister/<name>/v<n> shape (cloister-308ea4). Catches lane-1 URN / lane-2 WIMSE leakage into lane-3 slots. Reads cluster.ts via tsx."
     cmds:
-      - pnpm exec tsx scripts/lint-capability-scheme.mjs
+      - "{{.NODE_TSX}} scripts/lint-capability-scheme.mjs"
     sources:
       - src/generated/cluster.ts
       - scripts/lint-capability-scheme.mjs
@@ -922,7 +935,7 @@ tasks:
   lint:app-protocol:
     desc: "ADR-0030 §A4 hybrid namespace lint — fails if any cluster.toml [[edges]].appProtocol isn't substrate-blessed (art.*) or operator-extensible (x-<vendor>-*) shape (cloister-0fa3d7). Pattern mirrors lint:capability-scheme."
     cmds:
-      - pnpm exec tsx scripts/lint-app-protocol.mjs
+      - "{{.NODE_TSX}} scripts/lint-app-protocol.mjs"
     sources:
       - src/generated/cluster.ts
       - scripts/lint-app-protocol.mjs
@@ -940,7 +953,7 @@ tasks:
   lint:lockfile-drift:
     desc: "Drift gate for cluster.lock.toml — asserts every file:// input's committed sha256 still matches the bytes on disk. Catches the 2026-06-24 LLO-contract incident class where a vendored source advances but the lockfile stays pinned to the older digest, silently dropping advertised tools from src/generated/manifest.ts."
     cmds:
-      - pnpm exec tsx scripts/lint-lockfile-drift.mjs
+      - "{{.NODE_TSX}} scripts/lint-lockfile-drift.mjs"
     sources:
       - cluster.toml
       - cluster.lock.toml
@@ -971,7 +984,7 @@ tasks:
   lint:recipes:
     desc: "Phase 1 recipe smoke validation (cloister-449f82) — each recipes/<name>/ has README.md + (cloister.capnp OR cluster.toml); READMEs link to docs/reference/{bundle-topology,backend-kinds}.md per the canonical-link convention. Phase 2 will add capnp/TOML parse validation; Phase 3 will add local boot smoke. Invoked via tsx because lint-recipes.mjs transitively dynamic-imports cluster.zod.ts at runtime (per toml-to-cluster.mjs ADR-0025 Phase 1); plain `node` can't load .ts."
     cmds:
-      - pnpm exec tsx scripts/lint-recipes.mjs
+      - "{{.NODE_TSX}} scripts/lint-recipes.mjs"
     sources:
       - recipes/**/*
       - scripts/lint-recipes.mjs
@@ -979,7 +992,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have)."
     cmds:
-      - pnpm exec tsx --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/git-hooks.test.mjs
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-cargo-pins.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-capability-mapping-coverage.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/git-hooks.test.mjs"
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
@@ -989,7 +1002,7 @@ tasks:
   add:
     desc: "Add an input to cluster.toml + resolve it into cluster.lock.toml (cloister-66b6a6 / ADR-0026 Phase 2). Usage: task add -- <ref> [--name N] [--version V] [--provides cap]... [--requires cap].... Supports file://, https://, github://owner/repo[/path]@<git-ref>."
     cmds:
-      - pnpm exec tsx scripts/cli-add.mjs {{.CLI_ARGS | default "--help"}}
+      - "{{.NODE_TSX}} scripts/cli-add.mjs {{.CLI_ARGS | default \"--help\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + cargo-pin lint + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."
@@ -997,7 +1010,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:capability-mapping-coverage, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins, lint:vault-id-source, cluster:zod:verify]
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:capability-mapping-coverage, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, lint:doc-counts, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:cargo-pins, lint:vault-id-source, lint:shim, cluster:zod:verify]
 
   verify:cred-iso-conformance:
     desc: "Run cloister/credential-isolation/v1 Python ref-impl conformance vectors (cloister-138082, cred-iso audit R-3). Asserts byte-equality between the Python reference and the pinned test vectors. Stdlib-only — no deps to install. A divergence between Python and any other implementation (TS, Rust, Go) is a finding worth a bead; do NOT auto-fix the Python to match — the spec is the contract."

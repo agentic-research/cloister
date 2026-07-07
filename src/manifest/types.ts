@@ -202,11 +202,10 @@ export type RouteKind =
    * rate limit + no-plaintext-leak invariants are all wired through
    * `src/routes/vault-proxy.ts` (29 baseline tests green per PRs #29-#32).
    *
-   * Composition root supplies the credential store + service-config
-   * resolver — these aren't in the manifest today (Phase 11 schema add
-   * pending). The route mounts with sensible defaults (empty service
-   * registry + in-memory credential store) so a fresh deploy returns
-   * 404 with constant-shape body until the operator wires real config.
+   * Composition root supplies the credential store; the service-config
+   * resolver is manifest-driven from `Gateway.vaultProxyServices`.
+   * A fresh deploy returns a constant-shape denial until the operator
+   * declares a service, stores a credential, and opts in allowed peers.
    *
    * See `src/routes/vault-proxy-route.ts`.
    */

@@ -1,6 +1,6 @@
 // scripts/test/lint-bundle-isolation.test.mjs
 //
-// Run with:  pnpm exec tsx --test scripts/test/lint-bundle-isolation.test.mjs
+// Run with:  node --import tsx --test scripts/test/lint-bundle-isolation.test.mjs
 //
 // Synthesizes a bad/good cluster+config pair in a tmpdir, points the
 // lint script at it, asserts exit code + violation messages. The real
@@ -14,8 +14,8 @@
 // Post-ADR-0025 / cloister-cf519b: the lint reads cluster shape from
 // `src/generated/cluster.ts` (the canonical derived artifact), not
 // from `cluster.capnp`. Tests synthesize a TypeScript module exporting
-// the `cluster` const; the lint loads it via the tsx loader (invoked
-// via `pnpm exec tsx`). config.capnp parsing is unchanged.
+// the `cluster` const; the lint loads it via the tsx loader. config.capnp
+// parsing is unchanged.
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
@@ -28,10 +28,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const LINT_SCRIPT = resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs");
-// Resolve tsx via its node_modules/.bin path directly. `pnpm exec tsx`
-// fails when cwd is a tmpdir without a package.json (the tests run
-// with cwd=workDir so config.capnp resolves at the right place).
-const TSX_BIN = resolve(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 
 // ── Test harness ──────────────────────────────────────────────────────────
 
@@ -79,10 +76,8 @@ function makeScenario({ clusterTs, configCapnp, omitClusterTs = false }) {
 }
 
 function runLint(workDir, clusterTsPath, lockfilePath) {
-  // Invoke tsx directly via its node_modules/.bin path (not
-  // `pnpm exec tsx`, which fails from a tmpdir cwd lacking a
-  // package.json). tsx provides the .ts loader the lint script needs
-  // to dynamically import the synthesized cluster.ts fixture.
+  // Invoke Node with an absolute tsx loader path so tmpdir cwd scenarios
+  // do not depend on package discovery or the tsx CLI's IPC server.
   //
   // CLUSTER_TS env-var pins the synthesized fixture; without it the
   // script would default-resolve to <cwd>/src/generated/cluster.ts
@@ -94,7 +89,7 @@ function runLint(workDir, clusterTsPath, lockfilePath) {
   // Inv 10 reads the repo lockfile (fine: existing fixtures set bundle
   // images, so Inv 10 stays silent on them regardless).
   if (lockfilePath !== undefined) env.CLOISTER_LOCKFILE = lockfilePath;
-  return spawnSync(TSX_BIN, [LINT_SCRIPT], {
+  return spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     cwd: workDir,
     env,
     encoding: "utf8",
@@ -688,7 +683,7 @@ test("workerdServiceName join key — Worker without matching bundle warns + tre
 test("regression — the live cloister manifests pass the lint", () => {
   // Runs via tsx so the script can dynamically import the real
   // src/generated/cluster.ts (post-ADR-0025).
-  const r = spawnSync(TSX_BIN, [LINT_SCRIPT], {
+  const r = spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     cwd: REPO_ROOT,
     encoding: "utf8",
   });

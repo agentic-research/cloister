@@ -1,6 +1,6 @@
 // scripts/test/lint-lockfile-drift.test.mjs
 //
-// Run with:  pnpm exec tsx --test scripts/test/lint-lockfile-drift.test.mjs
+// Run with:  node --import tsx --test scripts/test/lint-lockfile-drift.test.mjs
 //
 // Contract tests for scripts/lint-lockfile-drift.mjs — the drift gate
 // motivated by the 2026-06-24 LLO-contract incident (cluster.lock.toml
@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const LINT_SCRIPT = resolve(REPO_ROOT, "scripts/lint-lockfile-drift.mjs");
-const TSX_BIN = resolve(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 
 function sha256(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -48,7 +48,7 @@ function makeFixture({ clusterToml, lockToml, sourceBody }) {
 }
 
 function runLint({ clusterPath, lockPath }) {
-  return spawnSync(TSX_BIN, [LINT_SCRIPT], {
+  return spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,

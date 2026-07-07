@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const LINT_SCRIPT = resolve(REPO_ROOT, "scripts/lint-recipes.mjs");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 
 function makeRecipesDir(recipes) {
   const dir = mkdtempSync(resolve(tmpdir(), "recipes-lint-"));
@@ -31,14 +32,10 @@ function makeRecipesDir(recipes) {
 }
 
 function runLint(recipesDir, opts = {}) {
-  // Spawn via `pnpm exec tsx` (not plain `node`) because lint-recipes.mjs
-  // transitively dynamic-imports cluster.zod.ts at runtime — same reason
-  // the Taskfile invokes the script through tsx. Plain `node` here makes
-  // the Phase 4a drift-gate tests false-negative in CI: the .ts import
-  // throws inside capnpDriftCheckRecipe, the parse-error catch swallows
-  // it (returning null = skip), the drift gate gets effectively skipped,
-  // the lint exits 0, and the notStrictEqual assertion fails.
-  return spawnSync("pnpm", ["exec", "tsx", LINT_SCRIPT], {
+  // Spawn through Node's tsx loader because lint-recipes.mjs transitively
+  // dynamic-imports cluster.zod.ts at runtime. Use an absolute loader path
+  // so this stays independent of cwd package discovery and the tsx CLI.
+  return spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,

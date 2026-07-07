@@ -522,7 +522,29 @@ export interface Gateway {
   metadata: GatewayMetadata;
   actor:    Actor;
   policy:   InterlacePolicy;
+  /**
+   * `cloister/credential-isolation/v1` service declarations that the
+   * cloister.capnp emitter projects into `Cloister.Gateway`.
+   * Empty array = no services declared; vaultProxy routes stay
+   * safe-closed until the operator opts services in.
+   */
+  vaultProxyServices: readonly VaultProxyServiceConfig[];
 }
+
+export interface VaultProxyServiceConfig {
+  name:                string;
+  upstreamBaseUrl:     string;
+  defaultAllowedSubs:  readonly string[];
+  rateLimitPerMinute:  number;
+  injection:           VaultProxyInjection;
+}
+
+export type VaultProxyInjection =
+  | { authorizationBearer: null }
+  | { authorizationBasic:  null }
+  | { headerNamed:         { name: string } }
+  | { queryParam:          { name: string } }
+  | { bodyField:           { path: string } };
 
 /**
  * Logical manifest name + version. Distinct from `ClusterMetadata`:

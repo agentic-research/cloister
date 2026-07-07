@@ -54,6 +54,14 @@ export const manifest: Gateway = {
       }
     },
     {
+      "path": "/vault/proxy",
+      "kind": {
+        "vaultProxy": {
+          "bundleIdName": "cloister-router"
+        }
+      }
+    },
+    {
       "path": "/identity",
       "kind": {
         "serviceBindingProxy": {
@@ -473,5 +481,27 @@ export const manifest: Gateway = {
     "maxCertLifetimeSeconds": 300,
     "requireInterlock": true,
     "minAlgorithm": "ed25519"
-  }
+  },
+  "vaultProxyServices": [
+    {
+      "name": "anthropic",
+      "upstreamBaseUrl": "https://api.anthropic.com",
+      "defaultAllowedSubs": [],
+      "rateLimitPerMinute": 120,
+      "injection": {
+        "headerNamed": {
+          "name": "x-api-key"
+        }
+      }
+    },
+    {
+      "name": "openai",
+      "upstreamBaseUrl": "https://api.openai.com",
+      "defaultAllowedSubs": [],
+      "rateLimitPerMinute": 120,
+      "injection": {
+        "authorizationBearer": null
+      }
+    }
+  ]
 } as const;

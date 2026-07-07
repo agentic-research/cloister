@@ -1,6 +1,6 @@
 // scripts/test/lint-capability-scheme.test.mjs
 //
-// Run with:  pnpm exec tsx --test scripts/test/lint-capability-scheme.test.mjs
+// Run with:  node --import tsx --test scripts/test/lint-capability-scheme.test.mjs
 //
 // Direct unit tests for `validateLane3Shape` (no I/O) + integration
 // tests that synthesize a `cluster.ts` and invoke the lint as a
@@ -21,6 +21,7 @@ import { validateLane3Shape, collectViolations } from "../lint-capability-scheme
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const LINT_SCRIPT = resolve(REPO_ROOT, "scripts/lint-capability-scheme.mjs");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 
 // ── Unit: validateLane3Shape — well-formed values ────────────────────────
 
@@ -211,8 +212,8 @@ function writeClusterTs(dir, cluster) {
 
 function runLintSubprocess(clusterTsPath) {
   return spawnSync(
-    "pnpm",
-    ["exec", "tsx", LINT_SCRIPT],
+    process.execPath,
+    ["--import", TSX_LOADER, LINT_SCRIPT],
     {
       env: { ...process.env, CLUSTER_TS: clusterTsPath },
       cwd: REPO_ROOT,

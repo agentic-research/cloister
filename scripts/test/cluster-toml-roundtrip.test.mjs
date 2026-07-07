@@ -3,7 +3,7 @@
 // Bidi TOML ↔ cluster.ts roundtrip tests (cloister-ae06f3, ADR-0025).
 //
 // Run with:
-//   pnpm exec tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
+//   node --import tsx --test scripts/test/cluster-toml-roundtrip.test.mjs
 //
 // Lives under scripts/test/ (not test/) for the same reason
 // cli-init.test.mjs and lint-bundle-isolation.test.mjs do: vitest-
@@ -32,7 +32,7 @@ import { ClusterSchema } from "../../src/generated/cluster.zod.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
-const TSX_BIN = resolve(REPO_ROOT, "node_modules/.bin/tsx");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 const TOML_TO_CLUSTER = resolve(REPO_ROOT, "scripts/toml-to-cluster.mjs");
 const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
 
@@ -59,6 +59,7 @@ const EMPTY_GATEWAY = {
     requireInterlock: false,
     minAlgorithm: "",
   },
+  vaultProxyServices: [],
 };
 
 /** A minimal cluster shape that passes ClusterSchema. */
@@ -577,7 +578,7 @@ transport = "uds"
 
 function runChain(workDir, tomlPath, tsPath) {
   // Forward: parse cluster.toml → render cluster.ts.
-  const fwd = spawnSync(TSX_BIN, [TOML_TO_CLUSTER], {
+  const fwd = spawnSync(process.execPath, ["--import", TSX_LOADER, TOML_TO_CLUSTER], {
     cwd: workDir,
     env: { ...process.env, CLUSTER_TOML: tomlPath, CLUSTER_OUTPUT: tsPath },
     encoding: "utf8",
@@ -586,7 +587,7 @@ function runChain(workDir, tomlPath, tsPath) {
     throw new Error(`toml-to-cluster failed: exit=${fwd.status}\nstderr:\n${fwd.stderr}\nstdout:\n${fwd.stdout}`);
   }
   // Reverse: render cluster.ts → canonical cluster.toml (overwriting input).
-  const rev = spawnSync(TSX_BIN, [CLUSTER_TO_TOML, "--write", tomlPath], {
+  const rev = spawnSync(process.execPath, ["--import", TSX_LOADER, CLUSTER_TO_TOML, "--write", tomlPath], {
     cwd: workDir,
     env: { ...process.env, CLUSTER_TS: tsPath },
     encoding: "utf8",
@@ -1657,6 +1658,7 @@ minAlgorithm           = "ed25519"
   assert.equal(parsed.gateway.policy.maxCertLifetimeSeconds, 300);
   assert.equal(parsed.gateway.policy.requireInterlock, true);
   assert.equal(parsed.gateway.policy.minAlgorithm, "ed25519");
+  assert.deepEqual(parsed.gateway.vaultProxyServices, []);
 
   // Forward → reverse leg: roundtrip preserves every populated field.
   const emitted = clusterToToml(parsed);
@@ -1676,6 +1678,84 @@ minAlgorithm           = "ed25519"
   // Second roundtrip is a fixed point.
   const reparsed = await parseTomlToCluster(emitted);
   assert.deepEqual(reparsed.gateway, parsed.gateway, "gateway must round-trip identity");
+});
+
+test("gateway: vaultProxyServices roundtrip through cluster.toml", async () => {
+  const tomlIn = `
+[metadata]
+name    = "with-vault-proxy-services"
+version = "0.0.1"
+
+[[bundles]]
+name                = "alpha"
+description         = ""
+tier                = "cluster"
+holdsCredential     = []
+workerdServiceName  = ""
+hypervisorRationale = ""
+kind                = "external"
+  [bundles.external]
+  image     = "a:0.1"
+  ipcSocket = "/run/a.sock"
+  httpPort  = 0
+  args      = []
+  env       = []
+
+[[wires]]
+from      = "alpha"
+to        = "alpha"
+binding   = "SELF"
+transport = "uds"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[gateway.vaultProxyServices]]
+name = "anthropic"
+upstreamBaseUrl = "https://api.anthropic.com"
+defaultAllowedSubs = ["sha256:harness:*"]
+rateLimitPerMinute = 120
+injection = "headerNamed"
+  [gateway.vaultProxyServices.headerNamed]
+  name = "x-api-key"
+
+[[gateway.vaultProxyServices]]
+name = "anthropic-compatible"
+upstreamBaseUrl = "https://gw.example/anthropic"
+defaultAllowedSubs = []
+rateLimitPerMinute = 60
+injection = "authorizationBearer"
+`;
+
+  const parsed = await parseTomlToCluster(tomlIn);
+  assert.deepEqual(parsed.gateway.vaultProxyServices, [
+    {
+      name: "anthropic",
+      upstreamBaseUrl: "https://api.anthropic.com",
+      defaultAllowedSubs: ["sha256:harness:*"],
+      rateLimitPerMinute: 120,
+      injection: { headerNamed: { name: "x-api-key" } },
+    },
+    {
+      name: "anthropic-compatible",
+      upstreamBaseUrl: "https://gw.example/anthropic",
+      defaultAllowedSubs: [],
+      rateLimitPerMinute: 60,
+      injection: { authorizationBearer: null },
+    },
+  ]);
+
+  const emitted = clusterToToml(parsed);
+  assert.ok(emitted.includes("[[gateway.vaultProxyServices]]"));
+  assert.match(emitted, /defaultAllowedSubs = \[\s*\]/);
+  assert.ok(emitted.includes('injection = "headerNamed"'));
+  assert.ok(emitted.includes("[gateway.vaultProxyServices.headerNamed]"));
+  assert.ok(emitted.includes('name = "x-api-key"'));
+  assert.ok(emitted.includes('name = "anthropic-compatible"'));
+  assert.ok(emitted.includes('injection = "authorizationBearer"'));
+
+  const reparsed = await parseTomlToCluster(emitted);
+  assert.deepEqual(reparsed.gateway.vaultProxyServices, parsed.gateway.vaultProxyServices);
 });
 
 test("gateway: cluster.toml with NO [gateway] table parses to all-empty default (back-compat)", async () => {
@@ -1744,6 +1824,7 @@ test("gateway: partial population (only metadata.name) emits only that subtable"
       metadata: { name: "cloister-partial", version: "" },
       actor: { fingerprint: "", algorithm: "", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 0, requireInterlock: false, minAlgorithm: "" },
+      vaultProxyServices: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1769,6 +1850,7 @@ test("gateway: requireInterlock = false lands in TOML when other fields are set 
       metadata: { name: "cloister-permissive", version: "0.0.1" },
       actor: { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
+      vaultProxyServices: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1797,6 +1879,7 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
         tunnelEndpoint:  "",
       },
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: true, minAlgorithm: "ed25519" },
+      vaultProxyServices: [],
     },
   };
   const t1 = clusterToToml(cluster);

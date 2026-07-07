@@ -1,6 +1,6 @@
 // scripts/test/lint-app-protocol.test.mjs
 //
-// Run with: pnpm exec tsx --test scripts/test/lint-app-protocol.test.mjs
+// Run with: node --import tsx --test scripts/test/lint-app-protocol.test.mjs
 //
 // Unit + integration tests for `validateAppProtocol` and the
 // `lint-app-protocol.mjs` CLI. Mirrors the shape of
@@ -21,6 +21,7 @@ import { validateAppProtocol, collectViolations, BLESSED_LABELS } from "../lint-
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const LINT_SCRIPT = resolve(REPO_ROOT, "scripts/lint-app-protocol.mjs");
+const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
 
 // ── Unit: validateAppProtocol — accepts the blessed set ──────────────────
 
@@ -159,12 +160,9 @@ test("collectViolations: surfaces each violating edge with from/to/value", () =>
 // ── Integration: invoke as subprocess against synthetic cluster.ts ───────
 
 function spawnLint(envOverride) {
-  // Spawn via `pnpm exec tsx` (not plain `node`) because the lint script
-  // dynamic-imports cluster.ts at runtime. Plain node can't load .ts
-  // files; tsx wraps the loader to handle them. Same pattern as
-  // lint-recipes.test.mjs (cloister-8e40ad fix). The Taskfile invocation
-  // already uses `pnpm exec tsx`; the test must match.
-  return spawnSync("pnpm", ["exec", "tsx", LINT_SCRIPT], {
+  // Spawn through Node's tsx loader because the lint script dynamic-imports
+  // cluster.ts at runtime. Match the Taskfile's IPC-free invocation shape.
+  return spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     env: { ...process.env, ...envOverride },
     encoding: "utf-8",
   });

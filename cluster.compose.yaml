@@ -3,7 +3,7 @@
 #
 # Cluster: art-default v0.1.0
 # 4 bundle(s), 3 wire(s)
-# 1 input(s); tenancy resolved per ADR-0030 §A5
+# 3 input(s); tenancy resolved per ADR-0030 §A5
 
 name: art-default
 
@@ -41,13 +41,14 @@ services:
       - cloister-uds:/run/cloister-uds
 
   mache:
-    image: mache:0.8.0
+    image: mache:0.14.0
     pull_policy: never
     container_name: cloister-mache
     labels:
       - "cloister.bundle=mache"
       - "cloister.tier=cluster"
-      - "cloister.description=mache:0.8.0 — Code intelligence — symbol search, definitions, callgraph"
+      - "cloister.description=mache:0.14.0 — Code intelligence — symbol search, definitions, callgraph"
+      - "cloister.colocated-inputs=mache"
     command:
       - "serve"
       - "--http"
@@ -57,13 +58,14 @@ services:
       - cloister-uds:/run/cloister-uds
 
   rosary:
-    image: rosary:0.2.0
+    image: rosary:0.4.0
     pull_policy: never
     container_name: cloister-rosary
     labels:
       - "cloister.bundle=rosary"
       - "cloister.tier=cluster"
-      - "cloister.description=rosary:0.2.0 — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
+      - "cloister.description=rosary:0.4.0 — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
+      - "cloister.colocated-inputs=rosary"
     command:
       - "mcp"
       - "--ipc-socket"

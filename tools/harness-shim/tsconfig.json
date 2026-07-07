@@ -1,0 +1,14 @@
+{
+  "//": "Standalone type-check for the host-side harness shim (cloister-caab2d). Separate from the workers tsconfig: the shim is a Node program, so it uses lib DOM for Web APIs (fetch/crypto/Headers) + the local node-shims.d.ts for the Node built-ins it touches, instead of @cloudflare/workers-types. Run via `task lint:shim`.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["index.ts", "lease-signer.ts", "node-shims.d.ts"]
+}

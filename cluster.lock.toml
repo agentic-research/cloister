@@ -4,29 +4,33 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "io.github.org/agentic-research/ley-line-open@main"
-resolved = "0.4.5"
-sha256 = "sha256:6982f91630b9c646dd395beb79fc02ce9b789a42e160f880b39d293fc8800112"
-fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@v0.5.8"
+resolved = "0.5.8"
+sha256 = "sha256:4fcfcac380fc5c5c94bf5939eaaf99052bd94efdaf4d21a453b6f856e61d34ef"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/v0.5.8/server.json"
 signer = ""
 bytes = 2_603
 
   [inputs.llo.oci]
-  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.6"
+  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.8"
 
 [inputs.mache]
-ref = "io.github.org/agentic-research/mache@main"
-resolved = "0.13.0"
-sha256 = "sha256:d6ed96f5a23e8434e538a6678a534afa16ca5797e2ebe8036b624d7608d2ad52"
-fetched_from = "file:///Users/jamesgardner/remotes/art/mache/server.json"
+ref = "github://agentic-research/mache/server.json@v0.14.0"
+resolved = "0.14.0"
+sha256 = "sha256:10285ee7bde51c942cedb8086f28a56329fd0242234346a39f4bf15ff656ff29"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/mache/v0.14.0/server.json"
 signer = ""
-bytes = 4_177
+bytes = 4_319
+
+  [inputs.mache.oci]
+  identifier = "ghcr.io/agentic-research/mache"
+  version = "0.14.0"
 
 [inputs.rosary]
-ref = "io.github.org/agentic-research/rosary@main"
+ref = "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4"
 resolved = "0.4.0"
 sha256 = "sha256:ca894659246aef6fd00f04092d307a517cda7c3164c02561574eba3cddfa04e0"
-fetched_from = "file:///Users/jamesgardner/remotes/art/rosary/server.json"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/rosary/a98021749659c3af715ea54148c54f2b3db65dc4/server.json"
 signer = ""
 bytes = 6_252
 
