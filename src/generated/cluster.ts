@@ -137,10 +137,10 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "io.github.org/agentic-research/ley-line-open@main",
-      "version": "0.4.5",
+      "ref": "github://agentic-research/ley-line-open/server.json@v0.5.8",
+      "version": "0.5.8",
       "digest": "",
-      "from": "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json",
+      "from": "",
       "provides": [],
       "requires": [],
       "urlBinding": "LLO_MCP_URL",
