@@ -4,15 +4,15 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "io.github.org/agentic-research/ley-line-open@main"
-resolved = "0.4.5"
-sha256 = "sha256:6982f91630b9c646dd395beb79fc02ce9b789a42e160f880b39d293fc8800112"
-fetched_from = "file:///Users/jamesgardner/remotes/art/ley-line-open/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@v0.5.8"
+resolved = "0.5.8"
+sha256 = "sha256:4fcfcac380fc5c5c94bf5939eaaf99052bd94efdaf4d21a453b6f856e61d34ef"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/v0.5.8/server.json"
 signer = ""
 bytes = 2_603
 
   [inputs.llo.oci]
-  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.6"
+  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.8"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@v0.14.0"
