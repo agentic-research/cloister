@@ -56,24 +56,32 @@ request per the table above, streams the response back (SSE, un-buffered —
 `new Response(upstream.body)` does not buffer), and writes a receipt
 (model, token counts, timestamp, caller lease).
 
-## The lease caveat (why a bare base-URL isn't enough yet)
+## The lease adapter (why a bare base-URL isn't enough — and what closes it)
 
 `/vault/proxy/<name>` is **lease-gated** and **safe-closed**: an empty
 `defaultAllowedSubs` denies all callers until an operator opts a peer
-fingerprint in, and every request must carry an Interlace lease header.
+fingerprint in, and every request must carry an Interlace lease header
+(`Authorization: Signet <cert>` + `X-Signet-Sig` + `X-Signet-Ts` +
+`X-Signet-Nonce`), verified by `verifyAndUpsertLease` — a real Ed25519
+signature check over the canonical request bytes, not a bearer compare.
 Stock Claude Code / Codex set a base URL but **do not mint Interlace
-leases themselves**. A deployable setup therefore needs one of:
+leases themselves**, so their bare requests bounce `401`. A deployable
+setup therefore needs one of the three shapes in ADR-0040's
+"Implementation note":
 
-1. a **lease-aware local shim** in front of the harness that attaches the
-   lease to each outbound call;
+1. a **lease-aware local shim** in front of the harness that signs each
+   outbound call — **shipped**: [`tools/harness-shim/`](../../tools/harness-shim/README.md)
+   (`cloister-caab2d`). The harness points its base URL at the shim; the
+   shim attaches the lease and forwards to cloister;
 2. an **mTLS edge** that terminates the harness's channel identity and
-   mints/attaches the lease on its behalf; or
+   mints/attaches the lease on its behalf (shared/hosted deployments); or
 3. an **enterprise gateway** that already terminates that identity.
 
-Without an adapter, cloister still hosts the proxy surface — it just
-rejects the un-leased request safe-closed. This is deliberate: the proxy
-is not a bare bearer relay (a leaked bearer is just a bearer). See
-ADR-0040 "Implementation note."
+The proxy is not a bare bearer relay (a leaked bearer is just a bearer);
+the shim holds the signing key so the harness process never does. The
+signer↔gate contract is proven end-to-end in
+`test/routes/vault-proxy-lease-gate.test.ts` (shim-signed → `200` +
+vaulted key injected; tampered sig → `401`; bare request → `401`).
 
 ## What the claim is (and isn't)
 
