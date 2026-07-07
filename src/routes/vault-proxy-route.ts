@@ -27,7 +27,7 @@
 // live request-dispatch graph.
 
 import { checkAccess } from "../../vault/src/vault.js";
-import { CaUnavailableError, getCABundle } from "../storage/ca-bundle-cache.js";
+import { CaUnavailableError, getCABundle, type CABundle } from "../storage/ca-bundle-cache.js";
 import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
 import { buildDenialAuditEntry } from "../../vault/src/handler.js";
 import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
@@ -251,7 +251,7 @@ export class VaultProxyRoute implements EdgeRoute {
     // ── service config + credential store + lookup ──────────────
     const service      = parsed?.service ?? "";
     const upstreamPath = parsed?.upstreamPath ?? "/";
-    const serviceConfig = parsed === null ? null : this.services(service);
+    const serviceConfig = applyDevAllowedSubs(parsed === null ? null : this.services(service), env);
     const credentialStore = this.selectCredentialStore(env);
 
     // Service-declaration check fires BEFORE any forward delegation so
@@ -362,11 +362,61 @@ export class VaultProxyRoute implements EdgeRoute {
  * pipeline. When `INTERLACE_ROOT_PUBKEY` is unset, returns 401 (the
  * safe-closed default: every request needs a lease).
  */
+/**
+ * Static dev CA bundle (ADR-0042). When `CLOISTER_MODE === "dev"` and
+ * `DEV_CA_MASTER` is set, the lease verifier uses this instead of fetching +
+ * signature-verifying a bundle from notme. The dev master is provided locally
+ * by `task harness:dev`, so there is no fetch to MITM and no bundle signature
+ * to check — but `verifyAndUpsertLease` still runs the FULL cert-chain +
+ * Ed25519 request-sig + scope + replay pipeline against `keys[active]`. This
+ * relaxes only the *source* of the trust anchor (local, ephemeral), never the
+ * per-request verification (ADR-0042 safety rail). Returns null outside dev
+ * mode, so production always takes the notme-fetch path.
+ */
+export function devCaBundle(env: Env): CABundle | null {
+  if (env.CLOISTER_MODE !== "dev" || !env.DEV_CA_MASTER) return null;
+  const epoch = Number.parseInt(env.DEV_CA_EPOCH ?? "1", 10);
+  return {
+    epoch: Number.isFinite(epoch) ? epoch : 1,
+    seqno: 1,
+    keys: { active: env.DEV_CA_MASTER },
+    keyId: "active",
+    issuedAt: Math.floor(Date.now() / 1000),
+    signature: "",
+  };
+}
+
+/**
+ * Dev authz overlay (ADR-0042). In dev mode, merge `DEV_ALLOWED_SUBS` into the
+ * matched service's `defaultAllowedSubs` so the dev identity passes the
+ * manifest-side gate (which defaults to `[]` = deny-all). Accepts a JSON array
+ * or a comma-separated list. A no-op outside dev mode or when unset, so
+ * production honors the committed manifest verbatim.
+ */
+export function applyDevAllowedSubs(
+  cfg: VaultProxyService | null,
+  env: Env,
+): VaultProxyService | null {
+  if (cfg === null || env.CLOISTER_MODE !== "dev" || !env.DEV_ALLOWED_SUBS) return cfg;
+  const raw = env.DEV_ALLOWED_SUBS.trim();
+  let subs: string[];
+  try {
+    subs = raw.startsWith("[")
+      ? (JSON.parse(raw) as string[])
+      : raw.split(",").map((s) => s.trim()).filter(Boolean);
+  } catch {
+    subs = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (subs.length === 0) return cfg;
+  return { ...cfg, defaultAllowedSubs: [...cfg.defaultAllowedSubs, ...subs] };
+}
+
 const defaultLeaseVerifier: LeaseVerifier = async (request, env, parsed) => {
-  if (!env.INTERLACE_ROOT_PUBKEY) return { ok: false, status: 401 };
+  const devBundle = devCaBundle(env);
+  if (!devBundle && !env.INTERLACE_ROOT_PUBKEY) return { ok: false, status: 401 };
   try {
     const nowMs = Date.now();
-    const bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
+    const bundle = devBundle ?? await getCABundle(notmeBundleFetcher(env), nowMs, {
       rootPubkey: env.INTERLACE_ROOT_PUBKEY,
     });
     const body = request.method === "GET" || request.method === "HEAD"

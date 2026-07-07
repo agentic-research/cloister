@@ -168,4 +168,31 @@ export interface Env {
   /// pubkey at startup. Pinning it via binding lets the operator
   /// publish a stable fingerprint across pubkey reloads in dev.
   RECEIPT_ACTOR_FP?: string;
+  /// ── Dev-mode bindings (ADR-0042) ─────────────────────────────────
+  /// Set to "dev" to enable the turnkey local-run seams (`task harness:dev`).
+  /// MUST be unset / "prod" in every committed production-tier config —
+  /// enforced by `lint:no-dev-mode`. Gates the dev CA-bundle source + the
+  /// vault boot-seed. It never weakens per-request verification (ADR-0042
+  /// safety rail; same discipline as ADR-0007's no-INTERLACE_DEV_BYPASS).
+  CLOISTER_MODE?: string;
+  /// Dev CA master pubkey (base64-STANDARD, 32-byte Ed25519) minted by
+  /// `mint-dev-cert`. When `CLOISTER_MODE === "dev"`, the lease verifier
+  /// builds a static CA bundle from this instead of fetching from notme.
+  /// Dev-only; production always fetches + signature-verifies via notme.
+  DEV_CA_MASTER?: string;
+  /// Dev CA bundle epoch (decimal). Must equal the dev cert's epoch.
+  /// Defaults to 1 when unset. Dev-only.
+  DEV_CA_EPOCH?: string;
+  /// Dev vault seed (JSON) — one credential the vault DO ingests at first
+  /// use when `CLOISTER_MODE === "dev"`, via the existing putCredential
+  /// (in-boundary, no external write route). Shape:
+  /// `{ "peerFp", "service", "upstream", "headers": {..}, "allowedSubs": [..] }`.
+  /// Dev-only; production uses the designed ingestion surface (future ADR).
+  DEV_VAULT_SEED?: string;
+  /// Dev authz overlay (JSON array of peerFp strings, or comma-separated).
+  /// When `CLOISTER_MODE === "dev"`, the vault-proxy route overlays these onto
+  /// every matched service's `defaultAllowedSubs` so the dev identity passes
+  /// the manifest-side gate (which is `[]` = deny-all by default). Dev-only;
+  /// production opts peers in via the committed manifest. Per ADR-0042.
+  DEV_ALLOWED_SUBS?: string;
 }
