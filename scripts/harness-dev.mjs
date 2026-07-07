@@ -19,7 +19,7 @@
 // launching (used by the setup test).
 
 import { execFileSync, spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -98,6 +98,12 @@ console.error(`${bar}\n`);
 const cleanup = () => {
   shim.kill();
   cloister.kill();
+  // Remove the dev-vars so an active dev session doesn't leave state that a
+  // later `vitest`/`wrangler` run in the same tree would load. (The proper
+  // fix — isolating the dev-run config surface from the test env — is the
+  // config de-sprawl direction: docs/superpowers/specs/2026-07-07-config-desprawl-direction.md;
+  // this is the interim guard.)
+  try { rmSync(resolve(ROOT, ".dev.vars"), { force: true }); } catch { /* best-effort */ }
   process.exit(0);
 };
 process.on("SIGINT", cleanup);
