@@ -83,6 +83,21 @@ tasks:
   audit:
     desc: "Supply-chain audit for the Rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure."
     cmds:
+      # Preflight (fail-loud, never skip). This is a SECURITY gate — if
+      # cargo-audit / cargo-deny are missing, a bare `cargo audit` prints a
+      # cryptic "no such command" and, worse, an operator might be tempted to
+      # make it non-fatal, silently turning the supply-chain check into a
+      # no-op. So: detect missing tools, name them, give the install line, and
+      # exit non-zero. Missing tool ⇒ cannot verify ⇒ MUST NOT pass.
+      - |
+        missing=""
+        command -v cargo-audit >/dev/null 2>&1 || missing="$missing cargo-audit"
+        command -v cargo-deny  >/dev/null 2>&1 || missing="$missing cargo-deny"
+        if [ -n "$missing" ]; then
+          echo "rs:audit: supply-chain gate cannot run — missing tool(s):$missing" >&2
+          for t in $missing; do echo "  install: cargo install $t" >&2; done
+          exit 1
+        fi
       - 'grep -q ''channel = "1.95.0"'' rust-toolchain.toml || (echo "rs/rust-toolchain.toml: channel != 1.95.0 — see ADR-0019 §Implementation pins"; exit 1)'
       - cargo audit --deny warnings
       - cargo deny check
