@@ -41,13 +41,13 @@ services:
       - cloister-uds:/run/cloister-uds
 
   mache:
-    image: mache:0.14.0
+    image: ghcr.io/agentic-research/mache@sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095
     pull_policy: never
     container_name: cloister-mache
     labels:
       - "cloister.bundle=mache"
       - "cloister.tier=cluster"
-      - "cloister.description=mache:0.14.0 — Code intelligence — symbol search, definitions, callgraph"
+      - "cloister.description=ghcr.io/agentic-research/mache@sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095 — Code intelligence — symbol search, definitions, callgraph"
       - "cloister.colocated-inputs=mache"
     command:
       - "serve"

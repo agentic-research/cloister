@@ -36,7 +36,7 @@ tier = "cluster"
   [bundles.external]
   args = [ "serve", "--http", "localhost:7532" ]
   httpPort = 7_532
-  image = "mache:0.14.0"
+  image = ""
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
@@ -74,8 +74,8 @@ urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
 
 [inputs.mache]
-ref = "github://agentic-research/mache/server.json@v0.14.0"
-version = "0.14.0"
+ref = "github://agentic-research/mache/server.json@v0.16.2"
+version = "0.16.2"
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
 

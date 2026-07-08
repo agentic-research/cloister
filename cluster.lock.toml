@@ -15,16 +15,17 @@ bytes = 2_603
   identifier = "ghcr.io/agentic-research/ley-line-open:0.5.8"
 
 [inputs.mache]
-ref = "github://agentic-research/mache/server.json@v0.14.0"
-resolved = "0.14.0"
-sha256 = "sha256:10285ee7bde51c942cedb8086f28a56329fd0242234346a39f4bf15ff656ff29"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/mache/v0.14.0/server.json"
+ref = "github://agentic-research/mache/server.json@v0.16.2"
+resolved = "0.16.2"
+sha256 = "sha256:1dd2455093928262dc62b667f0917e0bd7c678009841af2ef13c6c7289b7268e"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/mache/v0.16.2/server.json"
 signer = ""
-bytes = 4_319
+bytes = 4_320
 
   [inputs.mache.oci]
   identifier = "ghcr.io/agentic-research/mache"
-  version = "0.14.0"
+  version = "v0.16.2"
+  digest = "sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095"
 
 [inputs.rosary]
 ref = "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4"
