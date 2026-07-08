@@ -567,7 +567,12 @@ tasks:
   helper:status:
     desc: "Probe GET /healthz to confirm the leyline-sign-helper is reachable (cloister-99165e)."
     cmds:
-      - curl -fsS http://127.0.0.1:8786/healthz | jq .
+      # curl -fsS is the real check (non-2xx / unreachable → non-zero). jq only
+      # pretty-prints; degrade to raw when it's absent so a missing jq doesn't
+      # break a probe that otherwise succeeded. (Convenience task, not a gate.)
+      - |
+        resp=$(curl -fsS http://127.0.0.1:8786/healthz) || exit 1
+        if command -v jq >/dev/null 2>&1; then printf '%s\n' "$resp" | jq .; else printf '%s\n' "$resp"; fi
 
   wire:verify-roundtrip:
     desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
