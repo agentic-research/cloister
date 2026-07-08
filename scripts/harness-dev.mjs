@@ -58,7 +58,10 @@ const common = [
   `CLOISTER_MODE = "dev"`,
   `DEV_CA_MASTER = ${JSON.stringify(dev.masterPubB64Std)}`,
   `DEV_CA_EPOCH = ${JSON.stringify(String(dev.epoch))}`,
-  `DEV_ALLOWED_SUBS = ${JSON.stringify(JSON.stringify([dev.peerFp]))}`,
+  // Plain value (comma-list form applyDevAllowedSubs accepts), NOT a JSON
+  // array — .dev.vars dotenv parsing mangles escaped quotes inside `"[\"…\"]"`,
+  // which silently breaks the allowedSubs overlay → manifest_deny. Found live.
+  `DEV_ALLOWED_SUBS = ${JSON.stringify(dev.peerFp)}`,
 ];
 const modeVars = AUDIT
   // Audit: force the service to passthrough — no seed, no vaulted key.
