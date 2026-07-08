@@ -83,6 +83,45 @@ and non-repudiable. You cannot prove **why** the model acted; you can prove
 **what config it was running** and **every turn it took**. That is the maximum
 auditable surface for probabilistic config, and it is stated as such.
 
+### Where the load becomes observable vs enforced — a spectrum
+
+A loaded skill is **indistinguishable from the user's prompt** — at the
+`/vault/proxy` model-call boundary cloister sees system-prompt + messages and
+cannot reliably say "this span is a skill." So provenance **cannot** be recovered
+by parsing the prompt; it must be captured at **load time**. Where "load time"
+lives sets how strong the guarantee is:
+
+1. **Cooperative delivery (buildable now — observability).** cloister *serves*
+   the skill — as an **MCP resource** over the lease-gated `/mcp` (MCP has a
+   `resources` primitive, not just tools, so "the MCP loads the skill" is reuse
+   of a channel already lease-gated + receipted), or as a registry pull
+   materialized by a sync step. cloister logs the load because it is the source.
+   The harness *could* still read a local file instead — so this is
+   observability, not enforcement.
+
+2. **Mediated filesystem (host-only middle step).** The skill "has to be read
+   from a file," so put cloister *in the read path*: a virtual/FUSE fs where
+   skill `open()`s resolve through cloister → logged + gated. Precedent exists —
+   **mache is already a FUSE filesystem** (code intelligence projected as
+   files), so cloister-mediated skill files are the same shape. But on a shared
+   host the harness can still `open()` the real fs directly, so this is enforced
+   only if the harness cannot see the real fs.
+
+3. **Kernel-isolated (the real thing — ADR-0009).** Run the harness in a
+   VM/microVM whose *only* filesystem is the cloister-mediated one (virtio-fs
+   backed by cloister). Then **every** read — skills included — goes through
+   cloister's lens *by construction*, and `~/.ssh` simply isn't in the mounted
+   view. This is where **"log when the skill is read" and "deny `~/.ssh`" become
+   the same mechanism**: one kernel-isolated, cloister-mediated fs delivers skill-
+   load provenance AND the credential guarantee at once. ADR-0009 is the
+   longstanding direction; this is the use case that makes it concrete.
+
+**Pragmatic path:** ship (1) now — cooperative delivery + `SkillLoadReceipt` —
+which already removes the *reason* for broad fs access; treat (3) as the
+substrate that upgrades observability to enforcement when ADR-0009 lands. (2) is
+a useful host-only stepping stone (FUSE, mache-shaped), not a guarantee on a
+shared host.
+
 ## Consequences
 
 - The harness's reach **collapses to cloister**: skills, agents, tools, LLM key,
