@@ -32,6 +32,7 @@ import {
   deriveGeneratedBackends,
   deriveStripPrefix,
   parsePackagesOci,
+  resolveOciDigest,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -1146,4 +1147,63 @@ test("buildLockfile: omits oci key when a row has no oci (back-compat)", () => {
     fetched_from: "file:///y", signer: "", bytes: 5, generatedBackends: [], oci: null,
   }]);
   assert.equal("oci" in doc.inputs.llo, false);
+});
+
+// ── resolveOciDigest: tag → immutable digest (ADR-0041 / cloister-091106) ──
+
+function mockRegistryRes({ status = 200, headers = {}, json = null }) {
+  const h = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (k) => h.get(String(k).toLowerCase()) ?? null },
+    json: async () => json,
+  };
+}
+
+test("resolveOciDigest: 401 → anonymous token → retry returns docker-content-digest", async () => {
+  const calls = [];
+  const fetchImpl = async (url, opts = {}) => {
+    calls.push({ url, auth: opts.headers?.Authorization ?? "" });
+    if (url.includes("/manifests/") && !opts.headers?.Authorization) {
+      return mockRegistryRes({
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:agentic-research/mache:pull"',
+        },
+      });
+    }
+    if (url.startsWith("https://ghcr.io/token")) {
+      return mockRegistryRes({ status: 200, json: { token: "anon-abc" } });
+    }
+    return mockRegistryRes({ status: 200, headers: { "docker-content-digest": "sha256:deadbeef" } });
+  };
+  const digest = await resolveOciDigest("ghcr.io/agentic-research/mache", "v0.16.2", fetchImpl);
+  assert.equal(digest, "sha256:deadbeef");
+  // The token request carried service + scope parsed from the challenge.
+  const tokenCall = calls.find((c) => c.url.startsWith("https://ghcr.io/token"));
+  assert.ok(tokenCall.url.includes("service=ghcr.io"));
+  assert.ok(tokenCall.url.includes("scope="));
+  // The retried manifest HEAD carried the bearer token.
+  assert.ok(calls.some((c) => c.url.includes("/manifests/") && c.auth === "Bearer anon-abc"));
+});
+
+test("resolveOciDigest: direct 200 (public, no auth challenge) returns digest", async () => {
+  const fetchImpl = async () =>
+    mockRegistryRes({ status: 200, headers: { "docker-content-digest": "sha256:cafe" } });
+  assert.equal(await resolveOciDigest("ghcr.io/x/y", "v1", fetchImpl), "sha256:cafe");
+});
+
+test("resolveOciDigest: unresolvable (403, private w/o creds) falls back to empty string", async () => {
+  const fetchImpl = async () => mockRegistryRes({ status: 403 });
+  assert.equal(await resolveOciDigest("ghcr.io/private/img", "v1", fetchImpl), "");
+});
+
+test("resolveOciDigest: no registry host or empty ref returns empty string without fetching", async () => {
+  const fetchImpl = async () => {
+    throw new Error("resolveOciDigest should not fetch for a malformed input");
+  };
+  assert.equal(await resolveOciDigest("no-slash-identifier", "v1", fetchImpl), "");
+  assert.equal(await resolveOciDigest("ghcr.io/x/y", "", fetchImpl), "");
 });

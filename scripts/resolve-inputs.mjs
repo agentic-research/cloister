@@ -247,6 +247,27 @@ export async function resolveInput(spec) {
     throw new ResolveError(spec.name, e.message);
   }
 
+  // ADR-0041 / cloister-091106: pin the image by IMMUTABLE DIGEST, not the
+  // mutable tag. When the server.json declares oci by identifier+version (a
+  // tag) with no digest, resolve the tag → digest at resolve time so the lock
+  // pins `identifier@sha256:…` and emit-compose pulls by digest. Best-effort:
+  // on failure (private image w/o creds, offline) fall back to the tag with a
+  // LOUD warning — a mutable-tag pull is a real supply-chain downgrade.
+  if (oci && oci.identifier && oci.version && !oci.digest) {
+    const digest = await resolveOciDigest(oci.identifier, oci.version);
+    if (digest) {
+      oci = { ...oci, digest };
+    } else {
+      process.stderr.write(
+        `resolve-inputs: WARNING — ${spec.name}: could not resolve an OCI digest for ` +
+        `${oci.identifier}:${oci.version} (private image without registry creds, or ` +
+        `registry unreachable). Pinning by MUTABLE TAG — an upstream re-push can flow ` +
+        `through. Make the image public or provide registry auth to pin by digest ` +
+        `(ADR-0041 / cloister-091106).\n`,
+      );
+    }
+  }
+
   return {
     name:              spec.name,
     ref:               spec.ref,
@@ -544,6 +565,68 @@ export function parsePackagesOci(bytes) {
   const version = typeof oci.version === "string" ? oci.version.trim() : "";
   const digest = typeof oci.digest === "string" ? oci.digest.trim() : "";
   return { identifier, version, digest };
+}
+
+/**
+ * Resolve an OCI image reference (tagless `identifier` + `ref` tag) to its
+ * immutable digest via a Docker registry v2 manifest HEAD (ADR-0041 /
+ * cloister-091106). This is the "pin by digest, not tag" security step: the
+ * mutable tag is resolved to an immutable `sha256:` at RESOLVE time (TOFU), and
+ * consumers pull BY DIGEST — so an upstream re-push after resolve can't flow
+ * through until a deliberate re-resolve surfaces the changed digest as a diff.
+ *
+ * Standard registry auth: HEAD the manifest; on 401, parse the
+ * `WWW-Authenticate: Bearer` challenge, fetch an (anonymous, for public repos)
+ * token, retry. Returns the `docker-content-digest` header, or "" on ANY
+ * failure (private image without creds, network, non-v2 registry). Best-effort
+ * by design — a resolve must not hard-fail because a registry is unreachable;
+ * the caller warns loudly + falls back to the tag. `fetchImpl` is injectable
+ * for tests.
+ */
+export async function resolveOciDigest(identifier, ref, fetchImpl = fetch) {
+  try {
+    const slash = identifier.indexOf("/");
+    if (slash < 0 || !ref) return "";
+    const host = identifier.slice(0, slash);
+    const repo = identifier.slice(slash + 1);
+    const manifestUrl = `https://${host}/v2/${repo}/manifests/${encodeURIComponent(ref)}`;
+    const accept = [
+      "application/vnd.oci.image.index.v1+json",
+      "application/vnd.docker.distribution.manifest.list.v2+json",
+      "application/vnd.oci.image.manifest.v1+json",
+      "application/vnd.docker.distribution.manifest.v2+json",
+    ].join(", ");
+
+    let res = await fetchImpl(manifestUrl, { method: "HEAD", headers: { Accept: accept } });
+    if (res.status === 401) {
+      const challenge = res.headers.get("www-authenticate") || "";
+      const m = /Bearer\s+(.+)/i.exec(challenge);
+      if (!m) return "";
+      const params = Object.fromEntries(
+        m[1].split(",").map((kv) => {
+          const eq = kv.indexOf("=");
+          return [kv.slice(0, eq).trim(), kv.slice(eq + 1).trim().replace(/^"|"$/g, "")];
+        }),
+      );
+      if (!params.realm) return "";
+      const tokenUrl = new URL(params.realm);
+      if (params.service) tokenUrl.searchParams.set("service", params.service);
+      if (params.scope) tokenUrl.searchParams.set("scope", params.scope);
+      const tok = await fetchImpl(tokenUrl.toString())
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const bearer = tok && (tok.token || tok.access_token);
+      if (!bearer) return "";
+      res = await fetchImpl(manifestUrl, {
+        method: "HEAD",
+        headers: { Accept: accept, Authorization: `Bearer ${bearer}` },
+      });
+    }
+    if (!res.ok) return "";
+    return res.headers.get("docker-content-digest") || "";
+  } catch {
+    return "";
+  }
 }
 
 /**

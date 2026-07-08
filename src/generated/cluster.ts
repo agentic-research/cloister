@@ -70,7 +70,7 @@ export const cluster: Cluster = {
       "perTenant": false,
       "kind": {
         "external": {
-          "image": "mache:0.14.0",
+          "image": "",
           "ipcSocket": "",
           "httpPort": 7532,
           "args": [
@@ -154,8 +154,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "mache",
-      "ref": "github://agentic-research/mache/server.json@v0.14.0",
-      "version": "0.14.0",
+      "ref": "github://agentic-research/mache/server.json@v0.16.2",
+      "version": "0.16.2",
       "digest": "",
       "from": "",
       "provides": [],
