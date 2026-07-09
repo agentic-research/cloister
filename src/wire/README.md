@@ -3,7 +3,7 @@
 The cloister-side encoder/decoder for the inter-bundle wire formats
 declared in [`wire/cloister.capnp`](../../wire/cloister.capnp) (the
 schema at the repo root) plus a thin wrapper over the in-tree
-[`leyline-sign`](../../rs/crates/sign/) wasm32 build used by the lease
+`leyline-sign` (LLO, `rs/ll-open/sign/`) wasm32 build used by the lease
 middleware to verify CMS/PKCS#7 certificate chains.
 
 The wire formats here are **security-critical**:
@@ -14,7 +14,7 @@ Manifest envelope shape, and
 [`docs/security/threat-model.md`](../../docs/security/threat-model.md)
 §6 catalogues the lease-pipeline assumptions that depend on this code
 being byte-equal to the reference encoders in
-[`rs/crates/sign/`](../../rs/crates/sign/) and the Go bindings in
+LLO's `rs/ll-open/sign/` and the Go bindings in
 [`clients/go/cloister-schema/`](../../clients/go/cloister-schema/).
 
 ## Files
@@ -40,7 +40,7 @@ flowchart TB
     end
     BE["LeylineNet / UdsForward<br/>backends"]
     LM["lease-middleware.ts<br/>(cert chain verify)"]
-    WASM[("rs/crates/sign/<br/>(wasm32 build)")]
+    WASM[("LLO leyline-sign<br/>(wasm32 build)")]
 
     man --> codec
     tc --> codec
@@ -65,7 +65,7 @@ flowchart TB
   CMS/PKCS#7 primitives, and we already need byte-equal cert handling
   with `signet`/`notme`. Compiling the same Rust crate to wasm32 keeps
   cloister and signet's verifier on identical bytes. Phase 2 of
-  `cloister-bd5241`. See [`rs/crates/sign/README.md`](../../rs/crates/sign/README.md).
+  `cloister-bd5241`. See LLO's `rs/ll-open/sign/README.md`.
 
 ## Cross-substrate checks
 

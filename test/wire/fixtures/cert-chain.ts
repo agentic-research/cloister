@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// AUTO-GENERATED — do not edit. Regenerate with `task rs:sign:fixtures`.
-// Source: rs/crates/sign/examples/gen-fixture.rs
+// AUTO-GENERATED — do not edit.
+// Source: LLO — `rs/ll-open/sign/examples/gen-fixture.rs` (when LLO
+// ports the fixture generator over from cloister). Historically:
+// cloister's `rs/crates/sign/examples/gen-fixture.rs`, retired 2026-07-09
+// (cloister-8f4d3f) as part of the LLO consolidation. The committed
+// bytes here are the golden vector; both sides (LLO's own byte-equality
+// test on the leyline-sign crate + cloister's TS-side
+// signet-verify.test.ts) gate on them.
 //
 // Test fixtures for cloister-bd5241 / cloister-9d49eb cert-chain
 // verify wrapper. Generated from a fixed RNG seed so the bytes are

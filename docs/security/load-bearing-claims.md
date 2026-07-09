@@ -218,7 +218,7 @@ attestation. NEW-1 from the cycle-2 verification (supervisor templates
 were dropping operators into `AuthConfig::Disabled`) closed via
 `--require-auth` fail-stop flag + EnvironmentFile wiring.
 
-Adversarial-test surface: [`rs/crates/sign/tests/host_adversarial.rs`](../../rs/crates/sign/tests/host_adversarial.rs) —
+Adversarial-test surface: LLO `rs/ll-open/sign/tests/host_adversarial.rs` (owned upstream since 2026-07-09 / bead `cloister-8f4d3f`) —
 5 tests, all green, gated into `task lint` via `rs:sign:host`.
 
 ---

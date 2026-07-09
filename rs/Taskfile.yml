@@ -22,47 +22,36 @@ tasks:
       - task: audit
 
   sign:
-    desc: "Test the Rust leyline-sign crate (native build)"
+    desc: "Build-check LLO's leyline-sign crate (native, default features). Crate pulled via the git dep pinned in rs/crates/cas/Cargo.toml (bead cloister-8f4d3f). LLO owns the unit tests upstream; cloister's boundary check is that the crate compiles cleanly in cloister's dep-resolution graph plus the TS-side integration test in test/wire/signet-verify.test.ts."
     cmds:
-      - cargo test -p leyline-sign
+      - cargo build -p leyline-sign
 
   sign:wasm:
-    desc: "Build leyline-sign for wasm32 (cloister-bd5241). Requires `rustup target add wasm32-unknown-unknown` once."
+    desc: "Build LLO's leyline-sign crate for wasm32 (cloister-bd5241 → -8f4d3f). Requires `rustup target add wasm32-unknown-unknown` once. Crate source lives in LLO (`rs/ll-open/sign/`); pinned by SHA in rs/crates/cas/Cargo.toml."
     cmds:
       - cargo build --release --target wasm32-unknown-unknown -p leyline-sign
       - 'echo "wasm artifact: $(pwd)/target/wasm32-unknown-unknown/release/leyline_sign.wasm ($(wc -c < target/wasm32-unknown-unknown/release/leyline_sign.wasm) bytes)"'
     sources:
-      - crates/sign/src/**/*.rs
-      - crates/sign/Cargo.toml
+      - crates/cas/Cargo.toml
+      - Cargo.lock
     generates:
       - target/wasm32-unknown-unknown/release/leyline_sign.wasm
 
   sign:host:
-    desc: "Test the leyline-sign crate with the host feature enabled (cloister-99165e). Includes the sign-only helper integration tests."
+    desc: "Build-check LLO's leyline-sign crate with the host feature (cloister-99165e). The host feature is enabled via the target-cfg dep row in rs/crates/cas/Cargo.toml (cargo forbids `--features feat -p external-pkg`). LLO owns the host-side unit + adversarial test suites upstream (rs/ll-open/sign/tests/); cloister's job here is verifying the crate compiles with the host closure the ADR-0019 helper needs."
     cmds:
-      - cargo test -p leyline-sign --features host
+      - cargo build -p leyline-sign
 
   sign:host-extras:
-    desc: "Test the leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises opt-in host integrations and the nono closure flagged in threat-model §17.1."
+    desc: "Build-check LLO's leyline-sign crate with host + host-extras (cloister-2a0faa). Exercises the opt-in nono closure flagged in threat-model §17.1. host-extras is enabled inline here — passed via the workspace member (cloister-cas) so cargo accepts it for the git dep, using cargo's transitive-feature syntax `<dep>/<feat>`."
     cmds:
-      - cargo test -p leyline-sign --features 'host host-extras'
+      - cargo build --features 'leyline-sign/host-extras'
 
   sign:helper:
-    desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target, host feature enabled."
+    desc: "Build the leyline-sign-helper binary (cloister-99165e). Native target; host feature enabled by cas's target-cfg dep row. Crate source lives in LLO."
     cmds:
-      - cargo build --release --features host --bin leyline-sign-helper
+      - cargo build --release --bin leyline-sign-helper -p leyline-sign
       - 'echo "binary: $(pwd)/target/release/leyline-sign-helper ($(wc -c < target/release/leyline-sign-helper) bytes)"'
-
-  sign:fixtures:
-    desc: "Mint cert-chain test fixtures (cloister-9d49eb). Generates test/wire/fixtures/cert-chain.ts from a fixed RNG seed for stable test output."
-    cmds:
-      - cargo run --example gen-fixture > ../test/wire/fixtures/cert-chain.ts
-      - 'echo "fixture wrote: $(wc -l < ../test/wire/fixtures/cert-chain.ts) lines"'
-    sources:
-      - crates/sign/examples/gen-fixture.rs
-      - crates/sign/src/cert_chain.rs
-    generates:
-      - ../test/wire/fixtures/cert-chain.ts
 
   cas:wasm:
     desc: "Build cloister-cas (LLO leyline-cas-ffi bridge) for wasm32 (cloister-713b4e). Requires `rustup target add wasm32-unknown-unknown` once."

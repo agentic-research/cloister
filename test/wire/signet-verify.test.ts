@@ -161,10 +161,12 @@ describe("signet-verify wasm wrapper", () => {
 
 // ── verifyCertChain (cloister-bd7770 / 9d49eb) ───────────────────────────
 //
-// Fixtures in test/wire/fixtures/cert-chain.ts are minted by
-// rs/crates/sign/examples/gen-fixture.rs from a fixed RNG seed, so the
-// same byte sequences are reproducible across runs. Regenerate with
-// `task rs:sign:fixtures` if cert_chain.rs's mint helpers change.
+// Fixtures in test/wire/fixtures/cert-chain.ts were minted by the
+// `gen-fixture` example from a fixed RNG seed, so the same byte
+// sequences are reproducible across runs. The generator (and its
+// mint helpers) moved to LLO with the leyline-sign consolidation
+// (cloister-8f4d3f); regen path is now upstream once LLO ports the
+// example.
 //
 // What these tests cover:
 //   1. Happy path: full cert (all Interlace OIDs) round-trips claims

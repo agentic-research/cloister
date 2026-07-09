@@ -104,7 +104,7 @@ export interface Env {
   KEK_DISK?: Fetcher;
   /// HTTP service binding for `keychain://` and `http(s)://` KEK
   /// sources. Points at the leyline-sign-helper Rust binary
-  /// (rs/crates/sign/, ADR-0019) which translates these URLs to
+  /// (LLO's `rs/ll-open/sign/`, ADR-0019) which translates these URLs to
   /// OS-keystore calls. Optional — only consulted when
   /// VAULT_KEK_SOURCE uses one of those schemes. See ADR-0014.
   KEK_HELPER?: Fetcher;
