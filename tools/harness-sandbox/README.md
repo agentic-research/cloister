@@ -1,4 +1,4 @@
-# harness-sandbox — kernel-level harness confinement (macOS Seatbelt)
+# harness-sandbox — kernel-level harness confinement via nono
 
 This is the **pluggable sandbox behind cloister's UDS/HTTP seam**
 (cloister-24717d, ADR-0040/0024 credential-isolation plane). The agent
@@ -8,77 +8,79 @@ and unix sockets. That confinement **is** the isolation: v8's isolate
 boundary protects cloister's inside; this protects the host from the
 harness.
 
-- **Today: `sandbox-exec` (Seatbelt).** Native macOS, kernel-enforced via
-  TrustedBSD MAC, no VM, ships on every Mac. `harness.sb` is a
-  **deny-default** profile — everything is forbidden unless listed.
+- **Today: the [nono](https://nono.sh) CLI.** Constellation-native (LLO's
+  `ll-open/sign` already depends on the `nono` crate), capability-based,
+  kernel-enforced — Seatbelt on macOS, Landlock on Linux, one flag
+  surface for both. No VM.
 - **Later: libkrun (ADR-0044).** The stronger swap-in — a hardware-backed
   microVM behind the *same* seam. Nothing about the shim, the vault
   proxy, or the transport changes when the provider swaps; only the
   confinement mechanism does.
 
-## What the profile enforces
+## What the confinement enforces
 
 | Surface | Policy |
 |---|---|
-| File reads/writes | **`WORKDIR` only.** `~/.ssh`, `~/.aws`, and everything else outside the four parameterized paths are denied *by default*, not by enumeration. |
-| Harness runtime | `HARNESS_RUNTIME` read-only (the binary can't modify its own code). |
-| Harness state | `HARNESS_STATE` dir + `HARNESS_STATE_FILE` rw (its own config/session state — e.g. `~/.claude` + `~/.claude.json`). |
-| Network | localhost TCP + unix sockets **only**. External connects fail with `EPERM` before a packet leaves. The Anthropic API is reachable solely through cloister's vault proxy, which holds the credentials (custody) or receipts the harness's own auth (audit). |
-| System | dyld shared cache, `/System`, toolchain trees, timezone db, per-user darwin temp — code and OS plumbing, never user data. |
-
-Denials are kernel `EPERM` ("Operation not permitted"), not `ENOENT` —
-the confined process can see that a path exists (metadata stays broad so
-path resolution works) but cannot read its content.
+| `$HOME` | **Denied by default** — `~/.ssh`, `~/.aws`, dotfiles, everything. Kernel `EPERM`, not convention. |
+| Workdir | `-a <workdir>` — the rw workspace (recursive). |
+| Harness state | `-a ~/.claude` + `--allow-file ~/.claude.json` — its own config/session state and (audit mode) its OWN credentials. |
+| Network | `--block-net` + `--open-port <shim port>` — external connects fail `EPERM` before a packet leaves; the only TCP is localhost to the shim. `--allow-unix-socket <path>` for UDS seams. |
+| System | nono default-allows system/toolchain paths + `/tmp` so binaries load. Don't stage secrets in `/tmp` — `$HOME` is the protected surface. |
 
 ## Usage
 
 Wired into the ADR-0042 turnkey run:
 
 ```sh
-SANDBOX=sandbox-exec task harness:dev
+SANDBOX=nono task harness:dev
 ```
 
 launches cloister (:8787) + the lease shim (:8799), then the harness
-(`HARNESS_CMD`, default `claude`) under `sandbox-exec` with
-`ANTHROPIC_BASE_URL` pointed at the shim. `SANDBOX` unset keeps the
+(`HARNESS_CMD`, default `claude`) under `nono run` with
+`ANTHROPIC_BASE_URL` pointed at the shim and `ANTHROPIC_API_KEY`/
+`AUTH_TOKEN` stripped from the confined env. `SANDBOX` unset keeps the
 existing print-the-export-line behavior. `HARNESS_WORKDIR` overrides the
 workdir (default: cwd).
 
-Standalone:
+Standalone shape:
 
 ```sh
-sandbox-exec \
-  -D WORKDIR=/abs/workdir \
-  -D HARNESS_RUNTIME=/abs/runtime-tree \
-  -D HARNESS_STATE=$HOME/.claude \
-  -D HARNESS_STATE_FILE=$HOME/.claude.json \
-  -f tools/harness-sandbox/harness.sb \
-  <command>…
+nono run -a <workdir> --allow-cwd \
+  -a ~/.claude --allow-file ~/.claude.json \
+  --block-net --open-port <cloister-port> \
+  [--allow-unix-socket <sock> | --allow-unix-socket-dir-bind <sockdir>] \
+  -- <harness cmd>
 ```
 
-All four `-D` params are required (an undefined `(param …)` reference
-aborts profile compile). Subprocesses inherit the sandbox — confinement
-is transitive.
+## Deliberate non-overlap: nono's credential proxy is NOT used
+
+nono ships its own credential-injection reverse proxy (`--credential`,
+`--proxy-port`) plus rollback + audit. Cloister already IS the
+credential plane here — `/vault/proxy` holds custody (or receipts the
+harness's own auth in audit mode). **Do not double-proxy.** nono is used
+strictly for filesystem + process confinement. Whether cloister should
+some day *delegate* credential injection to nono's proxy (or keep its
+own) is an open design question — a future ADR, not this wiring.
 
 ## Tests
 
-`test/seatbelt-isolation.test.mjs` (node:test, darwin-guarded, part of
-`task lint` via `test:lint-scripts`) proves each row of the table above
-against a real `node` binary, a decoy secret that provably exists, and
+`test/nono-isolation.test.mjs` (node:test, part of `task lint` via
+`test:lint-scripts`; skips when the nono CLI isn't installed, otherwise
+runs on darwin AND linux) proves each row of the table above against a
+real `node` binary, a `$HOME` decoy secret that provably exists, and
 live localhost/UDS listeners. A denial only counts when it's a nonzero
-exit **plus** the sandbox `EPERM` message — empty output is never
-accepted as evidence, and `ENOENT` fails the test (the target must
-exist for the denial to mean anything).
+exit **plus** the kernel `EPERM`/`EACCES` message — empty output is
+never accepted as evidence, and `ENOENT` fails the test (the target must
+exist for the denial to mean anything). The decoy deliberately does NOT
+live under `os.tmpdir()`: nono default-allows the temp dirs, so a decoy
+there would prove nothing.
 
-## Known limits (deliberate)
+## History: the hand-rolled Seatbelt profile
 
-- `sandbox-exec` is deprecated-but-ubiquitous Apple CLI; the underlying
-  Seatbelt/`sandbox_init` machinery is what every macOS app sandbox uses.
-  When Apple moves it, the libkrun provider (ADR-0044) is the successor.
-- The per-user darwin temp (`/var/folders/…/T`) is allowed rw — runtimes
-  hard-require `os.tmpdir()`. Don't stage secrets there.
-- Metadata (stat/readlink) is broad: a confined harness can learn that
-  paths exist. Contents are what's protected.
-- The confined harness reads rc files it can't access (e.g. `~/.zshrc`
-  for shell snapshots) as EPERM; features degrade to workdir-only scope.
-  That's the contract working, not a bug.
+The first iteration of this directory was a hand-written deny-default
+`sandbox-exec` profile, proven working against real Claude Code
+(macOS-only). It was retired in favor of nono — same Seatbelt mechanism
+under the hood, but nono owns the low-level allowances (dyld cache,
+`file-map-executable`, mach-lookup, the `/private/var/db/timezone` chain
+that SIGTRAPs bun binaries…) and adds Linux. If you ever need the raw
+profile + its test, they live at commit `12f4442`.

@@ -19,7 +19,7 @@
 // launching (used by the setup test).
 
 import { execFileSync, spawn } from "node:child_process";
-import { writeFileSync, rmSync, realpathSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,20 +28,27 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SETUP_ONLY = process.argv.includes("--setup-only");
 const SHIM_PORT = process.env.HARNESS_SHIM_PORT ?? "8799";
 
-// Pluggable sandbox provider (cloister-24717d). SANDBOX=sandbox-exec runs
-// the harness kernel-confined under the deny-default Seatbelt profile
-// (tools/harness-sandbox/harness.sb): only the workdir is readable/
-// writable, only localhost + unix sockets are reachable — which is
-// exactly the vault-proxy seam. Unset = current behavior (print the
-// export line; the operator launches the harness themselves).
+// Pluggable sandbox provider (cloister-24717d). SANDBOX=nono runs the
+// harness kernel-confined via the nono CLI (Seatbelt on macOS, Landlock
+// on Linux): workdir + harness state rw, localhost TCP to the shim port
+// only, external network blocked — exactly the vault-proxy seam. nono is
+// used for FILESYSTEM + PROCESS confinement only; the credential path
+// stays cloister's /vault/proxy (nono ships its own credential proxy —
+// do NOT double-proxy; see tools/harness-sandbox/README.md). Unset =
+// current behavior (print the export line; the operator launches the
+// harness themselves).
 const SANDBOX = process.env.SANDBOX ?? "";
-if (SANDBOX && SANDBOX !== "sandbox-exec") {
-  console.error(`harness:dev — unknown SANDBOX provider ${JSON.stringify(SANDBOX)} (supported: sandbox-exec).`);
+if (SANDBOX && SANDBOX !== "nono") {
+  console.error(`harness:dev — unknown SANDBOX provider ${JSON.stringify(SANDBOX)} (supported: nono).`);
   process.exit(2);
 }
-if (SANDBOX === "sandbox-exec" && process.platform !== "darwin") {
-  console.error("harness:dev — SANDBOX=sandbox-exec is macOS-only (Seatbelt).");
-  process.exit(2);
+if (SANDBOX === "nono") {
+  try {
+    execFileSync("/usr/bin/which", ["nono"], { encoding: "utf8" });
+  } catch {
+    console.error("harness:dev — SANDBOX=nono needs the nono CLI on PATH (https://nono.sh — brew/cargo install nono).");
+    process.exit(2);
+  }
 }
 const CLOISTER_BASE = "http://127.0.0.1:8787";
 const SERVICE = "anthropic";
@@ -119,32 +126,41 @@ const shim = spawn(process.execPath, ["--import", "tsx", "tools/harness-shim/ind
 const BASE_URL = `http://127.0.0.1:${SHIM_PORT}/vault/proxy/anthropic`;
 const bar = "─".repeat(64);
 let harness = null;
-if (SANDBOX === "sandbox-exec") {
-  // Launch the harness itself, kernel-confined. The confinement IS the
-  // isolation: workdir-only file access, localhost-only network — the
-  // harness can still reach the shim/vault-proxy (127.0.0.1) but cannot
-  // read ~/.ssh, ~/.aws, or anything else outside its workdir.
+if (SANDBOX === "nono") {
+  // Launch the harness itself, kernel-confined (Seatbelt on macOS,
+  // Landlock on Linux). The confinement IS the isolation: workdir +
+  // harness state are the only rw surfaces, external network is blocked,
+  // and the shim port is the only localhost TCP the harness may use —
+  // it can reach the vault proxy but not ~/.ssh, ~/.aws, or the wider
+  // internet. nono default-allows system/toolchain paths so binaries
+  // load, and default-denies $HOME.
   const cmd = process.env.HARNESS_CMD ?? "claude";
   const workdir = resolve(process.env.HARNESS_WORKDIR ?? process.cwd());
-  const bin = realpathSync(
-    execFileSync("/usr/bin/which", [cmd], { encoding: "utf8" }).trim(),
-  );
   const stateDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const env = { ...process.env, ANTHROPIC_BASE_URL: BASE_URL };
   // Neither credential form ever enters the confined env: custody vaults
   // the key; audit forwards the harness's own OAuth from its state dir.
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
-  console.error(`\n${bar}\nharness:dev — SANDBOX=sandbox-exec: launching ${cmd} kernel-confined (Seatbelt deny-default).`);
-  console.error(`  workdir (only rw surface): ${workdir}`);
-  console.error(`  network: localhost + unix sockets only → ${BASE_URL}\n${bar}\n`);
-  harness = spawn("sandbox-exec", [
-    "-D", `WORKDIR=${workdir}`,
-    "-D", `HARNESS_RUNTIME=${dirname(bin)}`,
-    "-D", `HARNESS_STATE=${stateDir}`,
-    "-D", `HARNESS_STATE_FILE=${join(homedir(), ".claude.json")}`,
-    "-f", resolve(ROOT, "tools/harness-sandbox/harness.sb"),
-    bin,
+  console.error(`\n${bar}\nharness:dev — SANDBOX=nono: launching ${cmd} kernel-confined (nono run).`);
+  console.error(`  workdir (rw): ${workdir}`);
+  console.error(`  harness state (rw): ${stateDir}`);
+  console.error(`  network: --block-net, localhost :${SHIM_PORT} only → ${BASE_URL}\n${bar}\n`);
+  harness = spawn("nono", [
+    "run",
+    "-a", workdir,
+    "--allow-cwd",
+    // The harness's own state (config, sessions, its OWN OAuth creds in
+    // audit mode) — NOT ~/.ssh / ~/.aws, which stay denied by default.
+    "-a", stateDir,
+    "--allow-file", join(homedir(), ".claude.json"),
+    // Localhost-only seam: block outbound, open exactly the shim port.
+    // Credential injection is cloister's /vault/proxy job — nono's own
+    // --credential proxy is deliberately NOT used here.
+    "--block-net",
+    "--open-port", SHIM_PORT,
+    "--",
+    cmd,
   ], { cwd: workdir, stdio: "inherit", env });
 } else {
   console.error(`\n${bar}\nharness:dev — ready. In your harness shell:\n`);
@@ -157,7 +173,7 @@ if (SANDBOX === "sandbox-exec") {
     console.error(`  # no ANTHROPIC_API_KEY on the harness — the key is vaulted in cloister.`);
   }
   console.error(`  claude`);
-  console.error(`  # (or: SANDBOX=sandbox-exec task harness:dev to launch it kernel-confined)`);
+  console.error(`  # (or: SANDBOX=nono task harness:dev to launch it kernel-confined)`);
   console.error(`${bar}\n`);
 }
 
