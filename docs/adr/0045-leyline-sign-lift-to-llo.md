@@ -1,11 +1,46 @@
-# ADR-0045 — leyline-sign lift to LLO: the signing-substrate consolidation contract
+# ADR-0045 — leyline-sign: consume the shared LLO artifact + retire the cloister fork
 
-- **Status:** Proposed (2026-07-09)
-- **Tracking bead:** `cloister-c4aa20` · ADR-0035 follow-on
+- **Status:** **Amended 2026-07-09 — original premise corrected (see Amendment).**
+  Was "Proposed" (drafted 2026-07-08).
+- **Tracking bead:** `cloister-8e6d5d` (consume LLO wasm + delete the fork) →
+  depends on `ley-line-open-a2099a`. (Original `cloister-c4aa20` closed — see below.)
 - **Pairs with:**
-  - ADR-0035 (cloister↔LLO boundary — "`leyline-*` live in LLO, bridge crates in cloister"; this realizes it for signing)
-  - ADR-0019 (sign-only trust-anchor-helper protocol — the `host` layer that stays cloister-side)
+  - ADR-0035 (cloister↔LLO boundary — "`leyline-*` live in LLO, bridge crates in cloister")
+  - ADR-0019 (sign-only trust-anchor-helper protocol)
   - ADR-0007 (Interlace lease/attestation — the wasm cert-chain verify *is* the lease gate)
+
+## Amendment (2026-07-09) — the premise below was based on stale info
+
+This ADR was drafted 2026-07-08 asserting a **lift of `leyline-sign` *from*
+cloister *into* LLO**. That premise is **wrong**. Confirmed by the LLO agent + the
+git log + lectio:
+
+- **`leyline-sign` — including its `host` feature — was already canonical in LLO**
+  at `ley-line-open/rs/ll-open/sign/`, **shipped in LLO v0.5.2 on 2026-06-25**
+  (PRs #115 `cert_chain` + `lsign_alloc/free`, #116 `signingTime` omission). LLO
+  is now at 0.5.8. Nothing needed lifting.
+- **cloister's `rs/crates/sign` is a stale *fork*** — deletable. **LLO PR #160**
+  consolidates it away.
+- The draft was written without querying **lectio** (which surfaced the shipped
+  state in one search) or re-reading **ADR-0035** — it mistook the local fork for
+  the source of truth.
+
+**Corrected decision.** cloister **consumes** LLO's canonical `leyline-sign` and
+**deletes its fork**: `src/wire/signet-verify.ts` imports the LLO-published
+`leyline-sign` wasm artifact (the in-isolate CMS/cert-chain verify — prerequisite
+**`ley-line-open-a2099a`**, the LLO-native wasm32-emit → `notme/wasm/` work), and
+`rs/crates/sign` is removed (git-dep LLO's crate for any native helper use). There
+is **no lift, no cloister-side bridge crate, no two-phase producer→consumer** — the
+artifact already exists; cloister just consumes it. Tracked by `cloister-8e6d5d`.
+
+The **I1–I4 invariants** below remain valid — they govern LLO's crate + cloister's
+consumption (byte-equality, wasm32, the `ed25519-dalek ~2.1` pin, no host closure
+in the verify path). The **CAS wasm** (`leyline-cas-ffi` hash) is a separate,
+genuinely-additive scope, not part of this. The beads the draft spawned
+(`cloister-c4aa20`, `ley-line-open-395b7f`, `-8da7bc`) are closed as stale-premise;
+`ley-line-c764c6`/`e25413` are LLO-side zombies (dead ley-line paths), owned by the
+LL agent's reconciliation. Read the sections below as *historical context for the
+invariants*, not the plan.
 
 ## Context
 
