@@ -45,7 +45,7 @@ export interface BlobStore {
    *
    * Override (`key` provided): store under the caller-provided key. Used by
    * the OCI registry route to honor the BLAKE3-in-`sha256:` convention from
-   * `cloister-spec/build-cache/v1` — the route has already verified the body
+   * `leyline-schema-spec/build-cache/v1` — the route has already verified the body
    * matches the key under either SHA-256 or BLAKE3 via
    * `verifyClaimedDigest()`, so the substrate's content-addressed invariant
    * holds under the union "key is SHA-256 OR BLAKE3 of the bytes." Callers

@@ -12,7 +12,7 @@
 //
 // Phase 3 layer (cloister-cb7263): when the resolved bytes are an MCP
 // `server.json` carrying a `_meta.art.cloister/v1.groups[]` block (per
-// `cloister-spec/mcp-tool/v1/`), the resolver derives ONE backend
+// `leyline-schema-spec/mcp-tool/v1 (LLO rs/ll-core/schema-spec/mcp-tool/v1)/`), the resolver derives ONE backend
 // declaration per group and records them in a `[generated_backends]`
 // section in the lockfile. Operators commit that, the downstream
 // manifest emitter consumes it. When the bytes carry no `_meta` block
@@ -388,8 +388,8 @@ export function rewriteIoGithubOrgSugar(ref) {
 
 // ── `_meta.art.cloister/v1` parsing (cloister-cb7263, P3 of LLO arc) ────
 //
-// Spec: cloister-spec/mcp-tool/v1/README.md + wire/meta-groups.md.
-// Canonical fixture: cloister-spec/mcp-tool/v1/vectors/example-multi-group.json.
+// Spec: leyline-schema-spec/mcp-tool/v1 (LLO rs/ll-core/schema-spec/mcp-tool/v1)/README.md + wire/meta-groups.md.
+// Canonical fixture: leyline-schema-spec/mcp-tool/v1 (LLO rs/ll-core/schema-spec/mcp-tool/v1)/vectors/example-multi-group.json.
 //
 // The resolver consumes the `_meta.art.cloister/v1.groups[]` block out
 // of an MCP `server.json` document. Each group becomes one backend
@@ -419,7 +419,7 @@ export function rewriteIoGithubOrgSugar(ref) {
  * Throws on a malformed _meta block (missing required field, empty
  * upstreamNames, duplicate group name, etc.) — the server author
  * opted in, they need to opt in correctly. Per
- * `cloister-spec/mcp-tool/v1/wire/meta-groups.md` §"Constraint matrix".
+ * `leyline-schema-spec/mcp-tool/v1 (LLO rs/ll-core/schema-spec/mcp-tool/v1)/wire/meta-groups.md` §"Constraint matrix".
  *
  * Exported for unit tests.
  */

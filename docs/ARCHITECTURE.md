@@ -430,7 +430,7 @@ and must never yield mid-digest.
 **The build-cache/v1 wire overloads the OCI `sha256:` prefix with
 BLAKE3 hex** — `sha256:<blake3-hex>`, not `sha256:<sha256-hex>`. This
 is a deliberate v1 convention documented in
-`cloister-spec/build-cache/v1/wire/digest-encoding.md`. `BlobStore.put`
+`leyline-schema-spec/build-cache/v1/wire/digest-encoding.md`. `BlobStore.put`
 dual-verifies caller-provided keys against both algorithms
 (`src/storage/workerd.ts`) so OCI-native and build-cache clients both
 work.

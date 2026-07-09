@@ -176,7 +176,7 @@ sufficient.
   build-cache/v1, arena roots. The build-cache/v1 wire overloads the
   OCI `sha256:` prefix with BLAKE3 hex — `BlobStore.put` dual-verifies
   against both algorithms. See
-  `cloister-spec/build-cache/v1/wire/digest-encoding.md` for the full
+  `leyline-schema-spec/build-cache/v1/wire/digest-encoding.md` for the full
   encoding rule.
 
 ## In-flight substrate work (ADRs 0007–0036)

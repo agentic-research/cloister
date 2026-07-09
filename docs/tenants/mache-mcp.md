@@ -84,7 +84,7 @@ error naming the group) rather than silently mis-stripped.
 
 `_meta.art.cloister/v1`'s `name` field is only guaranteed unique
 *within one server.json's `groups[]`* (per
-`cloister-spec/mcp-tool/v1/wire/meta-groups.md`), not across inputs.
+`leyline-schema-spec/mcp-tool/v1/wire/meta-groups.md`), not across inputs.
 mache and llo both happen to name a group `lsp` and a group
 `lifecycle`. `scripts/build-manifest.mjs`'s `overlayLockfileBackends`
 detects this and qualifies the **second-processed** row as
@@ -145,7 +145,7 @@ Service-binding-as-syscall is what keeps that safe).
 - [ADR-0013](../adr/0013-slice-grant-enforcement.md) — the `external` Service binding **IS** the syscall enforcement boundary
 - [ADR-0015](../adr/0015-mcp-spec-alignment.md) — Phase 1 rename `httpForward` → `mcpProxy`; mache is the canonical example
 - [ADR-0026](../adr/0026-tool-composition-model.md) — the resolver pipeline this doc now describes
-- `cloister-spec/mcp-tool/v1/wire/meta-groups.md` — the `_meta.art.cloister/v1.groups[]` wire spec
+- `leyline-schema-spec/mcp-tool/v1/wire/meta-groups.md` — the `_meta.art.cloister/v1.groups[]` wire spec
 - Tracking bead `cloister-2d987e` — mache resolver migration (this doc's rewrite + the stripPrefix gap)
 - Tracking bead `cloister-827d62` — dynamicTools wiring (superseded by the resolver path for mache)
 - Tracking bead `cloister-b65a20` — Service-binding migration

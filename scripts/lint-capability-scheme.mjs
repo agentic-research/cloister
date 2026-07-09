@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/lint-capability-scheme.mjs
 //
-// Capability-scheme lane lint per ADR-0028 §6 + cloister-spec/_capability-mapping.md §6.
+// Capability-scheme lane lint per ADR-0028 §6 + leyline-schema-spec/_capability-mapping.md (LLO rs/ll-core/schema-spec/_capability-mapping.md) §6.
 // Companion to lint-bundle-isolation.mjs (substrate-property class).
 //
 // What this lint enforces
@@ -197,7 +197,7 @@ async function runLint() {
       );
     }
     console.error("");
-    console.error("Lane discipline per ADR-0028 + cloister-spec/_capability-mapping.md:");
+    console.error("Lane discipline per ADR-0028 + leyline-schema-spec/_capability-mapping.md (LLO rs/ll-core/schema-spec/_capability-mapping.md):");
     console.error("  Lane 1 (signet URN)      → cert payload only");
     console.error("  Lane 2 (WIMSE URI)       → cert subject / workload identity only");
     console.error("  Lane 3 (cloister/<name>/v<n>) → provides/requires only");

@@ -1685,7 +1685,7 @@ shapes internally for direct callers; the route boundary rewraps.
 
 **Conformance test:** `test/routes/vault-proxy.test.ts`
 § "errorResponse — required headers" (7 tests) + § "collapseWireShape"
-(10 tests). `cloister-spec/credential-isolation/v1/wire/error-responses.md`
+(10 tests). `leyline-schema-spec/credential-isolation/v1/wire/error-responses.md`
 rewritten as "Two canonical wire shapes" + "Internal shapes" sections.
 
 ### Row 18.3 — X-3: bundleIdName hardcoded defeats per-bundle isolation (CLOSED this cycle)

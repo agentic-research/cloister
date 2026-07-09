@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 // build-cache/v1 conformance harness — cloister-667ea6.
 //
-// Loads the committed `cloister-spec/build-cache/v1/vectors/` fixtures
-// and runs the conformance contract from cloister-spec/build-cache/v1/
+// Loads the committed `leyline-schema-spec/build-cache/v1/vectors/` fixtures
+// and runs the conformance contract from leyline-schema-spec/build-cache/v1/
 // README.md §"Conformance test":
 //
 //   for every file in vectors/ (chunks + config + manifest):
@@ -21,7 +21,7 @@ import { OciRegistryRoute } from "../../src/routes/oci-registry.js";
 
 // ── Vectors ──────────────────────────────────────────────────────────────
 //
-// Base64-encoded byte-for-byte copies of `cloister-spec/build-cache/v1/
+// Base64-encoded byte-for-byte copies of `leyline-schema-spec/build-cache/v1/
 // vectors/*` files. The sanity-check describe block below asserts each
 // decoded buffer matches the expected size + BLAKE3 in digests.json — if
 // that fails, the fixtures regenerated and these constants need updating.

@@ -562,7 +562,7 @@ describe("OciRegistryRoute — auth gate (INTERLACE_ROOT_PUBKEY set)", () => {
 // ── build-cache/v1 push surface (cloister-4d376e) ──────────────────────
 //
 // Tests cloister's `/v2/` as a build-cache/v1 provider. The build-cache/v1
-// wire spec (cloister-spec/build-cache/v1/README.md §"Digest encoding")
+// wire spec (leyline-schema-spec/build-cache/v1/README.md §"Digest encoding")
 // reuses the `sha256:` prefix but the bytes inside are BLAKE3. This
 // contradicts cloister's existing DIGEST_INVALID verification, which
 // computes real SHA-256. These tests surface that gap.

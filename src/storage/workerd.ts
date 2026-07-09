@@ -95,7 +95,7 @@ export class WorkerdBlobStore implements BlobStore {
       d = await digestBytes(bytes);
     } else {
       // Caller-provided-key path (build-cache/v1 — see BlobStore interface
-      // doc and cloister-spec/build-cache/v1/wire/digest-encoding.md).
+      // doc and leyline-schema-spec/build-cache/v1/wire/digest-encoding.md).
       // build-cache/v1 clients send BLAKE3 hex inside an OCI sha256:
       // prefix, so the key won't match a real SHA-256 of the body.
       // Dual-verify: try SHA-256 first (OCI-native clients), fall back

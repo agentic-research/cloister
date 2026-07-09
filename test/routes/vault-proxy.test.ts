@@ -10,7 +10,7 @@
 // `.todo()` to chase a green run — that defeats the TDD signal.
 // Tests are red until each phase ships them green.
 //
-// Spec: cloister-spec/credential-isolation/v1/
+// Spec: leyline-schema-spec/credential-isolation/v1/
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {

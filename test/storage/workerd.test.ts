@@ -290,7 +290,7 @@ describe("WorkerdBlobStore — caller-provided key verification (cloister-7e631b
   });
 
   it("put(bytes, blake3-of-bytes) accepts (build-cache/v1 path)", async () => {
-    // Use a known fixture: chunk-001.bin's BLAKE3 from cloister-spec.
+    // Use a known fixture: chunk-001.bin's BLAKE3 from leyline-schema-spec (LLO).
     const stub = freshStub();
     await runInDurableObject(stub, async (_inst, state) => {
       const blobs = new WorkerdBlobStore(state.storage.sql, "v2");

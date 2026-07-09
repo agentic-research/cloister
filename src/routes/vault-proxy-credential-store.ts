@@ -19,7 +19,7 @@
 // composite PK) — they MUST stay congruent so the eventual
 // vault-DO-backed impl can use the same tuple without translation.
 //
-// Spec: cloister-spec/credential-isolation/v1/
+// Spec: leyline-schema-spec/credential-isolation/v1/
 // ADR: docs/adr/0024-credential-isolation-capability.md
 
 /**
