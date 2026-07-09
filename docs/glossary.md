@@ -38,9 +38,12 @@ always refers to this protocol — never to a binary or library.
 
 ## leyline-sign
 
-**A Rust crate in this repo.** Path:
-[`rs/crates/sign/`](../rs/crates/sign/) (Cargo manifest:
-[`rs/crates/sign/Cargo.toml`](../rs/crates/sign/Cargo.toml)).
+**A Rust crate upstream in LLO** (`agentic-research/ley-line-open`).
+Path: `rs/ll-open/sign/` (Cargo manifest: `rs/ll-open/sign/Cargo.toml`).
+Cloister pulls the crate via a git dep pinned by SHA in
+[`rs/crates/cas/Cargo.toml`](../rs/crates/cas/Cargo.toml) (bead
+`cloister-8f4d3f`; before 2026-07-09 the crate lived at cloister's
+`rs/crates/sign/`, deleted with the LLO consolidation).
 
 Two-faced crate:
 
@@ -63,8 +66,8 @@ repo, lib-only) — see below.
 ## leyline-sign-helper
 
 **A binary, not a crate.** The `host`-feature `[[bin]]` target of the
-[`leyline-sign`](../rs/crates/sign/) crate. Source:
-[`rs/crates/sign/src/bin/helper.rs`](../rs/crates/sign/src/bin/).
+`leyline-sign` crate (upstream in LLO). Source: LLO's
+`rs/ll-open/sign/src/bin/helper.rs`.
 
 The cloister-side host signing daemon specified by
 [ADR-0019: Sign-only trust-anchor-helper protocol](adr/0019-sign-only-helper-protocol.md).
@@ -79,9 +82,9 @@ Properties:
 - Speaks the ADR-0019 phantom-token contract: caller hands the helper
   a key reference + payload; helper returns a signature without ever
   exposing the master secret to the caller's address space.
-- Lifecycle managed by supervisor units in
-  [`rs/crates/sign/supervisor/`](../rs/crates/sign/supervisor/README.md)
-  (launchd on macOS, systemd-user on Linux).
+- Lifecycle managed by supervisor units in LLO's
+  `rs/ll-open/sign/supervisor/` (launchd on macOS, systemd-user on
+  Linux).
 
 **Not to be confused with:** `signet-sign` (sibling Rust library
 crate, different repo, no daemon, no UDS) — see below.
@@ -100,17 +103,18 @@ Ed25519 CMS — but they are intentionally separate pending a deeper
 convergence call (out of scope for this glossary; tracked elsewhere).
 Conflation is easy because:
 
-- Both crates live at `rs/crates/sign/` *inside their own repo*.
+- Both crates historically lived at `rs/crates/sign/` inside their own
+  repo. As of 2026-07-09 the LLO copy lives at `rs/ll-open/sign/`.
 - Both produce `cdylib + staticlib + rlib`.
 - Both do Ed25519 + CMS.
 
 Disambiguators when you see the name in context:
 
 - Path begins with `signet/` → `signet-sign`.
-- Path begins with `cloister/` (or this repo's `rs/crates/sign/`) →
-  `leyline-sign`.
+- Path begins with `ley-line-open/rs/ll-open/sign/` (or historically
+  `cloister/rs/crates/sign/`) → `leyline-sign`.
 - Cargo package `name = "signet-sign"` → signet repo.
-- Cargo package `name = "leyline-sign"` → this repo.
+- Cargo package `name = "leyline-sign"` → LLO repo.
 
 **Not to be confused with:** `leyline-sign`, `leyline-sign-helper`,
 `leyline` (see above).

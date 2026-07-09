@@ -48,6 +48,23 @@ confidence-threshold = 0.8
 # explicit comment justifying the residual.
 exceptions = []
 
+# Per-crate license clarifications. Use when a crate's Cargo.toml is
+# missing the `license` field but the license is documented alongside
+# the source (README / NOTICE / project-wide LICENSE). Add entries
+# only with an explicit comment naming the source of the clarification.
+[[licenses.clarify]]
+# LLO's `leyline-sign` 0.6.x doesn't declare `license` in its Cargo.toml
+# (upstream oversight, expected to be fixed in a future LLO minor).
+# Per LLO's `rs/ll-open/sign/NOTICE`: "distributed here under
+# AGPL-3.0-or-later (the license governing ley-line-open as a whole —
+# see ../../LICENSE)". LLO's repo LICENSE is AGPL-3.0. So the crate is
+# AGPL-3.0-or-later, matching cloister's own license. Reviewed by
+# cloister-8f4d3f. Remove this clarification once LLO adds `license =
+# "AGPL-3.0-or-later"` to `rs/ll-open/sign/Cargo.toml`.
+crate = "leyline-sign@0.6.0"
+expression = "AGPL-3.0-or-later"
+license-files = []
+
 [bans]
 # Multiple-versions of the same crate increase the audit surface and
 # rebuild cost. Allowed but warned; tighten by upgrading consumers.
@@ -63,16 +80,11 @@ deny = [
 ]
 
 # Skip the multiple-versions warning for known-OK split-version cases.
-skip = [
-    # `cpufeatures` 0.2.17 and 0.3.0 coexist transitively: 0.3.0 via
-    # blake3 → leyline-cas-ffi → cloister-cas; 0.2.17 via sha2 +
-    # curve25519-dalek → ed25519-dalek → leyline-sign. Both versions
-    # are CPU-feature-detection helpers (cpuid wrapper); neither path
-    # is in our direct control, and bumping one of the upstream crates
-    # to converge would be a deeper change. Pragmatic skip until the
-    # upstreams converge on their own. Per cloister-eefd45.
-    { name = "cpufeatures" },
-]
+# Empty since 2026-07-09 (cloister-8f4d3f): LLO's leyline-sign 0.6.0
+# pulls the newer sha2 → cpufeatures 0.3.0, matching the blake3 path
+# via leyline-cas-ffi, so the pragmatic cpufeatures skip that landed in
+# cloister-eefd45 is no longer needed.
+skip = []
 
 [sources]
 # Only crates.io. Git-only deps need an ADR amendment to land.

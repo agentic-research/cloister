@@ -25,7 +25,8 @@ runtimes; what differs is the *deployment artifact*:
   = embed "...", ), ... ]`).
 
 cloister has at least one `.wasm` dependency — the leyline-sign
-cert-chain verifier compiled from Rust (`rs/crates/sign`), imported by
+cert-chain verifier compiled from Rust (LLO `rs/ll-open/sign/`, pulled
+via the git dep in `rs/crates/cas/Cargo.toml`), imported by
 `src/wire/signet-verify.ts` as `import wasmModule from
 "../../leyline_sign.wasm"`. wrangler bundles that import per the
 `[[rules]] type = "CompiledWasm"` rule in `wrangler.toml`, and the

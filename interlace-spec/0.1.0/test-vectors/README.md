@@ -7,7 +7,10 @@ inputs in this directory.
 ## Fixed seeds
 
 All vectors use the same Ed25519 keypairs and timing constants as
-cloister's `rs/crates/sign/examples/gen-fixture.rs`:
+the `gen-fixture` example historically shipped at cloister's
+`rs/crates/sign/examples/gen-fixture.rs` (retired 2026-07-09 with the
+LLO consolidation, bead `cloister-8f4d3f`; the generator will re-land
+upstream in LLO's `rs/ll-open/sign/`):
 
 | Input | Value |
 |---|---|
@@ -19,7 +22,8 @@ cloister's `rs/crates/sign/examples/gen-fixture.rs`:
 | `not_before` (unix sec) | `1700000000` |
 | `not_after`  (unix sec) | `2524607999` (2049-12-31T23:59:59Z, end of UTCTime range) |
 
-(For the authoritative seed bytes see [gen-fixture.rs](../../../rs/crates/sign/examples/gen-fixture.rs).
+(For the authoritative seed bytes see `gen-fixture.rs` (moved upstream
+to LLO's `rs/ll-open/sign/examples/` per bead `cloister-8f4d3f`).
 The seeds above are split visually for readability; concatenate without spaces.)
 
 The fixture also pins:

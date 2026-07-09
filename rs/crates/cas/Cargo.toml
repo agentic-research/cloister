@@ -3,13 +3,13 @@ name = "cloister-cas"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
-description = "Wasm32 bridge crate exposing leyline-cas-ffi for cloister's bundle pipeline (bead cloister-713b4e)"
+description = "Wasm32 bridge crate exposing LLO's leyline-cas-ffi (BLAKE3 substrate) + workspace anchor for leyline-sign (CMS/Ed25519 verify) so cloister's wasm build graph resolves both LLO crates by SHA (beads cloister-713b4e + cloister-8f4d3f)."
 
 [lib]
-# Same triple as crates/sign — cdylib emits the .wasm artifact cloister's
-# wrangler bundles via the [[rules]] type = "CompiledWasm" rule;
-# staticlib/rlib are retained for symmetry with the sign crate (in-
-# workspace consumers + future native test harnesses).
+# Same triple as LLO's leyline-sign — cdylib emits the .wasm artifact
+# cloister's wrangler bundles via the [[rules]] type = "CompiledWasm"
+# rule; staticlib/rlib are retained for in-workspace consumers +
+# future native test harnesses.
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
@@ -22,6 +22,36 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # alongside the git+rev is required for cargo-deny's wildcards rule
 # (per cloister-eefd45 — git-only deps are treated as wildcards).
 leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "593ee610bf17dd8fc152d4c39472f24242da5cb0", version = "0.4.5", package = "leyline-cas-ffi" }
+
+# Pinned to LLO main HEAD after PR #160 (bead ley-line-open-7226e3) —
+# the merge that consolidates cloister's `rs/crates/sign/` fork into
+# LLO's `rs/ll-open/sign/`. Adding leyline-sign as a dep here brings
+# it into cloister's workspace resolution graph so
+# `cargo build -p leyline-sign --target wasm32-unknown-unknown` emits
+# `leyline_sign.wasm` (consumed by `src/wire/signet-verify.ts`) from
+# LLO's crate, and the ADR-0019 `leyline-sign-helper` binary builds
+# via `cargo build --features host --bin leyline-sign-helper
+# -p leyline-sign`. The crate is NOT `pub use`-d from cloister-cas'
+# lib.rs, so leyline-sign's symbols do not land in `cloister_cas.wasm`
+# — the two .wasm artifacts stay independent. Per bead cloister-8f4d3f.
+# Base dep — no features. Wasm32 builds use only this row, so
+# `leyline_sign.wasm` stays byte-identical to the pre-consolidation
+# fork (leyline-sign's own `#[cfg(all(feature="host", not(target_arch =
+# "wasm32")))]` gate would drop host code even if it were enabled here,
+# but leaving the base dep host-less keeps the wasm dep graph free of
+# tokio/mio/keyring transitives that fail to compile on wasm32).
+leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "6d13126cea6aabf027053ead3bbd01265cd32a99", version = "0.6.0", package = "leyline-sign" }
+
+# Native-only: enable `host` so `cargo build --bin leyline-sign-helper
+# -p leyline-sign` + `cargo test -p leyline-sign --features host`
+# (invoked by `rs:sign:helper` / `rs:sign:host`) work without cargo's
+# "cannot specify features for packages outside of workspace" refusal
+# — cargo permits `--features` only for workspace members, so the
+# host feature must be pre-enabled via a dep declaration. The
+# `cfg(not(target_arch = "wasm32"))` gate keeps the tokio/mio/keyring
+# transitive closure out of the wasm dep graph.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "6d13126cea6aabf027053ead3bbd01265cd32a99", version = "0.6.0", package = "leyline-sign", features = ["host"] }
 
 [dev-dependencies]
 # Used in the bridge crate's tests to cross-check the re-exported FFI's

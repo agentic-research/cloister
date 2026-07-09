@@ -1,9 +1,14 @@
 # ADR-0045 — leyline-sign: consume the shared LLO artifact + retire the cloister fork
 
-- **Status:** **Amended 2026-07-09 — original premise corrected (see Amendment).**
-  Was "Proposed" (drafted 2026-07-08).
-- **Tracking bead:** `cloister-8e6d5d` (consume LLO wasm + delete the fork) →
-  depends on `ley-line-open-a2099a`. (Original `cloister-c4aa20` closed — see below.)
+- **Status:** **Accepted 2026-07-09 — cloister-side fork deletion landed
+  (see Follow-up).** Previously: Amended 2026-07-09 — original premise
+  corrected (see Amendment). Was "Proposed" (drafted 2026-07-08).
+- **Tracking bead:** `cloister-8f4d3f` (delete rs/crates/sign, depend on
+  LLO's leyline-sign via git dep pinned in `crates/cas/Cargo.toml`).
+  Predecessor: `cloister-8e6d5d` (auto-closed after PR #118 merged;
+  spun off `cloister-8f4d3f` for the actual deletion). Full wasm-artifact
+  consumption (deleting `crates/cas` too) still blocks on
+  `ley-line-open-a2099a`.
 - **Pairs with:**
   - ADR-0035 (cloister↔LLO boundary — "`leyline-*` live in LLO, bridge crates in cloister")
   - ADR-0019 (sign-only trust-anchor-helper protocol)
@@ -139,3 +144,45 @@ mirroring `cloister-cas`→`leyline-cas-ffi` and rosary→`leyline-core`.
   `leyline-sign-helper` is cloister's ADR-0019 trust-anchor *tooling* — it carries
   the OS-keystore/KEK-source + HTTP-serving concerns that are cloister deployment
   policy, not substrate. Only the verify core belongs in LLO.
+
+## Follow-up (2026-07-09) — cloister-side fork deletion
+
+LLO PR #160 (bead `ley-line-open-7226e3`) absorbed cloister's
+`rs/crates/sign/` fork — including the `host` feature and the
+`leyline-sign-helper` binary — into LLO's `rs/ll-open/sign/`. The
+cloister-side follow-up landed via `cloister-8f4d3f`:
+
+- `rs/crates/sign/` — **deleted** (the whole tree, including tests,
+  supervisor units, examples, NOTICE).
+- `rs/Cargo.toml` — `crates/sign` removed from `[workspace] members`;
+  only `crates/cas` remains local.
+- `rs/crates/cas/Cargo.toml` — added `leyline-sign` as a git-dep
+  pinned to LLO main HEAD `6d13126cea6aabf027053ead3bbd01265cd32a99`
+  (post-PR #160). The cas crate is the workspace anchor for both LLO
+  crates; `cargo build -p leyline-sign --target wasm32-unknown-unknown`
+  still emits `leyline_sign.wasm` at the same target path so
+  `src/wire/signet-verify.ts` needs no code change.
+- `rs/Taskfile.yml` — `sign:wasm`, `sign:host`, `sign:host-extras`,
+  `sign:helper` retargeted (add `-p leyline-sign` scoping,
+  documentation-updated to note LLO ownership); `sign:fixtures`
+  deleted (LLO owns the fixture generator now).
+- `Taskfile.yml` — `lint:cargo-pins` deleted (LLO enforces the
+  ADR-0019 `ed25519-dalek ~2.1` tilde-pin upstream); its
+  `test:lint-scripts` invocation + its `deps: [...]` entry likewise
+  cleared. Test comment strings referencing
+  `rs/crates/sign/tests/host_adversarial.rs` updated to
+  `rs/ll-open/sign/tests/host_adversarial.rs`.
+- `scripts/lint-cargo-pins.mjs` + `scripts/test/lint-cargo-pins.test.mjs` — deleted.
+
+The two remaining Rust invariants — I1 (byte-equal cert-chain verify)
+and I2 (wasm32 build with no host closure) — are enforced upstream by
+LLO's crate tests; cloister's consumer test in
+`test/wire/signet-verify.test.ts` gates on the actual FFI shape
+returned by the built `leyline_sign.wasm`, so any LLO-side drift that
+would break cloister still trips the local `task ci`.
+
+The final piece — deleting `crates/cas` and consuming an LLO-published
+wasm artifact directly (the ADR-0045-amended north star) — waits on
+`ley-line-open-a2099a` (LLO-native wasm32-emit → `notme/wasm/`
+publish). Until that lands, the local cargo-build path is the only
+way cloister obtains `leyline_sign.wasm`.

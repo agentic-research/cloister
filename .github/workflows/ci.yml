@@ -59,7 +59,8 @@ jobs:
         # (a dep of `task test` → `task lint`). On Linux, the
         # `keyring` crate's `sync-secret-service` feature is activated
         # by the `[target.'cfg(target_os = "linux")'.dependencies]`
-        # block in rs/crates/sign/Cargo.toml. That feature pulls in
+        # block in LLO's `rs/ll-open/sign/Cargo.toml` (pulled here via
+        # the git dep pinned in rs/crates/cas/Cargo.toml). That feature pulls in
         # secret-service → zbus → libdbus-sys, whose build.rs invokes
         # `pkg-config --cflags --libs dbus-1` and panics if libdbus-1.pc
         # is missing. macOS dev boxes use the `apple-native` keyring

@@ -404,7 +404,7 @@ full migration shape.
   apko image expects `/data/do` writable; the local self-host workflow
   in Path B above mkdirs this)
 - run the `leyline-sign-helper` (`task helper:start` or the systemd /
-  launchd unit at `rs/crates/sign/supervisor/`) with
+  launchd unit at LLO's `rs/ll-open/sign/supervisor/`) with
   `LEYLINE_SIGN_CALLER_TOKENS` populated + `--require-auth` (templates
   pass the flag; ADR-0019 + threat-model §15)
 - terminate TLS at a reverse proxy (cloister speaks HTTP at the
@@ -430,7 +430,7 @@ For **self-host / production**, the vault DO supports these schemes:
 |---|---|
 | `env://NAME` (today) | a workerd text/secret binding. v2b will require age-encrypted carrier. |
 | `file:///path/to/file` | a directory mounted via a `disk` service binding (`KEK_DISK`) |
-| `keychain://service-name` | macOS Keychain — via the `leyline-sign-helper` Rust binary (`rs/crates/sign/`, ADR-0019). |
+| `keychain://service-name` | macOS Keychain — via the `leyline-sign-helper` Rust binary (LLO's `rs/ll-open/sign/`, ADR-0019). |
 | `secret-tool://service-name` | Linux libsecret (Secret Service) — same `keyring` crate backend as `keychain://`. |
 | `keyring://service/account` | Explicit-form keyring URI (both halves in the URI). Use when `KEYCHAIN_ACCOUNT` is not the right account selector. |
 | `op://vault/item/field` | 1Password — via the `op` CLI. Requires `LEYLINE_SIGN_OP_BIN` env var pointing to an absolute path of the `op` binary (e.g. `/opt/1Password/bin/op`). |
