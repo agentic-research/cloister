@@ -63,10 +63,15 @@ that supersede earlier in-flight assumptions:
   (cloister-9ad9eb); DO wrapper at `src/vault-store.ts`. Open: in-
   cluster bundle identity propagation (gated on the first workerd-
   bundle Worker — see `cloister-ac30e7`).
-- **`leyline-sign` lives at `rs/crates/sign/`** (AGPL-3, NOTICE references
-  the upstream). The lift from agentic-research/ley-line happened
-  2026-05-08/09; ll-open 0.2.0 has now made the upstream public, so
-  attribution path may simplify (`cloister-bd8c41`).
+- **`leyline-sign` lives upstream in LLO** at `rs/ll-open/sign/` as of
+  2026-07-09 (bead ley-line-open-7226e3 / LLO PR #160; cloister-side
+  deletion `cloister-8f4d3f`). Cloister pulls it via a git dep pinned
+  by SHA in `rs/crates/cas/Cargo.toml`; the wasm build output
+  (`rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm`)
+  stays at the same path. Historical: the crate was lifted from
+  agentic-research/ley-line 2026-05-08/09 as `rs/crates/sign/`, then
+  reconsolidated back upstream once ll-open's `leyline-sign` proved
+  the canonical home per ADR-0035.
 - **Threat model is the contract** for completing the lease/attestation
   arc. See `docs/security/threat-model.md` (math-friend authored,
   `cloister-bd32b1`).

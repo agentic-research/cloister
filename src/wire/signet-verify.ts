@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// signet-verify.ts — TypeScript wrapper over the in-tree leyline-sign
-// wasm32 build. Provides a synchronous API for verifying CMS/PKCS#7
-// signatures and Interlace cert chains from cloister's lease middleware.
+// signet-verify.ts — TypeScript wrapper over LLO's leyline-sign wasm32
+// build. Provides a synchronous API for verifying CMS/PKCS#7 signatures
+// and Interlace cert chains from cloister's lease middleware.
 //
 // The name "signet" is historical — the CMS code originated in the Go
 // signet repo (agentic-research/signet, 2026-03-23) and was lifted
-// through ley-line into cloister's vendored rs/crates/sign/. This
-// wrapper has no dependency on the Go signet; it calls the vendored
-// leyline-sign wasm. The Rust crate convergence is tracked as
-// cloister-bd8c41 (see rs/crates/sign/src/lib.rs header + NOTICE).
+// through ley-line into cloister as `rs/crates/sign/`. On 2026-07-09
+// the crate was consolidated back upstream into LLO
+// (`rs/ll-open/sign/`) via LLO PR #160 / bead ley-line-open-7226e3;
+// cloister's fork was deleted in cloister-8f4d3f (see ADR-0045
+// Follow-up). This wrapper has no dependency on the Go signet; it
+// calls LLO's `leyline-sign` wasm, pulled into cloister's workspace
+// via the git dep pinned in rs/crates/cas/Cargo.toml.
 //
 // Phase 2 of cloister-bd5241. Phase 1 (rs/crates/sign/ with wasm32 build
 // pipeline + lsign_alloc/lsign_free exports) shipped at f587254.
@@ -44,7 +47,7 @@
 
 import wasmModule from "../../rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm";
 
-// ── wasm exports — must match rs/crates/sign/src/ffi.rs ──────────────
+// ── wasm exports — must match rs/ll-open/sign/src/ffi.rs (LLO) ────────
 
 interface SignetWasmExports {
   /** WebAssembly linear memory the wasm operates on. */
@@ -84,7 +87,7 @@ interface SignetWasmExports {
    * parsed claims as compact JSON into `claims_out_buf`. Returns claims
    * byte length on success, -1 on any failure.
    *
-   * JSON shape (see rs/crates/sign/src/cert_chain.rs::claims_to_json):
+   * JSON shape (see rs/ll-open/sign/src/cert_chain.rs (LLO)::claims_to_json):
    *   {"epk":"<base64url>","nb":<i64>,"na":<i64>,"ep":<u32>,"pf":"...","sc":"..."}
    * `ep`, `pf`, `sc` are optional (omitted when cert lacks the matching
    * Interlace extension).
@@ -235,7 +238,7 @@ export function freeWasmBuffer(
 
 /**
  * Parsed claims extracted from a verified ephemeral cert. Mirrors the
- * Rust `CertClaims` struct in `rs/crates/sign/src/cert_chain.rs`.
+ * Rust `CertClaims` struct in `rs/ll-open/sign/src/cert_chain.rs (LLO)`.
  *
  * `ephemeralPubkey` is the SubjectPublicKeyInfo's raw bytes (32 bytes for
  * Ed25519). `notBefore` / `notAfter` are Unix-seconds. The Interlace-

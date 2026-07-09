@@ -1,18 +1,24 @@
 # Rust workspace for cloister.
 #
-# Today this hosts only `leyline-sign` — a CMS/PKCS#7 + Ed25519 signer
-# lifted from ley-line on 2026-05-09 under the AGPL-3.0-or-later license
-# that governs cloister as a whole. The original ley-line copy
-# (Apache-2.0) remains unchanged; see rs/crates/sign/NOTICE for the
-# attribution required by Apache 2.0 §4(c).
+# Cloister's canonical Rust surface is upstream in LLO
+# (`agentic-research/ley-line-open`). The workspace's remaining local
+# member is a single wasm-bridge crate — `crates/cas` — that pulls
+# LLO's `leyline-cas-ffi` (BLAKE3 substrate) AND `leyline-sign` (CMS +
+# Ed25519 verify) into cloister's build graph so:
 #
-# Future rust additions (cloister-companion when it ships, the
-# wasm32 emit per cloister-bd5241) live here as additional workspace
-# members.
+#   - `cargo build --target wasm32-unknown-unknown -p leyline-sign`
+#     emits `target/wasm32-unknown-unknown/release/leyline_sign.wasm`
+#     from LLO's crate (consumed by `src/wire/signet-verify.ts`), and
+#   - `cargo build --target wasm32-unknown-unknown -p cloister-cas`
+#     emits `cloister_cas.wasm` from the local bridge crate.
+#
+# Both git deps are pinned by SHA in `crates/cas/Cargo.toml`; bumping
+# either rev is a deliberate act and re-runs the cross-runtime fixture
+# suite. Per bead `cloister-8f4d3f` (cloister-side of LLO PR #160,
+# bead `ley-line-open-7226e3`).
 
 [workspace]
 members = [
-  "crates/sign",
   "crates/cas",
 ]
 resolver = "2"

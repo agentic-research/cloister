@@ -8,6 +8,29 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-07-09
+
+- **`rs/crates/sign` deleted; cloister depends on LLO's canonical
+  `leyline-sign`** (`cloister-8f4d3f`, cloister-side of LLO PR #160 /
+  `ley-line-open-7226e3`). LLO's `rs/ll-open/sign/` now hosts the
+  crate — the wasm32 verifier, the ADR-0019 host feature, and the
+  `leyline-sign-helper` binary. Cloister pulls it via a git dep
+  pinned by SHA in `rs/crates/cas/Cargo.toml`. The build outputs
+  cloister depends on (`rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm`
+  + the native `leyline-sign-helper` binary) are byte-identical to
+  the pre-consolidation fork — cargo builds the LLO crate at the
+  same target paths, so `src/wire/signet-verify.ts` needs no code
+  change. See ADR-0045 Follow-up.
+  - `lint:cargo-pins` (+ its script + test) deleted — LLO enforces
+    the ADR-0019 `ed25519-dalek ~2.1` tilde-pin upstream.
+  - `rs/README.md`, ADR-0045 marked Accepted with the deletion set.
+  - `crates/cas/Cargo.toml` doubles as the workspace anchor for both
+    LLO git deps (leyline-cas-ffi + leyline-sign). `host` feature is
+    enabled via a `cfg(not(target_arch = "wasm32"))` target-dep row
+    so the wasm build path stays free of the tokio/mio/keyring
+    closure while native builds get the host closure the
+    `leyline-sign-helper` binary needs.
+
 ### Shipped 2026-06-25
 
 Two parallel workstreams: ADR-0036 schema-bridge Phase 1 (multi-output

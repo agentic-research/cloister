@@ -676,7 +676,7 @@ guarantee the spec exists to enforce.
 
 cloister (this repository) is the reference implementation:
 
-- Cert mint + claims extraction: `rs/crates/sign/src/cert_chain.rs`
+- Cert mint + claims extraction: LLO `rs/ll-open/sign/src/cert_chain.rs`
 - Lease verification pipeline: `src/routes/lease-middleware.ts`
 - Bundle canonical encoder: `src/storage/bundle-canonical.ts`
 - Lease counter chain: `src/storage/peer-lease-counters.ts`

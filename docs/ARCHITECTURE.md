@@ -73,7 +73,7 @@ of 2026-05-12; full text in `docs/adr/`):
 - [ADR-0019](adr/0019-sign-only-helper-protocol.md) — **sign-only
   trust-anchor-helper protocol** (Accepted). POST /sign returns
   sig+kid, never key bytes. Implementation shipped 2026-05-12 as the
-  Rust `leyline-sign-helper` binary (`rs/crates/sign/`). Cross-cutting
+  Rust `leyline-sign-helper` binary (LLO `rs/ll-open/sign/`). Cross-cutting
   prerequisite for ADR-0018 + ADR-0014 v2b.
 - [ADR-0020](adr/0020-adversarial-team-charter.md) — **adversarial
   red-team rotation** (Proposed). 7-role specialist team
@@ -357,7 +357,7 @@ graph TD
     end
 
     subgraph helper ["Trust-anchor-helper (host process — ADR-0019)"]
-        HLP["leyline-sign-helper<br/>(rs/crates/sign/, Rust)<br/>POST /sign — sig+kid only<br/>GET /resolve — allow-list gated<br/>--require-auth bearer-token"]
+        HLP["leyline-sign-helper<br/>(LLO rs/ll-open/sign/, Rust)<br/>POST /sign — sig+kid only<br/>GET /resolve — allow-list gated<br/>--require-auth bearer-token"]
     end
 
     subgraph receipts ["Interlace 0.2.0 receipts — Phase 1 (ADR-0007 §13.2 closure)"]
@@ -532,7 +532,7 @@ the JSON-RPC dispatch. The pipeline:
 2. **Cert chain verify** — `verifyCertChain` (TS wrapper around
    wasm32-built `leyline-sign`) checks the cert is signed by the active
    master in the CA bundle, falling back to the previous master during
-   a rotation window. Source: `rs/crates/sign/src/cert_chain.rs` →
+   a rotation window. Source: LLO `rs/ll-open/sign/src/cert_chain.rs` →
    `src/wire/signet-verify.ts`.
 3. **Claims required** — Phase 1 mandates `epoch` + `peer_fp` + `scope`
    (Interlace OID extensions at `1.3.6.1.4.1.99999.1.{4,5,6}`). Certs
@@ -569,7 +569,7 @@ is set (deployment-binding granularity, NOT per-request bypass).
 | `GET /interlace/peers/{fp}` | Peer-existence oracle, paginated-tail oracle, attestation forgery, cert reuse for chain reads | `DisclosureRoute` (src/routes/disclosure.ts): URLPattern path match, HMAC-signed cursors (rejects unsigned), constant-time 404 across all error classes (not_found / denied / bad_cursor are byte-identical), cross-peer cursor reuse rejected. Lease-gated when `INTERLACE_ROOT_PUBKEY` is set (scope `disclosure:<fp>`); auth-failure collapses into the same 404. JSONL stream includes the cluster master pubkey for offline verification. ADR-0007 §11 + threat model §9. Registered in `cloister.capnp` as a `disclosure` route kind. **§9.4.b CLOSED claim verified by oracle-friend cycle 2026-05-12** (threat-model §16). |
 | Vault `proxyRequest` / `putCredential` | Per-caller resource exhaustion via tight loop; oversized payload blocks single-threaded DO | **F1 token-bucket** per `subject_fp` (`vault/src/rate-bucket.ts`): cost-weighted (read=1, write=3, proxy=5), capacity 100, refill 10/sec, persisted in SQL so DO eviction doesn't reset attacker's budget. Structured `vault.rate_limit_reject` emit for audit. **F4 payload caps** (`vault/src/vault.ts:validateCredentialPayload`): 32 headers max, 16 KiB total (UTF-8 bytes), 64 allowedSubs entries. Rejected before encrypt + SQL write. dos-friend cycle 2026-05-12; beads `cloister-211b68` (F1) + `cloister-21b5eb` (F4). |
 | Vault 403 vs 404 status-code distinguishability | Credential-name enumeration oracle (DORMANT today — only cloister-router calls vault) | OPEN; activates with first non-router bundle (ADR-0021 implementation). Closing playbook = collapse 403→404, always run the same SQL+parse+checkAccess work, preserve reason in structured logs but byte-identical wire response. Threat-model §16.1 / bead `cloister-aa9376`. |
-| Trust-anchor-helper (leyline-sign-helper) | Master_sk exfil via byte-return path; cross-UID loopback; CSRF simple-POST; body-size bypass | Rust host binary (`rs/crates/sign/`, ADR-0019). `POST /sign` returns `sig+kid` only — key bytes never leave the helper. Bearer-token auth (`LEYLINE_SIGN_CALLER_TOKENS`) keyed per-caller for rate-limit fairness. Strict `Content-Type: application/json` blocks CORS-simple-POST CSRF. `tower_http::RequestBodyLimitLayer` + Content-Length guard cap bodies at 64 KiB. `--require-auth` flag fail-stops if env unset (supervisor templates pass it). `/resolve` allow-list gated (deny-all default). ed25519-dalek pinned `~2.1`. Threat-model §15 + §15.A; beads cloister-7aaab1/7afedc/7b5b9d/7c2179/7c737a/7cd202 (cycle 1, shipped) + cloister-9bd96c (cycle 2 NEW-1, shipped). |
+| Trust-anchor-helper (leyline-sign-helper) | Master_sk exfil via byte-return path; cross-UID loopback; CSRF simple-POST; body-size bypass | Rust host binary (LLO `rs/ll-open/sign/`, ADR-0019). `POST /sign` returns `sig+kid` only — key bytes never leave the helper. Bearer-token auth (`LEYLINE_SIGN_CALLER_TOKENS`) keyed per-caller for rate-limit fairness. Strict `Content-Type: application/json` blocks CORS-simple-POST CSRF. `tower_http::RequestBodyLimitLayer` + Content-Length guard cap bodies at 64 KiB. `--require-auth` flag fail-stops if env unset (supervisor templates pass it). `/resolve` allow-list gated (deny-all default). ed25519-dalek pinned `~2.1`. Threat-model §15 + §15.A; beads cloister-7aaab1/7afedc/7b5b9d/7c2179/7c737a/7cd202 (cycle 1, shipped) + cloister-9bd96c (cycle 2 NEW-1, shipped). |
 | BeadStore SQL    | Parameterized queries throughout    | No injection risk                                         |
 | TrustStore SQL   | Singleton DO, parameterized queries | No injection risk; per-DO ACID; `seen_nonces` blocks request replay (cloister-c5c846); `peer_attestations` chain-integrity defense rejects forks (cloister-bdcbe7) |
 | notme proxy      | SSRF?                               | `NOTME` is a service binding (not a user-controlled URL)  |
