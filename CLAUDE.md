@@ -29,7 +29,7 @@ top-level docs describe *what*.
   numbered ADR before changing the substrate. **For the canonical
   per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
   don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0045** (0001–0031 + 0033–0036 + 0038–0044 land; 0032
+  number is **ADR-0046** (0001–0031 + 0033–0036 + 0038–0045 land; 0032
   reserved-but-unused; 0037 reserved for secure MCP ingress transports).
   ADR-0040 (2026-07-06, Proposed) formalizes harness-in-cloister —
   cloister as the control + credential + audit plane for agent
@@ -226,6 +226,7 @@ the decade-thread index only.
 | 0042 — turnkey local harness run (`task harness:dev`; dev-mode seams behind `CLOISTER_MODE=dev` + `lint:no-dev-mode` rail) | `interlace-substrate/vault` |
 | 0043 — cloister as the isolated delivery plane for skills/agents/tools (harness gets skills via cloister not the filesystem; load-event receipts) | `interlace-substrate/adrs` |
 | 0044 — compute-isolation substrate (libkrun microVM, HVF+KVM one mediator; host-mediated policy fs) | `harness-substrate/compute-substrate` |
+| 0045 — leyline-sign lift to LLO (signing-substrate consolidation; cloister bridges LLO `ll-sign` like cloister-cas bridges leyline-cas-ffi) | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
