@@ -31,6 +31,34 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
     closure while native builds get the host closure the
     `leyline-sign-helper` binary needs.
 
+- **`cloister-spec/` deleted; substrate IDL consumed from LLO's
+  `leyline-schema-spec`** (`cloister-a77222`, cloister-side of LLO PR
+  #159 / `ley-line-open-729a7e`). LLO's `rs/ll-core/schema-spec/` now
+  hosts the canonical `_traits.capnp`, `_capability-mapping.md`,
+  `credential-isolation/v1`, `build-cache/v1`, `mcp-tool/v1` (plus
+  VECTORS.sha256 gates and the Python reference-implementation
+  conformance suite) — byte-identical to what cloister-spec/ shipped,
+  now enforced by the `verify_vectors_sha256` test on the
+  `leyline-schema-spec` crate. Cloister no longer runs the drift
+  gates locally.
+  - `.github/workflows/credential-isolation-spec-drift.yml` — deleted
+    (LLO's cargo test owns the digest + version-bump check).
+  - `Taskfile.yml` — `lint:capability-mapping-coverage` +
+    `verify:cred-iso-conformance` deleted.
+  - `scripts/lint-capability-mapping-coverage.mjs` + its test — deleted.
+  - `scripts/resolve-inputs.mjs` + `scripts/lint-capability-scheme.mjs`
+    — spec-path comments retargeted at `leyline-schema-spec/*`.
+  - `src/routes/*` + `src/storage/*` + `test/**/*` — spec-path
+    comments retargeted at `leyline-schema-spec/*`.
+  - Docs (`CLAUDE.md`, `docs/STATUS.md`, `docs/ARCHITECTURE.md`,
+    `docs/plans/credential-isolation-capability.md`,
+    `docs/reference/task-done.md`, `docs/tenants/mache-mcp.md`,
+    `docs/integration/*`, `docs/security/threat-model.md`,
+    `interlace-spec/0.1.0/README.md`) — spec-path references
+    retargeted; `docs/integration/authoring-server-json.md` links
+    rewritten from relative paths to LLO GitHub URLs so
+    `lint:doc-links` stays green.
+
 ### Shipped 2026-06-25
 
 Two parallel workstreams: ADR-0036 schema-bridge Phase 1 (multi-output

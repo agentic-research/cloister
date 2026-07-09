@@ -6,7 +6,7 @@
 // the request, streams the upstream response body, and emits call
 // telemetry through the route wrapper.
 //
-// Spec: cloister-spec/credential-isolation/v1/
+// Spec: leyline-schema-spec/credential-isolation/v1/
 // ADR: docs/adr/0024-credential-isolation-capability.md
 // Tracking: cloister-8f57f0
 
@@ -15,7 +15,7 @@ import type { VerifiedLease } from "../routes/lease-middleware.js";
 
 /**
  * Discriminated union of injection strategies per
- * cloister-spec/credential-isolation/v1/wire/injection-strategies.md.
+ * leyline-schema-spec/credential-isolation/v1/wire/injection-strategies.md.
  * Closed-by-design in v1; adding a strategy requires a spec extension.
  */
 export type InjectionStrategy =
@@ -117,7 +117,7 @@ export interface VaultProxyRequest {
  * The proxy handler. Returns the upstream response streamed through,
  * with a signed Interlace-Receipt header attached.
  *
- * Conformance shape: cloister-spec/credential-isolation/v1/wire/proxy-envelope.md
+ * Conformance shape: leyline-schema-spec/credential-isolation/v1/wire/proxy-envelope.md
  *
  * Phase 1 — identity gates only:
  *
@@ -250,7 +250,7 @@ async function proxyWithReceipt(
  * (audit-by-receipt) FALSE in production.
  *
  * Per cloister-6e888b. Receipt shape per
- * `cloister-spec/credential-isolation/v1/wire/receipt-commitment.md`.
+ * `leyline-schema-spec/credential-isolation/v1/wire/receipt-commitment.md`.
  */
 export async function forwardWithReceipt(
   args: {
@@ -642,7 +642,7 @@ export function parseVaultProxyPath(
  * Constant-time error body shape — same JSON for 401/403/404 to
  * prevent the proxy from being used as an enumeration oracle for
  * which credentials are stored. Per
- * cloister-spec/credential-isolation/v1/wire/proxy-envelope.md.
+ * leyline-schema-spec/credential-isolation/v1/wire/proxy-envelope.md.
  */
 export const CONSTANT_TIME_ERROR_BODY = JSON.stringify({
   error: "unauthorized",
@@ -750,7 +750,7 @@ export function errorResponse(
 
 /**
  * The receipt commitment shape. Per
- * cloister-spec/credential-isolation/v1/wire/receipt-commitment.md
+ * leyline-schema-spec/credential-isolation/v1/wire/receipt-commitment.md
  * (which lands in Phase 5).
  *
  * MUST NOT include the credential value, request body, response body,

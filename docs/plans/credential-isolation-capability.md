@@ -2,7 +2,7 @@
 
 - **Bead:** `cloister-8f57f0`
 - **ADR:** `docs/adr/0024-credential-isolation-capability.md`
-- **Spec:** `cloister-spec/credential-isolation/v1/`
+- **Spec:** `leyline-schema-spec/credential-isolation/v1/`
 - **Framing:** First concrete capability under `cloister-1b59a2`
   (substrate-as-kernel).
 
@@ -20,7 +20,7 @@ itself piece-by-piece as phases close.
 
 ## Dependency rail (recap from ADR-0024)
 
-- Spec graph: leaves only. cloister-spec/credential-isolation/v1
+- Spec graph: leaves only. leyline-schema-spec/credential-isolation/v1
   CONSUMES interlace-spec/0.1.0 + @notme/contract. Specs don't consume
   impls. Future capability ADRs follow the same rule.
 - Runtime graph: cloister-router → notme (one-way over service binding).
@@ -39,7 +39,7 @@ work waits for this to land + the mirror to byte-diff clean.
 
 ### Phase 0 — Scaffolding (this commit)
 
-**What lands:** ADR-0024, spec scaffold (`cloister-spec/credential-isolation/v1/README.md` + `wire/proxy-envelope.md`), plan doc (this file), stub module (`src/routes/vault-proxy.ts`), failing test file (`test/routes/vault-proxy.test.ts`), task list scaffolding.
+**What lands:** ADR-0024, spec scaffold (`leyline-schema-spec/credential-isolation/v1/README.md` + `wire/proxy-envelope.md`), plan doc (this file), stub module (`src/routes/vault-proxy.ts`), failing test file (`test/routes/vault-proxy.test.ts`), task list scaffolding.
 
 **Test state:** all tests fail. `task lint` flags the failure
 (intentional — the baseline is the executable plan).
@@ -199,7 +199,7 @@ substrate-internal vault DO as the v1 impl.
 
 **Spec dep:** this is the first instance of the capability-discovery
 shape that `cloister-1b59a2` charted. Land a tiny spec for the
-registry-endpoint format itself (`cloister-spec/capability-discovery/
+registry-endpoint format itself (`leyline-schema-spec/capability-discovery/
 v1/` — out of scope for this bead, file as follow-up).
 
 **Closes when:** the 3 tests above pass + Phases 1-7 still pass.
@@ -209,10 +209,10 @@ v1/` — out of scope for this bead, file as follow-up).
 **Tests this phase closes:** none in cloister's vitest suite; this
 is the spec-side conformance suite.
 
-**Spec dep:** populate `cloister-spec/credential-isolation/v1/
+**Spec dep:** populate `leyline-schema-spec/credential-isolation/v1/
 vectors/` with JSON-as-carrier vectors for each strategy + each
 identity gate + each error class. Implement
-`cloister-spec/credential-isolation/v1/ref-impl-py/` (Python ref
+`leyline-schema-spec/credential-isolation/v1/ref-impl-py/` (Python ref
 impl). Implement `conformance/run.py` that drives a running cloister
 through the vectors and validates byte-equality.
 
@@ -242,7 +242,7 @@ against a local cloister + that consumer running side-by-side.
 that requires ADR-0024 to be Accepted AND the user's incoming
 network-identity ADR to inform any cross-cutting schema fields. Until
 then, this capability runs off existing manifest fields + a
-side-channel TOML config file in `cloister-spec/credential-isolation/
+side-channel TOML config file in `leyline-schema-spec/credential-isolation/
 v1/example-services.toml` for declaring services.
 
 Once the manifest extension lands:

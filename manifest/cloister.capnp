@@ -69,7 +69,7 @@ struct Gateway {
   # Empty list ⇒ no services declared; every `/vault/proxy/*` request
   # returns 404 (safe-closed default — same as the in-memory empty-store
   # behavior). Operators populate this in their `cloister.capnp` per the
-  # spec at `cloister-spec/credential-isolation/v1/`.
+  # spec at `leyline-schema-spec/credential-isolation/v1/`.
   vaultProxyServices @5 :List(VaultProxyService);
 }
 

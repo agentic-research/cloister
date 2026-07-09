@@ -18,7 +18,7 @@ cloister-specific block under `_meta`.
 - Add `_meta."art.cloister/v1".groups[]` to partition your tools into
   **N** backends, one per group.
 - The wire schema (exhaustive field rules) lives in
-  [`cloister-spec/mcp-tool/v1/`](../../cloister-spec/mcp-tool/v1/README.md);
+  [`leyline-schema-spec/mcp-tool/v1/`](https://github.com/agentic-research/ley-line-open/blob/main/rs/ll-core/schema-spec/mcp-tool/v1/README.md);
   this page is the how-to.
 
 ---
@@ -138,7 +138,7 @@ declare — this is a default, not a mandate.
 - `shares_workerd_with`: names of other inputs this one must co-locate
   with.
 
-Full semantics: [`cloister-spec/mcp-tool/v1/wire/meta-groups.md`](../../cloister-spec/mcp-tool/v1/wire/meta-groups.md).
+Full semantics: [`leyline-schema-spec/mcp-tool/v1/wire/meta-groups.md`](https://github.com/agentic-research/ley-line-open/blob/main/rs/ll-core/schema-spec/mcp-tool/v1/wire/meta-groups.md).
 The framing is ADR-0030 §A5 (composable tenancy).
 
 ---
@@ -228,9 +228,9 @@ from = "file:///Users/you/remotes/art/rosary/server.json"
 ## 6. Reference
 
 - **Wire schema (exhaustive field rules + constraint matrix):**
-  [`cloister-spec/mcp-tool/v1/wire/meta-groups.md`](../../cloister-spec/mcp-tool/v1/wire/meta-groups.md)
+  [`leyline-schema-spec/mcp-tool/v1/wire/meta-groups.md`](https://github.com/agentic-research/ley-line-open/blob/main/rs/ll-core/schema-spec/mcp-tool/v1/wire/meta-groups.md)
 - **Spec proper + the synthetic multi-group vector:**
-  [`cloister-spec/mcp-tool/v1/README.md`](../../cloister-spec/mcp-tool/v1/README.md)
+  [`leyline-schema-spec/mcp-tool/v1/README.md`](https://github.com/agentic-research/ley-line-open/blob/main/rs/ll-core/schema-spec/mcp-tool/v1/README.md)
 - **Why `_meta` reverse-DNS is the extension surface:** ADR-0026,
   [`adr/0026-tool-composition-model.md`](../adr/0026-tool-composition-model.md)
 - **Running the resulting tools securely through cloister:**

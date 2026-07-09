@@ -990,7 +990,7 @@ function parseSha256Param(value: string): string | null {
  * if the body hashes to the claimed hex under SHA-256 OR BLAKE3.
  *
  * The BLAKE3 fallback exists for build-cache/v1 wire compatibility
- * (cloister-spec/build-cache/v1/README.md §"Digest encoding" reuses
+ * (leyline-schema-spec/build-cache/v1/README.md §"Digest encoding" reuses
  * `sha256:` prefix for BLAKE3 hex). cloister-as-build-cache-provider
  * needs to accept either; existing OCI-native clients (Docker, ORAS,
  * cosign) hit the SHA-256 fast-path and never pay BLAKE3 compute.
