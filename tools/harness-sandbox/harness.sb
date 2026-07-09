@@ -1,0 +1,119 @@
+;; SPDX-License-Identifier: AGPL-3.0-or-later
+;;
+;; harness.sb — deny-default Seatbelt profile for the agent harness
+;; (cloister-24717d, ADR-0040 credential-isolation plane).
+;;
+;; Kernel-enforced (TrustedBSD MAC via sandbox-exec). The harness process
+;; runs confined: the ONLY user-content it can read or write is WORKDIR,
+;; and the ONLY network it can reach is localhost + unix sockets — i.e.
+;; cloister's vault proxy at http://127.0.0.1:<port>/vault/proxy. Secrets
+;; (~/.ssh, ~/.aws, anything outside WORKDIR) are denied by DEFAULT, not
+;; by enumeration.
+;;
+;; Usage (all four params required — sandbox-exec aborts on an
+;; undefined (param …) reference):
+;;   sandbox-exec \
+;;     -D WORKDIR=/abs/workdir            `# rw — the ONLY user content`    \
+;;     -D HARNESS_RUNTIME=/abs/runtime    `# ro — harness binary/runtime`   \
+;;     -D HARNESS_STATE=/abs/state        `# rw — harness's own state dir`  \
+;;     -D HARNESS_STATE_FILE=/abs/file    `# rw — single state file (e.g.`  \
+;;                                        `#      ~/.claude.json)`          \
+;;     -f harness.sb <cmd>…
+;;
+;; Everything allowed below is code/runtime surface (dyld cache, system
+;; libraries, toolchain trees), never user data. See README.md.
+
+(version 1)
+(deny default)
+
+;; ---- process bootstrap ----------------------------------------------
+;; fork/exec so the harness can spawn subprocesses (children inherit this
+;; same sandbox — Seatbelt confinement is transitive).
+(allow process-exec*)
+(allow process-fork)
+(allow signal (target self))
+(allow sysctl-read)
+;; Mach bootstrap lookups (notifyd, logd, …). Deny-default kills the
+;; dyld/libSystem init path without these. Broad for now; tighten to
+;; enumerated global-names once the harness surface is stable.
+(allow mach-lookup)
+
+;; ---- code loading -----------------------------------------------------
+;; mmap(PROT_EXEC) — without this every dylib load SIGABRTs at dyld time.
+(allow file-map-executable)
+
+;; Path-resolution metadata (stat/readlink) stays broad so relative and
+;; symlinked paths resolve; file CONTENT outside the allowed subpaths is
+;; still denied.
+(allow file-read-metadata)
+
+;; ---- system + toolchain reads (code, not user data) --------------------
+(allow file-read*
+  (subpath "/System")
+  (subpath "/usr/lib")
+  (subpath "/usr/share")
+  (subpath "/usr/bin")
+  (subpath "/usr/sbin")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/Library/Frameworks")
+  (subpath "/Library/Preferences/Logging")
+  ;; dyld shared cache — both the legacy location and the cryptex mount
+  ;; used on modern macOS. Missing these is the classic deny-default
+  ;; exit-134 (dyld can't even map libSystem).
+  (subpath "/private/var/db/dyld")
+  ;; timezone symlink chain (→ /usr/share/zoneinfo). ICU/tz init reads it;
+  ;; bun-compiled binaries hard-crash (SIGTRAP) without it.
+  (subpath "/private/var/db/timezone")
+  (subpath "/System/Volumes/Preboot/Cryptexes")
+  ;; toolchain trees (node/homebrew installs live here — code, no secrets)
+  (subpath "/opt/homebrew")
+  (subpath "/usr/local")
+  ;; timezone + terminfo-ish plumbing
+  (subpath "/private/etc")
+  (literal "/etc")
+  (literal "/private")
+  (literal "/"))
+
+;; devices the runtime opens
+(allow file-read* file-write-data file-ioctl
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/tty")
+  (literal "/dev/dtracehelper"))
+(allow file-read*
+  (literal "/dev/random")
+  (literal "/dev/urandom"))
+(allow pseudo-tty)
+
+;; ---- the workdir: the ONLY user-content surface -------------------------
+(allow file-read* file-write* (subpath (param "WORKDIR")))
+
+;; ---- the harness's own surfaces ----------------------------------------
+;; runtime tree (binary + bundled deps) — read-only; the harness cannot
+;; modify its own code.
+(allow file-read* (subpath (param "HARNESS_RUNTIME")))
+;; the harness's own state dir (e.g. CLAUDE_CONFIG_DIR) — its config,
+;; session state, and its OWN credentials (audit mode). NOT ~/.ssh, NOT
+;; ~/.aws — those stay kernel-denied by default.
+(allow file-read* file-write* (subpath (param "HARNESS_STATE")))
+;; one state FILE that lives outside the state dir (Claude Code keeps
+;; ~/.claude.json as a sibling of ~/.claude). Point it at a dummy path
+;; if the harness has no such file.
+(allow file-read* file-write* (literal (param "HARNESS_STATE_FILE")))
+
+;; per-user darwin temp/cache (confstr _CS_DARWIN_USER_*_DIR) — runtimes
+;; resolve os.tmpdir() here; deny-default without it breaks most tooling.
+(allow file-read* file-write*
+  (regex #"^/private/var/folders/[^/]+/[^/]+/(T|C)(/|$)"))
+
+;; ---- the cloister seam: localhost HTTP + unix sockets ONLY --------------
+;; This IS the credential-isolation topology: the harness talks to
+;; cloister's vault proxy on 127.0.0.1; cloister holds the credentials
+;; and does the outbound TLS. No direct internet from the harness.
+(allow network-outbound
+  (remote ip "localhost:*")
+  (remote unix-socket))
+(allow network-bind network-inbound
+  (local ip "localhost:*"))
+(allow system-socket)
