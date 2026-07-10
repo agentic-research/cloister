@@ -12,81 +12,15 @@ hypervisor layer per
 [ADR-0011](adr/0011-hypervisor-bundle-boundary.md).
 
 This document covers the runtime model and request routing as
-implemented today. The decisions behind it are in the ADRs (status as
-of 2026-05-12; full text in `docs/adr/`):
-
-**Substrate foundations (0001–0006):**
-- [ADR-0001](adr/0001-workerd-mcp-gateway.md) — why workerd (Accepted)
-- [ADR-0002](adr/0002-edge-router-protocol-agnostic-backends.md) — edge
-  router with protocol-agnostic backends, not "an MCP gateway" (Accepted)
-- [ADR-0003](adr/0003-content-addressed-bead-store.md) — content-addressed
-  bead storage (Accepted; Phase 1 shipped)
-- [ADR-0004](adr/0004-capnp-manifest.md) — Cap'n Proto manifest as route
-  source of truth (Accepted; `cloister.capnp` + `task manifest`)
-- [ADR-0005](adr/0005-internal-wire-leyline-net.md) — internal wire =
-  leyline-net (signed capnp) at the cloister↔companion seam (Accepted;
-  IPC amendment 2026-04-30)
-- [ADR-0006](adr/0006-derived-tool-schemas.md) — dynamic tools/list
-  passthrough with TTL cache (Accepted)
-
-**Interlace identity + trust substrate (0007–0014):**
-- [ADR-0007](adr/0007-interlace-substrate.md) — **Interlace identity +
-  attestation + discovery** (Accepted; substrate shipped 2026-05-09;
-  spec extracted to `interlace-spec/0.1.0/`)
-- [ADR-0008](adr/0008-companion-pool.md) — companion pool / load
-  balancing (Deferred; multi-companion scale not yet a real signal)
-- [ADR-0009](adr/0009-compute-substrate-portability.md) — Linux /
-  Firecracker / WASM / unikernel as deployment knob (Accepted Phase 1:
-  OCI + workerd)
-- [ADR-0010](adr/0010-vault-and-bundle-clusters.md) — **vault as scoped
-  slices, bundles as the unit of trust, clusters as the unit of
-  identity** (Proposed; manifest-side wiring still open — enforcement
-  ratified by ADR-0013)
-- [ADR-0011](adr/0011-hypervisor-bundle-boundary.md) — **hypervisor vs
-  bundle responsibilities; k8s comparison made precise** (Accepted).
-  Three-criterion test for hypervisor-layer code is the answer to
-  "where should this code go?"
-- [ADR-0012](adr/0012-truststore-vs-beadstore.md) — TrustStore vs
-  BeadStore DO classification (Accepted)
-- [ADR-0013](adr/0013-slice-grant-enforcement.md) — **slice-grant
-  enforcement via V8 isolate + service-binding-as-syscall** (Accepted).
-  The substrate-level security claim no longer waits on ADR-0010 to
-  land; bundles can't escape the isolate even if the manifest is wrong.
-- [ADR-0014](adr/0014-pluggable-kek-source.md) — **pluggable vault KEK
-  source** (Accepted). Vault KEK resolved from a URL spec (env://,
-  file://, keychain://, apple-password://, keyring://, op://,
-  secret-tool://, http(s)://); ships the OS-keystore self-host story.
-
-**MCP-spec alignment + operator surface (0015–0017):**
-- [ADR-0015](adr/0015-mcp-spec-alignment.md) — MCP-Proxy-Server framing
-  alignment with the upstream spec (Accepted)
-- [ADR-0016](adr/0016-cloister-as-private-mcp-registry.md) — cloister
-  as a private MCP registry surface (Accepted; v0.1 OpenAPI at
-  `/.well-known/mcp-registry/`)
-- [ADR-0017](adr/0017-emit-workerd-config-generator.md) —
-  `scripts/emit-workerd-config.mjs` generator rationale (Accepted)
-
-**2026-05-12 identity-co-location arc (0018–0021):**
-- [ADR-0018](adr/0018-notme-co-location.md) — **notme co-location**
-  (Accepted; Alternative 4 split surface — internal in-process, public
-  separate Worker). External-consumer survey decisive.
-- [ADR-0019](adr/0019-sign-only-helper-protocol.md) — **sign-only
-  trust-anchor-helper protocol** (Accepted). POST /sign returns
-  sig+kid, never key bytes. Implementation shipped 2026-05-12 as the
-  Rust `leyline-sign-helper` binary (LLO `rs/ll-open/sign/`). Cross-cutting
-  prerequisite for ADR-0018 + ADR-0014 v2b.
-- [ADR-0020](adr/0020-adversarial-team-charter.md) — **adversarial
-  red-team rotation** (Proposed). 7-role specialist team
-  (dos-friend, oracle-friend, isolation-friend, replay-friend,
-  trust-root-friend, silence-friend, synthesis-lead) complementing
-  math-friend + code-architect. First three cycles ran 2026-05-12;
-  see `docs/security/adversarial-cycles/2026-05-12.md`.
-- [ADR-0021](adr/0021-per-bundle-vault-instances.md) — **per-bundle
-  vault DO instances** (Proposed). Implements ADR-0013's documented
-  binding-layer identity design (per-bundle `idFromName(bundleName)`)
-  rather than adding new per-call signature or workerd-caller-name
-  machinery. Implementation lands alongside ADR-0018's internal-bundle
-  portion.
+implemented today. The decisions behind it are in the ADRs — every one,
+grouped, with its **current** status, is the generated
+[ADR index](adr/INDEX.md) (derived from each ADR's frontmatter, never
+hand-maintained here). Read them in `docs/adr/`; start with **0001 → 0002
+→ 0007 → 0011** for the core mental model. The load-bearing arcs: substrate
+foundations (0001–0006), Interlace identity + trust (0007–0021), MCP-spec
++ operator surface (0015–0028), and the isolation + LLO substrate (0030
+process-per-tenant, 0035 LLO boundary, 0044 microVM, and the harness
+sandbox).
 
 **The forward arc:** ADRs 0007 + 0010 + 0013 + 0014 + 0019 together
 replace today's env-var-bindings world (`LLO_MCP_URL`, `MACHE_MCP_URL`,
