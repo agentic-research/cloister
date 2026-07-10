@@ -58,3 +58,14 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 # output against `blake3::hash` directly. Matches the upstream cas-ffi
 # crate's dev-dep convention.
 blake3 = "1"
+
+# For `examples/mint-dev-cert.rs` (the ADR-0042 dev-cert minter, re-homed here
+# after PR #119 dropped the leyline-sign fork it used to live in). Versions are
+# pinned to match LLO's leyline-sign (rev 6d13126) so the `SigningKey` type
+# unifies across the crate boundary into `mint_test_cert`; ed25519-dalek 3.x
+# needs no `rand_core` feature here since the minter uses `from_bytes` (seeded
+# from rand 0.8's OsRng), not the removed `generate`.
+ed25519-dalek = "3"
+rand = "0.8"
+sha2 = "0.11"
+base64 = "0.22"

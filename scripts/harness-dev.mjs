@@ -69,7 +69,7 @@ console.error(`harness:dev — ${AUDIT ? "AUDIT mode (Max/OAuth — forward harn
 // 1. Mint a fresh dev identity.
 console.error("harness:dev — minting a fresh ephemeral dev master + cert…");
 const dev = JSON.parse(
-  execFileSync("cargo", ["run", "-q", "--example", "mint-dev-cert"], {
+  execFileSync("cargo", ["run", "-q", "-p", "cloister-cas", "--example", "mint-dev-cert"], {
     cwd: resolve(ROOT, "rs"),
     encoding: "utf8",
   }),
