@@ -1,6 +1,0 @@
-{
-  "id":          "doc-counts",
-  "description": "'N numbered ADRs' / 'next free ADR-NNNN' claims in markdown match docs/adr/ ground truth (cloister-9d14f2 / doc-friend P4)",
-  "severity":    "block",
-  "run":         "node scripts/lint-doc-counts.mjs"
-}

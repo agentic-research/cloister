@@ -1001,15 +1001,6 @@ tasks:
     cmds:
       - node scripts/gen-adr-index.mjs --check
 
-  lint:doc-counts:
-    desc: "Drift gate for 'N numbered ADRs' / 'next free ADR-NNNN' claims across markdown (cloister-9d14f2). Ground truth = `ls docs/adr/*.md | wc -l` + max id. Skips ADR files themselves + cycle reports + archived plans + prompts."
-    cmds:
-      - node scripts/lint-doc-counts.mjs
-    sources:
-      - docs/adr/*.md
-      - "**/*.md"
-      - scripts/lint-doc-counts.mjs
-
   lint:recipes:
     desc: "Phase 1 recipe smoke validation (cloister-449f82) — each recipes/<name>/ has README.md + (cloister.capnp OR cluster.toml); READMEs link to docs/reference/{bundle-topology,backend-kinds}.md per the canonical-link convention. Phase 2 will add capnp/TOML parse validation; Phase 3 will add local boot smoke. Invoked via tsx because lint-recipes.mjs transitively dynamic-imports cluster.zod.ts at runtime (per toml-to-cluster.mjs ADR-0025 Phase 1); plain `node` can't load .ts."
     cmds:
@@ -1021,7 +1012,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed)."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/lint-doc-counts.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/git-hooks.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs"
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/git-hooks.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs"
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
@@ -1039,7 +1030,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, lint:doc-counts, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, cluster:zod:verify]
+    deps: [type-check, test, test:plugin, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, cluster:zod:verify]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

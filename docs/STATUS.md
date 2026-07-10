@@ -7,6 +7,14 @@ Updated as PRs merge / beads close / drafts ship.
 For the why-and-shape of each entry, follow the linked ADR. For the
 work-tracking, follow the linked bead.
 
+> **ADR *design* status is not maintained here — it's generated at
+> [`docs/adr/INDEX.md`](adr/INDEX.md)** from each ADR's own frontmatter
+> (`task adr:index`, CI-gated by `adr:index:check`). This file tracks
+> *capabilities* — what's shipped / drafted / blocked — and links the ADR
+> for the "why". Don't restate per-ADR design status here; it drifts (that's
+> what INDEX.md fixed). *(Deeper follow-up: generate the shipped/drafted
+> tables + link the bead ledger to rsry instead of hand-copying rows.)*
+
 ## Shipped (running in main today)
 
 | Capability | Reference | Bead | Status |
