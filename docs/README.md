@@ -16,7 +16,7 @@ Everything under `docs/` is one of these kinds:
 | [`perf/`](perf/) | Benchmark reports for the load-bearing perf claims (lease pipeline, dispatch, TrustStore contention, disclosure endpoint, cold start). |
 | [`deployment/`](deployment/) | Operator runbooks: cluster-in-a-pod, off-platform peers, secure ART tool operation. |
 | [`integration/`](integration/) | Wiring at both ends: `mcp-client.md` (how external MCP clients connect to cloister) and `authoring-server-json.md` (how MCP server authors describe a server so cloister can consume it). |
-| [`reference/`](reference/) | Reference tables: `backend-kinds.md`, `bundle-topology.md`, `tenancy-model.md`, and `task-done.md` (the shipped `task done` lifecycle checklist). |
+| [`reference/`](reference/) | Reference tables + models: `backend-kinds.md`, `bundle-topology.md`, `tenancy-model.md` (who may reach a tenant), `confinement-model.md` (what a confined harness/tool/pod may *touch*), and `task-done.md` (the shipped `task done` lifecycle checklist). |
 | [`mcp-seps/`](mcp-seps/) | Internal SEP drafts about the upstream MCP spec. **Not** submissions in flight — design notes for cloister's own framing. |
 | [`research/`](research/) | Design notes + surveys that inform decisions but aren't themselves decisions. |
 | [`tenants/`](tenants/) | Per-tenant docs (one page per backend: `bead-mcp.md`, `mache-mcp.md`, etc.). Drift-gated by `scripts/lint-tenant-docs.mjs`. |
@@ -37,6 +37,8 @@ Everything under `docs/` is one of these kinds:
 | Make your MCP server consumable by cloister | [`integration/authoring-server-json.md`](integration/authoring-server-json.md) |
 | Operate cloister in a cluster topology | [`deployment/cluster-in-a-pod.md`](deployment/cluster-in-a-pod.md) |
 | Run ART tools securely through cloister | [`deployment/secure-art-tools.md`](deployment/secure-art-tools.md) |
+| Run your harness (Claude Code / Codex) kernel-confined | [`reference/confinement-model.md`](reference/confinement-model.md) → `SANDBOX=nono task harness:dev` |
+| Understand what a confined harness / tool / pod may touch | [`reference/confinement-model.md`](reference/confinement-model.md) |
 
 ## Conventions
 
