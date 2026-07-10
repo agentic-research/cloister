@@ -90,3 +90,6 @@ __pycache__/
 # ADR-0042 harness:dev — runtime dev-mode material (never committed)
 .dev.vars
 .harness-dev/
+.harness-policy.json
+# S1 confinement binary build dir (tools/harness-sandbox is a standalone crate)
+tools/harness-sandbox/target/

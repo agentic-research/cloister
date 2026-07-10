@@ -1,0 +1,30 @@
+# cloister-harness — the confinement binary for `task harness:dev` (S1 of the
+# harness-substrate work). A *real artifact* that applies kernel confinement
+# programmatically via the `nono` crate (Seatbelt on macOS, Landlock on Linux)
+# from a DECLARED policy, then execs the harness — replacing the hand-assembled
+# `nono run …` CLI flags that used to live in scripts/harness-dev.mjs.
+#
+# Standalone native crate (like tools/schema-bridge), OUTSIDE the rs/ wasm
+# workspace: nono pulls in OS sandbox + keyring, which do not build for wasm32.
+# Built with `cargo build --release` in this dir; never published.
+[package]
+name = "harness-sandbox"
+version = "0.0.1"
+edition = "2021"
+description = "Apply nono kernel confinement from a declared policy, then exec the harness. The 'actual binary' for cloister's harness-substrate isolation."
+license = "AGPL-3.0-or-later"
+publish = false
+
+[[bin]]
+name = "cloister-harness"
+path = "src/main.rs"
+
+[dependencies]
+# The SAME nono the CLI (`nono run`) uses and that LLO's leyline-sign pins —
+# but consumed as a library: nono::Sandbox::apply(&CapabilitySet) applies the
+# confinement in-process, and nono::keystore resolves credential URIs. Default
+# features include `system-keyring` for keychain:// resolution on macOS.
+nono = "0.54"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
