@@ -616,6 +616,7 @@ never patch. Synthesis-lead integrates findings into
 - Add a new HTTP tenant: implement `EdgeRoute`, register via
   `cloister.capnp`'s `routes` list
 - Add a substrate-changing decision: draft a numbered ADR in
-  `docs/adr/` (next free is ADR-0046, with ADR-0037 reserved for secure MCP ingress — ADR-0033 + ADR-0034 + ADR-0035 + ADR-0036 + ADR-0038 + ADR-0039 + ADR-0040 + ADR-0041 + ADR-0042 + ADR-0043 + ADR-0044 + ADR-0045 land;
+  `docs/adr/` (0037 reserved for secure MCP ingress; the current list +
+  status is the generated [ADR index](adr/INDEX.md), never hand-counted;
   rules at the top of each ADR file)
 - Plugin contract: [../hooks/README.md](../hooks/README.md)

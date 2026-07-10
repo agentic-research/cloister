@@ -26,38 +26,14 @@ top-level docs describe *what*.
   bindings (`BEAD_STORE`, `NOTME`, `LLO_MCP_URL`, etc.) declared on
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
-  numbered ADR before changing the substrate. **For the canonical
-  per-ADR status table, see [`docs/STATUS.md`](docs/STATUS.md)** —
-  don't duplicate the list here, it rots. Quick orient: next free
-  number is **ADR-0046** (0001–0031 + 0033–0036 + 0038–0045 land; 0032
-  reserved-but-unused; 0037 reserved for secure MCP ingress transports).
-  ADR-0040 (2026-07-06, Proposed) formalizes harness-in-cloister —
-  cloister as the control + credential + audit plane for agent
-  harnesses (`cloister-f3e3ae` is the L1 vault-proxy build).
-  ADR-0041 (2026-07-06, Proposed) sets the OCI image-publish contract —
-  each backend repo (mache/rosary/llo) publishes its own distroless
-  image from its in-repo apko recipe; canonical `packages[].oci` =
-  `identifier` (no tag) + `version` + resolved `digest`; cloister pulls
-  by digest. Closes ADR-0038's publish + digest Opens (`cloister-bd73a7`).
-  Most ADRs are Accepted;
-  ADR-0008 Deferred (multi-companion scale not yet a real signal);
-  ADR-0010 stays Proposed (manifest-side enforcement ratified by
-  ADR-0013); ADR-0020, ADR-0021, ADR-0026, ADR-0027, ADR-0028,
-  ADR-0030, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0038, ADR-0040,
-  ADR-0041 are Proposed;
-  ADR-0039 Accepted (2026-07-05; macOS local-DO-at-rest security shipped +
-  proven — Linux twin pending); everything else 0011–0019, 0022–0025, 0029,
-  0031 is Accepted. ADR-0030 (2026-06-21) ratifies
-  workerd-process-per-tenant as the substrate direction —
-  `cloister-f289c8` is the implementation epic, vault first.
-  ADR-0023 ships `CLOISTER_DO_PATH` (macOS unblocker); ADR-0024
-  specifies the `cloister/credential-isolation/v1` capability under
-  the substrate-as-kernel framing; ADR-0025 ships the bidi
-  TOML ↔ capnp pipeline with `cluster.toml` at repo root; ADR-0026
-  ships the tool-composition model (`[inputs.*]` in `cluster.toml`);
-  ADR-0027 frames the n-dim capability matchmaker; ADR-0028
-  reconciles the three capability identifier schemes (signet URN,
-  WIMSE URI, cloister reverse-DNS).
+  numbered ADR before changing the substrate. **Per-ADR design status is
+  GENERATED — see [`docs/adr/INDEX.md`](docs/adr/INDEX.md)**, derived from
+  each ADR's own frontmatter by `task adr:index` and CI-gated by
+  `adr:index:check`. Do **not** hand-restate the ADR list or their statuses
+  here (or in README/STATUS) — it rots; that's what `INDEX.md` is for.
+  *Implementation* status (did an ADR actually ship) lives in its tracking
+  bead + git, never in prose. Reserved numbers: 0032 (unused), 0037 (secure
+  MCP ingress transports).
 - **`src/index.ts`** — composition root. Imports the typed manifest,
   hands it to `instantiate()`, exports the Worker. Don't add logic
   here; add routes / backends in their own files.
