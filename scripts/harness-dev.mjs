@@ -161,7 +161,9 @@ if (SANDBOX === "nono") {
     "/System/Volumes", "/System/Cryptexes", "/opt", "/opt/homebrew",
     join(home, ".local/bin"), join(home, ".local/share"),
   ];
-  const sysRw = ["/dev", "/private/tmp", "/private/var/folders"];
+  // /tmp is a symlink to /private/tmp on macOS; grant both so a harness that
+  // writes to the literal /tmp path (claude's runtime dir) isn't denied.
+  const sysRw = ["/dev", "/tmp", "/private/tmp", "/private/var/folders"];
   const grants = [
     ...sysRead.map((path) => ({ path, access: "read", type: "directory" })),
     ...sysRw.map((path) => ({ path, access: "readwrite", type: "directory" })),

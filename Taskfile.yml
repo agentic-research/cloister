@@ -107,6 +107,18 @@ tasks:
     generates:
       - target/release/capnpc-schema-bridge-zod
 
+  harness:sandbox:build:
+    desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Shares the nono/sigstore closure already compiled by `rs:verify` (host-extras), so it's cheap under a warm cargo cache. Wired into `verify:strict`."
+    dir: tools/harness-sandbox
+    cmds:
+      - cargo build --release
+    sources:
+      - src/**/*.rs
+      - Cargo.toml
+      - Cargo.lock
+    generates:
+      - target/release/cloister-harness
+
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
     deps: [schema-bridge:build]
@@ -1040,7 +1052,7 @@ tasks:
 
   verify:strict:
     desc: "Strict-only gates run after `lint`: external-process equivalence, stub smoke, Rust audit/host-extras, and generated drift checks."
-    deps: [wire:verify-roundtrip, smoke:leyline-stub, rs:verify, cluster:toml:roundtrip, emit:cloister-capnp:drift]
+    deps: [wire:verify-roundtrip, smoke:leyline-stub, rs:verify, harness:sandbox:build, cluster:toml:roundtrip, emit:cloister-capnp:drift]
 
   done:
     desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/` (mache-smell-rules-shaped). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
