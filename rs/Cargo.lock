@@ -294,6 +294,7 @@ dependencies = [
  "leyline-cas-ffi",
  "leyline-sign",
  "rand",
+ "serde_json",
  "sha2",
 ]
 
