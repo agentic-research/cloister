@@ -30,6 +30,7 @@ export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
     workerdServiceName: z.string(),
     hypervisorRationale: z.string(),
     perTenant: z.boolean(),
+    confinement: ConfinementSchema,
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
       z.object({ external: ExternalBundleSchema }).strict(),
@@ -44,6 +45,7 @@ export interface Bundle {
   workerdServiceName: string;
   hypervisorRationale: string;
   perTenant: boolean;
+  confinement: Confinement;
   kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
 }
 
@@ -202,6 +204,61 @@ export interface ExternalBundle {
   httpPort: number;
   args: readonly string[];
   env: readonly EnvVar[];
+}
+
+export const ConfinementSchema: z.ZodType<Confinement> = z.lazy(() =>
+  z.object({
+    fs: ConfinementFsSchema,
+    network: ConfinementNetworkSchema,
+    port: ConfinementPortSchema,
+    credentialSource: z.string(),
+  }).strict());
+
+export interface Confinement {
+  fs: ConfinementFs;
+  network: ConfinementNetwork;
+  port: ConfinementPort;
+  credentialSource: string;
+}
+
+export const ConfinementFsSchema: z.ZodType<ConfinementFs> = z.lazy(() =>
+  z.object({
+    allow: z.array(FsAllowEntrySchema).readonly(),
+  }).strict());
+
+export interface ConfinementFs {
+  allow: readonly FsAllowEntry[];
+}
+
+export const ConfinementNetworkSchema: z.ZodType<ConfinementNetwork> = z.lazy(() =>
+  z.object({
+    allowHosts: z.array(z.string()).readonly(),
+  }).strict());
+
+export interface ConfinementNetwork {
+  allowHosts: readonly string[];
+}
+
+export const ConfinementPortSchema: z.ZodType<ConfinementPort> = z.lazy(() =>
+  z.object({
+    bind: z.number().int().nonnegative(),
+    address: z.string(),
+  }).strict());
+
+export interface ConfinementPort {
+  bind: number;
+  address: string;
+}
+
+export const FsAllowEntrySchema: z.ZodType<FsAllowEntry> = z.lazy(() =>
+  z.object({
+    path: z.string(),
+    mode: z.string(),
+  }).strict());
+
+export interface FsAllowEntry {
+  path: string;
+  mode: string;
 }
 
 export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>

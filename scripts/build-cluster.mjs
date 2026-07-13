@@ -54,7 +54,24 @@ try {
 
 // Defensive shape check + normalization. capnp eval's JSON emits
 // `transport: {"uds": null}` for the void union variant — the TS shape
-// already accepts this. Nothing to transform on this path.
+// already accepts this.
+//
+// cloister-a34edc: capnp omits unset (default) struct fields, so bundles that
+// don't declare a `[bundles.X.confinement]` come back WITHOUT the field. Inject
+// the empty deny-all default (fail-closed baseline, Inv 10) so the emitted const
+// satisfies the required `confinement` in the zod/TS Bundle — symmetric with
+// toml-to-cluster's normalizeConfinement.
+if (Array.isArray(json.bundles)) {
+  for (const b of json.bundles) {
+    if (!b || typeof b !== "object" || b.confinement) continue;
+    b.confinement = {
+      fs: { allow: [] },
+      network: { allowHosts: [] },
+      port: { bind: 0, address: "" },
+      credentialSource: "",
+    };
+  }
+}
 
 // Write the TS module.
 const body = JSON.stringify(json, null, 2);

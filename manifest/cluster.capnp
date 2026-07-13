@@ -199,6 +199,18 @@ struct Bundle {
   #
   # Append-only ordinal per ADR-0004.
   perTenant @8 :Bool;
+
+  # ── confinement (cloister-a34edc / cloister/confinement/v1) ─────────────
+  #
+  # This bundle's kernel-confinement declaration, conformant to LLO's
+  # cloister/confinement/v1 §5 ConfinementManifest (leyline-schema-spec @
+  # v0.7.3, SHA 2491ccd). All four dimensions are fail-closed default-DENY —
+  # enforced at build time by lint:bundle-isolation Inv 10. The BLAKE3-256 of
+  # the §6-canonical form is the `confinementDigest` committed to the bundle's
+  # Interlace identity (lane-2); enforce-time drift fails at the trust
+  # boundary. Kernel enforcement is the compute-substrate's job (ADR-0044);
+  # this facet declares + attests. Omitted = no confinement declared.
+  confinement @9 :Confinement;
 }
 
 enum Tier {
@@ -252,6 +264,46 @@ struct ExternalBundle {
 struct EnvVar {
   name  @0 :Text;
   value @1 :Text;
+}
+
+# ── Confinement: cloister/confinement/v1 §5 ConfinementManifest ────────────
+#
+# The vendor-neutral kernel-confinement contract (LLO leyline-schema-spec
+# confinement/v1 @ v0.7.3, SHA 2491ccd). Four orthogonal capability boundaries,
+# every one fail-closed default-DENY: anything not explicitly allowed is denied
+# at the kernel boundary; there is no "unrestricted" mode. Cloister emits the
+# §6-canonical JSON + the BLAKE3-256 `confinementDigest` via cloister-cas — the
+# conformance gate is rs/crates/cas/tests/confinement_digest.rs.
+struct Confinement {
+  fs               @0 :ConfinementFs;
+  network          @1 :ConfinementNetwork;
+  port             @2 :ConfinementPort;
+  # §5 credentialSource: the vault backend URL (e.g. "keychain://…") validated
+  # before nono::keystore::load_secret_by_ref. "" = no credential vending.
+  credentialSource @3 :Text;
+}
+
+# §2 fs.allow — path prefixes at directory boundaries. mode "" = read-only,
+# "rw" = read-write. Empty/omitted list = deny all filesystem access.
+struct ConfinementFs {
+  allow @0 :List(FsAllowEntry);
+}
+struct FsAllowEntry {
+  path @0 :Text;
+  mode @1 :Text;   # "" (read-only) | "rw"
+}
+
+# §3 network.allowHosts — egress hostname allow-list ("*." wildcard prefix
+# permitted; other wildcards rejected). Empty/omitted = no egress at all.
+struct ConfinementNetwork {
+  allowHosts @0 :List(Text);
+}
+
+# §4 port.bind — a single listener port the bundle may bind (1024-65535; 0 = no
+# listener) + optional bind address (default 127.0.0.1).
+struct ConfinementPort {
+  bind    @0 :UInt16;
+  address @1 :Text;
 }
 
 # ── Wire: service-binding relationship between bundles ────────────────────

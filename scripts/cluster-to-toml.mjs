@@ -311,7 +311,22 @@ function pruneBundleScalarDefaults(scalars) {
   if (flat.workerdServiceName === "") delete flat.workerdServiceName;
   if (flat.hypervisorRationale === "") delete flat.hypervisorRationale;
   if (flat.perTenant === false) delete flat.perTenant;
+  // cloister-a34edc: the §5 confinement facet is omitted from TOML when it's
+  // the empty deny-all default (no bundle has opted in) — symmetric with the
+  // default applied in toml-to-cluster's normalizeConfinement.
+  if (isEmptyConfinement(flat.confinement)) delete flat.confinement;
   return flat;
+}
+
+// True when a Confinement is the empty deny-all default (every dimension empty).
+function isEmptyConfinement(c) {
+  if (!c || typeof c !== "object") return true;
+  const fsEmpty = !c.fs || !Array.isArray(c.fs.allow) || c.fs.allow.length === 0;
+  const netEmpty =
+    !c.network || !Array.isArray(c.network.allowHosts) || c.network.allowHosts.length === 0;
+  const portEmpty = !c.port || ((c.port.bind ?? 0) === 0 && (c.port.address ?? "") === "");
+  const credEmpty = (c.credentialSource ?? "") === "";
+  return fsEmpty && netEmpty && portEmpty && credEmpty;
 }
 
 function canonicalizeBundleKindPayload(tag, payload) {
