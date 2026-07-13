@@ -59,6 +59,12 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 # crate's dev-dep convention.
 blake3 = "1"
 
+# For examples/confinement-digest.rs — the §6 canonical serializer for
+# cloister/confinement/v1 ConfinementManifests (cloister-a34edc). serde_json's
+# default Map is a sorted BTreeMap (preserve_order off), which gives §6.2's
+# ASCII-sorted keys; to_string_pretty gives 2-space indent.
+serde_json = "1"
+
 # For `examples/mint-dev-cert.rs` (the ADR-0042 dev-cert minter, re-homed here
 # after PR #119 dropped the leyline-sign fork it used to live in). Versions are
 # pinned to match LLO's leyline-sign (rev 6d13126) so the `SigningKey` type

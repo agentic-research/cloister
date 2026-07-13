@@ -459,6 +459,35 @@ function unflattenBundleKind(b) {
   return normalizeBundleDefaults(result);
 }
 
+// cloister-a34edc: normalize the §5 confinement facet (cloister/confinement/v1).
+// Missing → the empty deny-all manifest (fail-closed). fs.allow entries may be a
+// bare string (read-only) or `{path, mode:"rw"}`; both normalize to the typed
+// {path, mode} shape the capnp schema uses. Empty every dimension = DENY.
+function normalizeConfinement(c) {
+  const src = c && typeof c === "object" ? c : {};
+  const fs = src.fs && typeof src.fs === "object" ? src.fs : {};
+  const network = src.network && typeof src.network === "object" ? src.network : {};
+  const port = src.port && typeof src.port === "object" ? src.port : {};
+  return {
+    fs: {
+      allow: (Array.isArray(fs.allow) ? fs.allow : []).map((e) =>
+        typeof e === "string"
+          ? { path: e, mode: "" }
+          : {
+              path: typeof e?.path === "string" ? e.path : "",
+              mode: e?.mode === "rw" ? "rw" : "",
+            },
+      ),
+    },
+    network: { allowHosts: Array.isArray(network.allowHosts) ? network.allowHosts : [] },
+    port: {
+      bind: typeof port.bind === "number" ? port.bind : 0,
+      address: typeof port.address === "string" ? port.address : "",
+    },
+    credentialSource: typeof src.credentialSource === "string" ? src.credentialSource : "",
+  };
+}
+
 function normalizeBundleDefaults(bundle) {
   if (!bundle || typeof bundle !== "object") return bundle;
 
@@ -469,6 +498,10 @@ function normalizeBundleDefaults(bundle) {
     workerdServiceName:  typeof bundle.workerdServiceName === "string" ? bundle.workerdServiceName : "",
     hypervisorRationale: typeof bundle.hypervisorRationale === "string" ? bundle.hypervisorRationale : "",
     perTenant:           typeof bundle.perTenant === "boolean" ? bundle.perTenant : false,
+    // cloister-a34edc: the §5 confinement facet. Defaults to the empty
+    // (deny-all) manifest for bundles that don't declare one — which is the
+    // fail-closed baseline (Inv 10). Operators opt in by declaring `[bundles.X.confinement]`.
+    confinement:         normalizeConfinement(bundle.confinement),
   };
 
   if (result.kind && typeof result.kind === "object" && !Array.isArray(result.kind) && result.kind.external) {

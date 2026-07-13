@@ -63,6 +63,15 @@ const EMPTY_GATEWAY = {
 };
 
 /** A minimal cluster shape that passes ClusterSchema. */
+// cloister-a34edc: the empty deny-all confinement — the schema default every
+// bundle carries unless it opts in (fail-closed baseline, Inv 10).
+const EMPTY_CONFINEMENT = {
+  fs: { allow: [] },
+  network: { allowHosts: [] },
+  port: { bind: 0, address: "" },
+  credentialSource: "",
+};
+
 function minimalCluster() {
   return {
     metadata: { name: "test-cluster", version: "0.0.1" },
@@ -74,6 +83,7 @@ function minimalCluster() {
         holdsCredential: [],
         workerdServiceName: "",
         hypervisorRationale: "",
+        confinement: EMPTY_CONFINEMENT,
         kind: {
           external: {
             image: "alpha:0.1",
@@ -114,6 +124,7 @@ function richCluster() {
         workerdServiceName: "router",
         hypervisorRationale: "Mediates all traffic. Singleton.",
         perTenant: false,
+        confinement: EMPTY_CONFINEMENT,
         kind: {
           external: {
             image: "router:0.1",
@@ -132,6 +143,7 @@ function richCluster() {
         workerdServiceName: "",
         hypervisorRationale: "",
         perTenant: false,
+        confinement: EMPTY_CONFINEMENT,
         kind: { workerd: { entryPoint: "src/bundles/tool/index.ts" } },
       },
     ],
