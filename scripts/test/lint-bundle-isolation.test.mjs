@@ -128,6 +128,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       holdsCredential = [],
       hypervisorRationale,
       perTenant = false,
+      confinement,
       image = `${name}:test`,
     }) => ({
       name,
@@ -141,6 +142,9 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       // cloister-cedcf3 Phase 1: perTenant defaults false; tests override
       // by passing perTenant: true on a bundle in the fixture.
       perTenant,
+      // cloister-a34edc: Inv 11 confinement facet — tests pass a malformed
+      // confinement to exercise the §2-4 validity checks.
+      ...(confinement ? { confinement } : {}),
       kind: {
         external: {
           image,
@@ -253,6 +257,38 @@ test("clean baseline — single hypervisor bundle with no extra bindings", () =>
     const r = runLint(scenario.workDir, scenario.clusterTsPath);
     assert.equal(r.status, 0, `expected clean lint pass, got: ${r.stderr}\nstdout:${r.stdout}`);
     assert.match(r.stdout, /clean ✓/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 11 — a malformed confinement facet (non-canonical fs, bad wildcard, privileged port) is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        {
+          name: "alpha",
+          tier: "cluster",
+          confinement: {
+            fs: { allow: [{ path: "relative/not-absolute", mode: "rw" }] }, // §2: not absolute
+            network: { allowHosts: ["api.*.example.com"] }, // §3: wildcard not leading "*."
+            port: { bind: 80, address: "" }, // §4: privileged port
+            credentialSource: "",
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, `expected Inv 11 violation, got status=${r.status}\n${r.stderr}`);
+    assert.match(r.stderr, /Inv 11/);
+    assert.match(r.stderr, /confinement/);
   } finally {
     scenario.cleanup();
   }

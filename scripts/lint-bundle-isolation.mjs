@@ -909,6 +909,58 @@ function checkInvariant10(cluster, ociByInput, warnings) {
   }
 }
 
+/**
+ * Inv 11 (cloister-a34edc, cloister/confinement/v1) — a declared confinement
+ * facet must be valid + fail-closed. The four dimensions are allow-lists with no
+ * "unrestricted" escape hatch (fail-closed by construction), so this enforces the
+ * §2-4 validity constraints a malformed/over-broad declaration would break:
+ *   §2 fs.allow  — absolute canonical path prefixes; mode "" (ro) | "rw".
+ *   §3 allowHosts — wildcard only as a leading "*.".
+ *   §4 port.bind — 0 (no listener) or 1024-65535 (privileged ports out of scope).
+ * The empty deny-all default (no entries) passes trivially.
+ */
+function checkInvariant11(cluster, violations) {
+  for (const b of cluster.bundles ?? []) {
+    const c = b.confinement;
+    if (!c || typeof c !== "object") continue;
+    const where = `bundle "${b.name}" confinement`;
+    for (const e of c.fs?.allow ?? []) {
+      const path = typeof e === "string" ? e : e?.path;
+      const mode = typeof e === "string" ? "" : (e?.mode ?? "");
+      if (
+        typeof path !== "string" ||
+        !path.startsWith("/") ||
+        path.split("/").some((s) => s === "." || s === "..")
+      ) {
+        violations.push(
+          `${where}: fs.allow ${JSON.stringify(path)} is not an absolute canonical ` +
+            `prefix (Inv 11, confinement/v1 §2).`,
+        );
+      }
+      if (mode !== "" && mode !== "rw") {
+        violations.push(
+          `${where}: fs.allow mode ${JSON.stringify(mode)} invalid — only "" (ro) or ` +
+            `"rw" (Inv 11, §2).`,
+        );
+      }
+    }
+    for (const h of c.network?.allowHosts ?? []) {
+      if (typeof h === "string" && h.includes("*") && !h.startsWith("*.")) {
+        violations.push(
+          `${where}: network.allowHosts ${JSON.stringify(h)} — a wildcard is only ` +
+            `permitted as a leading "*." (Inv 11, §3).`,
+        );
+      }
+    }
+    const bind = c.port?.bind ?? 0;
+    if (bind !== 0 && (bind < 1024 || bind > 65535)) {
+      violations.push(
+        `${where}: port.bind ${bind} out of range — 0 (none) or 1024-65535 (Inv 11, §4).`,
+      );
+    }
+  }
+}
+
 const violations = [];
 const warnings = [];
 
@@ -928,6 +980,7 @@ checkInvariant7(cluster, violations);
 checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
 checkInvariant10(cluster, loadOciByInput(), warnings);
+checkInvariant11(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -970,4 +1023,4 @@ const imagelessExternal = (cluster.bundles ?? []).filter(
   (b) => "external" in b.kind && !b.kind.external.image,
 ).length;
 console.log(`  ${imagelessExternal} image-less external bundle(s) checked for Inv 10 (ADR-0038 oci derivation)`);
-console.log(`  invariants 1–10 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation)`);
+console.log(`  invariants 1–11 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity)`);
