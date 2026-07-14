@@ -62,6 +62,38 @@ strictly for filesystem + process confinement. Whether cloister should
 some day *delegate* credential injection to nono's proxy (or keep its
 own) is an open design question — a future ADR, not this wiring.
 
+## §7 confinement commitment (cloister-c80953)
+
+The policy may carry an optional `confinement` block — the confinement/v1
+manifest this workload is bound to, plus its Interlace identity cert and the CA
+master pubkey:
+
+```json
+"confinement": {
+  "manifest": { "version": "cloister/confinement/v1", "fs": { … }, … },
+  "cert_der_b64url": "…",
+  "master_pub_b64std": "…"
+}
+```
+
+When present, the runner — **before** the irreversible `Sandbox::apply` —
+`verify_cert_chain`s the cert against the master, extracts the committed
+`confinementDigest` (Interlace extension OID `.1.7`), recomputes the BLAKE3-256
+of the §6-canonical manifest it is about to enforce, and **refuses to confine on
+any mismatch**. This is fail-closed: a cert that commits *no* digest, a cert that
+doesn't verify, or a manifest that digests differently all `bail!` before the
+harness ever execs.
+
+**Digest-required is expressed by presence of the block.** A policy that carries
+a `confinement` block requires a valid, digest-committing cert — there is no
+opt-out once it's declared. A policy *without* the block runs the harness
+confined but un-attested: that is a deliberate deployment choice (dev / legacy),
+the same **deployment-binding granularity** the lease gate uses with
+`INTERLACE_ROOT_PUBKEY` — NOT a per-request bypass. `scripts/harness-dev.mjs`
+always emits the block, so `task harness:dev` is attested end-to-end. A
+per-bundle "digest mandatory in non-dev mode" knob is a future ADR concern
+(multi-bundle confinement), not this wiring.
+
 ## Tests
 
 `test/nono-isolation.test.mjs` (node:test, part of `task lint` via

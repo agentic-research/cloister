@@ -1,7 +1,7 @@
 ---
 title: "Threat model — Interlace lease + attestation surface"
 status: Living (drafted 2026-05-09; status-update 2026-05-10 — see callout below)
-scope: cloister-bd7770 (lease middleware, shipped), cloister-9d49eb (cert chain verifier, shipped), cloister-bd5241 (TS wrapper, shipped), cloister-bdcbe7 (peer_attestations, shipped), cloister-bdef0c (disclosure endpoint, shipped)
+scope: cloister-bd7770 (lease middleware, shipped), cloister-9d49eb (cert chain verifier, shipped), cloister-bd5241 (TS wrapper, shipped), cloister-bdcbe7 (peer_attestations, shipped), cloister-bdef0c (disclosure endpoint, shipped), cloister-c80953 (confinement/v1 §7 identity-digest verify — the runner recomputes the enforced manifest's BLAKE3 digest and fail-closes against the cert-committed value before Sandbox::apply; shipped)
 related_adrs:
   - 0007-interlace-substrate.md
   - 0011-hypervisor-bundle-boundary.md
