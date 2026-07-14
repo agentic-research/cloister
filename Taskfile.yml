@@ -108,7 +108,7 @@ tasks:
       - target/release/capnpc-schema-bridge-zod
 
   harness:sandbox:build:
-    desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Shares the nono/sigstore closure already compiled by `rs:verify` (host-extras), so it's cheap under a warm cargo cache. Wired into `verify:strict`."
+    desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
     dir: tools/harness-sandbox
     cmds:
       - cargo build --release
