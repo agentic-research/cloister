@@ -30,6 +30,10 @@
     // — exclude these files from the verify compile.
     // cas-hash.ts excluded per cloister-db0740 (followup to cloister-713b4e).
     "src/wire/signet-verify.ts",
-    "src/wire/cas-hash.ts"
+    "src/wire/cas-hash.ts",
+    // confinement-digest.ts imports cas-hash (BLAKE3 via wasm) for the §7
+    // confinementDigest; same reason — it's not part of the wire codec the
+    // substrate-equivalence smoke exercises. Excluded per cloister-c80953.
+    "src/wire/confinement-digest.ts"
   ]
 }
