@@ -712,8 +712,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-sign"
-version = "0.6.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=6d13126cea6aabf027053ead3bbd01265cd32a99#6d13126cea6aabf027053ead3bbd01265cd32a99"
+version = "0.7.6"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=a6eba83a5672dd75a0ea64f34abd9dde1030250f#a6eba83a5672dd75a0ea64f34abd9dde1030250f"
 dependencies = [
  "axum",
  "base64ct",

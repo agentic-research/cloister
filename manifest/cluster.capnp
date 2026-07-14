@@ -205,11 +205,13 @@ struct Bundle {
   # This bundle's kernel-confinement declaration, conformant to LLO's
   # cloister/confinement/v1 §5 ConfinementManifest (leyline-schema-spec @
   # v0.7.3, SHA 2491ccd). All four dimensions are fail-closed default-DENY —
-  # enforced at build time by lint:bundle-isolation Inv 10. The BLAKE3-256 of
+  # enforced at build time by lint:bundle-isolation Inv 11. The BLAKE3-256 of
   # the §6-canonical form is the `confinementDigest` committed to the bundle's
-  # Interlace identity (lane-2); enforce-time drift fails at the trust
-  # boundary. Kernel enforcement is the compute-substrate's job (ADR-0044);
-  # this facet declares + attests. Omitted = no confinement declared.
+  # Interlace identity (lane-2) as cert extension OID 1.3.6.1.4.1.99999.1.7
+  # (LLO v0.7.6). cloister parses + length-checks that claim at lease-verify
+  # time (cloister-c80953); enforce-time drift-rejection against the enforced
+  # manifest is the compute-substrate runner's job (ADR-0044). This facet
+  # declares + attests. Omitted = no confinement declared.
   confinement @9 :Confinement;
 }
 

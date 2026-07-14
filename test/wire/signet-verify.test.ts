@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   SignetWasmError,
+  _parseClaimsJson,
   _resetInstance,
   allocWasmBuffer,
   freeWasmBuffer,
@@ -226,6 +227,18 @@ describe("verifyCertChain", () => {
     expect(result.claims.scope).toBeUndefined();
   });
 
+  it("full cert minted before v0.7.6 carries no confinementDigest (absent stays undefined)", () => {
+    // The golden CERT_FULL fixture predates the OID …1.7 extension, so a
+    // real verified cert without a `cd` claim must leave confinementDigest
+    // undefined — the fail-open-on-optionality half of cloister-c80953.
+    const cert = b64uDecode(CERT_FULL_B64);
+    const result = verifyCertChain(cert, masterPubkey);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims.confinementDigest).toBeUndefined();
+  });
+
   it("rejects cert when master pubkey doesn't match the issuer", () => {
     const cert = b64uDecode(CERT_FULL_B64);
     const wrongMaster = new Uint8Array(32).fill(0xAA);
@@ -334,5 +347,72 @@ describe("verifyCertChain", () => {
     // wasm grows in 64KB pages; 2 pages of slack swallows runtime
     // bookkeeping while still catching unbounded per-call growth.
     expect(delta).toBeLessThanOrEqual(128 * 1024);
+  });
+});
+
+// ── confinementDigest ("cd") claim parsing (cloister-c80953) ─────────────
+//
+// The LLO v0.7.6 wasm emits `"cd":"<base64url-nopad>"` (32-byte BLAKE3-256 of
+// the §6-canonical ConfinementManifest, OID 1.3.6.1.4.1.99999.1.7). The wasm
+// already length-checks the DER OctetString; these unit tests exercise the
+// TS-side re-assertion in `_parseClaimsJson` directly, since the golden cert
+// fixtures predate the extension (the fixture generator lives upstream in LLO).
+
+/** base64url (no padding) encode — inverse of the fixture `b64uDecode`. */
+function b64uEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+describe("_parseClaimsJson — cd (confinementDigest) claim", () => {
+  // A minimal well-formed claims object the wasm would emit: epk is a valid
+  // 32-byte base64url pubkey (reuse the fixture), plus the required nb/na.
+  const baseClaims = { epk: EPHEMERAL_PUBKEY_B64, nb: NOT_BEFORE, na: NOT_AFTER };
+  const digest32 = new Uint8Array(32).map((_, i) => (i * 7 + 3) & 0xff);
+
+  it("parses a valid 32-byte cd into confinementDigest", () => {
+    const json = JSON.stringify({ ...baseClaims, cd: b64uEncode(digest32) });
+    const result = _parseClaimsJson(json);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims.confinementDigest).toBeDefined();
+    expect(Array.from(result.claims.confinementDigest!)).toEqual(Array.from(digest32));
+  });
+
+  it("leaves confinementDigest undefined when cd is absent", () => {
+    const result = _parseClaimsJson(JSON.stringify(baseClaims));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims.confinementDigest).toBeUndefined();
+  });
+
+  it("hard-rejects a cd whose length is not 32 bytes", () => {
+    const digest16 = new Uint8Array(16).fill(0xab);
+    const json = JSON.stringify({ ...baseClaims, cd: b64uEncode(digest16) });
+    const result = _parseClaimsJson(json);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cd wrong length/i);
+  });
+
+  it("rejects a cd that is not valid base64url", () => {
+    const json = JSON.stringify({ ...baseClaims, cd: "bad*base64*chars" });
+    const result = _parseClaimsJson(json);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cd not valid base64url/i);
+  });
+
+  it("ignores a non-string cd (defensive — treated as absent)", () => {
+    const json = JSON.stringify({ ...baseClaims, cd: 12345 });
+    const result = _parseClaimsJson(json);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.claims.confinementDigest).toBeUndefined();
   });
 });
