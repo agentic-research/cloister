@@ -157,10 +157,13 @@ sufficient.
 
 ## In-flight substrate work (ADRs 0007–0036)
 
-Per-ADR status lives in [`docs/STATUS.md`](docs/STATUS.md); the table
-below names the post-0007 decade additions + their decade-thread
-home. When a new ADR lands, update STATUS.md first; this table is
-the decade-thread index only.
+Per-ADR **design** status is generated at
+[`docs/adr/INDEX.md`](docs/adr/INDEX.md) from each ADR's frontmatter;
+**implementation** status lives in the ADR's tracking bead + git — never
+hand-restated in prose (see the source-of-truth note above; this is why
+we don't keep a parallel status ledger). The table below is the
+decade-thread index only: it names the post-0007 decade additions +
+their decade-thread home.
 
 | ADR | Decade thread |
 |---|---|
