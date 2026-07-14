@@ -407,12 +407,15 @@ describe("_parseClaimsJson — cd (confinementDigest) claim", () => {
     expect(result.reason).toMatch(/cd not valid base64url/i);
   });
 
-  it("ignores a non-string cd (defensive — treated as absent)", () => {
+  it("hard-rejects a present-but-non-string cd (fail-closed on presence)", () => {
+    // A `cd` key that is present but not a string is a malformed claim, not an
+    // absent one — reject rather than silently drop the commitment. Absence
+    // (no `cd` key) stays legacy-compat, covered above.
     const json = JSON.stringify({ ...baseClaims, cd: 12345 });
     const result = _parseClaimsJson(json);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.claims.confinementDigest).toBeUndefined();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cd present but not a string/i);
   });
 });

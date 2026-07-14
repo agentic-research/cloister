@@ -381,10 +381,18 @@ export function _parseClaimsJson(json: string): CertChainResult {
   // otherwise; we re-assert here on the base64url form so a mis-sized digest is
   // a hard-reject at the parse boundary rather than a silently-truncated claim
   // (mirrors LLO's fail-closed-on-presence). Per cloister-c80953.
-  if (typeof parsed["cd"] === "string") {
+  // Fail-closed ON PRESENCE: absence of `cd` is legacy-compat (undefined
+  // confinementDigest), but a `cd` that IS present must be a well-formed 32-byte
+  // base64url string. A present-but-non-string `cd` is a malformed claim, not an
+  // absent one — reject it rather than silently dropping the commitment.
+  if ("cd" in parsed) {
+    const cd = parsed["cd"];
+    if (typeof cd !== "string") {
+      return { ok: false, reason: "claims cd present but not a string" };
+    }
     let confinementDigest: Uint8Array;
     try {
-      confinementDigest = b64decode(parsed["cd"] as string);
+      confinementDigest = b64decode(cd);
     } catch {
       return { ok: false, reason: "claims cd not valid base64url" };
     }
