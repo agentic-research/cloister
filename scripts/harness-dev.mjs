@@ -73,12 +73,32 @@ if (!AUDIT && !apiKey && !SETUP_ONLY) {
 }
 console.error(`harness:dev — ${AUDIT ? "AUDIT mode (Max/OAuth — forward harness auth + receipt; no key vaulted)" : "CUSTODY mode (API key vaulted + injected)"}.`);
 
-// 1. Mint a fresh dev identity.
+// The confinement/v1 manifest the harness identity commits to (§7,
+// cloister-c80953). A STABLE profile declaration — not per-run paths — so the
+// digest the minter commits into the cert matches the one the runner recomputes
+// over the SAME manifest inlined in the policy. The nono CapabilityManifest below
+// is the kernel-plane enforcement; this is its confinement/v1 shadow (the
+// documented impedance: the localhost vault-proxy egress maps to allowHosts
+// ["127.0.0.1"], no listener → port.bind 0). Both halves are one declaration.
+const CONFINEMENT_MANIFEST = {
+  version: "cloister/confinement/v1",
+  fs: { allow: [{ path: "workspace", mode: "rw" }, { path: "state", mode: "rw" }] },
+  network: { allowHosts: ["127.0.0.1"] },
+  port: { bind: 0 },
+  credentialSource: "vault://anthropic",
+};
+const CONFINEMENT_MANIFEST_PATH = resolve(ROOT, ".harness-confinement.json");
+writeFileSync(CONFINEMENT_MANIFEST_PATH, JSON.stringify(CONFINEMENT_MANIFEST, null, 2));
+
+// 1. Mint a fresh dev identity. CLOISTER_CONFINEMENT_MANIFEST points the minter
+// at the manifest above so the cert commits its §6/BLAKE3 digest (Interlace
+// extension OID .1.7) — the anchor the runner's §7 check verifies against.
 console.error("harness:dev — minting a fresh ephemeral dev master + cert…");
 const dev = JSON.parse(
   execFileSync("cargo", ["run", "-q", "-p", "cloister-cas", "--example", "mint-dev-cert"], {
     cwd: resolve(ROOT, "rs"),
     encoding: "utf8",
+    env: { ...process.env, CLOISTER_CONFINEMENT_MANIFEST: CONFINEMENT_MANIFEST_PATH },
   }),
 );
 
@@ -187,6 +207,14 @@ if (SANDBOX === "nono") {
       // port as the only egress. cloister-harness refuses any non-blocked mode.
       network: { mode: "blocked", ports: { localhost: [Number(SHIM_PORT)] } },
     },
+    // §7 confinement commitment (cloister-c80953): the runner verifies, BEFORE
+    // Sandbox::apply, that this manifest matches the digest committed in dev's
+    // identity cert — fail-closed on drift. Same manifest the minter digested.
+    confinement: {
+      manifest: CONFINEMENT_MANIFEST,
+      cert_der_b64url: dev.certDerB64Url,
+      master_pub_b64std: dev.masterPubB64Std,
+    },
     // Credentials never enter the confined env — cloister injects at the proxy.
     env_strip: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
     env_set: { ANTHROPIC_BASE_URL: BASE_URL },
@@ -230,6 +258,7 @@ const cleanup = () => {
   // this is the interim guard.)
   try { rmSync(resolve(ROOT, ".dev.vars"), { force: true }); } catch { /* best-effort */ }
   try { rmSync(resolve(ROOT, ".harness-policy.json"), { force: true }); } catch { /* best-effort */ }
+  try { rmSync(CONFINEMENT_MANIFEST_PATH, { force: true }); } catch { /* best-effort */ }
   process.exit(0);
 };
 process.on("SIGINT", cleanup);

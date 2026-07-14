@@ -28,6 +28,7 @@
 //
 // Run: cargo run -q --example mint-dev-cert -p cloister-cas  (invoked by `task harness:dev`)
 
+use cloister_cas::leyline_hash_bytes;
 use ed25519_dalek::SigningKey;
 use leyline_sign::cert_chain::tests_helpers::mint_test_cert;
 use rand::RngCore;
@@ -73,6 +74,37 @@ fn jstr(s: &str) -> String {
     out
 }
 
+/// Compute the §7 `confinementDigest` this cert should commit to, if a
+/// confinement/v1 manifest is declared via `CLOISTER_CONFINEMENT_MANIFEST`
+/// (a path to the manifest JSON). Returns `None` when unset — a dev cert
+/// with no confinement commitment (legacy shape; the runner's §7 check is a
+/// no-op when the policy carries no commitment).
+///
+/// The digest is BLAKE3-256 of the §6-CANONICAL manifest bytes (ASCII-sorted
+/// keys at every level, 2-space indent, no trailing newline), computed via
+/// cloister's substrate hash — the SAME algorithm `examples/confinement-digest.rs`
+/// and `src/wire/confinement-digest.ts` use, so the runner (which recomputes
+/// over the manifest it is about to enforce) reaches a byte-identical value.
+fn confinement_digest_from_env() -> Option<[u8; 32]> {
+    let path = std::env::var("CLOISTER_CONFINEMENT_MANIFEST").ok()?;
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read confinement manifest {path}: {e}"));
+    // §6 canonicalization: parse → serde_json::Value (default Map is a sorted
+    // BTreeMap → §6.2 ASCII-sorted keys) → to_string_pretty (2-space, §6.4) →
+    // strip trailing newline so the last byte is `}` (§6.3).
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).expect("confinement manifest is not valid JSON");
+    let pretty = serde_json::to_string_pretty(&value).expect("serialize confinement manifest");
+    let canonical = pretty.trim_end_matches('\n').as_bytes().to_vec();
+    let mut out = [0u8; 32];
+    // SAFETY: valid input slice; 32-byte output buffer matches BLAKE3-256.
+    let rc = unsafe {
+        leyline_hash_bytes(canonical.as_ptr(), canonical.len(), out.as_mut_ptr(), out.len())
+    };
+    assert_eq!(rc, 32, "leyline_hash_bytes returned {rc}, expected 32");
+    Some(out)
+}
+
 fn main() {
     let master = random_signing_key();
     let ephemeral = random_signing_key();
@@ -102,6 +134,12 @@ fn main() {
     // scope lands (cloister-c3d5ec).
     let scope = "*";
 
+    // §7 confinement commitment: the digest of the confinement/v1 manifest this
+    // workload is bound to, committed into the cert (Interlace extension OID
+    // .1.7). `None` when no manifest is declared — a legacy dev cert. The runner
+    // recomputes over the manifest it enforces and fail-closes on mismatch.
+    let confinement_digest = confinement_digest_from_env();
+
     let cert = mint_test_cert(
         &master,
         &ephemeral,
@@ -110,7 +148,13 @@ fn main() {
         Some(epoch),
         Some(&peer_fp),
         Some(scope),
+        confinement_digest,
     );
+
+    let confinement_digest_json = match confinement_digest {
+        Some(d) => jstr(&d.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+        None => "null".to_string(),
+    };
 
     println!("{{");
     println!("  \"masterPubB64Std\": {},", jstr(&b64std(master.verifying_key().as_bytes())));
@@ -119,6 +163,7 @@ fn main() {
     println!("  \"ephemeralPubB64Url\": {},", jstr(&b64url(ephemeral.verifying_key().as_bytes())));
     println!("  \"peerFp\": {},", jstr(&peer_fp));
     println!("  \"scope\": {},", jstr(scope));
+    println!("  \"confinementDigestHex\": {confinement_digest_json},");
     println!("  \"epoch\": {epoch},");
     println!("  \"notBefore\": {not_before},");
     println!("  \"notAfter\": {not_after}");
