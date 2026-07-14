@@ -134,13 +134,41 @@ jobs:
         # --noEmit → vitest in workerd → CC plugin's node:test suite.
         run: task lint
 
+  # Path filter: does this PR touch the substrate (rust / wire codec / manifest /
+  # build)? If so, `verify` runs on the PR — catching verify-breaks BEFORE merge
+  # (the gap that let #130 land a broken verify). Non-substrate PRs stay
+  # lint-only for fast feedback. Push events always verify (shortcut below).
+  changes:
+    name: changes (verify path filter)
+    runs-on: ubuntu-latest
+    outputs:
+      verify: ${{ steps.filter.outputs.verify }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "verify=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD")
+          if printf '%s\n' "$files" | grep -qE '^(rs/|src/wire/|tools/harness-sandbox/|manifest/|cluster\.capnp|Taskfile\.yml|\.github/workflows/ci\.yml)'; then
+            echo "verify=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "verify=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
     name: verify (strict — substrate equivalence + smoke)
-    # PRs run lint only to keep PR feedback fast; verify gates main pushes.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Runs on every main push AND on PRs that touch the substrate (see `changes`).
+    # Non-substrate PRs stay lint-only for fast feedback.
+    needs: [lint, changes]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      needs.changes.outputs.verify == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: lint
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -201,6 +229,19 @@ jobs:
         # AND `rs:sign:host-extras` + `rs:audit`; pre-warming avoids
         # the parallel rustup-download race.
         run: cd rs && cargo --version && rustc --version
+
+      - name: Cache harness-sandbox target (nono/sigstore closure — ~4min cold)
+        # tools/harness-sandbox builds the nono (Seatbelt/Landlock) + sigstore
+        # closure into its OWN target dir — cargo namespaces compiled artifacts
+        # per target dir, so this is NOT shared with rs/target. Dedicated cache
+        # (own key, own path) so the lint job's rs/target cache can't lock a key
+        # that omits it. Only the verify job builds harness:sandbox:build.
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: tools/harness-sandbox/target
+          key: ${{ runner.os }}-harness-sandbox-${{ hashFiles('tools/harness-sandbox/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-harness-sandbox-
 
       - name: Install cargo-audit
         # `task rs:audit` (a verify dep) shells out to `cargo audit`.
