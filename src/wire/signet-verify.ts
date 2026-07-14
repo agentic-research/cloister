@@ -88,9 +88,12 @@ interface SignetWasmExports {
    * byte length on success, -1 on any failure.
    *
    * JSON shape (see rs/ll-open/sign/src/cert_chain.rs (LLO)::claims_to_json):
-   *   {"epk":"<base64url>","nb":<i64>,"na":<i64>,"ep":<u32>,"pf":"...","sc":"..."}
-   * `ep`, `pf`, `sc` are optional (omitted when cert lacks the matching
-   * Interlace extension).
+   *   {"epk":"<base64url>","nb":<i64>,"na":<i64>,"ep":<u32>,"pf":"...",
+   *    "sc":"...","cd":"<base64url>"}
+   * `ep`, `pf`, `sc`, `cd` are optional (omitted when cert lacks the matching
+   * Interlace extension). `cd` is the confinementDigest (32-byte BLAKE3-256
+   * of the §6-canonical ConfinementManifest) from OID 1.3.6.1.4.1.99999.1.7,
+   * added in LLO v0.7.6 (ley-line-open-c79ea8).
    */
   leyline_verify_cert_chain: (
     cert_der_ptr: number, cert_der_len: number,
@@ -242,16 +245,25 @@ export function freeWasmBuffer(
  *
  * `ephemeralPubkey` is the SubjectPublicKeyInfo's raw bytes (32 bytes for
  * Ed25519). `notBefore` / `notAfter` are Unix-seconds. The Interlace-
- * specific fields (`epoch`, `peerFp`, `scope`) are optional — present
- * only when the cert was minted with the matching custom-OID extension.
+ * specific fields (`epoch`, `peerFp`, `scope`, `confinementDigest`) are
+ * optional — present only when the cert was minted with the matching
+ * custom-OID extension.
+ *
+ * `confinementDigest` is the 32-byte BLAKE3-256 of the §6-canonical
+ * `ConfinementManifest` (cloister/confinement/v1 §7), committed into the
+ * workload's lane-2 Interlace identity as OID 1.3.6.1.4.1.99999.1.7 and
+ * carried inside the signed `tbs_certificate` span (a byte-flip breaks the
+ * Ed25519 signature). Present only for certs minted by LLO v0.7.6+
+ * (ley-line-open-c79ea8). Per cloister-c80953.
  */
 export interface CertClaims {
-  ephemeralPubkey: Uint8Array;
-  notBefore:       number;
-  notAfter:        number;
-  epoch?:          number;
-  peerFp?:         string;
-  scope?:          string;
+  ephemeralPubkey:    Uint8Array;
+  notBefore:          number;
+  notAfter:           number;
+  epoch?:             number;
+  peerFp?:            string;
+  scope?:             string;
+  confinementDigest?: Uint8Array;
 }
 
 export type CertChainResult =
@@ -309,7 +321,7 @@ export function verifyCertChain(
 
     const jsonBytes = new Uint8Array(exports.memory.buffer, claimsOutPtr, result).slice();
     const json = new TextDecoder().decode(jsonBytes);
-    return parseClaimsJson(json);
+    return _parseClaimsJson(json);
   } finally {
     exports.lsign_free(certPtr, certDer.length);
     exports.lsign_free(masterPtr, masterPubkey.length);
@@ -321,8 +333,13 @@ export function verifyCertChain(
  * Parse the wasm's compact claims JSON into a typed `CertClaims`.
  * Defensive — bad JSON or missing required fields return
  * `{ ok: false, reason }`.
+ *
+ * Underscore-prefixed (like `_resetInstance`) to mark it a test hook, not
+ * public API: the wasm is the only production caller (via `verifyCertChain`).
+ * Exposed so the optional-claim parsing (notably the `cd` confinementDigest
+ * length check, cloister-c80953) can be unit-tested without minting a cert.
  */
-function parseClaimsJson(json: string): CertChainResult {
+export function _parseClaimsJson(json: string): CertChainResult {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(json) as Record<string, unknown>;
@@ -358,6 +375,24 @@ function parseClaimsJson(json: string): CertChainResult {
   if (typeof parsed["ep"] === "number") claims.epoch  = parsed["ep"] as number;
   if (typeof parsed["pf"] === "string") claims.peerFp = parsed["pf"] as string;
   if (typeof parsed["sc"] === "string") claims.scope  = parsed["sc"] as string;
+
+  // Optional confinementDigest (cloister/confinement/v1 §7, OID …1.7). The wasm
+  // already length-checks the DER OctetString to exactly 32 bytes and rejects
+  // otherwise; we re-assert here on the base64url form so a mis-sized digest is
+  // a hard-reject at the parse boundary rather than a silently-truncated claim
+  // (mirrors LLO's fail-closed-on-presence). Per cloister-c80953.
+  if (typeof parsed["cd"] === "string") {
+    let confinementDigest: Uint8Array;
+    try {
+      confinementDigest = b64decode(parsed["cd"] as string);
+    } catch {
+      return { ok: false, reason: "claims cd not valid base64url" };
+    }
+    if (confinementDigest.length !== 32) {
+      return { ok: false, reason: "claims cd wrong length (expected 32 bytes BLAKE3-256)" };
+    }
+    claims.confinementDigest = confinementDigest;
+  }
 
   return { ok: true, claims };
 }
