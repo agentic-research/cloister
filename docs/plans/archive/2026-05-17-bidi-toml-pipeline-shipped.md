@@ -5,8 +5,8 @@
 > [`docs/adr/0025-bidi-toml-pipeline.md`](../../adr/0025-bidi-toml-pipeline.md);
 > `cluster.toml` is at the repo root; `task cluster:toml` chains
 > both legs. Preserved here for audit trail + as a worked example
-> of a TDD-shape plan run through to completion. See
-> [`docs/STATUS.md`](../../STATUS.md) for current state.
+> of a TDD-shape plan run through to completion. See the generated
+> [`adr/INDEX.md`](../../adr/INDEX.md) for current ADR status.
 
 ---
 

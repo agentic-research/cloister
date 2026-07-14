@@ -18,16 +18,14 @@ testing or for repo-specific extensions).
 ## Output shape
 
 ```
-task done: 5 rule(s) loaded from /path/to/done-rules
+task done: 4 rule(s) loaded from /path/to/done-rules
   ✓ lint-passes — task lint exits 0 (the project's fast-gate of record)
   ✓ branch-on-feature — current branch is feat/* | fix/* | chore/*
   ✓ bead-pinned — .rsry-bead-id exists and contains a non-empty bead id
-  ⚠ status-md-mentions-bead — docs/STATUS.md mentions the current bead-id
-      [exit=1] STATUS.md does not mention cloister-0d5e0f
   ⚠ no-uncommitted-noise — no untracked or modified files outside .beads/
       [exit=1] ?? scripts/new-thing.mjs
 
-task done: 3 pass, 2 warn, 0 block
+task done: 3 pass, 1 warn, 0 block
 ```
 
 Exit codes:
@@ -83,7 +81,6 @@ so a `README.md` is fine.
 | `00-lint-passes.json` | block | `task lint` exits 0 — the project's fast-gate of record |
 | `10-branch-on-feature.json` | block | Current branch matches `feat/*` / `fix/*` / `chore/*` / `docs/*` / `test/*` / `refactor/*` (not `main`, not detached) |
 | `20-bead-pinned.json` | block | `.rsry-bead-id` exists + matches `<repo>-<6hex>` so the commit-msg hook auto-prefixes (Golden Rule 11) |
-| `30-status-md-mentions-bead.json` | warn | `docs/STATUS.md` mentions the current bead-id somewhere |
 | `40-no-uncommitted-noise.json` | warn | `git status -s` clean outside `.beads/` runtime state |
 
 More rules in the [cloister-0d5e0f follow-ups

@@ -10,7 +10,7 @@ Everything under `docs/` is one of these kinds:
 
 | Subdir | What lives there |
 |---|---|
-| [`adr/`](adr/) | Numbered architectural decisions — the *why* behind every substrate choice. Range + per-ADR status are canonical in [`STATUS.md`](STATUS.md) (don't restate counts here — they rot). Start with ADR-0001 → ADR-0002 → ADR-0007 (Interlace) → ADR-0011 (hypervisor/bundle boundary) for the core mental model. |
+| [`adr/`](adr/) | Numbered architectural decisions — the *why* behind every substrate choice. Range + per-ADR *design* status are canonical in the generated [`adr/INDEX.md`](adr/INDEX.md) (from each ADR's frontmatter; don't restate counts here — they rot); *implementation* status lives in each ADR's tracking bead + git. Start with ADR-0001 → ADR-0002 → ADR-0007 (Interlace) → ADR-0011 (hypervisor/bundle boundary) for the core mental model. |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The substrate description — *what* runs and how it composes. Read after the README + ADR-0011. |
 | [`security/`](security/) | Threat model + adversarial-cycle reports. `threat-model.md` is the contract (17 sections); `adversarial-cycles/` records red-team findings. |
 | [`perf/`](perf/) | Benchmark reports for the load-bearing perf claims (lease pipeline, dispatch, TrustStore contention, disclosure endpoint, cold start). |
@@ -32,7 +32,7 @@ Everything under `docs/` is one of these kinds:
 | Verify a security claim | [`security/threat-model.md`](security/threat-model.md) → trace to the test + bead it cites |
 | See what red-team review found | [`security/adversarial-cycles/`](security/adversarial-cycles/) |
 | Add a new MCP tool family | [`adr/0006-derived-tool-schemas.md`](adr/0006-derived-tool-schemas.md) + the existing `LspToolBackend` template |
-| Add a new ADR | next-free number + per-ADR status are canonical in [STATUS.md](STATUS.md) (and CLAUDE.md's orient note) — check there for the number; copy any `00*.md` for the shape. |
+| Add a new ADR | next-free number + per-ADR status are canonical in the generated [`adr/INDEX.md`](adr/INDEX.md) — check there for the number; copy any `00*.md` for the shape. |
 | Wire a client to `/mcp` | [`integration/mcp-client.md`](integration/mcp-client.md) |
 | Make your MCP server consumable by cloister | [`integration/authoring-server-json.md`](integration/authoring-server-json.md) |
 | Operate cloister in a cluster topology | [`deployment/cluster-in-a-pod.md`](deployment/cluster-in-a-pod.md) |
