@@ -88,7 +88,10 @@ tasks:
   # schema-bridge tasks
   #
   # Build-time codegen pipeline that lowers capnp schemas into zod
-  # validators + matching TS types. See tools/schema-bridge/README.md.
+  # validators + matching TS/Go types. The plugin is LLO's
+  # `leyline-schema-bridge` crate (rs/ll-open/schema-bridge), consumed as
+  # a SHA-pinned git dep anchored in rs/crates/cas — cloister no longer
+  # vendors it (ADR-0036 Phase 2, LLO PR #222, bead cloister-a7346b).
   #
   # Intentionally NOT wired into `task verify` or `task lint` yet —
   # this is a migration step. The output sits beside the existing
@@ -96,16 +99,19 @@ tasks:
   # imports it as a side-effect to keep it in the dependency graph for
   # `task lint`'s tsc pass.
   schema-bridge:build:
-    desc: "Build the schema-bridge capnp plugin (release profile)."
-    dir: tools/schema-bridge
+    desc: "Build LLO's leyline-schema-bridge capnp plugins (zod + go) into rs/target/release."
+    dir: rs
     cmds:
-      - cargo build --release
+      # Build both bins from the SHA-pinned git dep anchored in
+      # crates/cas — the leyline-sign-helper pattern (`cargo build -p
+      # <llo-crate> --bin <bin>` emits into the shared rs/target).
+      - cargo build --release -p leyline-schema-bridge --bin capnpc-schema-bridge-zod --bin capnpc-schema-bridge-go
     sources:
-      - src/**/*.rs
-      - Cargo.toml
+      - crates/cas/Cargo.toml
       - Cargo.lock
     generates:
       - target/release/capnpc-schema-bridge-zod
+      - target/release/capnpc-schema-bridge-go
 
   harness:sandbox:build:
     desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
@@ -152,7 +158,7 @@ tasks:
         # :check-drift below.
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -160,7 +166,7 @@ tasks:
         mv "$TMPDIR/cluster.zod.ts" src/generated/cluster.zod.ts
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+      - rs/target/release/capnpc-schema-bridge-zod
     generates:
       - src/generated/cluster.zod.ts
 
@@ -186,7 +192,7 @@ tasks:
         # Check that the output file actually landed before diffing,
         # otherwise `diff` would fail on a missing file with a
         # misleading "DRIFT" framing.
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -201,7 +207,7 @@ tasks:
         echo "OK — cluster.zod.ts matches the schema-bridge codegen output"
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+      - rs/target/release/capnpc-schema-bridge-zod
       - src/generated/cluster.zod.ts
 
   cluster:go:
@@ -214,7 +220,7 @@ tasks:
         # silently write nothing on stderr; existence-check first).
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.go" ]; then
           echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
           exit 1
@@ -226,7 +232,7 @@ tasks:
         gofmt -s "$TMPDIR/cluster.go" > pkg/cluster/cluster.go
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - rs/target/release/capnpc-schema-bridge-go
     generates:
       - pkg/cluster/cluster.go
 
@@ -238,7 +244,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.go" ]; then
           echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
           exit 1
@@ -254,18 +260,18 @@ tasks:
         echo "OK — pkg/cluster/cluster.go matches the schema-bridge Go codegen output"
     sources:
       - manifest/cluster.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - rs/target/release/capnpc-schema-bridge-go
       - pkg/cluster/cluster.go
 
   cluster:go:verify:
     desc: "End-to-end Go round-trip — the cluster const (dumped from src/generated/cluster.ts) must unmarshal into the generated Go types and round-trip without loss. Parallel to cluster:zod:verify. Requires Go toolchain."
     cmds:
-      - tools/schema-bridge/scripts/verify-go.sh
+      - scripts/verify-go.sh
     sources:
       - src/generated/cluster.ts
       - pkg/cluster/cluster.go
       - pkg/cluster/cluster_roundtrip_test.go
-      - tools/schema-bridge/scripts/verify-go.sh
+      - scripts/verify-go.sh
 
   # identity:* — second schema for schema-bridge generalization proof
   # (ADR-0036 Phase 1 piece E, cloister-77172d). manifest/identity.capnp
@@ -281,7 +287,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -289,7 +295,7 @@ tasks:
         mv "$TMPDIR/identity.zod.ts" src/generated/identity.zod.ts
     sources:
       - manifest/identity.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+      - rs/target/release/capnpc-schema-bridge-zod
     generates:
       - src/generated/identity.zod.ts
 
@@ -301,7 +307,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -316,7 +322,7 @@ tasks:
         echo "OK — identity.zod.ts matches the schema-bridge codegen output"
     sources:
       - manifest/identity.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-zod
+      - rs/target/release/capnpc-schema-bridge-zod
       - src/generated/identity.zod.ts
 
   identity:go:
@@ -327,7 +333,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.go" ]; then
           echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
           exit 1
@@ -335,7 +341,7 @@ tasks:
         gofmt -s "$TMPDIR/identity.go" > pkg/identity/identity.go
     sources:
       - manifest/identity.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - rs/target/release/capnpc-schema-bridge-go
     generates:
       - pkg/identity/identity.go
 
@@ -347,7 +353,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./tools/schema-bridge/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.go" ]; then
           echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
           exit 1
@@ -363,7 +369,7 @@ tasks:
         echo "OK — pkg/identity/identity.go matches the schema-bridge Go codegen output"
     sources:
       - manifest/identity.capnp
-      - tools/schema-bridge/target/release/capnpc-schema-bridge-go
+      - rs/target/release/capnpc-schema-bridge-go
       - pkg/identity/identity.go
 
   cluster:emit:

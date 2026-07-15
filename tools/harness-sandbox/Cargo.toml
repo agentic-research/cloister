@@ -4,7 +4,7 @@
 # from a DECLARED policy, then execs the harness — replacing the hand-assembled
 # `nono run …` CLI flags that used to live in scripts/harness-dev.mjs.
 #
-# Standalone native crate (like tools/schema-bridge), OUTSIDE the rs/ wasm
+# Standalone native crate (like tools/mediator), OUTSIDE the rs/ wasm
 # workspace: nono pulls in OS sandbox + keyring, which do not build for wasm32.
 # Built with `cargo build --release` in this dir; never published.
 [package]
