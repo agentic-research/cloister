@@ -320,7 +320,7 @@ dependencies = [
 [[package]]
 name = "leyline-core"
 version = "0.7.8"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=8a1e75953fc4b05aec620f1b32a4160b911356fb#8a1e75953fc4b05aec620f1b32a4160b911356fb"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388#acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388"
 dependencies = [
  "anyhow",
  "blake3",
@@ -333,12 +333,12 @@ dependencies = [
 [[package]]
 name = "leyline-ffi-helpers"
 version = "0.7.8"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=8a1e75953fc4b05aec620f1b32a4160b911356fb#8a1e75953fc4b05aec620f1b32a4160b911356fb"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388#acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388"
 
 [[package]]
 name = "leyline-fs"
 version = "0.7.8"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=8a1e75953fc4b05aec620f1b32a4160b911356fb#8a1e75953fc4b05aec620f1b32a4160b911356fb"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388#acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -348,6 +348,7 @@ dependencies = [
  "leyline-core",
  "leyline-ffi-helpers",
  "leyline-schema",
+ "libc",
  "log",
  "memmap2",
  "nfsserve",
@@ -361,7 +362,7 @@ dependencies = [
 [[package]]
 name = "leyline-schema"
 version = "0.7.8"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=8a1e75953fc4b05aec620f1b32a4160b911356fb#8a1e75953fc4b05aec620f1b32a4160b911356fb"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388#acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388"
 dependencies = [
  "anyhow",
  "rusqlite",
