@@ -35,6 +35,7 @@ function baseCtx(over: Partial<BundleAuthContext>): BundleAuthContext {
     token: null,
     proof: null,
     notmePub,
+    resolvedKid: "test-kid", // the fixture mints with kid "test-kid" (dpop-fixtures.ts)
     expectedSub: SUB,
     audience: AUD,
     requiredScope: SCOPE,
@@ -105,6 +106,19 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
       baseCtx({ token: await validToken({ omitKid: true }), proof: await validProof() }),
     );
     expect(r).toEqual({ ok: false, reason: "kid" });
+  });
+
+  it("header kid != the kid that resolved notmePub denies (cloister-9fbec8 revocation binding)", async () => {
+    // Attacker signs with the verifying key but points the header kid at a
+    // different (non-revoked) kid. The header kid must equal the resolving kid.
+    const r = await authenticateBundleRequest(
+      baseCtx({
+        token: await validToken({ headerOverrides: { kid: "other-kid" } }),
+        proof: await validProof(),
+        resolvedKid: "test-kid",
+      }),
+    );
+    expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid mismatch") });
   });
 
   it("audience mismatch denies (confused-deputy defense)", async () => {

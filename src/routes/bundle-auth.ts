@@ -39,6 +39,14 @@ export interface BundleAuthContext {
   proof: string | null;
   /** notme authority raw Ed25519 pubkey, resolved by the token's `kid` (caller's job). */
   notmePub: Uint8Array;
+  /**
+   * The `kid` the caller resolved `notmePub` FROM. The token header's `kid` must
+   * equal this — binding the revocation-lookup identity to the key that actually
+   * verified the signature (cloister-9fbec8). Otherwise a compromised-key holder
+   * could sign with the verifying key yet point revocation at a different,
+   * non-revoked `kid`. The caller MUST set this to the JWKS `kid` it selected.
+   */
+  resolvedKid: string;
   /** The DO's pinned expected bundle identity (from idFromName/manifest). §20.10. */
   expectedSub: string;
   audience: string;
@@ -106,6 +114,10 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   if (!tokenHeader || tokenHeader.typ !== "at+jwt") return { ok: false, reason: "typ" };
   const kid = typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
   if (!kid) return { ok: false, reason: "kid" };
+  // cloister-9fbec8 — bind the revocation kid to the key that verified the sig:
+  // the header kid MUST equal the kid the caller resolved notmePub from, or the
+  // revocation lookup could key off an attacker-chosen, non-revoked kid.
+  if (kid !== ctx.resolvedKid) return { ok: false, reason: "kid mismatch (header != resolving key)" };
 
   // Audience-confusion defense: a token minted for a different resource server
   // (same notme issuer + key) must not pass here. Narrow to string — the SDK's
