@@ -101,13 +101,17 @@
 // ADR-0021 "(a)/(b)/(c) add machinery to retain a singleton" rejection is
 // superseded: notme built the machinery. Threat model §20 covers the seam.
 //
-// Status: the verify core is `src/routes/bundle-token-verify.ts` —
-// `verifyBundleToken` (sig by notme pubkey + typ/alg + iss/aud/scope/exp/nbf).
-// Remaining (cloister-2b98c0): DPoP proof-of-possession (cnf.jkt), replay ledger
-// (jti), revocation (notme RevocationAuthority), JWK-by-kid fetch, and WIRING
-// this DO to derive `subjectFp` from the verified token instead of the trusted
-// positional argument. Until wired, the DO keeps the gateway-internal-only
-// contract (only the router calls it, threading VerifiedLease.peerFp).
+// Status: the auth logic is BUILT + tested (31 TDD cases) —
+// `src/routes/bundle-token-verify.ts` (`verifyBundleToken`, at+jwt EdDSA) +
+// `src/routes/bundle-auth.ts` (`verifyDpopProof`, RFC 9449 proof-of-possession
+// conjunction; `authenticateBundleRequest`, the composed decision: token-or-deny
+// [§20.9] + `token.sub == expectedSub` [§20.10] + DPoP proof + jti-replay +
+// revocation, returning `subjectFp` derived from the verified `sub`). Remaining
+// (cloister-2b98c0, gated on the FIRST real bundle per ADR-0047 migration order):
+// JWK-by-`kid` fetch (caller plumbing) + WIRING this DO's bundle-facing entrypoint
+// to call `authenticateBundleRequest` with the DO's pinned `expectedSub` + a
+// seen-`jti` ledger. Until wired, the DO keeps the gateway-internal-only contract
+// (only the router calls it, threading VerifiedLease.peerFp).
 //
 // Filed: cloister-ac30e7 (the substrate-property lint accompanying the choice).
 
