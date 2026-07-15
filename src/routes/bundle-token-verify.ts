@@ -123,6 +123,11 @@ export async function verifyBundleToken(
   }
   if (typeof payload.sub !== "string" || payload.sub === "") return { ok: false, reason: "no sub" };
   if (typeof payload.scope !== "string") return { ok: false, reason: "no scope" };
+  // A bundle token must be narrowly scoped. `"*"` is admin (lease-middleware
+  // documents it as "admin certs only — never minted in production"); an
+  // incoming `"*"` on a bundle token is evidence of a mint bug, not a grant.
+  // Reject it (math-friend review 2026-07-14, finding #7).
+  if (payload.scope === "*") return { ok: false, reason: "wildcard/admin scope forbidden on bundle token" };
   if (!scopeGrants(payload.scope, opts.requiredScope)) return { ok: false, reason: "scope" };
 
   const cnf = payload.cnf as { jkt?: unknown } | undefined;

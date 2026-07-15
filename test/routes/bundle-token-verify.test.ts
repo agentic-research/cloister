@@ -138,4 +138,60 @@ describe("verifyBundleToken — ADR-0047 §20", () => {
     const r = await verifyBundleToken("not.a", pub, OPTS);
     expect(r.ok).toBe(false);
   });
+
+  // ── Hardening from the 2026-07-14 math-friend review ──────────────────────
+
+  it("20.6 rejects alg:none (the canonical JWT algorithm-confusion CVE)", async () => {
+    const { priv, pub } = await keypair();
+    const jwt = await mint(priv, claims(), { typ: "at+jwt", alg: "none", kid: "k1" });
+    const r = await verifyBundleToken(jwt, pub, OPTS);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("wrong alg");
+  });
+
+  it("20.6 rejects alg:HS256 (symmetric-alg confusion — pubkey-as-HMAC-secret)", async () => {
+    const { priv, pub } = await keypair();
+    const jwt = await mint(priv, claims(), { typ: "at+jwt", alg: "HS256", kid: "k1" });
+    const r = await verifyBundleToken(jwt, pub, OPTS);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("wrong alg");
+  });
+
+  it("rejects a missing exp (unbounded token)", async () => {
+    const { priv, pub } = await keypair();
+    const c = claims();
+    delete c.exp;
+    const r = await verifyBundleToken(await mint(priv, c), pub, OPTS);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("expired");
+  });
+
+  it("rejects an array-valued aud (fail-closed on type confusion)", async () => {
+    const { priv, pub } = await keypair();
+    const r = await verifyBundleToken(await mint(priv, claims({ aud: [AUD] })), pub, OPTS);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("audience");
+  });
+
+  it("#7 rejects scope:'*' (admin) on a bundle token", async () => {
+    const { priv, pub } = await keypair();
+    const r = await verifyBundleToken(await mint(priv, claims({ scope: "*" })), pub, OPTS);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toMatch(/wildcard\/admin/);
+  });
+
+  it("#4 scope grammar is colon-boundary-aware (vault:proxy:* does NOT match vault:proxysomething)", async () => {
+    const { priv, pub } = await keypair();
+    const r = await verifyBundleToken(
+      await mint(priv, claims({ scope: "vault:proxy:*" })),
+      pub,
+      { ...OPTS, requiredScope: "vault:proxysomething" },
+    );
+    expect(r.ok).toBe(false);
+  });
 });

@@ -1796,6 +1796,8 @@ The verify **is** the seam. Every failure mode is fail-closed and is a test case
 | 20.6 | notme CA-key rotation / stale JWK | Fetch JWK by `kid` (cache w/ TTL); a token signed by a retired `kid` fails, a rotated key is refetched | unknown/rotated `kid` → deny (then refetch) |
 | 20.7 | Revoked token | Check notme `RevocationAuthority` (epoch/keyId/seqno) — reject `epoch_mismatch` / `unknown_key` / `rollback_attack` | revoked → deny |
 | 20.8 | JWKS unavailable (fail-open risk) | On JWK-fetch failure, **deny** (fail-closed); never fall back to the trusted-positional path | JWKS down → deny, never accept |
+| 20.9 | **Mode-selection bypass** — a bundle omits the token to land on the router's trusted-positional path | The bundle-facing entrypoint is **token-or-deny by topology** (which caller/binding reaches which code path), NEVER by token presence/absence in request content. A bundle-reachable path has **no** branch that trusts a positional `subjectFp`. | bundle omits token → deny (not trusted fallthrough) |
+| 20.10 | **Cross-bundle token substitution** — bundle A's valid token presented to a mis-shared DO | The DO pins its **expected `sub`** at construction (from `idFromName`/manifest); verify asserts `token.sub == expectedSub`, fail-closed on mismatch. This makes the per-bundle-DO layer (ADR-0021) and the token layer *cross-check* rather than silently mask a manifest misconfig. | `token.sub` ≠ DO's expected bundle → deny |
 
 **Fail-closed invariant.** Same discipline as §19 and ADR-0007's rejection of
 `INTERLACE_DEV_BYPASS`: **no per-request bypass exists.** A vault call from a
@@ -1804,6 +1806,29 @@ bundle either presents a token that passes the *full* verify (sig + `aud` +
 derived — or it is denied. The router-threaded `subjectFp` path is unchanged and
 stays gated by the existing lease pipeline; the DPoP path is deployment-binding-
 gated (off until a bundle presents a token), never a per-request fallback.
+
+**Composition + deferred-increment criteria (math-friend review 2026-07-14).**
+
+- **Scope/tenant grammar (20.4).** `scopeGrants` is colon-blind below the wildcard
+  (`vault:proxy:*` grants `vault:proxy:openai:admin`). Latent while scope is flat,
+  but ADR-0047's "per-tenant scope rides the token" would make it live. Reconcile
+  **before** tenant lands: tenant is not a nested scope segment, OR the grammar
+  gains `:`-boundary matching, OR wildcards are forbidden on bundle tokens. `"*"` is
+  already rejected on bundle tokens (finding #7; tested).
+- **DPoP proof (20.2) is a conjunction, not a disjunction.** The proof step MUST
+  (a) recompute the RFC 7638 SHA-256 thumbprint of the JWK in the proof header and
+  check `== cnf.jkt`, **and** (b) verify the proof signature with that same JWK.
+  Either alone is a proof-key-substitution bypass. Pin the thumbprint alg; normalize
+  `htu` (RFC 9449); the `jti` ledger is per-DO, memory-bounded, TTL ≥ `exp + skew`.
+- **96-bit `subjectFp` (finding #9).** `sha256(sub)[:12]` is adequate **only because**
+  `sub` is notme-authority-assigned, not self-asserted — the attack needs a 2⁹⁶
+  second-preimage **and** notme to issue the colliding `sub`. If bundle identities
+  ever become self-asserted, the bound drops to 2⁴⁸ and 96 bits is weak.
+- **`aud` coarseness (finding #3).** `aud` names "a cloister vault," not a specific
+  DO/bundle, so a token is portable across vaults sharing the audience — contained
+  today only by DO reachability + `subject_fp`-partitioned storage. Treat
+  `subject_fp`-partitioned storage as **load-bearing authorization**, not "layered
+  protection"; consider a per-vault/cluster `aud`.
 
 **Related:** ADR-0047; ADR-0021 (structural isolation); notme
 `worker/src/auth/token.ts` (`verifyAccessToken` — cloister reimplements the

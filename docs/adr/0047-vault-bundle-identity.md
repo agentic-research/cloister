@@ -134,6 +134,25 @@ vault re-checks it at verify time (audience confusion defense).
   first, gated on `INTERLACE_ROOT_PUBKEY`-style deployment binding (off until a bundle
   presents a token).
 
+### Composition constraints from the 2026-07-14 foundational review (must hold in the wiring)
+
+- **Mode-selection is by topology, not token presence (finding #1, threat-model §20.9).**
+  The bundle-facing entrypoint must be **token-or-deny by binding/deployment topology**;
+  it must have NO branch that trusts a positional `subjectFp`. Absence of a token must
+  never fall through to the router-trusted path — that would be `INTERLACE_DEV_BYPASS`
+  reshaped as "absence of a field."
+- **The two hybrid layers must cross-check (finding #2, §20.10).** The vault DO pins its
+  expected `sub` at construction (from `idFromName`/manifest) and asserts
+  `token.sub == expectedSub`, so a shared-DO manifest misconfig is **caught** by the
+  crypto layer, not silently masked. Without this, per-bundle-DO isolation and DPoP
+  verify are two single points of failure painted as two layers, not defense-in-depth.
+- **Name the lease-vs-token deltas (finding #5).** Unlike the Interlace lease (epoch +
+  `peer_fp` + nonce ledger bound *in-band*, trust root cloister-owned), the token's
+  epoch/replay/trust-root move partly to notme: revocation is an *online* call (a
+  `RevocationAuthority`-down availability coupling, sibling to §20.8), and the trust
+  root widens cloister's TCB. The "token = lease" analogy is sound in shape but not in
+  these three properties — the follow-on must not inherit an over-strong mental model.
+
 ## References
 
 - `src/vault-store.ts` L30–113 — the open question + the (a)/(b)/(c) options.
