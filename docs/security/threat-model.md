@@ -1772,3 +1772,40 @@ turn a production deployment into a dev one.
 **Related:** ADR-0042; `scripts/lint-no-dev-mode.mjs`;
 `test/routes/vault-proxy-dev-mode.test.ts`. Open: notme-minting `CertSource`
 (`cloister-c3c7b9`); prod credential-ingestion surface (own ADR).
+
+## 20. Bundle→vault identity: DPoP-token verify (ADR-0047)
+
+The open question in §18's lineage — the vault DO takes a positional `subjectFp`
+and **trusts what's passed** (`src/vault-store.ts` L38–44) — is closed for the
+first tool-bundle by ADR-0047: the vault **verifies a scoped notme DPoP access
+token** and derives `subjectFp` from the *verified* `sub`, never a passed
+argument. Structural isolation (per-bundle DO, ADR-0021) stays the primary gate;
+this is the per-call cryptographic layer. The token is a standard `at+jwt` EdDSA
+JWT (`{sub, iss, aud, iat, nbf, exp, jti, scope, cnf.jkt}`), Ed25519-signed by
+notme, DPoP-bound via `cnf.jkt`, revocable (notme `RevocationAuthority`).
+
+The verify **is** the seam. Every failure mode is fail-closed and is a test case:
+
+| # | Attack | Defense | Test |
+|---|---|---|---|
+| 20.1 | Forged token (attacker self-signs) | Verify Ed25519 sig against notme's JWK by `kid`; reject unknown `kid` / `alg`≠EdDSA / `typ`≠at+jwt | forged-sig → deny |
+| 20.2 | Replay of a captured token | DPoP proof-of-possession: the presented proof MUST be signed by the key whose thumbprint == `cnf.jkt`; bind proof to method+URI (`htm`/`htu`) + `jti`/nonce in a seen-ledger (mirror lease-middleware replay), short window | replay w/o matching proof → deny; reused `jti` → deny |
+| 20.3 | Audience confusion (token for another RS presented to vault) | Re-check `aud` == the vault audience at verify time (notme also allowlists at mint) | wrong `aud` → deny |
+| 20.4 | Scope over-grant (token scope broader than the call) | `scope` ⊇ the requested `vault:proxy:<service>` via the lease-middleware `scopeAllows` grammar | scope ⊉ requested → deny |
+| 20.5 | Expired / not-yet-valid | `exp` / `nbf` checked against the clock with a skew bound | expired / future `nbf` → deny |
+| 20.6 | notme CA-key rotation / stale JWK | Fetch JWK by `kid` (cache w/ TTL); a token signed by a retired `kid` fails, a rotated key is refetched | unknown/rotated `kid` → deny (then refetch) |
+| 20.7 | Revoked token | Check notme `RevocationAuthority` (epoch/keyId/seqno) — reject `epoch_mismatch` / `unknown_key` / `rollback_attack` | revoked → deny |
+| 20.8 | JWKS unavailable (fail-open risk) | On JWK-fetch failure, **deny** (fail-closed); never fall back to the trusted-positional path | JWKS down → deny, never accept |
+
+**Fail-closed invariant.** Same discipline as §19 and ADR-0007's rejection of
+`INTERLACE_DEV_BYPASS`: **no per-request bypass exists.** A vault call from a
+bundle either presents a token that passes the *full* verify (sig + `aud` +
+`scope` + `exp`/`nbf` + DPoP proof + revocation) — from which `subjectFp` is
+derived — or it is denied. The router-threaded `subjectFp` path is unchanged and
+stays gated by the existing lease pipeline; the DPoP path is deployment-binding-
+gated (off until a bundle presents a token), never a per-request fallback.
+
+**Related:** ADR-0047; ADR-0021 (structural isolation); notme
+`worker/src/auth/token.ts` (`verifyAccessToken` — cloister reimplements the
+`at+jwt` EdDSA verify with its existing Ed25519 / base64url primitives; factoring
+notme's verify into a shared package is a future DRY step); `cloister-2b98c0`.
