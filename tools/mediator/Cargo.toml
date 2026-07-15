@@ -23,3 +23,11 @@ leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = 
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 parking_lot = "0.12"
+
+# The `nfs` feature enables the mount bin: leyline-fs's `nfsserve` presentation
+# (macOS-native, kext-free) + a tokio runtime. OFF by default so the decorator +
+# its 13 unit tests compile without pulling nfsserve/tokio.
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+
+[features]
+nfs = ["leyline-fs/nfs", "dep:tokio"]
