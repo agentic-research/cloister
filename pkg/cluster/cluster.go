@@ -34,6 +34,7 @@ type Bundle struct {
 	WorkerdServiceName  string          `json:"workerdServiceName"`
 	HypervisorRationale string          `json:"hypervisorRationale"`
 	PerTenant           bool            `json:"perTenant"`
+	Confinement         Confinement     `json:"confinement"`
 	Kind                BundleKindUnion `json:"kind"`
 }
 
@@ -210,9 +211,10 @@ type Route struct {
 }
 
 type Gateway struct {
-	Metadata GatewayMetadata `json:"metadata"`
-	Actor    Actor           `json:"actor"`
-	Policy   InterlacePolicy `json:"policy"`
+	Metadata           GatewayMetadata     `json:"metadata"`
+	Actor              Actor               `json:"actor"`
+	Policy             InterlacePolicy     `json:"policy"`
+	VaultProxyServices []VaultProxyService `json:"vaultProxyServices"`
 }
 
 type EdgeSpec struct {
@@ -243,6 +245,31 @@ type ExternalBundle struct {
 	HttpPort  uint16   `json:"httpPort"`
 	Args      []string `json:"args"`
 	Env       []EnvVar `json:"env"`
+}
+
+type Confinement struct {
+	Fs               ConfinementFs      `json:"fs"`
+	Network          ConfinementNetwork `json:"network"`
+	Port             ConfinementPort    `json:"port"`
+	CredentialSource string             `json:"credentialSource"`
+}
+
+type ConfinementFs struct {
+	Allow []FsAllowEntry `json:"allow"`
+}
+
+type ConfinementNetwork struct {
+	AllowHosts []string `json:"allowHosts"`
+}
+
+type ConfinementPort struct {
+	Bind    uint16 `json:"bind"`
+	Address string `json:"address"`
+}
+
+type FsAllowEntry struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"`
 }
 
 type EnvVar struct {
@@ -357,4 +384,83 @@ type InterlacePolicy struct {
 	MaxCertLifetimeSeconds uint32 `json:"maxCertLifetimeSeconds"`
 	RequireInterlock       bool   `json:"requireInterlock"`
 	MinAlgorithm           string `json:"minAlgorithm"`
+}
+
+type VaultProxyServiceInjectionUnion struct {
+	AuthorizationBearer *struct{}        `json:"authorizationBearer,omitempty"`
+	AuthorizationBasic  *struct{}        `json:"authorizationBasic,omitempty"`
+	HeaderNamed         *HeaderNamedSpec `json:"headerNamed,omitempty"`
+	QueryParam          *QueryParamSpec  `json:"queryParam,omitempty"`
+	BodyField           *BodyFieldSpec   `json:"bodyField,omitempty"`
+}
+
+func (u VaultProxyServiceInjectionUnion) MarshalJSON() ([]byte, error) {
+	if u.AuthorizationBearer != nil {
+		return []byte(`{"authorizationBearer":null}`), nil
+	}
+	if u.AuthorizationBasic != nil {
+		return []byte(`{"authorizationBasic":null}`), nil
+	}
+	if u.HeaderNamed != nil {
+		return json.Marshal(map[string]any{"headerNamed": u.HeaderNamed})
+	}
+	if u.QueryParam != nil {
+		return json.Marshal(map[string]any{"queryParam": u.QueryParam})
+	}
+	if u.BodyField != nil {
+		return json.Marshal(map[string]any{"bodyField": u.BodyField})
+	}
+	return []byte(`{}`), nil
+}
+
+func (u *VaultProxyServiceInjectionUnion) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["authorizationBearer"]; ok {
+		u.AuthorizationBearer = &struct{}{}
+	}
+	if _, ok := raw["authorizationBasic"]; ok {
+		u.AuthorizationBasic = &struct{}{}
+	}
+	if msg, ok := raw["headerNamed"]; ok {
+		u.HeaderNamed = &HeaderNamedSpec{}
+		if err := json.Unmarshal(msg, u.HeaderNamed); err != nil {
+			return err
+		}
+	}
+	if msg, ok := raw["queryParam"]; ok {
+		u.QueryParam = &QueryParamSpec{}
+		if err := json.Unmarshal(msg, u.QueryParam); err != nil {
+			return err
+		}
+	}
+	if msg, ok := raw["bodyField"]; ok {
+		u.BodyField = &BodyFieldSpec{}
+		if err := json.Unmarshal(msg, u.BodyField); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type VaultProxyService struct {
+	Name               string                          `json:"name"`
+	UpstreamBaseUrl    string                          `json:"upstreamBaseUrl"`
+	DefaultAllowedSubs []string                        `json:"defaultAllowedSubs"`
+	RateLimitPerMinute uint32                          `json:"rateLimitPerMinute"`
+	Injection          VaultProxyServiceInjectionUnion `json:"injection"`
+}
+
+type HeaderNamedSpec struct {
+	Name string `json:"name"`
+}
+
+type QueryParamSpec struct {
+	Name string `json:"name"`
+}
+
+type BodyFieldSpec struct {
+	Path string `json:"path"`
 }
