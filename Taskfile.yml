@@ -119,6 +119,11 @@ tasks:
     generates:
       - target/release/cloister-harness
 
+  spike:libkrun:
+    desc: "cloister-b28416 — libkrun VMM-embed proof (ADR-0044/0046). Boots an Alpine microVM on HVF, proves guest fs reads+writes forward to a host dir (mediate-below-stock-libkrun). macOS+libkrun only; SKIPs elsewhere. NOT a CI gate (runners lack HVF/KVM). Prereq: brew tap slp/krun && brew install krunvm."
+    cmds:
+      - bash tools/libkrun-spike/run-spike.sh
+
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
     deps: [schema-bridge:build]
