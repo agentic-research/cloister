@@ -41,7 +41,6 @@ function baseCtx(over: Partial<BundleAuthContext>): BundleAuthContext {
     issuer: ISS,
     htm: HTM,
     htu: HTU,
-    now: Math.floor(Date.now() / 1000),
     seenJti: () => false,
     isRevoked: () => false,
     ...over,
@@ -69,15 +68,43 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
 
   it("no dpop proof denies", async () => {
     const r = await authenticateBundleRequest(baseCtx({ token: await validToken(), proof: null }));
-    expect(r.ok).toBe(false);
+    expect(r).toEqual({ ok: false, reason: "no dpop proof" });
   });
 
   it("§20.10 — token.sub != expectedSub denies (cross-bundle substitution)", async () => {
     const r = await authenticateBundleRequest(
       baseCtx({ token: await validToken({ sub: "mache" }), proof: await validProof(), expectedSub: SUB }),
     );
-    // sub-mismatch is caught; also fails if the token was minted for a different sub.
-    expect(r.ok).toBe(false);
+    expect(r).toEqual({ ok: false, reason: expect.stringContaining("sub mismatch") });
+  });
+
+  it("accepts a space-delimited multi-scope token that contains the required scope", async () => {
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ scope: "vault:read vault:proxy:anthropic openid" }), proof: await validProof() }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("nbf in the future denies (not-yet-valid)", async () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ nbfOverride: future }), proof: await validProof() }),
+    );
+    expect(r).toEqual({ ok: false, reason: "not yet valid" });
+  });
+
+  it("wrong token typ denies (cross-token-type confusion)", async () => {
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ headerOverrides: { typ: "JWT" } }), proof: await validProof() }),
+    );
+    expect(r).toEqual({ ok: false, reason: "typ" });
+  });
+
+  it("missing kid denies (revocation must not no-op on undefined)", async () => {
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ omitKid: true }), proof: await validProof() }),
+    );
+    expect(r).toEqual({ ok: false, reason: "kid" });
   });
 
   it("audience mismatch denies (confused-deputy defense)", async () => {
@@ -101,11 +128,13 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     expect(r).toEqual({ ok: false, reason: "scope" });
   });
 
-  it("wildcard '*' admin scope on a bundle token denies", async () => {
+  it("wildcard '*' admin scope on a bundle token denies (specific guard, not generic scope-miss)", async () => {
+    // Asserts the dedicated admin-forbid branch fires — a bare ok:false here would
+    // also pass if the guard were deleted (scopeGrants('*',req) already returns false).
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ scope: "*" }), proof: await validProof() }),
+      baseCtx({ token: await validToken({ scope: "vault:read *" }), proof: await validProof() }),
     );
-    expect(r.ok).toBe(false);
+    expect(r).toEqual({ ok: false, reason: expect.stringContaining("wildcard/admin") });
   });
 
   it("replayed proof jti denies", async () => {

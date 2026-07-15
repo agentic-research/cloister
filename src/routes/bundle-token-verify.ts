@@ -10,14 +10,18 @@
 // the vault subject_fp derivation.
 
 /**
- * Does `granted` cover `requested`? Exact match, or a `:*` suffix wildcard on the
- * granted scope covering any `requested` under that prefix (`vault:proxy:*` grants
- * `vault:proxy:anthropic`). Deliberately narrow — the bare admin `"*"` is rejected
- * upstream in `authenticateBundleRequest`, never matched here.
+ * Does the `granted` scope claim cover `requested`? OAuth `scope` is a
+ * SPACE-DELIMITED set (notme mints it via `scopes.join(" ")`), so we test each
+ * granted entry: exact match, or a `:*` suffix wildcard covering any `requested`
+ * under that prefix (`vault:proxy:*` grants `vault:proxy:anthropic`). Deliberately
+ * narrow — the bare admin `"*"` is rejected upstream in `authenticateBundleRequest`,
+ * never matched here.
  */
 export function scopeGrants(granted: string, requested: string): boolean {
-  if (granted === requested) return true;
-  if (granted.endsWith(":*")) return requested.startsWith(granted.slice(0, -1));
+  for (const g of granted.split(/\s+/).filter(Boolean)) {
+    if (g === requested) return true;
+    if (g.endsWith(":*") && requested.startsWith(g.slice(0, -1))) return true;
+  }
   return false;
 }
 

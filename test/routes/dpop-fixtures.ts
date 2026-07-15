@@ -50,16 +50,21 @@ export async function mintToken(opts: {
   kid?: string;
   expOverride?: number;
   iatOverride?: number;
+  nbfOverride?: number;
   omitCnf?: boolean;
+  omitKid?: boolean;
+  headerOverrides?: Record<string, unknown>;
 }): Promise<string> {
-  const header = { typ: "at+jwt", alg: "EdDSA", kid: opts.kid ?? "test-kid" };
+  const header: Record<string, unknown> = { typ: "at+jwt", alg: "EdDSA", kid: opts.kid ?? "test-kid" };
+  if (opts.headerOverrides) Object.assign(header, opts.headerOverrides);
+  if (opts.omitKid) delete header.kid;
   const iat = opts.iatOverride ?? Math.floor(Date.now() / 1000);
   const payload: Record<string, unknown> = {
     sub: opts.sub,
     iss: opts.issuer,
     aud: opts.audience,
     iat,
-    nbf: iat,
+    nbf: opts.nbfOverride ?? iat,
     exp: opts.expOverride ?? iat + 300,
     jti: crypto.randomUUID(),
     scope: opts.scope,

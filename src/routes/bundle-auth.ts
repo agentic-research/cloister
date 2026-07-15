@@ -46,11 +46,10 @@ export interface BundleAuthContext {
   issuer: string;
   htm: string;
   htu: string;
-  now: number;
   /** Replay ledger: returns true if this proof `jti` has been seen (the DO's seen-jti store). */
   seenJti: (jti: string) => boolean | Promise<boolean>;
   /** Revocation: returns true if the token's signing key is revoked (notme RevocationAuthority). */
-  isRevoked: (kid: string | undefined) => boolean | Promise<boolean>;
+  isRevoked: (kid: string) => boolean | Promise<boolean>;
 }
 
 export type BundleAuthResult = { ok: true; subjectFp: string; sub: string } | { ok: false; reason: string };
@@ -88,22 +87,44 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
       jwksUrl: NOTME_JWKS_URL,
       publicKey,
     });
-  } catch (e) {
-    return { ok: false, reason: `dpop-verify: ${e instanceof Error ? e.message : "failed"}` };
+  } catch {
+    // Reason strings are an INTERNAL enum for DO-side audit only — never the raw
+    // SDK message (which finely discriminates deny-state), and the bundle-facing
+    // entrypoint MUST collapse every denial to one constant-shape response so
+    // `reason` can't become an enumeration/validity oracle (threat-model §9/§20).
+    return { ok: false, reason: "dpop-verify" };
   }
 
   // ── cloister-layered checks the issuer-agnostic SDK does not do ──
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Token header: pin `typ` (the SDK never inspects it — an EdDSA JWT of another
+  // `typ` that notme signed with the same key must not be replayed as a bundle
+  // token) and REQUIRE `kid` (revocation keys off it; a missing kid → isRevoked
+  // no-op → a revoked key still authorizes, so deny outright).
+  const tokenHeader = jwtPart(ctx.token, 0);
+  if (!tokenHeader || tokenHeader.typ !== "at+jwt") return { ok: false, reason: "typ" };
+  const kid = typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
+  if (!kid) return { ok: false, reason: "kid" };
 
   // Audience-confusion defense: a token minted for a different resource server
-  // (same notme issuer + key) must not pass here.
-  if (claims.aud !== ctx.audience) return { ok: false, reason: "audience" };
+  // (same notme issuer + key) must not pass here. Narrow to string — the SDK's
+  // return type says `string` but hands back whatever `aud` is (e.g. an array).
+  if (typeof claims.aud !== "string" || claims.aud !== ctx.audience) return { ok: false, reason: "audience" };
 
-  // Issuer pin (the SDK verifies the signature, not the `iss` string).
+  // Issuer pin + not-before. The SDK checks neither; the token payload here is
+  // authenticated (verifyDPoPToken verified the sig over these exact bytes).
   const tokenPayload = jwtPart(ctx.token, 1);
   if (!tokenPayload || tokenPayload.iss !== ctx.issuer) return { ok: false, reason: "issuer" };
+  if (typeof tokenPayload.nbf === "number" && tokenPayload.nbf > nowSec + 60) {
+    return { ok: false, reason: "not yet valid" };
+  }
 
-  // Scope: a bundle token must be narrowly scoped. `"*"` (admin) is forbidden.
-  if (claims.scope === "*") return { ok: false, reason: "wildcard/admin scope forbidden on bundle token" };
+  // Scope is SPACE-DELIMITED (OAuth). A bundle token must be narrowly scoped:
+  // reject the admin `"*"` in any position, then require the needed scope.
+  if (claims.scope.split(/\s+/).includes("*")) {
+    return { ok: false, reason: "wildcard/admin scope forbidden on bundle token" };
+  }
   if (!scopeGrants(claims.scope, ctx.requiredScope)) return { ok: false, reason: "scope" };
 
   // §20.10 — the hybrid layers cross-check: the verified sub MUST equal the DO's
@@ -119,9 +140,9 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   if (!proofJti) return { ok: false, reason: "no proof jti" };
   if (await ctx.seenJti(proofJti)) return { ok: false, reason: "replay (jti seen)" };
 
-  // Revocation (notme RevocationAuthority, by the token's kid).
-  const tokenHeader = jwtPart(ctx.token, 0);
-  const kid = tokenHeader && typeof tokenHeader.kid === "string" ? tokenHeader.kid : undefined;
+  // Revocation (notme RevocationAuthority, by the token's kid). NOTE: the kid is
+  // not yet cross-checked against the kid that RESOLVED notmePub — that parity
+  // check lands with the JWKS-by-kid resolver (cloister-9fbec8 / plan Task 2).
   if (await ctx.isRevoked(kid)) return { ok: false, reason: "revoked" };
 
   return { ok: true, subjectFp: await deriveSubjectFp(claims.sub), sub: claims.sub };
