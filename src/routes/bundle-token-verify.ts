@@ -29,6 +29,8 @@ export interface VerifiedBundleToken {
   subjectFp: string;
   /** DPoP proof-key thumbprint (cnf.jkt), if bound. Consumed by the DPoP-proof step. */
   jkt?: string;
+  /** The signing key id from the (signed) header — for revocation + audit (review #8). */
+  kid?: string;
 }
 
 export type BundleTokenResult =
@@ -132,9 +134,10 @@ export async function verifyBundleToken(
 
   const cnf = payload.cnf as { jkt?: unknown } | undefined;
   const jkt = typeof cnf?.jkt === "string" ? cnf.jkt : undefined;
+  const kid = typeof header.kid === "string" ? header.kid : undefined;
 
   return {
     ok: true,
-    token: { sub: payload.sub, scope: payload.scope, subjectFp: await deriveSubjectFp(payload.sub), jkt },
+    token: { sub: payload.sub, scope: payload.scope, subjectFp: await deriveSubjectFp(payload.sub), jkt, kid },
   };
 }
