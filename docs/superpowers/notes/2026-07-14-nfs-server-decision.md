@@ -2,6 +2,17 @@
 
 Plan 2 (`docs/superpowers/plans/2026-07-14-nfs-mediator-derisk.md`) Task 3.
 
+> **CORRECTION (2026-07-14, discovery-first).** This "which NFS server" question is
+> largely MOOT. LLO's **`leyline-fs`** (`rs/ll-open/fs`, public, already on cloister's
+> dep path via the cas-ffi/sign pins) already presents the arena as **NFS via `nfsserve`
+> (default macOS) + FUSE via `fuser` (default Linux)**, with a `StagingGraph` CoW overlay
+> and a `validate` (validate-on-write) feature. The mediator does NOT build an NFS server:
+> it wraps the **public `leyline_fs::graph::Graph` trait** with a policy decorator (both
+> `LeylineNfs::new` and `LeylineFuse::new` take `Arc<dyn Graph>`). `leyline-fs` already made
+> the `nfsserve` choice this note re-derived. The analysis below stands as background; the
+> operative decision is **build on `leyline-fs`, add a `Graph` decorator** — see Plan 3
+> (`2026-07-14-mediator-graph-decorator.md`).
+
 ## Requirement
 
 The mediator needs a **userspace** NFS server whose per-request path is where

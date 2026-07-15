@@ -1,5 +1,12 @@
 # NFS Mediator De-Risk + Decision Plan (Plan 2)
 
+> **CORRECTION (2026-07-14).** Task 3 ("which userspace NFS server") is SUPERSEDED —
+> LLO's `leyline-fs` already IS the data plane (arena → `nfsserve`/NFS on macOS + `fuser`/FUSE
+> on Linux + `StagingGraph` overlay + validate-on-write). The mediator wraps the public
+> `leyline_fs::graph::Graph` trait with a policy decorator; **no NFS server is built.**
+> Tasks 1–2 (the virtio-fs → host-mount transport-forwarding spike) remain valid. See
+> **Plan 3** (`2026-07-14-mediator-graph-decorator.md`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve the two unknowns that block the ADR-0046 syscall-adapter mediator, so the mediator itself (Plan 3) can be written as an exact-code TDD plan: (a) prove the **virtio-fs → host-NFS-mount** stack forwards *every* guest op faithfully with caching off; (b) decide the **userspace NFS server** implementation.
