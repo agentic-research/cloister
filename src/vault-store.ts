@@ -101,10 +101,12 @@
 // ADR-0021 "(a)/(b)/(c) add machinery to retain a singleton" rejection is
 // superseded: notme built the machinery. Threat model §20 covers the seam.
 //
-// Status: the auth logic is BUILT + tested (31 TDD cases) —
-// `src/routes/bundle-token-verify.ts` (`verifyBundleToken`, at+jwt EdDSA) +
-// `src/routes/bundle-auth.ts` (`verifyDpopProof`, RFC 9449 proof-of-possession
-// conjunction; `authenticateBundleRequest`, the composed decision: token-or-deny
+// Status: the auth logic is BUILT + tested. The cryptographic verify is the
+// VENDORED notme SDK (`src/vendor/notme-dpop.ts`, `verifyDPoPToken` — EdDSA token
+// + ES256/EC DPoP proof + RFC 7638 cnf.jkt binding, byte-identical to the notme
+// issuer; cloister-0ae913 retired the hand-rolled Ed25519-only fork that could
+// not verify notme's ES256-minted tokens). `src/routes/bundle-auth.ts`
+// (`authenticateBundleRequest`) composes over it: the composed decision: token-or-deny
 // [§20.9] + `token.sub == expectedSub` [§20.10] + DPoP proof + jti-replay +
 // revocation, returning `subjectFp` derived from the verified `sub`). Remaining
 // (cloister-2b98c0, gated on the FIRST real bundle per ADR-0047 migration order):

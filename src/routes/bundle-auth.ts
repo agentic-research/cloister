@@ -1,119 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// bundle-auth — DPoP proof-of-possession + the composed bundle→vault auth
-// decision (ADR-0047, threat-model §20). This turns the bearer `verifyBundleToken`
-// core into a proof-of-possession-bound verify (RFC 9449 DPoP), and composes it
-// with the two HIGH constraints the 2026-07-14 foundational review demanded:
+// bundle-auth — the composed bundle→vault auth decision (ADR-0047, threat-model
+// §20). The CRYPTOGRAPHIC verify (token EdDSA sig + ES256 DPoP proof + RFC 9449
+// htm/htu + RFC 7638 cnf.jkt binding) is delegated to the vendored notme SDK
+// (`../vendor/notme-dpop.ts::verifyDPoPToken`) so cloister's verify is byte-
+// identical to the notme issuer's — the prior hand-rolled path was Ed25519-only
+// and could not verify notme's ES256/EC-minted tokens (cloister-0ae913).
+//
+// Over that verify, this file layers the checks the SDK deliberately does NOT do
+// (it is issuer-agnostic): audience-confusion defense, issuer pin, scope-grant,
+// and the two HIGH constraints the 2026-07-14 foundational review demanded:
 //   #1 (§20.9) token-or-deny — no positional-subjectFp fallthrough on the bundle path.
 //   #2 (§20.10) the verified `sub` must equal the DO's pinned expected bundle.
-//   #6 (§20.2) the DPoP proof is a CONJUNCTION — the proof is signed by the JWK
-//              whose RFC 7638 thumbprint equals the token's `cnf.jkt`.
+// Replay (proof `jti`) + revocation (`kid`) are injected callbacks the DO owns.
 
-import { verifyBundleToken } from "./bundle-token-verify.js";
+import { verifyDPoPToken, base64urlDecode } from "../vendor/notme-dpop.js";
+import { scopeGrants, deriveSubjectFp } from "./bundle-token-verify.js";
 
-const ED25519 = { name: "Ed25519" } as const;
+// Vestigial for cloister (we always pass `publicKey`, resolved from env.NOTME by
+// kid), but the SDK's option type requires it; the notme default is harmless.
+const NOTME_JWKS_URL = "https://auth.notme.bot/.well-known/jwks.json";
 
-function b64uDecode(s: string): Uint8Array {
-  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
-  const bin = atob(padded);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function b64uEncode(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/**
- * RFC 7638 JWK thumbprint for an OKP Ed25519 public key: base64url(SHA-256 of the
- * canonical JSON with members in lexicographic order — `crv`, `kty`, `x`). The
- * thumbprint alg is PINNED to SHA-256 (no agility — a downgrade reopens
- * proof-key substitution).
- */
-async function jwkThumbprint(x: string): Promise<string> {
-  const canonical = `{"crv":"Ed25519","kty":"OKP","x":"${x}"}`;
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
-  return b64uEncode(digest);
-}
-
-/** htu comparison per RFC 9449: scheme + host + path, drop query/fragment. */
-function normalizeHtu(u: string): string {
+/** Decode a compact-JWS part (0=header, 1=payload) to an object, or null. */
+function jwtPart(jwt: string, index: 0 | 1): Record<string, unknown> | null {
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return null;
   try {
-    const url = new URL(u);
-    return `${url.protocol}//${url.host}${url.pathname}`;
+    return JSON.parse(new TextDecoder().decode(base64urlDecode(parts[index]!)));
   } catch {
-    return u;
+    return null;
   }
-}
-
-export type DpopResult = { ok: true; jti: string } | { ok: false; reason: string };
-
-/**
- * Verify a DPoP proof (RFC 9449) and its binding to `boundJkt` (the access
- * token's `cnf.jkt`). CONJUNCTION: the proof must be signed by the embedded JWK
- * AND that JWK's thumbprint must equal `boundJkt` — either alone is a
- * proof-key-substitution bypass. Fail-closed. Returns the `jti` for the caller's
- * replay ledger.
- */
-export async function verifyDpopProof(
-  proof: string,
-  boundJkt: string,
-  opts: { htm: string; htu: string; now: number; windowSec?: number },
-): Promise<DpopResult> {
-  const parts = proof.split(".");
-  if (parts.length !== 3) return { ok: false, reason: "malformed proof" };
-  const [h, p, s] = parts as [string, string, string];
-
-  let header: Record<string, unknown>;
-  let payload: Record<string, unknown>;
-  try {
-    header = JSON.parse(new TextDecoder().decode(b64uDecode(h)));
-    payload = JSON.parse(new TextDecoder().decode(b64uDecode(p)));
-  } catch {
-    return { ok: false, reason: "bad json" };
-  }
-
-  if (header.typ !== "dpop+jwt") return { ok: false, reason: "wrong typ" };
-  if (header.alg !== "EdDSA") return { ok: false, reason: "wrong alg" };
-  const jwk = header.jwk as { kty?: unknown; crv?: unknown; x?: unknown } | undefined;
-  if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string") {
-    return { ok: false, reason: "bad jwk" };
-  }
-
-  // (a) verify the proof signature WITH the embedded JWK.
-  let key: CryptoKey;
-  try {
-    key = await crypto.subtle.importKey("raw", b64uDecode(jwk.x) as BufferSource, ED25519, false, ["verify"]);
-  } catch {
-    return { ok: false, reason: "bad key" };
-  }
-  const sigOk = await crypto.subtle.verify(
-    ED25519,
-    key,
-    b64uDecode(s) as BufferSource,
-    new TextEncoder().encode(`${h}.${p}`),
-  );
-  if (!sigOk) return { ok: false, reason: "signature" };
-
-  // (b) AND the thumbprint of that same JWK must equal the token's cnf.jkt.
-  if ((await jwkThumbprint(jwk.x)) !== boundJkt) return { ok: false, reason: "jkt mismatch" };
-
-  // Bind the proof to this request.
-  if (typeof payload.htm !== "string" || (payload.htm as string).toUpperCase() !== opts.htm.toUpperCase()) {
-    return { ok: false, reason: "htm" };
-  }
-  if (typeof payload.htu !== "string" || normalizeHtu(payload.htu as string) !== normalizeHtu(opts.htu)) {
-    return { ok: false, reason: "htu" };
-  }
-  const window = opts.windowSec ?? 120;
-  if (typeof payload.iat !== "number" || Math.abs(opts.now - (payload.iat as number)) > window) {
-    return { ok: false, reason: "stale proof" };
-  }
-  if (typeof payload.jti !== "string" || payload.jti === "") return { ok: false, reason: "no jti" };
-
-  return { ok: true, jti: payload.jti as string };
 }
 
 export interface BundleAuthContext {
@@ -123,18 +39,25 @@ export interface BundleAuthContext {
   proof: string | null;
   /** notme authority raw Ed25519 pubkey, resolved by the token's `kid` (caller's job). */
   notmePub: Uint8Array;
-  /** The DO's pinned expected bundle identity (from idFromName/manifest). #2. */
+  /**
+   * The `kid` the caller resolved `notmePub` FROM. The token header's `kid` must
+   * equal this — binding the revocation-lookup identity to the key that actually
+   * verified the signature (cloister-9fbec8). Otherwise a compromised-key holder
+   * could sign with the verifying key yet point revocation at a different,
+   * non-revoked `kid`. The caller MUST set this to the JWKS `kid` it selected.
+   */
+  resolvedKid: string;
+  /** The DO's pinned expected bundle identity (from idFromName/manifest). §20.10. */
   expectedSub: string;
   audience: string;
   requiredScope: string;
   issuer: string;
   htm: string;
   htu: string;
-  now: number;
-  /** Replay ledger: returns true if this jti has been seen (the DO's seen-jti store). */
+  /** Replay ledger: returns true if this proof `jti` has been seen (the DO's seen-jti store). */
   seenJti: (jti: string) => boolean | Promise<boolean>;
   /** Revocation: returns true if the token's signing key is revoked (notme RevocationAuthority). */
-  isRevoked: (kid: string | undefined) => boolean | Promise<boolean>;
+  isRevoked: (kid: string) => boolean | Promise<boolean>;
 }
 
 export type BundleAuthResult = { ok: true; subjectFp: string; sub: string } | { ok: false; reason: string };
@@ -143,36 +66,96 @@ export type BundleAuthResult = { ok: true; subjectFp: string; sub: string } | { 
  * The full bundle→vault auth decision. Fail-closed; on success returns a
  * `subjectFp` derived from the *verified* token — the vault never trusts a
  * passed identity. This is the function the vault DO's bundle-facing entrypoint
- * calls (token-or-deny — there is no positional-subjectFp branch here, #1/§20.9).
+ * calls (token-or-deny — there is no positional-subjectFp branch here, §20.9).
  */
 export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise<BundleAuthResult> {
-  // #1 / §20.9 — token-or-deny. Absence of a token must not fall through to a
-  // trusted path; the bundle-facing entrypoint reaches only this function.
+  // §20.9 — token-or-deny. Absence must not fall through to a trusted path.
   if (!ctx.token) return { ok: false, reason: "no token (bundle path is token-or-deny)" };
   if (!ctx.proof) return { ok: false, reason: "no dpop proof" };
 
-  const t = await verifyBundleToken(ctx.token, ctx.notmePub, {
-    audience: ctx.audience,
-    requiredScope: ctx.requiredScope,
-    now: ctx.now,
-    issuer: ctx.issuer,
-  });
-  if (!t.ok) return { ok: false, reason: `token: ${t.reason}` };
+  // Import the notme authority key so the SDK verifies the token signature
+  // against it (skips the SDK's JWKS fetch — cloister resolves the key by kid).
+  let publicKey: CryptoKey;
+  try {
+    publicKey = await crypto.subtle.importKey("raw", ctx.notmePub as BufferSource, { name: "Ed25519" }, false, ["verify"]);
+  } catch {
+    return { ok: false, reason: "bad notme key" };
+  }
 
-  // #2 / §20.10 — the two hybrid layers cross-check: the verified sub MUST equal
-  // the DO's pinned bundle, so a shared-DO manifest misconfig is caught, not masked.
-  if (t.token.sub !== ctx.expectedSub) {
+  // Crypto verify (canonical notme SDK): token EdDSA sig, exp, proof ES256/EdDSA
+  // sig, htm/htu exact match, iat freshness, and the cnf.jkt proof-of-possession
+  // binding. Throws on any failure → deny.
+  let claims: { sub: string; scope: string; aud: string; exp: number; jti: string };
+  try {
+    claims = await verifyDPoPToken({
+      token: ctx.token,
+      proof: ctx.proof,
+      method: ctx.htm,
+      url: ctx.htu,
+      jwksUrl: NOTME_JWKS_URL,
+      publicKey,
+    });
+  } catch {
+    // Reason strings are an INTERNAL enum for DO-side audit only — never the raw
+    // SDK message (which finely discriminates deny-state), and the bundle-facing
+    // entrypoint MUST collapse every denial to one constant-shape response so
+    // `reason` can't become an enumeration/validity oracle (threat-model §9/§20).
+    return { ok: false, reason: "dpop-verify" };
+  }
+
+  // ── cloister-layered checks the issuer-agnostic SDK does not do ──
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Token header: pin `typ` (the SDK never inspects it — an EdDSA JWT of another
+  // `typ` that notme signed with the same key must not be replayed as a bundle
+  // token) and REQUIRE `kid` (revocation keys off it; a missing kid → isRevoked
+  // no-op → a revoked key still authorizes, so deny outright).
+  const tokenHeader = jwtPart(ctx.token, 0);
+  if (!tokenHeader || tokenHeader.typ !== "at+jwt") return { ok: false, reason: "typ" };
+  const kid = typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
+  if (!kid) return { ok: false, reason: "kid" };
+  // cloister-9fbec8 — bind the revocation kid to the key that verified the sig:
+  // the header kid MUST equal the kid the caller resolved notmePub from, or the
+  // revocation lookup could key off an attacker-chosen, non-revoked kid.
+  if (kid !== ctx.resolvedKid) return { ok: false, reason: "kid mismatch (header != resolving key)" };
+
+  // Audience-confusion defense: a token minted for a different resource server
+  // (same notme issuer + key) must not pass here. Narrow to string — the SDK's
+  // return type says `string` but hands back whatever `aud` is (e.g. an array).
+  if (typeof claims.aud !== "string" || claims.aud !== ctx.audience) return { ok: false, reason: "audience" };
+
+  // Issuer pin + not-before. The SDK checks neither; the token payload here is
+  // authenticated (verifyDPoPToken verified the sig over these exact bytes).
+  const tokenPayload = jwtPart(ctx.token, 1);
+  if (!tokenPayload || tokenPayload.iss !== ctx.issuer) return { ok: false, reason: "issuer" };
+  if (typeof tokenPayload.nbf === "number" && tokenPayload.nbf > nowSec + 60) {
+    return { ok: false, reason: "not yet valid" };
+  }
+
+  // Scope is SPACE-DELIMITED (OAuth). A bundle token must be narrowly scoped:
+  // reject the admin `"*"` in any position, then require the needed scope.
+  if (claims.scope.split(/\s+/).includes("*")) {
+    return { ok: false, reason: "wildcard/admin scope forbidden on bundle token" };
+  }
+  if (!scopeGrants(claims.scope, ctx.requiredScope)) return { ok: false, reason: "scope" };
+
+  // §20.10 — the hybrid layers cross-check: the verified sub MUST equal the DO's
+  // pinned bundle, so a shared-DO manifest misconfig is caught, not masked.
+  if (claims.sub !== ctx.expectedSub) {
     return { ok: false, reason: "sub mismatch (token not for this bundle's DO)" };
   }
 
-  // #6 / §20.2 — DPoP proof-of-possession (conjunction).
-  if (!t.token.jkt) return { ok: false, reason: "token not DPoP-bound (no cnf.jkt)" };
-  const dp = await verifyDpopProof(ctx.proof, t.token.jkt, { htm: ctx.htm, htu: ctx.htu, now: ctx.now });
-  if (!dp.ok) return { ok: false, reason: `dpop: ${dp.reason}` };
-  if (await ctx.seenJti(dp.jti)) return { ok: false, reason: "replay (jti seen)" };
+  // Replay — the PROOF's jti (single-use), not the token's. The SDK validates
+  // jti presence + iat window; the durable single-use ledger is the DO's.
+  const proofPayload = jwtPart(ctx.proof, 1);
+  const proofJti = proofPayload && typeof proofPayload.jti === "string" ? proofPayload.jti : null;
+  if (!proofJti) return { ok: false, reason: "no proof jti" };
+  if (await ctx.seenJti(proofJti)) return { ok: false, reason: "replay (jti seen)" };
 
-  // Revocation (notme RevocationAuthority, by kid).
-  if (await ctx.isRevoked(t.token.kid)) return { ok: false, reason: "revoked" };
+  // Revocation (notme RevocationAuthority, by the token's kid). NOTE: the kid is
+  // not yet cross-checked against the kid that RESOLVED notmePub — that parity
+  // check lands with the JWKS-by-kid resolver (cloister-9fbec8 / plan Task 2).
+  if (await ctx.isRevoked(kid)) return { ok: false, reason: "revoked" };
 
-  return { ok: true, subjectFp: t.token.subjectFp, sub: t.token.sub };
+  return { ok: true, subjectFp: await deriveSubjectFp(claims.sub), sub: claims.sub };
 }
