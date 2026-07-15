@@ -31,9 +31,10 @@
 //     cloister's public face. Reachability is via the DO binding from
 //     inside cloister-router; future tool-bundle Workers will reach it
 //     via a service binding (per ADR-0013). Wiring tool-bundle Workers
-//     to vault is a separate concern (the identity-propagation question
-//     is unresolved until the first such Worker actually ships — see
-//     "Open: in-cluster bundle identity propagation" below).
+//     to vault is a separate concern — the identity-propagation question
+//     is now RESOLVED by ADR-0047 (per-bundle DO + notme DPoP verify); the
+//     verify core has landed, the DO wiring is in progress. See "Bundle
+//     identity propagation: resolved by ADR-0047" below.
 //
 //   - **No automatic identity verification** — every method takes an
 //     explicit `subjectFp` (and `callerSub` on proxyRequest) string.
@@ -89,28 +90,26 @@
 // destructive recreate in the migration section of `cluster.capnp`
 // when the first production deploy nears.
 //
-// ── Open: in-cluster bundle identity propagation ─────────────────────────
+// ── Bundle identity propagation: resolved by ADR-0047 ────────────────────
 //
-// When the first workerd-bundle Worker is declared in cluster.capnp
-// (today the kind is schema-reserved with no users), how it authenticates
-// to vault is undecided. Options on the table per ADR-0013:
+// How the first workerd-bundle Worker authenticates to vault is DECIDED
+// (ADR-0047): a HYBRID of (1) per-bundle DO instances (ADR-0021 — the manifest
+// binding IS the identity, since each bundle reaches exactly one DO) and (2) the
+// vault VERIFYING a scoped notme DPoP access token, deriving `subjectFp` from the
+// *verified* `sub`. That is option (a) from the old list — now cheap because
+// notme ships `mintDPoPToken` (an `at+jwt` EdDSA, `cnf.jkt`-bound token). The
+// ADR-0021 "(a)/(b)/(c) add machinery to retain a singleton" rejection is
+// superseded: notme built the machinery. Threat model §20 covers the seam.
 //
-//   (a) Pre-issued DPoP token in the bundle's env var. Bundle presents
-//       to vault. Vault verifies via notme's JWKS. Requires deploy-time
-//       injection + DPoP path in this DO.
+// Status: the verify core is `src/routes/bundle-token-verify.ts` —
+// `verifyBundleToken` (sig by notme pubkey + typ/alg + iss/aud/scope/exp/nbf).
+// Remaining (cloister-2b98c0): DPoP proof-of-possession (cnf.jkt), replay ledger
+// (jti), revocation (notme RevocationAuthority), JWK-by-kid fetch, and WIRING
+// this DO to derive `subjectFp` from the verified token instead of the trusted
+// positional argument. Until wired, the DO keeps the gateway-internal-only
+// contract (only the router calls it, threading VerifiedLease.peerFp).
 //
-//   (b) Service-binding-caller name + workerd config correlation. Needs
-//       workerd to surface "which Worker is calling me" — unclear today.
-//
-//   (c) Cloister-router fetches token per-request and proxies vault
-//       calls on the bundle's behalf. Puts the router in the credential
-//       path — substrate-isolation regression.
-//
-// Pick whichever makes sense at the time of the first real bundle.
-// Until then this DO ships with the gateway-internal-only contract.
-//
-// Filed: cloister-ac30e7 covers the substrate-property lint that will
-// accompany whichever choice gets made.
+// Filed: cloister-ac30e7 (the substrate-property lint accompanying the choice).
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./types.js";
