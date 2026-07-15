@@ -1,6 +1,9 @@
 #!/bin/sh
 # verify-go.sh — round-trip gate for the schema-bridge Go emitter
-# (cloister-76a9ea / ADR-0036 Phase 1 piece D).
+# (cloister-76a9ea / ADR-0036 Phase 1 piece D). Moved from
+# tools/schema-bridge/scripts/ to scripts/ when the schema-bridge crate
+# was lifted to LLO (bead cloister-a7346b); this orchestration stays in
+# the cloister repo — it drives cloister's own cluster const + go.mod.
 #
 # Orchestrates the cross-language verify:
 #   1. Dump the canonical cluster const (src/generated/cluster.ts,
@@ -19,7 +22,7 @@
 
 set -eu
 
-REPO_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO_ROOT"
 
 TMPDIR=$(mktemp -d)

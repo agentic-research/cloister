@@ -80,7 +80,8 @@ _agent_log/
 rs/target/
 
 # Build artifacts for standalone Rust tools under tools/ (e.g.
-# schema-bridge). Same pattern as rs/: Cargo.lock tracked, target/ not.
+# harness-sandbox, mediator). Same pattern as rs/: Cargo.lock tracked,
+# target/ not.
 tools/*/target/
 
 # Python bytecode

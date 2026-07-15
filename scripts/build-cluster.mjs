@@ -89,9 +89,10 @@ const out = `// SPDX-License-Identifier: AGPL-3.0-or-later
 // the zod schemas; this is the structural anchor for the migration
 // off hand-authored cluster-types.ts. Once consumers move to importing
 // types from ./cluster.zod.js directly, cluster-types.ts can shrink
-// to a re-export shim and eventually retire. The codegen tool lives
-// at tools/schema-bridge/ — see its README for the fail-fast
-// invariant and what's mapped today.
+// to a re-export shim and eventually retire. The codegen tool is LLO's
+// leyline-schema-bridge crate (rs/ll-open/schema-bridge), consumed via
+// the Taskfile `cluster:zod` / `cluster:go` targets — see its README
+// upstream for the fail-fast invariant and what's mapped today.
 import type {} from "./cluster.zod.js";
 
 import type { Cluster } from "../manifest/cluster-types.js";

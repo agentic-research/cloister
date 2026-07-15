@@ -1,7 +1,7 @@
 // Round-trip gate for the schema-bridge Go emitter.
 //
 // Invoke via `task cluster:go:verify`, which runs
-// `tools/schema-bridge/scripts/verify-go.sh` — that script dumps the
+// `scripts/verify-go.sh` — that script dumps the
 // canonical cluster const (src/generated/cluster.ts → JSON) to a
 // tmpfile, sets CLUSTER_JSON_PATH, and runs `go test` here. Direct
 // `go test` invocations without the env var skip cleanly so this

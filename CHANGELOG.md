@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-07-15
+
+- **`tools/schema-bridge/` deleted; the capnp→zod/go codegen plugin is
+  consumed from LLO's `leyline-schema-bridge`** (`cloister-a7346b`,
+  cloister-side of LLO PR #222 / `ley-line-open-0806dc`, ADR-0036 Phase
+  2). LLO's `rs/ll-open/schema-bridge/` now hosts the crate; the two
+  plugin binaries keep their names verbatim (`capnpc-schema-bridge-zod`
+  / `capnpc-schema-bridge-go` — capnp's `-o<plugin>` argv[0] PATH
+  dispatch). Cloister pulls it via a git dep pinned by SHA
+  (`e8a501b`, v0.7.9) in `rs/crates/cas/Cargo.toml`, the same workspace
+  anchor that carries `leyline-sign`; `task schema-bridge:build` now
+  runs `cargo build -p leyline-schema-bridge --bin …` into
+  `rs/target/release/` (the `leyline-sign-helper` pattern), and the
+  `cluster:*` / `identity:*` Taskfile targets `-o` those paths. The
+  upstream plugin (capnp `=0.25.0`) produces **byte-identical** zod +
+  go output to the deleted vendored copy (capnp `0.24`) for both
+  `cluster.capnp` and `identity.capnp` — proven by diff before deletion.
+  - `tools/schema-bridge/scripts/verify-go.sh` → `scripts/verify-go.sh`
+    (NOT lifted to LLO — it orchestrates cloister's own cluster const +
+    `go.mod`; deliberately cloister-repo-local).
+
 ### Shipped 2026-07-09
 
 - **`rs/crates/sign` deleted; cloister depends on LLO's canonical
