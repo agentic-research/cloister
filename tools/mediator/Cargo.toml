@@ -19,7 +19,7 @@ name = "cloister_mediator"
 # fuse (fuser/macFUSE), nfs (nfsserve) + validate (tree-sitter) — the decorator
 # is transport-agnostic and needs only the trait + Node. The nfs feature is added
 # back for the mount bin (Task 5), not for the decorator + its tests.
-leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "8a1e75953fc4b05aec620f1b32a4160b911356fb", version = "0.7.8", package = "leyline-fs", default-features = false }
+leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "acf2ec6e2b4a3dd55e064f254e7e7de4ff2ab388", version = "0.7.8", package = "leyline-fs", default-features = false }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 parking_lot = "0.12"
