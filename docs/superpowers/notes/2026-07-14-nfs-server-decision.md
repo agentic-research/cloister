@@ -51,14 +51,21 @@ Rationale:
 a Go mediator is later preferred; rejected now because it fragments the language
 of the security-critical fs path.
 
-## Open verification before Plan 3 (not blockers)
+## Open verification before Plan 3
 
-- **Write completeness.** `nfsserve` is "incomplete but very functional" NFSv3 and
-  xet's use is read-heavy. Verify its **write path** (the mediator's validate-on-write
-  upper needs `WRITE`/`CREATE`/`SETATTR`). If gaps exist, upstream or wrap.
-- **64-bit fileid mapping.** The trait requires associating every fs object with a
-  stable 64-bit id — decide the mapping (CAS digest → id for the lower; inode-like
-  for the upper).
+- **Write completeness — VERIFIED (2026-07-14, docs.rs `NFSFileSystem` trait).**
+  No gap. `write(id, offset, data) -> fattr3`, `create(dirid, filename, attr) ->
+  (fileid3, fattr3)`, `setattr(id, sattr3) -> fattr3`, plus `mkdir` / `remove` /
+  `rename` / `symlink` / `create_exclusive` are all **required** trait methods, and
+  `capabilities() -> VFSCapabilities` declares read-write (the trait documents the
+  `NFS3ERR_ROFS` read-only pattern). The mediator's validate-on-write upper maps
+  1:1 onto these. The "incomplete but functional" caveat is about edge features,
+  not the write path.
+- **64-bit fileid mapping — the remaining design item (folds into Plan 3).** The
+  trait keys every object on `fileid3` (u64): `read`/`write`/`getattr`/`lookup`
+  all take/return it. So the mediator must map each fs object to a stable u64 —
+  CAS digest → id for the lower (a digest↔id table), inode-like ids for the
+  upper. Bounded and known; decided in Plan 3.
 
 ## What Plan 3 builds on this
 
