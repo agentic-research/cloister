@@ -1,0 +1,3 @@
+# Match tools/harness-sandbox + the rs/ workspace channel.
+[toolchain]
+channel = "1.95.0"

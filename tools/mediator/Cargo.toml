@@ -1,0 +1,25 @@
+# cloister-mediator — the ADR-0046 syscall-adapter POLICY plane: a decorator over
+# LLO's public `leyline_fs::graph::Graph` trait. leyline-fs already provides the
+# data plane (arena → NFS/FUSE presentation + overlay + validate); cloister only
+# adds authorize-per-op + SkillLoadReceipt. Standalone native crate (like
+# tools/harness-sandbox), outside the rs/ wasm workspace.
+[package]
+name = "cloister-mediator"
+version = "0.0.1"
+edition = "2021"
+description = "Policy decorator over leyline-fs's Graph — authorize per-op + SkillLoadReceipt (ADR-0046 syscall adapter)."
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "cloister_mediator"
+
+[dependencies]
+# Consume ONLY the public `graph::Graph` trait. default-features=false drops
+# fuse (fuser/macFUSE), nfs (nfsserve) + validate (tree-sitter) — the decorator
+# is transport-agnostic and needs only the trait + Node. The nfs feature is added
+# back for the mount bin (Task 5), not for the decorator + its tests.
+leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "8a1e75953fc4b05aec620f1b32a4160b911356fb", version = "0.7.8", package = "leyline-fs", default-features = false }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+parking_lot = "0.12"
