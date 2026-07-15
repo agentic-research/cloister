@@ -14,6 +14,20 @@ relates_to:
   - 0020-adversarial-team-charter.md
 ---
 
+## Amendment (2026-07-14) — the (a)/(b)/(c) rejection is superseded by ADR-0047
+
+This ADR selected per-bundle DO instances *instead of* the three mechanisms
+`vault-store.ts` listed — (a) a pre-issued DPoP token verified via notme, (b) a
+workerd caller-correlation surface, (c) router-proxies-on-behalf — on the grounds
+that they "add machinery to retain a singleton" (see below). **That premise is now
+stale:** notme shipped the machinery (`worker/src/auth/token.ts` /
+`signing-authority.ts:mintDPoPToken` — an `at+jwt` EdDSA, `cnf.jkt`-bound access
+token with JWKS + revocation). **ADR-0047 supersedes the rejection** and adopts a
+*hybrid*: this ADR's per-bundle DO isolation **plus** option (a) — the vault
+verifies a scoped notme DPoP token and derives `subjectFp` from the verified `sub`
+(the ADR-0046 rpc-adapter shape). Read this ADR as the *structural isolation* half;
+ADR-0047 is the *cryptographic per-call auth* half. They compose.
+
 ## Context
 
 ADR-0013 ratified the slice-grant enforcement model (V8 isolate +
