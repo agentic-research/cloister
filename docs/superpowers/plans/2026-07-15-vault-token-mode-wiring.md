@@ -4,7 +4,14 @@
 
 **Goal:** Turn on ADR-0047 DPoP bundle authentication at the vault so `rosary` becomes the first per-bundle-DO tenant that authenticates with a notme-minted access token instead of relying on the router's positional identity.
 
-**Architecture:** The auth *logic* already exists and is tested (`authenticateBundleRequest`, `verifyBundleToken`, `verifyDpopProof`, 31 cases). This plan wires it into the live path via the ADR-0047 **hybrid**: a `vaultProxy` route declared in `authMode = token` (manifest topology, §20.9 — the code path is chosen by the operator-declared mode, never by token presence in request content) selects a **per-bundle** vault DO instance (`idFromName(bundleId)`, ADR-0021), and that DO's bundle-facing RPC method verifies the token, pins + cross-checks its own `expectedSub` (§20.10), enforces a `seen_jti` replay ledger, and derives `subjectFp` from the *verified* `sub`. The existing interlace-lease `vaultProxy` (`authMode = lease`, the default) is untouched.
+> **Reconciliation note (2026-07-15, post-#142).** This plan was written before the DPoP verify was hardened. The crypto verify shipped in **#142** (`cloister-0ae913` + `cloister-9fbec8`) and the shape below is now stale in three ways — read this note over the inline text:
+> - **The verify is the VENDORED notme SDK.** `src/vendor/notme-dpop.ts::verifyDPoPToken` (verbatim from notme `gen/ts/dpop.ts`) does token EdDSA sig + **ES256/EC** DPoP proof + RFC 7638 `cnf.jkt`. `authenticateBundleRequest` composes ADR-0047 §20 checks over it. The old hand-rolled `verifyBundleToken` / `verifyDpopProof` are **deleted**; `bundle-token-verify.ts` now exports only `scopeGrants` + `deriveSubjectFp` (the latter computes `subjectFp`).
+> - **Tests** are `test/routes/bundle-dpop-auth.test.ts` (**20 cases**) + `test/routes/dpop-fixtures.ts` (real notme ES256/EC fixtures) — **not** the deleted `bundle-auth.test.ts`/"31 cases".
+> - **`BundleAuthContext`** is `{ token, proof, notmePub, resolvedKid, expectedSub, audience, requiredScope, issuer, htm, htu, seenJti, isRevoked }` — note **`resolvedKid`** (the kid `notmePub` was resolved from; the verify asserts `header.kid === resolvedKid`) and **no `now`**. rosary's DPoP key is **P-256/ES256** (notme mint requirement, `rosary-0b40d2`), while `notmePub` (the notme *authority* key) stays Ed25519.
+>
+> Remaining work below (Tasks 1–5 vault-DO wiring, Task 6 rosary, Task 7 smoke, Task 8 docs) is unchanged in intent.
+
+**Architecture:** The auth *logic* already exists and is tested (`authenticateBundleRequest` composing over the vendored `verifyDPoPToken`, 20 cases — see the reconciliation note above). This plan wires it into the live path via the ADR-0047 **hybrid**: a `vaultProxy` route declared in `authMode = token` (manifest topology, §20.9 — the code path is chosen by the operator-declared mode, never by token presence in request content) selects a **per-bundle** vault DO instance (`idFromName(bundleId)`, ADR-0021), and that DO's bundle-facing RPC method verifies the token, pins + cross-checks its own `expectedSub` (§20.10), enforces a `seen_jti` replay ledger, and derives `subjectFp` from the *verified* `sub`. The existing interlace-lease `vaultProxy` (`authMode = lease`, the default) is untouched.
 
 **Tech Stack:** TypeScript, workerd Durable Objects (SQLite storage API), capnp manifest (`cloister.capnp` → `task manifest`), Web Crypto Ed25519, notme (`env.NOTME` Fetcher binding, publishes JWKS + `mintDPoPToken`), vitest (worker tests + workerd integration).
 
@@ -13,7 +20,7 @@
 - **No auth bypass, ever.** Token-mode path is **token-or-deny by topology** (§20.9): no branch trusts a positional `subjectFp`. `authenticateBundleRequest` already enforces this; do not add a fallback. (CLAUDE.md "What NOT to add".)
 - **Schema evolution is append-only** (ADR-0004): new manifest fields get the next monotonically-increasing ordinal; never renumber. New `VaultProxySpec.authMode` field is append-only.
 - **Manifest is source of truth** (CLAUDE.md): edit `cloister.capnp`, then `task manifest`. Schema at `manifest/cloister.capnp`. A new kind/field needs a schema field + a TS mirror in `src/manifest/types.ts` (or `cluster-types.ts`) + a runtime branch.
-- **Two CAS hashes stay distinct** (CLAUDE.md): `subjectFp` here is SHA-256-derived (application layer), as `verifyBundleToken` already computes it. Do not introduce BLAKE3 anywhere in this path.
+- **Two CAS hashes stay distinct** (CLAUDE.md): `subjectFp` here is SHA-256-derived (application layer), as `deriveSubjectFp` (bundle-token-verify.ts) computes it. Do not introduce BLAKE3 anywhere in this path.
 - **Commit convention:** `[cloister-2b98c0] type(scope): subject`. `spike` is not a valid type — use `feat`/`fix`/`chore`/`docs`/`test`. Run `task lint` (the ~2s inner gate) before every commit.
 - **Inner gate:** `task lint` (tsc + worker tests + plugin tests). Integration: `task test` (real DOs, real SQLite). Strict CI: `task verify`.
 - **Threat-model-first for new seams** (CLAUDE.md): §20 already covers this seam (rows 20.1–20.10). This plan *flips its status*, it does not invent a new seam. Extend §20 status, don't restate.
@@ -233,8 +240,9 @@ Expected: FAIL — module not found.
 
 ```typescript
 // src/routes/notme-jwks.ts
-// Resolve a notme signing key by `kid` from notme's published JWKS, for
-// verifyBundleToken (ADR-0047). notme is reached via the env.NOTME service
+// Resolve a notme signing key by `kid` from notme's published JWKS, feeding
+// authenticateBundleRequest's notmePub + resolvedKid (ADR-0047). notme is
+// reached via the env.NOTME service
 // binding (Fetcher). Bounded-TTL in-isolate cache keeps a JWKS fetch off
 // the per-request hot path; unknown kid / unbound / malformed → null
 // (fail-closed — the caller denies).
@@ -375,7 +383,7 @@ describe("vault authenticateAndProxy (ADR-0047 token mode)", () => {
 });
 ```
 
-If `bundle-auth.test-helpers.js` does not exist, the 31 existing tests in `test/routes/bundle-auth.test.ts` already mint tokens/proofs inline — extract those minting helpers into `src/routes/bundle-auth.test-helpers.ts` as Step 2a (a pure refactor: move, re-export, keep the 31 tests green) so both suites share one minting path. Commit that refactor separately.
+Reuse the real-format minters already in `test/routes/dpop-fixtures.ts` (`generateEd25519`, `generateP256`, `mintToken`, `buildProof`, `jktOf`) — they produce notme's actual ES256/EC wire format. Import them here rather than re-implementing; that is the single minting path both the composition suite (`bundle-dpop-auth.test.ts`) and this DO suite share.
 
 - [ ] **Step 3: Run test to verify it fails**
 
