@@ -221,6 +221,14 @@ handles the rest.
 `perTenant = true`; the emitter will (Phase 2) spawn one instance per
 `TenantDispatchRow.name` instead of one cluster-wide bundle.
 
+> **Vault auth for a per-tenant bundle** is specified in
+> [ADR-0047](../adr/0047-vault-bundle-identity.md): the bundle reaches a
+> **per-bundle vault DO** (`idFromName(bundleId)`, ADR-0021) and authenticates
+> with a verified **notme DPoP token** whose `scope` carries the tenant — the
+> vault derives identity from the *verified* token, never a positional
+> argument. The operator knob (`authMode = token` on the bundle's vault route)
+> lands with that wiring; this section gains it then.
+
 ### Status
 
 | Phase | Piece | Status |
