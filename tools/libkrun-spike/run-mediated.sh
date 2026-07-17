@@ -54,6 +54,7 @@ sudo mount -t nfs -o vers=3,tcp,port="$PORT",mountport="$PORT",noac 127.0.0.1:/ 
 
 echo "[e87760] booting the guest with virtio-fs backed by the mediated mount…"
 GUEST='echo GUEST_UP; mkdir -p /mnt; mount -t virtiofs workspace /mnt && echo MOUNT_OK || echo MOUNT_FAIL; '\
+'echo LS-ROOT:; ls -la /mnt 2>&1; echo LS-SKILLS:; ls -la /mnt/skills 2>&1; '\
 'echo ALLOWED-READ:; cat /mnt/skills/demo.md && echo READ_OK; '\
 'echo DENIED-READ:; cat /mnt/etc/secret 2>&1 | head -1; echo GUEST_DONE'
 export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
@@ -64,9 +65,9 @@ echo "$OUT"
 echo "$OUT" | grep -q MOUNT_OK   || { echo "FAIL: guest could not mount the mediated virtio-fs"; exit 1; }
 echo "$OUT" | grep -q READ_OK    || { echo "FAIL: allowed skill read did not succeed through the mediator"; exit 1; }
 echo "$OUT" | grep -q "hello world" || { echo "FAIL: mediator did not serve the allowed skill content"; exit 1; }
-# completeness: the mediator's RecordingSink logs a skill_load per served read
-grep -qiE "skill_load|/skills/demo.md" "$LOG" \
-  || echo "WARN: mediator log shows no SkillLoadReceipt for the read — check RecordingSink emit (cloister-3fc1b6)"
+# completeness: the mediator's StderrReceiptSink logs a SkillLoadReceipt per served read
+grep -q "SkillLoadReceipt id=/skills/demo.md" "$LOG" \
+  || echo "WARN: mediator log shows no SkillLoadReceipt for the read — inspect $LOG (cloister-3fc1b6)"
 # the denied path must fail IN-GUEST (mediator denies anything outside /skills)
 echo "$OUT" | grep -A1 "DENIED-READ:" | grep -qiE "no such file|denied|i/o error|can't open|not permitted" \
   || echo "WARN: policy-denied read did not clearly fail in-guest — inspect the DENIED-READ line above"

@@ -27,3 +27,15 @@ impl ReceiptSink for RecordingSink {
         self.ids.lock().push(id.to_string());
     }
 }
+
+/// Live sink for the mount bin: emits each load event to stderr in a greppable
+/// form so an operator (and the cloister-e87760 fidelity harness) can see EVERY
+/// content-addressed read reach the mediator. The real integration wires this to
+/// cloister's audit/disclosure chain (cloister-3fc1b6); this is the observable
+/// interim.
+pub struct StderrReceiptSink;
+impl ReceiptSink for StderrReceiptSink {
+    fn skill_load(&self, id: &str) {
+        eprintln!("SkillLoadReceipt id={id}");
+    }
+}

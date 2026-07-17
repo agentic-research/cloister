@@ -18,7 +18,7 @@ fn main() {
 async fn main() -> anyhow::Result<()> {
     use cloister_mediator::graph::ConfinementGraph;
     use cloister_mediator::policy::Policy;
-    use cloister_mediator::receipt::RecordingSink;
+    use cloister_mediator::receipt::StderrReceiptSink;
     use leyline_fs::graph::{Graph, MemoryGraph, Node};
     use leyline_fs::nfs::serve_nfs;
     use std::sync::Arc;
@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let policy = Policy { read_prefixes: vec!["/skills".into()], write_prefixes: vec![] };
     let confined: Arc<dyn Graph> =
-        Arc::new(ConfinementGraph::new(Arc::new(g), policy, Arc::new(RecordingSink::default())));
+        Arc::new(ConfinementGraph::new(Arc::new(g), policy, Arc::new(StderrReceiptSink)));
 
     let (port, handle) = serve_nfs(confined, "127.0.0.1:0").await?;
     eprintln!("cloister-mediator: confined NFS server on 127.0.0.1:{port}");

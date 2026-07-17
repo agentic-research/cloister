@@ -15,7 +15,25 @@ pub struct Policy {
 
 impl Policy {
     pub fn allows_read(&self, id: &str) -> bool {
-        has_prefix(&self.read_prefixes, id)
+        // Content access: `id` is at or under an allowed read prefix.
+        if has_prefix(&self.read_prefixes, id) {
+            return true;
+        }
+        // Traversal: `id` is an ANCESTOR directory of an allowed prefix (the root,
+        // or a parent on the path to allowed content). An NFS/FUSE mount getattrs
+        // `/` before anything else, and the guest must navigate `/skills` to reach
+        // `/skills/demo.md` — so ancestors of allowed content are navigable. This
+        // does NOT grant file content: a file off the allowed subtree is neither
+        // under a prefix nor an ancestor of one, so it stays denied (+ un-receipted).
+        let id = {
+            let t = id.trim_end_matches('/');
+            if t.is_empty() { "/" } else { t }
+        };
+        id == "/"
+            || self.read_prefixes.iter().any(|p| {
+                let p = p.trim_end_matches('/');
+                p == id || p.starts_with(&format!("{id}/"))
+            })
     }
     pub fn allows_write(&self, id: &str) -> bool {
         has_prefix(&self.write_prefixes, id)
@@ -84,6 +102,15 @@ mod tests {
     #[test]
     fn read_denied_outside_prefix() {
         assert!(!policy().allows_read("/etc/passwd"));
+    }
+    #[test]
+    fn traversal_allows_ancestors_but_not_off_tree() {
+        // The root + ancestor dirs of an allowed prefix are navigable (a mount
+        // getattrs `/` first) — but a sibling subtree is NOT.
+        assert!(policy().allows_read("/")); // root — required for any NFS/FUSE mount
+        assert!(policy().allows_read("/skills")); // the prefix dir itself
+        assert!(!policy().allows_read("/etc")); // off-tree ancestor stays denied
+        assert!(!policy().allows_read("/etc/secret")); // off-tree content stays denied
     }
     #[test]
     fn prefix_is_path_boundary_aware() {
