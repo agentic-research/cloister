@@ -130,6 +130,11 @@ tasks:
     cmds:
       - bash tools/libkrun-spike/run-spike.sh
 
+  spike:libkrun:mediated:
+    desc: "cloister-e87760 — the ADR-0044/0046 KEYSTONE proof. Boots the microVM with its virtio-fs backed by the ConfinementGraph MEDIATOR's NFS (not a passthrough) and proves the guest fs traverses the mediator: allowed skill served + recorded, policy-denied path blocked in-guest. macOS+libkrun+sudo only; SKIPs elsewhere. NOT a CI gate. Prereq: run spike:libkrun once (fetches rootfs)."
+    cmds:
+      - bash tools/libkrun-spike/run-mediated.sh
+
   mediator:test:
     desc: "cloister-b2d2b1 — the ADR-0046 syscall-adapter policy plane (ConfinementGraph decorator over leyline-fs). Decorator + 13 unit tests, default build (no nfsserve/fuser). NOT a CI gate yet (heavy leyline-fs dep, like harness-sandbox pre-#128)."
     dir: tools/mediator
