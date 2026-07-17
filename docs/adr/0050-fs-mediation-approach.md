@@ -101,6 +101,44 @@ adapter now).
 - **The escalation is a named decision, not a default** — per-op FUSE returns the
   moment the threat model names a host-side-per-read requirement.
 
+## Performance — the content-addressed shape is also the fast path
+
+FUSE's cost is real: every op is a userspace round-trip (kernel → daemon →
+kernel). Deferring per-op FUSE is not only simpler + more differentiated — the
+content-addressed shape is *faster*, for three compounding reasons, and per-op
+FUSE actively forfeits all three:
+
+- **`mmap` of immutable blobs.** Content-addressed blobs never change → ideal for
+  `mmap`: the OS page cache pages them from NVMe on demand and *shares* the pages
+  across readers (in-RAM dedup), with no explicit load. This is the llama.cpp model
+  (a 7B model `mmap`s from NVMe in <2 s, ~40× vs a copy-load) and antirez's
+  disk-first / NVMe-caching line (DwarfStar; cf. Reame's restart-surviving disk KV
+  cache) — the right primitive for a guest loading skills/tools/weights from a
+  read-only content-addressed tree.
+- **DAX, unlocked.** Per-op FUSE mediation *requires DAX off* — it must intercept
+  every op, which is exactly why the `e87760` spike disabled it. With no per-op
+  mediation, **DAX is on**: the guest directly `mmap`s the host's virtio-fs page
+  cache, zero-copy. The decision that removes the FUSE hop is the same one that
+  turns DAX back on.
+- **Chunk-level dedup (XetHub / HF `xet`).** Content-*defined* chunking (GearHash
+  rolling hash, ~64 KB chunks, MerkleHash CAS) dedups at the byte level and
+  materializes/transfers only changed chunks — the difference between re-shipping a
+  whole model and shipping the delta. cloister's CAS is blob-level (BLAKE3) today;
+  adopting CDC for large/versioned content (models, big tools) is the enhancement
+  (Open questions).
+
+So per-op FUSE trades `mmap` + DAX + zero-copy away for per-read interception; the
+content-addressed rootfs keeps all three. This is the *performance* case for the
+same decision the *complexity* and *differentiation* cases already made.
+
+## Open questions
+
+1. **Chunk-level CDC for large content.** cloister's CAS dedups at blob level
+   (BLAKE3 whole-file). For model weights / large versioned tools in the rootfs,
+   content-*defined* chunking (XetHub/`xet`-style, GearHash) would dedup + lazily
+   materialize far better. Scope whether leyline-CAS grows CDC or cloister layers it
+   for the rootfs specifically.
+
 ## The escalation trigger (for the threat model)
 
 Build the per-op FUSE adapter when the model requires proving an *individual read
@@ -131,3 +169,8 @@ required. Absent that, content-addressed scope + integrity is the provenance.
   <https://modal.com/docs/guide/volumes> · files
   <https://modal.com/docs/guide/sandbox-files>
 - Daytona: sandboxes <https://www.daytona.io/docs/en/sandboxes/>
+- XetHub / HF xet CDC + dedup: <https://huggingface.co/docs/hub/xet/deduplication> ·
+  <https://deepwiki.com/huggingface/xet-core/2.3-deduplication-architecture>
+- mmap / NVMe local-inference (llama.cpp ~40× mmap load; antirez DwarfStar
+  disk-first thesis via Reame): <https://github.com/swellweb/reame> ·
+  <https://carteakey.dev/blog/local-inference/local-llm-optimization/>
