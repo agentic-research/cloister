@@ -29,7 +29,11 @@ int main(void) {
     CHECK(krun_add_virtiofs(ctx, "workspace", workspace));  // host dir → guest tag
     CHECK(krun_set_workdir(ctx, "/"));
 
-    const char *script =
+    // Guest script is overridable (SPIKE_GUEST_SCRIPT) so the same probe drives
+    // both the plain-passthrough spike and the cloister-e87760 mediated run
+    // (guest reads a mediator-served skill + attempts a policy-denied path).
+    const char *script = getenv("SPIKE_GUEST_SCRIPT");
+    if (!script) script =
         "echo GUEST_UP; mkdir -p /mnt; "
         "mount -t virtiofs workspace /mnt && echo MOUNT_OK || echo MOUNT_FAIL; "
         "echo READ-HOST-TO-GUEST:; cat /mnt/host-wrote-this.txt; "
