@@ -114,6 +114,35 @@ The runtime is "integrated," not standalone, precisely by these four seams:
    unix socket** (ADR-0044's `AF_VSOCK`-absent-on-macOS finding), not by spawning
    a hand-run binary — the `69dea1` declared-host-runner contract.
 
+### Credential mediation — own the agent's config hierarchy, don't inject keys
+
+The runtime mediates the agent's credentials not by injecting per-tool env vars,
+but by **owning the config *hierarchy* the agent's tools resolve against.** This
+is the mechanism for seam #1's credential half, and it exploits that config
+resolution is hierarchical + env-overridable:
+
+- **Own the roots (hierarchical placement).** The runtime sets `HOME`,
+  `XDG_CONFIG_HOME` + `XDG_CONFIG_DIRS`, and the tool-specific overrides that take
+  precedence over them (`ANTHROPIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`) to paths
+  *inside the mediated tree*. Any XDG-respecting tool (`ant`, the SDK, Claude Code)
+  resolves config + credentials `ANTHROPIC_CONFIG_DIR → XDG_CONFIG_HOME/anthropic →
+  ~/.config/anthropic`, env-over-file — so the runtime places its **authoritative
+  base layer** at the top of that hierarchy (`XDG_CONFIG_HOME`) and can offer
+  lower-precedence defaults via `XDG_CONFIG_DIRS`. The agent can't resolve *around*
+  a hierarchy whose roots the runtime owns.
+- **Deny the host's.** The confinement denies the real host credential paths —
+  `~/.config/anthropic/credentials/`, `~/.claude/.credentials.json`, plus ADR-0044's
+  `~/.ssh`/`~/.aws`. Even if a tool ignores the env redirect, the operator's tokens
+  are unreadable in-guest.
+- **What lands there is the runtime's choice.** A short-lived cred, or a config
+  whose base-url is cloister's vault-proxy (ADR-0042 `ANTHROPIC_BASE_URL`). For the
+  `ant auth login` **OAuth-subscription** case this is ADR-0016 D5's "**receipts,
+  not custody**" path: redirect the config, proxy the calls through cloister, never
+  copy the OAuth token into the guest.
+
+So the credential story is "**own the agent's config root, deny the host's**" —
+not "inject an `ANTHROPIC_API_KEY`."
+
 ## Consequences
 
 - **The `tools/` fragments consolidate** into `rs/crates/host-runtime` modules
@@ -152,3 +181,8 @@ The runtime is "integrated," not standalone, precisely by these four seams:
 3. **libkrun's in-process fs specialization** — ADR-0044 uncertainty (1): is
    `passthrough_fs` specialization a code-level extension or a config knob on
    current libkrun main? Measure before committing the adapter's mount path.
+4. **The credential deny-list + per-tool precedence** — enumerate every host path
+   holding a live credential (`~/.config/anthropic/`, `~/.claude/.credentials.json`,
+   `~/.ssh`, `~/.aws`, cloud SDK caches) and confirm each relevant tool honors the
+   env redirect (env-over-file). Falsifiable: with the runtime's env set, a guest
+   read of the host cred path is denied AND the tool resolves the mediated config.
