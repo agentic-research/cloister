@@ -28,7 +28,6 @@ on:
       - "src/tool-schemas/**"
       - "scripts/build-manifest.mjs"
       - "scripts/build-tool-schemas.mjs"
-      - "scripts/build-cluster.mjs"
       - ".github/workflows/generated-drift.yml"
   pull_request:
     branches: [main]
@@ -42,7 +41,6 @@ on:
       - "src/tool-schemas/**"
       - "scripts/build-manifest.mjs"
       - "scripts/build-tool-schemas.mjs"
-      - "scripts/build-cluster.mjs"
       - ".github/workflows/generated-drift.yml"
 
 permissions:

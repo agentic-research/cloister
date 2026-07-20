@@ -39,8 +39,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Path constants — every reachable defaults match the existing
-// build-cluster.mjs pipeline so the two stay swap-compatible.
+// Path constants — the repo-root cluster.toml (operator source) and
+// src/generated/cluster.ts (the sole generated output; the legacy
+// build-cluster.mjs capnp→ts pipeline was retired in cloister-ab8f21).
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
 const DEFAULT_INPUT = resolve(REPO_ROOT, "cluster.toml");
@@ -141,10 +142,9 @@ function findAllIndices(arr, target) {
 }
 
 /**
- * Render a validated Cluster object as a TS module string. Output
- * mirrors what `scripts/build-cluster.mjs` produces so consumers
- * (deployment emitters) can swap between the two pipelines without
- * source-level edits.
+ * Render a validated Cluster object as a TS module string. This is the
+ * sole generator of src/generated/cluster.ts; the legacy capnp→ts
+ * pipeline (build-cluster.mjs) was retired in cloister-ab8f21.
  *
  * @param {object} cluster
  * @returns {string} TS module source
@@ -161,9 +161,8 @@ export function renderClusterTs(cluster) {
 
 // Side-effect import: keeps cluster.zod.ts in the dependency graph
 // so \`task lint\`'s tsc pass type-checks the schema-bridge codegen
-// alongside this emitted module. Same rationale as build-cluster.mjs;
-// preserved so the two pipelines stay swap-compatible during the
-// Phase 1 migration.
+// alongside this emitted module. This is the structural anchor for the
+// migration off hand-authored cluster-types.ts (ADR-0025).
 import type {} from "./cluster.zod.js";
 
 import type { Cluster } from "../manifest/cluster-types.js";
