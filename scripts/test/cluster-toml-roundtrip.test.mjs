@@ -221,7 +221,7 @@ doStoragePath = "/data/do"
   assert.deepEqual(validated.wires[0].transport, { uds: null });
 });
 
-test("toml-to-cluster: renderClusterTs emits the same shape as scripts/build-cluster.mjs", () => {
+test("toml-to-cluster: renderClusterTs emits the canonical cluster.ts shape", () => {
   const c = minimalCluster();
   const ts = renderClusterTs(c);
   // Header + import + export const cluster: Cluster = {...} as const;

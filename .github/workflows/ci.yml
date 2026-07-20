@@ -50,6 +50,10 @@ jobs:
         # Constellation's standard. SHA-pinned to the same commit ley-line
         # and mache use; bump together when bumping their workflows.
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          # Authenticate the release download to dodge anonymous GitHub API
+          # rate limits on shared runner IPs (setup-task otherwise flakes).
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install capnp + libdbus dev headers
         # `capnproto` — required by `task manifest` (compiles
@@ -185,6 +189,10 @@ jobs:
 
       - name: Install Task
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          # Authenticate the release download to dodge anonymous GitHub API
+          # rate limits on shared runner IPs (setup-task otherwise flakes).
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install capnp + libdbus dev headers
         # See the lint job's matching step for the rationale. `task verify`

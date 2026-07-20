@@ -8,9 +8,8 @@
 
 // Side-effect import: keeps cluster.zod.ts in the dependency graph
 // so `task lint`'s tsc pass type-checks the schema-bridge codegen
-// alongside this emitted module. Same rationale as build-cluster.mjs;
-// preserved so the two pipelines stay swap-compatible during the
-// Phase 1 migration.
+// alongside this emitted module. This is the structural anchor for the
+// migration off hand-authored cluster-types.ts (ADR-0025).
 import type {} from "./cluster.zod.js";
 
 import type { Cluster } from "../manifest/cluster-types.js";

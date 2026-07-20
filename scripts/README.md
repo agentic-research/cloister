@@ -10,7 +10,7 @@ a human — Taskfile is the entry point.
 | Script | Task | Pipeline |
 |--------|------|----------|
 | `build-manifest.mjs` | `task manifest` | Consumer's `cloister.capnp` → `capnp eval -o json` → typed `src/generated/manifest.ts`. Per [ADR-0004](../docs/adr/0004-capnp-manifest.md). |
-| `build-cluster.mjs` | `task cluster:manifest` | `cluster.capnp` → typed `src/generated/cluster.ts`. ADR-0009 sibling pipeline. |
+| `toml-to-cluster.mjs` | `task cluster:toml` | `cluster.toml` → validated (`ClusterSchema`) → typed `src/generated/cluster.ts`. ADR-0025 bidi pipeline; reverse leg is `cluster-to-toml.mjs`. Supersedes the retired capnp→ts `build-cluster.mjs` (cloister-ab8f21). |
 | `build-tool-schemas.mjs` | `task build` (pre-step) | `src/tool-schemas/*.ts` (zod) → JSON Schema → typed TS module. Closes `cloister-7ca96c` manifest↔handler drift. |
 | `emit-compose.mjs` | `task cluster:emit` | `src/generated/cluster.ts` → `cluster.compose.yaml`. Docker/podman/nerdctl-compatible. |
 | `emit-workerd-config.mjs` | inside `task image` | Stitches `dist/config.capnp` against wrangler's content-hashed wasm filenames so `workerd serve` resolves the bundled module. |
