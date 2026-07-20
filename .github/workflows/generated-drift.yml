@@ -15,39 +15,16 @@ name: generated-drift
 # All run: blocks below execute repo-controlled scripts only; no
 # untrusted github.event.* input is interpolated.
 
+# Runs on EVERY push to main + every PR — intentionally NOT path-filtered.
+# This is a required status check (branch protection on main), and a
+# path-filtered required check that doesn't trigger blocks the PR forever
+# on "Expected — waiting for status". Always-on = the check always posts.
+# The drift diff itself is fast; the git diff --exit-code is the gate.
 on:
   push:
     branches: [main]
-    paths:
-      - "src/generated/**"
-      - "cloister.capnp"
-      - "cluster.capnp"
-      - "manifest/cloister.capnp"
-      - "manifest/cluster.capnp"
-      - "wire/cloister.capnp"
-      - "src/tool-schemas/**"
-      - "scripts/build-manifest.mjs"
-      - "scripts/build-tool-schemas.mjs"
-      - "cluster.toml"
-      - "scripts/toml-to-cluster.mjs"
-      - "scripts/cluster-to-toml.mjs"
-      - ".github/workflows/generated-drift.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "src/generated/**"
-      - "cloister.capnp"
-      - "cluster.capnp"
-      - "manifest/cloister.capnp"
-      - "manifest/cluster.capnp"
-      - "wire/cloister.capnp"
-      - "src/tool-schemas/**"
-      - "scripts/build-manifest.mjs"
-      - "scripts/build-tool-schemas.mjs"
-      - "cluster.toml"
-      - "scripts/toml-to-cluster.mjs"
-      - "scripts/cluster-to-toml.mjs"
-      - ".github/workflows/generated-drift.yml"
 
 permissions:
   contents: read
