@@ -28,6 +28,9 @@ on:
       - "src/tool-schemas/**"
       - "scripts/build-manifest.mjs"
       - "scripts/build-tool-schemas.mjs"
+      - "cluster.toml"
+      - "scripts/toml-to-cluster.mjs"
+      - "scripts/cluster-to-toml.mjs"
       - ".github/workflows/generated-drift.yml"
   pull_request:
     branches: [main]
@@ -41,6 +44,9 @@ on:
       - "src/tool-schemas/**"
       - "scripts/build-manifest.mjs"
       - "scripts/build-tool-schemas.mjs"
+      - "cluster.toml"
+      - "scripts/toml-to-cluster.mjs"
+      - "scripts/cluster-to-toml.mjs"
       - ".github/workflows/generated-drift.yml"
 
 permissions:
