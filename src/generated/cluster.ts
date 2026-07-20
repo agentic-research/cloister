@@ -143,7 +143,7 @@ export const cluster: Cluster = {
       },
       "kind": {
         "external": {
-          "image": "rosary:0.4.0",
+          "image": "rosary:0.7.0",
           "ipcSocket": "/run/cloister-uds/rosary.sock",
           "httpPort": 0,
           "args": [
@@ -188,8 +188,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@v0.5.8",
-      "version": "0.5.8",
+      "ref": "github://agentic-research/ley-line-open/server.json@f62a54307c6c6d6d4e39c333a19b8913f8826c61",
+      "version": "0.8.0",
       "digest": "",
       "from": "",
       "provides": [],
@@ -205,8 +205,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "mache",
-      "ref": "github://agentic-research/mache/server.json@v0.16.2",
-      "version": "0.16.2",
+      "ref": "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc",
+      "version": "0.17.0",
       "digest": "",
       "from": "",
       "provides": [],
@@ -222,8 +222,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "ref": "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4",
-      "version": "0.4.0",
+      "ref": "github://agentic-research/rosary/server.json@73f41c5ebdaf280ed3e52ff077feeafd5e6cd8a6",
+      "version": "0.7.0",
       "digest": "",
       "from": "",
       "provides": [],
