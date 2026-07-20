@@ -73,17 +73,12 @@ tasks:
     generates:
       - src/generated/manifest.ts
 
-  cluster:manifest:
-    desc: "Compile cluster.capnp → src/generated/cluster.ts (cloister-be0607a)"
-    run: once
-    cmds:
-      - node scripts/build-cluster.mjs
-    sources:
-      - cluster.capnp
-      - manifest/cluster.capnp
-      - scripts/build-cluster.mjs
-    generates:
-      - src/generated/cluster.ts
+  # NOTE: the legacy capnp→ts generator (`cluster:manifest` / build-cluster.mjs)
+  # was retired in cloister-ab8f21. src/generated/cluster.ts is generated
+  # solely from the operator-authoritative cluster.toml via `cluster:toml`
+  # (ADR-0025). The old leg read the hand-authored root cluster.capnp, which
+  # carries no `inputs` — so it would have regenerated cluster.ts WITHOUT the
+  # declared inputs, silently regressing them.
 
   # schema-bridge tasks
   #
@@ -541,8 +536,10 @@ tasks:
       - scripts/pull-inputs.mjs
 
   cluster:dev:
-    desc: "Mac dev launcher — spawns cluster.capnp bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
-    deps: [cluster:manifest]
+    desc: "Mac dev launcher — spawns cluster bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
+    # cluster.ts comes from the authoritative cluster.toml leg (ADR-0025); the
+    # legacy capnp→ts cluster:manifest was retired (cloister-ab8f21).
+    deps: [cluster:toml]
     cmds:
       - node scripts/cluster-dev.mjs
     sources:

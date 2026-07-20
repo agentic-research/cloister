@@ -10,8 +10,8 @@
 // authoritative type at runtime (it gates TOML parse via ClusterSchema)
 // while cluster-types.ts holds the JSDoc that explains each field's
 // intent. Drift between the two = silent broken assumptions in
-// downstream callers (toml-to-cluster.mjs, build-cluster.mjs, the
-// emit-* pipelines) that import one or the other.
+// downstream callers (toml-to-cluster.mjs, the emit-* pipelines) that
+// import one or the other.
 //
 // Until schema-bridge learns to carry capnp `# comments` through as
 // JSDoc (cloister-204ac9 followup), this file is the seam that fails

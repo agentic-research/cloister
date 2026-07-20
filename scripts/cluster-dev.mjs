@@ -89,7 +89,7 @@ const RESERVED_INSPECTOR_PORTS = new Set(
 const INPUT_PATH = resolve(REPO, "src/generated/cluster.ts");
 if (!existsSync(INPUT_PATH)) {
   console.error(`cluster-dev: ${rel(INPUT_PATH)} doesn't exist`);
-  console.error("  run \`task cluster:manifest\` first");
+  console.error("  run \`task cluster:toml\` first");
   process.exit(1);
 }
 

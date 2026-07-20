@@ -345,7 +345,7 @@ export interface StoragePolicy {
   doStoragePath: string;
 }
 
-// ── Validation helpers (consumed by build-cluster.mjs + tests) ───────────
+// ── Validation helpers (consumed by toml-to-cluster.mjs + tests) ─────────
 
 /**
  * Validate a `Cluster` value's referential integrity. Throws
@@ -356,7 +356,7 @@ export interface StoragePolicy {
  *   - empty bundle name / empty wire binding
  *   - bundle with unknown tier
  *
- * Called by `scripts/build-cluster.mjs` BEFORE writing the TS output;
+ * Called by `scripts/toml-to-cluster.mjs` BEFORE writing the TS output;
  * also called by the emitters defensively.
  */
 export function validateCluster(c: Cluster): void {
@@ -375,7 +375,7 @@ export function validateCluster(c: Cluster): void {
     }
     // Per math-friend ADR-0018 review gap 1: tier=hypervisor requires
     // explicit rationale. validateCluster runs both at build time
-    // (build-cluster.mjs) and at runtime in the emitters, so this gate
+    // (toml-to-cluster.mjs) and at runtime in the emitters, so this gate
     // is independent of the lint script.
     if (b.tier === "hypervisor" && !b.hypervisorRationale) {
       throw new TypeError(
