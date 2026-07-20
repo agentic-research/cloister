@@ -56,6 +56,11 @@ jobs:
         # underlying `pnpm exec tsx scripts/...` invocations the
         # Taskfile already owns.
         uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          # Authenticate the release download to dodge anonymous GitHub API
+          # rate limits on shared runner IPs — this is a required check, so a
+          # flaky Task install would block merges until a manual re-run.
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install capnp (build-time tool — not needed at deploy)
         run: |
