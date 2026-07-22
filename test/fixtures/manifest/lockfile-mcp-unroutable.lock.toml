@@ -1,0 +1,21 @@
+_comment = "Fixture lockfile with an UNROUTABLE generated backend (dynamicTools + empty handlesPrefix + empty claims) — the exact shape resolve-inputs.mjs's single-backend fallback emits for a server.json with no _meta.art.cloister/v1.groups[]. Paired with lockfile-mcp-shell.capnp. cloister-3b8cd6: build-manifest.mjs must fail LOUDLY on this at BUILD time, not several steps removed at wrangler-boot (where runtime.ts validate() would otherwise catch it)."
+schema = "cloister/lockfile/v1"
+cluster = "lockfile-e2e"
+version = "0.0.0"
+
+[inputs.canonical-hours]
+ref = "file:///tmp/fake-ch"
+resolved = "0.1.0"
+sha256 = "sha256:deadbeef"
+fetched_from = "file:///tmp/fake-ch"
+signer = ""
+bytes = 0
+
+[[generated_backends]]
+input = "canonical-hours"
+name = "canonical-hours"
+handlesPrefix = ""
+claims = []
+dynamicTools = true
+urlBinding = "CANONICAL_HOURS_MCP_URL"
+serviceBinding = ""

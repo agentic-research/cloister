@@ -197,6 +197,23 @@ function validate(g) {
 
         const hasClaims = (b.kind?.mcpProxy?.claims?.length ?? 0) > 0;
 
+        // cloister-3b8cd6: mirror src/manifest/runtime.ts validate() at BUILD
+        // time. A dynamicTools backend with empty handlesPrefix AND empty claims
+        // has no routing discriminator — runtime.ts throws on it, but only at
+        // instantiate (i.e. `wrangler dev` boot), several steps removed from the
+        // cause. The resolver's single-backend fallback (a server.json with no
+        // _meta.art.cloister/v1.groups[]) emits exactly this shape, so catch it
+        // here where `task manifest` runs, naming the backend + the fix.
+        if (b.kind?.mcpProxy?.dynamicTools === true && b.handlesPrefix === "" && !hasClaims) {
+          fail(
+            `backend "${b.name}" has dynamicTools=true but empty handlesPrefix AND ` +
+            `empty claims — unroutable; workerd refuses to boot (mirrors ` +
+            `runtime.ts validate()). Its source input needs an ` +
+            `_meta.art.cloister/v1.groups[] block (upstreamNames → claims) or a ` +
+            `handlesPrefix.`,
+          );
+        }
+
         // Empty prefix = exact-match-against-tool-list mode. Multiple
         // empty-prefix backends can coexist; the duplicate-prefix check
         // applies only to non-empty prefixes — UNLESS every backend
