@@ -46,9 +46,8 @@ import {
 } from "./receipt-emitter.js";
 import {
   CaUnavailableError,
-  getCABundle,
 } from "../storage/ca-bundle-cache.js";
-import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
+import { resolveCABundle } from "../storage/ca-bundle-source.js";
 import { runBeadCreateOrchestrator } from "./bead-create-orchestrator.js";
 import {
   ANONYMOUS_PEER,
@@ -309,9 +308,7 @@ export class McpEdgeRoute implements EdgeRoute {
   ): Promise<{ response: Response } | { lease: VerifiedLease }> {
     let bundle;
     try {
-      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
-        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
-      });
+      bundle = await resolveCABundle(env, nowMs);
     } catch (err) {
       if (err instanceof CaUnavailableError) {
         return { response: leaseErrorResponse(req.id, -32005, "CA bundle unavailable") };

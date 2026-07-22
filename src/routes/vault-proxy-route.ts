@@ -27,8 +27,8 @@
 // live request-dispatch graph.
 
 import { checkAccess } from "../../vault/src/vault.js";
-import { CaUnavailableError, getCABundle, type CABundle } from "../storage/ca-bundle-cache.js";
-import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
+import { CaUnavailableError } from "../storage/ca-bundle-cache.js";
+import { devCaBundle, resolveCABundle } from "../storage/ca-bundle-source.js";
 import { buildDenialAuditEntry } from "../../vault/src/handler.js";
 import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
 import { preAuthBurstLimit } from "./pre-auth-budget.js";
@@ -387,30 +387,6 @@ export class VaultProxyRoute implements EdgeRoute {
  * safe-closed default: every request needs a lease).
  */
 /**
- * Static dev CA bundle (ADR-0042). When `CLOISTER_MODE === "dev"` and
- * `DEV_CA_MASTER` is set, the lease verifier uses this instead of fetching +
- * signature-verifying a bundle from notme. The dev master is provided locally
- * by `task harness:dev`, so there is no fetch to MITM and no bundle signature
- * to check — but `verifyAndUpsertLease` still runs the FULL cert-chain +
- * Ed25519 request-sig + scope + replay pipeline against `keys[active]`. This
- * relaxes only the *source* of the trust anchor (local, ephemeral), never the
- * per-request verification (ADR-0042 safety rail). Returns null outside dev
- * mode, so production always takes the notme-fetch path.
- */
-export function devCaBundle(env: Env): CABundle | null {
-  if (env.CLOISTER_MODE !== "dev" || !env.DEV_CA_MASTER) return null;
-  const epoch = Number.parseInt(env.DEV_CA_EPOCH ?? "1", 10);
-  return {
-    epoch: Number.isFinite(epoch) ? epoch : 1,
-    seqno: 1,
-    keys: { active: env.DEV_CA_MASTER },
-    keyId: "active",
-    issuedAt: Math.floor(Date.now() / 1000),
-    signature: "",
-  };
-}
-
-/**
  * Dev authz overlay (ADR-0042). In dev mode, merge `DEV_ALLOWED_SUBS` into the
  * matched service's `defaultAllowedSubs` so the dev identity passes the
  * manifest-side gate (which defaults to `[]` = deny-all). Accepts a JSON array
@@ -453,13 +429,13 @@ export function applyDevPassthrough(
 }
 
 const defaultLeaseVerifier: LeaseVerifier = async (request, env, parsed) => {
-  const devBundle = devCaBundle(env);
-  if (!devBundle && !env.INTERLACE_ROOT_PUBKEY) return { ok: false, status: 401 };
+  // No trust anchor at all (no dev bundle, no pinned pubkey) → 401. Guard here
+  // so resolveCABundle is only reached with a real anchor; it also fails closed
+  // internally, but this preserves the 401 (vs 503) status for "unconfigured".
+  if (!devCaBundle(env) && !env.INTERLACE_ROOT_PUBKEY) return { ok: false, status: 401 };
   try {
     const nowMs = Date.now();
-    const bundle = devBundle ?? await getCABundle(notmeBundleFetcher(env), nowMs, {
-      rootPubkey: env.INTERLACE_ROOT_PUBKEY,
-    });
+    const bundle = await resolveCABundle(env, nowMs);
     const body = request.method === "GET" || request.method === "HEAD"
       ? ""
       : await request.clone().text();
