@@ -50,9 +50,8 @@ import {
 import { verifyAndUpsertLease } from "./lease-middleware.js";
 import {
   CaUnavailableError,
-  getCABundle,
 } from "../storage/ca-bundle-cache.js";
-import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
+import { resolveCABundle } from "../storage/ca-bundle-source.js";
 
 /** Default page size for the JSONL stream. */
 const DEFAULT_PAGE_SIZE = 100;
@@ -340,9 +339,7 @@ export class DisclosureRoute implements EdgeRoute {
     const nowMs = Date.now();
     let bundle;
     try {
-      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
-        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
-      });
+      bundle = await resolveCABundle(env, nowMs);
     } catch (err) {
       if (err instanceof CaUnavailableError) return false;
       throw err;

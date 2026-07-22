@@ -129,15 +129,21 @@ export async function getCABundle(
     return _cache.bundle;
   }
 
-  // Stale or empty — fetch.
+  // Stale or empty — fetch. Track WHY it fails so the opaque
+  // CaUnavailableError carries a diagnostic reason. A silent double-swallow
+  // here (this catch + the fetcher's own) turned a trivial key-pin mismatch
+  // into a P2 debugging mystery — see cloister-3ad090; this is the
+  // cloister-3b8cd6-class "fail legibly" fix. The reason is server-side only
+  // (routes still return an opaque error to the client) and logs only public
+  // data — pubkey prefixes, status — never secrets.
   let next: CABundle | null;
+  let reason: string;
   try {
     next = await fetcher();
+    reason = "fetch returned null (notme unreachable / non-200 / bad JSON / shape mismatch)";
   } catch (err) {
-    // Fetch failed (network error, bad JSON, etc.) — fall through to the
-    // "unavailable" path. Don't leak the underlying error class to callers.
     next = null;
-    void err;
+    reason = `fetch threw: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`;
   }
 
   // Verify signature against pinned root pubkey if configured. Per
@@ -147,8 +153,25 @@ export async function getCABundle(
   if (next && options.rootPubkey) {
     const valid = await verifyBundleSignature(next, options.rootPubkey);
     if (!valid) {
+      reason =
+        `signature verify FAILED — the fetched bundle is not signed by the pinned ` +
+        `root pubkey (rootPubkey=${options.rootPubkey.slice(0, 12)}… vs bundle signer ` +
+        `${next.keys[next.keyId]?.slice(0, 12)}…). Check INTERLACE_ROOT_PUBKEY matches ` +
+        `the authority that signed the bundle (notme's master key).`;
       next = null;
     }
+  } else if (next) {
+    // rootPubkey empty/undefined → signature verification SKIPPED. A dev-only
+    // affordance, but an empty value silently meaning "don't verify" is exactly
+    // the footgun cloister-21e42e is about. resolveCABundle now fails closed
+    // before reaching here, so on a lease-gated path this is unreachable — warn
+    // loudly if it ever fires so an accidental empty pin can never pass unseen.
+    // TODO(cloister-21e42e): systemic audit of empty-value-means-off; fold this
+    // skip into an explicit, mode-gated decision rather than an empty default.
+    console.warn(
+      "[cloister] getCABundle: accepting an UNVERIFIED bundle — rootPubkey is empty/unset. " +
+        "This must only occur in explicit dev/test, never on a lease-gated path.",
+    );
   }
 
   if (next) {
@@ -159,9 +182,8 @@ export async function getCABundle(
   // notme unreachable OR signature verify failed. If we have a cached
   // bundle from before the window, we still fail closed — the audit
   // amendment is explicit: ≤ bundle TTL tolerance only.
-  throw new CaUnavailableError(
-    "notme CA bundle unavailable; cache is stale or empty",
-  );
+  console.warn(`[cloister] getCABundle: CA bundle unavailable — ${reason}`);
+  throw new CaUnavailableError(`notme CA bundle unavailable: ${reason}`);
 }
 
 /**

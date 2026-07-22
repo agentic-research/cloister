@@ -84,9 +84,8 @@ import { digestBytes, blake3HexBytes } from "../storage/canonical.js";
 import { verifyAndUpsertLease } from "./lease-middleware.js";
 import {
   CaUnavailableError,
-  getCABundle,
 } from "../storage/ca-bundle-cache.js";
-import { notmeBundleFetcher } from "../storage/notme-bundle-fetcher.js";
+import { resolveCABundle } from "../storage/ca-bundle-source.js";
 
 // ── URLPatterns (built once per instance) ─────────────────────────────────
 //
@@ -770,9 +769,7 @@ export class OciRegistryRoute implements EdgeRoute {
     const nowMs = Date.now();
     let bundle;
     try {
-      bundle = await getCABundle(notmeBundleFetcher(env), nowMs, {
-        rootPubkey: env.INTERLACE_ROOT_PUBKEY,
-      });
+      bundle = await resolveCABundle(env, nowMs);
     } catch (err) {
       if (err instanceof CaUnavailableError) {
         return ociError(401, "DENIED", "CA bundle unavailable");

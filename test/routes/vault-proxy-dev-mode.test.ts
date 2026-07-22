@@ -19,8 +19,8 @@ import {
   VaultProxyRoute,
   applyDevAllowedSubs,
   applyDevPassthrough,
-  devCaBundle,
 } from "../../src/routes/vault-proxy-route.js";
+import { devCaBundle } from "../../src/storage/ca-bundle-source.js";
 import { InMemoryCredentialStore } from "../../src/routes/vault-proxy-credential-store.js";
 import type { UpstreamFetcher, VaultProxyService } from "../../src/routes/vault-proxy.js";
 import type { Env } from "../../src/types.js";
