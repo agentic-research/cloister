@@ -222,8 +222,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "ref": "github://agentic-research/rosary/server.json@73f41c5ebdaf280ed3e52ff077feeafd5e6cd8a6",
-      "version": "0.7.0",
+      "ref": "github://agentic-research/rosary/server.json@7ca39874672104d8e75cece51f9f0d3d2d9b8503",
+      "version": "0.8.1",
       "digest": "",
       "from": "",
       "provides": [],
