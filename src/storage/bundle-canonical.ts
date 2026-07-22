@@ -141,6 +141,7 @@ export async function verifyBundleSignature(
       bundleCanonical(bundle) as BufferSource,
     );
   } catch {
+    // lint-allow-silent: verify predicate — false = signature does not verify (bad sig or malformed key)
     return false;
   }
 }

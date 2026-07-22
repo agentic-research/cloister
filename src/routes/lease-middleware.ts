@@ -755,7 +755,7 @@ export function canonicalPathSuffix_0_2_0_prototype(
 ): string | undefined {
   let parsed: URL;
   try { parsed = new URL(rawUrl); }
-  catch { return undefined; }
+  catch { /* lint-allow-silent: parse guard — undefined = malformed URL */ return undefined; }
 
   const stripped = stripPrefix_0_2_0(parsed.pathname, prefix);
   if (stripped === undefined) return undefined;

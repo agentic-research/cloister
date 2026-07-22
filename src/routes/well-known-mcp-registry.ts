@@ -402,6 +402,7 @@ function safeDecode(s: string): string | null {
   try {
     return decodeURIComponent(s);
   } catch {
+    // lint-allow-silent: parse guard — null = malformed percent-encoding (clean 404, not 500)
     return null;
   }
 }

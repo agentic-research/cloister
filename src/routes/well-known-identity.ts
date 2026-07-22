@@ -409,6 +409,7 @@ export async function fetchJwtSignature(
     if (/[+/=]/.test(sig)) return null;
     return sig;
   } catch {
+    // lint-allow-silent: validate predicate — null = invalid signature format
     return null;
   }
 }
