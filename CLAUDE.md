@@ -70,6 +70,26 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 Together they enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments. See [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md) for the operator-facing model.
 
+### Trust-surface rails
+
+Six further rails run per `task lint`. Each exists because an invariant was
+stated somewhere (an ADR, a schema comment, a code comment) but nothing
+enforced it, and it drifted. Each has a companion test asserting *the shipped
+tree satisfies it*, so the rail cannot pass vacuously.
+
+| Rail | Invariant | Origin |
+|---|---|---|
+| `lint:lease-gate-source` | `env.INTERLACE_ROOT_PUBKEY` is read only in the gate resolver + CA-bundle source | ADR-0053 / `cloister-220c9d` |
+| `lint:trust-env-locality` | every other trust-secret env var is read only in its own resolver | `cloister-21e42e` |
+| `lint:silent-swallow` | a bare `catch {}` on the trust/IO surface must surface the error or carry `lint-allow-silent: <reason>` | `cloister-bd7210` |
+| `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
+| `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
+| `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
+
+The shared lesson: **an invariant with no rail is a comment.** When adding a
+substrate rule, add the rail in the same change — and give it a test that runs
+against the real tree, not just fixtures.
+
 ## Commit conventions
 
 Every commit must reference a bead, enforced by the commit-msg hook
@@ -206,6 +226,16 @@ their decade-thread home.
 | 0043 — cloister as the isolated delivery plane for skills/agents/tools (harness gets skills via cloister not the filesystem; load-event receipts) | `interlace-substrate/adrs` |
 | 0044 — compute-isolation substrate (libkrun microVM, HVF+KVM one mediator; host-mediated policy fs) | `harness-substrate/compute-substrate` |
 | 0045 — leyline-sign lift to LLO (signing-substrate consolidation; cloister bridges LLO `ll-sign` like cloister-cas bridges leyline-cas-ffi) | `interlace-substrate/adrs` |
+| 0046 — mediated-capability core (syscall / rpc / ipc as 1:1 transport adapters over one core) | `harness-substrate/compute-substrate` |
+| 0047 — vault bundle-identity (per-bundle DO instances + notme DPoP-token verify) | `interlace-substrate/vault` |
+| 0048 — unified tool primitive (cloister defines tooling; definition-inside-the-boundary) | `interlace-substrate/adrs` |
+| 0049 — cloister host-runtime (one composed native runtime: nono + leyline-fs + libkrun) | `harness-substrate/compute-substrate` |
+| 0050 — FS-mediation approach (content-addressed rootfs + VM isolation as the substrate) | `harness-substrate/compute-substrate` |
+| 0051 — same-host UDS as an input transport | `interlace-substrate/adrs` |
+| 0052 — bead merge algebras converged twice — unify into one specification | `interlace-substrate/adrs` |
+| 0053 — unified lease-gate authority resolution (one resolver; empty authority fails closed) | `interlace-substrate/identity-lease` |
+| 0054 — neuro-symbolic dispatch (the model parses, the substrate decides) | `interlace-substrate/adrs` |
+| 0055 — RFC 9728 protected-resource metadata (discoverable OAuth resource server) | `interlace-substrate/adrs` |
 
 Decade `interlace-substrate` is the active workstream. `rsry_decade_list`
 + `rsry_thread_list --decade interlace-substrate` show the live queue.
