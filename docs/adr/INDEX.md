@@ -57,6 +57,6 @@ beads + git (see each ADR's tracking bead), never typed here. Reserved-but-unfil
 | [ADR-0050](0050-fs-mediation-approach.md) | FS-mediation approach — content-addressed rootfs + VM isolation as the substrate, per-op FUSE as an escalation | Proposed · 2026-07-17 |
 | [ADR-0051](0051-uds-input-transport.md) | Same-host UDS as an input transport — structured connection components, not connection strings | Proposed · 2026-07-20 |
 | [ADR-0052](0052-bead-algebra-convergence.md) | Bead merge algebras converged twice — unify into one specification | Proposed · 2026-07-20 |
-| [ADR-0052](0052-protected-resource-metadata.md) | RFC 9728 protected-resource metadata — cloister as a discoverable OAuth resource server | Proposed · 2026-07-22 |
 | [ADR-0053](0053-lease-gate-authority-resolution.md) | Unified lease-gate authority resolution | Proposed |
 | [ADR-0054](0054-neuro-symbolic-dispatch.md) | Neuro-symbolic dispatch: the model parses, the substrate decides | Proposed |
+| [ADR-0055](0055-protected-resource-metadata.md) | RFC 9728 protected-resource metadata — cloister as a discoverable OAuth resource server | Proposed · 2026-07-22 |

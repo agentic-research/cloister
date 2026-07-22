@@ -14,7 +14,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAdrText, buildIndexMd, readAllAdrs, STATUS_ENUM } from "../gen-adr-index.mjs";
+import { findDuplicateNumbers, parseAdrText, buildIndexMd, readAllAdrs, STATUS_ENUM } from "../gen-adr-index.mjs";
 
 const ADR_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "adr");
 
@@ -68,4 +68,21 @@ test("readAllAdrs: EVERY real ADR parses to a known status + title (no sentinels
   const unparsed = adrs.filter((a) => a.status === "—" || a.title === "(untitled)");
   assert.deepEqual(unparsed.map((a) => a.file), [], "these ADRs failed status/title extraction");
   for (const a of adrs) assert.ok(STATUS_ENUM.includes(a.status), `${a.file}: unexpected status "${a.status}"`);
+});
+
+test("findDuplicateNumbers catches two files claiming one ADR number", () => {
+  // Regression: 0052-bead-algebra-convergence.md and
+  // 0052-protected-resource-metadata.md both shipped as "ADR-0052", and
+  // `--check` reported success because the generator only compared its own
+  // output to the committed file — it never asserted number uniqueness.
+  const dupes = findDuplicateNumbers([
+    "0051-a.md", "0052-bead-algebra.md", "0052-protected-resource.md", "0053-c.md",
+  ]);
+  assert.equal(dupes.length, 1);
+  assert.equal(dupes[0].num, 52);
+  assert.equal(dupes[0].files.length, 2);
+});
+
+test("findDuplicateNumbers is silent on a unique set", () => {
+  assert.deepEqual(findDuplicateNumbers(["0051-a.md", "0052-b.md", "0053-c.md"]), []);
 });

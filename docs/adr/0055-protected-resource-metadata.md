@@ -1,5 +1,5 @@
 ---
-title: "ADR-0052: RFC 9728 protected-resource metadata — cloister as a discoverable OAuth resource server"
+title: "ADR-0055: RFC 9728 protected-resource metadata — cloister as a discoverable OAuth resource server"
 status: Proposed (2026-07-22)
 date: 2026-07-22
 tags: [oauth, discovery, rfc9728, resource-server, well-known, lease, mcp]
@@ -9,7 +9,7 @@ relates_to:
   - 0007-interlace-substrate.md
 ---
 
-# ADR-0052: RFC 9728 protected-resource metadata
+# ADR-0055: RFC 9728 protected-resource metadata
 
 Tracking bead: `cloister-215ef2`. Sibling: `signet-222de8` (the same
 capability in signet's Go resource-server middleware — the two are the TS and
