@@ -53,12 +53,46 @@ export function parseAdrText(num, file, text) {
   return { num, file, title: title || "(untitled)", status, date, statusRaw };
 }
 
+/**
+ * Assert every ADR number is claimed by exactly one file. An ADR number IS the
+ * decision's identity — it is cited from other ADRs, beads, commit messages and
+ * code comments, so two files sharing one is an ambiguous reference, not a
+ * cosmetic issue. This went undetected: `0052-bead-algebra-convergence.md` and
+ * `0052-protected-resource-metadata.md` both shipped as "ADR-0052" and INDEX.md
+ * rendered two identical `ADR-0052` links while `--check` reported success,
+ * because the generator only ever compared its output to the committed file.
+ * Pure; exported for tests.
+ */
+export function findDuplicateNumbers(files) {
+  const byNum = new Map();
+  for (const f of files) {
+    const num = parseInt(f.slice(0, 4), 10);
+    if (!byNum.has(num)) byNum.set(num, []);
+    byNum.get(num).push(f);
+  }
+  const dupes = [];
+  for (const [num, fs] of byNum) {
+    if (fs.length > 1) dupes.push({ num, files: fs.slice().sort() });
+  }
+  return dupes.sort((a, b) => a.num - b.num);
+}
+
 /** Read + parse every NNNN-*.md in an adr directory, sorted by number. */
 export function readAllAdrs(adrDir) {
-  return readdirSync(adrDir)
+  const files = readdirSync(adrDir)
     .filter((f) => /^\d{4}-.*\.md$/.test(f))
-    .sort()
-    .map((f) => parseAdrText(parseInt(f.slice(0, 4), 10), f, readFileSync(join(adrDir, f), "utf8")));
+    .sort();
+  const dupes = findDuplicateNumbers(files);
+  if (dupes.length > 0) {
+    const lines = dupes.map(
+      (d) => `  ✘ ADR-${String(d.num).padStart(4, "0")} claimed by ${d.files.length} files: ${d.files.join(", ")}`,
+    );
+    throw new Error(
+      `gen-adr-index: duplicate ADR number(s) — an ADR number is the decision's identity:\n${lines.join("\n")}\n` +
+        `  Renumber the later ADR to the next free number (prior claim wins) and update its title + H1.`,
+    );
+  }
+  return files.map((f) => parseAdrText(parseInt(f.slice(0, 4), 10), f, readFileSync(join(adrDir, f), "utf8")));
 }
 
 /** Render the derived INDEX.md markdown from parsed ADR rows. Pure. */
