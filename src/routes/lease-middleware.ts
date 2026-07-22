@@ -29,7 +29,9 @@
 
 import type { Env } from "../types.js";
 import { errResponse, type JsonRpcId } from "../types.js";
-import { isCertEpochCurrent, type CABundle } from "../storage/ca-bundle-cache.js";
+import { CaUnavailableError, isCertEpochCurrent, type CABundle } from "../storage/ca-bundle-cache.js";
+import { resolveCABundle } from "../storage/ca-bundle-source.js";
+import { leaseEnforced } from "./lease-gate.js";
 import { verifyCertChain, type CertClaims } from "../wire/signet-verify.js";
 
 // ── Error codes ──────────────────────────────────────────────────────────
@@ -787,4 +789,66 @@ export function canonicalRequestBytesV2_prototype(
   const nonceB64 = b64encode(nonce);
   const text = `${method}\n${pathSuffix}\n${ts}\n${nonceB64}\n${body}`;
   return new TextEncoder().encode(text);
+}
+
+// ── Gate + verify flow (ADR-0053 / cloister-220c9d) ──────────────────────
+
+/**
+ * A lease-gate verdict — the typed result of `gateAndVerify`. Routes map it to
+ * their own response shape (JSON-RPC error, OCI DENIED, 401/503, or the
+ * disclosure constant-time 404), but never re-implement the flow producing it.
+ */
+export type GateVerdict =
+  | { kind: "off" }                        // gate off — pass-through routes proceed with no lease
+  | { kind: "pass"; lease: VerifiedLease } // enforced + verified
+  | { kind: "reject"; code: LeaseErrorCode; message: string };
+
+/**
+ * The single gate → verify flow for every lease-gated route (ADR-0053). Owns
+ * the security-critical ordering so no route re-implements it:
+ *   1. resolve the gate (leaseEnforced);
+ *   2. when enforcing, resolve the CA bundle — failing CLOSED on
+ *      CaUnavailableError (missing anchor / notme unreachable);
+ *   3. run verifyAndUpsertLease;
+ *   4. return a typed verdict.
+ *
+ * `denyWhenOff` (default false) turns an off gate into a reject rather than a
+ * pass — for routes (e.g. the credential vault) that must deny even under the
+ * dev opt-out. Pass-through routes (mcp, oci, disclosure) leave it false and
+ * proceed on `{ kind: "off" }`.
+ */
+export async function gateAndVerify(
+  env:   Env,
+  nowMs: number,
+  verify: {
+    req:             Request;
+    body:            string;
+    id:              JsonRpcId;
+    method:          string;
+    params:          unknown;
+    requestedScope?: string;
+  },
+  opts: { denyWhenOff?: boolean } = {},
+): Promise<GateVerdict> {
+  if (!leaseEnforced(env)) {
+    return opts.denyWhenOff
+      ? { kind: "reject", code: ERR_UNAUTHENTICATED, message: "authentication required" }
+      : { kind: "off" };
+  }
+
+  let bundle: CABundle;
+  try {
+    bundle = await resolveCABundle(env, nowMs);
+  } catch (err) {
+    if (err instanceof CaUnavailableError) {
+      return { kind: "reject", code: ERR_CA_UNAVAILABLE, message: "CA bundle unavailable" };
+    }
+    throw err;
+  }
+
+  const verdict = await verifyAndUpsertLease({ ...verify, env, bundle, nowMs });
+  if ("code" in verdict) {
+    return { kind: "reject", code: verdict.code, message: verdict.message };
+  }
+  return { kind: "pass", lease: verdict };
 }

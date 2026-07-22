@@ -23,7 +23,7 @@ import { decodeToolCall } from "../../src/wire/tool-call.js";
 const bin = (b: Uint8Array): BodyInit => b as unknown as BodyInit;
 
 function envWith(url: string): Env {
-  return { COMPANION_URL: url } as unknown as Env;
+  return { COMPANION_URL: url, CLOISTER_MODE: "dev" } as unknown as Env;  // ADR-0053: dev opt-out
 }
 
 function postMcp(route: McpEdgeRoute, body: unknown, env: Env): Promise<Response> {
@@ -173,7 +173,7 @@ describe("McpEdgeRoute + LeylineNetToolBackend integration", () => {
     const res = await postMcp(
       route,
       { jsonrpc: "2.0", method: "tools/call", params: { name: "rsry_status", arguments: {} }, id: 1 },
-      {} as Env,  // no COMPANION_URL
+      { CLOISTER_MODE: "dev" } as Env,  // no COMPANION_URL (ADR-0053 dev opt-out)
     );
     const body = (await res.json()) as JsonRpcResponse;
     expect(body.error?.code).toBe(-32603);

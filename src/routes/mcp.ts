@@ -35,8 +35,8 @@ import { JsonRpcInvocationError, type ToolBackend } from "../backends.js";
 import { pickAllowedOrigin } from "../cors.js";
 import {
   canonicalRequestBytes,
+  gateAndVerify,
   leaseErrorResponse,
-  verifyAndUpsertLease,
   type VerifiedLease,
 } from "./lease-middleware.js";
 import {
@@ -44,10 +44,6 @@ import {
   buildEmissionContext,
   type ReceiptEmissionContext,
 } from "./receipt-emitter.js";
-import {
-  CaUnavailableError,
-} from "../storage/ca-bundle-cache.js";
-import { resolveCABundle } from "../storage/ca-bundle-source.js";
 import { runBeadCreateOrchestrator } from "./bead-create-orchestrator.js";
 import {
   ANONYMOUS_PEER,
@@ -199,12 +195,17 @@ export class McpEdgeRoute implements EdgeRoute {
     // pipeline is per-request and version-agnostic, so removing the
     // `initialize` handshake does NOT change the auth posture. See
     // docs/security/threat-model.md §"Sessionless protocol".
-    let lease: VerifiedLease | undefined;
-    if (env.INTERLACE_ROOT_PUBKEY) {
-      const verifyResult = await this.verifyLease(request, bodyText, req, env, nowMs);
-      if ("response" in verifyResult) return withCors(verifyResult.response, allowOrigin);
-      lease = verifyResult.lease;
+    // ADR-0053 (cloister-220c9d): one flow owns gate → verify → verdict. When
+    // the gate is off (explicit dev opt-out) the request passes through with no
+    // lease; a reject (auth failure, or prod fail-closed on an empty anchor)
+    // returns here; a pass threads the verified lease into dispatch.
+    const verdict = await gateAndVerify(env, nowMs, {
+      req: request, body: bodyText, id: req.id, method: req.method, params: req.params,
+    });
+    if (verdict.kind === "reject") {
+      return withCors(leaseErrorResponse(req.id, verdict.code, verdict.message), allowOrigin);
     }
+    const lease: VerifiedLease | undefined = verdict.kind === "pass" ? verdict.lease : undefined;
 
     const sessionless = headerVersion !== null;
     const out = await this.dispatch(req, env, lease, nowMs, sessionless);
@@ -293,44 +294,6 @@ export class McpEdgeRoute implements EdgeRoute {
     return null;
   }
 
-  /**
-   * Run the lease pipeline. Returns either:
-   *   - `{ response: Response }` — request was REJECTED; caller returns as-is
-   *   - `{ lease: VerifiedLease }` — request passed verification; caller
-   *     continues to dispatch with the lease attached as orchestrator context.
-   */
-  private async verifyLease(
-    request: Request,
-    body:    string,
-    req:     JsonRpcRequest,
-    env:     Env,
-    nowMs:   number,
-  ): Promise<{ response: Response } | { lease: VerifiedLease }> {
-    let bundle;
-    try {
-      bundle = await resolveCABundle(env, nowMs);
-    } catch (err) {
-      if (err instanceof CaUnavailableError) {
-        return { response: leaseErrorResponse(req.id, -32005, "CA bundle unavailable") };
-      }
-      throw err;
-    }
-
-    const verdict = await verifyAndUpsertLease({
-      req:    request,
-      body,
-      id:     req.id,
-      method: req.method,
-      params: req.params,
-      env,
-      bundle,
-      nowMs,
-    });
-    if ("code" in verdict) {
-      return { response: leaseErrorResponse(req.id, verdict.code, verdict.message) };
-    }
-    return { lease: verdict };
-  }
 
   private async dispatch(
     req:         JsonRpcRequest,

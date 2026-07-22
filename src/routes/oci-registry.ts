@@ -81,11 +81,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import { type Digest, asDigest, isDigest } from "../storage/types.js";
 import { digestBytes, blake3HexBytes } from "../storage/canonical.js";
-import { verifyAndUpsertLease } from "./lease-middleware.js";
-import {
-  CaUnavailableError,
-} from "../storage/ca-bundle-cache.js";
-import { resolveCABundle } from "../storage/ca-bundle-source.js";
+import { gateAndVerify } from "./lease-middleware.js";
 
 // ── URLPatterns (built once per instance) ─────────────────────────────────
 //
@@ -753,48 +749,27 @@ export class OciRegistryRoute implements EdgeRoute {
     env:     Env,
     name:    string,
   ): Promise<Response | null> {
-    if (!env.INTERLACE_ROOT_PUBKEY) {
-      return null; // dev mode: no gate
-    }
-    // Read the body once and stash it on the request via a cloned-body
-    // approach — actually, we DON'T read the body here. The signature
-    // pipeline reads from a clone via `await request.arrayBuffer()` only
-    // when canonicalRequestBytes needs it. To avoid double-consuming the
-    // body in the handler, we pass the body bytes through. But for
-    // simplicity at v0.1, the handlers above read the body AFTER the
-    // gate, and the gate reads the body via `request.clone()` here.
-    // verifyAndUpsertLease signs over the body, so we MUST hand it the
-    // exact bytes the client sent.
-    const bodyText = await request.clone().text();
+    // ADR-0053 (cloister-220c9d): one flow owns gate → verify → verdict. The
+    // gate reads a CLONE of the body (verifyAndUpsertLease signs over the exact
+    // bytes the client sent); the handler re-reads the original after the gate.
     const nowMs = Date.now();
-    let bundle;
-    try {
-      bundle = await resolveCABundle(env, nowMs);
-    } catch (err) {
-      if (err instanceof CaUnavailableError) {
-        return ociError(401, "DENIED", "CA bundle unavailable");
-      }
-      throw err;
-    }
-    const verdict = await verifyAndUpsertLease({
+    const bodyText = await request.clone().text();
+    const verdict = await gateAndVerify(env, nowMs, {
       req:    request,
       body:   bodyText,
       id:     null,
       method: "oci-write",
       params: undefined,
-      env,
-      bundle,
-      nowMs,
       requestedScope: `oci:write:${name}`,
     });
-    if ("code" in verdict) {
-      // Collapse every lease-pipeline failure to a generic 401 DENIED.
-      // The OCI spec doesn't distinguish among auth failure modes; a
-      // detailed message (cert expired, scope denied, etc.) would help
-      // operators but also gives an attacker the same precise oracle
-      // disclosure.ts works to suppress. Keep it terse.
+    if (verdict.kind === "reject") {
+      // Collapse every failure (auth failure OR CA-unavailable) to a generic
+      // 401 DENIED. The OCI spec doesn't distinguish auth failure modes; a
+      // detailed message (cert expired, scope denied, etc.) would give an
+      // attacker the same precise oracle disclosure.ts works to suppress.
       return ociError(401, "DENIED", "authentication required");
     }
+    // `off` (dev opt-out) or `pass` → proceed with the write.
     return null;
   }
 }

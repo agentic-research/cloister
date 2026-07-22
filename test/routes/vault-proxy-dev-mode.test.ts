@@ -104,7 +104,7 @@ describe("vault proxy — CLOISTER_MODE=dev (ADR-0042)", () => {
     expect(injected).toBe(VAULTED_KEY); // vaulted key injected; harness sent none
   });
 
-  it("dev mode OFF → same request rejected 401 (safe-closed, no notme, no root pubkey)", async () => {
+  it("dev mode OFF → same request fails closed (ADR-0053 rule 5: 503, safe-closed, no notme, no anchor)", async () => {
     const body = JSON.stringify({ model: "claude-sonnet-5", messages: [] });
     const headers = await signLeaseHeaders({ method: "POST", url: CLOISTER_URL, body, identity: DEV_IDENTITY });
 
@@ -114,10 +114,12 @@ describe("vault proxy — CLOISTER_MODE=dev (ADR-0042)", () => {
     };
 
     const req = new Request(CLOISTER_URL, { method: "POST", headers: new Headers(Object.entries(headers)), body });
-    // CLOISTER_MODE unset + INTERLACE_ROOT_PUBKEY empty → defaultLeaseVerifier 401.
+    // ADR-0053: dev mode off (CLOISTER_MODE="") + no pinned anchor → the gate
+    // ENFORCES (rule 5, not a silent off) and resolveCABundle fails closed (no
+    // notme, no anchor) → 503. Still safe-closed: the upstream is never called.
     const res = await buildRoute(upstream).handle(req, devEnv({ CLOISTER_MODE: "" }));
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
     expect(called).toBe(false);
   });
 });

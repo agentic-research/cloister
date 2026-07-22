@@ -75,20 +75,35 @@ function envWith(over: Partial<Env>, notmeResponder?: (req: Request) => Promise<
 
 const TIME_NEAR_NOW = DEFAULT_NOW_MS;  // Inside cert validity window.
 
-// ── Skip path: INTERLACE_ROOT_PUBKEY unset → lease check disabled ──────
+// ── Skip path: explicit CLOISTER_MODE=dev opt-out → lease check disabled ──
+// ADR-0053: an empty/absent anchor is "off" ONLY under CLOISTER_MODE=dev.
+// Prod with an empty anchor now enforces + fails closed (rule-5 test below).
 
-describe("McpEdgeRoute.handlePost — lease gate (INTERLACE_ROOT_PUBKEY unset)", () => {
-  it("processes unauth POST /mcp normally when root pubkey is unset (dev/test mode)", async () => {
+describe("McpEdgeRoute.handlePost — lease gate (CLOISTER_MODE=dev opt-out)", () => {
+  it("processes unauth POST /mcp normally under an explicit dev opt-out", async () => {
     const route = new McpEdgeRoute([]);
     const req = new Request("http://x/mcp", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
-    const res = await route.handle(req, envWith({}));  // no INTERLACE_ROOT_PUBKEY
+    const res = await route.handle(req, envWith({ CLOISTER_MODE: "dev" }));  // dev opt-out, no anchor
     expect(res.status).toBe(200);
     const body = await res.json() as { result: unknown };
     expect(body.result).toEqual({});
+  });
+
+  it("rule 5 (empty-value fix): prod + empty anchor does NOT pass through — fails closed", async () => {
+    const route = new McpEdgeRoute([]);
+    const req = new Request("http://x/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+    // Explicitly non-dev + empty anchor: the old footgun (silent unauth).
+    // The gate now enforces; with no anchor resolveCABundle fails closed.
+    const res = await route.handle(req, envWith({ CLOISTER_MODE: "prod", INTERLACE_ROOT_PUBKEY: "" }));
+    expect(res.status).not.toBe(200);
   });
 });
 
