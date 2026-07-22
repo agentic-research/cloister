@@ -438,6 +438,7 @@ export const manifest: Gateway = {
                     "rsry_active",
                     "rsry_ticket_load",
                     "rsry_review",
+                    "rsry_expand_ref",
                     "rsry_dispatch",
                     "rsry_run_once",
                     "rsry_decompose",

@@ -4,40 +4,41 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@v0.5.8"
-resolved = "0.5.8"
-sha256 = "sha256:4fcfcac380fc5c5c94bf5939eaaf99052bd94efdaf4d21a453b6f856e61d34ef"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/v0.5.8/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@f62a54307c6c6d6d4e39c333a19b8913f8826c61"
+resolved = "0.8.0"
+sha256 = "sha256:66d951ba8f9f13bdad9c473d8e5f7ef73d9741ae42e8eed315d875bbb98b3466"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/f62a54307c6c6d6d4e39c333a19b8913f8826c61/server.json"
 signer = ""
 bytes = 2_603
 
   [inputs.llo.oci]
-  identifier = "ghcr.io/agentic-research/ley-line-open:0.5.8"
+  identifier = "ghcr.io/agentic-research/ley-line-open:0.8.0"
 
 [inputs.mache]
-ref = "github://agentic-research/mache/server.json@v0.16.2"
-resolved = "0.16.2"
-sha256 = "sha256:1dd2455093928262dc62b667f0917e0bd7c678009841af2ef13c6c7289b7268e"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/mache/v0.16.2/server.json"
+ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
+resolved = "0.17.0"
+sha256 = "sha256:3aeb72fe9d22f7cf5699d8ad6807c64cddd05360251eab05c580510dec894754"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/mache/a585418c2eb11d32e2b166091716645c731bbcdc/server.json"
 signer = ""
 bytes = 4_320
 
   [inputs.mache.oci]
   identifier = "ghcr.io/agentic-research/mache"
-  version = "v0.16.2"
-  digest = "sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095"
+  version = "v0.17.0"
+  digest = "sha256:8620a0dc2d4c2ae7f6cc1f0ee68d6823a8bc9af6a8cf01d332c08738d9203ac7"
 
 [inputs.rosary]
-ref = "github://agentic-research/rosary/server.json@a98021749659c3af715ea54148c54f2b3db65dc4"
-resolved = "0.4.0"
-sha256 = "sha256:ca894659246aef6fd00f04092d307a517cda7c3164c02561574eba3cddfa04e0"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/rosary/a98021749659c3af715ea54148c54f2b3db65dc4/server.json"
+ref = "github://agentic-research/rosary/server.json@7ca39874672104d8e75cece51f9f0d3d2d9b8503"
+resolved = "0.8.1"
+sha256 = "sha256:22ed33b9bf4794bc122f9f4f8d28caaf12e8f59a138e7ec12d09b990957d280d"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/rosary/7ca39874672104d8e75cece51f9f0d3d2d9b8503/server.json"
 signer = ""
-bytes = 6_252
+bytes = 6_317
 
   [inputs.rosary.oci]
   identifier = "ghcr.io/agentic-research/rosary"
-  version = "0.4.0"
+  version = "0.8.1"
+  digest = "sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad"
 
 [[generated_backends]]
 input = "llo"
@@ -236,6 +237,7 @@ claims = [
   "rsry_active",
   "rsry_ticket_load",
   "rsry_review",
+  "rsry_expand_ref",
   "rsry_dispatch",
   "rsry_run_once",
   "rsry_decompose",
