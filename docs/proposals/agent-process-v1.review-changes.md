@@ -80,7 +80,7 @@ The core argument holds: model LLM invocations as processes, host the ACP server
 - **Before:** Citations like "ADR-0013 §slice-grant" — section names that don't exist in the ADR.
 - **After:** Each row now has an explicit anchor link into the actual ADR (`#decision`, `#wire-protocol`) with a brief inline quote of the relevant invariant. Rephrased the `globalOutbound` row to say "omitted in workerd config" rather than "controlled by manifest" — ADR-0013 explicitly clarifies that vault wiring is at the workerd config layer, NOT the cloister.capnp manifest layer.
 - **Why:** Citation hygiene; also ADR-0013's central correction was that the manifest doesn't need a `vaultSlice` field (ADR-0010's original sketch) — capability enforcement is at the workerd config layer. The original draft's "manifest controlled `globalOutbound`" rephrasing inverted that.
-- **Citation:** [ADR-0013](/Users/jamesgardner/remotes/art/cloister/docs/adr/0013-slice-grant-enforcement.md) Decision table; [ADR-0007](/Users/jamesgardner/remotes/art/cloister/docs/adr/0007-interlace-substrate.md) Decision §State layer; [ADR-0024](/Users/jamesgardner/remotes/art/cloister/docs/adr/0024-credential-isolation-capability.md) Wire protocol §.
+- **Citation:** [ADR-0013](../adr/0013-slice-grant-enforcement.md) Decision table; [ADR-0007](../adr/0007-interlace-substrate.md) Decision §State layer; [ADR-0024](../adr/0024-credential-isolation-capability.md) Wire protocol §.
 
 ### Change 10: Provider matrix — Anthropic cancellation reality + billing
 

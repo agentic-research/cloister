@@ -71,6 +71,21 @@ function checkFile(absPath, root) {
     if (url.startsWith("#"))                                     continue;
     if (url.includes("#")) url = url.split("#")[0];
     if (!url) continue;
+    // An absolute filesystem path is NEVER correct in a committed doc — it is
+    // machine-dependent. Worse, it produces a FALSE PASS: `resolvePath` ignores
+    // the base for an absolute url, so a link like
+    // `/Users/<someone>/repo/docs/adr/0007-…md` resolves to itself and
+    // `existsSync` is true on the author's machine while failing in CI. That is
+    // exactly how a broken link shipped in agent-process-v1.review-changes.md
+    // and only surfaced on a CI runner. Reject on shape, not on existence.
+    if (url.startsWith("/")) {
+      broken.push({
+        file: relative(root, absPath),
+        url,
+        resolved: "ABSOLUTE PATH — machine-dependent; use a repo-relative link",
+      });
+      continue;
+    }
     const resolved = resolvePath(dirname(absPath), url);
     if (!existsSync(resolved)) {
       broken.push({ file: relative(root, absPath), url, resolved: relative(root, resolved) });

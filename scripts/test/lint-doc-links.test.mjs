@@ -142,3 +142,23 @@ test("relative ../ resolves correctly", () => {
     repo.cleanup();
   }
 });
+
+test("absolute filesystem path is rejected on SHAPE, even when it exists locally", () => {
+  // Regression: `resolvePath(base, url)` ignores the base for an absolute url,
+  // so a link like `/Users/<author>/repo/docs/x.md` resolved to itself and
+  // existsSync() was TRUE on the author's machine — a false pass that only
+  // failed on a CI runner. An absolute path is machine-dependent and is never
+  // correct in a committed doc, so reject it regardless of existence.
+  const repo = makeRepo({
+    "docs/here.md": "# here\n",
+    // Point at a path that genuinely exists on this machine.
+    "docs/page.md": `# page\n[abs](${process.cwd()}/README.md)\n`,
+  });
+  try {
+    const r = runLint(repo.dir);
+    assert.equal(r.status, 1, `expected exit 1 (absolute path), got ${r.status}`);
+    assert.ok(r.stderr.includes("ABSOLUTE PATH"), `stderr should name the cause: ${r.stderr}`);
+  } finally {
+    repo.cleanup();
+  }
+});
