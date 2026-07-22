@@ -465,6 +465,23 @@ export const manifest: Gateway = {
                   ]
                 }
               }
+            },
+            {
+              "name": "canonical-hours",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "CANONICAL_HOURS_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "claims": [
+                    "get_board",
+                    "trigger_tick",
+                    "resolve_addressed_review_threads",
+                    "dismiss_stale_bot_reviews"
+                  ]
+                }
+              }
             }
           ]
         }

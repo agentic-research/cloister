@@ -85,6 +85,10 @@ version = "0.8.1"
 urlBinding = "ROSARY_MCP_URL"
 serviceBinding = "ROSARY_MCP"
 
+[inputs.canonical-hours]
+ref = "file:///Users/jamesgardner/remotes/art/canonical-hours/server.json"
+urlBinding = "CANONICAL_HOURS_MCP_URL"
+
 [[routes]]
 kind = "health"
 path = "/health"

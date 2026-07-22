@@ -116,6 +116,7 @@ export interface Env {
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
   SIGNET_URL:     string;  // signet key exchange (empty until deployed)
   LLO_MCP_URL:    string;  // ley-line-open MCP HTTP endpoint (`leyline daemon --mcp-port`)
+  CANONICAL_HOURS_MCP_URL: string;  // canonical-hours MCP HTTP endpoint (`eve dev`, canonical-hours-f17ca7)
   /// mache MCP HTTP endpoint (`mache serve --http :7532`). Used by the
   /// `mache_*` backend with dynamicTools=true (ADR-0006). Empty disables it.
   MACHE_MCP_URL?: string;

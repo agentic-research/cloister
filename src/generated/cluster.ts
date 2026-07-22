@@ -236,6 +236,23 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       }
+    },
+    {
+      "name": "canonical-hours",
+      "ref": "file:///Users/jamesgardner/remotes/art/canonical-hours/server.json",
+      "version": "",
+      "digest": "",
+      "from": "",
+      "provides": [],
+      "requires": [],
+      "urlBinding": "CANONICAL_HOURS_MCP_URL",
+      "serviceBinding": "",
+      "tenancy": {
+        "mode": "",
+        "workerdId": "",
+        "trustedTier": false,
+        "sharesWorkerdWith": []
+      }
     }
   ],
   "routes": [
