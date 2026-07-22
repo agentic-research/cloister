@@ -20,6 +20,7 @@
 
 import type { Env } from "../types.js";
 import type { BundleFetcher, CABundle } from "./ca-bundle-cache.js";
+import { logEvent } from "../obs/log.js";
 
 /**
  * Path on the notme service binding where the JSON CABundle is served.
@@ -42,30 +43,34 @@ export const NOTME_BUNDLE_PATH = "/internal/ca-bundle";
  */
 export function notmeBundleFetcher(env: Env): BundleFetcher {
   return async () => {
-    // cloister-bd7210 (Phase 2): surface WHY on every null return. A bare
-    // `catch {}` here hid the real env.NOTME.fetch failure behind getCABundle's
-    // opaque CaUnavailableError — the cloister-3ad090 debugging nightmare. The
-    // fetcher's contract stays "null on failure" (getCABundle fails closed), but
-    // the reason is now logged server-side. Public data only — the upstream URL
-    // + status + error name/message — never secrets.
+    // cloister-bd7210 (Phase 2) + bd7e51: surface WHY on every null return as a
+    // structured event. A bare `catch {}` here once hid the real env.NOTME.fetch
+    // failure behind getCABundle's opaque CaUnavailableError — the cloister-3ad090
+    // debugging nightmare. The fetcher's contract stays "null on failure"
+    // (getCABundle fails closed), but the reason is logged on one queryable schema.
+    // Public data only — the upstream URL + status + error name/message.
     const upstream = `https://notme-bot${NOTME_BUNDLE_PATH}`;
     try {
       const res = await env.NOTME.fetch(new Request(upstream, { method: "GET" }));
       if (!res.ok) {
-        console.warn(`[cloister] notmeBundleFetcher: ${upstream} returned HTTP ${res.status}`);
+        logEvent("warn", { target: "notme_fetcher", op: "fetch", outcome: "non_2xx", upstream, status: res.status });
         return null;
       }
       const body = (await res.json()) as unknown;
       if (!isCABundleShape(body)) {
-        console.warn(`[cloister] notmeBundleFetcher: ${upstream} body is not a CABundle shape`);
+        logEvent("warn", { target: "notme_fetcher", op: "parse", outcome: "bad_shape", upstream });
         return null;
       }
       return body;
     } catch (err) {
-      console.warn(
-        `[cloister] notmeBundleFetcher: env.NOTME.fetch(${upstream}) threw — ` +
-        `${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
-      );
+      logEvent("warn", {
+        target: "notme_fetcher",
+        op: "fetch",
+        outcome: "threw",
+        upstream,
+        err_name: err instanceof Error ? err.name : "unknown",
+        err_message: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   };

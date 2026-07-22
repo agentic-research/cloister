@@ -119,6 +119,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./types.js";
+import { logEvent } from "./obs/log.js";
 import {
   buildErrorResponse,
   buildProxyRequest,
@@ -320,17 +321,18 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     );
 
     if (!result.ok) {
-      // Structured emit so silence-friend's future audit can pick this up
-      // without re-parsing the message. Keep the shape stable.
-      console.warn(
-        JSON.stringify({
-          event: "vault.rate_limit_reject",
-          subjectFp,
-          cost,
-          tokensAvailable: Number(refilled.tokens.toFixed(3)),
-          retryAfterSec: result.retryAfterSec,
-        }),
-      );
+      // Structured emit so an operational-log audit can pick this up without
+      // re-parsing a message. cloister-bd7e51: on the shared {target,op,outcome}
+      // schema (was an ad-hoc {event:...} shape with camelCase field drift).
+      logEvent("warn", {
+        target: "vault",
+        op: "rate_limit",
+        outcome: "reject",
+        subject_fp: subjectFp,
+        cost,
+        tokens_available: Number(refilled.tokens.toFixed(3)),
+        retry_after_sec: result.retryAfterSec,
+      });
       return { ok: false, retryAfterSec: result.retryAfterSec };
     }
     return { ok: true };
@@ -347,14 +349,14 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   #checkInflight(subjectFp: string): { ok: true } | { ok: false } {
     const current = this.inflightBySubject.get(subjectFp) ?? 0;
     if (current >= RATE_LIMITS.MAX_INFLIGHT) {
-      console.warn(
-        JSON.stringify({
-          event:      "vault.inflight_reject",
-          subject_fp: subjectFp,
-          inflight:   current,
-          cap:        RATE_LIMITS.MAX_INFLIGHT,
-        }),
-      );
+      logEvent("warn", {
+        target: "vault",
+        op: "inflight_gate",
+        outcome: "reject",
+        subject_fp: subjectFp,
+        inflight: current,
+        cap: RATE_LIMITS.MAX_INFLIGHT,
+      });
       return { ok: false };
     }
     return { ok: true };

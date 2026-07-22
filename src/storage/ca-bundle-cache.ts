@@ -51,6 +51,7 @@ export interface CABundle {
 }
 
 import { verifyBundleSignature } from "./bundle-canonical.js";
+import { logEvent } from "../obs/log.js";
 
 /**
  * Fetcher contract: returns a fresh `CABundle` from wherever notme exposes
@@ -168,10 +169,12 @@ export async function getCABundle(
     // loudly if it ever fires so an accidental empty pin can never pass unseen.
     // TODO(cloister-21e42e): systemic audit of empty-value-means-off; fold this
     // skip into an explicit, mode-gated decision rather than an empty default.
-    console.warn(
-      "[cloister] getCABundle: accepting an UNVERIFIED bundle — rootPubkey is empty/unset. " +
-        "This must only occur in explicit dev/test, never on a lease-gated path.",
-    );
+    logEvent("warn", {
+      target: "ca_bundle",
+      op: "verify",
+      outcome: "skipped_unverified",
+      detail: "rootPubkey empty/unset — must only occur in explicit dev/test, never on a lease-gated path",
+    });
   }
 
   if (next) {
@@ -182,7 +185,7 @@ export async function getCABundle(
   // notme unreachable OR signature verify failed. If we have a cached
   // bundle from before the window, we still fail closed — the audit
   // amendment is explicit: ≤ bundle TTL tolerance only.
-  console.warn(`[cloister] getCABundle: CA bundle unavailable — ${reason}`);
+  logEvent("warn", { target: "ca_bundle", op: "get", outcome: "unavailable", reason });
   throw new CaUnavailableError(`notme CA bundle unavailable: ${reason}`);
 }
 
