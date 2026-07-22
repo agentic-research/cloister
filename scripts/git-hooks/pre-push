@@ -7,9 +7,14 @@
 #
 # To bypass once (e.g. emergency push), use: git push --no-verify
 #
-# The --force flag below bypasses Taskfile mtime caching, which can
-# silently mask failures when sources haven't changed but the test
-# logic did (the specific bug that broke CI multiple times historically).
+# We rely on Task's content-hash cache (`method: checksum`, the v3 default)
+# instead of `--force`. The historical "green locally, red on CI" bug was an
+# *mtime*-caching artifact (sources touched but content unchanged, or vice
+# versa); checksum caching keys on file CONTENT, so an unchanged tree is a
+# genuine no-op and any real edit re-runs the affected task. Every task in the
+# verify chain declares its `sources` (over-inclusively — see Taskfile), and CI
+# runs the whole gate on a fresh cold-cache checkout, so a locally-cached pass
+# can never let a real failure reach main. cloister-8e40ad.
 #
 # The package-manager check below keeps local hooks aligned with CI:
 # CI enables Corepack so `package.json#packageManager` supplies
@@ -83,5 +88,5 @@ if [ "$ACTUAL_PNPM_VERSION" != "$EXPECTED_PNPM_VERSION" ]; then
 fi
 
 echo "▸ pre-push: using pnpm $ACTUAL_PNPM_VERSION from $(command -v pnpm)"
-echo "▸ pre-push: running task pre-push (forces Taskfile cache bypass)..."
-task --force pre-push
+echo "▸ pre-push: running task pre-push (content-hash cache; unchanged tree is a no-op)..."
+task pre-push

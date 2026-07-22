@@ -33,7 +33,12 @@ test("pre-push hook honors package.json packageManager before running Task", () 
   assert.match(hook, /mktemp -d/, "hook should isolate selected pnpm in a temp shim dir");
   assert.match(hook, /ln -s "\$PNPM_BIN" "\$PNPM_SHIM_DIR\/pnpm"/, "hook should symlink only pnpm, not prepend the whole install dir");
   assert.match(hook, /pnpm --version|\$PNPM_BIN --version|\$candidate" --version/, "hook must verify the selected pnpm version");
-  assert.match(hook, /task --force pre-push/, "hook still runs the pre-push Taskfile target with cache bypass");
+  // Non-regex substring checks (operator standing rule): the hook runs the
+  // pre-push Taskfile target and relies on Task's content-hash cache — it must
+  // NOT pass --force (which would defeat caching; the mtime-era bypass is
+  // obsolete under `method: checksum`). cloister-8e40ad + the cacheable-gate change.
+  assert.ok(hook.includes("task pre-push"), "hook runs the pre-push Taskfile target");
+  assert.ok(!hook.includes("task --force pre-push"), "hook must NOT force-bypass the content-hash cache");
 });
 
 test("Taskfile pre-push runs the strict gate once instead of lint plus verify twice", () => {
