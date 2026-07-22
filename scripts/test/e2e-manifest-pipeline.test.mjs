@@ -190,6 +190,21 @@ test("e2e lockfile: empty /mcp shell + lockfile with two generated backends → 
   } finally { r.cleanup(); }
 });
 
+test("e2e lockfile: unroutable generated backend (dynamicTools + empty prefix + empty claims) → build fails at BUILD time (cloister-3b8cd6)", () => {
+  const r = runBuildManifest("lockfile-mcp-shell.capnp", {
+    lockfile: "lockfile-mcp-unroutable.lock.toml",
+  });
+  try {
+    // The single-backend fallback shape (no _meta.art.cloister/v1) must be
+    // rejected at `task manifest`, not several steps removed at wrangler boot.
+    assert.notEqual(r.status, 0, `build should have FAILED on the unroutable shape\nstdout: ${r.stdout}`);
+    assert.ok(
+      r.stderr.includes("dynamicTools=true but empty handlesPrefix"),
+      `expected the unroutable-backend build-time diagnostic\nstderr: ${r.stderr}`,
+    );
+  } finally { r.cleanup(); }
+});
+
 test("e2e lockfile: collision (hand-shell + generated with same name) → generated wins + warning emitted", () => {
   const r = runBuildManifest("lockfile-collision.capnp", {
     lockfile: "lockfile-collision.lock.toml",
