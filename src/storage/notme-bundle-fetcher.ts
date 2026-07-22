@@ -42,14 +42,30 @@ export const NOTME_BUNDLE_PATH = "/internal/ca-bundle";
  */
 export function notmeBundleFetcher(env: Env): BundleFetcher {
   return async () => {
+    // cloister-bd7210 (Phase 2): surface WHY on every null return. A bare
+    // `catch {}` here hid the real env.NOTME.fetch failure behind getCABundle's
+    // opaque CaUnavailableError — the cloister-3ad090 debugging nightmare. The
+    // fetcher's contract stays "null on failure" (getCABundle fails closed), but
+    // the reason is now logged server-side. Public data only — the upstream URL
+    // + status + error name/message — never secrets.
+    const upstream = `https://notme-bot${NOTME_BUNDLE_PATH}`;
     try {
-      const upstream = `https://notme-bot${NOTME_BUNDLE_PATH}`;
       const res = await env.NOTME.fetch(new Request(upstream, { method: "GET" }));
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.warn(`[cloister] notmeBundleFetcher: ${upstream} returned HTTP ${res.status}`);
+        return null;
+      }
       const body = (await res.json()) as unknown;
-      if (!isCABundleShape(body)) return null;
+      if (!isCABundleShape(body)) {
+        console.warn(`[cloister] notmeBundleFetcher: ${upstream} body is not a CABundle shape`);
+        return null;
+      }
       return body;
-    } catch {
+    } catch (err) {
+      console.warn(
+        `[cloister] notmeBundleFetcher: env.NOTME.fetch(${upstream}) threw — ` +
+        `${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+      );
       return null;
     }
   };

@@ -103,6 +103,7 @@ export async function verifyCursor(
       ts:      body["ts"]      as number,
     };
   } catch {
+    // lint-allow-silent: parse/validate predicate — null = malformed or tampered cursor
     return null;
   }
 }

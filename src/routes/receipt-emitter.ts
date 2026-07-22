@@ -120,6 +120,7 @@ export async function loadReceiptSigner(env: Env): Promise<ReceiptSigner | null>
     }
     return await makeReceiptSignerFromKeypair(kp);
   } catch {
+    // lint-allow-silent: misconfigured signer — surfaced by the receipt-emitter wrap (see above)
     return null;
   }
 }

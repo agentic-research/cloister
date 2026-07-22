@@ -555,6 +555,7 @@ export async function verifyEd25519(
     );
     return await crypto.subtle.verify("Ed25519", key, signature as BufferSource, canonical as BufferSource);
   } catch {
+    // lint-allow-silent: verify predicate — false = receipt signature does not verify
     return false;
   }
 }

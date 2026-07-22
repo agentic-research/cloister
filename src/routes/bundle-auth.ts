@@ -28,6 +28,7 @@ function jwtPart(jwt: string, index: 0 | 1): Record<string, unknown> | null {
   try {
     return JSON.parse(new TextDecoder().decode(base64urlDecode(parts[index]!)));
   } catch {
+    // lint-allow-silent: parse guard — null = malformed JWS part (not JSON)
     return null;
   }
 }
