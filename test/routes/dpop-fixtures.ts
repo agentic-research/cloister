@@ -55,7 +55,7 @@ export async function mintToken(opts: {
   omitKid?: boolean;
   headerOverrides?: Record<string, unknown>;
 }): Promise<string> {
-  const header: Record<string, unknown> = { typ: "at+jwt", alg: "EdDSA", kid: opts.kid ?? "test-kid" };
+  const header: Record<string, unknown> = { typ: "at+jwt", alg: "EdDSA", kid: opts.kid ?? "9408457aefd071cec127c1f985399308" };
   if (opts.headerOverrides) Object.assign(header, opts.headerOverrides);
   if (opts.omitKid) delete header.kid;
   const iat = opts.iatOverride ?? Math.floor(Date.now() / 1000);

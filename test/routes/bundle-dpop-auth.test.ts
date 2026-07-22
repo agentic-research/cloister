@@ -35,7 +35,7 @@ function baseCtx(over: Partial<BundleAuthContext>): BundleAuthContext {
     token: null,
     proof: null,
     notmePub,
-    resolvedKid: "test-kid", // the fixture mints with kid "test-kid" (dpop-fixtures.ts)
+    resolvedKid: "9408457aefd071cec127c1f985399308", // the fixture mints with kid "9408457aefd071cec127c1f985399308" (dpop-fixtures.ts)
     expectedSub: SUB,
     audience: AUD,
     requiredScope: SCOPE,
@@ -110,12 +110,43 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
 
   it("header kid != the kid that resolved notmePub denies (cloister-9fbec8 revocation binding)", async () => {
     // Attacker signs with the verifying key but points the header kid at a
-    // different (non-revoked) kid. The header kid must equal the resolving kid.
+    // different (non-revoked) kid. Both are valid-shape 128-bit kids, so the
+    // denial is the parity check, not the shape guard.
     const r = await authenticateBundleRequest(
       baseCtx({
-        token: await validToken({ headerOverrides: { kid: "other-kid" } }),
+        token: await validToken({ headerOverrides: { kid: "ffffffffffffffffffffffffffffffff" } }),
         proof: await validProof(),
-        resolvedKid: "test-kid",
+        resolvedKid: "9408457aefd071cec127c1f985399308",
+      }),
+    );
+    expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid mismatch") });
+  });
+
+  it("malformed kid shape denies (ADR-012 R4 — not a jkt / full hash / case-variant)", async () => {
+    // A kid must be lowercase hex, 16 or 32 chars. A base64url jkt, an
+    // uppercased value, or arbitrary text is rejected BEFORE the parity check
+    // so it can never be smuggled into a kid-keyed comparison.
+    for (const bad of ["other-kid", "9408457AEFD071CEC127C1F985399308", "not_hex_at_all!!", "abc"]) {
+      const r = await authenticateBundleRequest(
+        baseCtx({
+          token: await validToken({ headerOverrides: { kid: bad } }),
+          proof: await validProof(),
+          resolvedKid: bad,
+        }),
+      );
+      expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid shape") });
+    }
+  });
+
+  it("legacy 64-bit (16-hex) kid passes the shape guard during migration", async () => {
+    // A 16-hex kid is accepted at the shape gate (it reaches the parity check
+    // and fails THAT, not the shape guard) — proving the 64→128 transition
+    // isn't broken. signet-3723b6 tightens this to 32-only at the flag-day.
+    const r = await authenticateBundleRequest(
+      baseCtx({
+        token: await validToken({ headerOverrides: { kid: "9408457aefd071ce" } }),
+        proof: await validProof(),
+        resolvedKid: "ffffffffffffffff",
       }),
     );
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid mismatch") });

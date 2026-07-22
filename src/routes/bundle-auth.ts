@@ -114,6 +114,19 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   if (!tokenHeader || tokenHeader.typ !== "at+jwt") return { ok: false, reason: "typ" };
   const kid = typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
   if (!kid) return { ok: false, reason: "kid" };
+  // Canonical-kid shape gate (signet ADR-012 §Shape-validation / R4). A `kid`
+  // is lowercase hex: canonical 128-bit (32 chars) or, during the 64→128
+  // migration, legacy 64-bit (16 chars). Rejecting anything else structurally
+  // separates a `kid` from a `jkt` (43 base64url chars), a full-length hash or
+  // MachineFingerprint (64 hex), and a case-variant — so none can be smuggled
+  // into a kid-keyed comparison. Migration-aware: accepts 16 OR 32 hex until the
+  // 64-bit comparators retire (signet-3723b6 tightens this to 32-only at the
+  // flag-day). cloister derives no kid itself (pure consumer); root-verify
+  // already treats kid as an opaque parity value (the equality gate below),
+  // which is the ADR-012 R1 invariant.
+  if (!/^[0-9a-f]{16}([0-9a-f]{16})?$/.test(kid)) {
+    return { ok: false, reason: "kid shape (not 16/32 lowercase hex)" };
+  }
   // cloister-9fbec8 — bind the revocation kid to the key that verified the sig:
   // the header kid MUST equal the kid the caller resolved notmePub from, or the
   // revocation lookup could key off an attacker-chosen, non-revoked kid.
