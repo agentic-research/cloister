@@ -681,6 +681,24 @@ tasks:
     deps: [manifest, rs:test]
     cmds:
       - pnpm exec vitest run
+    # Content-hash cache (Task `method: checksum`): skip the workerd suite when
+    # none of its inputs changed. The invalidation set is deliberately broad —
+    # the code under test, the tests, the vitest/miniflare config surface
+    # (vitest.config.ts reads wrangler.toml), the generated manifest (src/generated
+    # is under src/**), the capnp schema, and the wasm the suite loads at module
+    # init. Over-inclusive by design: a listed-but-irrelevant change just re-runs
+    # the suite; a real change is never missed. CI runs on a fresh checkout with a
+    # cold cache, so it always executes the full suite regardless (cloister-8e40ad).
+    sources:
+      - src/**/*.ts
+      - test/**/*.ts
+      - vitest.config.ts
+      - wrangler.toml
+      - config.capnp
+      - tsconfig.json
+      - package.json
+      - manifest/**/*.capnp
+      - rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm
 
   test:watch:
     desc: Watch mode
@@ -692,6 +710,10 @@ tasks:
     desc: Run the CC plugin's hook tests via node's built-in test runner
     cmds:
       - node --test hooks/test/*.test.mjs
+    # Content-hash cache: the plugin hooks + their tests are the only inputs.
+    sources:
+      - hooks/**/*.mjs
+      - hooks/**/*.js
 
   bench:lease:
     desc: "Lease-pipeline microbenchmark (cloister-747d98). Excluded from `task lint`/`task test`. Writes results to stdout — paste into docs/perf/*.md."
@@ -740,6 +762,15 @@ tasks:
     deps: [manifest]
     cmds:
       - pnpm exec tsc --noEmit
+    # Content-hash cache (Task `method: checksum`, the v3 default): re-check only
+    # when a compiled input actually changes. tsc --noEmit follows tsconfig.json;
+    # the globs below are generous on purpose (over-inclusive is safe — it can
+    # only cause an unnecessary re-run, never a missed one). cloister-8e40ad.
+    sources:
+      - src/**/*.ts
+      - test/**/*.ts
+      - tsconfig.json
+      - package.json
 
   dev:bootstrap:
     desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent. (Git hooks — incl. the post-merge bead auto-close — are owned by rsry: `rsry hooks install`, not cloister's Taskfile.)"
@@ -1090,6 +1121,24 @@ tasks:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed)."
     cmds:
       - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/git-hooks.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs"
+    # Content-hash cache. This suite tests the scripts + their fixtures + several
+    # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
+    # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
+    # resolve/lockfile tests read cluster.toml/.lock; e2e reads the capnp schema).
+    # Over-inclusive on purpose — a src/-only change skips this whole suite; any
+    # change under a listed path re-runs it. CI cold-checkout always runs it.
+    sources:
+      - scripts/**/*.mjs
+      - test/fixtures/**
+      - tools/harness-sandbox/test/**/*.mjs
+      - docs/adr/**/*.md
+      - recipes/**
+      - scripts/git-hooks/**
+      - Taskfile.yml
+      - cluster.toml
+      - cluster.lock.toml
+      - cloister.capnp
+      - manifest/**/*.capnp
 
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
@@ -1131,11 +1180,11 @@ tasks:
       - task: verify
 
   pre-push:
-    desc: "Pre-push gate — strict verify once, with hook-level Taskfile cache bypass. Wire into .git/hooks/pre-push via `task install-hooks` (or run `task pre-push` manually) to catch CI failures before the push, not after."
+    desc: "Pre-push gate — the strict verify gate, once. Wire into .git/hooks/pre-push via `task install-hooks` (or run `task pre-push` manually) to catch CI failures before the push, not after. Relies on Task's content-hash cache (`method: checksum`): an unchanged tree is a near-instant no-op, only changed tasks re-run. CI runs the same gate cold, so a cached local pass can't mask a real failure."
     deps: [verify]
 
   install-hooks:
-    desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the pre-push gate fires automatically before every `git push`. The hook itself bypasses Taskfile mtime caching via `task --force pre-push` so test logic changes can't silently slip through when sources haven't visibly changed."
+    desc: "Symlink scripts/git-hooks/* into .git/hooks/. Run once per clone so the pre-push gate fires automatically before every `git push`. The hook runs `task pre-push` and trusts Task's content-hash cache (`method: checksum`) — an unchanged tree is a no-op; a real edit re-runs the affected task. (Content hashing replaced the old `--force` mtime-bypass, which was slow and only needed in the timestamp-cache era.)"
     cmds:
       - |
         set -e
