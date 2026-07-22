@@ -472,7 +472,7 @@ export const manifest: Gateway = {
     }
   ],
   "actor": {
-    "fingerprint": "sha256:placeholder-pinned-at-deploy-time",
+    "fingerprint": "",
     "algorithm": "ed25519",
     "pubkeyBinding": "INTERLACE_MASTER_PUBKEY",
     "attestationRepo": "",

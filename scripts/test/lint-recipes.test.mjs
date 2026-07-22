@@ -337,7 +337,7 @@ name = "cloister-test"
 version = "0.0.1"
 
 [gateway.actor]
-fingerprint = "sha256:test"
+fingerprint = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 algorithm = "ed25519"
 pubkeyBinding = "TEST_BINDING"
 

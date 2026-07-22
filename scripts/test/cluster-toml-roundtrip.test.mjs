@@ -1650,7 +1650,7 @@ name    = "cloister-test"
 version = "0.0.1"
 
 [gateway.actor]
-fingerprint     = "sha256:abc123"
+fingerprint     = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 algorithm       = "ed25519"
 pubkeyBinding   = "INTERLACE_MASTER_PUBKEY"
 attestationRepo = ""
@@ -1664,7 +1664,7 @@ minAlgorithm           = "ed25519"
   const parsed = await parseTomlToCluster(tomlIn);
   assert.equal(parsed.gateway.metadata.name, "cloister-test");
   assert.equal(parsed.gateway.metadata.version, "0.0.1");
-  assert.equal(parsed.gateway.actor.fingerprint, "sha256:abc123");
+  assert.equal(parsed.gateway.actor.fingerprint, "sha256:" + "b".repeat(64));
   assert.equal(parsed.gateway.actor.algorithm, "ed25519");
   assert.equal(parsed.gateway.actor.pubkeyBinding, "INTERLACE_MASTER_PUBKEY");
   assert.equal(parsed.gateway.policy.maxCertLifetimeSeconds, 300);
@@ -1677,7 +1677,7 @@ minAlgorithm           = "ed25519"
   assert.ok(emitted.includes("[gateway.metadata]"),  "emitted TOML must carry [gateway.metadata]");
   assert.ok(emitted.includes('name = "cloister-test"'), "metadata.name must round-trip");
   assert.ok(emitted.includes("[gateway.actor]"),     "emitted TOML must carry [gateway.actor]");
-  assert.ok(emitted.includes('fingerprint = "sha256:abc123"'));
+  assert.ok(emitted.includes('fingerprint = "' + "sha256:" + "b".repeat(64) + '"'));
   assert.ok(emitted.includes("[gateway.policy]"),    "emitted TOML must carry [gateway.policy]");
   assert.ok(emitted.includes("maxCertLifetimeSeconds = 300"));
   assert.ok(emitted.includes("requireInterlock = true"));
@@ -1884,7 +1884,7 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
     gateway: {
       metadata: { name: "cloister-bytes", version: "0.0.1" },
       actor: {
-        fingerprint:     "sha256:placeholder-pinned-at-deploy-time",
+        fingerprint:     "sha256:" + "a".repeat(64),
         algorithm:       "ed25519",
         pubkeyBinding:   "INTERLACE_MASTER_PUBKEY",
         attestationRepo: "",
@@ -1981,4 +1981,23 @@ doStoragePath = "/data/do"
 
   const reparsed = await parseTomlToCluster(emitted);
   assert.equal(reparsed.bundles[0].perTenant, true, "perTenant=true survives roundtrip");
+});
+
+test("gateway.actor.fingerprint: empty opts out, malformed is rejected", async () => {
+  const { assertActorFingerprint } = await import("../toml-to-cluster.mjs");
+  // Empty is the documented Interlace opt-out (well-known.ts 404s on it).
+  assert.equal(assertActorFingerprint(""), "");
+  // A real fingerprint round-trips untouched.
+  const real = "sha256:" + "a".repeat(64);
+  assert.equal(assertActorFingerprint(real), real);
+  // The three malformed values that were silently accepted before this gate:
+  // the shipped emitter default, and two test fixtures. Each is TRUTHY, so it
+  // passed well-known.ts's empty-check opt-out and would have published a
+  // fabricated cluster identity on /.well-known/interlace/index.json.
+  for (const bad of ["sha256:placeholder-pinned-at-deploy-time", "sha256:abc123", "sha256:test"]) {
+    assert.throws(() => assertActorFingerprint(bad), /malformed/, `should reject ${bad}`);
+  }
+  // Shape is strict: uppercase hex and bare hex without the prefix are rejected.
+  assert.throws(() => assertActorFingerprint("sha256:" + "A".repeat(64)), /malformed/);
+  assert.throws(() => assertActorFingerprint("a".repeat(64)), /malformed/);
 });

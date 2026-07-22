@@ -81,7 +81,13 @@ const DEFAULT_OUTPUT = null; // stdout
 const DEFAULT_GATEWAY = {
   metadata: { name: "cloister-art", version: "0.1.0" },
   actor: {
-    fingerprint:     "sha256:placeholder-pinned-at-deploy-time",
+    // Empty = the documented Interlace opt-out (src/routes/well-known.ts: an
+    // empty fingerprint makes /.well-known/interlace/index.json 404). This used
+    // to default to "sha256:placeholder-pinned-at-deploy-time", which is TRUTHY
+    // — it sailed past that opt-out guard and PUBLISHED a fabricated actor
+    // identity to any peer that discovered us. Empty fails closed; a placeholder
+    // fails open. Operators pin a real `sha256:<64 hex>` at deploy time.
+    fingerprint:     "",
     algorithm:       "ed25519",
     pubkeyBinding:   "INTERLACE_MASTER_PUBKEY",
     attestationRepo: "",
