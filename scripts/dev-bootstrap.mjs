@@ -64,6 +64,16 @@ const SIGNET_BIN = process.env.SIGNET_BIN || "signet";
 const SIGNET_AUTHORITY_URL = process.env.SIGNET_AUTHORITY_URL || ""; // when set, remote-fetch instead of local keystore
 const PUBKEY_REFRESH = !!process.env.INTERLACE_PUBKEY_REFRESH; // force re-fetch even if already set
 
+// notme-in-the-loop (cloister-d2e89a): when a local notme is running, its
+// /internal/ca-bundle exposes the master key that BOTH signs the CA bundle
+// cloister fetches AND (as the dev CA) issues the leases cloister verifies.
+// Preferred over signet here because a mismatch between the pinned pubkey and
+// the notme key that actually signed the bundle is precisely cloister-3ad090:
+// signet's key and notme's dev key are independent, so an INTERLACE_ROOT_PUBKEY
+// from signet cannot verify a bundle notme signed. Set NOTME_DEV_URL="" to
+// disable the notme probe and use signet only.
+const NOTME_DEV_URL = process.env.NOTME_DEV_URL ?? "http://localhost:8788";
+
 function parseEnv(content) {
   const entries = new Map();
   for (const line of content.split(/\r?\n/)) {
@@ -136,20 +146,54 @@ function tryFetchInterlacePubkey() {
   return { ok: true, pubkey };
 }
 
+// Fetch notme's master pubkey from a locally-hosted notme worker. notme signs
+// its JSON CABundle with this key; keys[keyId] IS the pin cloister must verify
+// against. Returns { ok:false } (never throws) when notme isn't running.
+async function tryFetchNotmePubkey() {
+  if (!NOTME_DEV_URL) return { ok: false, reason: "notme-disabled", detail: "NOTME_DEV_URL empty" };
+  let res;
+  try {
+    res = await fetch(`${NOTME_DEV_URL}/internal/ca-bundle`);
+  } catch (e) {
+    return { ok: false, reason: "notme-not-running", detail: String(e?.message ?? e) };
+  }
+  if (!res.ok) return { ok: false, reason: "notme-http", detail: `HTTP ${res.status}` };
+  let bundle;
+  try {
+    bundle = await res.json();
+  } catch (e) {
+    return { ok: false, reason: "notme-bad-json", detail: String(e?.message ?? e) };
+  }
+  const key = bundle && bundle.keys ? bundle.keys[bundle.keyId] : undefined;
+  if (typeof key !== "string" || !key) {
+    return { ok: false, reason: "notme-shape", detail: "bundle has no keys[keyId]" };
+  }
+  return { ok: true, pubkey: key };
+}
+
 const pubkeyWas = entries.get(PUBKEY_VAR);
 const shouldFetchPubkey = PUBKEY_REFRESH || !pubkeyWas;
 let pubkeyOutcome = { kind: "kept" };
 if (shouldFetchPubkey) {
-  const fetched = tryFetchInterlacePubkey();
+  // Prefer a locally-hosted notme (it signs the bundle cloister verifies);
+  // fall back to the signet keystore/URL.
+  let fetched = await tryFetchNotmePubkey();
+  let via = `local notme (${NOTME_DEV_URL})`;
+  let notmeReason;
+  if (!fetched.ok) {
+    notmeReason = fetched.reason;
+    fetched = tryFetchInterlacePubkey();
+    via = SIGNET_AUTHORITY_URL || "local keystore (signet)";
+  }
   if (fetched.ok) {
     entries.set(PUBKEY_VAR, fetched.pubkey);
     pubkeyOutcome = {
       kind: pubkeyWas ? "refreshed" : "fetched",
       pubkey: fetched.pubkey,
-      via: SIGNET_AUTHORITY_URL || "local keystore",
+      via,
     };
   } else {
-    pubkeyOutcome = { kind: "skipped", reason: fetched.reason, detail: fetched.detail };
+    pubkeyOutcome = { kind: "skipped", reason: fetched.reason, detail: fetched.detail, notmeReason };
   }
 }
 
@@ -178,15 +222,15 @@ switch (pubkeyOutcome.kind) {
     console.log(`  → ${PUBKEY_VAR} already set — kept (set INTERLACE_PUBKEY_REFRESH=1 to re-fetch)`);
     break;
   case "skipped":
-    if (pubkeyOutcome.reason === "signet-not-found") {
-      console.log(`  → ${PUBKEY_VAR} unset — signet not on PATH (lease gate OFF, dev mode)`);
-      console.log("       install signet via signet-repo \`task install\`, or set");
-      console.log("       INTERLACE_ROOT_PUBKEY=<base64-pubkey> in .env.local manually.");
-    } else {
-      console.log(`  ⚠ ${PUBKEY_VAR} unset — signet ran but failed (${pubkeyOutcome.reason})`);
-      if (pubkeyOutcome.detail) console.log(`       ${pubkeyOutcome.detail.split("\n")[0]}`);
-      console.log("       lease gate stays OFF for now (dev mode).");
-    }
+    // Neither notme (local worker) nor signet produced a key.
+    console.log(
+      `  → ${PUBKEY_VAR} unset — no authority key available ` +
+      `(notme: ${pubkeyOutcome.notmeReason ?? "n/a"}, signet: ${pubkeyOutcome.reason}). ` +
+      `Lease gate OFF (dev mode).`,
+    );
+    console.log(`       start a local notme (\`wrangler dev\` in ../notme/worker --port 8788),`);
+    console.log("       or install signet, or set INTERLACE_ROOT_PUBKEY=<base64> in .env.local.");
+    if (pubkeyOutcome.detail) console.log(`       signet detail: ${pubkeyOutcome.detail.split("\n")[0]}`);
     break;
 }
 console.log("");
