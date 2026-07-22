@@ -41,10 +41,10 @@ bytes = 6_252
   digest = "sha256:92911a6f3be74ed39afaeddd34d2fe4e2201284f0ca8a9e787a1fb51079a5d9f"
 
 [inputs.canonical-hours]
-ref = "file:///Users/jamesgardner/remotes/art/canonical-hours/server.json"
+ref = "file://../canonical-hours/server.json"
 resolved = ""
 sha256 = "sha256:bb69786572c03f0c6901a7f574b9e14d9e8b5a45a63169d4d94be663a74b717d"
-fetched_from = "file:///Users/jamesgardner/remotes/art/canonical-hours/server.json"
+fetched_from = "file://../canonical-hours/server.json"
 signer = ""
 bytes = 1_200
 

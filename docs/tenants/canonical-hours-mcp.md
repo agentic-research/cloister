@@ -19,9 +19,29 @@ requirement" below), not a real partitioning need.
 ```toml
 # cluster.toml
 [inputs.canonical-hours]
-ref        = "file:///path/to/canonical-hours/server.json"  # dev escape hatch; production ref TBD (no GitHub release tag yet)
+ref        = "file://../canonical-hours/server.json"  # dev-only interim (see below)
 urlBinding = "CANONICAL_HOURS_MCP_URL"
 ```
+
+**Ref status — dev-only interim.** The `ref` resolves from a sibling
+`canonical-hours` checkout (the standard `~/remotes/art/` layout), so it's
+portable across dev machines with no machine-specific path — but it is **not
+reproducible** in CI or on a machine without that checkout (the committed
+`cluster.lock.toml` + generated backend are the working artifacts; runtime never
+reads the `ref`). Unlike `llo`/`mache`/`rosary` — pinned to
+`github://…@<sha>` and re-resolvable anywhere — canonical-hours can't be
+SHA-pinned yet: the repo is **private** (the resolver only does unauthenticated
+`raw.githubusercontent.com` fetches) and its commit history is being cleaned up
+(any SHA pinned now would be invalidated by the rewrite).
+
+**Finalize** once canonical-hours is public and its history is settled:
+
+```toml
+ref = "github://agentic-research/canonical-hours/server.json@<sha>"
+```
+then `task cluster:resolve` — it fetches, pins, and regenerates exactly the way
+the other three inputs do (`resolved` becomes the `server.json` version, no more
+`resolved = ""`).
 
 `task cluster:resolve` reads canonical-hours' `server.json`
 `_meta.art.cloister/v1.groups[]` (one group, name `canonical-hours`,

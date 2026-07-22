@@ -239,7 +239,7 @@ export const cluster: Cluster = {
     },
     {
       "name": "canonical-hours",
-      "ref": "file:///Users/jamesgardner/remotes/art/canonical-hours/server.json",
+      "ref": "file://../canonical-hours/server.json",
       "version": "",
       "digest": "",
       "from": "",
