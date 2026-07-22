@@ -57,6 +57,15 @@ const workerConfig = {
       // scope auth-on get 401 instead of the expected 201/202/400.
       // Per-test auth tests still work via per-test envWithGate(...)
       // helpers that override these bindings. Per cloister-de6870.
+      //
+      // ADR-0053 (cloister-220c9d): an empty INTERLACE_ROOT_PUBKEY is "gate
+      // off" ONLY under an explicit CLOISTER_MODE=dev opt-out — otherwise the
+      // resolver enforces + fails closed (rule 5, the empty-value fix). The
+      // test suite's default is exactly that dev opt-out, so make it explicit
+      // here. The DEV_* seams (static bundle, vault seed, authz overlay) stay
+      // inactive because their own vars (DEV_CA_MASTER, DEV_VAULT_SEED, …) are
+      // unset — CLOISTER_MODE=dev alone only enables the gate-off opt-out.
+      CLOISTER_MODE: "dev",
       INTERLACE_ROOT_PUBKEY: "",
       INTERLACE_MASTER_PUBKEY: "",
       INTERLACE_DISCLOSURE_HMAC_KEY: "",

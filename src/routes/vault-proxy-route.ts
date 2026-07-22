@@ -27,10 +27,8 @@
 // live request-dispatch graph.
 
 import { checkAccess } from "../../vault/src/vault.js";
-import { CaUnavailableError } from "../storage/ca-bundle-cache.js";
-import { devCaBundle, resolveCABundle } from "../storage/ca-bundle-source.js";
 import { buildDenialAuditEntry } from "../../vault/src/handler.js";
-import { verifyAndUpsertLease, type VerifiedLease } from "./lease-middleware.js";
+import { gateAndVerify, ERR_CA_UNAVAILABLE, type VerifiedLease } from "./lease-middleware.js";
 import { preAuthBurstLimit } from "./pre-auth-budget.js";
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
@@ -429,24 +427,22 @@ export function applyDevPassthrough(
 }
 
 const defaultLeaseVerifier: LeaseVerifier = async (request, env, parsed) => {
-  // No trust anchor at all (no dev bundle, no pinned pubkey) → 401. Guard here
-  // so resolveCABundle is only reached with a real anchor; it also fails closed
-  // internally, but this preserves the 401 (vs 503) status for "unconfigured".
-  if (!devCaBundle(env) && !env.INTERLACE_ROOT_PUBKEY) return { ok: false, status: 401 };
-  try {
-    const nowMs = Date.now();
-    const bundle = await resolveCABundle(env, nowMs);
-    const body = request.method === "GET" || request.method === "HEAD"
-      ? ""
-      : await request.clone().text();
-    const verdict = await verifyAndUpsertLease({
-      req: request, body, id: 0, method: "vaultProxy",
-      params: parsed ?? {}, env, bundle, nowMs,
-    });
-    if ("code" in verdict) return { ok: false, status: 401 };
-    return { ok: true, lease: verdict };
-  } catch (e) {
-    if (e instanceof CaUnavailableError) return { ok: false, status: 503 };
-    throw e;
+  // ADR-0053 (cloister-220c9d): one flow owns gate → verify → verdict.
+  // `denyWhenOff` — the vault requires auth, so an explicit CLOISTER_MODE=dev
+  // opt-out (gate off) still denies (401) rather than passing through. A prod
+  // deploy with an empty anchor fails closed (CA-unavailable → 503).
+  const nowMs = Date.now();
+  const body = request.method === "GET" || request.method === "HEAD"
+    ? ""
+    : await request.clone().text();
+  const verdict = await gateAndVerify(env, nowMs, {
+    req: request, body, id: 0, method: "vaultProxy", params: parsed ?? {},
+  }, { denyWhenOff: true });
+  if (verdict.kind !== "pass") {
+    // reject (auth failure / CA-unavailable) — or, with denyWhenOff, a dev-off
+    // deny. CA-unavailable maps to 503; everything else to 401.
+    const status = verdict.kind === "reject" && verdict.code === ERR_CA_UNAVAILABLE ? 503 : 401;
+    return { ok: false, status };
   }
+  return { ok: true, lease: verdict.lease };
 };

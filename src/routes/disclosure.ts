@@ -47,11 +47,7 @@ import {
   signCursor,
   verifyCursor,
 } from "../storage/disclosure-cursor.js";
-import { verifyAndUpsertLease } from "./lease-middleware.js";
-import {
-  CaUnavailableError,
-} from "../storage/ca-bundle-cache.js";
-import { resolveCABundle } from "../storage/ca-bundle-source.js";
+import { gateAndVerify } from "./lease-middleware.js";
 
 /** Default page size for the JSONL stream. */
 const DEFAULT_PAGE_SIZE = 100;
@@ -171,10 +167,16 @@ export class DisclosureRoute implements EdgeRoute {
     // Failure collapses into the constant-time 404 (threat-model §9.2
     // — success/auth-failure must be indistinguishable). The DO RPCs
     // at the bottom still run regardless so wall-clock converges.
-    if (env.INTERLACE_ROOT_PUBKEY) {
-      const gateOk = await this.verifyLease(request, env, peerFp);
-      if (!gateOk) rejectReason ??= "denied";
-    }
+    // ADR-0053 (cloister-220c9d): one flow owns gate → verify → verdict.
+    // Constant-time §9.4: NEVER early-return — a reject just sets rejectReason
+    // (collapses into the same constant-time 404). `off` (dev opt-out) yields no
+    // reject; `pass` authorizes; `reject` (auth failure OR prod fail-closed on
+    // an empty anchor) denies. The DO RPCs below still run regardless.
+    const gateVerdict = await gateAndVerify(env, Date.now(), {
+      req: request, body: "", id: null, method: "disclosure", params: undefined,
+      requestedScope: `disclosure:${peerFp}`,
+    });
+    if (gateVerdict.kind === "reject") rejectReason ??= "denied";
 
     // Cursor — if present, MUST validate. Reject unsigned / tampered
     // cursors with a constant-time 404 (threat model §9.4).
@@ -321,42 +323,6 @@ export class DisclosureRoute implements EdgeRoute {
     });
   }
 
-  /**
-   * Run the lease pipeline for a GET disclosure request. Returns true
-   * iff the request is authorized to read `peerFp`'s chain.
-   *
-   * Disclosure differs from POST /mcp in three ways:
-   *  - No body (GET) — sig is over empty body
-   *  - Scope is `disclosure:<peerFp>`, not derived from JSON-RPC
-   *  - Auth-failure does NOT reveal which step failed; caller maps the
-   *    boolean to `constantTimeErrorResponse("denied")`
-   */
-  private async verifyLease(
-    request: Request,
-    env:     Env,
-    peerFp:  string,
-  ): Promise<boolean> {
-    const nowMs = Date.now();
-    let bundle;
-    try {
-      bundle = await resolveCABundle(env, nowMs);
-    } catch (err) {
-      if (err instanceof CaUnavailableError) return false;
-      throw err;
-    }
-    const verdict = await verifyAndUpsertLease({
-      req:    request,
-      body:   "",                          // GET — no body
-      id:     null,                        // GET — no JSON-RPC id
-      method: "disclosure",                // synthetic; ignored when requestedScope is set
-      params: undefined,
-      env,
-      bundle,
-      nowMs,
-      requestedScope: `disclosure:${peerFp}`,
-    });
-    return !("code" in verdict);
-  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

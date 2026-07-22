@@ -28,7 +28,7 @@ class FakeBackend implements ToolBackend {
   }
 }
 
-function fakeEnv(): Env { return {} as Env; }
+function fakeEnv(): Env { return { CLOISTER_MODE: "dev" } as Env; }  // ADR-0053: explicit dev opt-out (gate off)
 
 async function postMcp(route: McpEdgeRoute, body: unknown): Promise<JsonRpcResponse> {
   const res = await route.handle(
