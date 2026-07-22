@@ -52,6 +52,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./types.js";
+import { logEvent } from "./obs/log.js";
 import {
   SCHEMA_PEER_LEASE_COUNTERS,
   applyLeaseCounter,
@@ -249,30 +250,30 @@ export class TrustStore extends DurableObject {
     try {
       noncesDeleted = this.pruneSeenNonces(now - SEEN_NONCES_RETENTION_MS);
     } catch (e) {
-      console.error(JSON.stringify({
+      logEvent("error", {
         target: "trust_store", op: "alarm",
         outcome: "seen_nonces_prune_failed",
         err: String(e),
-      }));
+      });
     }
     try {
       const r = this.pruneExpiredReceipts(now);
       receiptsDeleted = r.deleted;
       oldestRemainingReceiptMs = r.oldestRemainingMs;
     } catch (e) {
-      console.error(JSON.stringify({
+      logEvent("error", {
         target: "trust_store", op: "alarm",
         outcome: "receipts_prune_failed",
         err: String(e),
-      }));
+      });
     }
-    console.log(JSON.stringify({
+    logEvent("info", {
       target: "trust_store", op: "alarm",
       outcome: "trust_store_alarm_swept",
       seen_nonces_deleted: noncesDeleted,
       receipts_deleted: receiptsDeleted,
       oldest_remaining_receipt_ms: oldestRemainingReceiptMs,
-    }));
+    });
     // Reschedule. If this fails, the alarm cadence stops — that's a
     // hard failure worth surfacing.
     await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
