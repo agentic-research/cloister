@@ -42,6 +42,11 @@ import {
   b64stdDecode,
 } from "../wire/receipts.js";
 import { canonicalRequestBytes } from "./lease-middleware.js";
+import { logEvent } from "../obs/log.js";
+
+// One-shot guard so the "receipt emission disabled" signal (cloister-21e42e)
+// logs once per isolate, not on every emission attempt.
+let receiptEmissionDisabledLogged = false;
 
 // ── Receipt context (built per-request by the route layer) ────────────────
 
@@ -110,7 +115,20 @@ export async function buildEmissionContext(args: {
  */
 export async function loadReceiptSigner(env: Env): Promise<ReceiptSigner | null> {
   const raw = env.RECEIPT_SIGNING_KEY;
-  if (!raw || raw.length === 0) return null;
+  if (!raw || raw.length === 0) {
+    // cloister-21e42e: an empty RECEIPT_SIGNING_KEY disables receipt emission —
+    // the §8.2 Phase-1 posture, and intended. But "empty value silently means
+    // off" is exactly this audit's target: §13.2 "silence is evidence" breaks if
+    // an operator can't tell "no receipts because Phase 1" from "no receipts
+    // because the key went missing." Make the disabled state OBSERVABLE once per
+    // isolate rather than a fully silent no-op. (Emptiness stays fail-SAFE here —
+    // no receipt is a missing §13.2 stake, not an auth bypass — so we log, not throw.)
+    if (!receiptEmissionDisabledLogged) {
+      receiptEmissionDisabledLogged = true;
+      logEvent("warn", { target: "receipt_emitter", op: "load_signer", outcome: "disabled_no_signing_key" });
+    }
+    return null;
+  }
   try {
     const kp = b64stdDecode(raw);
     if (kp.length !== 64) {
