@@ -50,8 +50,22 @@ export class MatchError extends Error {
  * messages are deterministic (a nondeterministic error message is a flaky test
  * waiting to happen).
  */
-export function collectProviders(inputs) {
+export const SUBSTRATE_PROVIDER = "<substrate>";
+
+export function collectProviders(inputs, substrateProvides = []) {
   const providers = new Map();
+  // The substrate is itself a provider. cloister implements some capabilities
+  // in its own src/ rather than delegating to an input — ADR-0024's
+  // `cloister/credential-isolation/v1` (the vault proxy) and
+  // `cloister/confinement/v1` are the live examples. Modelling only inputs as
+  // providers made a correct declaration (`requires` on a substrate capability)
+  // look unsatisfiable; wiring the gate surfaced exactly that.
+  for (const cap of substrateProvides) {
+    if (!providers.has(cap)) providers.set(cap, []);
+    if (!providers.get(cap).includes(SUBSTRATE_PROVIDER)) {
+      providers.get(cap).push(SUBSTRATE_PROVIDER);
+    }
+  }
   for (const input of inputs) {
     for (const cap of input.provides ?? []) {
       if (!providers.has(cap)) providers.set(cap, []);
@@ -91,6 +105,8 @@ export function resolveRequires(inputs, providers, overrides = {}) {
 
       // Self-satisfaction is not wiring — an input cannot fulfil its own
       // anti-stud, or the lattice degenerates.
+      // The substrate is always "external" to an input, so a capability cloister
+      // provides never trips the self-provision check.
       const external = candidates.filter((c) => c !== input.name);
       if (external.length === 0) {
         throw new MatchError(
@@ -186,7 +202,7 @@ export function detectCycle(bindings) {
  * partial or best-effort result — on any unsatisfiable input. Fail-closed is the
  * point: a request the lattice cannot satisfy must be REJECTED, not approximated.
  */
-export function matchCapabilities(inputs, { overrides = {} } = {}) {
+export function matchCapabilities(inputs, { overrides = {}, substrateProvides = [] } = {}) {
   if (!Array.isArray(inputs)) {
     throw new MatchError("bad-input", "matchCapabilities expects an array of inputs");
   }
@@ -201,7 +217,7 @@ export function matchCapabilities(inputs, { overrides = {} } = {}) {
     seen.add(input.name);
   }
 
-  const providers = collectProviders(inputs);
+  const providers = collectProviders(inputs, substrateProvides);
   const { bindings } = resolveRequires(inputs, providers, overrides);
 
   const cycle = detectCycle(bindings);

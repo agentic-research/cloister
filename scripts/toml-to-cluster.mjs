@@ -124,6 +124,36 @@ export async function parseTomlToCluster(tomlString) {
     }
   });
 
+  //    4d. The capability lattice resolves (ADR-0027 / cloister-e059ea).
+  //        `provides` / `requires` are declared per input in
+  //        manifest/cluster.capnp, and the matchmaker is what makes them
+  //        MEAN something: an unsatisfied, ambiguous, self-provided or
+  //        cyclic declaration fails the build here rather than producing a
+  //        cluster.ts whose capability graph is quietly wrong. Today no
+  //        input declares a lattice, so this is a no-op — but it is wired
+  //        NOW so the first declaration is validated, instead of the check
+  //        arriving after someone has already shipped a broken graph.
+  //        Capabilities cloister implements ITSELF (not delegated to an input)
+  //        count as providers — otherwise a correct `requires` on a substrate
+  //        capability reads as unsatisfiable. ADR-0024 (credential-isolation,
+  //        the vault proxy) and confinement/v1 are the live ones. When
+  //        ADR-0027's `cloister-spec/cloister/<name>/v<n>/` directory
+  //        convention lands, derive this list from the filesystem instead of
+  //        maintaining it here.
+  const SUBSTRATE_CAPABILITIES = [
+    "cloister/credential-isolation/v1",
+    "cloister/confinement/v1",
+  ];
+  const { matchCapabilities, MatchError } = await import("./capability-matchmaker.mjs");
+  try {
+    matchCapabilities(validated.inputs ?? [], { substrateProvides: SUBSTRATE_CAPABILITIES });
+  } catch (e) {
+    if (e instanceof MatchError) {
+      throw new Error(`capability lattice does not resolve (${e.code}): ${e.message}`);
+    }
+    throw e;
+  }
+
   return validated;
 }
 
