@@ -148,6 +148,15 @@ const MUTANTS = [
     why: "a non-empty fingerprint is PUBLISHED on /.well-known — accepting a malformed one advertises a fabricated identity",
   },
 
+  {
+    id: "build/matchmaker:not-fail-closed",
+    file: "scripts/capability-matchmaker.mjs",
+    anchor: '        throw new MatchError(\n          "unsatisfied",',
+    replace: '        bindings.push({ consumer: input.name, capability: cap, provider: null }); if (false) throw new MatchError(\n          "unsatisfied",',
+    run: () => NODE_TEST("scripts/test/capability-matchmaker.test.mjs"),
+    why: "ADR-0054's whole claim is that an unsatisfiable request is REJECTED, not approximated — silently binding null is the failure mode the neural experiment had",
+  },
+
   // ── the fail-closed security paths. A survivor here is a FINDING, not a nit.
   {
     id: "src/lease-gate:never-enforces",
