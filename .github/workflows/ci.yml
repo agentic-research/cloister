@@ -14,12 +14,6 @@ on:
 # group key.
 permissions:
   contents: read
-  # @agentic-research/dpop (notme's DPoP verifier SDK) is hosted on GitHub
-  # Packages, which requires auth to install even for PUBLIC packages — 401
-  # anonymous. GITHUB_TOKEN with this scope is what lets `pnpm install`
-  # resolve it in CI; .npmrc reads the token from NODE_AUTH_TOKEN. See
-  # notme-18450e / cloister-195e47.
-  packages: read
 
 # Cancel previous runs on the same ref when a new push lands.
 concurrency:
@@ -128,10 +122,6 @@ jobs:
         # Project dependency policy lives in Taskfile.yml; workflow setup
         # still owns OS packages, toolchains, and caches.
         run: task deps:node
-        env:
-          # Consumed by .npmrc's //npm.pkg.github.com/:_authToken line.
-          # Without it, install fails ERR_PNPM_FETCH_401 on the dpop package.
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pre-warm rustup toolchain
         # Belt-and-suspenders for the parallel rustup-download race.
@@ -240,10 +230,6 @@ jobs:
         # Project dependency policy lives in Taskfile.yml; workflow setup
         # still owns OS packages, toolchains, and caches.
         run: task deps:node
-        env:
-          # Consumed by .npmrc's //npm.pkg.github.com/:_authToken line.
-          # Without it, install fails ERR_PNPM_FETCH_401 on the dpop package.
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pre-warm rustup toolchain
         # See the lint job's matching step. `task verify` fans out

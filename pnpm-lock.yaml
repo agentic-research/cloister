@@ -54,7 +54,7 @@ importers:
 packages:
 
   '@agentic-research/dpop@0.2.0':
-    resolution: {integrity: sha512-emzNIdRkJZMDpJQGMx4sz5r0R1PB6uwiJ1f+ekmQaaSAplgq505PXrsL46L+WpsKylv/qTpgwi4BlRYJWTnLLQ==, tarball: https://npm.pkg.github.com/download/@agentic-research/dpop/0.2.0/173cf742729e48af9b5fb8e3030693475b1a57ad}
+    resolution: {integrity: sha512-c0l/kGk1LwosKbVv405n5i9O0IoAerwnIq3JW7jmkRO9Wnt0gcGST27RV89dsJV/GcxEf0UPoVWTzJnXjbKsiA==}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     resolution: {integrity: sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA==}
