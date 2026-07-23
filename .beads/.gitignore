@@ -1,0 +1,11 @@
+# `dolt.bak/` is the PREVIOUS bead store, left on disk deliberately after the
+# dolt → sqlite backend migration. It is a local artifact: keep it, never
+# commit it. Without this rule it lands in git the next time anyone runs
+# `git add -A`, because this repo tracks the live store under `.beads/dolt/`
+# and nothing distinguished the backup from it.
+dolt.bak/
+
+# Runtime files — sockets, pidfiles, ports. Process-local, never shared.
+bd.sock
+dolt-server.pid
+dolt-server.port
