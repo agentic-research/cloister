@@ -13,3 +13,9 @@ allowBuilds:
 overrides:
   "undici@>=7.0.0 <7.28.0": ^7.28.0
   "esbuild@>=0.27.0 <0.28.1": ^0.28.1
+  # CVE-2026-48779 (high): memory-exhaustion DoS from tiny fragments/data
+  # chunks. Dev-only reach — ws arrives transitively via miniflare -> wrangler /
+  # vitest-pool-workers, never in the shipped worker bundle (workerd provides
+  # WebSocket natively). miniflare pins ws EXACTLY at 8.18.0, so semver
+  # resolution alone cannot lift it; the override is the only route.
+  "ws@>=8.0.0 <8.21.0": ^8.21.1
