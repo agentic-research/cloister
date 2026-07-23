@@ -87,6 +87,7 @@ service = "notme-bot"
 [vars]
 ROSARY_MCP_URL  = "http://localhost:8383/mcp"
 LLO_MCP_URL     = "http://localhost:8384/mcp"   # `leyline daemon --mcp-port 8384`
+CANONICAL_HOURS_MCP_URL = "http://localhost:2000/mcp"   # `task dev` (eve dev) in canonical-hours, default port per its server.json — eve picks the next free port if 2000 is taken, adjust to match
 SIGNET_URL      = ""   # not yet deployed, TBD
 # cloister-companion (ADR-0005). Empty disables LeylineNetToolBackend.
 # For local dev: `task companion:stub` starts a stub on :8385 that mimics

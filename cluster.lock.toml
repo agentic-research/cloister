@@ -40,6 +40,14 @@ bytes = 6_317
   version = "0.8.1"
   digest = "sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad"
 
+[inputs.canonical-hours]
+ref = "github://agentic-research/canonical-hours/server.json@f7321b3c088a9fef61908225cadbfaab981c1c05"
+resolved = "0.1.0"
+sha256 = "sha256:bb69786572c03f0c6901a7f574b9e14d9e8b5a45a63169d4d94be663a74b717d"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/canonical-hours/f7321b3c088a9fef61908225cadbfaab981c1c05/server.json"
+signer = ""
+bytes = 1_200
+
 [[generated_backends]]
 input = "llo"
 name = "lsp"
@@ -265,3 +273,18 @@ claims = [
 dynamicTools = true
 urlBinding = "ROSARY_MCP_URL"
 serviceBinding = "ROSARY_MCP"
+
+[[generated_backends]]
+input = "canonical-hours"
+name = "canonical-hours"
+handlesPrefix = ""
+stripPrefix = ""
+claims = [
+  "get_board",
+  "trigger_tick",
+  "resolve_addressed_review_threads",
+  "dismiss_stale_bot_reviews"
+]
+dynamicTools = true
+urlBinding = "CANONICAL_HOURS_MCP_URL"
+serviceBinding = ""
