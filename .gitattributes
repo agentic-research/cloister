@@ -1,0 +1,7 @@
+# The tracked bead export (rosary-f9516f). Without this line the
+# `merge.beads-jsonl` driver configured in git config is INERT — git only
+# consults a merge driver when a path is mapped to it here, so concurrent bead
+# edits on two branches would produce raw line conflicts in a machine-generated
+# file instead of the union-by-bead-id, last-writer-wins-on-updated_at merge
+# the driver implements.
+.beads/beads.jsonl merge=beads-jsonl
