@@ -45,7 +45,9 @@ export async function mintToken(opts: {
   sub: string;
   jkt: string;
   scope: string;
-  audience: string;
+  /** string | string[] — the array form exists to test cloister's REJECTION of
+   *  multi-audience tokens (the SDK's RFC 7519 semantics would accept them). */
+  audience: string | string[];
   issuer: string;
   kid?: string;
   expOverride?: number;
