@@ -1,6 +1,6 @@
 ---
 title: "ADR-0033: rsry-mediated bead substrate (with bd as the storage layer rsry reads)"
-status: Proposed (2026-06-23, **corrected 2026-06-24** — see Amendment 1)
+status: Proposed (2026-06-23, **corrected 2026-06-24** — see Amendment 1; **reconciled with rosary's bd/Dolt decouple 2026-07-22** — see Amendment 2)
 date: 2026-06-23
 tags: [substrate, beads, mcp, bd, dolt, multi-substrate, rsry]
 threat_model: docs/security/threat-model.md
@@ -114,6 +114,51 @@ consume.
 The amended decisions below reflect the actual substrate shape: bd
 is just storage, rsry is the MCP layer, cloister's wiring need is
 adding an `rsry_*` mcpProxy backend (not a bd backend).
+
+## Amendment 2 (2026-07-22) — rosary decouples from bd/Dolt; cloister is unaffected, and here is why
+
+Raised from the rosary side (`cloister-65dfed`, relates `rosary-656967`).
+rosary is decoupling from the `bd` tool and from Dolt-as-owner: rosary owns
+its own bead store and exposes/consumes the documented bead JSON contract,
+with no runtime dependency on `bd`. That revises rosary's own
+ADR-0012-layering **D4**, which had said "cloister-packaged Workers connect
+to an external dolt sql-server through a cloister service binding" — an
+arrangement cloister must NOT assume.
+
+**Audit result: cloister never built that, and D3 already forbids it.**
+Every mention of Dolt in `src/` is prose describing the far side of an MCP
+call; there is no MySQL client, no `dolt sql-server` service binding, and no
+per-repo SQL binding anywhere in `src/`, `cluster.toml`, `cloister.capnp`,
+`config.capnp`, or `wrangler.toml`. The two real paths are:
+
+| `BEAD_STORAGE_BACKEND` | path | storage |
+|---|---|---|
+| `"do"` (legacy) | cloister's own `BeadStore` Durable Object | workerd SQLite — no Dolt at all |
+| `"rsry"` | `rsry_bead_create` MCP over the `ROSARY_BUNDLE` service binding | whatever rosary uses, behind the boundary |
+
+D3 already states it plainly: *"workerd does not get a MySQL client … cloister
+sees only the MCP layer."* So the coupling rosary is warning about was
+rejected here before it was raised.
+
+**What this amendment actually corrects is D2's prose.** D2 describes rosary's
+INTERNALS — "bd's dolt sql-server runs inside the rosary bundle's container …
+accessed by rsry over a process-internal MySQL connection." Under the decouple
+that is no longer guaranteed, and it was never cloister's business: it sits
+behind the MCP boundary D3 draws. Read D2 as *illustrative of how rosary
+happened to be built in 2026-06*, not as a cloister requirement or an
+invariant cloister may rely on. Whether rosary stores beads in Dolt, SQLite,
+or anything else is invisible — and must stay invisible — to cloister.
+
+**Forward constraint (the decision this amendment records).** cloister MUST
+NOT acquire a direct per-repo Dolt / MySQL / `sql-server` binding for bead
+access. Bead data reaches cloister only via (a) rosary's MCP interface and the
+documented bead JSON contract, or (b) the local `BeadStore` DO until
+`cloister-c8b907` retires it. If a future change appears to need a direct SQL
+binding, that is a signal the boundary is wrong, not that the binding is
+needed.
+
+This is distinct from `cloister-9d19e3` (R2Backend for the PERSONAL substrate
+sync in ADR-0012-personal-substrate) — that R2/age-blob path is unaffected.
 
 ## Decision
 
