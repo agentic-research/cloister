@@ -179,12 +179,37 @@ function gitIsClean() {
   return { clean: dirty.length === 0, dirty };
 }
 
+// A mutant result is only meaningful if the suite PASSES on unmutated code.
+// Without this, a missing/broken test command exits non-zero and the probe
+// reports "killed" — safety it never verified. That is the same sin as a test
+// asserting current output, and it bit this very script: the ca-bundle-source
+// mutant reported "killed" on a branch where its test file did not yet exist.
+const baselineCache = new Map();
+function baselinePasses(m) {
+  const [cmd, args] = m.run();
+  const key = [cmd, ...args].join(" ");
+  if (!baselineCache.has(key)) {
+    const r = spawnSync(cmd, args.filter((a) => a !== ""), {
+      cwd: REPO_ROOT, encoding: "utf8", stdio: "pipe", timeout: 15 * 60 * 1000,
+    });
+    baselineCache.set(key, r.status === 0);
+  }
+  return baselineCache.get(key);
+}
+
 function runMutant(m) {
   const abs = resolve(REPO_ROOT, m.file);
   const original = readFileSync(abs, "utf8");
   const count = original.split(m.anchor).length - 1;
   if (count !== 1) {
     return { id: m.id, status: "ERROR", detail: `anchor matched ${count}× (expected exactly 1) in ${m.file}` };
+  }
+  if (!baselinePasses(m)) {
+    return {
+      id: m.id,
+      status: "ERROR",
+      detail: "test command FAILS on unmutated code (missing file? broken suite?) — a 'killed' here would be meaningless",
+    };
   }
   try {
     writeFileSync(abs, original.replace(m.anchor, m.replace));
