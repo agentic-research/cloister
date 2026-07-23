@@ -28,23 +28,23 @@ bytes = 4_320
   digest = "sha256:8620a0dc2d4c2ae7f6cc1f0ee68d6823a8bc9af6a8cf01d332c08738d9203ac7"
 
 [inputs.rosary]
-ref = "github://agentic-research/rosary/server.json@73f41c5ebdaf280ed3e52ff077feeafd5e6cd8a6"
-resolved = "0.7.0"
-sha256 = "sha256:892253929b5754de76f19ab7750c09339def425ea894dc3d2dea9f8123f38be1"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/rosary/73f41c5ebdaf280ed3e52ff077feeafd5e6cd8a6/server.json"
+ref = "github://agentic-research/rosary/server.json@7ca39874672104d8e75cece51f9f0d3d2d9b8503"
+resolved = "0.8.1"
+sha256 = "sha256:22ed33b9bf4794bc122f9f4f8d28caaf12e8f59a138e7ec12d09b990957d280d"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/rosary/7ca39874672104d8e75cece51f9f0d3d2d9b8503/server.json"
 signer = ""
-bytes = 6_252
+bytes = 6_317
 
   [inputs.rosary.oci]
   identifier = "ghcr.io/agentic-research/rosary"
-  version = "0.5.1"
-  digest = "sha256:92911a6f3be74ed39afaeddd34d2fe4e2201284f0ca8a9e787a1fb51079a5d9f"
+  version = "0.8.1"
+  digest = "sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad"
 
 [inputs.canonical-hours]
-ref = "file://../canonical-hours/server.json"
-resolved = ""
+ref = "github://agentic-research/canonical-hours/server.json@f7321b3c088a9fef61908225cadbfaab981c1c05"
+resolved = "0.1.0"
 sha256 = "sha256:bb69786572c03f0c6901a7f574b9e14d9e8b5a45a63169d4d94be663a74b717d"
-fetched_from = "file://../canonical-hours/server.json"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/canonical-hours/f7321b3c088a9fef61908225cadbfaab981c1c05/server.json"
 signer = ""
 bytes = 1_200
 
@@ -245,6 +245,7 @@ claims = [
   "rsry_active",
   "rsry_ticket_load",
   "rsry_review",
+  "rsry_expand_ref",
   "rsry_dispatch",
   "rsry_run_once",
   "rsry_decompose",

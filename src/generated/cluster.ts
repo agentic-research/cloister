@@ -239,8 +239,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "canonical-hours",
-      "ref": "file://../canonical-hours/server.json",
-      "version": "",
+      "ref": "github://agentic-research/canonical-hours/server.json@f7321b3c088a9fef61908225cadbfaab981c1c05",
+      "version": "0.1.0",
       "digest": "",
       "from": "",
       "provides": [],
