@@ -165,7 +165,7 @@ name = "rsry"
 
 [gateway.actor]
 algorithm = "ed25519"
-fingerprint = "sha256:placeholder-pinned-at-deploy-time"
+fingerprint = ""
 pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
 
 [gateway.metadata]

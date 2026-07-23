@@ -239,7 +239,11 @@ test("emit-cloister-capnp: actor + policy pinned to ART-default template (Phase 
   // Phase 3+ will let operators override these via cluster.toml; until
   // then they're carried-forward defaults that match the existing
   // ART-default cloister.capnp file at HEAD.
-  assert.match(out, /fingerprint     = "sha256:placeholder-pinned-at-deploy-time"/);
+  // Default is the EMPTY opt-out, not a truthy placeholder: a non-empty
+  // fingerprint is published verbatim on /.well-known/interlace/index.json,
+  // so the old "sha256:placeholder-pinned-at-deploy-time" default sailed past
+  // the empty-check opt-out and advertised a fabricated identity.
+  assert.match(out, /fingerprint     = ""/);
   assert.match(out, /algorithm       = "ed25519"/);
   assert.match(out, /pubkeyBinding   = "INTERLACE_MASTER_PUBKEY"/);
   assert.match(out, /maxCertLifetimeSeconds = 300/);
@@ -292,7 +296,11 @@ test("Phase 4a: missing gateway field → fall through to ART-default + warn on 
   // template byte-for-byte.
   const out = emitCloisterCapnp(minimalCluster(), { quiet: true });
   assert.match(out, /metadata = \(name = "cloister-art", version = "0\.1\.0"\)/);
-  assert.match(out, /fingerprint     = "sha256:placeholder-pinned-at-deploy-time"/);
+  // Default is the EMPTY opt-out, not a truthy placeholder: a non-empty
+  // fingerprint is published verbatim on /.well-known/interlace/index.json,
+  // so the old "sha256:placeholder-pinned-at-deploy-time" default sailed past
+  // the empty-check opt-out and advertised a fabricated identity.
+  assert.match(out, /fingerprint     = ""/);
   assert.match(out, /requireInterlock       = true/);
 });
 

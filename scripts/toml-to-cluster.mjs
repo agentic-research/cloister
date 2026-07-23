@@ -141,6 +141,47 @@ function findAllIndices(arr, target) {
   return arr.reduce((acc, v, i) => (v === target ? [...acc, i] : acc), []);
 }
 
+// ── gateway.actor.fingerprint shape gate ────────────────────────────────────
+//
+// `[gateway.actor] fingerprint` is the cluster's published identity: an EMPTY
+// value is the documented Interlace opt-out (src/routes/well-known.ts returns
+// 404 for discovery), and a NON-empty value is served verbatim on
+// /.well-known/interlace/index.json to every peer that discovers us.
+//
+// Nothing validated its shape, so `sha256:placeholder-pinned-at-deploy-time`
+// shipped in the emitter default. That string is TRUTHY, so it passed the
+// opt-out guard and published a fabricated identity — empty fails closed, a
+// placeholder fails OPEN. Same family as the cloister-21e42e empty-value sweep,
+// one rung up: the sweep made emptiness safe, and this makes non-emptiness
+// *mean something*.
+//
+// Rule: empty (opt-out) OR exactly "sha256:" + 64 lowercase hex. Char scan, no
+// regex, per the operator's standing rule.
+const FP_PREFIX = "sha256:";
+const HEX_DIGITS = "0123456789abcdef";
+
+/** True if `s` is exactly 64 lowercase hex digits. Pure; exported for tests. */
+export function isSha256Hex(s) {
+  if (s.length !== 64) return false;
+  for (const ch of s) if (!HEX_DIGITS.includes(ch)) return false;
+  return true;
+}
+
+/**
+ * Return the fingerprint unchanged when it is a valid opt-out ("") or a
+ * well-formed `sha256:<64 hex>`; throw otherwise. Exported for tests.
+ */
+export function assertActorFingerprint(fp) {
+  if (fp === "") return fp;
+  if (fp.startsWith(FP_PREFIX) && isSha256Hex(fp.slice(FP_PREFIX.length))) return fp;
+  throw new Error(
+    `toml-to-cluster: [gateway.actor] fingerprint is malformed: ${JSON.stringify(fp)}\n` +
+    `  It must be "" (opt out of Interlace discovery) or "sha256:" + 64 lowercase hex.\n` +
+    `  A non-empty value is PUBLISHED verbatim on /.well-known/interlace/index.json,\n` +
+    `  so a placeholder advertises a fabricated cluster identity to every peer.`,
+  );
+}
+
 /**
  * Render a validated Cluster object as a TS module string. This is the
  * sole generator of src/generated/cluster.ts; the legacy capnp→ts
@@ -342,7 +383,7 @@ function normalizeGateway(raw) {
       version: typeof metadata.version === "string" ? metadata.version : "",
     },
     actor: {
-      fingerprint:     typeof actor.fingerprint     === "string" ? actor.fingerprint     : "",
+      fingerprint:     assertActorFingerprint(typeof actor.fingerprint === "string" ? actor.fingerprint : ""),
       algorithm:       typeof actor.algorithm       === "string" ? actor.algorithm       : "",
       pubkeyBinding:   typeof actor.pubkeyBinding   === "string" ? actor.pubkeyBinding   : "",
       attestationRepo: typeof actor.attestationRepo === "string" ? actor.attestationRepo : "",
