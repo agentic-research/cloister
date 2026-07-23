@@ -13,6 +13,22 @@ relates_to:
 supersedes_framing: []
 ---
 
+> **Amendment (2026-07-22) — the crate moved to LLO; path references below are historical.**
+>
+> This ADR was written when cloister owned a `leyline-sign` fork at
+> `cloister/rs/crates/sign/`. **That directory no longer exists.** It was deleted
+> in PR #119 (`cloister-8f4d3f`), and cloister now consumes LLO's canonical
+> `leyline-sign` as a SHA-pinned git dependency (`rev = a6eba83a…`, v0.7.6,
+> declared in `rs/crates/cas/Cargo.toml` for both the wasm32 and `host` feature
+> paths). Per **ADR-0035** the `leyline-*` names belong in LLO and cloister keeps
+> only thin bridge crates; **ADR-0045** records the signing-substrate lift.
+>
+> The protocol decision in this ADR — a sign-only helper, its wire shape, its
+> threat analysis — is unchanged and still authoritative. Only the *location* of
+> the implementation moved. Read every `rs/crates/sign/...` path below as "the
+> leyline-sign crate, now canonical in LLO". This closes step 6 of ADR-0035's
+> sequencing table.
+
 ## Context
 
 ADR-0014 v2 established the URL-spec resolver for the vault KEK
