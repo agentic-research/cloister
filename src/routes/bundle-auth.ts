@@ -7,12 +7,27 @@
 // identical to the notme issuer's — the prior hand-rolled path was Ed25519-only
 // and could not verify notme's ES256/EC-minted tokens (cloister-0ae913).
 //
-// Over that verify, this file layers the checks the SDK deliberately does NOT do
-// (it is issuer-agnostic): audience-confusion defense, issuer pin, scope-grant,
-// and the two HIGH constraints the 2026-07-14 foundational review demanded:
+// notme-dffc5c (re-vendored): audience-confusion defense, issuer pin,
+// access-token `typ` pin, and replay (proof `jti`) are now checked BY THE SDK
+// itself — this file used to hand-roll all four as app-layer checks over an
+// issuer-agnostic verifier; that duplicated the same hardening logic cloister
+// and canonical-hours were each independently re-deriving, so it moved
+// upstream into notme's own SDK instead (consolidation, not new scope).
+// `audience`/`issuer`/`seenJti` are now passed straight into the
+// `verifyDPoPToken` call below. What's left here is genuinely cloister-
+// specific policy the SDK has no business enforcing: scope-grant + the
+// wildcard/admin-scope rejection (cloister's own trust decision, not an
+// SDK-level rule), kid-based revocation, and the two HIGH constraints the
+// 2026-07-14 foundational review demanded:
 //   #1 (§20.9) token-or-deny — no positional-subjectFp fallthrough on the bundle path.
 //   #2 (§20.10) the verified `sub` must equal the DO's pinned expected bundle.
-// Replay (proof `jti`) + revocation (`kid`) are injected callbacks the DO owns.
+//
+// The SDK's thrown error messages are pattern-matched back to cloister's own
+// internal reason codes below — NOT because the SDK's checks moved, but
+// because cloister's own audit design (§9/§20) wants distinguishable
+// INTERNAL reasons even though the bundle-facing entrypoint collapses every
+// denial to one constant-shape EXTERNAL response. Losing that granularity
+// silently would be a real regression, not a simplification.
 
 import { verifyDPoPToken, base64urlDecode } from "../vendor/notme-dpop.js";
 import { scopeGrants, deriveSubjectFp } from "./bundle-token-verify.js";
@@ -31,6 +46,43 @@ function jwtPart(jwt: string, index: 0 | 1): Record<string, unknown> | null {
     // lint-allow-silent: parse guard — null = malformed JWS part (not JSON)
     return null;
   }
+}
+
+/**
+ * Maps a `verifyDPoPToken` thrown Error's message back to one of the
+ * INTERNAL reason codes this file used to compute itself before those
+ * checks moved into the SDK (notme-dffc5c) — preserves DO-side audit
+ * granularity (§9/§20) without re-deriving the checks locally. Order
+ * matters: match the most specific pattern first (e.g. "typ" before a
+ * broader catch-all).
+ *
+ * COUPLING WARNING: these are the SDK's thrown *message strings*, which are
+ * not an API. If notme rewords one, this silently degrades to "dpop-verify"
+ * and the audit granularity this function exists to preserve is lost with no
+ * signal. That is why every branch below is pinned by a test in
+ * test/routes/bundle-dpop-auth.test.ts — the test IS the rail. Deleting a
+ * mapping test re-opens the silent-drift hole. The real fix is a stable
+ * `code` field on the SDK's errors (cloister-ed4460 follow-up).
+ *
+ * Substring matching, not regex, per the repo's standing no-regex rule
+ * (see CLAUDE.md's URLPattern convention). Exact-case is deliberate: the
+ * messages are fixed literals, so case-insensitivity would only widen the
+ * match surface for no benefit. Falls back to the pre-existing generic
+ * "dpop-verify" for anything unrecognized (signature/malformed/htm-htu/
+ * cnf.jkt/missing-jti failures — genuinely no finer internal code existed
+ * for these before, and none is needed now).
+ */
+function mapVerifyFailureReason(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('typ must be "at+jwt"')) return "typ";
+  if (msg.includes('"aud" claim')) return "audience";
+  if (msg.includes('"iss" claim')) return "issuer";
+  // Match the TIMESTAMP failure specifically. `"nbf" claim must be a number`
+  // is a malformed-token error, not a timing one — it must fall through to
+  // the generic code rather than be misreported as "not yet valid".
+  if (msg.includes('"nbf" claim timestamp check failed')) return "not yet valid";
+  if (msg.includes("DPoP proof replay")) return "replay (jti seen)";
+  return "dpop-verify";
 }
 
 export interface BundleAuthContext {
@@ -83,9 +135,10 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
     return { ok: false, reason: "bad notme key" };
   }
 
-  // Crypto verify (canonical notme SDK): token EdDSA sig, exp, proof ES256/EdDSA
-  // sig, htm/htu exact match, iat freshness, and the cnf.jkt proof-of-possession
-  // binding. Throws on any failure → deny.
+  // Crypto verify (canonical notme SDK): token EdDSA sig + typ, proof ES256/EdDSA
+  // sig, exp/nbf/iat/iss/aud/sub (validateClaims), htm/htu exact match, jti
+  // replay (via seenJti), and the cnf.jkt proof-of-possession binding — all
+  // now the SDK's job (notme-dffc5c). Throws on any failure → deny.
   let claims: { sub: string; scope: string; aud: string; exp: number; jti: string };
   try {
     claims = await verifyDPoPToken({
@@ -95,25 +148,28 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
       url: ctx.htu,
       jwksUrl: NOTME_JWKS_URL,
       publicKey,
+      audience: ctx.audience,
+      issuer: ctx.issuer,
+      seenJti: ctx.seenJti,
     });
-  } catch {
-    // Reason strings are an INTERNAL enum for DO-side audit only — never the raw
-    // SDK message (which finely discriminates deny-state), and the bundle-facing
-    // entrypoint MUST collapse every denial to one constant-shape response so
-    // `reason` can't become an enumeration/validity oracle (threat-model §9/§20).
-    return { ok: false, reason: "dpop-verify" };
+  } catch (err) {
+    // Reason strings are an INTERNAL enum for DO-side audit only — the
+    // bundle-facing entrypoint (not this function) is what MUST collapse
+    // every denial to one constant-shape EXTERNAL response so `reason`
+    // can't become an enumeration/validity oracle (threat-model §9/§20).
+    // Pattern-matching the SDK's message back to a stable internal code
+    // preserves the audit granularity this file always had for these
+    // checks — it moved which code verifies them, not whether cloister's
+    // own audit trail can tell them apart.
+    return { ok: false, reason: mapVerifyFailureReason(err) };
   }
 
-  // ── cloister-layered checks the issuer-agnostic SDK does not do ──
-  const nowSec = Math.floor(Date.now() / 1000);
+  // ── cloister-layered checks the SDK correctly leaves to the consumer ──
 
-  // Token header: pin `typ` (the SDK never inspects it — an EdDSA JWT of another
-  // `typ` that notme signed with the same key must not be replayed as a bundle
-  // token) and REQUIRE `kid` (revocation keys off it; a missing kid → isRevoked
-  // no-op → a revoked key still authorizes, so deny outright).
+  // REQUIRE `kid` (revocation keys off it; a missing kid → isRevoked no-op →
+  // a revoked key still authorizes, so deny outright). typ is now SDK-checked.
   const tokenHeader = jwtPart(ctx.token, 0);
-  if (!tokenHeader || tokenHeader.typ !== "at+jwt") return { ok: false, reason: "typ" };
-  const kid = typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
+  const kid = tokenHeader && typeof tokenHeader.kid === "string" ? tokenHeader.kid : null;
   if (!kid) return { ok: false, reason: "kid" };
   // Canonical-kid shape gate (signet ADR-012 §Shape-validation / R4). A `kid`
   // is lowercase hex: canonical 128-bit (32 chars) or, during the 64→128
@@ -133,17 +189,27 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   // revocation lookup could key off an attacker-chosen, non-revoked kid.
   if (kid !== ctx.resolvedKid) return { ok: false, reason: "kid mismatch (header != resolving key)" };
 
-  // Audience-confusion defense: a token minted for a different resource server
-  // (same notme issuer + key) must not pass here. Narrow to string — the SDK's
-  // return type says `string` but hands back whatever `aud` is (e.g. an array).
-  if (typeof claims.aud !== "string" || claims.aud !== ctx.audience) return { ok: false, reason: "audience" };
-
-  // Issuer pin + not-before. The SDK checks neither; the token payload here is
-  // authenticated (verifyDPoPToken verified the sig over these exact bytes).
-  const tokenPayload = jwtPart(ctx.token, 1);
-  if (!tokenPayload || tokenPayload.iss !== ctx.issuer) return { ok: false, reason: "issuer" };
-  if (typeof tokenPayload.nbf === "number" && tokenPayload.nbf > nowSec + 60) {
-    return { ok: false, reason: "not yet valid" };
+  // Issuer, not-before, and proof-jti replay are now verified BY THE SDK CALL
+  // ABOVE (ctx.audience/ctx.issuer/ctx.seenJti passed in directly) —
+  // notme-dffc5c. A failure on any of them throws inside verifyDPoPToken and
+  // is caught by this function's own try/catch, mapped to an internal reason
+  // by mapVerifyFailureReason.
+  //
+  // AUDIENCE IS THE EXCEPTION — cloister is deliberately STRICTER than the SDK.
+  // `validateClaims` implements RFC 7519 audience semantics: `aud` may be an
+  // array, and it passes if ANY element matches. That is correct for a general
+  // issuer-agnostic verifier, but cloister's bundle path has always rejected a
+  // multi-audience token outright: a token minted for cloister AND another
+  // resource server is exactly the confused-deputy shape this check exists to
+  // stop, and accepting it would silently widen the trust surface the SDK
+  // consolidation was not supposed to touch.
+  //
+  // Today this is defense-in-depth rather than a live hole — notme's schema
+  // types `aud` as a single Text field (`SetAud(v string)`), so no notme-minted
+  // token can currently carry an array. The check pins the invariant against a
+  // future issuer change instead of relying on that remaining true.
+  if (typeof claims.aud !== "string" || claims.aud !== ctx.audience) {
+    return { ok: false, reason: "audience" };
   }
 
   // Scope is SPACE-DELIMITED (OAuth). A bundle token must be narrowly scoped:
@@ -158,13 +224,6 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   if (claims.sub !== ctx.expectedSub) {
     return { ok: false, reason: "sub mismatch (token not for this bundle's DO)" };
   }
-
-  // Replay — the PROOF's jti (single-use), not the token's. The SDK validates
-  // jti presence + iat window; the durable single-use ledger is the DO's.
-  const proofPayload = jwtPart(ctx.proof, 1);
-  const proofJti = proofPayload && typeof proofPayload.jti === "string" ? proofPayload.jti : null;
-  if (!proofJti) return { ok: false, reason: "no proof jti" };
-  if (await ctx.seenJti(proofJti)) return { ok: false, reason: "replay (jti seen)" };
 
   // Revocation (notme RevocationAuthority, by the token's kid). NOTE: the kid is
   // not yet cross-checked against the kid that RESOLVED notmePub — that parity

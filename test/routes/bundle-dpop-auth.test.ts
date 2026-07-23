@@ -159,6 +159,36 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     expect(r).toEqual({ ok: false, reason: "audience" });
   });
 
+  it("multi-audience token denies even when it CONTAINS the expected aud", async () => {
+    // cloister is deliberately stricter than the vendored SDK here. RFC 7519
+    // (and `validateClaims`) accept an `aud` array if ANY element matches; a
+    // token minted for cloister AND another resource server is precisely the
+    // confused-deputy shape the bundle path exists to reject. Pinning it means
+    // a future re-vendor cannot silently relax it back to SDK semantics.
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ audience: [AUD, "someone-else"] }), proof: await validProof() }),
+    );
+    expect(r).toEqual({ ok: false, reason: "audience" });
+  });
+
+  it("nbf inside the clock-skew window denies (SDK tolerance is 0 — documented, not desired)", async () => {
+    // BEHAVIOR PIN, not an endorsement. Before the notme-dffc5c re-vendor this
+    // file checked `nbf > now + 60`, allowing 60s of issuer/verifier clock
+    // skew. The SDK's validateClaims uses `clockTolerance ?? 0` and
+    // verifyDPoPToken does not forward a tolerance, so cloister is now
+    // zero-tolerance — and notme mints `nbf: iat` on EVERY access token
+    // (worker/src/auth/token.ts), so any negative skew denies a legitimate
+    // token. Fail-closed, therefore safe to ship, but it is a real
+    // availability regression. The fix is upstream: expose `clockTolerance`
+    // on VerifyDPoPOptions and forward it. This test documents the current
+    // contract so that change is deliberate and visible (cloister-ed4460).
+    const skewed = Math.floor(Date.now() / 1000) + 30;
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ nbfOverride: skewed }), proof: await validProof() }),
+    );
+    expect(r).toEqual({ ok: false, reason: "not yet valid" });
+  });
+
   it("issuer mismatch denies", async () => {
     const r = await authenticateBundleRequest(
       baseCtx({ token: await validToken({ issuer: "https://evil.example" }), proof: await validProof() }),
