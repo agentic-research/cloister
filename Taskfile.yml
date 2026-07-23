@@ -689,6 +689,14 @@ tasks:
     # init. Over-inclusive by design: a listed-but-irrelevant change just re-runs
     # the suite; a real change is never missed. CI runs on a fresh checkout with a
     # cold cache, so it always executes the full suite regardless (cloister-8e40ad).
+    #
+    # The dependency tree is part of the system under test, not just its build
+    # input: vitest-pool-workers runs the suite THROUGH miniflare, so a bump to
+    # miniflare or anything beneath it changes what the tests actually exercise.
+    # package.json alone misses that — pnpm 10 declares overrides in
+    # pnpm-workspace.yaml, and a transitive bump moves only the lockfile. Found
+    # by the CVE-2026-48779 ws override, which reported "up to date" and skipped
+    # the whole suite on the one change that most needed running (cloister-035655).
     sources:
       - src/**/*.ts
       - test/**/*.ts
@@ -697,6 +705,8 @@ tasks:
       - config.capnp
       - tsconfig.json
       - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - manifest/**/*.capnp
       - rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm
 
@@ -766,11 +776,20 @@ tasks:
     # when a compiled input actually changes. tsc --noEmit follows tsconfig.json;
     # the globs below are generous on purpose (over-inclusive is safe — it can
     # only cause an unnecessary re-run, never a missed one). cloister-8e40ad.
+    #
+    # The resolved dependency tree is a compiled input: tsc reads .d.ts files out
+    # of node_modules, so a version bump changes the types being checked without
+    # touching a single source file. package.json alone does NOT capture that —
+    # pnpm 10 declares overrides in pnpm-workspace.yaml, and a transitive bump
+    # moves only the lockfile. Both are listed so a dependency-only change cannot
+    # pass this gate vacuously (cloister-035655).
     sources:
       - src/**/*.ts
       - test/**/*.ts
       - tsconfig.json
       - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
 
   dev:bootstrap:
     desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent. (Git hooks — incl. the post-merge bead auto-close — are owned by rsry: `rsry hooks install`, not cloister's Taskfile.)"
