@@ -171,20 +171,31 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     expect(r).toEqual({ ok: false, reason: "audience" });
   });
 
-  it("nbf inside the clock-skew window denies (SDK tolerance is 0 — documented, not desired)", async () => {
-    // BEHAVIOR PIN, not an endorsement. Before the notme-dffc5c re-vendor this
-    // file checked `nbf > now + 60`, allowing 60s of issuer/verifier clock
-    // skew. The SDK's validateClaims uses `clockTolerance ?? 0` and
-    // verifyDPoPToken does not forward a tolerance, so cloister is now
-    // zero-tolerance — and notme mints `nbf: iat` on EVERY access token
-    // (worker/src/auth/token.ts), so any negative skew denies a legitimate
-    // token. Fail-closed, therefore safe to ship, but it is a real
-    // availability regression. The fix is upstream: expose `clockTolerance`
-    // on VerifyDPoPOptions and forward it. This test documents the current
-    // contract so that change is deliberate and visible (cloister-ed4460).
+  it("nbf inside the clock-skew window is ACCEPTED (60s tolerance restored)", async () => {
+    // This test previously asserted the opposite. The notme-dffc5c re-vendor
+    // moved the nbf check into the SDK, which defaults to zero tolerance, and
+    // silently dropped the `nbf > now + 60` allowance this file used to carry.
+    // notme mints `nbf: iat` on EVERY access token, so any negative clock skew
+    // between issuer and verifier denied a legitimate token — fail-closed, but
+    // a real availability regression.
+    //
+    // notme-18450e exposed `clockTolerance` on VerifyDPoPOptions; bundle-auth
+    // passes 60. The assertion flip IS the fix landing: a test that pinned a
+    // known-wrong behavior is only useful if it fails when the behavior is
+    // corrected.
     const skewed = Math.floor(Date.now() / 1000) + 30;
     const r = await authenticateBundleRequest(
       baseCtx({ token: await validToken({ nbfOverride: skewed }), proof: await validProof() }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("nbf beyond the tolerance window still denies", async () => {
+    // The tolerance is bounded, not disabled — an hour into the future is
+    // still not-yet-valid.
+    const far = Math.floor(Date.now() / 1000) + 3600;
+    const r = await authenticateBundleRequest(
+      baseCtx({ token: await validToken({ nbfOverride: far }), proof: await validProof() }),
     );
     expect(r).toEqual({ ok: false, reason: "not yet valid" });
   });
