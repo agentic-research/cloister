@@ -1036,6 +1036,11 @@ tasks:
       - "**/cluster.toml"
       - scripts/lint-dev-escape.mjs
 
+  mutate:
+    desc: "Targeted mutation testing (cloister-dab35a). OPT-IN — deliberately NOT a `task lint` dep: the inner-loop gate is content-hash cached at ~3s warm and must stay that way. Applies curated mutants to real files (reverting each in a finally, and refusing to run against a dirty tree) and asserts the suite NOTICES. A SURVIVOR is a missing test, not a style nit. `task mutate -- --only=src/` to filter."
+    cmds:
+      - node scripts/mutation-probe.mjs {{.CLI_ARGS}}
+
   lint:shim:
     desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
     cmds:
