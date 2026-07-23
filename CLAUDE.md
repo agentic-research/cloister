@@ -40,6 +40,20 @@ top-level docs describe *what*.
 
 ## Build & test
 
+**One-time setup: registry auth.** `@agentic-research/dpop` (notme's DPoP
+verifier SDK, per ADR-0047) is hosted on **GitHub Packages**, which requires
+authentication to install *even for public packages* — 401 anonymous. If
+`pnpm install` fails with `ERR_PNPM_FETCH_401`:
+
+```sh
+gh auth refresh -h github.com -s read:packages   # once per machine
+export NODE_AUTH_TOKEN=$(gh auth token)          # read by .npmrc
+```
+
+CI passes `secrets.GITHUB_TOKEN` with `packages: read`. The SDK used to be
+vendored at `src/vendor/notme-dpop.ts`; it is now a real dependency
+(`notme-18450e` / `cloister-195e47`) — don't re-vendor it.
+
 ```sh
 task lint            # tsc + worker tests + plugin tests, ~2s gate
 task test            # workerd integration (real DOs, real SQLite)

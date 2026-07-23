@@ -3,7 +3,7 @@
 // bundle-token-verify — the CLOISTER-OWNED pieces of the ADR-0047 bundle→vault
 // decision. The cryptographic verify (token EdDSA sig + ES256 DPoP proof + RFC
 // 7638 cnf.jkt binding) now lives in the vendored notme SDK
-// (`src/vendor/notme-dpop.ts`, `verifyDPoPToken`) — cloister no longer hand-rolls
+// (`@agentic-research/dpop`, `verifyDPoPToken`) — cloister no longer hand-rolls
 // it (cloister-0ae913: the hand-rolled path was Ed25519-only and could not verify
 // notme's ES256/EC-minted tokens). What stays here are the two policy helpers
 // `authenticateBundleRequest` composes over that verify: scope-grant matching and

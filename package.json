@@ -48,6 +48,7 @@
     "wrangler": "^4.40.0"
   },
   "dependencies": {
+    "@agentic-research/dpop": "^0.2.0",
     "@iarna/toml": "^2.2.5",
     "cbor-x": "^1.6.4",
     "zod": "^4.4.3"

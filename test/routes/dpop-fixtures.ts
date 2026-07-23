@@ -6,7 +6,7 @@
 // tested against the ACTUAL wire format the notme issuer mints — not a self-
 // consistent Ed25519 stand-in, which is the bug cloister-0ae913 fixed.
 
-import { computeJwkThumbprint, base64urlEncode } from "../../src/vendor/notme-dpop.js";
+import { computeJwkThumbprint, base64urlEncode } from "@agentic-research/dpop";
 
 const b64urlStr = (s: string): string => base64urlEncode(new TextEncoder().encode(s));
 

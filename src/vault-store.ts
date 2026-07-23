@@ -102,7 +102,7 @@
 // superseded: notme built the machinery. Threat model §20 covers the seam.
 //
 // Status: the auth logic is BUILT + tested. The cryptographic verify is the
-// VENDORED notme SDK (`src/vendor/notme-dpop.ts`, `verifyDPoPToken` — EdDSA token
+// notme SDK (`@agentic-research/dpop`, `verifyDPoPToken` — EdDSA token
 // + ES256/EC DPoP proof + RFC 7638 cnf.jkt binding, byte-identical to the notme
 // issuer; cloister-0ae913 retired the hand-rolled Ed25519-only fork that could
 // not verify notme's ES256-minted tokens). `src/routes/bundle-auth.ts`

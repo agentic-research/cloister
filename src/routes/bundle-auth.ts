@@ -3,7 +3,7 @@
 // bundle-auth — the composed bundle→vault auth decision (ADR-0047, threat-model
 // §20). The CRYPTOGRAPHIC verify (token EdDSA sig + ES256 DPoP proof + RFC 9449
 // htm/htu + RFC 7638 cnf.jkt binding) is delegated to the vendored notme SDK
-// (`../vendor/notme-dpop.ts::verifyDPoPToken`) so cloister's verify is byte-
+// (`@agentic-research/dpop::verifyDPoPToken`) so cloister's verify is byte-
 // identical to the notme issuer's — the prior hand-rolled path was Ed25519-only
 // and could not verify notme's ES256/EC-minted tokens (cloister-0ae913).
 //
@@ -29,7 +29,12 @@
 // denial to one constant-shape EXTERNAL response. Losing that granularity
 // silently would be a real regression, not a simplification.
 
-import { verifyDPoPToken, base64urlDecode } from "../vendor/notme-dpop.js";
+import {
+  verifyDPoPToken,
+  base64urlDecode,
+  DPoPVerificationError,
+  type VerifyErrorCode,
+} from "@agentic-research/dpop";
 import { scopeGrants, deriveSubjectFp } from "./bundle-token-verify.js";
 
 // Vestigial for cloister (we always pass `publicKey`, resolved from env.NOTME by
@@ -49,39 +54,38 @@ function jwtPart(jwt: string, index: 0 | 1): Record<string, unknown> | null {
 }
 
 /**
- * Maps a `verifyDPoPToken` thrown Error's message back to one of the
- * INTERNAL reason codes this file used to compute itself before those
- * checks moved into the SDK (notme-dffc5c) — preserves DO-side audit
- * granularity (§9/§20) without re-deriving the checks locally. Order
- * matters: match the most specific pattern first (e.g. "typ" before a
- * broader catch-all).
+ * Maps a `verifyDPoPToken` failure to one of the INTERNAL reason codes this
+ * file used to compute itself, before those checks moved into the SDK
+ * (notme-dffc5c) — preserving DO-side audit granularity (§9/§20) without
+ * re-deriving the checks locally.
  *
- * COUPLING WARNING: these are the SDK's thrown *message strings*, which are
- * not an API. If notme rewords one, this silently degrades to "dpop-verify"
- * and the audit granularity this function exists to preserve is lost with no
- * signal. That is why every branch below is pinned by a test in
- * test/routes/bundle-dpop-auth.test.ts — the test IS the rail. Deleting a
- * mapping test re-opens the silent-drift hole. The real fix is a stable
- * `code` field on the SDK's errors (cloister-ed4460 follow-up).
+ * Keyed on `DPoPVerificationError.code`, which is the SDK's stable contract
+ * (notme-3bc238). This previously matched on the SDK's thrown message
+ * SUBSTRINGS, which are not an API: rewording any message upstream silently
+ * collapsed the mapping to "dpop-verify" and lost exactly the audit
+ * granularity the function exists to preserve. The codes removed that
+ * coupling — cloister asked for them and notme shipped them.
  *
- * Substring matching, not regex, per the repo's standing no-regex rule
- * (see CLAUDE.md's URLPattern convention). Exact-case is deliberate: the
- * messages are fixed literals, so case-insensitivity would only widen the
- * match surface for no benefit. Falls back to the pre-existing generic
- * "dpop-verify" for anything unrecognized (signature/malformed/htm-htu/
- * cnf.jkt/missing-jti failures — genuinely no finer internal code existed
- * for these before, and none is needed now).
+ * Unmapped codes fall through to the pre-existing generic "dpop-verify"
+ * (signature / malformed / htm-htu / cnf.jkt / missing-jti). That is
+ * deliberate: no finer internal code ever existed for those, and inventing
+ * one here would put reason strings in the audit log that no §20 rule refers
+ * to.
  */
+const REASON_BY_CODE: Partial<Record<VerifyErrorCode, string>> = {
+  TOKEN_TYP_INVALID: "typ",
+  CLAIM_AUD_MISMATCH: "audience",
+  CLAIM_AUD_MISSING: "audience",
+  CLAIM_ISS_MISMATCH: "issuer",
+  CLAIM_ISS_MISSING: "issuer",
+  CLAIM_NBF_NOT_YET_VALID: "not yet valid",
+  PROOF_REPLAY: "replay (jti seen)",
+};
+
 function mapVerifyFailureReason(err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes('typ must be "at+jwt"')) return "typ";
-  if (msg.includes('"aud" claim')) return "audience";
-  if (msg.includes('"iss" claim')) return "issuer";
-  // Match the TIMESTAMP failure specifically. `"nbf" claim must be a number`
-  // is a malformed-token error, not a timing one — it must fall through to
-  // the generic code rather than be misreported as "not yet valid".
-  if (msg.includes('"nbf" claim timestamp check failed')) return "not yet valid";
-  if (msg.includes("DPoP proof replay")) return "replay (jti seen)";
+  if (err instanceof DPoPVerificationError) {
+    return REASON_BY_CODE[err.code] ?? "dpop-verify";
+  }
   return "dpop-verify";
 }
 
@@ -151,6 +155,12 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
       audience: ctx.audience,
       issuer: ctx.issuer,
       seenJti: ctx.seenJti,
+      // Restores the 60s issuer/verifier skew allowance this file carried as
+      // `nbf > now + 60` before the checks moved into the SDK. The SDK
+      // defaults to zero tolerance, and notme mints `nbf: iat` on every access
+      // token, so without this any negative clock skew denies a legitimate
+      // token (notme-18450e). Bounded deliberately: it widens `exp` too.
+      clockTolerance: 60,
     });
   } catch (err) {
     // Reason strings are an INTERNAL enum for DO-side audit only — the

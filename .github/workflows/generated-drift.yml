@@ -28,6 +28,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: generated-drift-${{ github.ref }}
@@ -70,6 +71,10 @@ jobs:
 
       - name: Install dependencies (frozen)
         run: pnpm install --frozen-lockfile
+        env:
+          # @agentic-research/dpop is on GitHub Packages, which requires auth
+          # even for public packages (notme-18450e). Read by .npmrc.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Regenerate src/generated/*.ts via task targets (source of truth)
         # Source-of-truth invocation principle (cloister-8e40ad): CI
