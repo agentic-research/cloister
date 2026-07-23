@@ -146,6 +146,14 @@ sufficient.
   stay intra-DO. The `beads.content_hash` column links bead rows to
   their canonical-bytes digest. Per cloister-492c08; threat model §8 +
   §11 row H.5.
+- **Inputs wire by capability, not by hand** — an input declares
+  `provides` / `requires` (studs / anti-studs) and the matchmaker
+  (`scripts/capability-matchmaker.mjs`, ADR-0027) resolves them during
+  `task cluster:toml`. Unsatisfied, ambiguous, self-provided and cyclic
+  declarations **fail the build** rather than resolving arbitrarily — that
+  fail-closed property is the symbolic half of ADR-0054. Operator guide:
+  [`docs/reference/capability-lattice.md`](docs/reference/capability-lattice.md).
+  No input declares a lattice yet; the gate is wired so the first one is checked.
 - **Path matching uses `URLPattern`** — Web Platform standard,
   workerd-native, no regex. Exact-match routes use `pathname === "..."`;
   parameterized routes use `new URLPattern({ pathname: "/foo/:bar" })`

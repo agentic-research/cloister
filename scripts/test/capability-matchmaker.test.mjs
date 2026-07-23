@@ -195,3 +195,39 @@ test("the real cluster.toml inputs resolve (currently no declared lattice)", asy
   const { bindings } = matchCapabilities(inputs);
   assert.ok(Array.isArray(bindings));
 });
+
+// ── substrate-provided capabilities ───────────────────────────────────────
+test("a capability the SUBSTRATE provides satisfies a requires", () => {
+  // Regression: cloister implements some capabilities in its own src/ rather
+  // than delegating to an input (ADR-0024 credential-isolation via the vault
+  // proxy; confinement/v1). Modelling only inputs as providers made a CORRECT
+  // declaration look unsatisfiable — wiring the build gate surfaced it via a
+  // real fixture that declares requires = ["cloister/credential-isolation/v1"].
+  const inputs = [input("rosary", [], ["cloister/credential-isolation/v1"])];
+  const { bindings } = matchCapabilities(inputs, {
+    substrateProvides: ["cloister/credential-isolation/v1"],
+  });
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].provider, "<substrate>");
+});
+
+test("substrate provision does NOT mask a genuinely missing capability", () => {
+  assert.throws(
+    () =>
+      matchCapabilities([input("x", [], ["cloister/not-provided/v1"])], {
+        substrateProvides: ["cloister/credential-isolation/v1"],
+      }),
+    (e) => e.code === "unsatisfied",
+  );
+});
+
+test("an input ALSO providing a substrate capability is ambiguous, not silently shadowed", () => {
+  const inputs = [
+    input("impostor", ["cloister/credential-isolation/v1"]),
+    input("consumer", [], ["cloister/credential-isolation/v1"]),
+  ];
+  assert.throws(
+    () => matchCapabilities(inputs, { substrateProvides: ["cloister/credential-isolation/v1"] }),
+    (e) => e.code === "ambiguous",
+  );
+});
