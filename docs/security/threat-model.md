@@ -29,7 +29,7 @@ current state**.
 | M.1, M.2, M.3 (replay defense) | INSERT … ON CONFLICT `seen_nonces` ledger | `cloister-c5c846` (closed) | `test/storage/seen-nonces.test.ts`, `test/routes/lease-middleware.test.ts` |
 | T.10 (counter-race) | `blockConcurrencyWhile` across read-then-write | `cloister-c66fea` (closed) | `test/storage/peer-lease-counters.test.ts`, `test/trust-store.test.ts` |
 | C.5 (bundle signature verify) | `verifyBundleSignature` wired into `getCABundle` | `cloister-c614ae` (closed) | `test/storage/bundle-canonical.test.ts`, `test/storage/ca-bundle-cache.test.ts` |
-| C.6 (critical unknown ext rejected) | `cert_chain.rs` rejects per RFC 5280 §4.2 | `cloister-c71977` (closed) | `rs/crates/sign/src/cert_chain.rs` (24 native), `test/wire/signet-verify.test.ts` |
+| C.6 (critical unknown ext rejected) | `cert_chain.rs` rejects per RFC 5280 §4.2 | `cloister-c71977` (closed) | LLO `leyline-sign` `cert_chain.rs` (SHA-pinned dep; the cloister fork was deleted in #119 per ADR-0035/0045), `test/wire/signet-verify.test.ts` |
 | T.1 (clock-skew bound) | `MAX_CLOCK_SKEW_MS = 60s` check in `verifyAndUpsertLease` | `cloister-c7e3e3` (closed) | `test/routes/lease-middleware.test.ts` |
 | T.3, T.4 (counter monotonicity + chain integrity) | `assertChainStep()` defense in `applyLeaseCounter` | `cloister-c75da6` (closed) | `test/storage/peer-lease-counters.test.ts` |
 | H.2, H.3, H.4 (cross-DO handoff retry) | `pending_attestations` table + retry pump RPC | `cloister-c6d378` (closed) | `test/storage/pending-attestations.test.ts`, `test/trust-store.test.ts` |
