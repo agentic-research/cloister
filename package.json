@@ -30,7 +30,7 @@
   ],
   "packageManager": "pnpm@10.30.3",
   "bin": {
-    "cloister": "./scripts/cli-init.mjs"
+    "cloister": "./scripts/cloister-cli.mjs"
   },
   "scripts": {
     "dev": "wrangler dev",
@@ -51,6 +51,7 @@
     "@agentic-research/dpop": "0.3.0",
     "@iarna/toml": "^2.2.5",
     "cbor-x": "^1.6.4",
+    "chalk": "^5.6.2",
     "zod": "^4.4.3"
   }
 }
