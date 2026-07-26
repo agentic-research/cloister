@@ -121,13 +121,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "cloister-mediator"
+name = "cloister-host-runtime"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "leyline-fs",
  "parking_lot",
  "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "cloister-mediator"
+version = "0.0.1"
+dependencies = [
+ "cloister-host-runtime",
+ "leyline-fs",
  "tokio",
 ]
 

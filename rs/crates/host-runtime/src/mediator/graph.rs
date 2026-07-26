@@ -7,7 +7,7 @@
 // `LeylineNfs::new` and `LeylineFuse::new` take `Arc<dyn Graph>`, so one decorator
 // covers NFS (macOS) and FUSE (Linux).
 
-use crate::policy::Policy;
+use crate::mediator::policy::Policy;
 use anyhow::{bail, Result};
 use leyline_fs::graph::{Graph, Node};
 use std::sync::Arc;
@@ -26,7 +26,11 @@ pub struct ConfinementGraph {
 
 impl ConfinementGraph {
     pub fn new(inner: Arc<dyn Graph>, policy: Policy, receipts: Arc<dyn ReceiptSink>) -> Self {
-        Self { inner, policy, receipts }
+        Self {
+            inner,
+            policy,
+            receipts,
+        }
     }
     fn deny_read(&self, id: &str) -> Result<()> {
         if self.policy.allows_read(id) {
@@ -95,12 +99,18 @@ impl Graph for ConfinementGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receipt::RecordingSink;
+    use crate::mediator::receipt::RecordingSink;
     use leyline_fs::graph::{Graph, MemoryGraph, Node};
 
     fn node(id: &str, size: u64) -> Node {
         let name = id.rsplit('/').next().unwrap_or(id).to_string();
-        Node { id: id.to_string(), name, is_dir: false, size, mtime_nanos: 0 }
+        Node {
+            id: id.to_string(),
+            name,
+            is_dir: false,
+            size,
+            mtime_nanos: 0,
+        }
     }
 
     fn inner() -> Arc<dyn Graph> {
@@ -112,10 +122,16 @@ mod tests {
     }
 
     fn ro_skills() -> Policy {
-        Policy { read_prefixes: vec!["/skills".into()], write_prefixes: vec![] }
+        Policy {
+            read_prefixes: vec!["/skills".into()],
+            write_prefixes: vec![],
+        }
     }
     fn rw_work() -> Policy {
-        Policy { read_prefixes: vec!["/work".into()], write_prefixes: vec!["/work".into()] }
+        Policy {
+            read_prefixes: vec!["/work".into()],
+            write_prefixes: vec!["/work".into()],
+        }
     }
 
     #[test]
@@ -171,7 +187,10 @@ mod tests {
             Ok(0)
         }
         fn write_content(&self, id: &str, data: &[u8], _offset: u64) -> Result<usize> {
-            self.writes.lock().unwrap().push((id.to_string(), data.to_vec()));
+            self.writes
+                .lock()
+                .unwrap()
+                .push((id.to_string(), data.to_vec()));
             Ok(data.len())
         }
     }
@@ -190,7 +209,8 @@ mod tests {
     fn write_denied_never_reaches_inner() {
         // ro policy → the write is denied by policy BEFORE the inner is touched.
         let spy = Arc::new(WriteSpy::default());
-        let cg = ConfinementGraph::new(spy.clone(), ro_skills(), Arc::new(RecordingSink::default()));
+        let cg =
+            ConfinementGraph::new(spy.clone(), ro_skills(), Arc::new(RecordingSink::default()));
         assert!(cg.write_content("/skills/x.md", b"tamper", 0).is_err());
         assert!(spy.writes.lock().unwrap().is_empty());
     }

@@ -131,7 +131,7 @@ tasks:
       - bash tools/libkrun-spike/run-mediated.sh
 
   mediator:test:
-    desc: "cloister-b2d2b1 — the ADR-0046 syscall-adapter policy plane (ConfinementGraph decorator over leyline-fs). Decorator + 13 unit tests, default build (no nfsserve/fuser). NOT a CI gate yet (heavy leyline-fs dep, like harness-sandbox pre-#128)."
+    desc: "Compatibility check for the former tools/mediator crate. The canonical ConfinementGraph implementation now lives in rs/crates/host-runtime and is gated by rs:host-runtime:test."
     dir: tools/mediator
     cmds:
       - cargo test

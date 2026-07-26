@@ -1,0 +1,25 @@
+[package]
+name = "cloister-host-runtime"
+version = "0.0.1"
+edition = "2021"
+description = "Native confinement and microVM execution boundary for Cloister tools"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+name = "cloister_host_runtime"
+
+[[bin]]
+name = "cloister-host-runtime"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "f62a54307c6c6d6d4e39c333a19b8913f8826c61", version = "0.8.0", package = "leyline-fs", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
