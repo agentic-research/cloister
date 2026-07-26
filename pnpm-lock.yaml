@@ -14,8 +14,8 @@ importers:
   .:
     dependencies:
       '@agentic-research/dpop':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: 0.3.0
+        version: 0.3.0
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
@@ -53,8 +53,8 @@ importers:
 
 packages:
 
-  '@agentic-research/dpop@0.2.0':
-    resolution: {integrity: sha512-c0l/kGk1LwosKbVv405n5i9O0IoAerwnIq3JW7jmkRO9Wnt0gcGST27RV89dsJV/GcxEf0UPoVWTzJnXjbKsiA==}
+  '@agentic-research/dpop@0.3.0':
+    resolution: {integrity: sha512-8f5IVOSN4N3zvDxTkHjRcOM2SHJd5oMDbLHTgweYLFwRChb1kQaITu2SpJo4XQG6SYAOLMDRZmjKN0SjoLxiCA==}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     resolution: {integrity: sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA==}
@@ -1132,7 +1132,7 @@ packages:
 
 snapshots:
 
-  '@agentic-research/dpop@0.2.0': {}
+  '@agentic-research/dpop@0.3.0': {}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     optional: true

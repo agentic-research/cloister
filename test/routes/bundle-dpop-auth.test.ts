@@ -42,7 +42,7 @@ function baseCtx(over: Partial<BundleAuthContext>): BundleAuthContext {
     issuer: ISS,
     htm: HTM,
     htu: HTU,
-    seenJti: () => false,
+    checkAndRecordJti: () => false,
     isRevoked: () => false,
     ...over,
   };
@@ -50,11 +50,18 @@ function baseCtx(over: Partial<BundleAuthContext>): BundleAuthContext {
 
 const validToken = (over = {}) =>
   mintToken({ signingKey: edKp.privateKey, sub: SUB, jkt, scope: SCOPE, audience: AUD, issuer: ISS, ...over });
-const validProof = (over = {}) => buildProof({ keyPair: ec.keyPair, jwk: ec.jwk, htm: HTM, htu: HTU, ...over });
+const validProof = (token: string, over = {}) =>
+  buildProof({ accessToken: token, keyPair: ec.keyPair, jwk: ec.jwk, htm: HTM, htu: HTU, ...over });
+
+async function validCredentials(tokenOverrides = {}, proofOverrides = {}) {
+  const token = await validToken(tokenOverrides);
+  const proof = await validProof(token, proofOverrides);
+  return { token, proof };
+}
 
 describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA token)", () => {
   it("valid token + proof → ok, subjectFp derived from the verified sub", async () => {
-    const r = await authenticateBundleRequest(baseCtx({ token: await validToken(), proof: await validProof() }));
+    const r = await authenticateBundleRequest(baseCtx(await validCredentials()));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.sub).toBe(SUB);
@@ -63,7 +70,12 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
   });
 
   it("§20.9 — no token denies (token-or-deny, no positional fallthrough)", async () => {
-    const r = await authenticateBundleRequest(baseCtx({ token: null, proof: await validProof() }));
+    const r = await authenticateBundleRequest(
+      baseCtx({
+        token: null,
+        proof: await buildProof({ keyPair: ec.keyPair, jwk: ec.jwk, htm: HTM, htu: HTU }),
+      }),
+    );
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("token-or-deny") });
   });
 
@@ -73,15 +85,16 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
   });
 
   it("§20.10 — token.sub != expectedSub denies (cross-bundle substitution)", async () => {
+    const credentials = await validCredentials({ sub: "mache" });
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ sub: "mache" }), proof: await validProof(), expectedSub: SUB }),
+      baseCtx({ ...credentials, expectedSub: SUB }),
     );
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("sub mismatch") });
   });
 
   it("accepts a space-delimited multi-scope token that contains the required scope", async () => {
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ scope: "vault:read vault:proxy:anthropic openid" }), proof: await validProof() }),
+      baseCtx(await validCredentials({ scope: "vault:read vault:proxy:anthropic openid" })),
     );
     expect(r.ok).toBe(true);
   });
@@ -89,21 +102,21 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
   it("nbf in the future denies (not-yet-valid)", async () => {
     const future = Math.floor(Date.now() / 1000) + 3600;
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ nbfOverride: future }), proof: await validProof() }),
+      baseCtx(await validCredentials({ nbfOverride: future })),
     );
     expect(r).toEqual({ ok: false, reason: "not yet valid" });
   });
 
   it("wrong token typ denies (cross-token-type confusion)", async () => {
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ headerOverrides: { typ: "JWT" } }), proof: await validProof() }),
+      baseCtx(await validCredentials({ headerOverrides: { typ: "JWT" } })),
     );
     expect(r).toEqual({ ok: false, reason: "typ" });
   });
 
   it("missing kid denies (revocation must not no-op on undefined)", async () => {
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ omitKid: true }), proof: await validProof() }),
+      baseCtx(await validCredentials({ omitKid: true })),
     );
     expect(r).toEqual({ ok: false, reason: "kid" });
   });
@@ -112,12 +125,9 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // Attacker signs with the verifying key but points the header kid at a
     // different (non-revoked) kid. Both are valid-shape 128-bit kids, so the
     // denial is the parity check, not the shape guard.
+    const credentials = await validCredentials({ headerOverrides: { kid: "ffffffffffffffffffffffffffffffff" } });
     const r = await authenticateBundleRequest(
-      baseCtx({
-        token: await validToken({ headerOverrides: { kid: "ffffffffffffffffffffffffffffffff" } }),
-        proof: await validProof(),
-        resolvedKid: "9408457aefd071cec127c1f985399308",
-      }),
+      baseCtx({ ...credentials, resolvedKid: "9408457aefd071cec127c1f985399308" }),
     );
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid mismatch") });
   });
@@ -127,12 +137,9 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // uppercased value, or arbitrary text is rejected BEFORE the parity check
     // so it can never be smuggled into a kid-keyed comparison.
     for (const bad of ["other-kid", "9408457AEFD071CEC127C1F985399308", "not_hex_at_all!!", "abc"]) {
+      const credentials = await validCredentials({ headerOverrides: { kid: bad } });
       const r = await authenticateBundleRequest(
-        baseCtx({
-          token: await validToken({ headerOverrides: { kid: bad } }),
-          proof: await validProof(),
-          resolvedKid: bad,
-        }),
+        baseCtx({ ...credentials, resolvedKid: bad }),
       );
       expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid shape") });
     }
@@ -142,19 +149,14 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // A 16-hex kid is accepted at the shape gate (it reaches the parity check
     // and fails THAT, not the shape guard) — proving the 64→128 transition
     // isn't broken. signet-3723b6 tightens this to 32-only at the flag-day.
-    const r = await authenticateBundleRequest(
-      baseCtx({
-        token: await validToken({ headerOverrides: { kid: "9408457aefd071ce" } }),
-        proof: await validProof(),
-        resolvedKid: "ffffffffffffffff",
-      }),
-    );
+    const credentials = await validCredentials({ headerOverrides: { kid: "9408457aefd071ce" } });
+    const r = await authenticateBundleRequest(baseCtx({ ...credentials, resolvedKid: "ffffffffffffffff" }));
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("kid mismatch") });
   });
 
   it("audience mismatch denies (confused-deputy defense)", async () => {
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ audience: "someone-else" }), proof: await validProof() }),
+      baseCtx(await validCredentials({ audience: "someone-else" })),
     );
     expect(r).toEqual({ ok: false, reason: "audience" });
   });
@@ -166,7 +168,7 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // confused-deputy shape the bundle path exists to reject. Pinning it means
     // a future re-vendor cannot silently relax it back to SDK semantics.
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ audience: [AUD, "someone-else"] }), proof: await validProof() }),
+      baseCtx(await validCredentials({ audience: [AUD, "someone-else"] })),
     );
     expect(r).toEqual({ ok: false, reason: "audience" });
   });
@@ -185,7 +187,7 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // corrected.
     const skewed = Math.floor(Date.now() / 1000) + 30;
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ nbfOverride: skewed }), proof: await validProof() }),
+      baseCtx(await validCredentials({ nbfOverride: skewed })),
     );
     expect(r.ok).toBe(true);
   });
@@ -195,21 +197,22 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // still not-yet-valid.
     const far = Math.floor(Date.now() / 1000) + 3600;
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ nbfOverride: far }), proof: await validProof() }),
+      baseCtx(await validCredentials({ nbfOverride: far })),
     );
     expect(r).toEqual({ ok: false, reason: "not yet valid" });
   });
 
   it("issuer mismatch denies", async () => {
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ issuer: "https://evil.example" }), proof: await validProof() }),
+      baseCtx(await validCredentials({ issuer: "https://evil.example" })),
     );
     expect(r).toEqual({ ok: false, reason: "issuer" });
   });
 
   it("insufficient scope denies", async () => {
+    const credentials = await validCredentials();
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken(), proof: await validProof(), requiredScope: "vault:proxy:openai" }),
+      baseCtx({ ...credentials, requiredScope: "vault:proxy:openai" }),
     );
     expect(r).toEqual({ ok: false, reason: "scope" });
   });
@@ -218,45 +221,133 @@ describe("authenticateBundleRequest — real notme format (ES256 proof + EdDSA t
     // Asserts the dedicated admin-forbid branch fires — a bare ok:false here would
     // also pass if the guard were deleted (scopeGrants('*',req) already returns false).
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ scope: "vault:read *" }), proof: await validProof() }),
+      baseCtx(await validCredentials({ scope: "vault:read *" })),
     );
     expect(r).toEqual({ ok: false, reason: expect.stringContaining("wildcard/admin") });
   });
 
   it("replayed proof jti denies", async () => {
+    const credentials = await validCredentials();
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken(), proof: await validProof(), seenJti: () => true }),
+      baseCtx({ ...credentials, checkAndRecordJti: () => true }),
     );
     expect(r).toEqual({ ok: false, reason: "replay (jti seen)" });
   });
 
-  it("revoked signing key denies", async () => {
+  it("atomically records a fresh proof and rejects concurrent reuse", async () => {
+    const credentials = await validCredentials();
+    const seen = new Set<string>();
+    const checkAndRecordJti = (proofJti: string) => {
+      if (seen.has(proofJti)) return true;
+      seen.add(proofJti);
+      return false;
+    };
+
+    const results = await Promise.all([
+      authenticateBundleRequest(baseCtx({ ...credentials, checkAndRecordJti })),
+      authenticateBundleRequest(baseCtx({ ...credentials, checkAndRecordJti })),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toEqual([{ ok: false, reason: "replay (jti seen)" }]);
+  });
+
+  it("does not record a proof jti until stateless validation succeeds", async () => {
+    const token = await validToken();
+    const proof = await validProof(token, { htu: "https://cloister.example/vault/evil" });
+    let calls = 0;
+
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken(), proof: await validProof(), isRevoked: () => true }),
+      baseCtx({
+        token,
+        proof,
+        checkAndRecordJti: () => {
+          calls += 1;
+          return false;
+        },
+      }),
+    );
+
+    expect(r.ok).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  it("requires ath bound to the exact compact access-token bytes", async () => {
+    const token = await validToken();
+    const proof = await buildProof({ keyPair: ec.keyPair, jwk: ec.jwk, htm: HTM, htu: HTU });
+    const r = await authenticateBundleRequest(baseCtx({ token, proof }));
+    expect(r).toEqual({ ok: false, reason: "ath missing" });
+  });
+
+  it("rejects a proof whose ath was computed from another valid token", async () => {
+    const token = await validToken();
+    const otherToken = await validToken();
+    const proof = await validProof(otherToken);
+    const r = await authenticateBundleRequest(baseCtx({ token, proof }));
+    expect(r).toEqual({ ok: false, reason: "ath mismatch" });
+  });
+
+  it("keeps HTTP method tokens case-sensitive", async () => {
+    const token = await validToken();
+    const proof = await validProof(token, { htm: "post" });
+    const r = await authenticateBundleRequest(baseCtx({ token, proof }));
+    expect(r).toEqual({ ok: false, reason: "dpop-verify" });
+  });
+
+  it("matches htu after removing request query and fragment", async () => {
+    const credentials = await validCredentials();
+    const r = await authenticateBundleRequest(
+      baseCtx({ ...credentials, htu: `${HTU}?page=2#ignored` }),
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects proof iat outside the fixed 60-second freshness window", async () => {
+    const token = await validToken();
+    const proof = await validProof(token, {
+      payloadOverrides: { iat: Math.floor(Date.now() / 1000) - 61 },
+    });
+    const r = await authenticateBundleRequest(baseCtx({ token, proof }));
+    expect(r).toEqual({ ok: false, reason: "dpop-verify" });
+  });
+
+  it("revoked signing key denies", async () => {
+    const credentials = await validCredentials();
+    const r = await authenticateBundleRequest(
+      baseCtx({ ...credentials, isRevoked: () => true }),
     );
     expect(r).toEqual({ ok: false, reason: "revoked" });
   });
 
   it("proof key not bound to the token's cnf.jkt denies (§20.2 proof-of-possession)", async () => {
     const other = await generateP256(); // a different proof key than the token's jkt
+    const token = await validToken();
     const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken(), proof: await buildProof({ keyPair: other.keyPair, jwk: other.jwk, htm: HTM, htu: HTU }) }),
+      baseCtx({
+        token,
+        proof: await buildProof({
+          accessToken: token,
+          keyPair: other.keyPair,
+          jwk: other.jwk,
+          htm: HTM,
+          htu: HTU,
+        }),
+      }),
     );
     expect(r.ok).toBe(false);
   });
 
   it("htu mismatch denies (RFC 9449 request binding)", async () => {
-    const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken(), proof: await validProof({ htu: "https://cloister.example/vault/evil" }) }),
-    );
+    const token = await validToken();
+    const proof = await validProof(token, { htu: "https://cloister.example/vault/evil" });
+    const r = await authenticateBundleRequest(baseCtx({ token, proof }));
     expect(r.ok).toBe(false);
   });
 
   it("expired token denies", async () => {
     const past = Math.floor(Date.now() / 1000) - 1000;
-    const r = await authenticateBundleRequest(
-      baseCtx({ token: await validToken({ expOverride: past, iatOverride: past - 300 }), proof: await validProof() }),
-    );
+    const credentials = await validCredentials({ expOverride: past, iatOverride: past - 300 });
+    const r = await authenticateBundleRequest(baseCtx(credentials));
     expect(r.ok).toBe(false);
   });
 });

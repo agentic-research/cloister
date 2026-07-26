@@ -13,7 +13,7 @@
 // issuer-agnostic verifier; that duplicated the same hardening logic cloister
 // and canonical-hours were each independently re-deriving, so it moved
 // upstream into notme's own SDK instead (consolidation, not new scope).
-// `audience`/`issuer`/`seenJti` are now passed straight into the
+// `audience`/`issuer`/`checkAndRecordJti` are now passed straight into the
 // `verifyDPoPToken` call below. What's left here is genuinely cloister-
 // specific policy the SDK has no business enforcing: scope-grant + the
 // wildcard/admin-scope rejection (cloister's own trust decision, not an
@@ -34,6 +34,7 @@ import {
   base64urlDecode,
   DPoPVerificationError,
   type VerifyErrorCode,
+  type VerifiedTokenClaims,
 } from "@agentic-research/dpop";
 import { scopeGrants, deriveSubjectFp } from "./bundle-token-verify.js";
 
@@ -80,6 +81,8 @@ const REASON_BY_CODE: Partial<Record<VerifyErrorCode, string>> = {
   CLAIM_ISS_MISSING: "issuer",
   CLAIM_NBF_NOT_YET_VALID: "not yet valid",
   PROOF_REPLAY: "replay (jti seen)",
+  PROOF_ATH_MISSING: "ath missing",
+  PROOF_ATH_MISMATCH: "ath mismatch",
 };
 
 function mapVerifyFailureReason(err: unknown): string {
@@ -111,8 +114,12 @@ export interface BundleAuthContext {
   issuer: string;
   htm: string;
   htu: string;
-  /** Replay ledger: returns true if this proof `jti` has been seen (the DO's seen-jti store). */
-  seenJti: (jti: string) => boolean | Promise<boolean>;
+  /**
+   * Atomic replay ledger boundary. Return true if this proof `jti` was
+   * already present; otherwise record it and return false. A read followed by
+   * a separate write is not sufficient under concurrent requests.
+   */
+  checkAndRecordJti: (jti: string) => boolean | Promise<boolean>;
   /** Revocation: returns true if the token's signing key is revoked (notme RevocationAuthority). */
   isRevoked: (kid: string) => boolean | Promise<boolean>;
 }
@@ -141,9 +148,10 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
 
   // Crypto verify (canonical notme SDK): token EdDSA sig + typ, proof ES256/EdDSA
   // sig, exp/nbf/iat/iss/aud/sub (validateClaims), htm/htu exact match, jti
-  // replay (via seenJti), and the cnf.jkt proof-of-possession binding — all
+  // replay (via atomic checkAndRecordJti), exact-token ath, and the cnf.jkt
+  // proof-of-possession binding — all
   // now the SDK's job (notme-dffc5c). Throws on any failure → deny.
-  let claims: { sub: string; scope: string; aud: string; exp: number; jti: string };
+  let claims: VerifiedTokenClaims;
   try {
     claims = await verifyDPoPToken({
       token: ctx.token,
@@ -154,7 +162,7 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
       publicKey,
       audience: ctx.audience,
       issuer: ctx.issuer,
-      seenJti: ctx.seenJti,
+      checkAndRecordJti: ctx.checkAndRecordJti,
       // Restores the 60s issuer/verifier skew allowance this file carried as
       // `nbf > now + 60` before the checks moved into the SDK. The SDK
       // defaults to zero tolerance, and notme mints `nbf: iat` on every access
@@ -200,7 +208,7 @@ export async function authenticateBundleRequest(ctx: BundleAuthContext): Promise
   if (kid !== ctx.resolvedKid) return { ok: false, reason: "kid mismatch (header != resolving key)" };
 
   // Issuer, not-before, and proof-jti replay are now verified BY THE SDK CALL
-  // ABOVE (ctx.audience/ctx.issuer/ctx.seenJti passed in directly) —
+  // ABOVE (ctx.audience/ctx.issuer/ctx.checkAndRecordJti passed directly) —
   // notme-dffc5c. A failure on any of them throws inside verifyDPoPToken and
   // is caught by this function's own try/catch, mapped to an internal reason
   // by mapVerifyFailureReason.
