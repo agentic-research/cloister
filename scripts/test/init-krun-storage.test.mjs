@@ -5,8 +5,39 @@ import test from "node:test";
 
 import {
   buildStoragePlan,
+  main,
   parseStorageArgs,
 } from "../init-krun-storage.mjs";
+
+// Sparsebundles are an APFS/hdiutil concept, so this command is macOS-only.
+// The host platform is injected rather than read from process.platform so BOTH
+// branches are exercised on every host: the macOS path stayed untested on Linux
+// CI, and the refusal path stayed untested on macOS dev machines — which is how
+// a Linux-only failure reached CI green-on-macOS. cloister-6d7af4.
+async function runMain(argv, platform) {
+  const out = [];
+  const errs = [];
+  const code = await main(argv, {
+    platform,
+    log: (m) => out.push(String(m)),
+    error: (m) => errs.push(String(m)),
+  });
+  return { code, stdout: out.join("\n"), stderr: errs.join("\n") };
+}
+
+test("storage init refuses on a non-darwin host instead of planning hdiutil", async () => {
+  const r = await runMain(["--print"], "linux");
+  assert.equal(r.code, 2, `expected refusal exit 2, got ${r.code}: ${r.stderr}`);
+  assert.match(r.stderr, /macOS-only/);
+  assert.doesNotMatch(r.stdout, /hdiutil/, "must not emit an hdiutil plan it cannot run");
+});
+
+test("storage init still previews the plan on darwin", async () => {
+  const r = await runMain(["--print"], "darwin");
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /krunvm storage plan/);
+  assert.match(r.stdout, /host storage unchanged/);
+});
 
 test("parseStorageArgs defaults to a bounded project-local sparsebundle", () => {
   assert.deepEqual(

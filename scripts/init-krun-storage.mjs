@@ -97,6 +97,11 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const error = io.error ?? console.error;
   const input = io.input ?? process.stdin;
   const output = io.output ?? process.stdout;
+  // Injectable so both the darwin and non-darwin branches are testable on any
+  // host. Read straight from process.platform, the refusal path was unreachable
+  // on macOS dev machines and the plan path unreachable on Linux CI, so the
+  // command's own contract test only ever covered whichever half it ran on.
+  const platform = io.platform ?? process.platform;
 
   let opts;
   try {
@@ -109,7 +114,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     printHelp(log);
     return 0;
   }
-  if (process.platform !== "darwin") {
+  if (platform !== "darwin") {
     error("init-krun-storage: sparsebundle storage is a macOS-only krunvm prerequisite");
     return 2;
   }

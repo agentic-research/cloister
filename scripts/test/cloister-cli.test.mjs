@@ -69,11 +69,20 @@ test("runtime command never falls back when the configured binary is missing", (
   assert.match(result.stderr, /CLOISTER_HOST_RUNTIME_BIN/);
 });
 
-test("runtime storage init dispatches to a non-mutating preview", () => {
+// Sparsebundles are an APFS/hdiutil concept, so this subcommand is macOS-only
+// by design. Assert the branch this host actually takes rather than skipping
+// off macOS: asserting nothing on Linux is exactly what let the unconditional
+// `status === 0` below pass on dev machines and fail on CI.
+test("runtime storage init previews on macOS and refuses elsewhere", () => {
   const r = run(["runtime", "storage", "init", "--print"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /krunvm storage plan/);
-  assert.match(r.stdout, /host storage unchanged/);
+  if (process.platform === "darwin") {
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /krunvm storage plan/);
+    assert.match(r.stdout, /host storage unchanged/);
+  } else {
+    assert.equal(r.status, 2, r.stdout);
+    assert.match(r.stderr, /macOS-only/);
+  }
 });
 
 test("unknown top-level command fails with usage", () => {
