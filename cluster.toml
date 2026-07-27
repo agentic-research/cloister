@@ -33,10 +33,19 @@ kind = "external"
 name = "mache"
 tier = "cluster"
 
+[[bundles.confinement.fs.allow]]
+path = "/workspace"
+mode = "rw"
+
+[bundles.confinement.port]
+address = "127.0.0.1"
+bind = 7_532
+
   [bundles.external]
   args = [ "serve", "--http", "localhost:7532" ]
+  entryPoint = "/usr/bin/mache"
+  executionMode = "microvm"
   httpPort = 7_532
-  image = ""
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
@@ -83,7 +92,8 @@ serviceBinding = "MACHE_MCP"
 ref = "github://agentic-research/rosary/server.json@7ca39874672104d8e75cece51f9f0d3d2d9b8503"
 version = "0.8.1"
 urlBinding = "ROSARY_MCP_URL"
-serviceBinding = "ROSARY_MCP"
+serviceBinding = "ROSARY_BUNDLE"
+requiresSession = true
 
 [inputs.canonical-hours]
 ref = "github://agentic-research/canonical-hours/server.json@f7321b3c088a9fef61908225cadbfaab981c1c05"
@@ -176,57 +186,6 @@ name = "bead"
     description = "Add a comment to a bead."
     inputSchemaJson = ""
     name = "bead_comment"
-
-[[routes.mcp.backends]]
-handlesPrefix = "rsry_"
-kind = "mcpProxy"
-name = "rsry"
-
-  [routes.mcp.backends.mcpProxy]
-  claims = [
-  "rsry_bead_create",
-  "rsry_bead_search",
-  "rsry_bead_close",
-  "rsry_bead_update",
-  "rsry_bead_comment",
-  "rsry_bead_comment_list",
-  "rsry_bead_comment_update",
-  "rsry_bead_comment_delete",
-  "rsry_bead_link",
-  "rsry_bead_import",
-  "rsry_list_beads",
-  "rsry_status",
-  "rsry_active",
-  "rsry_dispatch",
-  "rsry_dispatch_record",
-  "rsry_dispatch_history",
-  "rsry_scan",
-  "rsry_review",
-  "rsry_run_once",
-  "rsry_decompose",
-  "rsry_decade_list",
-  "rsry_decade_create",
-  "rsry_thread_list",
-  "rsry_thread_create",
-  "rsry_thread_assign",
-  "rsry_thread_reparent",
-  "rsry_workspace_create",
-  "rsry_workspace_checkpoint",
-  "rsry_workspace_cleanup",
-  "rsry_workspace_merge",
-  "rsry_repo_list",
-  "rsry_repo_register",
-  "rsry_pipeline_query",
-  "rsry_pipeline_upsert",
-  "rsry_ticket_load"
-]
-  dynamicTools = true
-  protocolMode = ""
-  requiresSession = true
-  serviceBinding = "ROSARY_BUNDLE"
-  stripPrefix = ""
-  tools = [ ]
-  urlBinding = "ROSARY_MCP_URL"
 
 [gateway.actor]
 algorithm = "ed25519"

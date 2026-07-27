@@ -25,6 +25,7 @@ test("top-level help names the real command surface", () => {
   assert.match(r.stdout, /cloister init/);
   assert.match(r.stdout, /cloister add/);
   assert.match(r.stdout, /cloister artifacts pull/);
+  assert.match(r.stdout, /cloister runtime plan/);
 });
 
 test("unknown top-level command fails with usage", () => {
@@ -38,4 +39,14 @@ test("artifacts pull dispatches to the lockfile-backed preview", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Artifacts requested by cluster\.lock\.toml/);
   assert.match(r.stdout, /mache.*sha256:/);
+});
+
+test("runtime plan emits the digest-pinned Mache microVM contract", () => {
+  const r = run(["runtime", "plan", "mache", "--workspace", REPO_ROOT]);
+  assert.equal(r.status, 0, r.stderr);
+  const plan = JSON.parse(r.stdout);
+  assert.equal(plan.bundle, "mache");
+  assert.equal(plan.mode, "microvm");
+  assert.equal(plan.artifact.entrypoint, "/usr/bin/mache");
+  assert.match(plan.artifact.digest, /^sha256:[0-9a-f]{64}$/);
 });

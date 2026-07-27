@@ -91,6 +91,8 @@ function minimalCluster() {
             httpPort: 0,
             args: [],
             env: [],
+            entryPoint: "",
+            executionMode: "",
           },
         },
       },
@@ -132,6 +134,8 @@ function richCluster() {
             httpPort: 8787,
             args: ["--ipc-socket", "/run/router.sock"],
             env: [{ name: "DEBUG", value: "1" }],
+            entryPoint: "",
+            executionMode: "",
           },
         },
       },
@@ -369,6 +373,8 @@ test("cluster-to-toml: omits bundle schema defaults while preserving semantic ro
         httpPort: 0,
         args: [],
         env: [],
+        entryPoint: "",
+        executionMode: "",
       },
     },
   };
@@ -390,6 +396,7 @@ test("cluster-to-toml: omits bundle schema defaults while preserving semantic ro
   assert.ok(!t.includes("args"), "empty external args[] must not emit boilerplate");
   assert.ok(!t.includes("env"), "empty external env[] must not emit boilerplate");
   assert.ok(!t.includes("httpPort"), "external httpPort=0 must not emit boilerplate");
+  assert.ok(!t.includes('image = ""'), "empty external image must not emit boilerplate");
 
   const reparsed = await parseTomlToCluster(t);
   assert.deepEqual(
@@ -397,6 +404,27 @@ test("cluster-to-toml: omits bundle schema defaults while preserving semantic ro
     ClusterSchema.parse(c),
     "parser defaults must restore omitted schema-default bundle fields",
   );
+});
+
+test("cluster-to-toml: omits empty confinement leaves inside a non-empty policy", async () => {
+  const c = minimalCluster();
+  c.bundles[0].perTenant = false;
+  c.bundles[0].confinement = {
+    fs: { allow: [{ path: "/workspace", mode: "rw" }] },
+    network: { allowHosts: [] },
+    port: { bind: 7532, address: "" },
+    credentialSource: "",
+  };
+
+  const t = clusterToToml(c);
+  assert.match(t, /path = "\/workspace"/);
+  assert.match(t, /bind = 7_532/);
+  assert.ok(!t.includes("credentialSource"), "empty credentialSource must stay implicit");
+  assert.ok(!t.includes("allowHosts"), "empty network allow-list must stay implicit");
+  assert.ok(!t.includes('address = ""'), "empty bind address must stay implicit");
+
+  const reparsed = await parseTomlToCluster(t);
+  assert.deepEqual(ClusterSchema.parse(reparsed), ClusterSchema.parse(c));
 });
 
 // ── Contract 7: TOML → cluster.ts → TOML is byte-equal ────────────────────
@@ -960,6 +988,7 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       name: "llo", ref: "x", version: "1", digest: "", from: "",
       provides: [], requires: [],
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
+      requiresSession: false,
       tenancy: { mode: "", workerdId: "", trustedTier: false, sharesWorkerdWith: [] },
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field

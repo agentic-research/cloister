@@ -245,6 +245,7 @@ function canonicalizeInputs(arr) {
     // pass through to [[generated_backends]] rows in cluster.lock.toml.
     if (typeof inp.urlBinding     === "string" && inp.urlBinding     !== "") body.urlBinding     = inp.urlBinding;
     if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
+    if (inp.requiresSession === true) body.requiresSession = true;
     if (Array.isArray(inp.provides) && inp.provides.length > 0) body.provides = [...inp.provides];
     if (Array.isArray(inp.requires) && inp.requires.length > 0) body.requires = [...inp.requires];
     // ADR-0030 §A5 (cloister-0e3004): emit a `[inputs.<name>.tenancy]`
@@ -314,8 +315,39 @@ function pruneBundleScalarDefaults(scalars) {
   // cloister-a34edc: the §5 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
   // default applied in toml-to-cluster's normalizeConfinement.
-  if (isEmptyConfinement(flat.confinement)) delete flat.confinement;
+  if (isEmptyConfinement(flat.confinement)) {
+    delete flat.confinement;
+  } else {
+    flat.confinement = pruneConfinementDefaults(flat.confinement);
+  }
   return flat;
+}
+
+function pruneConfinementDefaults(confinement) {
+  const pruned = {};
+  if (Array.isArray(confinement.fs?.allow) && confinement.fs.allow.length > 0) {
+    pruned.fs = confinement.fs;
+  }
+  if (
+    Array.isArray(confinement.network?.allowHosts) &&
+    confinement.network.allowHosts.length > 0
+  ) {
+    pruned.network = confinement.network;
+  }
+  if (
+    (confinement.port?.bind ?? 0) !== 0 ||
+    (confinement.port?.address ?? "") !== ""
+  ) {
+    pruned.port = {};
+    if ((confinement.port.bind ?? 0) !== 0) pruned.port.bind = confinement.port.bind;
+    if ((confinement.port.address ?? "") !== "") {
+      pruned.port.address = confinement.port.address;
+    }
+  }
+  if ((confinement.credentialSource ?? "") !== "") {
+    pruned.credentialSource = confinement.credentialSource;
+  }
+  return pruned;
 }
 
 // True when a Confinement is the empty deny-all default (every dimension empty).
@@ -336,10 +368,13 @@ function canonicalizeBundleKindPayload(tag, payload) {
   }
 
   const pruned = { ...sorted };
+  if (pruned.image === "") delete pruned.image;
   if (pruned.ipcSocket === "") delete pruned.ipcSocket;
   if (pruned.httpPort === 0) delete pruned.httpPort;
   if (Array.isArray(pruned.args) && pruned.args.length === 0) delete pruned.args;
   if (Array.isArray(pruned.env) && pruned.env.length === 0) delete pruned.env;
+  if (pruned.entryPoint === "") delete pruned.entryPoint;
+  if (pruned.executionMode === "") delete pruned.executionMode;
   return pruned;
 }
 

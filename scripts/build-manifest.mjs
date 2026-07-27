@@ -545,6 +545,7 @@ function backendFromGeneratedRow(row) {
   const urlBinding     = typeof row.urlBinding     === "string" ? row.urlBinding     : "";
   const serviceBinding = typeof row.serviceBinding === "string" ? row.serviceBinding : "";
   const dynamicTools   = row.dynamicTools !== false; // default true
+  const requiresSession = row.requiresSession === true;
   const claims         = Array.isArray(row.claims) ? row.claims.slice() : [];
 
   const mcpProxy = {
@@ -558,6 +559,7 @@ function backendFromGeneratedRow(row) {
   // "field-present-as-default" OR "field-absent"; the runtime types
   // accept both. We emit them explicitly when populated.)
   if (serviceBinding !== "") mcpProxy.serviceBinding = serviceBinding;
+  if (requiresSession)       mcpProxy.requiresSession = true;
   if (claims.length > 0)     mcpProxy.claims         = claims;
   if (stripPrefix !== "")    mcpProxy.stripPrefix     = stripPrefix;
 

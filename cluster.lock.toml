@@ -272,7 +272,8 @@ claims = [
 ]
 dynamicTools = true
 urlBinding = "ROSARY_MCP_URL"
-serviceBinding = "ROSARY_MCP"
+serviceBinding = "ROSARY_BUNDLE"
+requiresSession = true
 
 [[generated_backends]]
 input = "canonical-hours"
