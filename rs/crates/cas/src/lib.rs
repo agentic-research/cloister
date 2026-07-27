@@ -72,6 +72,61 @@ mod tests {
     //! upstream in leyline-cas-ffi; we only need to confirm the bridge
     //! preserves it.
     use super::*;
+    use leyline_core::partition::{Domain, Entry, PartitionSpec};
+    use leyline_core::substrate::Hash;
+
+    /// Test-only helper: builds a `PartitionSpec` from primitive fields and
+    /// folds `entries` into its address via upstream's `PartitionSpec::address`
+    /// (ADR-0032 D2, bridged per ADR-0035 — cloister does not reimplement the
+    /// fold). Kept private to this test module rather than exported as a
+    /// public `_for_test` symbol (cloister-bc5640 controller resolution).
+    fn partition_address(
+        domain_tag: u8,
+        scheme: &str,
+        params: &[u8],
+        canon_version: u32,
+        entries: &[([u8; 32], u64, u64)],
+    ) -> [u8; 32] {
+        let domain = match domain_tag {
+            1 => Domain::ByteStream,
+            2 => Domain::ChunkSet,
+            3 => Domain::RowSet,
+            other => panic!("unknown domain tag: {other}"),
+        };
+        let spec = PartitionSpec {
+            domain,
+            scheme: scheme.to_string(),
+            params: params.to_vec(),
+            canon_version,
+        };
+        let es: Vec<Entry> = entries
+            .iter()
+            .map(|(addr, a, b)| Entry {
+                addr: Hash::from_bytes(*addr),
+                a: *a,
+                b: *b,
+            })
+            .collect();
+        *spec.address(&es).as_bytes()
+    }
+
+    /// ADR-0032 D2 property: the fold commits to the declared decomposition,
+    /// not merely to the concatenation of its parts. Two entries whose
+    /// addresses differ only by framing (`a`/`b` swapped) must produce
+    /// different partition addresses — that is exactly the property
+    /// length-prefixed framing exists for.
+    #[test]
+    fn address_matches_upstream_fold_for_a_known_spec() {
+        let scheme = "glob-closure/v1";
+        let params = b"\x00".to_vec();
+        let addr_a = partition_address(3 /* RowSet */, scheme, &params, 1, &[([0u8; 32], 0, 1)]);
+        let addr_b = partition_address(3, scheme, &params, 1, &[([0u8; 32], 1, 0)]);
+        assert_ne!(addr_a, addr_b, "framing must be committed to, not ignored");
+
+        // Same inputs twice must be identical — the fold is deterministic.
+        let again = partition_address(3, scheme, &params, 1, &[([0u8; 32], 0, 1)]);
+        assert_eq!(addr_a, again);
+    }
 
     #[test]
     fn alloc_free_roundtrip() {

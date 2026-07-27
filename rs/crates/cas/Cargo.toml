@@ -23,6 +23,24 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # (per cloister-eefd45 — git-only deps are treated as wildcards).
 leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "593ee610bf17dd8fc152d4c39472f24242da5cb0", version = "0.4.5", package = "leyline-cas-ffi" }
 
+# leyline-core supplies PartitionSpec (ADR-0032's tagged fold). cloister
+# BRIDGES it per ADR-0035 rather than reimplementing — the scheme must be
+# folded INTO the address, and getting that wrong is unverifiable rather
+# than merely wrong. Pin the rev deliberately: PARTITION_CONTEXT is
+# protocol-visible, so a rev that changes it invalidates every address.
+#
+# This is a THIRD pinned version of leyline-core in the dep graph
+# (leyline-cas-ffi transitively pulls 0.4.5, leyline-schema-bridge pulls
+# 0.8.0) — cargo-deny's multiple-versions check is "warn", not "deny", and
+# the alternative (bumping leyline-cas-ffi's rev to unify on 0.10.4) would
+# change the BLAKE3 substrate crate itself, which per the comment above
+# means the algorithm changed and the cross-runtime fixture suite must
+# re-verify — a separate, reviewable act, not a side effect of adding a
+# partition-fold dependency (cloister-bc5640). Kept in the plain
+# [dependencies] table (not the wasm32-excluded host-only target section
+# below) so the wasm32 build graph resolves it too.
+leyline-core = { git = "https://github.com/agentic-research/ley-line-open", rev = "452261577ab7a86c5b23f025b520a772098eada9", version = "0.10.4", package = "leyline-core" }
+
 # Pinned to LLO v0.7.6 (release commit a6eba83, bead ley-line-open-c79ea8 /
 # PR #196 + #197) — the release that adds the confinementDigest Interlace
 # cert extension (OID 1.3.6.1.4.1.99999.1.7). This rev is what teaches the
