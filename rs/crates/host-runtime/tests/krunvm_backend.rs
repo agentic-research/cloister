@@ -148,17 +148,31 @@ fn gc_deletes_known_vm_before_pruning_with_explicit_storage_roots() {
 #[test]
 fn reserve_breach_refuses_create_after_gc() {
     let temp = tempfile::tempdir().unwrap();
-    let plan = plan();
-    let runner = RecordingRunner::with_outputs(vec![fail("not found")]);
+    let first_plan = plan();
+    let seed = RecordingRunner::with_outputs(vec![
+        fail("not found"),
+        ok("created"),
+        ok(&inspect(&first_plan, "sha256:old-platform")),
+        ok("done"),
+    ]);
+    KrunvmBackend::new(seed, settings(temp.path()))
+        .launch(&first_plan)
+        .unwrap();
+
+    let mut plan = first_plan;
+    plan.confinement.port.bind = 7533;
+    let runner =
+        RecordingRunner::with_outputs(vec![fail("not found"), ok("deleted"), ok("pruned")]);
     let mut settings = settings(temp.path());
     settings.reserve_bytes = Some(u64::MAX);
     let backend = KrunvmBackend::new(runner.clone(), settings);
     let error = backend.launch(&plan).unwrap_err();
     assert!(error.to_string().contains("storage reserve"), "{error}");
-    assert!(!runner
-        .programs()
-        .iter()
-        .any(|call| call.contains(&"create".into())));
+    let calls = runner.programs();
+    assert_eq!(calls[0][..2], ["krunvm", "inspect"]);
+    assert_eq!(calls[1][..2], ["krunvm", "delete"]);
+    assert_eq!(calls[2][..2], ["buildah", "--root"]);
+    assert!(!calls.iter().any(|call| call.contains(&"create".into())));
 }
 
 #[test]

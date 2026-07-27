@@ -351,6 +351,50 @@ impl<R: CommandRunner> KrunvmBackend<R> {
         }
     }
 
+    fn execute_gc_plan(&self, state: &mut RuntimeState, plan: &GcPlan) -> Result<(), RuntimeError> {
+        for name in &plan.delete_vms {
+            let output = self.execute(&CommandSpec {
+                program: "krunvm".into(),
+                args: vec!["delete".into(), name.clone()],
+            })?;
+            if !output.success {
+                return Err(RuntimeError::Backend(format!(
+                    "krunvm delete {name:?} failed: {}",
+                    output.stderr.trim()
+                )));
+            }
+            state.vms.remove(name);
+        }
+        if !plan.prune_images.is_empty() {
+            let output = self.execute(&CommandSpec {
+                program: "buildah".into(),
+                args: vec![
+                    "--root".into(),
+                    self.settings
+                        .storage_volume
+                        .join("root")
+                        .display()
+                        .to_string(),
+                    "--runroot".into(),
+                    self.settings
+                        .storage_volume
+                        .join("runroot")
+                        .display()
+                        .to_string(),
+                    "rmi".into(),
+                    "--prune".into(),
+                ],
+            })?;
+            if !output.success {
+                return Err(RuntimeError::Backend(format!(
+                    "buildah prune failed: {}",
+                    output.stderr.trim()
+                )));
+            }
+        }
+        self.save_state(state)
+    }
+
     pub fn gc(
         &self,
         active_restrictions: &BTreeSet<String>,
@@ -371,47 +415,7 @@ impl<R: CommandRunner> KrunvmBackend<R> {
             &pinned_platform_digests,
         );
         if execute {
-            for name in &plan.delete_vms {
-                let output = self.execute(&CommandSpec {
-                    program: "krunvm".into(),
-                    args: vec!["delete".into(), name.clone()],
-                })?;
-                if !output.success {
-                    return Err(RuntimeError::Backend(format!(
-                        "krunvm delete {name:?} failed: {}",
-                        output.stderr.trim()
-                    )));
-                }
-                state.vms.remove(name);
-            }
-            if !plan.prune_images.is_empty() {
-                let output = self.execute(&CommandSpec {
-                    program: "buildah".into(),
-                    args: vec![
-                        "--root".into(),
-                        self.settings
-                            .storage_volume
-                            .join("root")
-                            .display()
-                            .to_string(),
-                        "--runroot".into(),
-                        self.settings
-                            .storage_volume
-                            .join("runroot")
-                            .display()
-                            .to_string(),
-                        "rmi".into(),
-                        "--prune".into(),
-                    ],
-                })?;
-                if !output.success {
-                    return Err(RuntimeError::Backend(format!(
-                        "buildah prune failed: {}",
-                        output.stderr.trim()
-                    )));
-                }
-            }
-            self.save_state(&state)?;
+            self.execute_gc_plan(&mut state, &plan)?;
         }
         Ok(GcReport {
             plan,
@@ -458,7 +462,28 @@ impl<R: CommandRunner> crate::Backend for KrunvmBackend<R> {
             }
             self.verify_source(&initial_inspect, &expected_source)?
         } else {
-            let usage = self.storage_usage()?;
+            let mut usage = self.storage_usage()?;
+            if !usage.can_acquire() {
+                let active_restrictions: BTreeSet<String> = state
+                    .vms
+                    .values()
+                    .filter(|record| record.active && record.bundle != plan.bundle)
+                    .map(|record| record.restriction.clone())
+                    .collect();
+                let pinned_platform_digests: BTreeSet<String> = state
+                    .vms
+                    .values()
+                    .filter(|record| record.active && record.bundle != plan.bundle)
+                    .map(|record| record.platform_digest.clone())
+                    .collect();
+                let gc_plan = plan_gc(
+                    &Self::inventory(&state),
+                    &active_restrictions,
+                    &pinned_platform_digests,
+                );
+                self.execute_gc_plan(&mut state, &gc_plan)?;
+                usage = self.storage_usage()?;
+            }
             if !usage.can_acquire() {
                 return Err(RuntimeError::Backend(format!(
                     "krunvm storage reserve would be breached: {} bytes available, {} required",
