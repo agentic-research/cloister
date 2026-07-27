@@ -3,7 +3,8 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,10 +13,11 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const PACKAGE = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"));
 const CLI = resolve(REPO_ROOT, PACKAGE.bin.cloister);
 
-function run(args) {
+function run(args, env = {}) {
   return spawnSync("node", [CLI, ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    env: { ...process.env, ...env },
   });
 }
 
@@ -27,6 +29,44 @@ test("top-level help names the real command surface", () => {
   assert.match(r.stdout, /cloister artifacts pull/);
   assert.match(r.stdout, /cloister runtime plan/);
   assert.match(r.stdout, /cloister runtime storage init/);
+});
+
+test("runtime operator commands delegate exact arguments to one Rust seam", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-cli-"));
+  const record = resolve(temp, "argv.json");
+  const fake = resolve(temp, "fake-runtime.mjs");
+  writeFileSync(
+    fake,
+    `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(process.argv.slice(2)));
+process.exit(0);
+`,
+  );
+  chmodSync(fake, 0o755);
+  const env = {
+    CLOISTER_HOST_RUNTIME_BIN: fake,
+    RUNTIME_ARGV_RECORD: record,
+  };
+  const cases = [
+    [["runtime", "run", "/tmp/plan.json"], ["run", "/tmp/plan.json"]],
+    [["runtime", "doctor"], ["doctor"]],
+    [["runtime", "storage", "status"], ["status"]],
+    [["runtime", "storage", "gc", "--yes"], ["gc", "--yes"]],
+  ];
+  for (const [args, expected] of cases) {
+    const result = run(args, env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), expected);
+  }
+});
+
+test("runtime command never falls back when the configured binary is missing", () => {
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_HOST_RUNTIME_BIN: "/missing/cloister-host-runtime",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /CLOISTER_HOST_RUNTIME_BIN/);
 });
 
 test("runtime storage init dispatches to a non-mutating preview", () => {

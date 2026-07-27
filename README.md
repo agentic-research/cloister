@@ -3,9 +3,10 @@
 Cloister is a traceable way to bundle your AI tooling and use it with
 your favorite harness — Claude Code, Cursor, anything that speaks MCP.
 
-Declare the tools you want in one file. Cloister runs them behind a
-single endpoint, keeps a record of every call, and runs the same bundle
-on your laptop and in production — no rewrites.
+Declare the tools you want in one file. Cloister routes them behind a
+single endpoint, keeps hash-chained records for authenticated and
+state-boundary work, and can lower the same cluster shape to local or
+hosted runtimes.
 
 ```sh
 task serve:local        # your bundled tools at http://localhost:8787/mcp
@@ -21,12 +22,14 @@ definitions next.
   key or token without handing it the secret — cloister keeps it in a
   locked box, makes the call for the tool, and hands back only the
   result. A leaky or compromised tool has nothing to leak.
-- **Everything's on the record.** Every state-changing call leaves a
-  signed, tamper-evident receipt — you, or anyone, can verify what
-  actually happened after the fact, offline.
-- **One bundle, laptop to production.** The exact same config runs
-  locally with no cloud account and deploys to Cloudflare Workers
-  unchanged. No rewrites, no deployment-specific code.
+- **State-changing work can leave verifiable evidence.** Authenticated
+  requests advance a hash chain, and the shipped phase-one
+  state-boundary path emits signed Interlace receipts. Fail-closed peer
+  enforcement is still an operator cutover.
+- **One declared shape, multiple runtimes.** `cluster.toml` can be
+  lowered to local `workerd`, native-process, OCI, and Cloudflare paths.
+  Those paths are not identical security boundaries; the documentation
+  calls out the differences.
 
 ## Where to go next
 
@@ -36,9 +39,12 @@ definitions next.
 
 ## How it works
 
-Under the hood, cloister runs each tool in its own sandbox on `workerd`
-(the same isolate technology behind Cloudflare Workers), wired together
-by one declarative config. Identity, the "tools never see secrets"
+Under the hood, Cloister runs its router and built-in tenants on
+`workerd`. External tools can currently be reached as native processes,
+OCI services, UDS peers, or HTTP services. On macOS, the experimental
+host runtime can instead start a digest-pinned external tool in a
+separate krunvm microVM; that path is explicit and does not silently
+fall back to a host process. Identity, the "tools never see secrets"
 credential isolation, and the signed audit trail live in the *substrate*
 — not bolted onto each tool. Anything HTTP-shaped plugs into the same
 route table without touching the substrate; MCP servers are just the
@@ -52,7 +58,7 @@ The shape, for the curious:
 graph TB
     Client["external client<br/>(MCP / curl / browser /<br/>another cluster's bundle)"]
 
-    subgraph host ["Host runtime — workerd today (CF Workers in prod);<br/>Firecracker / WASI per ADR-0009"]
+    subgraph host ["Host runtime — workerd router and tenants;<br/>optional krunvm boundary for external tools on macOS"]
         subgraph hyp ["Hypervisor layer — cloister-router bundle"]
             ROUTER["Router<br/>declarative EdgeRoute table<br/>(from cloister.capnp)"]
             MCP["MCP face<br/>/mcp (JSON-RPC + SSE)"]
@@ -135,6 +141,38 @@ Wire Claude Code:
 
 Client-specific wiring (Cursor, raw curl, auth, common failure modes)
 is in [docs/integration/mcp-client.md](docs/integration/mcp-client.md).
+
+### Experimental: run an external tool in krunvm
+
+On macOS with `krunvm` and Buildah installed, Cloister can run a
+lockfile-pinned external OCI artifact behind a microVM boundary:
+
+```sh
+task runtime:storage:init -- --yes
+task runtime:build
+task runtime:plan -- mache --workspace "$PWD" --output /tmp/mache-plan.json
+task runtime:doctor
+task runtime:run -- /tmp/mache-plan.json
+```
+
+The storage initializer creates one grow-on-demand, project-local,
+case-sensitive sparsebundle with a 3 GiB logical ceiling by default.
+The runtime reuses a VM only when its versioned persistent-restriction
+digest matches, verifies the exact OCI source after creation, and
+refuses new acquisition when the configured reserve would be crossed.
+
+```sh
+task runtime:storage:status
+task runtime:storage:gc -- --print
+task runtime:storage:gc -- --yes  # explicit mutation
+```
+
+GC protects running, active, still-referenced, and unknown state. It
+uses `krunvm delete` and Buildah's own prune command with explicit
+storage roots; it does not delete layer directories. Binary acquisition
+still requires explicit operator consent, and the current microVM path
+is coarse process/tool isolation—not the proposed per-operation
+LLO/FUSE capability escalation.
 
 ## What cloister is NOT
 

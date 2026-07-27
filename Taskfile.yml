@@ -1187,10 +1187,39 @@ tasks:
     cmds:
       - "node scripts/emit-host-launch-plan.mjs {{.CLI_ARGS | default \"--help\"}}"
 
+  runtime:build:
+    desc: "Build the native krunvm host-runtime binary."
+    cmds:
+      - task: rs:host-runtime:build
+
+  runtime:doctor:
+    desc: "Report krunvm/Buildah availability and bounded storage health."
+    deps: [runtime:build]
+    cmds:
+      - "node scripts/cloister-cli.mjs runtime doctor"
+
+  runtime:run:
+    desc: "Run a digest-pinned host plan through krunvm. Usage: task runtime:run -- /absolute/plan.json"
+    deps: [runtime:build]
+    cmds:
+      - "node scripts/cloister-cli.mjs runtime run {{.CLI_ARGS}}"
+
   runtime:storage:init:
     desc: "Create/attach one grow-on-demand case-sensitive sparsebundle for krunvm. Preview: task runtime:storage:init -- --print"
     cmds:
       - "node scripts/init-krun-storage.mjs {{.CLI_ARGS | default \"--help\"}}"
+
+  runtime:storage:status:
+    desc: "Report bounded krunvm storage use and tracked VM counts."
+    deps: [runtime:build]
+    cmds:
+      - "node scripts/cloister-cli.mjs runtime storage status"
+
+  runtime:storage:gc:
+    desc: "Preview bounded krunvm reclamation; pass --yes to execute. Usage: task runtime:storage:gc -- --print"
+    deps: [runtime:build]
+    cmds:
+      - "node scripts/cloister-cli.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + cargo-pin lint + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

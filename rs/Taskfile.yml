@@ -79,6 +79,17 @@ tasks:
       - crates/host-runtime/Cargo.toml
       - Cargo.lock
 
+  host-runtime:build:
+    desc: "Build the krunvm-backed Cloister host-runtime operator binary."
+    cmds:
+      - cargo build --release -p cloister-host-runtime
+    sources:
+      - crates/host-runtime/**/*.rs
+      - crates/host-runtime/Cargo.toml
+      - Cargo.lock
+    generates:
+      - target/release/cloister-host-runtime
+
   audit:
     desc: "Supply-chain audit for the Rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure."
     cmds:
