@@ -29,6 +29,22 @@
 // crate's .wasm just as if we defined it here.
 pub use leyline_cas_ffi::ffi::leyline_hash_bytes;
 
+use leyline_core::partition::{Domain, Entry, PartitionSpec};
+use leyline_core::substrate::Hash;
+
+/// Map the wire's 1-byte domain tag to upstream's `Domain` enum. Kept
+/// private — this is a bridge-crate convenience for decoding the FFI's
+/// wire format, not a public surface (cloister-bc5640 controller
+/// resolution; no test-only export per Task 2).
+fn domain_from_tag(tag: u8) -> Option<Domain> {
+    match tag {
+        1 => Some(Domain::ByteStream),
+        2 => Some(Domain::ChunkSet),
+        3 => Some(Domain::RowSet),
+        _ => None,
+    }
+}
+
 // ── wasm32 linear-memory management ────────────────────────────────────
 //
 // Mirrors crates/sign/src/ffi.rs::{lsign_alloc, lsign_free}. The wasm32
@@ -65,6 +81,115 @@ pub unsafe extern "C" fn cloister_cas_free(ptr: *mut u8, size: usize) {
     }
 }
 
+/// Fold a declared partition into a 32-byte address.
+///
+/// Wire layout for `spec_ptr`: domain tag (1 byte) ‖ canon_version (u32 LE)
+/// ‖ scheme_len (u64 LE) ‖ scheme ‖ params_len (u64 LE) ‖ params.
+/// Wire layout for `entries_ptr`: count (u64 LE) ‖ (addr[32] ‖ a u64 LE ‖ b u64 LE)…
+/// Writes 32 bytes to `out_ptr`. Returns 0 on success, non-zero on malformed input.
+/// On ANY malformed input this returns non-zero WITHOUT writing to `out_ptr`,
+/// so a caller that ignores the code cannot mistake uninitialised memory for
+/// an address.
+#[unsafe(no_mangle)]
+pub extern "C" fn cloister_partition_address(
+    spec_ptr: *const u8, spec_len: usize,
+    entries_ptr: *const u8, entries_len: usize,
+    out_ptr: *mut u8,
+) -> i32 {
+    // `slice::from_raw_parts` with a null pointer is UB per its own
+    // contract even at zero length — reject before touching either
+    // pointer rather than relying on callers to never pass null.
+    if spec_ptr.is_null() || entries_ptr.is_null() { return 1; }
+
+    let spec_buf = unsafe { std::slice::from_raw_parts(spec_ptr, spec_len) };
+    let ent_buf  = unsafe { std::slice::from_raw_parts(entries_ptr, entries_len) };
+
+    // -- spec: tag(1) | canon(4) | scheme_len(8) | scheme | params_len(8) | params
+    let mut o = 0usize;
+    let rd_u64 = |b: &[u8], o: usize| -> Option<u64> {
+        b.get(o..o + 8).map(|s| u64::from_le_bytes(s.try_into().unwrap()))
+    };
+    let tag = match spec_buf.first() { Some(t) => *t, None => return 1 };
+    let domain = match domain_from_tag(tag) { Some(d) => d, None => return 1 };
+    o += 1;
+    let canon_version = match spec_buf.get(o..o + 4) {
+        Some(s) => u32::from_le_bytes(s.try_into().unwrap()),
+        None => return 1,
+    };
+    o += 4;
+    // `rd_u64` yields a declared u64 length. On wasm32 `usize` is 32-bit,
+    // so a bare `as usize` truncates BEFORE the checked_add/checked_mul
+    // guards below ever run — a length of 2^32 + 15 truncates to 15 and
+    // silently aliases a small buffer. `usize::try_from` rejects instead
+    // of truncating, so an over-wide declared length is malformed input
+    // (return 1) rather than a truncation that lets two different
+    // buffers fold to the same address. NOTE: this branch cannot be hit
+    // natively — `usize` is 64-bit on the test host, so `try_from` never
+    // fails there. It is exercised only on the wasm32 target; there is
+    // no portable way to write a native regression test for it, which is
+    // exactly why the cast is rejected here instead of guarded after.
+    let slen = match rd_u64(spec_buf, o).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
+    let scheme_end = match o.checked_add(8).and_then(|v| v.checked_add(slen)) {
+        Some(v) => v,
+        None => return 1,
+    };
+    o += 8;
+    let scheme = match spec_buf.get(o..o + slen).and_then(|s| std::str::from_utf8(s).ok()) {
+        Some(s) => s.to_string(),
+        None => return 1,
+    };
+    o = scheme_end;
+    // Same truncation hazard as `slen` above — see that comment.
+    let plen = match rd_u64(spec_buf, o).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
+    let params_end = match o.checked_add(8).and_then(|v| v.checked_add(plen)) {
+        Some(v) => v,
+        None => return 1,
+    };
+    o += 8;
+    let params = match spec_buf.get(o..o + plen) { Some(s) => s.to_vec(), None => return 1 };
+    o = params_end;
+    if o != spec_buf.len() { return 1; }   // trailing bytes are a malformed spec
+
+    // -- entries: count(8) | (addr[32] | a(8) | b(8))…
+    // Same truncation hazard as `slen`/`plen` above — see that comment.
+    let count = match rd_u64(ent_buf, 0).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
+    const REC: usize = 32 + 8 + 8;
+    // Checked: on wasm32 `usize` is 32-bit, so `count * REC` can wrap
+    // (e.g. count = 89_478_486 wraps `count*REC` to 32, letting a 40-byte
+    // buffer masquerade as a huge one). A wrapped comparison would pass
+    // the length check and then `Vec::with_capacity(count)` would try to
+    // allocate ~4.3GB and trap — turning malformed input into a crash
+    // instead of the clean non-zero rejection this function promises.
+    let expected_len = match count.checked_mul(REC).and_then(|v| v.checked_add(8)) {
+        Some(v) => v,
+        None => return 1,
+    };
+    if ent_buf.len() != expected_len { return 1; }
+    let mut entries = Vec::with_capacity(count);
+    for i in 0..count {
+        let base = 8 + i * REC;
+        let mut addr = [0u8; 32];
+        addr.copy_from_slice(&ent_buf[base..base + 32]);
+        let a = u64::from_le_bytes(ent_buf[base + 32..base + 40].try_into().unwrap());
+        let b = u64::from_le_bytes(ent_buf[base + 40..base + 48].try_into().unwrap());
+        entries.push(Entry { addr: Hash::from_bytes(addr), a, b });
+    }
+
+    let spec = PartitionSpec { domain, scheme, params, canon_version };
+    let addr = spec.address(&entries);
+    unsafe { std::ptr::copy_nonoverlapping(addr.as_bytes().as_ptr(), out_ptr, 32) };
+    0
+}
+
 #[cfg(test)]
 mod tests {
     //! Native-target sanity: the re-export carries the symbol and the
@@ -72,6 +197,56 @@ mod tests {
     //! upstream in leyline-cas-ffi; we only need to confirm the bridge
     //! preserves it.
     use super::*;
+
+    /// Test-only helper: builds a `PartitionSpec` from primitive fields and
+    /// folds `entries` into its address via upstream's `PartitionSpec::address`
+    /// (ADR-0032 D2, bridged per ADR-0035 — cloister does not reimplement the
+    /// fold). Kept private to this test module rather than exported as a
+    /// public `_for_test` symbol (cloister-bc5640 controller resolution).
+    /// Domain-tag mapping is shared with the FFI export via `domain_from_tag`.
+    fn partition_address(
+        domain_tag: u8,
+        scheme: &str,
+        params: &[u8],
+        canon_version: u32,
+        entries: &[([u8; 32], u64, u64)],
+    ) -> [u8; 32] {
+        let domain = domain_from_tag(domain_tag)
+            .unwrap_or_else(|| panic!("unknown domain tag: {domain_tag}"));
+        let spec = PartitionSpec {
+            domain,
+            scheme: scheme.to_string(),
+            params: params.to_vec(),
+            canon_version,
+        };
+        let es: Vec<Entry> = entries
+            .iter()
+            .map(|(addr, a, b)| Entry {
+                addr: Hash::from_bytes(*addr),
+                a: *a,
+                b: *b,
+            })
+            .collect();
+        *spec.address(&es).as_bytes()
+    }
+
+    /// ADR-0032 D2 property: the fold commits to the declared decomposition,
+    /// not merely to the concatenation of its parts. Two entries whose
+    /// addresses differ only by framing (`a`/`b` swapped) must produce
+    /// different partition addresses — that is exactly the property
+    /// length-prefixed framing exists for.
+    #[test]
+    fn address_matches_upstream_fold_for_a_known_spec() {
+        let scheme = "glob-closure/v1";
+        let params = b"\x00".to_vec();
+        let addr_a = partition_address(3 /* RowSet */, scheme, &params, 1, &[([0u8; 32], 0, 1)]);
+        let addr_b = partition_address(3, scheme, &params, 1, &[([0u8; 32], 1, 0)]);
+        assert_ne!(addr_a, addr_b, "framing must be committed to, not ignored");
+
+        // Same inputs twice must be identical — the fold is deterministic.
+        let again = partition_address(3, scheme, &params, 1, &[([0u8; 32], 0, 1)]);
+        assert_eq!(addr_a, again);
+    }
 
     #[test]
     fn alloc_free_roundtrip() {
@@ -156,5 +331,140 @@ mod tests {
         assert_eq!(rc, 32);
         let expected = blake3::hash(input);
         assert_eq!(&out[..], expected.as_bytes());
+    }
+
+    // ── cloister_partition_address: malformed-input rejection ────────────
+    //
+    // These are the negative-path tests the reviewer flagged as missing:
+    // every test above this point feeds well-formed input through the
+    // fold. Nothing asserted that malformed input is REJECTED rather than
+    // trapped — which is the exact property the FFI's doc comment
+    // promises and the property finding 1 (unchecked `count * REC`
+    // overflow) violated.
+
+    /// Build a well-formed spec buffer: tag(1) | canon(4 LE) | scheme_len(8 LE)
+    /// | scheme | params_len(8 LE) | params. Mirrors the encoder
+    /// `src/wire/partition.ts` uses on the TS side.
+    fn encode_spec(tag: u8, canon_version: u32, scheme: &str, params: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(tag);
+        out.extend_from_slice(&canon_version.to_le_bytes());
+        out.extend_from_slice(&(scheme.len() as u64).to_le_bytes());
+        out.extend_from_slice(scheme.as_bytes());
+        out.extend_from_slice(&(params.len() as u64).to_le_bytes());
+        out.extend_from_slice(params);
+        out
+    }
+
+    /// Build a well-formed entries buffer: count(8 LE) | (addr[32] | a(8 LE)
+    /// | b(8 LE))…
+    fn encode_entries(entries: &[([u8; 32], u64, u64)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+        for (addr, a, b) in entries {
+            out.extend_from_slice(addr);
+            out.extend_from_slice(&a.to_le_bytes());
+            out.extend_from_slice(&b.to_le_bytes());
+        }
+        out
+    }
+
+    /// Call the FFI export with the output buffer pre-filled with a
+    /// sentinel byte, so a test can assert the buffer was left untouched
+    /// on the malformed-input path — the property finding 1 threatened:
+    /// a caller that ignores the return code must never be handed
+    /// uninitialised (or, here, stale-sentinel) memory that looks like an
+    /// address.
+    fn call_ffi(spec_buf: &[u8], ent_buf: &[u8]) -> (i32, [u8; 32]) {
+        let mut out = [0xAAu8; 32];
+        let rc = cloister_partition_address(
+            spec_buf.as_ptr(),
+            spec_buf.len(),
+            ent_buf.as_ptr(),
+            ent_buf.len(),
+            out.as_mut_ptr(),
+        );
+        (rc, out)
+    }
+
+    const SENTINEL: [u8; 32] = [0xAA; 32];
+
+    #[test]
+    fn ffi_rejects_unknown_domain_tag() {
+        for bad_tag in [0u8, 4u8] {
+            let spec = encode_spec(bad_tag, 1, "glob-closure/v1", b"\x00");
+            let entries = encode_entries(&[([0u8; 32], 0, 1)]);
+            let (rc, out) = call_ffi(&spec, &entries);
+            assert_ne!(rc, 0, "tag {bad_tag} must be rejected");
+            assert_eq!(out, SENTINEL, "output must be untouched for tag {bad_tag}");
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_spec_with_trailing_bytes() {
+        // This is what stops two different buffers from folding to the
+        // same address: a spec with extra bytes after params must not be
+        // silently truncated and accepted.
+        let mut spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        spec.push(0xFF);
+        let entries = encode_entries(&[([0u8; 32], 0, 1)]);
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "trailing bytes after params must be rejected");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_truncated_entries_buffer() {
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let mut entries = encode_entries(&[([0u8; 32], 0, 1)]);
+        entries.pop(); // one byte short of `8 + 1*48`
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "truncated entries buffer must be rejected");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_declared_count_that_does_not_match_buffer_len() {
+        // Regression test for finding 1 (unchecked `count * REC` overflow).
+        // On wasm32 (32-bit usize), count = 89_478_486 makes
+        // `count * REC` (REC = 48) wrap mod 2^32 to 32, so `8 + 32 = 40`
+        // — a bare 40-byte buffer (count field only, no entry data)
+        // would pass the pre-fix length check and reach
+        // `Vec::with_capacity(89_478_486)` (~4.3GB), which traps under
+        // any realistic wasm memory limit instead of cleanly rejecting.
+        // On this (64-bit) test host the same declared count does not
+        // itself overflow `usize`, so this exercises the ordinary
+        // buffer-length mismatch path — see the next test for a case
+        // that forces `checked_mul` to overflow on any usize width.
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let count: u64 = 89_478_486;
+        let mut entries = Vec::new();
+        entries.extend_from_slice(&count.to_le_bytes());
+        entries.extend_from_slice(&[0u8; 32]); // pad to 40 bytes total
+        assert_eq!(entries.len(), 40);
+
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "overflow-inducing count must be rejected, not trapped");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_count_that_overflows_checked_mul_on_any_usize_width() {
+        // Complements the test above with a declared count sized relative
+        // to usize::MAX rather than a fixed wasm32-specific literal, so
+        // `count.checked_mul(REC)` genuinely overflows and returns `None`
+        // on whatever width `usize` has for the host running this test —
+        // this is what actually exercises the `checked_mul` branch added
+        // by the fix, rather than merely a length mismatch.
+        const REC: u64 = 32 + 8 + 8;
+        let count = (usize::MAX as u64 / REC) + 2;
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let mut entries = Vec::new();
+        entries.extend_from_slice(&count.to_le_bytes());
+        entries.extend_from_slice(&[0u8; 8]); // deliberately far short of the declared count
+
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "checked_mul overflow must be rejected, not trapped");
+        assert_eq!(out, SENTINEL);
     }
 }

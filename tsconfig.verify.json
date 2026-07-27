@@ -34,6 +34,11 @@
     // confinement-digest.ts imports cas-hash (BLAKE3 via wasm) for the §7
     // confinementDigest; same reason — it's not part of the wire codec the
     // substrate-equivalence smoke exercises. Excluded per cloister-c80953.
-    "src/wire/confinement-digest.ts"
+    "src/wire/confinement-digest.ts",
+    // partition.ts imports cloister_cas.wasm directly (the partition-fold
+    // FFI export), same NodeNext-vs-Bundler resolution mismatch as
+    // cas-hash.ts above. Not part of the wire codec the substrate-
+    // equivalence smoke exercises. Excluded per cloister-bc5640.
+    "src/wire/partition.ts"
   ]
 }

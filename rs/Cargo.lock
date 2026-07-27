@@ -316,6 +316,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "leyline-cas-ffi",
+ "leyline-core 0.10.4",
  "leyline-schema-bridge",
  "leyline-sign",
  "rand",
@@ -877,6 +878,19 @@ dependencies = [
 name = "leyline-core"
 version = "0.8.0"
 source = "git+https://github.com/agentic-research/ley-line-open?rev=f62a54307c6c6d6d4e39c333a19b8913f8826c61#f62a54307c6c6d6d4e39c333a19b8913f8826c61"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "bytemuck",
+ "memmap2",
+ "parking_lot",
+ "serde",
+]
+
+[[package]]
+name = "leyline-core"
+version = "0.10.4"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=452261577ab7a86c5b23f025b520a772098eada9#452261577ab7a86c5b23f025b520a772098eada9"
 dependencies = [
  "anyhow",
  "blake3",
