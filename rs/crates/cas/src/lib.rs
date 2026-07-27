@@ -29,6 +29,22 @@
 // crate's .wasm just as if we defined it here.
 pub use leyline_cas_ffi::ffi::leyline_hash_bytes;
 
+use leyline_core::partition::{Domain, Entry, PartitionSpec};
+use leyline_core::substrate::Hash;
+
+/// Map the wire's 1-byte domain tag to upstream's `Domain` enum. Kept
+/// private — this is a bridge-crate convenience for decoding the FFI's
+/// wire format, not a public surface (cloister-bc5640 controller
+/// resolution; no test-only export per Task 2).
+fn domain_from_tag(tag: u8) -> Option<Domain> {
+    match tag {
+        1 => Some(Domain::ByteStream),
+        2 => Some(Domain::ChunkSet),
+        3 => Some(Domain::RowSet),
+        _ => None,
+    }
+}
+
 // ── wasm32 linear-memory management ────────────────────────────────────
 //
 // Mirrors crates/sign/src/ffi.rs::{lsign_alloc, lsign_free}. The wasm32
@@ -65,6 +81,70 @@ pub unsafe extern "C" fn cloister_cas_free(ptr: *mut u8, size: usize) {
     }
 }
 
+/// Fold a declared partition into a 32-byte address.
+///
+/// Wire layout for `spec_ptr`: domain tag (1 byte) ‖ canon_version (u32 LE)
+/// ‖ scheme_len (u64 LE) ‖ scheme ‖ params_len (u64 LE) ‖ params.
+/// Wire layout for `entries_ptr`: count (u64 LE) ‖ (addr[32] ‖ a u64 LE ‖ b u64 LE)…
+/// Writes 32 bytes to `out_ptr`. Returns 0 on success, non-zero on malformed input.
+/// On ANY malformed input this returns non-zero WITHOUT writing to `out_ptr`,
+/// so a caller that ignores the code cannot mistake uninitialised memory for
+/// an address.
+#[unsafe(no_mangle)]
+pub extern "C" fn cloister_partition_address(
+    spec_ptr: *const u8, spec_len: usize,
+    entries_ptr: *const u8, entries_len: usize,
+    out_ptr: *mut u8,
+) -> i32 {
+    let spec_buf = unsafe { std::slice::from_raw_parts(spec_ptr, spec_len) };
+    let ent_buf  = unsafe { std::slice::from_raw_parts(entries_ptr, entries_len) };
+
+    // -- spec: tag(1) | canon(4) | scheme_len(8) | scheme | params_len(8) | params
+    let mut o = 0usize;
+    let rd_u64 = |b: &[u8], o: usize| -> Option<u64> {
+        b.get(o..o + 8).map(|s| u64::from_le_bytes(s.try_into().unwrap()))
+    };
+    let tag = match spec_buf.first() { Some(t) => *t, None => return 1 };
+    let domain = match domain_from_tag(tag) { Some(d) => d, None => return 1 };
+    o += 1;
+    let canon_version = match spec_buf.get(o..o + 4) {
+        Some(s) => u32::from_le_bytes(s.try_into().unwrap()),
+        None => return 1,
+    };
+    o += 4;
+    let slen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    o += 8;
+    let scheme = match spec_buf.get(o..o + slen).and_then(|s| std::str::from_utf8(s).ok()) {
+        Some(s) => s.to_string(),
+        None => return 1,
+    };
+    o += slen;
+    let plen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    o += 8;
+    let params = match spec_buf.get(o..o + plen) { Some(s) => s.to_vec(), None => return 1 };
+    o += plen;
+    if o != spec_buf.len() { return 1; }   // trailing bytes are a malformed spec
+
+    // -- entries: count(8) | (addr[32] | a(8) | b(8))…
+    let count = match rd_u64(ent_buf, 0) { Some(v) => v as usize, None => return 1 };
+    const REC: usize = 32 + 8 + 8;
+    if ent_buf.len() != 8 + count * REC { return 1; }
+    let mut entries = Vec::with_capacity(count);
+    for i in 0..count {
+        let base = 8 + i * REC;
+        let mut addr = [0u8; 32];
+        addr.copy_from_slice(&ent_buf[base..base + 32]);
+        let a = u64::from_le_bytes(ent_buf[base + 32..base + 40].try_into().unwrap());
+        let b = u64::from_le_bytes(ent_buf[base + 40..base + 48].try_into().unwrap());
+        entries.push(Entry { addr: Hash::from_bytes(addr), a, b });
+    }
+
+    let spec = PartitionSpec { domain, scheme, params, canon_version };
+    let addr = spec.address(&entries);
+    unsafe { std::ptr::copy_nonoverlapping(addr.as_bytes().as_ptr(), out_ptr, 32) };
+    0
+}
+
 #[cfg(test)]
 mod tests {
     //! Native-target sanity: the re-export carries the symbol and the
@@ -72,14 +152,13 @@ mod tests {
     //! upstream in leyline-cas-ffi; we only need to confirm the bridge
     //! preserves it.
     use super::*;
-    use leyline_core::partition::{Domain, Entry, PartitionSpec};
-    use leyline_core::substrate::Hash;
 
     /// Test-only helper: builds a `PartitionSpec` from primitive fields and
     /// folds `entries` into its address via upstream's `PartitionSpec::address`
     /// (ADR-0032 D2, bridged per ADR-0035 — cloister does not reimplement the
     /// fold). Kept private to this test module rather than exported as a
     /// public `_for_test` symbol (cloister-bc5640 controller resolution).
+    /// Domain-tag mapping is shared with the FFI export via `domain_from_tag`.
     fn partition_address(
         domain_tag: u8,
         scheme: &str,
@@ -87,12 +166,8 @@ mod tests {
         canon_version: u32,
         entries: &[([u8; 32], u64, u64)],
     ) -> [u8; 32] {
-        let domain = match domain_tag {
-            1 => Domain::ByteStream,
-            2 => Domain::ChunkSet,
-            3 => Domain::RowSet,
-            other => panic!("unknown domain tag: {other}"),
-        };
+        let domain = domain_from_tag(domain_tag)
+            .unwrap_or_else(|| panic!("unknown domain tag: {domain_tag}"));
         let spec = PartitionSpec {
             domain,
             scheme: scheme.to_string(),
