@@ -194,16 +194,36 @@ export function partitionAddress(
   const specBytes = encodeSpec(spec);
   const entriesBytes = encodeEntries(entries);
 
-  const specPtr = copyIn(exports, specBytes);
-  const entriesPtr = copyIn(exports, entriesBytes);
-  const outPtr = exports.cloister_cas_alloc(PARTITION_ADDRESS_LEN);
-  if (outPtr === 0) {
-    exports.cloister_cas_free(specPtr, specBytes.length);
-    exports.cloister_cas_free(entriesPtr, entriesBytes.length);
-    throw new CasWasmError("cloister_cas_alloc returned null for output buffer");
-  }
+  // Track every allocation as it happens, so ANY throw during the alloc
+  // sequence — not just inside the final wasm call — frees everything
+  // allocated so far. cas-hash.ts's try/finally is safe with a single
+  // buffer live before the output alloc; this function allocates THREE
+  // buffers in sequence (spec, entries, out), so a throw from the second
+  // copyIn's null-check (or any step in between) must not leak the
+  // first. Building the free list as we go, rather than freeing named
+  // variables in `finally`, makes "every alloc gets exactly one free"
+  // true by construction instead of by enumerating every partial-failure
+  // path by hand.
+  const allocated: Array<{ ptr: number; len: number }> = [];
+  const freeAll = (): void => {
+    for (const { ptr, len } of allocated) {
+      exports.cloister_cas_free(ptr, len);
+    }
+  };
 
   try {
+    const specPtr = copyIn(exports, specBytes);
+    allocated.push({ ptr: specPtr, len: specBytes.length });
+
+    const entriesPtr = copyIn(exports, entriesBytes);
+    allocated.push({ ptr: entriesPtr, len: entriesBytes.length });
+
+    const outPtr = exports.cloister_cas_alloc(PARTITION_ADDRESS_LEN);
+    if (outPtr === 0) {
+      throw new CasWasmError("cloister_cas_alloc returned null for output buffer");
+    }
+    allocated.push({ ptr: outPtr, len: PARTITION_ADDRESS_LEN });
+
     const rc = exports.cloister_partition_address(
       specPtr, specBytes.length,
       entriesPtr, entriesBytes.length,
@@ -216,8 +236,6 @@ export function partitionAddress(
   } finally {
     // Always free; pair every alloc with exactly one free even on throw —
     // wasm leaks persist across requests in a Worker.
-    exports.cloister_cas_free(specPtr, specBytes.length);
-    exports.cloister_cas_free(entriesPtr, entriesBytes.length);
-    exports.cloister_cas_free(outPtr, PARTITION_ADDRESS_LEN);
+    freeAll();
   }
 }

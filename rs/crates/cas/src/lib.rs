@@ -113,22 +113,40 @@ pub extern "C" fn cloister_partition_address(
     };
     o += 4;
     let slen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    let scheme_end = match o.checked_add(8).and_then(|v| v.checked_add(slen)) {
+        Some(v) => v,
+        None => return 1,
+    };
     o += 8;
     let scheme = match spec_buf.get(o..o + slen).and_then(|s| std::str::from_utf8(s).ok()) {
         Some(s) => s.to_string(),
         None => return 1,
     };
-    o += slen;
+    o = scheme_end;
     let plen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    let params_end = match o.checked_add(8).and_then(|v| v.checked_add(plen)) {
+        Some(v) => v,
+        None => return 1,
+    };
     o += 8;
     let params = match spec_buf.get(o..o + plen) { Some(s) => s.to_vec(), None => return 1 };
-    o += plen;
+    o = params_end;
     if o != spec_buf.len() { return 1; }   // trailing bytes are a malformed spec
 
     // -- entries: count(8) | (addr[32] | a(8) | b(8))…
     let count = match rd_u64(ent_buf, 0) { Some(v) => v as usize, None => return 1 };
     const REC: usize = 32 + 8 + 8;
-    if ent_buf.len() != 8 + count * REC { return 1; }
+    // Checked: on wasm32 `usize` is 32-bit, so `count * REC` can wrap
+    // (e.g. count = 89_478_486 wraps `count*REC` to 32, letting a 40-byte
+    // buffer masquerade as a huge one). A wrapped comparison would pass
+    // the length check and then `Vec::with_capacity(count)` would try to
+    // allocate ~4.3GB and trap — turning malformed input into a crash
+    // instead of the clean non-zero rejection this function promises.
+    let expected_len = match count.checked_mul(REC).and_then(|v| v.checked_add(8)) {
+        Some(v) => v,
+        None => return 1,
+    };
+    if ent_buf.len() != expected_len { return 1; }
     let mut entries = Vec::with_capacity(count);
     for i in 0..count {
         let base = 8 + i * REC;
@@ -286,5 +304,140 @@ mod tests {
         assert_eq!(rc, 32);
         let expected = blake3::hash(input);
         assert_eq!(&out[..], expected.as_bytes());
+    }
+
+    // ── cloister_partition_address: malformed-input rejection ────────────
+    //
+    // These are the negative-path tests the reviewer flagged as missing:
+    // every test above this point feeds well-formed input through the
+    // fold. Nothing asserted that malformed input is REJECTED rather than
+    // trapped — which is the exact property the FFI's doc comment
+    // promises and the property finding 1 (unchecked `count * REC`
+    // overflow) violated.
+
+    /// Build a well-formed spec buffer: tag(1) | canon(4 LE) | scheme_len(8 LE)
+    /// | scheme | params_len(8 LE) | params. Mirrors the encoder
+    /// `src/wire/partition.ts` uses on the TS side.
+    fn encode_spec(tag: u8, canon_version: u32, scheme: &str, params: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(tag);
+        out.extend_from_slice(&canon_version.to_le_bytes());
+        out.extend_from_slice(&(scheme.len() as u64).to_le_bytes());
+        out.extend_from_slice(scheme.as_bytes());
+        out.extend_from_slice(&(params.len() as u64).to_le_bytes());
+        out.extend_from_slice(params);
+        out
+    }
+
+    /// Build a well-formed entries buffer: count(8 LE) | (addr[32] | a(8 LE)
+    /// | b(8 LE))…
+    fn encode_entries(entries: &[([u8; 32], u64, u64)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+        for (addr, a, b) in entries {
+            out.extend_from_slice(addr);
+            out.extend_from_slice(&a.to_le_bytes());
+            out.extend_from_slice(&b.to_le_bytes());
+        }
+        out
+    }
+
+    /// Call the FFI export with the output buffer pre-filled with a
+    /// sentinel byte, so a test can assert the buffer was left untouched
+    /// on the malformed-input path — the property finding 1 threatened:
+    /// a caller that ignores the return code must never be handed
+    /// uninitialised (or, here, stale-sentinel) memory that looks like an
+    /// address.
+    fn call_ffi(spec_buf: &[u8], ent_buf: &[u8]) -> (i32, [u8; 32]) {
+        let mut out = [0xAAu8; 32];
+        let rc = cloister_partition_address(
+            spec_buf.as_ptr(),
+            spec_buf.len(),
+            ent_buf.as_ptr(),
+            ent_buf.len(),
+            out.as_mut_ptr(),
+        );
+        (rc, out)
+    }
+
+    const SENTINEL: [u8; 32] = [0xAA; 32];
+
+    #[test]
+    fn ffi_rejects_unknown_domain_tag() {
+        for bad_tag in [0u8, 4u8] {
+            let spec = encode_spec(bad_tag, 1, "glob-closure/v1", b"\x00");
+            let entries = encode_entries(&[([0u8; 32], 0, 1)]);
+            let (rc, out) = call_ffi(&spec, &entries);
+            assert_ne!(rc, 0, "tag {bad_tag} must be rejected");
+            assert_eq!(out, SENTINEL, "output must be untouched for tag {bad_tag}");
+        }
+    }
+
+    #[test]
+    fn ffi_rejects_spec_with_trailing_bytes() {
+        // This is what stops two different buffers from folding to the
+        // same address: a spec with extra bytes after params must not be
+        // silently truncated and accepted.
+        let mut spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        spec.push(0xFF);
+        let entries = encode_entries(&[([0u8; 32], 0, 1)]);
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "trailing bytes after params must be rejected");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_truncated_entries_buffer() {
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let mut entries = encode_entries(&[([0u8; 32], 0, 1)]);
+        entries.pop(); // one byte short of `8 + 1*48`
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "truncated entries buffer must be rejected");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_declared_count_that_does_not_match_buffer_len() {
+        // Regression test for finding 1 (unchecked `count * REC` overflow).
+        // On wasm32 (32-bit usize), count = 89_478_486 makes
+        // `count * REC` (REC = 48) wrap mod 2^32 to 32, so `8 + 32 = 40`
+        // — a bare 40-byte buffer (count field only, no entry data)
+        // would pass the pre-fix length check and reach
+        // `Vec::with_capacity(89_478_486)` (~4.3GB), which traps under
+        // any realistic wasm memory limit instead of cleanly rejecting.
+        // On this (64-bit) test host the same declared count does not
+        // itself overflow `usize`, so this exercises the ordinary
+        // buffer-length mismatch path — see the next test for a case
+        // that forces `checked_mul` to overflow on any usize width.
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let count: u64 = 89_478_486;
+        let mut entries = Vec::new();
+        entries.extend_from_slice(&count.to_le_bytes());
+        entries.extend_from_slice(&[0u8; 32]); // pad to 40 bytes total
+        assert_eq!(entries.len(), 40);
+
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "overflow-inducing count must be rejected, not trapped");
+        assert_eq!(out, SENTINEL);
+    }
+
+    #[test]
+    fn ffi_rejects_count_that_overflows_checked_mul_on_any_usize_width() {
+        // Complements the test above with a declared count sized relative
+        // to usize::MAX rather than a fixed wasm32-specific literal, so
+        // `count.checked_mul(REC)` genuinely overflows and returns `None`
+        // on whatever width `usize` has for the host running this test —
+        // this is what actually exercises the `checked_mul` branch added
+        // by the fix, rather than merely a length mismatch.
+        const REC: u64 = 32 + 8 + 8;
+        let count = (usize::MAX as u64 / REC) + 2;
+        let spec = encode_spec(3, 1, "glob-closure/v1", b"\x00");
+        let mut entries = Vec::new();
+        entries.extend_from_slice(&count.to_le_bytes());
+        entries.extend_from_slice(&[0u8; 8]); // deliberately far short of the declared count
+
+        let (rc, out) = call_ffi(&spec, &entries);
+        assert_ne!(rc, 0, "checked_mul overflow must be rejected, not trapped");
+        assert_eq!(out, SENTINEL);
     }
 }
