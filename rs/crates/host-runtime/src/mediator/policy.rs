@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Policy — the confinement/v1 fs allowlist, flattened to path-prefix sets. Read
+// Host-runtime policy — the confinement/v1 fs allowlist, flattened to path-prefix sets. Read
 // = every `fs.allow` entry; write = the `mode:"rw"` subset. Prefix matching is
 // PATH-BOUNDARY-AWARE (a prefix `/skills` grants `/skills/x` but NOT
 // `/skillsomething`) — applying the 2026-07-14 math-friend scope lesson.
@@ -27,7 +27,11 @@ impl Policy {
         // under a prefix nor an ancestor of one, so it stays denied (+ un-receipted).
         let id = {
             let t = id.trim_end_matches('/');
-            if t.is_empty() { "/" } else { t }
+            if t.is_empty() {
+                "/"
+            } else {
+                t
+            }
         };
         id == "/"
             || self.read_prefixes.iter().any(|p| {
@@ -79,7 +83,10 @@ impl From<&ConfinementFs> for Policy {
                 }
             }
         }
-        Policy { read_prefixes, write_prefixes }
+        Policy {
+            read_prefixes,
+            write_prefixes,
+        }
     }
 }
 
@@ -130,8 +137,14 @@ mod tests {
         let fs = ConfinementFs {
             allow: vec![
                 FsEntry::Ro("/skills".into()),
-                FsEntry::Rw { path: "/work".into(), mode: "rw".into() },
-                FsEntry::Rw { path: "/ro".into(), mode: "ro".into() },
+                FsEntry::Rw {
+                    path: "/work".into(),
+                    mode: "rw".into(),
+                },
+                FsEntry::Rw {
+                    path: "/ro".into(),
+                    mode: "ro".into(),
+                },
             ],
         };
         let p = Policy::from(&fs);

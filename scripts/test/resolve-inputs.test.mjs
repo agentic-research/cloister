@@ -816,11 +816,13 @@ test("deriveGeneratedBackends: inherits urlBinding/serviceBinding from input spe
     ...specDefaults({ name: "withBindings" }),
     urlBinding:     "LLO_MCP_URL",
     serviceBinding: "LLO_MCP",
+    requiresSession: true,
   };
   const rows = deriveGeneratedBackends(spec, meta);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].urlBinding, "LLO_MCP_URL");
   assert.equal(rows[0].serviceBinding, "LLO_MCP");
+  assert.equal(rows[0].requiresSession, true);
 });
 
 test("deriveGeneratedBackends: missing urlBinding/serviceBinding leaves them as empty string", () => {
@@ -828,6 +830,7 @@ test("deriveGeneratedBackends: missing urlBinding/serviceBinding leaves them as 
   const rows = deriveGeneratedBackends(specDefaults({ name: "noBindings" }), meta);
   assert.equal(rows[0].urlBinding, "");
   assert.equal(rows[0].serviceBinding, "");
+  assert.equal("requiresSession" in rows[0], false);
 });
 
 // ── deriveGeneratedBackends — heuristic fallback (no _meta) ──────────────

@@ -122,6 +122,7 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 
 import { parse as parseToml } from "@iarna/toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
 import { resolveTenancy } from "./emit-compose.mjs";
 
 const REPO = process.cwd();
@@ -927,11 +928,7 @@ function checkInvariant11(cluster, violations) {
     for (const e of c.fs?.allow ?? []) {
       const path = typeof e === "string" ? e : e?.path;
       const mode = typeof e === "string" ? "" : (e?.mode ?? "");
-      if (
-        typeof path !== "string" ||
-        !path.startsWith("/") ||
-        path.split("/").some((s) => s === "." || s === "..")
-      ) {
+      if (!isCanonicalAbsolutePath(path)) {
         violations.push(
           `${where}: fs.allow ${JSON.stringify(path)} is not an absolute canonical ` +
             `prefix (Inv 11, confinement/v1 §2).`,

@@ -15,14 +15,13 @@ publish = false
 name = "cloister_mediator"
 
 [dependencies]
-# Consume ONLY the public `graph::Graph` trait. default-features=false drops
-# fuse (fuser/macFUSE), nfs (nfsserve) + validate (tree-sitter) — the decorator
-# is transport-agnostic and needs only the trait + Node. The nfs feature is added
-# back for the mount bin (Task 5), not for the decorator + its tests.
+# Compatibility facade over the canonical ADR-0049 runtime crate.
+cloister-host-runtime = { path = "../../rs/crates/host-runtime" }
+
+# The temporary NFS mount binary and its tests still construct the LLO data
+# plane directly. The production host runtime replaces this NFS/sudo hop with
+# the in-process fuse-backend-rs adapter.
 leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "f62a54307c6c6d6d4e39c333a19b8913f8826c61", version = "0.8.0", package = "leyline-fs", default-features = false }
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-parking_lot = "0.12"
 
 # The `nfs` feature enables the mount bin: leyline-fs's `nfsserve` presentation
 # (macOS-native, kext-free) + a tokio runtime. OFF by default so the decorator +

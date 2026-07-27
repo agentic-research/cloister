@@ -1,6 +1,6 @@
 // Structural pin: the rsry_* mcpProxy backend is declared in the
 // canonical manifest, per ADR-0033. This test exists so a future
-// edit that drops the route (manual or via emit drift) fails loudly
+// edit that drops the upstream-derived route fails loudly
 // at lint time, not silently at production-traffic time.
 //
 // Tracking bead: cloister-c2bd47 (ADR-0033 implementation).
@@ -20,14 +20,14 @@ describe("ADR-0033 / cloister-c2bd47 — rsry_* mcpProxy backend pinned in manif
     ? mcpRoute.kind.mcp.backends
     : [];
 
-  it("rsry backend is declared with handlesPrefix='rsry_'", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+  it("upstream-derived rosary backend is declared with handlesPrefix='rsry_'", () => {
+    const rsry = backends.find((b) => b.name === "rosary");
     expect(rsry).toBeDefined();
     expect(rsry?.handlesPrefix).toBe("rsry_");
   });
 
   it("rsry backend kind is mcpProxy (not durableObject), routing to ROSARY_BUNDLE", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+    const rsry = backends.find((b) => b.name === "rosary");
     expect(rsry).toBeDefined();
     expect(rsry && "mcpProxy" in rsry.kind).toBe(true);
     if (rsry && "mcpProxy" in rsry.kind) {
@@ -37,28 +37,28 @@ describe("ADR-0033 / cloister-c2bd47 — rsry_* mcpProxy backend pinned in manif
   });
 
   it("rsry backend declares dynamicTools=true (full rsry catalog flows through tools/list)", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+    const rsry = backends.find((b) => b.name === "rosary");
     if (rsry && "mcpProxy" in rsry.kind) {
       expect(rsry.kind.mcpProxy.dynamicTools).toBe(true);
     }
   });
 
-  it("rsry backend stripPrefix is empty (rsry's own names are already rsry_*)", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+  it("rsry backend omits stripPrefix (rsry's own names are already rsry_*)", () => {
+    const rsry = backends.find((b) => b.name === "rosary");
     if (rsry && "mcpProxy" in rsry.kind) {
-      expect(rsry.kind.mcpProxy.stripPrefix).toBe("");
+      expect(rsry.kind.mcpProxy.stripPrefix).toBeUndefined();
     }
   });
 
   it("rsry backend requires an MCP Streamable HTTP session", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+    const rsry = backends.find((b) => b.name === "rosary");
     if (rsry && "mcpProxy" in rsry.kind) {
       expect(rsry.kind.mcpProxy.requiresSession).toBe(true);
     }
   });
 
   it("rsry backend claims include core bead operations (operator-declared static surface)", () => {
-    const rsry = backends.find((b) => b.name === "rsry");
+    const rsry = backends.find((b) => b.name === "rosary");
     if (rsry && "mcpProxy" in rsry.kind) {
       const claims = rsry.kind.mcpProxy.claims;
       // Core bead-substrate operations every consumer relies on.
@@ -77,13 +77,13 @@ describe("ADR-0033 / cloister-c2bd47 — rsry_* mcpProxy backend pinned in manif
     }
   });
 
-  it("rsry backend is the SECOND mcp backend (bead_* DurableObject stays first; ADR-0033 D5 coexistence)", () => {
+  it("upstream-derived rosary and bead_* DurableObject backends coexist (ADR-0033 D5)", () => {
     // Per ADR-0033 D5: the bead_* mcpProxy (cloister BeadStore DO) is
     // not deprecated — it coexists with rsry_*. This pins the
     // coexistence by asserting both backends remain in the route's
     // backend list.
     const beadDo = backends.find((b) => b.name === "bead");
-    const rsry   = backends.find((b) => b.name === "rsry");
+    const rsry   = backends.find((b) => b.name === "rosary");
     expect(beadDo).toBeDefined();
     expect(rsry).toBeDefined();
     expect(beadDo && "durableObject" in beadDo.kind).toBe(true);

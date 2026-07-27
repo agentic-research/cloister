@@ -88,6 +88,7 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     urlBinding: z.string(),
     serviceBinding: z.string(),
     tenancy: TenancySpecSchema,
+    requiresSession: z.boolean(),
   }).strict());
 
 export interface InputSpec {
@@ -101,6 +102,7 @@ export interface InputSpec {
   urlBinding: string;
   serviceBinding: string;
   tenancy: TenancySpec;
+  requiresSession: boolean;
 }
 
 export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
@@ -196,6 +198,8 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     httpPort: z.number().int().nonnegative(),
     args: z.array(z.string()).readonly(),
     env: z.array(EnvVarSchema).readonly(),
+    entryPoint: z.string(),
+    executionMode: z.string(),
   }).strict());
 
 export interface ExternalBundle {
@@ -204,6 +208,8 @@ export interface ExternalBundle {
   httpPort: number;
   args: readonly string[];
   env: readonly EnvVar[];
+  entryPoint: string;
+  executionMode: string;
 }
 
 export const ConfinementSchema: z.ZodType<Confinement> = z.lazy(() =>

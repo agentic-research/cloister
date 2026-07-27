@@ -493,6 +493,7 @@ function normalizeInputDefaults(spec) {
     requires:       Array.isArray(spec.requires) ? spec.requires : [],
     urlBinding:     typeof spec.urlBinding === "string" ? spec.urlBinding : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
+    requiresSession: spec.requiresSession === true,
     tenancy: {
       mode:              typeof rawTenancy.mode      === "string" ? rawTenancy.mode      : "",
       workerdId:         typeof rawTenancy.workerdId === "string" ? rawTenancy.workerdId : "",
@@ -588,6 +589,10 @@ function normalizeBundleDefaults(bundle) {
           httpPort:  typeof external.httpPort  === "number" ? external.httpPort  : 0,
           args:      Array.isArray(external.args) ? external.args : [],
           env:       Array.isArray(external.env)  ? external.env  : [],
+          entryPoint: typeof external.entryPoint === "string" ? external.entryPoint : "",
+          executionMode: typeof external.executionMode === "string"
+            ? external.executionMode
+            : "",
         },
       },
     };

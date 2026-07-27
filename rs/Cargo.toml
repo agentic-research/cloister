@@ -20,5 +20,6 @@
 [workspace]
 members = [
   "crates/cas",
+  "crates/host-runtime",
 ]
 resolver = "2"

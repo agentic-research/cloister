@@ -113,6 +113,8 @@ export interface InputSpec {
    * `internet` ACL. Per cloister-05334b.
    */
   serviceBinding: string;
+  /** Require MCP initialize + Mcp-Session-Id on generated backends. */
+  requiresSession: boolean;
   /**
    * Composable tenancy declaration (ADR-0030 §A5 / cloister-0e3004).
    * Operator-set fields override the input's server.json
@@ -302,6 +304,10 @@ export interface ExternalBundle {
   args:      readonly string[];
   /** Container environment variables. */
   env:       readonly EnvVar[];
+  /** Absolute executable path inside the guest rootfs. */
+  entryPoint: string;
+  /** Exact host-runtime backend: "microvm" or "process". */
+  executionMode: string;
 }
 
 export interface EnvVar {

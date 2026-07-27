@@ -14,14 +14,17 @@ importers:
   .:
     dependencies:
       '@agentic-research/dpop':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: 0.3.0
+        version: 0.3.0
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
       cbor-x:
         specifier: ^1.6.4
         version: 1.6.4
+      chalk:
+        specifier: ^5.6.2
+        version: 5.6.2
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -53,8 +56,8 @@ importers:
 
 packages:
 
-  '@agentic-research/dpop@0.2.0':
-    resolution: {integrity: sha512-c0l/kGk1LwosKbVv405n5i9O0IoAerwnIq3JW7jmkRO9Wnt0gcGST27RV89dsJV/GcxEf0UPoVWTzJnXjbKsiA==}
+  '@agentic-research/dpop@0.3.0':
+    resolution: {integrity: sha512-8f5IVOSN4N3zvDxTkHjRcOM2SHJd5oMDbLHTgweYLFwRChb1kQaITu2SpJo4XQG6SYAOLMDRZmjKN0SjoLxiCA==}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     resolution: {integrity: sha512-ZKZ/F8US7JR92J4DMct6cLW/Y66o2K576+zjlEN/MevH70bFIsB10wkZEQPLzl2oNh2SMGy55xpJ9JoBRl5DOA==}
@@ -745,6 +748,10 @@ packages:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
 
+  chalk@5.6.2:
+    resolution: {integrity: sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA==}
+    engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
+
   cjs-module-lexer@1.4.3:
     resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
 
@@ -1132,7 +1139,7 @@ packages:
 
 snapshots:
 
-  '@agentic-research/dpop@0.2.0': {}
+  '@agentic-research/dpop@0.3.0': {}
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
     optional: true
@@ -1588,6 +1595,8 @@ snapshots:
       cbor-extract: 2.2.2
 
   chai@6.2.2: {}
+
+  chalk@5.6.2: {}
 
   cjs-module-lexer@1.4.3: {}
 

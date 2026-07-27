@@ -714,6 +714,7 @@ export function deriveStripPrefix(group) {
 export function deriveGeneratedBackends(spec, meta) {
   const urlBinding     = typeof spec.urlBinding     === "string" ? spec.urlBinding     : "";
   const serviceBinding = typeof spec.serviceBinding === "string" ? spec.serviceBinding : "";
+  const requiresSession = spec.requiresSession === true;
 
   if (meta === null) {
     // Heuristic fallback: one backend, claims=[] (legacy claim-all),
@@ -728,6 +729,7 @@ export function deriveGeneratedBackends(spec, meta) {
       dynamicTools:   true,
       urlBinding,
       serviceBinding,
+      ...(requiresSession ? { requiresSession: true } : {}),
     }];
   }
 
@@ -747,6 +749,7 @@ export function deriveGeneratedBackends(spec, meta) {
     dynamicTools:   true,
     urlBinding,
     serviceBinding,
+    ...(requiresSession ? { requiresSession: true } : {}),
   }));
 }
 
@@ -847,6 +850,7 @@ async function main() {
     // emitter's job.
     urlBinding:     typeof spec.urlBinding     === "string" ? spec.urlBinding     : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
+    requiresSession: spec.requiresSession === true,
     provides:       Array.isArray(spec.provides) ? spec.provides : [],
     requires:       Array.isArray(spec.requires) ? spec.requires : [],
   }));

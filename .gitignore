@@ -92,5 +92,6 @@ __pycache__/
 .dev.vars
 .harness-dev/
 .harness-policy.json
+.cloister/
 # S1 confinement binary build dir (tools/harness-sandbox is a standalone crate)
 tools/harness-sandbox/target/

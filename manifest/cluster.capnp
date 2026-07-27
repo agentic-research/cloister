@@ -261,6 +261,15 @@ struct ExternalBundle {
 
   # Environment variables to set inside the container. KV pairs.
   env @4 :List(EnvVar);
+
+  # Absolute binary path inside the guest rootfs. Host-runtime launch-plan
+  # emission refuses to guess this from a bundle name or mutable image tag.
+  entryPoint @5 :Text;
+
+  # Enforcement backend requested by the operator. Current values are
+  # "microvm" and "process"; the host runtime selects exactly and never
+  # substitutes a weaker backend.
+  executionMode @6 :Text;
 }
 
 struct EnvVar {
@@ -467,6 +476,11 @@ struct InputSpec {
   #
   # Append-only ordinal per ADR-0004.
   tenancy @9 :TenancySpec;
+
+  # Operator transport override for MCP servers that require the
+  # Streamable HTTP initialize/session handshake (for example mcp-go).
+  # Threaded into every generated backend derived from this input.
+  requiresSession @10 :Bool;
 }
 
 # ── TenancySpec (ADR-0030 §A5 / cloister-0e3004) ─────────────────────────

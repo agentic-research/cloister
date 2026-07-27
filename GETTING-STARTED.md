@@ -24,8 +24,9 @@ Optional, only needed if you want the relevant backends working:
 | ----------------------------- | --------------------------------------------------------- |
 | `ley-line-open` daemon        | `lsp_*` + `reparse` / `enrich` / `status` MCP tools       |
 | `notme` worker                | `/identity/*` proxy (JWT, passkeys, agent certs)          |
-| `rosary` MCP HTTP             | future passthrough of orchestration tools                 |
+| `rosary` MCP HTTP             | `rsry_*` orchestration, bead, and dispatch tools           |
 | `workerd` binary              | running directly without wrangler / Cloudflare account    |
+| `krunvm` + Buildah (macOS)    | digest-pinned external tools in separate microVMs          |
 
 ## 2. Install + bootstrap
 
@@ -153,6 +154,47 @@ All three paths bind cloister-router on `:8787`. Storage paths differ
 slightly (`wrangler` uses `.wrangler/state/...`, `workerd` uses
 `/data/do` per `config.capnp`, `cluster:dev` uses
 `$HOME/.cache/cloister-dev/do/`); the DO API is identical.
+
+### Optional path D — external tools in krunvm (macOS)
+
+This path isolates an external OCI tool separately from the local
+Cloister router. It is not required for Wrangler, direct `workerd`, or
+the native-process cluster path.
+
+```sh
+task runtime:storage:init -- --print  # inspect hdiutil actions
+task runtime:storage:init -- --yes    # create/attach the bounded volume
+task runtime:build
+task runtime:plan -- mache --workspace "$PWD" --output /tmp/mache-plan.json
+task runtime:doctor
+task runtime:run -- /tmp/mache-plan.json
+```
+
+The default storage is `.cloister/krunvm.sparsebundle`, mounted at
+`/Volumes/krunvm`, with a 3 GiB logical ceiling. It grows on demand; it
+does not reserve 3 GiB immediately. Override the mounted volume for the
+Rust operator with `CLOISTER_KRUNVM_VOLUME`.
+
+The generated plan requires an immutable `sha256:` OCI digest, a
+canonical workspace path, and a numeric loopback guest bind. The Rust
+runtime verifies `krunvm inspect` against the exact `image@digest`
+before starting, persists a versioned restriction record under a file
+lock, and never substitutes a native subprocess for microVM mode.
+
+Inspect before reclaiming:
+
+```sh
+task runtime:storage:status
+task runtime:storage:gc -- --print
+task runtime:storage:gc -- --yes
+```
+
+`--yes` deletes only tracked, inactive, superseded VM state, then asks
+Buildah to prune through explicit `root` and `runroot` paths. Unknown or
+still-referenced state is protected. Complete per-operation filesystem
+mediation through the LLO-backed `ConfinementGraph` remains separate
+follow-on work; this shipped path is coarse isolation at the external
+tool VM boundary.
 
 ### Editing the cluster shape
 

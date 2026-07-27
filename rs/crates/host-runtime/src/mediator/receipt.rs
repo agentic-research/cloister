@@ -4,7 +4,7 @@
 // content-addressed read. Wiring to cloister's real audit sink (the one the
 // vault-proxy's ProxyCallReceipt uses) is the integration step; this is the
 // shape + a recording sink for tests.
-use crate::graph::ReceiptSink;
+use crate::mediator::graph::ReceiptSink;
 use parking_lot::Mutex;
 
 #[derive(Debug, Clone)]

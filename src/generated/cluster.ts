@@ -50,7 +50,9 @@ export const cluster: Cluster = {
           "ipcSocket": "/run/cloister-uds/router.sock",
           "httpPort": 8787,
           "args": [],
-          "env": []
+          "env": [],
+          "entryPoint": "",
+          "executionMode": ""
         }
       }
     },
@@ -81,7 +83,9 @@ export const cluster: Cluster = {
           "ipcSocket": "",
           "httpPort": 8788,
           "args": [],
-          "env": []
+          "env": [],
+          "entryPoint": "",
+          "executionMode": ""
         }
       }
     },
@@ -95,14 +99,19 @@ export const cluster: Cluster = {
       "perTenant": false,
       "confinement": {
         "fs": {
-          "allow": []
+          "allow": [
+            {
+              "path": "/workspace",
+              "mode": "rw"
+            }
+          ]
         },
         "network": {
           "allowHosts": []
         },
         "port": {
-          "bind": 0,
-          "address": ""
+          "bind": 7532,
+          "address": "127.0.0.1"
         },
         "credentialSource": ""
       },
@@ -114,9 +123,13 @@ export const cluster: Cluster = {
           "args": [
             "serve",
             "--http",
-            "localhost:7532"
+            "127.0.0.1:7532",
+            "--path",
+            "/workspace"
           ],
-          "env": []
+          "env": [],
+          "entryPoint": "/usr/local/bin/mache",
+          "executionMode": "microvm"
         }
       }
     },
@@ -151,7 +164,9 @@ export const cluster: Cluster = {
             "--ipc-socket",
             "/run/cloister-uds/rosary.sock"
           ],
-          "env": []
+          "env": [],
+          "entryPoint": "",
+          "executionMode": ""
         }
       }
     }
@@ -201,7 +216,8 @@ export const cluster: Cluster = {
         "workerdId": "",
         "trustedTier": false,
         "sharesWorkerdWith": []
-      }
+      },
+      "requiresSession": false
     },
     {
       "name": "mache",
@@ -218,7 +234,8 @@ export const cluster: Cluster = {
         "workerdId": "",
         "trustedTier": false,
         "sharesWorkerdWith": []
-      }
+      },
+      "requiresSession": false
     },
     {
       "name": "rosary",
@@ -229,13 +246,14 @@ export const cluster: Cluster = {
       "provides": [],
       "requires": [],
       "urlBinding": "ROSARY_MCP_URL",
-      "serviceBinding": "ROSARY_MCP",
+      "serviceBinding": "ROSARY_BUNDLE",
       "tenancy": {
         "mode": "",
         "workerdId": "",
         "trustedTier": false,
         "sharesWorkerdWith": []
-      }
+      },
+      "requiresSession": true
     },
     {
       "name": "canonical-hours",
@@ -252,7 +270,8 @@ export const cluster: Cluster = {
         "workerdId": "",
         "trustedTier": false,
         "sharesWorkerdWith": []
-      }
+      },
+      "requiresSession": false
     }
   ],
   "routes": [
@@ -359,58 +378,6 @@ export const cluster: Cluster = {
                       "description": "Add a comment to a bead.",
                       "inputSchemaJson": ""
                     }
-                  ]
-                }
-              }
-            },
-            {
-              "name": "rsry",
-              "handlesPrefix": "rsry_",
-              "kind": {
-                "mcpProxy": {
-                  "urlBinding": "ROSARY_MCP_URL",
-                  "tools": [],
-                  "dynamicTools": true,
-                  "stripPrefix": "",
-                  "requiresSession": true,
-                  "protocolMode": "",
-                  "serviceBinding": "ROSARY_BUNDLE",
-                  "claims": [
-                    "rsry_bead_create",
-                    "rsry_bead_search",
-                    "rsry_bead_close",
-                    "rsry_bead_update",
-                    "rsry_bead_comment",
-                    "rsry_bead_comment_list",
-                    "rsry_bead_comment_update",
-                    "rsry_bead_comment_delete",
-                    "rsry_bead_link",
-                    "rsry_bead_import",
-                    "rsry_list_beads",
-                    "rsry_status",
-                    "rsry_active",
-                    "rsry_dispatch",
-                    "rsry_dispatch_record",
-                    "rsry_dispatch_history",
-                    "rsry_scan",
-                    "rsry_review",
-                    "rsry_run_once",
-                    "rsry_decompose",
-                    "rsry_decade_list",
-                    "rsry_decade_create",
-                    "rsry_thread_list",
-                    "rsry_thread_create",
-                    "rsry_thread_assign",
-                    "rsry_thread_reparent",
-                    "rsry_workspace_create",
-                    "rsry_workspace_checkpoint",
-                    "rsry_workspace_cleanup",
-                    "rsry_workspace_merge",
-                    "rsry_repo_list",
-                    "rsry_repo_register",
-                    "rsry_pipeline_query",
-                    "rsry_pipeline_upsert",
-                    "rsry_ticket_load"
                   ]
                 }
               }

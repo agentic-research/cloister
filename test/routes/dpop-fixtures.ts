@@ -81,6 +81,8 @@ export async function mintToken(opts: {
 
 /** Build + sign an ES256 DPoP proof JWT (notme's real proof shape). */
 export async function buildProof(opts: {
+  /** Exact compact access-token bytes presented with this protected-resource proof. */
+  accessToken?: string;
   keyPair: CryptoKeyPair;
   jwk: JsonWebKey;
   htm: string;
@@ -93,6 +95,15 @@ export async function buildProof(opts: {
     htm: opts.htm,
     htu: opts.htu,
     iat: Math.floor(Date.now() / 1000),
+    ...(opts.accessToken
+      ? {
+          ath: base64urlEncode(
+            new Uint8Array(
+              await crypto.subtle.digest("SHA-256", new TextEncoder().encode(opts.accessToken)),
+            ),
+          ),
+        }
+      : {}),
     ...opts.payloadOverrides,
   };
   const headerB64 = b64urlStr(JSON.stringify(header));
