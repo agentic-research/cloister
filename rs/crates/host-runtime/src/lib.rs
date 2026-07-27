@@ -3,7 +3,7 @@
 pub mod mediator;
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -115,25 +115,25 @@ impl LaunchPlan {
                 "artifact requires an immutable sha256 digest".into(),
             ));
         }
-        if !PathBuf::from(&self.artifact.entrypoint).is_absolute() {
+        if !is_canonical_absolute_path(Path::new(&self.artifact.entrypoint)) {
             return Err(RuntimeError::InvalidPlan(
-                "artifact.entrypoint must be an absolute guest path".into(),
+                "artifact.entrypoint must be a canonical absolute guest path".into(),
             ));
         }
-        if !self.workspace.is_absolute() {
+        if !is_canonical_absolute_path(&self.workspace) {
             return Err(RuntimeError::InvalidPlan(
-                "workspace must be an absolute host path".into(),
+                "workspace must be a canonical absolute host path".into(),
             ));
         }
-        if !self.control_socket.is_absolute() {
+        if !is_canonical_absolute_path(&self.control_socket) {
             return Err(RuntimeError::InvalidPlan(
-                "controlSocket must be an absolute host path".into(),
+                "controlSocket must be a canonical absolute host path".into(),
             ));
         }
         for entry in &self.confinement.fs.allow {
-            if !PathBuf::from(&entry.path).is_absolute() {
+            if !is_canonical_absolute_path(Path::new(&entry.path)) {
                 return Err(RuntimeError::InvalidPlan(format!(
-                    "confinement fs path must be absolute: {:?}",
+                    "confinement fs path must be canonical and absolute: {:?}",
                     entry.path
                 )));
             }
@@ -146,6 +146,13 @@ impl LaunchPlan {
         }
         Ok(())
     }
+}
+
+fn is_canonical_absolute_path(path: &Path) -> bool {
+    path.is_absolute()
+        && path
+            .to_str()
+            .is_some_and(|value| !value.split('/').any(|part| part == "." || part == ".."))
 }
 
 fn is_sha256_digest(value: &str) -> bool {

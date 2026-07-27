@@ -42,8 +42,8 @@ address = "127.0.0.1"
 bind = 7_532
 
   [bundles.external]
-  args = [ "serve", "--http", "localhost:7532" ]
-  entryPoint = "/usr/bin/mache"
+  args = [ "serve", "--http", "localhost:7532", "--path", "/workspace" ]
+  entryPoint = "/usr/local/bin/mache"
   executionMode = "microvm"
   httpPort = 7_532
 

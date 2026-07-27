@@ -42,6 +42,7 @@ import { createInterface } from "node:readline/promises";
 
 import { parse as parseToml } from "@iarna/toml";
 import chalk from "chalk";
+import { ociImageRef } from "./lib/oci-artifact.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "..");
@@ -58,12 +59,7 @@ const LOCKFILE_PATH = process.env.CLOISTER_LOCKFILE
  * Exported for unit tests.
  */
 export function ociPullRef(oci) {
-  if (!oci || typeof oci !== "object") return null;
-  const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
-  if (!identifier) return null;
-  if (oci.digest)  return `${identifier}@${oci.digest}`;
-  if (oci.version) return `${identifier}:${oci.version}`;
-  return identifier;
+  return ociImageRef(oci);
 }
 
 /**
@@ -97,9 +93,20 @@ export function parsePullArgs(argv) {
     else if (arg === "--yes" || arg === "-y") opts.yes = true;
     else if (arg === "--allow-unpinned") opts.allowUnpinned = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
+    else if (!arg.startsWith("-")) (opts.inputs ??= []).push(arg);
     else throw new Error(`unknown argument: ${arg}`);
   }
   return opts;
+}
+
+export function selectOciRefs(rows, inputNames = []) {
+  if (inputNames.length === 0) return rows;
+  const requested = new Set(inputNames);
+  const selected = rows.filter((row) => requested.delete(row.name));
+  if (requested.size > 0) {
+    throw new Error(`unknown input selection: ${[...requested].join(", ")}`);
+  }
+  return selected;
 }
 
 export function validatePullSafety(rows, { allowUnpinned }) {
@@ -126,13 +133,15 @@ function detectRuntime() {
 }
 
 function printHelp(log) {
-  log("Usage: cloister artifacts pull [--print] [--yes] [--allow-unpinned]");
+  log("Usage: cloister artifacts pull [input ...] [--print] [--yes] [--allow-unpinned]");
   log("");
   log("Materialize the OCI artifacts pinned by cluster.lock.toml.");
   log("");
   log("  --print             Preview the acquisition plan; download nothing");
   log("  -y, --yes           Approve the displayed plan (required without a TTY)");
   log("  --allow-unpinned    Permit mutable tag/bare refs (unsafe downgrade)");
+  log("");
+  log("Input names scope the plan without weakening unrelated mutable references.");
 }
 
 function printPlan(rows, log = console.log) {
@@ -197,7 +206,13 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     return 2;
   }
 
-  const rows = collectOciRefs(doc);
+  let rows;
+  try {
+    rows = selectOciRefs(collectOciRefs(doc), opts.inputs);
+  } catch (e) {
+    error(`pull-inputs: ${e.message}`);
+    return 2;
+  }
   const withImage = rows.filter((r) => r.ref);
   const noImage = rows.filter((r) => !r.ref);
 

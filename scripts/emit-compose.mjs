@@ -37,6 +37,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { parse as parseToml } from "@iarna/toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveBundleImage } from "./lib/oci-artifact.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -314,16 +315,9 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
  *   3. else warn loudly and return the (empty) `ext.image` — `compose up`
  *      fails, not this emitter, and a blank image is never shipped silently.
  */
-function resolveBundleImage(ext, colocatedInputs, ociByInput, bundleName) {
-  if (ext.image) return ext.image;
-  for (const inputName of colocatedInputs) {
-    const oci = ociByInput.get(inputName);
-    if (oci && oci.identifier) {
-      if (oci.digest)  return `${oci.identifier}@${oci.digest}`;
-      if (oci.version) return `${oci.identifier}:${oci.version}`;
-      return oci.identifier;
-    }
-  }
+function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName) {
+  const image = resolveBundleImage(ext.image, colocatedInputs, ociByInput);
+  if (image) return image;
   console.warn(
     `emit-compose: bundle "${bundleName}" has no image — no operator ext.image ` +
     `and no packages[].oci from a linked input (${colocatedInputs.join(", ") || "none"}). ` +
@@ -356,7 +350,7 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
   const containerName = `cloister-${serviceName}`;
   // ADR-0038: operator ext.image wins; else derive from a linked input's
   // self-declared packages[].oci; else a loud warning + empty image.
-  const image = resolveBundleImage(ext, colocatedInputs, ociByInput, b.name);
+  const image = resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, b.name);
 
   lines.push(`  ${serviceName}:`);
   lines.push(`    image: ${image}`);

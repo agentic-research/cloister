@@ -2,6 +2,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { parse as parseToml } from "@iarna/toml";
 
 import {
   buildLaunchPlan,
@@ -105,4 +107,31 @@ test("parsePlanArgs requires explicit bundle and absolute workspace", () => {
     },
   );
   assert.throws(() => parsePlanArgs(["mache", "--workspace", "relative"]), /absolute/);
+  assert.throws(
+    () => parsePlanArgs(["mache", "--workspace", "/repo/../secret"]),
+    /canonical/,
+  );
+});
+
+test("buildLaunchPlan rejects non-canonical guest paths instead of normalizing policy", () => {
+  const ambiguous = structuredClone(cluster);
+  ambiguous.bundles[0].external.entryPoint = "/usr/bin/../bin/mache";
+  assert.throws(
+    () => buildLaunchPlan(ambiguous, lock, {
+      bundle: "mache",
+      workspace: "/workspace",
+      controlSocket: "/tmp/mache.sock",
+    }),
+    /canonical/,
+  );
+});
+
+test("the declared Mache tenant has an explicit in-guest workspace fallback", () => {
+  const declared = parseToml(readFileSync(new URL("../../cluster.toml", import.meta.url), "utf8"));
+  const mache = declared.bundles.find((bundle) => bundle.name === "mache");
+  assert.equal(mache.external.entryPoint, "/usr/local/bin/mache");
+  assert.deepEqual(
+    mache.external.args,
+    ["serve", "--http", "localhost:7532", "--path", "/workspace"],
+  );
 });

@@ -47,6 +47,6 @@ test("runtime plan emits the digest-pinned Mache microVM contract", () => {
   const plan = JSON.parse(r.stdout);
   assert.equal(plan.bundle, "mache");
   assert.equal(plan.mode, "microvm");
-  assert.equal(plan.artifact.entrypoint, "/usr/bin/mache");
+  assert.equal(plan.artifact.entrypoint, "/usr/local/bin/mache");
   assert.match(plan.artifact.digest, /^sha256:[0-9a-f]{64}$/);
 });

@@ -123,10 +123,12 @@ export const cluster: Cluster = {
           "args": [
             "serve",
             "--http",
-            "localhost:7532"
+            "localhost:7532",
+            "--path",
+            "/workspace"
           ],
           "env": [],
-          "entryPoint": "/usr/bin/mache",
+          "entryPoint": "/usr/local/bin/mache",
           "executionMode": "microvm"
         }
       }

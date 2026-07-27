@@ -27,6 +27,7 @@ import {
   parsePullArgs,
   validatePullSafety,
   isAffirmative,
+  selectOciRefs,
 } from "../pull-inputs.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -95,10 +96,11 @@ test("parsePullArgs: safe defaults require interactive confirmation and immutabl
 });
 
 test("parsePullArgs: automation and explicit downgrade are separate flags", () => {
-  assert.deepEqual(parsePullArgs(["--yes", "--allow-unpinned"]), {
+  assert.deepEqual(parsePullArgs(["mache", "--yes", "--allow-unpinned"]), {
     printOnly: false,
     yes: true,
     allowUnpinned: true,
+    inputs: ["mache"],
   });
 });
 
@@ -134,6 +136,15 @@ test("isAffirmative: only an explicit yes proceeds", () => {
   for (const answer of ["", "n", "no", "sure", "1"]) {
     assert.equal(isAffirmative(answer), false, answer);
   }
+});
+
+test("selectOciRefs scopes acquisition without weakening unrelated mutable refs", () => {
+  const rows = [
+    { name: "llo", ref: "ghcr.io/art/llo:latest", pinned: false },
+    { name: "mache", ref: "ghcr.io/art/mache@sha256:abc", pinned: true },
+  ];
+  assert.deepEqual(selectOciRefs(rows, ["mache"]), [rows[1]]);
+  assert.throws(() => selectOciRefs(rows, ["unknown"]), /unknown input/);
 });
 
 function withPullFixture({ pinned = true }, fn) {

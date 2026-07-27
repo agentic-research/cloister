@@ -76,6 +76,19 @@ fn launch_plan_rejects_relative_workspace_paths() {
 }
 
 #[test]
+fn launch_plan_rejects_non_canonical_paths_instead_of_normalizing_policy() {
+    let mut ambiguous_workspace = plan(ExecutionMode::Microvm);
+    ambiguous_workspace.workspace = "/workspace/../secret".into();
+    let err = ambiguous_workspace.validate().unwrap_err();
+    assert!(err.to_string().contains("canonical"), "{err}");
+
+    let mut ambiguous_guest_path = plan(ExecutionMode::Microvm);
+    ambiguous_guest_path.artifact.entrypoint = "/usr/bin/../bin/mache".into();
+    let err = ambiguous_guest_path.validate().unwrap_err();
+    assert!(err.to_string().contains("canonical"), "{err}");
+}
+
+#[test]
 fn launch_plan_json_uses_manifest_compatible_camel_case_fields() {
     let mut plan = plan(ExecutionMode::Microvm);
     plan.confinement.credential_source = "vault".into();

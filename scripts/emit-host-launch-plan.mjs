@@ -9,10 +9,11 @@ import { isAbsolute, resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { parse as parseToml } from "@iarna/toml";
+import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
+import { isSha256Digest } from "./lib/oci-artifact.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "..");
-const SHA256 = /^sha256:[0-9a-fA-F]{64}$/;
 
 function requiredValue(argv, index, flag) {
   const value = argv[index + 1];
@@ -48,9 +49,18 @@ export function parsePlanArgs(argv) {
   if (!opts.bundle) throw new Error("missing required bundle name");
   if (!opts.workspace) throw new Error("--workspace is required");
   if (!isAbsolute(opts.workspace)) throw new Error("--workspace must be absolute");
+  if (!isCanonicalAbsolutePath(opts.workspace)) {
+    throw new Error("--workspace must be a canonical absolute path");
+  }
   opts.controlSocket ??= `/tmp/cloister-host-runtime/${opts.bundle}.sock`;
   if (!isAbsolute(opts.controlSocket)) throw new Error("--control-socket must be absolute");
+  if (!isCanonicalAbsolutePath(opts.controlSocket)) {
+    throw new Error("--control-socket must be a canonical absolute path");
+  }
   if (opts.output && !isAbsolute(opts.output)) throw new Error("--output must be absolute");
+  if (opts.output && !isCanonicalAbsolutePath(opts.output)) {
+    throw new Error("--output must be a canonical absolute path");
+  }
   return opts;
 }
 
@@ -81,12 +91,17 @@ export function buildLaunchPlan(cluster, lock, options) {
       `bundle ${JSON.stringify(options.bundle)} requires an absolute external.entryPoint`,
     );
   }
+  if (!isCanonicalAbsolutePath(external.entryPoint)) {
+    throw new Error(
+      `bundle ${JSON.stringify(options.bundle)} requires a canonical external.entryPoint`,
+    );
+  }
 
   const oci = lock?.inputs?.[options.bundle]?.oci;
   if (!oci || typeof oci.identifier !== "string" || !oci.identifier.trim()) {
     throw new Error(`bundle ${JSON.stringify(options.bundle)} has no locked OCI artifact`);
   }
-  if (typeof oci.digest !== "string" || !SHA256.test(oci.digest)) {
+  if (!isSha256Digest(oci.digest)) {
     throw new Error(
       `bundle ${JSON.stringify(options.bundle)} requires an immutable sha256 digest in cluster.lock.toml`,
     );
