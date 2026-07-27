@@ -47,8 +47,29 @@ const DECOY_CONTENT = "SIMULATED PRIVATE KEY — must never be readable confined
 
 if (HAVE_NONO) {
   writeFileSync(join(workdir, "inside.txt"), "hello-from-workdir");
-  writeFileSync(decoy, DECOY_CONTENT);
 }
+
+// Planting the decoy can itself be denied when this gate runs INSIDE another
+// sandbox (agent harnesses, hardened CI): $HOME is read-only there. That
+// denial is a fact about the OUTER sandbox, not about nono — but as an
+// uncaught throw during module evaluation it took down the whole FILE, so
+// node:test reported one failure and all eight assertions were lost. Degrade
+// to a scoped skip of the one decoy-dependent test instead, and name the
+// cause so a skip in CI logs is never misread as "nono verified this".
+// Anything other than a permission denial still throws: a genuinely broken
+// fixture must stay loud. cloister-6f7e77.
+const DECOY_SKIP = (() => {
+  if (SKIP) return SKIP;
+  try {
+    writeFileSync(decoy, DECOY_CONTENT);
+    return false;
+  } catch (err) {
+    if (err.code === "EACCES" || err.code === "EPERM" || err.code === "EROFS") {
+      return `outer sandbox denies $HOME writes (${err.code}) — cannot plant the decoy this test must prove is unreadable`;
+    }
+    throw err;
+  }
+})();
 
 // Base argv for a confined run: workdir rw, outbound network blocked.
 // `-s` silences nono's banner so assertions see only the child's output;
@@ -122,7 +143,7 @@ test("nono: workdir write succeeds", { skip: SKIP }, () => {
   assert.equal(readFileSync(target, "utf8"), "written-from-inside");
 });
 
-test("nono: $HOME decoy secret is kernel-denied (EPERM, not ENOENT)", { skip: SKIP }, () => {
+test("nono: $HOME decoy secret is kernel-denied (EPERM, not ENOENT)", { skip: DECOY_SKIP }, () => {
   // The decoy DEFINITELY exists — prove it unsandboxed first.
   assert.equal(readFileSync(decoy, "utf8"), DECOY_CONTENT);
   const viaCat = confined(["/bin/cat", decoy]);
@@ -198,5 +219,7 @@ test("nono: --block-net kernel-denies external connects (EPERM before any packet
 
 test.after(() => {
   if (workdir) rmSync(workdir, { recursive: true, force: true });
-  if (decoy) rmSync(decoy, { force: true });
+  // Only if we actually planted it: `force` swallows ENOENT but not the
+  // EACCES that unlinking inside an unwritable $HOME would raise.
+  if (decoy && !DECOY_SKIP) rmSync(decoy, { force: true });
 });
