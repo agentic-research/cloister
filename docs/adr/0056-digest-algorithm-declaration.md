@@ -60,6 +60,77 @@ if (reference.startsWith("sha256:")) {
 The prefix is parsed, asserted, and thrown away. Downstream, the digest is an
 opaque key. This is why a wrong label has never produced a visible failure.
 
+### The label is re-emitted outward, not merely accepted inward
+
+An audit of every `sha256:` site in `src/` found the algorithm lie is isolated
+to the `build-cache/v1` path — no second dishonest constructor exists, and
+`deriveSubjectFp` is genuinely SHA-256. But the path it sits on leads outward:
+
+```ts
+// src/routes/oci-registry.ts
+storageKey = verified.key;                    // may be BLAKE3 hex
+const storageRef = `sha256:${storageKey}`;    // relabelled sha256:
+…
+"docker-content-digest": `sha256:${digest}`,  // to arbitrary OCI clients
+"etag":                  `"sha256:${digest}"`,
+```
+
+So content pushed under the build-cache/v1 convention is **served back over
+standard OCI read paths** carrying a `sha256:` label over BLAKE3 bytes, in both
+`Docker-Content-Digest` and `ETag`.
+
+This breaks the containment argument. "Nothing recomputes the digest" holds
+*inside* cloister. It does not hold for external clients, who are entitled to
+verify `Docker-Content-Digest` and whose tooling commonly does. Such a client
+computes SHA-256 over the body, gets a mismatch, and concludes **content
+corruption** — the failure is attributed to the wrong cause, and the
+remediation it suggests (re-pull, distrust the registry) is unrelated to the
+actual defect.
+
+It also means the dual-verify protects the **write** while the **read** path
+re-asserts an algorithm nothing verified on the way out.
+
+This looks like an irreconcilable tension — we cannot honestly label BLAKE3
+content on a surface whose clients only understand `sha256` — but the tension is
+false, and the shape of the answer already exists in this ecosystem.
+
+### The bridge: envelope, don't relabel
+
+notme faces the structurally identical problem. workerd cannot present X.509
+client certificates; upstreams require mTLS and will not negotiate. Rather than
+bend either side, notme **bridges**: a Rust forward proxy holds the identity and
+attaches the client cert during the TLS handshake, with the bridge cert's
+private key living only in that process's memory
+(`notme/ARCHITECTURE.md`, `proxy/src/main.rs`). Each domain keeps speaking its
+own native, honest format; the translation happens at the boundary.
+
+Framed that way, the current digest code is doing neither honest thing. It is
+**asserting domain B's format over domain A's content** — which is not a bridge
+but a forged credential, and it is why the failure surfaces as "corruption"
+rather than "unsupported algorithm".
+
+The OCI equivalent of the bridge is an **envelope**, and OCI already has the
+mechanism: every descriptor carries its **own** `digest` field, and `blake3` is
+a registered identifier. So a manifest can be
+
+- **honestly SHA-256 on the outside** — `Docker-Content-Digest: sha256:<real
+  sha256 of the manifest bytes>`, verifiable by any client that checks it, and
+- **honestly BLAKE3 on the inside** — the layer descriptor reads
+  `blake3:<hex>`, which is what the bytes actually are.
+
+Nobody lies at any layer. A client that cannot do BLAKE3 now fails at the
+*layer fetch*, with the correct cause and a remediation that follows from it —
+instead of computing SHA-256 over a manifest, getting a mismatch, and concluding
+the registry corrupted its content.
+
+Honest caveat on the evidence: the descriptor spec defines the grammar
+per-descriptor, registers `blake3`, and directs implementations to tolerate
+unrecognized algorithms; the manifest spec confirms each descriptor carries an
+independent `digest` but is **silent** on mixing algorithms within one manifest.
+So the envelope is spec-*compatible* by construction rather than spec-blessed by
+documented practice. That distinction should survive into implementation and be
+validated against a real client before we rely on it.
+
 ### Why the current containment is thin
 
 Two properties keep this benign today, and neither is a property of the format:
