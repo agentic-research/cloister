@@ -11,7 +11,7 @@ fail-closed policy drives two enforcement planes at once.**
 - **The cloister plane** — the V8-isolate boundary, per-bundle vault slices,
   service-binding-as-syscall (ADR-0013), and the lease gate. This is what a
   *bundle* declares in the manifest, and what `lint:bundle-isolation` enforces
-  (the nine invariants in [CLAUDE.md](../../CLAUDE.md)).
+  (the invariants in [CLAUDE.md](../../CLAUDE.md)).
 - **The kernel plane** — an OS sandbox (Seatbelt on macOS, Landlock on Linux)
   applied to a *host process* so its filesystem and network reach are cut to an
   allow-list. This is what `cloister-harness` applies today, and what the

@@ -59,7 +59,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 ### Substrate-property lint invariants (lint:bundle-isolation)
 
-`scripts/lint-bundle-isolation.mjs` runs nine invariants per `task lint`:
+`scripts/lint-bundle-isolation.mjs` runs twelve invariants per `task lint`:
 
 | Inv | What | ADR |
 |---|---|---|
@@ -72,8 +72,11 @@ The `lint` is the inner-loop gate. Run it before every commit.
 | 7 | tenantDispatch row.binding ↔ workerd alignment via input.workerdId | ADR-0034 / cloister-ce936e |
 | 8 | perTenant=true bundle has a tenantDispatch route declared | ADR-0034 / cloister-cedcf3 |
 | 9 | perTenant bundle wired by at least one tenantDispatch binding | ADR-0034 / cloister-cedcf3 |
+| 10 | External bundle image derivable (operator `ext.image` OR a linked input's `packages[].oci`); WARN-level | ADR-0038 |
+| 11 | Confinement facet (fs.allow / allowHosts / port.bind) is valid + fail-closed | cloister-a34edc |
+| 12 | Every `durableObjectNamespace` binding on a bundle's Worker resolves to a declared `durableObjectNamespaces` entry (same-Worker or named cross-worker `serviceName`) | cloister-f9d473 |
 
-Together they enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments. See [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md) for the operator-facing model.
+Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments (see [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md)); Inv 12 enforces the parallel chain `bundle DO binding → durableObjectNamespaces entry` — config.capnp's `durableObjectNamespaces` list (line ~235) is a hardcoded host-side declaration on behalf of every bundle that binds a Durable Object, and until Inv 12 nothing checked that a binding's named class was actually declared there.
 
 ### Trust-surface rails
 
