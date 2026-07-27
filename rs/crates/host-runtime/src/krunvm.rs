@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -37,6 +37,173 @@ impl Default for KrunvmSettings {
 pub struct CommandSpec {
     pub program: String,
     pub args: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VmRecord {
+    pub name: String,
+    pub bundle: Option<String>,
+    pub restriction: Option<String>,
+    pub platform_digest: Option<String>,
+    pub last_used: u64,
+}
+
+impl VmRecord {
+    pub fn known(
+        name: &str,
+        bundle: &str,
+        restriction: &str,
+        platform_digest: &str,
+        last_used: u64,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            bundle: Some(bundle.into()),
+            restriction: Some(restriction.into()),
+            platform_digest: Some(platform_digest.into()),
+            last_used,
+        }
+    }
+
+    pub fn unknown(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            bundle: None,
+            restriction: None,
+            platform_digest: None,
+            last_used: 0,
+        }
+    }
+
+    fn is_known(&self) -> bool {
+        self.bundle.is_some() && self.restriction.is_some() && self.platform_digest.is_some()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageRecord {
+    pub platform_digest: String,
+    pub known: bool,
+    pub last_used: u64,
+}
+
+impl ImageRecord {
+    pub fn known(platform_digest: &str, last_used: u64) -> Self {
+        Self {
+            platform_digest: platform_digest.into(),
+            known: true,
+            last_used,
+        }
+    }
+
+    pub fn unknown(identifier: &str) -> Self {
+        Self {
+            platform_digest: identifier.into(),
+            known: false,
+            last_used: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuntimeInventory {
+    pub vms: Vec<VmRecord>,
+    pub images: Vec<ImageRecord>,
+    pub running_vms: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GcPlan {
+    pub delete_vms: Vec<String>,
+    pub prune_images: Vec<String>,
+    pub protected_unknown: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StorageUsage {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub reserve_bytes: u64,
+}
+
+impl StorageUsage {
+    pub fn new(total_bytes: u64, used_bytes: u64, reserve_bytes: u64) -> Self {
+        Self {
+            total_bytes,
+            used_bytes,
+            reserve_bytes,
+        }
+    }
+
+    pub fn available_bytes(self) -> u64 {
+        self.total_bytes.saturating_sub(self.used_bytes)
+    }
+
+    pub fn can_acquire(self) -> bool {
+        self.available_bytes() >= self.reserve_bytes
+    }
+}
+
+pub fn required_reserve(total_bytes: u64) -> u64 {
+    (total_bytes / 5).max(512 * 1024 * 1024)
+}
+
+pub fn plan_gc(
+    inventory: &RuntimeInventory,
+    active_restrictions: &BTreeSet<String>,
+    pinned_platform_digests: &BTreeSet<String>,
+) -> GcPlan {
+    let mut reclaimable_vms: Vec<&VmRecord> = inventory
+        .vms
+        .iter()
+        .filter(|vm| {
+            vm.is_known()
+                && !inventory.running_vms.contains(&vm.name)
+                && vm
+                    .restriction
+                    .as_ref()
+                    .is_some_and(|restriction| !active_restrictions.contains(restriction))
+                && vm
+                    .platform_digest
+                    .as_ref()
+                    .is_some_and(|digest| !pinned_platform_digests.contains(digest))
+        })
+        .collect();
+    reclaimable_vms.sort_by_key(|vm| (vm.last_used, &vm.name));
+
+    let mut reclaimable_images: Vec<&ImageRecord> = inventory
+        .images
+        .iter()
+        .filter(|image| image.known && !pinned_platform_digests.contains(&image.platform_digest))
+        .collect();
+    reclaimable_images.sort_by_key(|image| (image.last_used, &image.platform_digest));
+
+    let mut protected_unknown: Vec<String> = inventory
+        .vms
+        .iter()
+        .filter(|vm| !vm.is_known())
+        .map(|vm| vm.name.clone())
+        .chain(
+            inventory
+                .images
+                .iter()
+                .filter(|image| !image.known)
+                .map(|image| image.platform_digest.clone()),
+        )
+        .collect();
+    protected_unknown.sort();
+
+    GcPlan {
+        delete_vms: reclaimable_vms
+            .into_iter()
+            .map(|vm| vm.name.clone())
+            .collect(),
+        prune_images: reclaimable_images
+            .into_iter()
+            .map(|image| image.platform_digest.clone())
+            .collect(),
+        protected_unknown,
+    }
 }
 
 #[derive(Serialize)]
