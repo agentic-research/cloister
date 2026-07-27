@@ -16,16 +16,24 @@
 # runs the whole gate on a fresh cold-cache checkout, so a locally-cached pass
 # can never let a real failure reach main. cloister-8e40ad.
 #
-# The package-manager check below keeps local hooks aligned with CI:
-# CI enables Corepack so `package.json#packageManager` supplies
-# pnpm@10.30.3. Local shells can have a different pnpm earlier on PATH
-# (Codex currently exposes pnpm 11.x), which fails before the real gate
-# runs because pnpm 11 no longer honors this package.json's pnpm
-# overrides. Prefer an already-installed matching pnpm; fall back to
-# Corepack when available; otherwise fail with a direct diagnostic. When
-# a matching pnpm is found later on PATH, expose it through a tiny temp
-# shim directory so selecting pnpm does not also change which `task`,
-# `node`, or other tools the hook resolves.
+# The package-manager check below keeps local hooks aligned with CI: the
+# gate must run under the pinned pnpm, not whatever a local shell happens
+# to expose. Note pnpm >= 10 reads `package.json#packageManager` itself
+# and transparently delegates to the pinned version, so an ambient pnpm
+# 11.x reports (and behaves as) 10.30.3 once we are inside the repo —
+# that delegation satisfies the requirement on its own. Prefer an
+# already-matching pnpm; fall back to Corepack when available; otherwise
+# fail with a direct diagnostic. When a matching pnpm is found later on
+# PATH, expose it through a tiny temp shim directory so selecting pnpm
+# does not also change which `task`, `node`, or other tools the hook
+# resolves.
+#
+# That shim must be a WRAPPER, not a symlink: the standalone pnpm
+# launcher locates its payload via `dirname "$0"`, so a symlink into a
+# temp dir resolves to a non-existent `.tools/pnpm/<ver>/...` path and
+# the launcher dies before printing a version — which surfaced as the
+# baffling `expected pnpm@10.30.3 after activation, got pnpm ` (empty).
+# Exec'ing the absolute path keeps `$0` pointing at the real install.
 
 set -e
 cd "$(git rev-parse --show-toplevel)"
@@ -59,7 +67,8 @@ PNPM_BIN="$(find_matching_pnpm || true)"
 if [ -n "$PNPM_BIN" ]; then
   PNPM_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cloister-pre-push-pnpm.XXXXXX")"
   trap 'rm -rf "$PNPM_SHIM_DIR"' EXIT INT TERM
-  ln -s "$PNPM_BIN" "$PNPM_SHIM_DIR/pnpm"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$PNPM_BIN" > "$PNPM_SHIM_DIR/pnpm"
+  chmod +x "$PNPM_SHIM_DIR/pnpm"
   export PATH="$PNPM_SHIM_DIR:$PATH"
   hash -r 2>/dev/null || true
 elif command -v corepack >/dev/null 2>&1; then
