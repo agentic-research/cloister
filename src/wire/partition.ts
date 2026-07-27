@@ -28,6 +28,7 @@
 //     added by rs/crates/cas/src/lib.rs for this bead).
 
 import wasmModule from "../../rs/target/wasm32-unknown-unknown/release/cloister_cas.wasm";
+import { CasWasmError } from "./cas-hash.js";
 
 // ── wasm exports — must match rs/crates/cas/src/lib.rs ───────────────────
 
@@ -103,10 +104,12 @@ function copyOut(exports: PartitionWasmExports, ptr: number, length: number): Ui
 }
 
 // ── Public API ────────────────────────────────────────────────────────
-
-export class CasWasmError extends Error {
-  override readonly name = "CasWasmError";
-}
+//
+// `CasWasmError` is re-exported from `cas-hash.ts` rather than redeclared
+// here — both wrappers call into the same `cloister_cas.wasm` artifact, and
+// a second class with the same `name` would be indistinguishable in logs
+// while failing `instanceof` checks across module boundaries.
+export { CasWasmError };
 
 /** Partition address length in bytes — 256 bits, same as the CAS digest. */
 export const PARTITION_ADDRESS_LEN = 32;
@@ -132,6 +135,14 @@ export interface PartitionSpecInput {
  * ‖ scheme ‖ params_len (u64 LE) ‖ params.
  */
 function encodeSpec(spec: PartitionSpecInput): Uint8Array {
+  // `out[o] = spec.domainTag` below truncates mod 256 — without this
+  // check, domainTag: 259 would silently encode as the valid RowSet tag
+  // (3) instead of failing. Reject anything outside the wasm side's
+  // known domain tags here, with a clearer message than the FFI's bare
+  // `rc=1`.
+  if (spec.domainTag !== 1 && spec.domainTag !== 2 && spec.domainTag !== 3) {
+    throw new CasWasmError(`unknown domainTag: ${spec.domainTag} (expected 1, 2, or 3)`);
+  }
   const enc = new TextEncoder();
   const schemeBytes = enc.encode(spec.scheme);
   const total = 1 + 4 + 8 + schemeBytes.length + 8 + spec.params.length;

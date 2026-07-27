@@ -96,6 +96,11 @@ pub extern "C" fn cloister_partition_address(
     entries_ptr: *const u8, entries_len: usize,
     out_ptr: *mut u8,
 ) -> i32 {
+    // `slice::from_raw_parts` with a null pointer is UB per its own
+    // contract even at zero length — reject before touching either
+    // pointer rather than relying on callers to never pass null.
+    if spec_ptr.is_null() || entries_ptr.is_null() { return 1; }
+
     let spec_buf = unsafe { std::slice::from_raw_parts(spec_ptr, spec_len) };
     let ent_buf  = unsafe { std::slice::from_raw_parts(entries_ptr, entries_len) };
 
@@ -112,7 +117,21 @@ pub extern "C" fn cloister_partition_address(
         None => return 1,
     };
     o += 4;
-    let slen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    // `rd_u64` yields a declared u64 length. On wasm32 `usize` is 32-bit,
+    // so a bare `as usize` truncates BEFORE the checked_add/checked_mul
+    // guards below ever run — a length of 2^32 + 15 truncates to 15 and
+    // silently aliases a small buffer. `usize::try_from` rejects instead
+    // of truncating, so an over-wide declared length is malformed input
+    // (return 1) rather than a truncation that lets two different
+    // buffers fold to the same address. NOTE: this branch cannot be hit
+    // natively — `usize` is 64-bit on the test host, so `try_from` never
+    // fails there. It is exercised only on the wasm32 target; there is
+    // no portable way to write a native regression test for it, which is
+    // exactly why the cast is rejected here instead of guarded after.
+    let slen = match rd_u64(spec_buf, o).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
     let scheme_end = match o.checked_add(8).and_then(|v| v.checked_add(slen)) {
         Some(v) => v,
         None => return 1,
@@ -123,7 +142,11 @@ pub extern "C" fn cloister_partition_address(
         None => return 1,
     };
     o = scheme_end;
-    let plen = match rd_u64(spec_buf, o) { Some(v) => v as usize, None => return 1 };
+    // Same truncation hazard as `slen` above — see that comment.
+    let plen = match rd_u64(spec_buf, o).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
     let params_end = match o.checked_add(8).and_then(|v| v.checked_add(plen)) {
         Some(v) => v,
         None => return 1,
@@ -134,7 +157,11 @@ pub extern "C" fn cloister_partition_address(
     if o != spec_buf.len() { return 1; }   // trailing bytes are a malformed spec
 
     // -- entries: count(8) | (addr[32] | a(8) | b(8))…
-    let count = match rd_u64(ent_buf, 0) { Some(v) => v as usize, None => return 1 };
+    // Same truncation hazard as `slen`/`plen` above — see that comment.
+    let count = match rd_u64(ent_buf, 0).and_then(|v| usize::try_from(v).ok()) {
+        Some(v) => v,
+        None => return 1,
+    };
     const REC: usize = 32 + 8 + 8;
     // Checked: on wasm32 `usize` is 32-bit, so `count * REC` can wrap
     // (e.g. count = 89_478_486 wraps `count*REC` to 32, letting a 40-byte
