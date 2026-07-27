@@ -46,7 +46,7 @@ used to be vendored at `src/vendor/notme-dpop.ts`; it is now a real dependency
 (`notme-18450e` / `cloister-195e47`) — don't re-vendor it.
 
 ```sh
-task lint            # tsc + worker tests + plugin tests, ~2s gate
+task lint            # tsc + worker tests + script/rail tests, ~2s gate
 task test            # workerd integration (real DOs, real SQLite)
 task verify          # strict CI gate: lint + capnp CLI roundtrip + companion stub
 task manifest        # capnp → src/generated/manifest.ts (run after cloister.capnp edits)

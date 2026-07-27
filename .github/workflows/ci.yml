@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   lint:
-    name: lint (tsc + worker tests + plugin tests)
+    name: lint (tsc + worker tests + script/rail tests)
     runs-on: ubuntu-latest
     timeout-minutes: 8
 

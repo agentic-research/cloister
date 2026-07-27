@@ -364,16 +364,14 @@ Full task surface: `task --list-all`.
   (`cloister.tar`), workerd + bundle only, no shell/pkgmgr, runs as
   uid `65532`. Mount `/data` for DO SQLite persistence.
 
-**Claude Code plugin.** The repo doubles as a CC plugin (root
-`.claude-plugin/plugin.json`). Install:
-
-```sh
-claude plugin add ~/path/to/cloister
-```
-
-Registers a `PostToolUse` hook that fires `reparse` against cloister
-so `lsp_*` tools stay accurate inside long sessions. Config + tests:
-[hooks/README.md](hooks/README.md).
+**Claude Code plugin.** Keeping `lsp_*` results fresh during long
+editing sessions is [ley-line-open's
+`leyline-stale-sync`](https://github.com/agentic-research/ley-line-open/tree/main/wrappers/claude-code),
+not cloister's. It registers a `PostToolUse` hook that fires `reparse`
+at the LLO daemon directly. Cloister shipped a `cloister-stale-sync`
+variant until 2026-07-27; it was retired because LLO owns the parse /
+LSP surface (ADR-0035) and running both double-fires `reparse` on
+every edit.
 
 ## Ecosystem
 

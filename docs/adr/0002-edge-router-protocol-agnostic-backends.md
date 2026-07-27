@@ -141,6 +141,11 @@ of service bindings is preserved end-to-end.
 - [x] (cloister-acbf27) Add `LeylineLifecycleBackend` (`reparse | enrich | status`) and
       ship the `cloister-stale-sync` Claude Code plugin in this repo (commit `c46a8f5`).
       Plugin auto-fires `reparse` on every Edit to keep `lsp_*` results fresh.
+      **Superseded 2026-07-27 (cloister-68e5ed):** the plugin half was retired.
+      ley-line-open ships `leyline-stale-sync` (`wrappers/claude-code`), which
+      talks to the daemon directly; LLO owns the parse / LSP surface per
+      ADR-0035, and running both double-fired `reparse` on every edit. The
+      `LeylineLifecycleBackend` half of this item still stands.
 - [x] Add `LLO_MCP_URL` to both `wrangler.toml` and `config.capnp` (commit `4f970f6`)
 
 ## Amendment — 2026-05-11 (cloister-c9922f)
@@ -202,4 +207,6 @@ the same seam — confidence in ADR-0002 is no longer theoretical.
 - [../../README.md](../../README.md) — what each tenant does
 - [../ARCHITECTURE.md](../ARCHITECTURE.md) — runtime model + sequence diagrams
 - [../../GETTING-STARTED.md](../../GETTING-STARTED.md) — hands-on setup
-- [../../hooks/README.md](../../hooks/README.md) — `cloister-stale-sync` plugin contract
+- [ley-line-open `wrappers/claude-code`](https://github.com/agentic-research/ley-line-open/tree/main/wrappers/claude-code)
+  — `leyline-stale-sync`, the plugin that superseded this repo's
+  `cloister-stale-sync` (retired 2026-07-27)
