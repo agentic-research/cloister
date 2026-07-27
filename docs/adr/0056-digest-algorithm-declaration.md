@@ -71,6 +71,38 @@ Two properties keep this benign today, and neither is a property of the format:
    recomputed. The moment something *does* recompute it, the label tells it to
    compute the wrong function.
 
+### The standard is already in our hands
+
+The OCI image-spec descriptor `digest` field is **self-describing by
+construction**:
+
+```
+digest    ::= algorithm ":" encoded
+algorithm ::= algorithm-component (algorithm-separator algorithm-component)*
+encoded   ::= [a-zA-Z0-9=_-]+
+```
+
+and the spec registers three algorithm identifiers — `sha256`, `sha512`, and
+**`blake3`** — while directing that "Implementations SHOULD allow digests with
+unrecognized algorithms to pass validation if they comply with the above
+grammar."
+
+So both halves of the obvious objection dissolve. We do not need to invent a
+representation, and we do not need to overload `sha256:`: **the format we are
+already using has an algorithm field, and it has a registered name for the exact
+algorithm we are using.** `blake3:<hex>` is a legal OCI descriptor digest.
+
+That reframes the defect precisely. This is not a format that lacks a place to
+say which algorithm produced the bytes. It is a **self-describing format whose
+self-description we filled in with something false.**
+
+It also corrects a constraint that looked binding: `sha256` is REQUIRED for
+implementations to *support*, not the only algorithm permitted. What actually
+binds the `/v2/` route is **client capability** — third-party registry clients
+in the wild handle `sha256` and mostly nothing else — which is a narrower and
+more honest constraint than spec prohibition, and it does not extend to a
+substrate wire that no third-party client consumes.
+
 ### Why this is worth an ADR rather than a patch
 
 Cloister's trust surface rests on a claim that a third party can verify
@@ -100,21 +132,29 @@ it, and that declaration is verified rather than assumed.**
 
 Three parts:
 
-1. **`Digest` becomes algorithm-qualified.** The branded type carries the
+1. **Adopt OCI's `algorithm ":" encoded` form. Invent nothing.** The
+   representation question is already answered by a spec we implement, whose
+   registered identifiers include the two algorithms we run. No multihash, no
+   bespoke struct, no new prefix vocabulary.
+
+2. **`Digest` becomes algorithm-qualified.** The branded type carries the
    algorithm, not just 64 hex characters. `isDigest` stops accepting a bare hex
    string as sufficient. A SHA-256 digest and a BLAKE3-256 digest are not
    assignable to one another.
 
-2. **The OCI registry surface keeps genuine `sha256:`.** This is not a place to
-   innovate: `sha256:` is OCI-spec-mandated on `/v2/` routes, and real clients
-   parse it. `src/routes/oci-registry.ts` continues to speak OCI exactly, and
-   the digests it handles are *actually* SHA-256.
+3. **The OCI registry surface keeps emitting `sha256:` — for client capability,
+   not because the spec forbids otherwise.** `src/routes/oci-registry.ts` serves
+   third-party clients that in practice handle `sha256` and little else, so the
+   content it addresses stays SHA-256. Stating the real reason matters: it means
+   the constraint is scoped to that route, and does not silently propagate to
+   wires no external client reads.
 
-3. **`build-cache/v1` stops borrowing the OCI prefix.** The substrate wire
-   declares BLAKE3 honestly rather than wearing `sha256:`. Until that wire
-   changes, cloister **rejects at its own boundary** rather than propagating an
-   unverifiable label inward — a mislabeled digest fails closed instead of
-   being silently dual-verified into acceptance.
+4. **`build-cache/v1` says `blake3:` where the bytes are BLAKE3.** It is a
+   substrate wire with no third-party consumer, so the client-capability
+   constraint above does not reach it, and the identifier it needs is already
+   registered. Until that wire changes, cloister **rejects at its own boundary**
+   rather than propagating an unverifiable label inward — a mislabeled digest
+   fails closed instead of being silently dual-verified into acceptance.
 
 Part 3 has a boundary constraint: the `build-cache/v1` encoding rule is
 specified in `leyline-schema-spec`, which per **ADR-0035** is LLO's to own.
@@ -147,11 +187,11 @@ is mechanical. Existing persisted digests were written under the old
 representation and need a read path that does not reject them — the migration is
 the real work, not the type change.
 
-**Deliberately not decided here.** Whether the qualified form is a prefix
-(`blake3:<hex>`), a struct field, or multihash is left to implementation; the
-requirement is that the algorithm is *present and checked*, not that it takes a
-particular shape. Whether `build-cache/v1` itself changes is LLO's call under
-ADR-0035; this ADR commits only cloister's side of the boundary.
+**Deliberately not decided here.** Whether `build-cache/v1` itself changes is
+LLO's call under ADR-0035; this ADR commits only cloister's side of the
+boundary. Worth noting that the cross-repo ask is now much smaller than it
+first appeared — not "change your wire format" but "use the algorithm field
+your format already has, with an identifier the spec already registers."
 
 ## Alternatives considered
 
@@ -165,7 +205,17 @@ CLAUDE.md and ARCHITECTURE.md and the schema spec. Documentation is what we
 have; it did not prevent the label from being wrong, and cannot make it
 checkable by a third party who has only the bytes.
 
-**Make everything BLAKE3.** Rejected: the OCI surface is spec-bound to
-`sha256:`, and the two algorithms are distinct on purpose per ADR-0035 — SHA-256
-is the application digest, BLAKE3 the substrate digest. The problem is the
-missing declaration, not the plurality.
+**Make everything BLAKE3.** Rejected, but note the reason is *not* that OCI
+forbids it — `blake3` is a registered identifier, and an earlier draft of this
+ADR was wrong to claim the surface was "spec-bound to `sha256:`". The real
+reasons are narrower: third-party registry clients handle `sha256` in practice,
+and the two algorithms are distinct on purpose (SHA-256 the application digest,
+BLAKE3 the substrate digest). The problem is the missing declaration, not the
+plurality.
+
+**Multihash.** Rejected: it solves exactly the problem we have, but we would be
+adopting a second self-describing digest encoding alongside the one we already
+implement, and then owning the mapping between them at every boundary. OCI's
+`algorithm:encoded` already carries the algorithm and already registers both of
+ours. Reaching for multihash here would be inventing a translation layer to
+avoid using a field we ship.
