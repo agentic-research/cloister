@@ -1152,7 +1152,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed)."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs"
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs"
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
@@ -1186,6 +1186,11 @@ tasks:
     desc: "Emit a digest-pinned cloister/host-runtime/v1 plan for one external bundle. Usage: task runtime:plan -- <bundle> --workspace /absolute/path [--output /absolute/plan.json]."
     cmds:
       - "node scripts/emit-host-launch-plan.mjs {{.CLI_ARGS | default \"--help\"}}"
+
+  runtime:storage:init:
+    desc: "Create/attach one grow-on-demand case-sensitive sparsebundle for krunvm. Preview: task runtime:storage:init -- --print"
+    cmds:
+      - "node scripts/init-krun-storage.mjs {{.CLI_ARGS | default \"--help\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + cargo-pin lint + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

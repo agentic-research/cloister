@@ -8,6 +8,7 @@ import { main as initMain } from "./cli-init.mjs";
 import { main as addMain } from "./cli-add.mjs";
 import { main as pullMain } from "./pull-inputs.mjs";
 import { main as planMain } from "./emit-host-launch-plan.mjs";
+import { main as storageMain } from "./init-krun-storage.mjs";
 
 function printHelp(log = console.log) {
   log("Usage: cloister <command> [options]");
@@ -17,6 +18,7 @@ function printHelp(log = console.log) {
   log("  cloister add ...              Add and resolve a tool input");
   log("  cloister artifacts pull ...   Acquire lockfile-pinned OCI artifacts");
   log("  cloister runtime plan ...     Emit a fail-closed host launch plan");
+  log("  cloister runtime storage init Create/attach bounded krunvm storage");
   log("");
   log("Run `cloister <command> --help` for command-specific options.");
 }
@@ -31,6 +33,9 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === "add") return addMain(rest);
   if (command === "artifacts" && rest[0] === "pull") return pullMain(rest.slice(1));
   if (command === "runtime" && rest[0] === "plan") return planMain(rest.slice(1));
+  if (command === "runtime" && rest[0] === "storage" && rest[1] === "init") {
+    return storageMain(rest.slice(2));
+  }
 
   console.error(`cloister: unknown command: ${argv.join(" ")}`);
   console.error("");

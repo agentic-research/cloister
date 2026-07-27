@@ -38,11 +38,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { createInterface } from "node:readline/promises";
 
 import { parse as parseToml } from "@iarna/toml";
 import chalk from "chalk";
 import { ociImageRef } from "./lib/oci-artifact.mjs";
+import {
+  isAffirmative,
+  requestOperatorConsent,
+} from "./lib/operator-consent.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "..");
@@ -119,9 +122,7 @@ export function validatePullSafety(rows, { allowUnpinned }) {
   );
 }
 
-export function isAffirmative(answer) {
-  return /^(y|yes)$/i.test(String(answer).trim());
-}
+export { isAffirmative };
 
 function detectRuntime() {
   if (process.env.CONTAINER_CMD) return process.env.CONTAINER_CMD;
@@ -155,21 +156,16 @@ function printPlan(rows, log = console.log) {
 }
 
 async function askForConsent(rows, input, output) {
-  if (!input.isTTY || !output.isTTY) {
-    throw new Error(
+  return requestOperatorConsent({
+    input,
+    output,
+    prompt:
+      `Download ${rows.length} artifact${rows.length === 1 ? "" : "s"}? ` +
+      `${chalk.dim("[y/N]")} `,
+    nonInteractiveMessage:
       "refusing to download without confirmation on a non-interactive terminal; " +
       "review with --print, then pass --yes",
-    );
-  }
-  const rl = createInterface({ input, output });
-  try {
-    const answer = await rl.question(
-      `Download ${rows.length} artifact${rows.length === 1 ? "" : "s"}? ${chalk.dim("[y/N]")} `,
-    );
-    return isAffirmative(answer);
-  } finally {
-    rl.close();
-  }
+  });
 }
 
 export async function main(argv = process.argv.slice(2), io = {}) {

@@ -123,7 +123,7 @@ export const cluster: Cluster = {
           "args": [
             "serve",
             "--http",
-            "localhost:7532",
+            "127.0.0.1:7532",
             "--path",
             "/workspace"
           ],

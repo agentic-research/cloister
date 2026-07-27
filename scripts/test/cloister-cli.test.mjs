@@ -26,6 +26,14 @@ test("top-level help names the real command surface", () => {
   assert.match(r.stdout, /cloister add/);
   assert.match(r.stdout, /cloister artifacts pull/);
   assert.match(r.stdout, /cloister runtime plan/);
+  assert.match(r.stdout, /cloister runtime storage init/);
+});
+
+test("runtime storage init dispatches to a non-mutating preview", () => {
+  const r = run(["runtime", "storage", "init", "--print"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /krunvm storage plan/);
+  assert.match(r.stdout, /host storage unchanged/);
 });
 
 test("unknown top-level command fails with usage", () => {

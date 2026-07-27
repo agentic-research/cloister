@@ -132,6 +132,6 @@ test("the declared Mache tenant has an explicit in-guest workspace fallback", ()
   assert.equal(mache.external.entryPoint, "/usr/local/bin/mache");
   assert.deepEqual(
     mache.external.args,
-    ["serve", "--http", "localhost:7532", "--path", "/workspace"],
+    ["serve", "--http", "127.0.0.1:7532", "--path", "/workspace"],
   );
 });
