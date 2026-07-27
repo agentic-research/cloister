@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   lint:
-    name: lint (tsc + worker tests + script/rail tests)
+    name: lint (tsc + worker tests + plugin tests)
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -34,7 +34,7 @@ jobs:
         # node here probably wants a coordinated bump across the constellation.
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          # node:test (used by hooks/test/*.test.mjs) requires Node 18+;
+          # node:test (used by scripts/test/*.test.mjs) requires Node 18+;
           # using 20 to track the same line workerd's runtime supports.
           node-version: '20'
 
@@ -135,7 +135,14 @@ jobs:
 
       - name: Lint (the inner-loop gate)
         # `task lint` chains: task manifest → task rs:sign:wasm → tsc
-        # --noEmit → vitest in workerd → CC plugin's node:test suite.
+        # --noEmit → vitest in workerd → the script/rail node:test suites.
+        #
+        # NOTE: this job's `name:` above is a REQUIRED status check in main's
+        # branch protection, matched by exact string. It still says "plugin
+        # tests" even though the CC plugin was retired (cloister-68e5ed).
+        # Renaming it deadlocks the renaming PR: the required check never
+        # reports under its expected name, so the PR can never merge. Renaming
+        # requires updating branch protection FIRST, then the workflow.
         run: task lint
 
   # Path filter: does this PR touch the substrate (rust / wire codec / manifest /
