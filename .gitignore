@@ -95,3 +95,6 @@ __pycache__/
 .cloister/
 # S1 confinement binary build dir (tools/harness-sandbox is a standalone crate)
 tools/harness-sandbox/target/
+
+# SDD workspace scratch (ledgers, briefs, review packages) — never shipped.
+.superpowers/

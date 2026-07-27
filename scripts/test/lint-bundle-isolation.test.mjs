@@ -205,16 +205,32 @@ function configCapnp({ workers, services = [] }) {
     const bindings = (w.bindings ?? []).map((b) => {
       if (b.service) return `    ( name = "${b.name}", service = "${b.service}" ),`;
       if (b.text !== undefined) return `    ( name = "${b.name}", text = "${b.text}" ),`;
-      if (b.durableObjectNamespace) return `    ( name = "${b.name}", durableObjectNamespace = "${b.durableObjectNamespace}" ),`;
+      if (b.durableObjectNamespace) {
+        // Either a bare class-name string (common case — same-Worker DO
+        // class) or an object { className, serviceName } exercising the
+        // discouraged-but-legal cross-worker designator form (Inv 12 test
+        // coverage for the serviceName escape hatch).
+        const don = b.durableObjectNamespace;
+        if (typeof don === "string") {
+          return `    ( name = "${b.name}", durableObjectNamespace = "${don}" ),`;
+        }
+        const svcLine = don.serviceName ? `, serviceName = "${don.serviceName}"` : "";
+        return `    ( name = "${b.name}", durableObjectNamespace = ( className = "${don.className}"${svcLine} ) ),`;
+      }
       throw new Error(`unknown binding kind in test fixture: ${JSON.stringify(b)}`);
     }).join("\n");
     // capnp doesn't allow trailing commas in struct literals, so omit the
     // bindings block entirely when empty.
     const bindingsBlock = bindings ? `\n  bindings = [\n${bindings}\n  ],` : "";
     const goLine = w.globalOutbound ? `\n  globalOutbound = "${w.globalOutbound}",` : "";
+    // Inv 12 fixture support: durableObjectNamespaces = [ { className, uniqueKey } ].
+    const namespaces = (w.durableObjectNamespaces ?? []).map(
+      (ns) => `    ( className = "${ns.className}", uniqueKey = "${ns.uniqueKey ?? `${ns.className}-v1`}", enableSql = true ),`,
+    ).join("\n");
+    const namespacesBlock = namespaces ? `\n  durableObjectNamespaces = [\n${namespaces}\n  ],` : "";
     return `const ${ident(w.name)}Worker :Workerd.Worker = (
   compatibilityDate = "2025-01-01",
-  modules = [ ( name = "worker", esModule = embed "dist/index.js" ) ],${bindingsBlock}${goLine}
+  modules = [ ( name = "worker", esModule = embed "dist/index.js" ) ],${bindingsBlock}${namespacesBlock}${goLine}
 );`;
   }).join("\n\n");
 
@@ -418,6 +434,9 @@ test("Inv 2 (gap 2) — credential allow-list sourced from manifest holdsCredent
           { name: "VAULT_KEK_SOURCE", text: "keychain://test" },
           { name: "VAULT_STORE", durableObjectNamespace: "CredentialVault" },
         ],
+        // Inv 12: the VAULT_STORE binding above names class "CredentialVault" —
+        // it must resolve to a declared durableObjectNamespaces entry.
+        durableObjectNamespaces: [{ className: "CredentialVault" }],
       }],
     }),
   });
@@ -1683,6 +1702,176 @@ test("Inv 10 — external bundle with an operator image never warns (image wins,
     const r = runLint(scenario.workDir, scenario.clusterTsPath, resolve(scenario.workDir, "no-such.lock.toml"));
     assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
     assert.doesNotMatch(r.stderr, /Inv 10/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+// ── Inv 12 (cloister-f9d473): bundle DO binding → durableObjectNamespaces ──
+//
+// The bead's grounding scenario: a bundle Worker declares a
+// durableObjectNamespace binding naming a class, but config.capnp's
+// durableObjectNamespaces list never declares that class — the binding
+// resolves at capnp-eval time (capnp doesn't cross-check this) but would
+// fail (or misbehave) at request time. Nothing previously checked the
+// chain `bundle DO binding → durableObjectNamespaces entry`.
+
+test("Inv 12 — DO binding naming an undeclared class is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{
+        name: "cloister-router",
+        tier: "hypervisor",
+        workerdServiceName: "cloister",
+      }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{
+        name: "cloister",
+        bindings: [
+          { name: "CH_BOARD", durableObjectNamespace: "CanonicalHoursBoardObject" },
+        ],
+        // durableObjectNamespaces deliberately omitted — the class the
+        // binding names above is never declared.
+      }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, `expected Inv 12 violation, got status=${r.status}\nstdout:${r.stdout}`);
+    assert.match(r.stderr, /Inv 12/);
+    assert.match(r.stderr, /CH_BOARD/);
+    assert.match(r.stderr, /CanonicalHoursBoardObject/);
+    assert.match(r.stderr, /no matching durableObjectNamespaces entry/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 12 — DO binding whose class IS declared in durableObjectNamespaces passes", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{
+        name: "cloister-router",
+        tier: "hypervisor",
+        workerdServiceName: "cloister",
+      }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{
+        name: "cloister",
+        bindings: [
+          { name: "BEAD_STORE", durableObjectNamespace: "BeadStore" },
+        ],
+        durableObjectNamespaces: [{ className: "BeadStore", uniqueKey: "test-beads-v1" }],
+      }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected clean lint, got status=${r.status}\nstderr:${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 12 — multiple DO bindings, only one undeclared, is flagged precisely", () => {
+  // Two bindings on the same worker; only the second names an undeclared
+  // class. The violation message must name the RIGHT binding + class,
+  // not just fire generically.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{
+        name: "cloister-router",
+        tier: "hypervisor",
+        workerdServiceName: "cloister",
+      }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{
+        name: "cloister",
+        bindings: [
+          { name: "BEAD_STORE", durableObjectNamespace: "BeadStore" },
+          { name: "CH_DPOP_LEDGER", durableObjectNamespace: "DpopReplayLedgerObject" },
+        ],
+        durableObjectNamespaces: [{ className: "BeadStore", uniqueKey: "test-beads-v1" }],
+      }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, `expected Inv 12 violation, got status=${r.status}`);
+    assert.match(r.stderr, /Inv 12/);
+    assert.match(r.stderr, /CH_DPOP_LEDGER/);
+    assert.match(r.stderr, /DpopReplayLedgerObject/);
+    // The well-formed BEAD_STORE binding must NOT also be flagged.
+    assert.doesNotMatch(r.stderr, /"BEAD_STORE"[^\n]*no matching durableObjectNamespaces/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 12 — cross-worker serviceName designator resolves against the NAMED worker's namespaces", () => {
+  // workerd's discouraged-but-legal escape hatch: a durableObjectNamespace
+  // designator can name a different Worker's service via `serviceName`.
+  // Inv 12 must check the class against THAT worker's durableObjectNamespaces,
+  // not the binding-declaring worker's.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "other-worker", tier: "hypervisor", workerdServiceName: "other-worker" },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [
+        {
+          name: "cloister",
+          bindings: [
+            {
+              name: "REMOTE_DO",
+              durableObjectNamespace: { className: "RemoteThing", serviceName: "other-worker" },
+            },
+          ],
+        },
+        {
+          name: "other-worker",
+          bindings: [],
+          durableObjectNamespaces: [{ className: "RemoteThing", uniqueKey: "remote-v1" }],
+        },
+      ],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 0, `expected clean lint (declared on the named worker), got status=${r.status}\nstderr:${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 12 — cross-worker serviceName naming a nonexistent worker is rejected", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [{ name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" }],
+    }),
+    configCapnp: configCapnp({
+      workers: [{
+        name: "cloister",
+        bindings: [
+          {
+            name: "REMOTE_DO",
+            durableObjectNamespace: { className: "RemoteThing", serviceName: "ghost-worker" },
+          },
+        ],
+      }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, `expected Inv 12 violation, got status=${r.status}`);
+    assert.match(r.stderr, /Inv 12/);
+    assert.match(r.stderr, /ghost-worker/);
   } finally {
     scenario.cleanup();
   }

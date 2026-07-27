@@ -958,6 +958,83 @@ function checkInvariant11(cluster, violations) {
   }
 }
 
+/**
+ * Invariant 12 (cloister-f9d473) — every Durable Object binding declared
+ * on a bundle's Worker MUST resolve to a declared `durableObjectNamespaces`
+ * entry. `durableObjectNamespaces` is a hardcoded list the HOST (cloister)
+ * maintains in config.capnp on behalf of every bundle that binds a Durable
+ * Object — but until this rail, nothing checked that a binding naming a DO
+ * class actually had that class declared anywhere. Grep for `durableObject`
+ * in this file used to return nothing; the chain `tenantDispatch
+ * row.binding → wire → bundle ← input.workerdId` (Inv 6-9) was enforced,
+ * but the parallel chain `bundle DO binding → durableObjectNamespaces
+ * entry` was not. A binding whose class isn't declared resolves at
+ * config-eval time (capnp doesn't cross-check this) but fails — or
+ * behaves unexpectedly — at request time, long after the manifest was
+ * reviewed and merged.
+ *
+ * The deeper reason this class of bug recurs: a host hardcoding a guest's
+ * namespace list is the host GUESSING what the guest is. A guest that
+ * declares its own namespaces can be checked at manifest-review time; a
+ * host's guess about a guest's shape can only be discovered wrong at
+ * runtime — the same shape as ADR-0056's "a value that doesn't declare
+ * what it is, and a consumer that proceeds on a silently-substituted
+ * default." This rail doesn't change the hardcoded-list architecture
+ * (that's a separate, undecided design question — see cloister-f9d473);
+ * it only makes the existing chain checkable instead of merely assumed.
+ *
+ * Resolution: for each `durableObjectNamespace` binding on a Worker, the
+ * designator's `className` must appear in that SAME Worker's
+ * `durableObjectNamespaces[]` — UNLESS the designator names a cross-
+ * worker `serviceName` (workerd's discouraged-but-legal escape hatch),
+ * in which case the className must be declared on the NAMED Worker
+ * instead. A `serviceName` that doesn't resolve to any Worker in
+ * config.capnp is itself a violation — an unresolvable cross-worker
+ * reference is exactly the "guess that can only be discovered wrong at
+ * runtime" this rail exists to catch.
+ */
+function checkInvariant12(workerSvc, bundleName, config, violations) {
+  const workersByName = new Map(workersIn(config).map((w) => [w.name, w]));
+  const bundleLabel = bundleName ? `"${bundleName}"` : "(unmapped)";
+  for (const b of bindingsOf(workerSvc)) {
+    if (!b.durableObjectNamespace) continue;
+    const desig = b.durableObjectNamespace;
+    const className = typeof desig === "string" ? desig : desig.className;
+    const serviceName = typeof desig === "string" ? undefined : desig.serviceName;
+
+    let targetWorker = workerSvc;
+    let targetLabel = workerSvc.name;
+    if (serviceName) {
+      const found = workersByName.get(serviceName);
+      if (!found) {
+        violations.push(
+          `lint-bundle-isolation: Worker "${workerSvc.name}" (bundle ${bundleLabel}) has ` +
+          `durableObjectNamespace binding "${b.name}" naming cross-worker serviceName ` +
+          `"${serviceName}", but no Worker of that name exists in config.capnp — Inv 12, ` +
+          `cloister-f9d473. Either fix the serviceName typo or declare a \`( name = ` +
+          `"${serviceName}", worker = ... )\` service entry.`,
+        );
+        continue;
+      }
+      targetWorker = found;
+      targetLabel = serviceName;
+    }
+
+    const namespaces = targetWorker.worker?.durableObjectNamespaces ?? [];
+    const declared = namespaces.some((ns) => ns.className === className);
+    if (!declared) {
+      violations.push(
+        `lint-bundle-isolation: Worker "${workerSvc.name}" (bundle ${bundleLabel}) has binding ` +
+        `"${b.name}" naming durable object class "${className}", but Worker "${targetLabel}" ` +
+        `has no matching durableObjectNamespaces entry — Inv 12, cloister-f9d473. The bundle ` +
+        `DO binding → durableObjectNamespaces chain is broken. Add \`( className = ` +
+        `"${className}", uniqueKey = "...", enableSql = true )\` to "${targetLabel}"'s ` +
+        `durableObjectNamespaces in config.capnp, or remove the binding if the class is unused.`,
+      );
+    }
+  }
+}
+
 const violations = [];
 const warnings = [];
 
@@ -986,6 +1063,7 @@ for (const wsvc of workersIn(config)) {
   checkInvariant2(wsvc, bundleName, credentialAllowList, violations);
   checkInvariant4(wsvc, tier, bundleName, cluster, services, violations);
   checkInvariant5(wsvc, tier, bundleName, cluster, services, serviceToBundle, violations);
+  checkInvariant12(wsvc, bundleName, config, violations);
 }
 
 if (warnings.length) {
@@ -1020,4 +1098,9 @@ const imagelessExternal = (cluster.bundles ?? []).filter(
   (b) => "external" in b.kind && !b.kind.external.image,
 ).length;
 console.log(`  ${imagelessExternal} image-less external bundle(s) checked for Inv 10 (ADR-0038 oci derivation)`);
-console.log(`  invariants 1–11 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity)`);
+const doBindingCount = workersIn(config).reduce(
+  (n, w) => n + bindingsOf(w).filter((b) => b.durableObjectNamespace).length,
+  0,
+);
+console.log(`  ${doBindingCount} durableObjectNamespace binding(s) checked for Inv 12 (cloister-f9d473)`);
+console.log(`  invariants 1–12 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity + DO-namespace resolution)`);
