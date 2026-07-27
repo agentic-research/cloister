@@ -138,7 +138,7 @@ impl LaunchPlan {
                     entry.path
                 )));
             }
-            if entry.mode != "" && entry.mode != "rw" {
+            if !entry.mode.is_empty() && entry.mode != "rw" {
                 return Err(RuntimeError::InvalidPlan(format!(
                     "confinement fs mode must be empty or rw: {:?}",
                     entry.mode

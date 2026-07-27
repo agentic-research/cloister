@@ -60,3 +60,22 @@ fn acquisition_requires_the_reserve_to_remain_available() {
     let ready = StorageUsage::new(3_000, 2_400, 500);
     assert!(ready.can_acquire());
 }
+
+#[test]
+fn planner_never_prunes_an_image_referenced_by_a_retained_vm() {
+    let inventory = RuntimeInventory {
+        vms: vec![VmRecord::known(
+            "running",
+            "mache",
+            "r-current",
+            "p-current",
+            50,
+        )],
+        images: vec![ImageRecord::known("p-current", 50)],
+        running_vms: set(&["running"]),
+    };
+
+    let plan = plan_gc(&inventory, &BTreeSet::new(), &BTreeSet::new());
+    assert!(plan.delete_vms.is_empty());
+    assert!(plan.prune_images.is_empty());
+}

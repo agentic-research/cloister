@@ -101,7 +101,64 @@ fn settings(storage: &std::path::Path) -> KrunvmSettings {
         memory_mib: 1024,
         dns: "1.1.1.1".into(),
         host_arch: "aarch64".into(),
+        reserve_bytes: Some(0),
     }
+}
+
+#[test]
+fn gc_deletes_known_vm_before_pruning_with_explicit_storage_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let first_plan = plan();
+    let seed = RecordingRunner::with_outputs(vec![
+        fail("not found"),
+        ok("created"),
+        ok(&inspect(&first_plan, "sha256:platform-one")),
+        ok("done"),
+    ]);
+    KrunvmBackend::new(seed, settings(temp.path()))
+        .launch(&first_plan)
+        .unwrap();
+    let mut current_plan = first_plan;
+    current_plan.confinement.port.bind = 7533;
+    let current = RecordingRunner::with_outputs(vec![
+        fail("not found"),
+        ok("created"),
+        ok(&inspect(&current_plan, "sha256:platform-two")),
+        ok("done"),
+    ]);
+    KrunvmBackend::new(current, settings(temp.path()))
+        .launch(&current_plan)
+        .unwrap();
+
+    let runner = RecordingRunner::with_outputs(vec![ok("deleted"), ok("pruned")]);
+    let backend = KrunvmBackend::new(runner.clone(), settings(temp.path()));
+    let report = backend
+        .gc(&Default::default(), &Default::default(), true)
+        .unwrap();
+    assert_eq!(report.plan.delete_vms.len(), 1);
+    let calls = runner.programs();
+    assert_eq!(calls[0][..2], ["krunvm", "delete"]);
+    assert_eq!(calls[1][..2], ["buildah", "--root"]);
+    assert_eq!(calls[1][2], temp.path().join("root").display().to_string());
+    assert!(calls[1].contains(&"--runroot".into()));
+    assert!(calls[1].contains(&temp.path().join("runroot").display().to_string()));
+    assert_eq!(calls[1][calls[1].len() - 2..], ["rmi", "--prune"]);
+}
+
+#[test]
+fn reserve_breach_refuses_create_after_gc() {
+    let temp = tempfile::tempdir().unwrap();
+    let plan = plan();
+    let runner = RecordingRunner::with_outputs(vec![fail("not found")]);
+    let mut settings = settings(temp.path());
+    settings.reserve_bytes = Some(u64::MAX);
+    let backend = KrunvmBackend::new(runner.clone(), settings);
+    let error = backend.launch(&plan).unwrap_err();
+    assert!(error.to_string().contains("storage reserve"), "{error}");
+    assert!(!runner
+        .programs()
+        .iter()
+        .any(|call| call.contains(&"create".into())));
 }
 
 #[test]

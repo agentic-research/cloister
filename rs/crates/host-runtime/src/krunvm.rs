@@ -24,6 +24,7 @@ pub struct KrunvmSettings {
     pub memory_mib: u32,
     pub dns: String,
     pub host_arch: String,
+    pub reserve_bytes: Option<u64>,
 }
 
 impl Default for KrunvmSettings {
@@ -34,6 +35,7 @@ impl Default for KrunvmSettings {
             memory_mib: 1024,
             dns: "1.1.1.1".into(),
             host_arch: std::env::consts::ARCH.into(),
+            reserve_bytes: None,
         }
     }
 }
@@ -60,6 +62,17 @@ pub struct SystemCommandRunner;
 
 impl CommandRunner for SystemCommandRunner {
     fn run(&self, command: &CommandSpec) -> Result<CommandOutput, String> {
+        if command.program == "krunvm" && command.args.first().is_some_and(|arg| arg == "start") {
+            let status = Command::new(&command.program)
+                .args(&command.args)
+                .status()
+                .map_err(|error| format!("running {}: {error}", command.program))?;
+            return Ok(CommandOutput {
+                success: status.success(),
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
         let output = Command::new(&command.program)
             .args(&command.args)
             .output()
@@ -79,6 +92,8 @@ struct PersistedVm {
     restriction: String,
     artifact_index_digest: String,
     platform_digest: String,
+    #[serde(default)]
+    active: bool,
     running: bool,
     last_used: u64,
 }
@@ -104,6 +119,7 @@ impl StateLock {
         let path = storage.join("cloister-runtime.lock");
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .mode(0o600)
@@ -136,6 +152,20 @@ impl Drop for StateLock {
 pub struct KrunvmBackend<R> {
     runner: R,
     settings: KrunvmSettings,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStatus {
+    pub schema: &'static str,
+    pub storage_volume: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+    pub reserve_bytes: u64,
+    pub can_acquire: bool,
+    pub tracked_vms: usize,
+    pub running_vms: usize,
 }
 
 impl<R> KrunvmBackend<R> {
@@ -254,6 +284,157 @@ impl<R: CommandRunner> KrunvmBackend<R> {
             .unwrap_or_default()
             .as_secs()
     }
+
+    fn storage_usage(&self) -> Result<StorageUsage, RuntimeError> {
+        let path = std::ffi::CString::new(
+            self.settings
+                .storage_volume
+                .to_str()
+                .ok_or_else(|| RuntimeError::Backend("storage path is not valid UTF-8".into()))?,
+        )
+        .map_err(|_| RuntimeError::Backend("storage path contains a NUL byte".into()))?;
+        let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        // SAFETY: `path` is NUL-terminated and `stats` points to writable storage.
+        if unsafe { libc::statvfs(path.as_ptr(), stats.as_mut_ptr()) } != 0 {
+            return Err(RuntimeError::Backend(format!(
+                "reading storage usage for {}: {}",
+                self.settings.storage_volume.display(),
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: statvfs returned success and initialized `stats`.
+        let stats = unsafe { stats.assume_init() };
+        let block_size = stats.f_frsize;
+        let total_bytes = u64::from(stats.f_blocks).saturating_mul(block_size);
+        let available_bytes = u64::from(stats.f_bavail).saturating_mul(block_size);
+        let reserve_bytes = self
+            .settings
+            .reserve_bytes
+            .unwrap_or_else(|| required_reserve(total_bytes));
+        Ok(StorageUsage::new(
+            total_bytes,
+            total_bytes.saturating_sub(available_bytes),
+            reserve_bytes,
+        ))
+    }
+
+    fn inventory(state: &RuntimeState) -> RuntimeInventory {
+        let mut images = BTreeMap::<String, u64>::new();
+        let mut running_vms = BTreeSet::new();
+        let vms = state
+            .vms
+            .iter()
+            .map(|(name, record)| {
+                images
+                    .entry(record.platform_digest.clone())
+                    .and_modify(|last_used| *last_used = (*last_used).max(record.last_used))
+                    .or_insert(record.last_used);
+                if record.running {
+                    running_vms.insert(name.clone());
+                }
+                VmRecord::known(
+                    name,
+                    &record.bundle,
+                    &record.restriction,
+                    &record.platform_digest,
+                    record.last_used,
+                )
+            })
+            .collect();
+        RuntimeInventory {
+            vms,
+            images: images
+                .into_iter()
+                .map(|(digest, last_used)| ImageRecord::known(&digest, last_used))
+                .collect(),
+            running_vms,
+        }
+    }
+
+    pub fn gc(
+        &self,
+        active_restrictions: &BTreeSet<String>,
+        pinned_platform_digests: &BTreeSet<String>,
+        execute: bool,
+    ) -> Result<GcReport, RuntimeError> {
+        let _lock = StateLock::acquire(&self.settings.storage_volume)?;
+        let mut state = self.load_state()?;
+        let mut active_restrictions = active_restrictions.clone();
+        let mut pinned_platform_digests = pinned_platform_digests.clone();
+        for record in state.vms.values().filter(|record| record.active) {
+            active_restrictions.insert(record.restriction.clone());
+            pinned_platform_digests.insert(record.platform_digest.clone());
+        }
+        let plan = plan_gc(
+            &Self::inventory(&state),
+            &active_restrictions,
+            &pinned_platform_digests,
+        );
+        if execute {
+            for name in &plan.delete_vms {
+                let output = self.execute(&CommandSpec {
+                    program: "krunvm".into(),
+                    args: vec!["delete".into(), name.clone()],
+                })?;
+                if !output.success {
+                    return Err(RuntimeError::Backend(format!(
+                        "krunvm delete {name:?} failed: {}",
+                        output.stderr.trim()
+                    )));
+                }
+                state.vms.remove(name);
+            }
+            if !plan.prune_images.is_empty() {
+                let output = self.execute(&CommandSpec {
+                    program: "buildah".into(),
+                    args: vec![
+                        "--root".into(),
+                        self.settings
+                            .storage_volume
+                            .join("root")
+                            .display()
+                            .to_string(),
+                        "--runroot".into(),
+                        self.settings
+                            .storage_volume
+                            .join("runroot")
+                            .display()
+                            .to_string(),
+                        "rmi".into(),
+                        "--prune".into(),
+                    ],
+                })?;
+                if !output.success {
+                    return Err(RuntimeError::Backend(format!(
+                        "buildah prune failed: {}",
+                        output.stderr.trim()
+                    )));
+                }
+            }
+            self.save_state(&state)?;
+        }
+        Ok(GcReport {
+            plan,
+            executed: execute,
+        })
+    }
+
+    pub fn status(&self) -> Result<RuntimeStatus, RuntimeError> {
+        let _lock = StateLock::acquire(&self.settings.storage_volume)?;
+        let state = self.load_state()?;
+        let usage = self.storage_usage()?;
+        Ok(RuntimeStatus {
+            schema: "cloister/krunvm-status/v1",
+            storage_volume: self.settings.storage_volume.display().to_string(),
+            total_bytes: usage.total_bytes,
+            used_bytes: usage.used_bytes,
+            available_bytes: usage.available_bytes(),
+            reserve_bytes: usage.reserve_bytes,
+            can_acquire: usage.can_acquire(),
+            tracked_vms: state.vms.len(),
+            running_vms: state.vms.values().filter(|record| record.running).count(),
+        })
+    }
 }
 
 impl<R: CommandRunner> crate::Backend for KrunvmBackend<R> {
@@ -277,6 +458,14 @@ impl<R: CommandRunner> crate::Backend for KrunvmBackend<R> {
             }
             self.verify_source(&initial_inspect, &expected_source)?
         } else {
+            let usage = self.storage_usage()?;
+            if !usage.can_acquire() {
+                return Err(RuntimeError::Backend(format!(
+                    "krunvm storage reserve would be breached: {} bytes available, {} required",
+                    usage.available_bytes(),
+                    usage.reserve_bytes
+                )));
+            }
             let create = create_command(plan, &self.settings)?;
             let created = self.execute(&create)?;
             if !created.success {
@@ -303,6 +492,13 @@ impl<R: CommandRunner> crate::Backend for KrunvmBackend<R> {
             }
         };
 
+        for record in state
+            .vms
+            .values_mut()
+            .filter(|record| record.bundle == plan.bundle)
+        {
+            record.active = false;
+        }
         state.vms.insert(
             name.clone(),
             PersistedVm {
@@ -310,6 +506,7 @@ impl<R: CommandRunner> crate::Backend for KrunvmBackend<R> {
                 restriction: restriction_hex,
                 artifact_index_digest: plan.artifact.digest.clone(),
                 platform_digest: inspected.from_image_digest,
+                active: true,
                 running: true,
                 last_used: Self::now(),
             },
@@ -413,11 +610,17 @@ pub struct RuntimeInventory {
     pub running_vms: BTreeSet<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct GcPlan {
     pub delete_vms: Vec<String>,
     pub prune_images: Vec<String>,
     pub protected_unknown: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GcReport {
+    pub plan: GcPlan,
+    pub executed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -472,10 +675,22 @@ pub fn plan_gc(
         .collect();
     reclaimable_vms.sort_by_key(|vm| (vm.last_used, &vm.name));
 
+    let delete_vm_names: BTreeSet<&str> =
+        reclaimable_vms.iter().map(|vm| vm.name.as_str()).collect();
+    let retained_platform_digests: BTreeSet<&str> = inventory
+        .vms
+        .iter()
+        .filter(|vm| !delete_vm_names.contains(vm.name.as_str()))
+        .filter_map(|vm| vm.platform_digest.as_deref())
+        .collect();
     let mut reclaimable_images: Vec<&ImageRecord> = inventory
         .images
         .iter()
-        .filter(|image| image.known && !pinned_platform_digests.contains(&image.platform_digest))
+        .filter(|image| {
+            image.known
+                && !pinned_platform_digests.contains(&image.platform_digest)
+                && !retained_platform_digests.contains(image.platform_digest.as_str())
+        })
         .collect();
     reclaimable_images.sort_by_key(|image| (image.last_used, &image.platform_digest));
 

@@ -33,6 +33,7 @@ fn settings() -> KrunvmSettings {
         memory_mib: 1024,
         dns: "1.1.1.1".into(),
         host_arch: "aarch64".into(),
+        reserve_bytes: None,
     }
 }
 
