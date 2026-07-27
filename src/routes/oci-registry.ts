@@ -82,6 +82,7 @@ import type { Env } from "../types.js";
 import { type Digest, asDigest, isDigest } from "../storage/types.js";
 import { digestBytes, blake3HexBytes } from "../storage/canonical.js";
 import { gateAndVerify } from "./lease-middleware.js";
+import { logEvent } from "../obs/log.js";
 
 // ── URLPatterns (built once per instance) ─────────────────────────────────
 //
@@ -980,7 +981,7 @@ async function verifyClaimedDigest(
   body: Uint8Array,
   claimedDigest: string,
 ): Promise<
-  | { ok: true; key: string }
+  | { ok: true; key: string; algorithm: "sha256" | "blake3" }
   | { ok: false; sha256: string; blake3: string }
 > {
   const parsed = parseSha256Param(claimedDigest);
@@ -988,9 +989,34 @@ async function verifyClaimedDigest(
     return { ok: false, sha256: "?invalid-claim?", blake3: "?invalid-claim?" };
   }
   const sha256 = await digestBytes(body);
-  if (sha256 === parsed) return { ok: true, key: parsed };
+  if (sha256 === parsed) return { ok: true, key: parsed, algorithm: "sha256" };
   const blake3 = blake3HexBytes(body);
-  if (blake3 === parsed) return { ok: true, key: parsed };
+  if (blake3 === parsed) {
+    // The `sha256:` prefix is the build-cache/v1 wire convention, but these
+    // bytes are BLAKE3 — the label asserts an algorithm they did not come
+    // from. Accepting is deliberate (the wire spec requires it); accepting
+    // SILENTLY is not. This function computes both hashes, so it is the only
+    // place in the system that knows which one actually matched, and it used
+    // to discard that fact — returning an identical shape either way.
+    //
+    // Nothing downstream could then distinguish "BLAKE3 wearing a sha256:
+    // label" from "genuine SHA-256", which is threat-model §13.2's failure
+    // mode: the absence of a record is indistinguishable from the absence of
+    // the condition. Recording it is strictly weaker than rejecting it, and
+    // is the first increment of ADR-0056 — present-and-recorded before
+    // present-and-enforced. cloister-24c13a.
+    logEvent("warn", {
+      target: "oci_registry",
+      op: "verify_claimed_digest",
+      outcome: "algorithm_mismatch",
+      claimedAlgorithm: "sha256",
+      actualAlgorithm: "blake3",
+      detail:
+        "build-cache/v1 reuses the sha256: prefix for BLAKE3 hex; accepted under the documented "
+        + "'key is SHA-256 OR BLAKE3' union invariant, per ADR-0056",
+    });
+    return { ok: true, key: parsed, algorithm: "blake3" };
+  }
   return { ok: false, sha256, blake3 };
 }
 

@@ -592,6 +592,84 @@ describe("OciRegistryRoute — build-cache/v1 push (RED — exposes spec/reality
     expect(res.status).toBe(201);
     expect(res.headers.get("docker-content-digest")).toBe(wireDigest);
   });
+
+  // cloister-24c13a / ADR-0056. Accepting the BLAKE3-under-`sha256:` claim is
+  // deliberate (the test above pins it), but accepting it SILENTLY is not.
+  //
+  // `verifyClaimedDigest` already computes both hashes and therefore already
+  // knows which one matched — it just discards that fact and returns the same
+  // shape either way. So nothing anywhere distinguishes "BLAKE3 wearing a
+  // sha256: label" from "genuine SHA-256", which is §13.2's failure mode
+  // exactly: the absence of a record is indistinguishable from the absence of
+  // the condition.
+  //
+  // Making it observable is strictly weaker than making it impossible, and is
+  // the first increment: the algorithm is present-and-recorded before it is
+  // present-and-enforced.
+  it("accepting a BLAKE3 body under a sha256: label records the real algorithm", async () => {
+    const payload = new TextEncoder().encode(
+      "build-cache/v1 chunk — BLAKE3 bytes, sha256: label",
+    );
+    const wireDigest = "sha256:" + blake3Hex(payload);
+
+    const warned: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: unknown) => { warned.push(String(arg)); }) as typeof console.warn;
+    let res: Response;
+    try {
+      res = await route.handle(
+        mkReq(`/v2/mache/test-repo/abc123/blobs/uploads/?digest=${wireDigest}`, "POST", {
+          body: payload,
+        }),
+        env,
+      );
+    } finally {
+      console.warn = orig;
+    }
+
+    // Still accepted — this increment adds a record, it does not change policy.
+    expect(res!.status).toBe(201);
+
+    const events = warned
+      .map((line) => { try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; } })
+      .filter((e): e is Record<string, unknown> => e !== null);
+    const record = events.find((e) => e.op === "verify_claimed_digest");
+
+    expect(
+      record,
+      `expected a structured record of the algorithm mismatch; console.warn saw: ${JSON.stringify(warned)}`,
+    ).toBeTruthy();
+    expect(record!.target).toBe("oci_registry");
+    expect(record!.outcome).toBe("algorithm_mismatch");
+    expect(record!.claimedAlgorithm).toBe("sha256");
+    expect(record!.actualAlgorithm).toBe("blake3");
+  });
+
+  it("a genuine SHA-256 body under a sha256: label records nothing — no false positives", async () => {
+    const payload = new TextEncoder().encode("ordinary blob, honestly labelled");
+    const wireDigest = "sha256:" + (await sha256Hex(payload));
+
+    const warned: string[] = [];
+    const orig = console.warn;
+    console.warn = ((arg: unknown) => { warned.push(String(arg)); }) as typeof console.warn;
+    try {
+      await route.handle(
+        mkReq(`/v2/mache/test-repo/abc123/blobs/uploads/?digest=${wireDigest}`, "POST", {
+          body: payload,
+        }),
+        env,
+      );
+    } finally {
+      console.warn = orig;
+    }
+
+    const mismatches = warned
+      .map((line) => { try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; } })
+      .filter((e) => e !== null && e.op === "verify_claimed_digest");
+
+    // An honest label must stay silent, or the record is noise rather than signal.
+    expect(mismatches).toHaveLength(0);
+  });
 });
 
 // ── Body-size cap (cloister: post-conformance hardening) ──────────────────
