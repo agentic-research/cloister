@@ -72,10 +72,17 @@ export async function parseTomlToCluster(tomlString) {
 
   // 2. Un-flatten discriminated unions: TOML uses `kind = "<tag>"` +
   //    `[parent.<tag>]` sibling; zod expects `kind: { <tag>: payload }`.
+  // Loaded BEFORE the transform: assertDeclaredInputKeys runs inside the
+  // synchronous unflatten pass and cannot await, and a shape that arrives
+  // afterwards would leave that guard silently inert.
+  const { ClusterSchema, InputSpecSchema } = await import("../src/generated/cluster.zod.ts");
+  inputShape = InputSpecSchema?._def?.getter?.()?.shape
+    ?? InputSpecSchema?.def?.getter?.()?.shape
+    ?? null;
+
   const transformed = unflattenForSchema(raw);
 
   // 3. Schema validate via zod (single source of truth, per ADR-0025).
-  const { ClusterSchema } = await import("../src/generated/cluster.zod.ts");
   let validated;
   try {
     validated = ClusterSchema.parse(transformed);
@@ -459,6 +466,9 @@ function unflattenBackend(b) {
   return { ...rest, kind: { [tag]: payload } };
 }
 
+/** InputSpec's declared shape, cached from the generated schema. */
+let inputShape = null;
+
 function unflattenInputs(raw) {
   if (raw === undefined || raw === null) return [];
   if (Array.isArray(raw)) {
@@ -468,10 +478,13 @@ function unflattenInputs(raw) {
   }
   if (typeof raw !== "object") return [];
   // TOML `[inputs.<name>]` → { <name>: { ref, version, ... } }
-  return Object.entries(raw).map(([name, spec]) => normalizeInputDefaults({
-    name,
-    ...(spec && typeof spec === "object" ? spec : {}),
-  }));
+  return Object.entries(raw).map(([name, spec]) => {
+    assertDeclaredInputKeys(name, spec, inputShape);
+    return normalizeInputDefaults({
+      name,
+      ...(spec && typeof spec === "object" ? spec : {}),
+    });
+  });
 }
 
 /**
@@ -597,6 +610,34 @@ function normalizeVaultProxyInjection(svc) {
   }
   // Let zod/build-time validation surface malformed declarations.
   return { [tag]: null };
+}
+
+/**
+ * Reject an [inputs.*] key that InputSpec does not declare (cloister-71a9f4).
+ *
+ * This must run BEFORE normalizeInputDefaults, because that function rebuilds
+ * the object from a fixed field list and therefore DROPS anything unknown.
+ * The strict ClusterSchema downstream then sees a clean object and passes.
+ * Net effect before this guard: `urlBindingg = "TYPO"` was silently deleted
+ * from the operator's own cluster.toml by the `cluster-to-toml --write`
+ * round-trip — not merely ignored, erased.
+ *
+ * The declared key list is read from the generated schema, so a new capnp
+ * field is accepted here without anyone editing this file.
+ */
+function assertDeclaredInputKeys(name, spec, inputShape) {
+  if (!inputShape) return; // introspection unavailable — do not fail the build on that alone
+  const declared = Object.keys(inputShape);
+  for (const key of Object.keys(spec ?? {})) {
+    if (!declared.includes(key)) {
+      throw new Error(
+        `[inputs.${name}] declares unknown field ${JSON.stringify(key)} — ` +
+        `manifest/cluster.capnp's InputSpec declares: ${declared.slice().sort().join(", ")}. ` +
+        `(Left unchecked this key is dropped and then erased from cluster.toml by the ` +
+        `cluster-to-toml round-trip.)`,
+      );
+    }
+  }
 }
 
 function normalizeInputDefaults(spec) {
