@@ -21,11 +21,21 @@ Tracking bead: `cloister-7c9ca6`.
 
 The vault has a working read side and no production write side.
 
-- `vaultSlice` — ADR-0010 calls it "the binding substrate", and CLAUDE.md's
-  "What NOT to add" forbids env-var credential bindings on that basis, telling
-  authors to declare a `vaultSlice` instead. **It appears zero times** in
-  `cluster.toml`, `manifest/cluster.capnp`, or `src/manifest/cluster-types.ts`.
-  There is no schema field. The instruction cannot be followed.
+- `vaultSlice` — appears **zero times** in `cluster.toml`,
+  `manifest/cluster.capnp`, or `src/manifest/cluster-types.ts`. There is no
+  schema field.
+
+  Be precise about why, because two documents disagree. **ADR-0010 left this
+  explicitly open**, §"What's still open", item 1: *"Whether `Bundle.vaultSlice`
+  should appear in `cluster.capnp` as a manifest hint (tooling support…).
+  **NOT for enforcement** — workerd bindings + vault `allowedSubs` enforce."*
+  So its absence is an unanswered question, not an unimplemented decision.
+
+  **CLAUDE.md:282 states it more strongly than its source supports** — "vault
+  slices are the binding substrate. New bindings should land as `vaultSlice`
+  declarations on a bundle" — instructing authors to use a field ADR-0010 never
+  decided to create. That overstatement is itself worth correcting (this ADR
+  does not fix CLAUDE.md; a separate change should).
 - `putCredential` — exactly one caller: `vault-store.ts`'s `#devSeed`, gated on
   `CLOISTER_MODE === "dev"` and `DEV_VAULT_SEED`.
 - `/vault/proxy` — the only vault route, and it is the read/inject side.
@@ -68,10 +78,17 @@ in-boundary by the vault DO at first use — the same shape as the KEK.**
 
 Three parts.
 
-### A. `vaultSlice` becomes a real declaration
+### A. `vaultSlice` becomes a real declaration — answering ADR-0010's open question
 
-Give ADR-0010's slice a schema field on `Bundle`, in `manifest/cluster.capnp`,
-so the instruction CLAUDE.md already gives can be followed:
+ADR-0010 asked whether `Bundle.vaultSlice` should exist as a **manifest hint,
+NOT for enforcement**. This ADR answers yes, and **changes its role**: a slice
+here names a credential *source*, which is provisioning, not a hint.
+
+That divergence is deliberate and must not be read as continuity. ADR-0010's
+enforcement boundary is unchanged — workerd bindings and vault `allowedSubs`
+still enforce, and a slice grants nothing. What a slice adds is *where the
+credential comes from*, which ADR-0010 did not address because it had no
+production write path to reason about.
 
 ```
 struct VaultSlice {
