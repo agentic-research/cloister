@@ -116,35 +116,37 @@ async function loadGeneratedBackendContract() {
     );
   }
 
-  const zeros = {};
-  for (const [key, node] of Object.entries(shape)) {
-    const t = node?._def?.type ?? node?.def?.type;
-    if (t === "string") zeros[key] = "";
-    else if (t === "boolean") zeros[key] = false;
-    else if (t === "array" || t === "readonly") zeros[key] = [];
-    else fail(`GeneratedBackendSchema field ${JSON.stringify(key)} has unhandled type ${t}`);
-  }
-
-  // capnp declares `dynamicTools @6 :Bool = true`. The pinned schema-bridge
-  // (v0.7.9) does not emit capnp defaults into zod — that is ley-line-open
-  // 8c00c6, which lands with the v0.11.3 bump (cloister-9170d0). Until then
-  // this one non-zero default is carried here.
-  //
-  // Self-retiring: once the generator emits defaults, a row missing the field
-  // parses on its own and this override becomes redundant — at which point
-  // the build fails and says so, rather than leaving a stale workaround that
-  // silently disagrees with the schema.
-  const withoutDefault = { ...zeros };
-  delete withoutDefault.dynamicTools;
-  if (schema.safeParse({ ...withoutDefault, name: "probe" }).success) {
+  // The generator emits `.default(...)` per field (ley-line-open 8c00c6), so
+  // absence is handled by the schema itself and there are no zeros to
+  // synthesise here.
+  const node = shape.dynamicTools;
+  const nodeType = node?._def?.type ?? node?.def?.type;
+  if (nodeType !== "default") {
     fail(
-      "GeneratedBackendSchema now supplies its own defaults — delete the interim " +
-      "dynamicTools override in loadGeneratedBackendContract() (cloister-9170d0).",
+      "GeneratedBackendSchema no longer supplies field defaults — an older schema-bridge " +
+      "is pinned. Absence would be rejected instead of defaulted, breaking older lockfiles.",
     );
   }
-  zeros.dynamicTools = true;
 
-  return { schema, zeros };
+  // capnp's native `= value` syntax is NOT read by schema-bridge; only a
+  // `$Default(json)` annotation is, and importing LLO's _traits.capnp at
+  // capnp-compile time is not available to CI. So `dynamicTools`, whose
+  // intended default is TRUE, generates `.default(false)` — the inverse. It is
+  // corrected after parsing, for omitted rows only.
+  //
+  // Self-retiring on the REAL condition: if the generated default ever becomes
+  // true, this correction is redundant and the build says so. Checking merely
+  // "are there defaults" would have retired it while it was still needed.
+  const rawDefault = node?._def?.defaultValue ?? node?.def?.defaultValue;
+  const generatedDefault = typeof rawDefault === "function" ? rawDefault() : rawDefault;
+  if (generatedDefault === true) {
+    fail(
+      "GeneratedBackendSchema now defaults dynamicTools to true — delete the correction in " +
+      "loadGeneratedBackendContract() and the note in manifest/cluster.capnp.",
+    );
+  }
+
+  return { schema, dynamicToolsDefault: true };
 }
 
 // ── Overlay [[generated_backends]] from cluster.lock.toml ────────────────
@@ -604,7 +606,7 @@ function backendFromGeneratedRow(row, contract) {
   // is `.strict()`, an unknown key survives the spread and is rejected — that
   // is the typo case (`handlesPrefixx` used to build cleanly into a backend
   // matching nothing).
-  const parsed = contract.schema.safeParse({ ...contract.zeros, ...row });
+  const parsed = contract.schema.safeParse(row);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     const where = issue.path.length ? ` field ${JSON.stringify(issue.path.join("."))}` : "";
@@ -613,7 +615,9 @@ function backendFromGeneratedRow(row, contract) {
       `${issue.message}`,
     );
   }
+  const omittedDynamicTools = !("dynamicTools" in row);
   row = parsed.data;
+  if (omittedDynamicTools) row.dynamicTools = contract.dynamicToolsDefault;
 
   if (typeof row.name !== "string" || row.name === "") {
     fail(`generated_backends row has no name: ${JSON.stringify(row)}`);

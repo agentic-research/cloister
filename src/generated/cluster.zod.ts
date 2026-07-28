@@ -606,15 +606,15 @@ export interface BodyFieldSpec {
 
 export const GeneratedBackendSchema: z.ZodType<GeneratedBackend> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    input: z.string(),
-    handlesPrefix: z.string(),
-    stripPrefix: z.string(),
-    urlBinding: z.string(),
-    serviceBinding: z.string(),
-    dynamicTools: z.boolean(),
-    requiresSession: z.boolean(),
-    claims: z.array(z.string()).readonly(),
+    name: z.string().default(""),
+    input: z.string().default(""),
+    handlesPrefix: z.string().default(""),
+    stripPrefix: z.string().default(""),
+    urlBinding: z.string().default(""),
+    serviceBinding: z.string().default(""),
+    dynamicTools: z.boolean().default(false),
+    requiresSession: z.boolean().default(false),
+    claims: z.array(z.string()).readonly().default([]),
   }).strict());
 
 export interface GeneratedBackend {
