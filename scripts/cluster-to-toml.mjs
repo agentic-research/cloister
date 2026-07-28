@@ -266,6 +266,7 @@ function canonicalizeInputs(arr) {
     if (typeof inp.urlBinding     === "string" && inp.urlBinding     !== "") body.urlBinding     = inp.urlBinding;
     if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
     if (inp.requiresSession === true) body.requiresSession = true;
+    if (typeof inp.mutableTagReason === "string" && inp.mutableTagReason !== "") body.mutableTagReason = inp.mutableTagReason;
     // Emit [inputs.<name>.connection] only for a declared transport. An
     // `unset` transport is the absence of a connection, and writing it back as
     // a table would make every existing input grow a no-op block and break the

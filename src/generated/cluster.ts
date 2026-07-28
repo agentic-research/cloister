@@ -244,8 +244,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@f62a54307c6c6d6d4e39c333a19b8913f8826c61",
-      "version": "0.8.0",
+      "ref": "github://agentic-research/ley-line-open/server.json@39e1e9b4fa3081157e018e51adac62aef23632d1",
+      "version": "0.11.3",
       "digest": "",
       "from": "",
       "provides": [],
@@ -265,7 +265,8 @@ export const cluster: Cluster = {
         "transport": {
           "unset": null
         }
-      }
+      },
+      "mutableTagReason": "ghcr.io/agentic-research/ley-line-open is not published yet — ley-line-open-e44960 adds the publish job + provenance attestation. Remove this line once `docker pull ghcr.io/agentic-research/ley-line-open:v0.11.3` succeeds; resolution then pins by digest automatically."
     },
     {
       "name": "mache",
@@ -290,7 +291,8 @@ export const cluster: Cluster = {
         "transport": {
           "unset": null
         }
-      }
+      },
+      "mutableTagReason": ""
     },
     {
       "name": "rosary",
@@ -315,7 +317,8 @@ export const cluster: Cluster = {
         "transport": {
           "unset": null
         }
-      }
+      },
+      "mutableTagReason": ""
     },
     {
       "name": "canonical-hours",
@@ -340,7 +343,8 @@ export const cluster: Cluster = {
         "transport": {
           "unset": null
         }
-      }
+      },
+      "mutableTagReason": ""
     }
   ],
   "routes": [

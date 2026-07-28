@@ -597,6 +597,7 @@ function normalizeInputDefaults(spec) {
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
     requiresSession: spec.requiresSession === true,
     connection: normalizeConnection(spec.connection),
+    mutableTagReason: typeof spec.mutableTagReason === "string" ? spec.mutableTagReason : "",
     tenancy: {
       mode:              typeof rawTenancy.mode      === "string" ? rawTenancy.mode      : "",
       workerdId:         typeof rawTenancy.workerdId === "string" ? rawTenancy.workerdId : "",
