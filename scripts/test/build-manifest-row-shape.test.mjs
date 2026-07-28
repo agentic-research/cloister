@@ -29,7 +29,6 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const SCRIPT = join(ROOT, "scripts/build-manifest.mjs");
 
 /** Run the real build-manifest against a crafted lockfile. */
 function buildWith(tomlBody, t) {
@@ -37,7 +36,17 @@ function buildWith(tomlBody, t) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const lockfile = join(dir, "cluster.lock.toml");
   writeFileSync(lockfile, tomlBody);
-  const r = spawnSync(process.execPath, [SCRIPT], {
+  // Driven through `task manifest`, not bare `node scripts/build-manifest.mjs`
+  // — the same convention as e2e-manifest-pipeline.test.mjs, and for the same
+  // reason: the task owns the real invocation (`node --import tsx ...`), so the
+  // test follows it automatically if it changes.
+  //
+  // Bare `node` was the first attempt. It passed locally on Node 25, which
+  // strips TS types natively, and failed all ten tests on CI's Node 20 with
+  // `Unknown file extension ".ts"` — build-manifest loads the generated
+  // tool-schemas.ts and needs the loader. A green local run proved nothing
+  // about the interpreter CI actually uses.
+  const r = spawnSync("task", ["manifest", "--force"], {
     cwd: ROOT,
     encoding: "utf8",
     env: {
@@ -51,7 +60,7 @@ function buildWith(tomlBody, t) {
       // negative assertions below pass for the wrong reason.
     },
   });
-  return { status: r.status, stderr: r.stderr ?? "" };
+  return { status: r.status, stderr: `${r.stderr ?? ""}${r.stdout ?? ""}` };
 }
 
 const VALID_ROW = `
@@ -170,7 +179,7 @@ test("a row with no name fails rather than being skipped", (t) => {
 test("the shipped cluster.lock.toml passes the tightened check", () => {
   // The rail must hold against the real tree, not only fixtures — otherwise
   // it could be enforcing a shape nothing actually conforms to.
-  const r = spawnSync(process.execPath, [SCRIPT], {
+  const r = spawnSync("task", ["manifest", "--force"], {
     cwd: ROOT,
     encoding: "utf8",
     env: {
