@@ -1114,7 +1114,14 @@ test("resolveInput: file:// server.json with oci packages populates row.oci", as
       version: "0.13.0",
       packages: [{ registryType: "oci", identifier: "ghcr.io/agentic-research/mache", version: "0.13.0" }],
     }));
-    const row = await resolveInput(specDefaults({ name: "mache", ref: `file://${path}` }));
+    // mutableTagReason: this fixture's image is synthetic — there is no
+    // registry to probe, so digest resolution cannot succeed. Since ADR-0041
+    // now FAILS CLOSED on an unresolvable digest, the fixture must acknowledge
+    // the downgrade the same way an operator would.
+    const row = await resolveInput({
+      ...specDefaults({ name: "mache", ref: `file://${path}` }),
+      mutableTagReason: "synthetic test fixture — no registry to probe",
+    });
     assert.deepEqual(row.oci, {
       identifier: "ghcr.io/agentic-research/mache", version: "0.13.0", digest: "",
     });
@@ -1363,4 +1370,46 @@ test("the TOML string form of transport is accepted alongside the union", () => 
   );
   assert.equal(udsSocketPath({ name: "x", connection: { transport: "unset" } }), null);
   assert.equal(udsSocketPath({ name: "x" }), null);
+});
+
+// ── Unresolvable digests fail closed (ADR-0041 / cloister-8c6b21) ─────────
+
+test("an unresolvable OCI digest REFUSES rather than pinning by mutable tag", async () => {
+  // Previously this warned and pinned by tag anyway — a supply-chain downgrade
+  // accepted quietly enough to survive review: the warning scrolls past in a
+  // build log and the lockfile still looks pinned.
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-failclosed-"));
+  try {
+    const path = resolve(dir, "server.json");
+    writeFileSync(path, JSON.stringify({
+      name: "x", version: "1",
+      packages: [{ registryType: "oci", identifier: "ghcr.io/nope/nope", version: "9.9.9" }],
+    }));
+    await assert.rejects(
+      () => resolveInput(specDefaults({ name: "nope", ref: `file://${path}` })),
+      (err) => err.detail.includes("Refusing to pin by mutable tag"),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a stated mutableTagReason accepts the downgrade explicitly", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), "resolve-ack-"));
+  try {
+    const path = resolve(dir, "server.json");
+    writeFileSync(path, JSON.stringify({
+      name: "x", version: "1",
+      packages: [{ registryType: "oci", identifier: "ghcr.io/nope/nope", version: "9.9.9" }],
+    }));
+    const row = await resolveInput({
+      ...specDefaults({ name: "nope", ref: `file://${path}` }),
+      mutableTagReason: "image not published yet — see upstream bead",
+    });
+    // Pinned by tag, and NOT carrying a digest it does not have.
+    assert.equal(row.oci.version, "9.9.9");
+    assert.equal(row.oci.digest, "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

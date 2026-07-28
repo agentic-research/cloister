@@ -308,7 +308,7 @@ jobs:
       # cadence, independent of the server.json `version` pins in cluster.toml
       # ([inputs.llo] 0.8.0, [inputs.mache] 0.17.0) which pin the tool CONTRACT,
       # not the executable. Bump these when validating against a newer upstream.
-      LEYLINE_RELEASE: v0.10.4
+      LEYLINE_RELEASE: v0.11.3
       MACHE_RELEASE: v0.19.0
 
     steps:

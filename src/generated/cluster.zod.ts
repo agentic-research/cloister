@@ -90,6 +90,7 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     tenancy: TenancySpecSchema,
     requiresSession: z.boolean(),
     connection: ConnectionSchema,
+    mutableTagReason: z.string(),
   }).strict());
 
 export interface InputSpec {
@@ -105,6 +106,7 @@ export interface InputSpec {
   tenancy: TenancySpec;
   requiresSession: boolean;
   connection: Connection;
+  mutableTagReason: string;
 }
 
 export const RouteSchema: z.ZodType<Route> = z.lazy(() =>

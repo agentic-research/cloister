@@ -262,13 +262,34 @@ export async function resolveInput(spec) {
     const digest = await resolveOciDigest(oci.identifier, oci.version);
     if (digest) {
       oci = { ...oci, digest };
-    } else {
+    } else if (typeof spec.mutableTagReason === "string" && spec.mutableTagReason !== "") {
+      // Explicitly acknowledged by the operator. Still loud — a mutable-tag
+      // pin is a real supply-chain downgrade, and the acknowledgement records
+      // WHO accepted it, not that it stopped being one.
       process.stderr.write(
-        `resolve-inputs: WARNING — ${spec.name}: could not resolve an OCI digest for ` +
-        `${oci.identifier}:${oci.version} (private image without registry creds, or ` +
-        `registry unreachable). Pinning by MUTABLE TAG — an upstream re-push can flow ` +
-        `through. Make the image public or provide registry auth to pin by digest ` +
-        `(ADR-0041 / cloister-091106).\n`,
+        `resolve-inputs: ${spec.name}: pinning by MUTABLE TAG ` +
+        `${oci.identifier}:${oci.version} — reason: ${spec.mutableTagReason}. An ` +
+        `upstream re-push can flow through until that condition lifts.\n`,
+      );
+    } else {
+      // FAIL CLOSED (ADR-0041). Previously this warned and pinned by mutable
+      // tag anyway, which is a supply-chain downgrade accepted silently-enough
+      // that it survives review — the warning scrolls past in a build log and
+      // the lockfile looks pinned.
+      //
+      // An unresolvable digest means the declared image does not exist, is
+      // private, or the registry is unreachable. None of those should produce
+      // a lockfile that LOOKS pinned. Refusing names the input and the reason;
+      // an operator who genuinely wants the downgrade states a mutableTagReason and
+      // the acknowledgement is recorded in cluster.toml where review sees it.
+      throw new ResolveError(
+        spec.name,
+        `could not resolve an OCI digest for ${oci.identifier}:${oci.version} — ` +
+        `the image is unpublished, private without registry creds, or the registry ` +
+        `is unreachable. Refusing to pin by mutable tag: the lockfile would look ` +
+        `pinned while an upstream re-push flowed through. Publish the image, provide ` +
+        `registry auth, or set \`mutableTagReason = "…"\` on [inputs.${spec.name}] ` +
+        `stating why and what lifts it (ADR-0041).`,
       );
     }
   }
@@ -976,6 +997,15 @@ async function main() {
     urlBinding:     typeof spec.urlBinding     === "string" ? spec.urlBinding     : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
     requiresSession: spec.requiresSession === true,
+    // ADR-0051. Passed through so deriveGeneratedBackends can emit a
+    // udsForward row. Without this the connection block is declarable in
+    // cluster.toml and invisible to the resolver — the field would exist and
+    // do nothing, which is how #211 shipped: its tests called
+    // deriveGeneratedBackends directly with hand-built specs, so the
+    // cluster.toml -> resolver -> lockfile path was never exercised.
+    connection:     spec.connection,
+    // ADR-0041. Empty ⇒ an unresolvable OCI digest fails closed.
+    mutableTagReason: typeof spec.mutableTagReason === "string" ? spec.mutableTagReason : "",
     provides:       Array.isArray(spec.provides) ? spec.provides : [],
     requires:       Array.isArray(spec.requires) ? spec.requires : [],
   }));

@@ -493,6 +493,24 @@ struct InputSpec {
   #
   # Append-only ordinal per ADR-0004.
   connection @11 :Connection;
+
+  # WHY a mutable-tag pin is accepted for this input, when the OCI digest
+  # cannot be resolved (ADR-0041). Empty = fail closed, which is the default.
+  #
+  # Resolution normally records `identifier@sha256:…` so an upstream re-push
+  # cannot flow through. When the image is unpublished, private without
+  # registry creds, or the registry is unreachable, there is no digest — and
+  # writing the tag anyway yields a lockfile that LOOKS pinned while it is not.
+  # That is the failure this defaults against.
+  #
+  # A REASON, not a boolean, for the same cause as `HarnessTarget.provenance`:
+  # a bare `true` records that someone accepted a supply-chain downgrade but
+  # not why, nor what has to become true before it can be removed. The next
+  # reader cannot tell a considered exception from a forgotten one. State the
+  # condition that lifts it.
+  #
+  # Append-only ordinal per ADR-0004.
+  mutableTagReason @12 :Text;
 }
 
 # ── Connection: how an input is reached (ADR-0051) ────────────────────────

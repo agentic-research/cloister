@@ -125,6 +125,15 @@ export interface InputSpec {
    */
   connection?: Connection;
   /**
+   * WHY a mutable-tag pin is accepted for this input when the OCI digest
+   * cannot be resolved (ADR-0041). Empty = fail closed (the default).
+   *
+   * A reason rather than a boolean: a bare `true` records that someone
+   * accepted a supply-chain downgrade but not why, nor what must become true
+   * before it lifts.
+   */
+  mutableTagReason?: string;
+  /**
    * Composable tenancy declaration (ADR-0030 §A5 / cloister-0e3004).
    * Operator-set fields override the input's server.json
    * `_meta.art.cloister/v1.tenancy` defaults. All-empty value = inherit

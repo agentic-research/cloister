@@ -998,6 +998,9 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       // with no [inputs.*.connection] parses and defaults to
       // `{transport: {unset: null}}`.
       connection: { transport: { unset: null }, socketPath: "", vaultSlice: "" },
+      // ADR-0041. Empty ⇒ fail closed on an unresolvable OCI digest; this
+      // fixture is current-shape, so it carries the field explicitly.
+      mutableTagReason: "",
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field

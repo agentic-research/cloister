@@ -128,6 +128,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "lsp_hover",
                     "lsp_defs",
@@ -147,6 +148,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "status",
                     "snapshot",
@@ -165,6 +167,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "sheaf_set_topology",
                     "sheaf_invalidate",
@@ -185,6 +188,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "query",
                     "list_children",
@@ -215,6 +219,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "leyline_version"
                   ]
@@ -230,6 +235,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "validate"
                   ]
@@ -245,6 +251,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "hdc_search",
                     "hdc_calibrate",
@@ -262,6 +269,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "list_directory",
                     "read_file",
@@ -283,6 +291,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "find_callers",
                     "find_callees",
@@ -304,6 +313,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "get_type_info",
                     "get_diagnostics",
@@ -322,6 +332,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "get_sheaf_status"
                   ],
@@ -338,6 +349,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "find_smells"
                   ],
@@ -354,6 +366,7 @@ export const manifest: Gateway = {
                   "tools": [],
                   "dynamicTools": true,
                   "serviceBinding": "MACHE_MCP",
+                  "requiresSession": true,
                   "claims": [
                     "write_file"
                   ],
@@ -425,6 +438,7 @@ export const manifest: Gateway = {
                   "urlBinding": "CANONICAL_HOURS_MCP_URL",
                   "tools": [],
                   "dynamicTools": true,
+                  "requiresSession": true,
                   "claims": [
                     "get_board",
                     "trigger_tick",

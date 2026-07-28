@@ -4,15 +4,16 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@f62a54307c6c6d6d4e39c333a19b8913f8826c61"
-resolved = "0.8.0"
-sha256 = "sha256:66d951ba8f9f13bdad9c473d8e5f7ef73d9741ae42e8eed315d875bbb98b3466"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/f62a54307c6c6d6d4e39c333a19b8913f8826c61/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@39e1e9b4fa3081157e018e51adac62aef23632d1"
+resolved = "0.11.3"
+sha256 = "sha256:2fe091b526a26edc0b546b33b759a9f7f0f7f6c5de317483e875457cd7c065bc"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/39e1e9b4fa3081157e018e51adac62aef23632d1/server.json"
 signer = ""
-bytes = 2_603
+bytes = 2_626
 
   [inputs.llo.oci]
-  identifier = "ghcr.io/agentic-research/ley-line-open:0.8.0"
+  identifier = "ghcr.io/agentic-research/ley-line-open"
+  version = "v0.11.3"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
@@ -63,6 +64,7 @@ claims = [
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -73,6 +75,7 @@ claims = [ "status", "snapshot", "reparse", "enrich" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -90,6 +93,7 @@ claims = [
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -117,6 +121,7 @@ claims = [
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -127,6 +132,7 @@ claims = [ "leyline_version" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -137,6 +143,7 @@ claims = [ "validate" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "llo"
@@ -147,6 +154,7 @@ claims = [ "hdc_search", "hdc_calibrate", "hdc_density" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -164,6 +172,7 @@ claims = [
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -181,6 +190,7 @@ claims = [
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -191,6 +201,7 @@ claims = [ "get_type_info", "get_diagnostics", "semantic_search" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -201,6 +212,7 @@ claims = [ "get_sheaf_status" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -211,6 +223,7 @@ claims = [ "find_smells" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "mache"
@@ -221,6 +234,7 @@ claims = [ "write_file" ]
 dynamicTools = true
 urlBinding = "MACHE_MCP_URL"
 serviceBinding = "MACHE_MCP"
+requiresSession = true
 
 [[generated_backends]]
 input = "rosary"
@@ -289,3 +303,4 @@ claims = [
 dynamicTools = true
 urlBinding = "CANONICAL_HOURS_MCP_URL"
 serviceBinding = ""
+requiresSession = true
