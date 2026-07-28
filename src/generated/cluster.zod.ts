@@ -135,6 +135,7 @@ export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
     actor: ActorSchema,
     policy: InterlacePolicySchema,
     vaultProxyServices: z.array(VaultProxyServiceSchema).readonly(),
+    harnessTargets: z.array(HarnessTargetSchema).readonly(),
   }).strict());
 
 export interface Gateway {
@@ -142,6 +143,7 @@ export interface Gateway {
   actor: Actor;
   policy: InterlacePolicy;
   vaultProxyServices: readonly VaultProxyService[];
+  harnessTargets: readonly HarnessTarget[];
 }
 
 export const EdgeSpecSchema: z.ZodType<EdgeSpec> = z.lazy(() =>
@@ -524,6 +526,33 @@ export interface VaultProxyService {
   defaultAllowedSubs: readonly string[];
   rateLimitPerMinute: number;
   injection: { authorizationBearer: null } | { authorizationBasic: null } | { headerNamed: HeaderNamedSpec } | { queryParam: QueryParamSpec } | { bodyField: BodyFieldSpec };
+}
+
+export const HarnessTargetSchema: z.ZodType<HarnessTarget> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    service: z.string(),
+    entryPoint: z.string(),
+    apiKeyEnv: z.string(),
+    baseUrlEnv: z.string(),
+    stripEnv: z.array(z.string()).readonly(),
+    stateDirEnv: z.string(),
+    stateDir: z.string(),
+    authModes: z.array(z.string()).readonly(),
+    provenance: z.string(),
+  }).strict());
+
+export interface HarnessTarget {
+  name: string;
+  service: string;
+  entryPoint: string;
+  apiKeyEnv: string;
+  baseUrlEnv: string;
+  stripEnv: readonly string[];
+  stateDirEnv: string;
+  stateDir: string;
+  authModes: readonly string[];
+  provenance: string;
 }
 
 export const HeaderNamedSpecSchema: z.ZodType<HeaderNamedSpec> = z.lazy(() =>

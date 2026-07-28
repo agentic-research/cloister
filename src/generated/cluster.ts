@@ -466,6 +466,43 @@ export const cluster: Cluster = {
           "authorizationBearer": null
         }
       }
+    ],
+    "harnessTargets": [
+      {
+        "name": "claude-code",
+        "service": "anthropic",
+        "entryPoint": "",
+        "apiKeyEnv": "ANTHROPIC_API_KEY",
+        "baseUrlEnv": "ANTHROPIC_BASE_URL",
+        "stripEnv": [
+          "ANTHROPIC_API_KEY",
+          "ANTHROPIC_AUTH_TOKEN"
+        ],
+        "stateDirEnv": "CLAUDE_CONFIG_DIR",
+        "stateDir": ".claude",
+        "authModes": [
+          "custody",
+          "audit"
+        ],
+        "provenance": "https://github.com/anthropics/claude-code"
+      },
+      {
+        "name": "codex",
+        "service": "openai",
+        "entryPoint": "",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "baseUrlEnv": "OPENAI_BASE_URL",
+        "stripEnv": [
+          "OPENAI_API_KEY",
+          "OPENAI_AUTH_TOKEN"
+        ],
+        "stateDirEnv": "CODEX_HOME",
+        "stateDir": ".codex",
+        "authModes": [
+          "custody"
+        ],
+        "provenance": "https://github.com/openai/codex"
+      }
     ]
   },
   "edges": []

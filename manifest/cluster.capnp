@@ -839,6 +839,100 @@ struct Gateway {
   #
   # Append-only ordinal per ADR-0004.
   vaultProxyServices @3 :List(VaultProxyService);
+
+  # Harness profiles (cloister-742e19, ADR-0057). A harness is a lattice
+  # PARTICIPANT, not a target the substrate special-cases: Claude Code and
+  # Codex are two rows here, and adding a third is an operator writing TOML,
+  # never an edit to `scripts/harness-dev.mjs`.
+  #
+  # Declared here rather than in a script for the same reason as
+  # vaultProxyServices above — `cluster.toml` is the operator source of truth.
+  # Each entry's `service` MUST name a vaultProxyServices entry; the two halves
+  # now live in one file, so the agreement is checkable by the manifest
+  # pipeline rather than reconciled at runtime. Empty list = no harness
+  # declared; `task harness:dev` fails closed naming the empty set.
+  #
+  # Append-only ordinal per ADR-0004.
+  harnessTargets @4 :List(HarnessTarget);
+}
+
+struct HarnessTarget {
+  # Selector for `task harness:dev -- --target <name>`.
+  name @0 :Text;
+
+  # Vault service this harness authenticates through. MUST match a
+  # `VaultProxyService.name`; the injection strategy and upstream come from
+  # THAT declaration, so they are never restated here and cannot disagree.
+  service @1 :Text;
+
+  # Absolute path to the harness executable — the SAME concept as
+  # `BundleExternal.entryPoint`, not a bare command name. Confined execution
+  # execs by path with no `$PATH` lookup inside the sandbox, so a bare name
+  # would have to be resolved at runtime (that resolution is where
+  # `claude: command not found` came from). Empty ⇒ resolve `name` on `$PATH`
+  # at launch, which is the convenience path and NOT available under
+  # confinement.
+  entryPoint @2 :Text;
+
+  # Env var the operator sets to supply an API key (custody mode). The key is
+  # written to the vault seed and injected inside the vault DO; it never enters
+  # the harness environment.
+  apiKeyEnv @3 :Text;
+
+  # Env var the harness reads to find the vault proxy.
+  baseUrlEnv @4 :Text;
+
+  # Credential env vars scrubbed before exec, so a confined harness cannot see
+  # a key even if the operator exported one — which would otherwise let it
+  # bypass the proxy by calling the provider directly. Should include
+  # `apiKeyEnv`.
+  stripEnv @5 :List(Text);
+
+  # Env var overriding the harness state directory.
+  stateDirEnv @6 :Text;
+
+  # State directory relative to $HOME; granted rw under confinement.
+  stateDir @7 :Text;
+
+  # Supported auth modes. "custody" vaults an API key and injects it. "audit"
+  # forwards the harness's own OAuth and receipts the call — only meaningful
+  # where the provider sells a subscription that vaulting a key would silently
+  # bypass. Declaring the supported set makes an unsupported `--audit` a named
+  # refusal rather than a quiet downgrade that moves billing.
+  authModes @8 :List(Text);
+
+  # WHO OWNS these facts — the URL of the project that decides them.
+  # Required, and always a concrete owner. Examples:
+  #
+  #   "https://github.com/openai/codex"              third-party: cloister is
+  #                                                  TRANSCRIBING, and this row
+  #                                                  goes stale when codex
+  #                                                  changes.
+  #   "https://github.com/agentic-research/cloister" cloister's own decision.
+  #   "https://github.com/agentic-research/mache"    a first-party project that
+  #                                                  publishes its own
+  #                                                  server.json — prefer
+  #                                                  DERIVING over copying.
+  #
+  # Deliberately NOT a category label ("first-party" / "vendored") and
+  # deliberately NOT empty-means-something. Both are silent buckets: a category
+  # word tells you which bin a row is in but not who to ask, and an empty
+  # string is indistinguishable from a row nobody filled in — absence carrying
+  # meaning is the exact defect that let a `sha256:` prefix sit on BLAKE3 bytes
+  # and let thirteen files cite a schema path that never existed. Naming the
+  # owner answers "who do I ask when this is wrong?" directly, and whether it
+  # is first- or third-party is then readable from the org rather than asserted
+  # separately (two statements of one fact, which is the other defect).
+  #
+  # Why this matters here specifically: every other declaration in this file is
+  # a fact cloister legitimately owns — topology, bindings, pins, tiers. A
+  # harness row is not. `codex` reads OPENAI_API_KEY and keeps state in
+  # ~/.codex because CODEX says so, and it will never publish an
+  # `art.cloister/v1` block saying so. A reader must be able to tell a decision
+  # from a transcription. (ADR-0057 property A, third open question.)
+  #
+  # Append-only ordinal per ADR-0004.
+  provenance @9 :Text;
 }
 
 struct VaultProxyService {

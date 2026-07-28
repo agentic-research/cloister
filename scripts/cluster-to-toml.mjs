@@ -153,6 +153,9 @@ function canonicalizeGateway(g) {
   const vaultProxyServices = Array.isArray(g.vaultProxyServices)
     ? g.vaultProxyServices.map(canonicalizeVaultProxyService)
     : [];
+  const harnessTargets = Array.isArray(g.harnessTargets)
+    ? g.harnessTargets.map(canonicalizeHarnessTarget)
+    : [];
 
   const metaBody = {};
   if (typeof meta.name    === "string" && meta.name    !== "") metaBody.name    = meta.name;
@@ -190,7 +193,8 @@ function canonicalizeGateway(g) {
     Object.keys(metaBody).length === 0 &&
     Object.keys(actorBody).length === 0 &&
     Object.keys(policyBody).length === 0 &&
-    vaultProxyServices.length === 0
+    vaultProxyServices.length === 0 &&
+    harnessTargets.length === 0
   ) {
     return null;
   }
@@ -199,7 +203,22 @@ function canonicalizeGateway(g) {
   if (Object.keys(actorBody).length  > 0) out.actor    = sortKeys(actorBody);
   if (Object.keys(policyBody).length > 0) out.policy   = sortKeys(policyBody);
   if (vaultProxyServices.length > 0) out.vaultProxyServices = vaultProxyServices;
+  if (harnessTargets.length > 0) out.harnessTargets = harnessTargets;
   return sortKeys(out);
+}
+
+// Harness profile (cloister-742e19). Empty-string fields are dropped so the
+// round-trip stays byte-stable: entryPoint is legitimately empty when the
+// operator wants $PATH resolution, and emitting `entryPoint = ""` would make
+// the drift gate flap between an absent key and an empty one.
+function canonicalizeHarnessTarget(t) {
+  const body = {};
+  for (const key of ["name", "service", "entryPoint", "apiKeyEnv", "baseUrlEnv", "stateDirEnv", "stateDir", "provenance"]) {
+    if (typeof t[key] === "string" && t[key] !== "") body[key] = t[key];
+  }
+  if (Array.isArray(t.stripEnv))  body.stripEnv  = [...t.stripEnv];
+  if (Array.isArray(t.authModes)) body.authModes = [...t.authModes];
+  return sortKeys(body);
 }
 
 function canonicalizeVaultProxyService(svc) {

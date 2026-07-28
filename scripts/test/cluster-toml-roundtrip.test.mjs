@@ -60,6 +60,7 @@ const EMPTY_GATEWAY = {
     minAlgorithm: "",
   },
   vaultProxyServices: [],
+      harnessTargets: [],
 };
 
 /** A minimal cluster shape that passes ClusterSchema. */
@@ -1866,6 +1867,7 @@ test("gateway: partial population (only metadata.name) emits only that subtable"
       actor: { fingerprint: "", algorithm: "", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 0, requireInterlock: false, minAlgorithm: "" },
       vaultProxyServices: [],
+      harnessTargets: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1892,6 +1894,7 @@ test("gateway: requireInterlock = false lands in TOML when other fields are set 
       actor: { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
       vaultProxyServices: [],
+      harnessTargets: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1921,6 +1924,7 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
       },
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: true, minAlgorithm: "ed25519" },
       vaultProxyServices: [],
+      harnessTargets: [],
     },
   };
   const t1 = clusterToToml(cluster);

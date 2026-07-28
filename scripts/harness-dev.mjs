@@ -6,9 +6,17 @@
 //   2. write .dev.vars so `wrangler dev` binds the dev-mode seams:
 //      CLOISTER_MODE=dev + DEV_CA_MASTER/EPOCH + DEV_VAULT_SEED + DEV_ALLOWED_SUBS
 //   3. launch cloister (`task dev`, :8787) + the lease shim (:8799)
-//   4. print `export ANTHROPIC_BASE_URL=…` — point Claude Code at it
+//   4. print the target's base-URL export — point the harness at it
 //
-// The Anthropic key comes from ANTHROPIC_API_KEY (env). It is written to
+// WHICH harness is a declared profile, not a hardcoded one: `--target
+// claude-code | codex` selects a row in scripts/harness-targets.mjs, and every
+// provider-specific value (service, upstream, key env var, base-URL env var,
+// injection header, state dir, executable, supported auth modes) comes from
+// that row. This file contains NO provider literals — `lint:harness-target-
+// literals` enforces it, so adding a third harness is a new row and no edit
+// here. Per cloister-742e19 + ADR-0057.
+//
+// The API key comes from the target's declared key env var. It is written to
 // .dev.vars (gitignored) as the vault seed and injected INSIDE the vault DO —
 // never into the harness's environment. Everything here is dev-only +
 // runtime-only: .dev.vars + the minted cert are gitignored, regenerated each
@@ -24,8 +32,43 @@ import { homedir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  loadHarnessConfig,
+  resolveTarget,
+  serviceFor,
+  credentialHeaders,
+  targetNames,
+  UsageError,
+} from "./harness-targets.mjs";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SETUP_ONLY = process.argv.includes("--setup-only");
+
+// Which harness are we launching? Declared in harness-targets.mjs — this file
+// holds NO provider literals (lint:harness-target-literals enforces it).
+//
+// The target is cross-checked against cluster.toml's vaultProxyServices before
+// anything is minted or written: service name, injection strategy, header name,
+// and upstream are each declared in BOTH places, and a disagreement should be a
+// named error here rather than a provider 401 twenty seconds later with nothing
+// pointing at the cause.
+let TARGET, SVC, DECLARED = [];
+try {
+  const cfg = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  DECLARED = cfg.targets;
+  TARGET = resolveTarget(DECLARED, process.argv);
+  SVC = serviceFor(TARGET, cfg.services);
+} catch (err) {
+  if (err instanceof UsageError) {
+    console.error(`harness:dev — ${err.message}`);
+    if (DECLARED.length) {
+      console.error(`  usage: task harness:dev -- --target <${targetNames(DECLARED).join("|")}>`);
+    }
+    process.exit(2);
+  }
+  throw err;
+}
+const TARGET_NAME = TARGET.name;
 const SHIM_PORT = process.env.HARNESS_SHIM_PORT ?? "8799";
 
 // Pluggable sandbox provider (cloister-24717d). SANDBOX=nono runs the
@@ -58,20 +101,45 @@ if (SANDBOX === "nono" && !existsSync(CONFINE_BIN)) {
   }
 }
 const CLOISTER_BASE = "http://127.0.0.1:8787";
-const SERVICE = "anthropic";
-const UPSTREAM = "https://api.anthropic.com";
+const SERVICE = TARGET.service;
+// Upstream is the SERVICE's declaration, never restated on the target.
+const UPSTREAM = SVC.upstreamBaseUrl;
 
-// Mode. AUDIT (Claude Code Max / OAuth): no key to vault — forward the
-// harness's OWN auth + receipt (ADR-0040 amendment). CUSTODY (API key): vault
-// the key + inject it. Audit is chosen explicitly (--audit) or automatically
-// when no ANTHROPIC_API_KEY is set.
-const apiKey = process.env.ANTHROPIC_API_KEY;
-const AUDIT = process.argv.includes("--audit") || (!apiKey && !SETUP_ONLY) || (SETUP_ONLY && !apiKey);
-if (!AUDIT && !apiKey && !SETUP_ONLY) {
-  console.error("harness:dev — custody mode needs ANTHROPIC_API_KEY (vaulted, never in the harness env), or pass --audit for a Max/OAuth subscription.");
+// Mode. AUDIT: no key to vault — forward the harness's OWN auth + receipt
+// (ADR-0040 amendment). CUSTODY: vault the key + inject it. Audit is chosen
+// explicitly (--audit) or automatically when the target's key env var is unset.
+//
+// A target declares which modes it supports. Audit only makes sense where the
+// provider sells a subscription that vaulting a key would silently bypass, so
+// asking for it on a custody-only target is a named refusal — not a silent
+// downgrade that would move billing without saying so.
+const apiKey = process.env[TARGET.apiKeyEnv];
+const wantsAudit = process.argv.includes("--audit");
+const supportsAudit = TARGET.authModes.includes("audit");
+if (wantsAudit && !supportsAudit) {
+  console.error(
+    `harness:dev — target ${JSON.stringify(TARGET_NAME)} does not support --audit ` +
+      `(declared modes: ${TARGET.authModes.join(", ")}).`,
+  );
   process.exit(2);
 }
-console.error(`harness:dev — ${AUDIT ? "AUDIT mode (Max/OAuth — forward harness auth + receipt; no key vaulted)" : "CUSTODY mode (API key vaulted + injected)"}.`);
+const AUDIT = supportsAudit && (wantsAudit || !apiKey);
+if (!AUDIT && !apiKey) {
+  const hint = supportsAudit
+    ? `, or pass --audit to keep a subscription`
+    : ` (this target is custody-only)`;
+  console.error(
+    `harness:dev — custody mode needs ${TARGET.apiKeyEnv} ` +
+      `(vaulted, never in the harness env)${hint}.`,
+  );
+  process.exit(2);
+}
+console.error(
+  `harness:dev — target ${TARGET_NAME} · ` +
+    (AUDIT
+      ? "AUDIT mode (forward harness auth + receipt; no key vaulted)"
+      : "CUSTODY mode (API key vaulted + injected)"),
+);
 
 // The confinement/v1 manifest the harness identity commits to (§7,
 // cloister-c80953). A STABLE profile declaration — not per-run paths — so the
@@ -85,7 +153,7 @@ const CONFINEMENT_MANIFEST = {
   fs: { allow: [{ path: "workspace", mode: "rw" }, { path: "state", mode: "rw" }] },
   network: { allowHosts: ["127.0.0.1"] },
   port: { bind: 0 },
-  credentialSource: "vault://anthropic",
+  credentialSource: `vault://${SERVICE}`,
 };
 const CONFINEMENT_MANIFEST_PATH = resolve(ROOT, ".harness-confinement.json");
 writeFileSync(CONFINEMENT_MANIFEST_PATH, JSON.stringify(CONFINEMENT_MANIFEST, null, 2));
@@ -120,7 +188,7 @@ const modeVars = AUDIT
   // Custody: seed the vaulted key for injection.
   : [`DEV_VAULT_SEED = ${JSON.stringify(JSON.stringify({
       peerFp: dev.peerFp, service: SERVICE, upstream: UPSTREAM,
-      headers: { "x-api-key": apiKey }, allowedSubs: [dev.peerFp],
+      headers: credentialHeaders(SVC, apiKey), allowedSubs: [dev.peerFp],
     }))}`];
 writeFileSync(resolve(ROOT, ".dev.vars"), [...common, ...modeVars].join("\n") + "\n");
 console.error(`harness:dev — wrote .dev.vars (peerFp ${dev.peerFp}, service ${SERVICE}, ${AUDIT ? "passthrough" : "vaulted"}).`);
@@ -150,7 +218,7 @@ const shim = spawn(process.execPath, ["--import", "tsx", "tools/harness-shim/ind
   },
 });
 
-const BASE_URL = `http://127.0.0.1:${SHIM_PORT}/vault/proxy/anthropic`;
+const BASE_URL = `http://127.0.0.1:${SHIM_PORT}/vault/proxy/${SERVICE}`;
 const bar = "─".repeat(64);
 let harness = null;
 if (SANDBOX === "nono") {
@@ -160,15 +228,32 @@ if (SANDBOX === "nono") {
   // external network is blocked, the shim port is the only localhost TCP —
   // it reaches the vault proxy but not ~/.ssh / ~/.aws / the wider internet.
   const home = homedir();
-  const cmd = process.env.HARNESS_CMD ?? "claude";
   const workdir = resolve(process.env.HARNESS_WORKDIR ?? process.cwd());
-  const stateDir = process.env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
-  // Resolve the harness to a full path — the confined binary is a DECLARED
-  // grant and we exec it by path (no $PATH lookup inside the sandbox), which
-  // is why `claude: command not found` used to happen.
-  const harnessBin = cmd.includes("/")
-    ? cmd
-    : execFileSync("/usr/bin/which", [cmd], { encoding: "utf8" }).trim();
+  const stateDir = process.env[TARGET.stateDirEnv] ?? join(home, TARGET.stateDir);
+
+  // The executable is a DECLARED absolute path — the same concept as a bundle's
+  // `entryPoint`, and for the same reason: confined exec resolves by path with
+  // no $PATH inside the sandbox. A declared path is the supported form.
+  //
+  // Falling back to `$PATH` lookup when entryPoint is empty is a convenience for
+  // the unconfined case only. It uses `which` off $PATH rather than a hardcoded
+  // /usr/bin/which (which is not where it lives on every distro), and failure is
+  // a named error pointing at the declaration — the silent version of this is
+  // where `claude: command not found` came from.
+  const cmd = process.env.HARNESS_CMD || TARGET.entryPoint || TARGET.name;
+  let harnessBin = cmd;
+  if (!cmd.includes("/")) {
+    try {
+      harnessBin = execFileSync("which", [cmd], { encoding: "utf8" }).trim();
+    } catch {
+      console.error(
+        `harness:dev — could not resolve ${JSON.stringify(cmd)} on $PATH. ` +
+          `Declare an absolute \`entryPoint\` on the ${JSON.stringify(TARGET.name)} ` +
+          `[[gateway.harnessTargets]] row in cluster.toml (required under confinement).`,
+      );
+      process.exit(2);
+    }
+  }
 
   // nono's macOS system defaults — replicated from `nono run -v` (the
   // system_read_macos / system_write_macos / user_tools / homebrew groups the
@@ -216,8 +301,8 @@ if (SANDBOX === "nono") {
       master_pub_b64std: dev.masterPubB64Std,
     },
     // Credentials never enter the confined env — cloister injects at the proxy.
-    env_strip: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-    env_set: { ANTHROPIC_BASE_URL: BASE_URL },
+    env_strip: TARGET.stripEnv,
+    env_set: { [TARGET.baseUrlEnv]: BASE_URL },
     harness_bin: harnessBin,
     harness_args: process.env.HARNESS_ARGS ? JSON.parse(process.env.HARNESS_ARGS) : [],
   };
@@ -234,15 +319,15 @@ if (SANDBOX === "nono") {
   harness = spawn(CONFINE_BIN, [policyPath], { cwd: workdir, stdio: "inherit" });
 } else {
   console.error(`\n${bar}\nharness:dev — ready. In your harness shell:\n`);
-  console.error(`  export ANTHROPIC_BASE_URL="${BASE_URL}"`);
+  console.error(`  export ${TARGET.baseUrlEnv}="${BASE_URL}"`);
   if (AUDIT) {
-    console.error(`  # DO NOT set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN — either leaves your`);
+    console.error(`  # DO NOT set ${TARGET.stripEnv.join(" / ")} — either leaves your`);
     console.error(`  # Max subscription. Base-URL only keeps the subscription; cloister receipts`);
     console.error(`  # each call (audit, not custody — there's no key to vault).`);
   } else {
-    console.error(`  # no ANTHROPIC_API_KEY on the harness — the key is vaulted in cloister.`);
+    console.error(`  # no ${TARGET.apiKeyEnv} on the harness — the key is vaulted in cloister.`);
   }
-  console.error(`  claude`);
+  console.error(`  ${TARGET.entryPoint || TARGET.name}`);
   console.error(`  # (or: SANDBOX=nono task harness:dev to launch it kernel-confined)`);
   console.error(`${bar}\n`);
 }
