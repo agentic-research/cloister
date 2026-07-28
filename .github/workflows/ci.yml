@@ -334,6 +334,29 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install Rust toolchain (1.95.0 — pinned by rs/rust-toolchain.toml) + wasm32 target
+        # The smoke starts `wrangler dev`, whose bundler resolves
+        # src/wire/signet-verify.ts:48 -> rs/target/wasm32-unknown-unknown/
+        # release/leyline_sign.wasm. Without the artifact the Worker never
+        # builds, cloister never binds its port, and the run dies at "backends
+        # did not become ready" with the real cause 30 lines down in clst.log.
+        # Same pin + rationale as the lint job above.
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry + git
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rs/target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
       - name: Cache pnpm store
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
@@ -344,6 +367,12 @@ jobs:
 
       - name: Install Node dependencies
         run: task deps:node
+
+      - name: Build the leyline-sign wasm artifact
+        # Built explicitly rather than relied on as a transitive dep: wrangler
+        # invokes esbuild directly, not Task, so nothing in the smoke path would
+        # trigger this build on its own.
+        run: task rs:sign:wasm
 
       - name: Download upstream binaries
         # Both repos publish linux-amd64 release assets, so the smoke runs
