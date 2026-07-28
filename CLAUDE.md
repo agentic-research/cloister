@@ -108,9 +108,10 @@ Every commit must reference a bead, enforced by the commit-msg hook
 ```
 
 The hook auto-injects the prefix if `.rsry-bead-id` exists at the
-repo root. For session work without an active bead, use
-`bead: cloister` as the trailer instead — the hook treats that as
-sufficient.
+repo root. Otherwise the `[bead-id]` prefix is **required** — the
+hook has no `bead:` trailer escape hatch, so session work still needs
+a real bead to reference. File one, or reference the bead the work
+was discovered under.
 
 ## Architecture conventions
 
