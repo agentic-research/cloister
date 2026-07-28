@@ -34,6 +34,7 @@ import {
   parsePackagesOci,
   resolveOciDigest,
   deriveRequiresSession,
+  declaredTransportTypes,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -1234,6 +1235,37 @@ test("a server offering BOTH biases to the transport cloister speaks", () => {
     deriveRequiresSession({ remotes: [{ type: "stdio" }, { type: "streamable-http" }] }),
     true,
   );
+});
+
+test("transport declared under packages[].transport is read (LLO 11.2 shape)", () => {
+  // ley-line-open 11.2 dropped `remotes` entirely and moved transport into the
+  // package entry. Reading only remotes[] returned null for LLO, which falls
+  // back to the operator's unset flag and would treat a streamable-http server
+  // as sessionless — the same failure that hid every mache_* tool, arriving
+  // from the other direction.
+  assert.equal(
+    deriveRequiresSession({
+      packages: [{ registryType: "oci", transport: { type: "streamable-http" } }],
+    }),
+    true,
+  );
+});
+
+test("both transport shapes coexist and both are read", () => {
+  // As of 2026-07-28 mache/rosary/canonical-hours use remotes[], LLO uses
+  // packages[].transport. cloister does not own the registry schema and cannot
+  // make upstreams converge, so it tolerates both.
+  assert.deepEqual(
+    declaredTransportTypes({
+      remotes: [{ type: "stdio" }],
+      packages: [{ transport: { type: "streamable-http" } }],
+    }),
+    ["stdio", "streamable-http"],
+  );
+});
+
+test("a package with no transport block contributes nothing", () => {
+  assert.deepEqual(declaredTransportTypes({ packages: [{ registryType: "oci" }] }), []);
 });
 
 test("no declared transport returns null so the explicit value still applies", () => {
