@@ -90,6 +90,39 @@ export const cluster: Cluster = {
       }
     },
     {
+      "name": "notme-proxy",
+      "description": "cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert",
+      "tier": "hypervisor",
+      "holdsCredential": [],
+      "workerdServiceName": "",
+      "hypervisorRationale": "Holds the bridge cert + private key in process memory and presents them on outbound TLS, so no Worker ever holds a credential (notme/proxy README, two-plane model). Every attested egress and every UDS dial from workerd transits this bundle, so it mediates trust and its compromise blast radius is every upstream the cluster reaches. Singleton per host: one socket, one cert. Three-criterion test per ADR-0011; companion role per ADR-0005 (cloister-46fc1a, cloister-4cdba5).",
+      "perTenant": false,
+      "confinement": {
+        "fs": {
+          "allow": []
+        },
+        "network": {
+          "allowHosts": []
+        },
+        "port": {
+          "bind": 0,
+          "address": ""
+        },
+        "credentialSource": ""
+      },
+      "kind": {
+        "external": {
+          "image": "notme-proxy:0.1.0",
+          "ipcSocket": "/run/cloister-uds/companion.sock",
+          "httpPort": 0,
+          "args": [],
+          "env": [],
+          "entryPoint": "",
+          "executionMode": ""
+        }
+      }
+    },
+    {
       "name": "mache",
       "description": "Code intelligence — symbol search, definitions, callgraph",
       "tier": "cluster",
@@ -192,6 +225,14 @@ export const cluster: Cluster = {
       "from": "cloister-router",
       "to": "notme-identity",
       "binding": "NOTME",
+      "transport": {
+        "uds": null
+      }
+    },
+    {
+      "from": "cloister-router",
+      "to": "notme-proxy",
+      "binding": "COMPANION",
       "transport": {
         "uds": null
       }
