@@ -296,12 +296,33 @@ curl -s http://localhost:8787/identity/health | jq
 If notme isn't running, `/identity/*` returns 503 — the rest of cloister
 keeps working.
 
-### c) Production wiring
+### c) Production wiring — not yet constructible
 
-In production cloister talks to `ley-line-open` *through* `notme-proxy`
-(over UDS) for attestation. Set `LLO_MCP_URL=http://notme-proxy/mcp` and
-make sure notme-proxy is forwarding to your daemon's UDS socket. See
-[ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md#capability-boundary).
+> **This section described a topology that cannot currently be built.**
+> Corrected 2026-07-28 (`cloister-af3d5d`, `ley-line-open-6569de`). It
+> previously said to point `LLO_MCP_URL` at `notme-proxy` and "make sure
+> notme-proxy is forwarding to your daemon's UDS socket". There is no such
+> socket to forward to.
+
+The intent stands: cloister should reach `ley-line-open` **through**
+`notme-proxy`, which presents an attested bridge cert, so no Worker ever
+holds a credential. `notme-proxy` is declared as a bundle
+(`[[bundles]] name = "notme-proxy"`) and wired as `COMPANION` in
+`cluster.toml`.
+
+What blocks it: `notme-proxy`'s companion role dials `AF_UNIX`, and the
+`ley-line-open` daemon serves MCP over **TCP only** (`--mcp-port` /
+`--mcp-bind`). Its Unix socket carries LLO's line-delimited JSON **ops**
+protocol, not MCP — so there is nothing MCP-shaped for the companion to
+dial. Tracked as `ley-line-open-6569de`.
+
+Until that lands, cloister reaches the daemon over loopback TCP. Note what
+that costs: with the daemon's ADR-0022 token gate disabled there is no
+identity on the hop, and with no identity there is nothing for scope to
+bind to — so `task smoke` verifies **dispatch**, not authorization. Do not
+read a green smoke as evidence the trust surface works.
+
+See [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md#capability-boundary).
 
 ## 6. Install the CC plugin (optional but recommended)
 
