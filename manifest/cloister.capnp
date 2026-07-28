@@ -187,6 +187,14 @@ struct Metadata {
 
   # Semver of this manifest. Bumped by the consumer when their slice changes.
   version @1 :Text;
+
+  # The `_meta` extension namespace this deployment publishes under, e.g.
+  # "art.cloister/v1". Projected from cluster.toml's [gateway.metadata].
+  # Consumed by the MCP Registry route so the key is read rather than
+  # hardcoded. Empty ⇒ runtime default.
+  #
+  # Append-only ordinal per ADR-0004.
+  metaNamespace @2 :Text;
 }
 
 # ── Routes: the outer HTTP/SSE multiplexing layer (ADR-0002 §"EdgeRoute") ─

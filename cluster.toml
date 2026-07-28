@@ -231,6 +231,7 @@ stateDirEnv = "CODEX_HOME"
 stripEnv = [ "OPENAI_API_KEY", "OPENAI_AUTH_TOKEN" ]
 
 [gateway.metadata]
+metaNamespace = "art.cloister/v1"
 name = "cloister-art"
 version = "0.1.0"
 

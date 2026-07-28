@@ -108,7 +108,25 @@ const META_REGISTRY_KEY = "io.modelcontextprotocol.registry/official";
  * one namespace whether it reads a project's server.json directly or reads
  * cloister's registry view of it.
  */
-const META_CLOISTER_KEY = "art.cloister/v1";
+const META_CLOISTER_KEY_DEFAULT = "art.cloister/v1";
+
+/**
+ * The namespace this deployment publishes under, read from the manifest.
+ *
+ * Declared at `[gateway.metadata].metaNamespace` in cluster.toml and projected
+ * through cloister.capnp. Read rather than hardcoded because the same string
+ * has to agree in three places — this envelope, downstream projects' own
+ * server.json `_meta`, and any external reader. A cross-repo graph generator
+ * was carrying `art.cloister/v1 -> cloister` as a constant precisely because
+ * nothing machine-readable stated it; now something does.
+ *
+ * Falls back to the constant when unset, so a manifest that predates the field
+ * keeps working.
+ */
+function metaKey(manifest: Gateway): string {
+  const declared = manifest.metadata?.metaNamespace;
+  return typeof declared === "string" && declared !== "" ? declared : META_CLOISTER_KEY_DEFAULT;
+}
 
 /**
  * Substrate capabilities this gateway provides, DERIVED from its declared
@@ -188,7 +206,7 @@ interface CloisterMetaEntry {
 
 interface RegistryEnvelopeMeta {
   readonly [META_REGISTRY_KEY]: RegistryMetaEntry;
-  readonly [META_CLOISTER_KEY]?: CloisterMetaEntry;
+  readonly [key: string]: RegistryMetaEntry | CloisterMetaEntry | undefined;
 }
 
 interface ServerEnvelope {
@@ -292,6 +310,7 @@ export function synthesizeAll(manifest: Gateway, base: string): readonly ServerE
   // GATEWAY, not the individual proxied server, and recomputing per backend
   // would imply otherwise.
   const capabilities = deriveCapabilities(manifest);
+  const cloisterKey = metaKey(manifest);
   for (const route of manifest.routes) {
     if (!("mcp" in route.kind)) continue;
     for (const backend of route.kind.mcp.backends) {
@@ -299,7 +318,7 @@ export function synthesizeAll(manifest: Gateway, base: string): readonly ServerE
       if (!detail) continue;
       out.push({
         server: detail,
-        _meta:  buildMetaEnvelope(detail.name, capabilities),
+        _meta:  buildMetaEnvelope(detail.name, capabilities, cloisterKey),
       });
     }
   }
@@ -364,7 +383,7 @@ function describeBackend(backend: Backend, toolCount: number, dynamic: boolean):
   return text.length > 100 ? `${text.slice(0, 97)}...` : text;
 }
 
-function buildMetaEnvelope(serverName: string, capabilities: readonly string[]): RegistryEnvelopeMeta {
+function buildMetaEnvelope(serverName: string, capabilities: readonly string[], cloisterKey: string): RegistryEnvelopeMeta {
   // The public registry stamps real UUIDs + ISO timestamps on every
   // record. Cloister's catalog is manifest-derived and stateless —
   // there's no "publishedAt" event to record. We emit deterministic
@@ -387,7 +406,7 @@ function buildMetaEnvelope(serverName: string, capabilities: readonly string[]):
     // says "it advertises none", and those are different claims. Absence
     // carrying the wrong meaning is the defect this substrate keeps finding.
     ...(capabilities.length > 0
-      ? { [META_CLOISTER_KEY]: { capabilities } }
+      ? { [cloisterKey]: { capabilities } }
       : {}),
   };
 }

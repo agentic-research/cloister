@@ -46,7 +46,7 @@ const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
  * sees this exact shape.
  */
 const EMPTY_GATEWAY = {
-  metadata: { name: "", version: "" },
+  metadata: { name: "", version: "", metaNamespace: "" },
   actor: {
     fingerprint: "",
     algorithm: "",
@@ -1870,7 +1870,7 @@ test("gateway: partial population (only metadata.name) emits only that subtable"
     inputs: [],
     routes: [],
     gateway: {
-      metadata: { name: "cloister-partial", version: "" },
+      metadata: { name: "cloister-partial", version: "", metaNamespace: "" },
       actor: { fingerprint: "", algorithm: "", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 0, requireInterlock: false, minAlgorithm: "" },
       vaultProxyServices: [],
@@ -1897,7 +1897,7 @@ test("gateway: requireInterlock = false lands in TOML when other fields are set 
     inputs: [],
     routes: [],
     gateway: {
-      metadata: { name: "cloister-permissive", version: "0.0.1" },
+      metadata: { name: "cloister-permissive", version: "0.0.1", metaNamespace: "" },
       actor: { fingerprint: "", algorithm: "ed25519", pubkeyBinding: "", attestationRepo: "", tunnelEndpoint: "" },
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
       vaultProxyServices: [],
@@ -1921,7 +1921,7 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
     inputs: [],
     routes: [],
     gateway: {
-      metadata: { name: "cloister-bytes", version: "0.0.1" },
+      metadata: { name: "cloister-bytes", version: "0.0.1", metaNamespace: "" },
       actor: {
         fingerprint:     "sha256:" + "a".repeat(64),
         algorithm:       "ed25519",

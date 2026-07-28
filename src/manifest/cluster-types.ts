@@ -653,6 +653,16 @@ export interface GatewayMetadata {
   name:    string;
   /** Semver. Empty ⇒ fall through. */
   version: string;
+  /**
+   * The `_meta` extension namespace this deployment publishes under —
+   * e.g. `"art.cloister/v1"`. Declared so consumers need not hardcode it.
+   *
+   * The same string appears in three places that must agree: the key cloister
+   * emits into its MCP Registry `_meta` envelope, the key downstream projects
+   * write in their own `server.json` `_meta`, and the key external readers
+   * match on. Empty ⇒ runtime default.
+   */
+  metaNamespace: string;
 }
 
 /**
