@@ -1244,14 +1244,29 @@ test("no declared transport returns null so the explicit value still applies", (
   assert.equal(deriveRequiresSession(null), null);
 });
 
-test("the SHIPPED server.json of every pinned input derives a session", async () => {
-  // Real documents, not fixtures: mache, rosary and canonical-hours all declare
-  // streamable-http, so the derivation reproduces rosary's hand-set `true` and
-  // supplies the one mache was missing.
-  const { readFileSync } = await import("node:fs");
+test("the real server.json of every pinned input derives a session", async (t) => {
+  // Cross-check against the ACTUAL upstream documents, not fixtures: mache,
+  // rosary and canonical-hours all declare streamable-http, so the derivation
+  // should reproduce rosary's hand-set `true` and supply the one mache was
+  // missing.
+  //
+  // Skipped when the sibling checkouts are absent, which is the normal case on
+  // CI — a runner has cloister and nothing else. This is a LOCAL cross-check
+  // against reality, not the derivation's coverage: the four cases above own
+  // that, and they are pure and portable. Do not "fix" this by pointing it at
+  // a committed fixture; a fixture of a document we do not control proves only
+  // that we copied it correctly once.
+  const { readFileSync, existsSync } = await import("node:fs");
   const { homedir } = await import("node:os");
-  for (const repo of ["mache", "rosary", "canonical-hours"]) {
-    const path = `${homedir()}/remotes/art/${repo}/server.json`;
+  const paths = ["mache", "rosary", "canonical-hours"].map(
+    (repo) => [repo, `${homedir()}/remotes/art/${repo}/server.json`],
+  );
+  const present = paths.filter(([, path]) => existsSync(path));
+  if (present.length === 0) {
+    t.skip("sibling repo checkouts not present (expected on CI)");
+    return;
+  }
+  for (const [repo, path] of present) {
     const doc = JSON.parse(readFileSync(path, "utf8"));
     assert.equal(deriveRequiresSession(doc), true, `${repo} derives a session`);
   }
