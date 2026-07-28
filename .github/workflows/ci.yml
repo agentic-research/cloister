@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   lint:
-    name: lint (tsc + worker tests + plugin tests)
+    name: lint (tsc + worker tests + script/rail tests)
     runs-on: ubuntu-latest
     timeout-minutes: 8
 
@@ -138,11 +138,10 @@ jobs:
         # --noEmit → vitest in workerd → the script/rail node:test suites.
         #
         # NOTE: this job's `name:` above is a REQUIRED status check in main's
-        # branch protection, matched by exact string. It still says "plugin
-        # tests" even though the CC plugin was retired (cloister-68e5ed).
-        # Renaming it deadlocks the renaming PR: the required check never
-        # reports under its expected name, so the PR can never merge. Renaming
-        # requires updating branch protection FIRST, then the workflow.
+        # branch protection, matched by EXACT STRING. Renaming it deadlocks the
+        # renaming PR — the required check never reports under its expected
+        # name, so that PR can never merge (hit for real in #197). Always
+        # update branch protection FIRST, then the workflow, never the reverse.
         run: task lint
 
   # Path filter: does this PR touch the substrate (rust / wire codec / manifest /
