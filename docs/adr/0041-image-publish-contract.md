@@ -92,8 +92,36 @@ One shape, for all producers:
 
 - **`identifier`** is the registry path **with no tag and no digest** — the
   address only.
-- **`version`** is the human tag, and MUST match the git tag the publish
-  job ran against and the `server.json` `version`.
+- **`version`** is the human tag, and MUST equal **the tag the publish job
+  actually pushes**. That is the whole rule: `<identifier>:<version>` has to
+  resolve at the registry.
+
+  **Corrected 2026-07-28.** This previously read "MUST match the git tag the
+  publish job ran against *and* the `server.json` `version`". Those are two
+  different strings whenever the git tag is `v`-prefixed, so the requirement
+  was unsatisfiable, and the ecosystem split on which half to honour:
+
+  | repo | publish job | image tag | `packages[].version` |
+  |---|---|---|---|
+  | rosary | `VERSION="${TAG#v}"` | `0.10.0` | `0.10.0` |
+  | mache | `mache:${{ env.TAG }}` | `v0.19.0` | `v0.19.0` |
+  | ley-line-open | (v-prefixed) | `v0.11.3` | `v0.11.3` |
+
+  All three are **correct** — each matches its own pushed tag. The `v` prefix
+  is a per-repo convention, not a mandate, and the ADR had no business
+  requiring one.
+
+  **Prerelease and platform strings are out of scope.** `1.0.0-beta.2`,
+  `alpha`, `linux-amd64` and similar may or may not survive this path, and that
+  is acceptable: `version` only has to work as a registry tag, never to parse
+  as semver. A consumer deriving `<identifier>:<version>` neither sorts nor
+  compares it. If a repo needs prerelease channels it declares whatever tag it
+  pushes, and the rule still holds.
+
+  This is checkable, unlike the old wording: a publish job can assert its
+  pushed tag equals `packages[0].version` and fail if not. That assertion would
+  have caught ley-line-open v0.11.2, which shipped an identifier with **no**
+  version at all and therefore derived to nothing.
 - The **digest** is not authored by hand; it is *resolved* — the publish
   job (or a resolve-time registry probe) records the pushed
   `sha256:…` into cloister's `cluster.lock.toml`.
