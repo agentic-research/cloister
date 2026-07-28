@@ -720,9 +720,9 @@ export function deriveStripPrefix(group) {
  * Derive whether generated backends must run the MCP session lifecycle, from
  * the transport the SERVER declares (cloister-4ae222, ADR-0057 property A).
  *
- * The tool already publishes this. mache, rosary and canonical-hours all
- * declare `"remotes": [{ "type": "streamable-http", ... }]`. Requiring an
- * operator to ALSO set `requiresSession` in cluster.toml made it a second
+ * The tool already publishes this, in one of two places — see
+ * `declaredTransportTypes()` for both shapes and why both are read. Requiring
+ * an operator to ALSO set `requiresSession` in cluster.toml made it a second
  * statement of one fact — and mache's row omitted it, so every `mache_*` tool
  * silently vanished from tools/list with a 404 "Invalid session ID"
  * (cloister-af794d). A boolean per input is also unrepresentable for a server
