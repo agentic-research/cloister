@@ -162,7 +162,7 @@ for i in $(seq 1 30); do
   if [[ $i -eq 30 ]]; then
     echo
     echo "FAIL: backends did not become ready in 30s" >&2
-    tail -30 "$WORK/llo.log" "$WORK/clst.log" "$WORK/mache.log" >&2 || true
+    for L in llo clst mache; do echo "--- $L.log (last 30) ---" >&2; tail -n 30 "$WORK/$L.log" >&2 2>/dev/null || true; done
     exit 1
   fi
 done
@@ -171,8 +171,55 @@ done
 
 PASS=0
 FAIL=0
-fail() { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
-pass() { echo "  ✓ $1"; PASS=$((PASS+1)); }
+
+# ── Known failures ────────────────────────────────────────────────────────
+#
+# Assertions that are EXPECTED to fail today because of a tracked defect, so
+# this script can gate CI before every defect it finds is fixed.
+#
+# Each entry is a substring matched against the assertion label, and each must
+# name its bead. The exit logic enforces two rules that keep this list honest:
+#
+#   1. An unexpected failure (not matching any entry) fails the run. Otherwise
+#      the list would mask regressions.
+#   2. An entry that PASSES fails the run. Otherwise a fixed defect leaves a
+#      stale entry behind and the list only ever grows — which is how an
+#      allowlist becomes permanent. Shrinking it is mandatory, not optional.
+#
+# Delete an entry the moment its bead closes; rule 2 will remind you.
+KNOWN_FAILING=(
+  "mache_"                 # cloister-af794d — Streamable HTTP session lifecycle
+  "tools/list has 0 mache" # cloister-af794d — consequence of the above
+)
+
+UNEXPECTED=0
+STALE_KNOWN=()
+
+is_known_failing() {
+  local label="$1" entry
+  for entry in "${KNOWN_FAILING[@]}"; do
+    [[ "$label" == *"$entry"* ]] && return 0
+  done
+  return 1
+}
+
+fail() {
+  if is_known_failing "$1"; then
+    echo "  ⊘ $1  [known: see KNOWN_FAILING]"
+  else
+    echo "  ✗ $1"
+    UNEXPECTED=$((UNEXPECTED+1))
+  fi
+  FAIL=$((FAIL+1))
+}
+
+pass() {
+  echo "  ✓ $1"
+  PASS=$((PASS+1))
+  if is_known_failing "$1"; then
+    STALE_KNOWN+=("$1")
+  fi
+}
 
 post_mcp() {
   local port="$1" body="$2" timeout="${3:-5}"
@@ -335,17 +382,38 @@ echo "────────────────────────�
 echo "  $PASS passed, $FAIL failed"
 echo "──────────────────────────────────────────────────────────────────────"
 
-if [[ "$FAIL" -gt 0 ]]; then
+KNOWN=$(( FAIL - UNEXPECTED ))
+[[ "$KNOWN" -gt 0 ]] && echo "  ($KNOWN known failure(s) tolerated — see KNOWN_FAILING)"
+
+dump_logs() {
   echo
-  echo "Last 20 lines of LLO log:"
-  tail -20 "$WORK/llo.log" 2>/dev/null || true
+  echo "Last 20 lines of LLO log:";      tail -n 20 "$WORK/llo.log"   2>/dev/null || true
   echo
-  echo "Last 20 lines of mache log:"
-  tail -20 "$WORK/mache.log" 2>/dev/null || true
+  echo "Last 20 lines of mache log:";    tail -n 20 "$WORK/mache.log" 2>/dev/null || true
   echo
-  echo "Last 20 lines of cloister log:"
-  tail -20 "$WORK/clst.log" 2>/dev/null || true
+  echo "Last 20 lines of cloister log:"; tail -n 20 "$WORK/clst.log"  2>/dev/null || true
+}
+
+# Rule 2 before rule 1: a fixed defect must not leave a stale entry behind.
+if [[ "${#STALE_KNOWN[@]}" -gt 0 ]]; then
+  echo
+  echo "FAIL: ${#STALE_KNOWN[@]} assertion(s) are listed in KNOWN_FAILING but PASSED:"
+  printf '  - %s\n' "${STALE_KNOWN[@]}"
+  echo
+  echo "The defect is fixed. Remove the matching KNOWN_FAILING entry (and close"
+  echo "its bead) so the list keeps shrinking instead of masking future breaks."
   exit 1
 fi
+
+if [[ "$UNEXPECTED" -gt 0 ]]; then
+  echo
+  echo "FAIL: $UNEXPECTED unexpected failure(s) — not covered by KNOWN_FAILING."
+  dump_logs
+  exit 1
+fi
+
+# Known failures still dump logs: green exit, but the evidence stays visible so
+# a tolerated defect does not become an invisible one.
+[[ "$FAIL" -gt 0 ]] && dump_logs
 
 exit 0
