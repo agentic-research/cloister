@@ -84,6 +84,34 @@ export async function parseTomlToCluster(tomlString) {
   }
 
   // 4. Semantic checks the schema can't express:
+  //    4z. Operator-required fields.
+  //        capnp has NO required fields — every field carries a default, and
+  //        `Text`'s is "". So schema-bridge emitting `.default("")` per scalar
+  //        (ley-line-open 8c00c6) is faithful capnp semantics, and it means the
+  //        generated schema can no longer distinguish "operator omitted this"
+  //        from "operator wrote an empty string". Before that change a missing
+  //        `metadata.name` failed validation; after it, the cluster builds
+  //        unnamed.
+  //
+  //        That distinction is real for cluster.toml specifically, because it
+  //        is a HAND-AUTHORED operator surface rather than a decoded wire
+  //        message. This list is therefore not mirroring something the schema
+  //        already states — it expresses what capnp structurally cannot, which
+  //        is the one case where an explicit list is the right tool rather than
+  //        the manumation this codebase keeps removing.
+  for (const [path, value] of [
+    ["metadata.name", validated.metadata?.name],
+    ["metadata.version", validated.metadata?.version],
+  ]) {
+    if (typeof value !== "string" || value === "") {
+      throw new Error(
+        `${path} is required and must be non-empty — capnp defaults it to "", so ` +
+          `the generated schema cannot reject its absence (see 4z).`,
+      );
+    }
+  }
+
+
   //    4a. Bundle names are unique. Two bundles with the same name
   //        collapse to one entry at runtime; the cluster emitters
   //        would silently pick whichever the Map iteration surfaced

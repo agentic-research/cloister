@@ -316,7 +316,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "leyline-cas-ffi",
- "leyline-core 0.10.4",
+ "leyline-core",
  "leyline-schema-bridge",
  "leyline-sign",
  "rand",
@@ -725,6 +725,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "http"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -856,41 +862,17 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "leyline-cas-ffi"
-version = "0.4.5"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=593ee610bf17dd8fc152d4c39472f24242da5cb0#593ee610bf17dd8fc152d4c39472f24242da5cb0"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
- "leyline-core 0.4.5",
+ "leyline-core",
+ "leyline-ffi-helpers",
 ]
 
 [[package]]
 name = "leyline-core"
-version = "0.4.5"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=593ee610bf17dd8fc152d4c39472f24242da5cb0#593ee610bf17dd8fc152d4c39472f24242da5cb0"
-dependencies = [
- "anyhow",
- "blake3",
- "bytemuck",
- "memmap2",
- "serde",
-]
-
-[[package]]
-name = "leyline-core"
-version = "0.8.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f62a54307c6c6d6d4e39c333a19b8913f8826c61#f62a54307c6c6d6d4e39c333a19b8913f8826c61"
-dependencies = [
- "anyhow",
- "blake3",
- "bytemuck",
- "memmap2",
- "parking_lot",
- "serde",
-]
-
-[[package]]
-name = "leyline-core"
-version = "0.10.4"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=452261577ab7a86c5b23f025b520a772098eada9#452261577ab7a86c5b23f025b520a772098eada9"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
  "anyhow",
  "blake3",
@@ -902,20 +884,20 @@ dependencies = [
 
 [[package]]
 name = "leyline-ffi-helpers"
-version = "0.8.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f62a54307c6c6d6d4e39c333a19b8913f8826c61#f62a54307c6c6d6d4e39c333a19b8913f8826c61"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 
 [[package]]
 name = "leyline-fs"
-version = "0.8.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f62a54307c6c6d6d4e39c333a19b8913f8826c61#f62a54307c6c6d6d4e39c333a19b8913f8826c61"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
  "bytemuck",
  "crossbeam-queue",
- "leyline-core 0.8.0",
+ "leyline-core",
  "leyline-ffi-helpers",
  "leyline-schema",
  "log",
@@ -929,8 +911,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-schema"
-version = "0.8.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f62a54307c6c6d6d4e39c333a19b8913f8826c61#f62a54307c6c6d6d4e39c333a19b8913f8826c61"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -938,8 +920,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-schema-bridge"
-version = "0.7.9"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=e8a501ba118f36022d3645424e79c6eb28da0f36#e8a501ba118f36022d3645424e79c6eb28da0f36"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
  "capnp",
  "thiserror",
@@ -947,8 +929,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-sign"
-version = "0.7.6"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=a6eba83a5672dd75a0ea64f34abd9dde1030250f#a6eba83a5672dd75a0ea64f34abd9dde1030250f"
+version = "0.11.3"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=74db5a9725631ad9ef7076a6c1e7a5467bf31d2d#74db5a9725631ad9ef7076a6c1e7a5467bf31d2d"
 dependencies = [
  "axum",
  "base64ct",
@@ -957,9 +939,12 @@ dependencies = [
  "const-oid 0.9.6",
  "der",
  "ed25519-dalek",
+ "hex",
  "keyring",
+ "leyline-ffi-helpers",
  "libc",
  "log",
+ "parking_lot",
  "serde",
  "serde_json",
  "sha2 0.11.0",

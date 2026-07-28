@@ -12,8 +12,8 @@ export type Tier = "hypervisor" | "cluster";
 
 export const ClusterMetadataSchema: z.ZodType<ClusterMetadata> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    version: z.string(),
+    name: z.string().default(""),
+    version: z.string().default(""),
   }).strict());
 
 export interface ClusterMetadata {
@@ -23,13 +23,13 @@ export interface ClusterMetadata {
 
 export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    description: z.string(),
-    tier: TierSchema,
-    holdsCredential: z.array(z.string()).readonly(),
-    workerdServiceName: z.string(),
-    hypervisorRationale: z.string(),
-    perTenant: z.boolean(),
+    name: z.string().default(""),
+    description: z.string().default(""),
+    tier: TierSchema.default("hypervisor"),
+    holdsCredential: z.array(z.string()).readonly().default([]),
+    workerdServiceName: z.string().default(""),
+    hypervisorRationale: z.string().default(""),
+    perTenant: z.boolean().default(false),
     confinement: ConfinementSchema,
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
@@ -51,9 +51,9 @@ export interface Bundle {
 
 export const WireSchema: z.ZodType<Wire> = z.lazy(() =>
   z.object({
-    from: z.string(),
-    to: z.string(),
-    binding: z.string(),
+    from: z.string().default(""),
+    to: z.string().default(""),
+    binding: z.string().default(""),
     transport: z.union([
       z.object({ uds: z.null() }).strict(),
       z.object({ leylineNet: z.null() }).strict(),
@@ -69,7 +69,7 @@ export interface Wire {
 
 export const StoragePolicySchema: z.ZodType<StoragePolicy> = z.lazy(() =>
   z.object({
-    doStoragePath: z.string(),
+    doStoragePath: z.string().default(""),
   }).strict());
 
 export interface StoragePolicy {
@@ -78,19 +78,19 @@ export interface StoragePolicy {
 
 export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    ref: z.string(),
-    version: z.string(),
-    digest: z.string(),
-    from: z.string(),
-    provides: z.array(z.string()).readonly(),
-    requires: z.array(z.string()).readonly(),
-    urlBinding: z.string(),
-    serviceBinding: z.string(),
+    name: z.string().default(""),
+    ref: z.string().default(""),
+    version: z.string().default(""),
+    digest: z.string().default(""),
+    from: z.string().default(""),
+    provides: z.array(z.string()).readonly().default([]),
+    requires: z.array(z.string()).readonly().default([]),
+    urlBinding: z.string().default(""),
+    serviceBinding: z.string().default(""),
     tenancy: TenancySpecSchema,
-    requiresSession: z.boolean(),
+    requiresSession: z.boolean().default(false),
     connection: ConnectionSchema,
-    mutableTagReason: z.string(),
+    mutableTagReason: z.string().default(""),
   }).strict());
 
 export interface InputSpec {
@@ -111,7 +111,7 @@ export interface InputSpec {
 
 export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
   z.object({
-    path: z.string(),
+    path: z.string().default(""),
     kind: z.union([
       z.object({ health: z.null() }).strict(),
       z.object({ mcp: McpRouteSpecSchema }).strict(),
@@ -138,8 +138,8 @@ export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
     metadata: GatewayMetadataSchema,
     actor: ActorSchema,
     policy: InterlacePolicySchema,
-    vaultProxyServices: z.array(VaultProxyServiceSchema).readonly(),
-    harnessTargets: z.array(HarnessTargetSchema).readonly(),
+    vaultProxyServices: z.array(VaultProxyServiceSchema).readonly().default([]),
+    harnessTargets: z.array(HarnessTargetSchema).readonly().default([]),
   }).strict());
 
 export interface Gateway {
@@ -152,10 +152,10 @@ export interface Gateway {
 
 export const EdgeSpecSchema: z.ZodType<EdgeSpec> = z.lazy(() =>
   z.object({
-    from: z.string(),
-    to: z.string(),
-    appProtocol: z.string(),
-    transport: z.string(),
+    from: z.string().default(""),
+    to: z.string().default(""),
+    appProtocol: z.string().default(""),
+    transport: z.string().default(""),
   }).strict());
 
 export interface EdgeSpec {
@@ -168,13 +168,13 @@ export interface EdgeSpec {
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
-    bundles: z.array(BundleSchema).readonly(),
-    wires: z.array(WireSchema).readonly(),
+    bundles: z.array(BundleSchema).readonly().default([]),
+    wires: z.array(WireSchema).readonly().default([]),
     storage: StoragePolicySchema,
-    inputs: z.array(InputSpecSchema).readonly(),
-    routes: z.array(RouteSchema).readonly(),
+    inputs: z.array(InputSpecSchema).readonly().default([]),
+    routes: z.array(RouteSchema).readonly().default([]),
     gateway: GatewaySchema,
-    edges: z.array(EdgeSpecSchema).readonly(),
+    edges: z.array(EdgeSpecSchema).readonly().default([]),
   }).strict());
 
 export interface Cluster {
@@ -190,7 +190,7 @@ export interface Cluster {
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
   z.object({
-    entryPoint: z.string(),
+    entryPoint: z.string().default(""),
   }).strict());
 
 export interface WorkerdBundle {
@@ -199,13 +199,13 @@ export interface WorkerdBundle {
 
 export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
   z.object({
-    image: z.string(),
-    ipcSocket: z.string(),
-    httpPort: z.number().int().nonnegative(),
-    args: z.array(z.string()).readonly(),
-    env: z.array(EnvVarSchema).readonly(),
-    entryPoint: z.string(),
-    executionMode: z.string(),
+    image: z.string().default(""),
+    ipcSocket: z.string().default(""),
+    httpPort: z.number().int().nonnegative().default(0),
+    args: z.array(z.string()).readonly().default([]),
+    env: z.array(EnvVarSchema).readonly().default([]),
+    entryPoint: z.string().default(""),
+    executionMode: z.string().default(""),
   }).strict());
 
 export interface ExternalBundle {
@@ -223,7 +223,7 @@ export const ConfinementSchema: z.ZodType<Confinement> = z.lazy(() =>
     fs: ConfinementFsSchema,
     network: ConfinementNetworkSchema,
     port: ConfinementPortSchema,
-    credentialSource: z.string(),
+    credentialSource: z.string().default(""),
   }).strict());
 
 export interface Confinement {
@@ -235,7 +235,7 @@ export interface Confinement {
 
 export const ConfinementFsSchema: z.ZodType<ConfinementFs> = z.lazy(() =>
   z.object({
-    allow: z.array(FsAllowEntrySchema).readonly(),
+    allow: z.array(FsAllowEntrySchema).readonly().default([]),
   }).strict());
 
 export interface ConfinementFs {
@@ -244,7 +244,7 @@ export interface ConfinementFs {
 
 export const ConfinementNetworkSchema: z.ZodType<ConfinementNetwork> = z.lazy(() =>
   z.object({
-    allowHosts: z.array(z.string()).readonly(),
+    allowHosts: z.array(z.string()).readonly().default([]),
   }).strict());
 
 export interface ConfinementNetwork {
@@ -253,8 +253,8 @@ export interface ConfinementNetwork {
 
 export const ConfinementPortSchema: z.ZodType<ConfinementPort> = z.lazy(() =>
   z.object({
-    bind: z.number().int().nonnegative(),
-    address: z.string(),
+    bind: z.number().int().nonnegative().default(0),
+    address: z.string().default(""),
   }).strict());
 
 export interface ConfinementPort {
@@ -264,8 +264,8 @@ export interface ConfinementPort {
 
 export const FsAllowEntrySchema: z.ZodType<FsAllowEntry> = z.lazy(() =>
   z.object({
-    path: z.string(),
-    mode: z.string(),
+    path: z.string().default(""),
+    mode: z.string().default(""),
   }).strict());
 
 export interface FsAllowEntry {
@@ -275,8 +275,8 @@ export interface FsAllowEntry {
 
 export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    value: z.string(),
+    name: z.string().default(""),
+    value: z.string().default(""),
   }).strict());
 
 export interface EnvVar {
@@ -286,10 +286,10 @@ export interface EnvVar {
 
 export const TenancySpecSchema: z.ZodType<TenancySpec> = z.lazy(() =>
   z.object({
-    mode: z.string(),
-    workerdId: z.string(),
-    trustedTier: z.boolean(),
-    sharesWorkerdWith: z.array(z.string()).readonly(),
+    mode: z.string().default(""),
+    workerdId: z.string().default(""),
+    trustedTier: z.boolean().default(false),
+    sharesWorkerdWith: z.array(z.string()).readonly().default([]),
   }).strict());
 
 export interface TenancySpec {
@@ -301,8 +301,8 @@ export interface TenancySpec {
 
 export const ConnectionSchema: z.ZodType<Connection> = z.lazy(() =>
   z.object({
-    socketPath: z.string(),
-    vaultSlice: z.string(),
+    socketPath: z.string().default(""),
+    vaultSlice: z.string().default(""),
     transport: z.union([
       z.object({ unset: z.null() }).strict(),
       z.object({ uds: z.null() }).strict(),
@@ -317,7 +317,7 @@ export interface Connection {
 
 export const McpRouteSpecSchema: z.ZodType<McpRouteSpec> = z.lazy(() =>
   z.object({
-    backends: z.array(BackendSchema).readonly(),
+    backends: z.array(BackendSchema).readonly().default([]),
   }).strict());
 
 export interface McpRouteSpec {
@@ -326,9 +326,9 @@ export interface McpRouteSpec {
 
 export const ServiceBindingProxySpecSchema: z.ZodType<ServiceBindingProxySpec> = z.lazy(() =>
   z.object({
-    binding: z.string(),
-    upstreamHost: z.string(),
-    stripPrefix: z.string(),
+    binding: z.string().default(""),
+    upstreamHost: z.string().default(""),
+    stripPrefix: z.string().default(""),
   }).strict());
 
 export interface ServiceBindingProxySpec {
@@ -339,8 +339,8 @@ export interface ServiceBindingProxySpec {
 
 export const HttpProxySpecSchema: z.ZodType<HttpProxySpec> = z.lazy(() =>
   z.object({
-    urlBinding: z.string(),
-    stripPrefix: z.string(),
+    urlBinding: z.string().default(""),
+    stripPrefix: z.string().default(""),
   }).strict());
 
 export interface HttpProxySpec {
@@ -350,7 +350,7 @@ export interface HttpProxySpec {
 
 export const VaultProxySpecSchema: z.ZodType<VaultProxySpec> = z.lazy(() =>
   z.object({
-    bundleIdName: z.string(),
+    bundleIdName: z.string().default(""),
   }).strict());
 
 export interface VaultProxySpec {
@@ -359,7 +359,7 @@ export interface VaultProxySpec {
 
 export const TenantDispatchSpecSchema: z.ZodType<TenantDispatchSpec> = z.lazy(() =>
   z.object({
-    tenants: z.array(TenantDispatchRowSchema).readonly(),
+    tenants: z.array(TenantDispatchRowSchema).readonly().default([]),
   }).strict());
 
 export interface TenantDispatchSpec {
@@ -368,8 +368,8 @@ export interface TenantDispatchSpec {
 
 export const BackendSchema: z.ZodType<Backend> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    handlesPrefix: z.string(),
+    name: z.string().default(""),
+    handlesPrefix: z.string().default(""),
     kind: z.union([
       z.object({ durableObject: DoBackendSchema }).strict(),
       z.object({ serviceBinding: ServiceBindingBackendSchema }).strict(),
@@ -387,9 +387,9 @@ export interface Backend {
 
 export const DoBackendSchema: z.ZodType<DoBackend> = z.lazy(() =>
   z.object({
-    binding: z.string(),
-    keyArg: z.string(),
-    tools: z.array(McpToolSchema).readonly(),
+    binding: z.string().default(""),
+    keyArg: z.string().default(""),
+    tools: z.array(McpToolSchema).readonly().default([]),
   }).strict());
 
 export interface DoBackend {
@@ -400,8 +400,8 @@ export interface DoBackend {
 
 export const ServiceBindingBackendSchema: z.ZodType<ServiceBindingBackend> = z.lazy(() =>
   z.object({
-    binding: z.string(),
-    tools: z.array(McpToolSchema).readonly(),
+    binding: z.string().default(""),
+    tools: z.array(McpToolSchema).readonly().default([]),
   }).strict());
 
 export interface ServiceBindingBackend {
@@ -411,8 +411,8 @@ export interface ServiceBindingBackend {
 
 export const UdsForwardBackendSchema: z.ZodType<UdsForwardBackend> = z.lazy(() =>
   z.object({
-    socketPath: z.string(),
-    tools: z.array(McpToolSchema).readonly(),
+    socketPath: z.string().default(""),
+    tools: z.array(McpToolSchema).readonly().default([]),
   }).strict());
 
 export interface UdsForwardBackend {
@@ -422,9 +422,9 @@ export interface UdsForwardBackend {
 
 export const LeylineNetBackendSchema: z.ZodType<LeylineNetBackend> = z.lazy(() =>
   z.object({
-    companionUrlBinding: z.string(),
-    upstreamId: z.string(),
-    tools: z.array(McpToolSchema).readonly(),
+    companionUrlBinding: z.string().default(""),
+    upstreamId: z.string().default(""),
+    tools: z.array(McpToolSchema).readonly().default([]),
   }).strict());
 
 export interface LeylineNetBackend {
@@ -435,14 +435,14 @@ export interface LeylineNetBackend {
 
 export const HttpForwardBackendSchema: z.ZodType<HttpForwardBackend> = z.lazy(() =>
   z.object({
-    urlBinding: z.string(),
-    tools: z.array(McpToolSchema).readonly(),
-    dynamicTools: z.boolean(),
-    stripPrefix: z.string(),
-    requiresSession: z.boolean(),
-    protocolMode: z.string(),
-    serviceBinding: z.string(),
-    claims: z.array(z.string()).readonly(),
+    urlBinding: z.string().default(""),
+    tools: z.array(McpToolSchema).readonly().default([]),
+    dynamicTools: z.boolean().default(false),
+    stripPrefix: z.string().default(""),
+    requiresSession: z.boolean().default(false),
+    protocolMode: z.string().default(""),
+    serviceBinding: z.string().default(""),
+    claims: z.array(z.string()).readonly().default([]),
   }).strict());
 
 export interface HttpForwardBackend {
@@ -458,9 +458,9 @@ export interface HttpForwardBackend {
 
 export const McpToolSchema: z.ZodType<McpTool> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    description: z.string(),
-    inputSchemaJson: z.string(),
+    name: z.string().default(""),
+    description: z.string().default(""),
+    inputSchemaJson: z.string().default(""),
   }).strict());
 
 export interface McpTool {
@@ -471,10 +471,10 @@ export interface McpTool {
 
 export const TenantDispatchRowSchema: z.ZodType<TenantDispatchRow> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    mode: z.string(),
-    matchValue: z.string(),
-    binding: z.string(),
+    name: z.string().default(""),
+    mode: z.string().default(""),
+    matchValue: z.string().default(""),
+    binding: z.string().default(""),
   }).strict());
 
 export interface TenantDispatchRow {
@@ -486,9 +486,9 @@ export interface TenantDispatchRow {
 
 export const GatewayMetadataSchema: z.ZodType<GatewayMetadata> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    version: z.string(),
-    metaNamespace: z.string(),
+    name: z.string().default(""),
+    version: z.string().default(""),
+    metaNamespace: z.string().default(""),
   }).strict());
 
 export interface GatewayMetadata {
@@ -499,11 +499,11 @@ export interface GatewayMetadata {
 
 export const ActorSchema: z.ZodType<Actor> = z.lazy(() =>
   z.object({
-    fingerprint: z.string(),
-    algorithm: z.string(),
-    pubkeyBinding: z.string(),
-    attestationRepo: z.string(),
-    tunnelEndpoint: z.string(),
+    fingerprint: z.string().default(""),
+    algorithm: z.string().default(""),
+    pubkeyBinding: z.string().default(""),
+    attestationRepo: z.string().default(""),
+    tunnelEndpoint: z.string().default(""),
   }).strict());
 
 export interface Actor {
@@ -516,9 +516,9 @@ export interface Actor {
 
 export const InterlacePolicySchema: z.ZodType<InterlacePolicy> = z.lazy(() =>
   z.object({
-    maxCertLifetimeSeconds: z.number().int().nonnegative(),
-    requireInterlock: z.boolean(),
-    minAlgorithm: z.string(),
+    maxCertLifetimeSeconds: z.number().int().nonnegative().default(0),
+    requireInterlock: z.boolean().default(false),
+    minAlgorithm: z.string().default(""),
   }).strict());
 
 export interface InterlacePolicy {
@@ -529,10 +529,10 @@ export interface InterlacePolicy {
 
 export const VaultProxyServiceSchema: z.ZodType<VaultProxyService> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    upstreamBaseUrl: z.string(),
-    defaultAllowedSubs: z.array(z.string()).readonly(),
-    rateLimitPerMinute: z.number().int().nonnegative(),
+    name: z.string().default(""),
+    upstreamBaseUrl: z.string().default(""),
+    defaultAllowedSubs: z.array(z.string()).readonly().default([]),
+    rateLimitPerMinute: z.number().int().nonnegative().default(0),
     injection: z.union([
       z.object({ authorizationBearer: z.null() }).strict(),
       z.object({ authorizationBasic: z.null() }).strict(),
@@ -552,16 +552,16 @@ export interface VaultProxyService {
 
 export const HarnessTargetSchema: z.ZodType<HarnessTarget> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    service: z.string(),
-    entryPoint: z.string(),
-    apiKeyEnv: z.string(),
-    baseUrlEnv: z.string(),
-    stripEnv: z.array(z.string()).readonly(),
-    stateDirEnv: z.string(),
-    stateDir: z.string(),
-    authModes: z.array(z.string()).readonly(),
-    provenance: z.string(),
+    name: z.string().default(""),
+    service: z.string().default(""),
+    entryPoint: z.string().default(""),
+    apiKeyEnv: z.string().default(""),
+    baseUrlEnv: z.string().default(""),
+    stripEnv: z.array(z.string()).readonly().default([]),
+    stateDirEnv: z.string().default(""),
+    stateDir: z.string().default(""),
+    authModes: z.array(z.string()).readonly().default([]),
+    provenance: z.string().default(""),
   }).strict());
 
 export interface HarnessTarget {
@@ -579,7 +579,7 @@ export interface HarnessTarget {
 
 export const HeaderNamedSpecSchema: z.ZodType<HeaderNamedSpec> = z.lazy(() =>
   z.object({
-    name: z.string(),
+    name: z.string().default(""),
   }).strict());
 
 export interface HeaderNamedSpec {
@@ -588,7 +588,7 @@ export interface HeaderNamedSpec {
 
 export const QueryParamSpecSchema: z.ZodType<QueryParamSpec> = z.lazy(() =>
   z.object({
-    name: z.string(),
+    name: z.string().default(""),
   }).strict());
 
 export interface QueryParamSpec {
@@ -597,7 +597,7 @@ export interface QueryParamSpec {
 
 export const BodyFieldSpecSchema: z.ZodType<BodyFieldSpec> = z.lazy(() =>
   z.object({
-    path: z.string(),
+    path: z.string().default(""),
   }).strict());
 
 export interface BodyFieldSpec {
