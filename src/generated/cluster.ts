@@ -258,7 +258,14 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false
+      "requiresSession": false,
+      "connection": {
+        "socketPath": "",
+        "vaultSlice": "",
+        "transport": {
+          "unset": null
+        }
+      }
     },
     {
       "name": "mache",
@@ -276,7 +283,14 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false
+      "requiresSession": false,
+      "connection": {
+        "socketPath": "",
+        "vaultSlice": "",
+        "transport": {
+          "unset": null
+        }
+      }
     },
     {
       "name": "rosary",
@@ -294,7 +308,14 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": true
+      "requiresSession": true,
+      "connection": {
+        "socketPath": "",
+        "vaultSlice": "",
+        "transport": {
+          "unset": null
+        }
+      }
     },
     {
       "name": "canonical-hours",
@@ -312,7 +333,14 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false
+      "requiresSession": false,
+      "connection": {
+        "socketPath": "",
+        "vaultSlice": "",
+        "transport": {
+          "unset": null
+        }
+      }
     }
   ],
   "routes": [

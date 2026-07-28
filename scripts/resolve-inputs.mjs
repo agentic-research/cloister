@@ -795,6 +795,33 @@ export function declaredTransportTypes(doc) {
   return out;
 }
 
+/**
+ * The socket path when an input declares `transport = "uds"`, else null.
+ *
+ * A uds transport with an EMPTY socketPath is rejected rather than defaulted:
+ * there is no sensible default socket, and silently falling back to mcpProxy
+ * would resolve an operator's declared intent into a different transport
+ * without saying so. Fail closed and name the input (ADR-0051).
+ *
+ * @param {object} spec
+ * @returns {string|null}
+ */
+export function udsSocketPath(spec) {
+  const c = spec && typeof spec === "object" ? spec.connection : undefined;
+  if (!c || typeof c !== "object") return null;
+  const t = c.transport;
+  const isUds = typeof t === "string" ? t === "uds" : !!(t && typeof t === "object" && "uds" in t);
+  if (!isUds) return null;
+  const path = typeof c.socketPath === "string" ? c.socketPath.trim() : "";
+  if (path === "") {
+    throw new Error(
+      `input "${spec.name}" declares connection.transport = "uds" with no socketPath — ` +
+      `a uds connection must name the socket to dial`,
+    );
+  }
+  return path;
+}
+
 export function deriveGeneratedBackends(spec, meta, doc = null) {
   const urlBinding     = typeof spec.urlBinding     === "string" ? spec.urlBinding     : "";
   const serviceBinding = typeof spec.serviceBinding === "string" ? spec.serviceBinding : "";
@@ -803,6 +830,20 @@ export function deriveGeneratedBackends(spec, meta, doc = null) {
   // the fallback for a server.json that declares no transport at all.
   const derived = deriveRequiresSession(doc);
   const requiresSession = derived === null ? spec.requiresSession === true : derived;
+
+  // ADR-0051 §3: a UDS input emits `udsForward` rows carrying socketPath;
+  // everything else keeps emitting `mcpProxy` exactly as before. The companion
+  // dial and capnp ToolCall/ToolResult codec downstream are reused unchanged —
+  // this only selects which backend kind the lockfile row names.
+  //
+  // requiresSession is deliberately NOT threaded onto a udsForward row: the MCP
+  // session lifecycle is a Streamable-HTTP concern, and a capnp-over-UDS call
+  // has no HTTP request to carry `Mcp-Session-Id` on. Emitting it would be a
+  // field the transport cannot honour.
+  const uds = udsSocketPath(spec);
+  const transportFields = uds !== null
+    ? { kind: "udsForward", socketPath: uds }
+    : { urlBinding, serviceBinding, ...(requiresSession ? { requiresSession: true } : {}) };
 
   if (meta === null) {
     // Heuristic fallback: one backend, claims=[] (legacy claim-all),
@@ -815,9 +856,7 @@ export function deriveGeneratedBackends(spec, meta, doc = null) {
       handlesPrefix:  "",
       claims:         [],
       dynamicTools:   true,
-      urlBinding,
-      serviceBinding,
-      ...(requiresSession ? { requiresSession: true } : {}),
+      ...transportFields,
     }];
   }
 
@@ -835,9 +874,7 @@ export function deriveGeneratedBackends(spec, meta, doc = null) {
     stripPrefix:    deriveStripPrefix(g),
     claims:         g.upstreamNames.slice(),
     dynamicTools:   true,
-    urlBinding,
-    serviceBinding,
-    ...(requiresSession ? { requiresSession: true } : {}),
+    ...transportFields,
   }));
 }
 

@@ -35,6 +35,7 @@ import {
   resolveOciDigest,
   deriveRequiresSession,
   declaredTransportTypes,
+  udsSocketPath,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -1302,4 +1303,64 @@ test("the real server.json of every pinned input derives a session", async (t) =
     const doc = JSON.parse(readFileSync(path, "utf8"));
     assert.equal(deriveRequiresSession(doc), true, `${repo} derives a session`);
   }
+});
+// ── UDS as an input transport (ADR-0051 / cloister-8c6b21) ────────────────
+//
+// The win is not throughput: a same-host MCP server needs NO listening TCP
+// port, so its exposure is scoped by filesystem permissions instead of a port
+// reachable to anything that can reach loopback.
+
+test("no connection block resolves exactly as before — mcpProxy via urlBinding", () => {
+  const rows = deriveGeneratedBackends(
+    { ...specDefaults({ name: "llo" }), urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP" },
+    null,
+  );
+  assert.equal(rows[0].urlBinding, "LLO_MCP_URL");
+  assert.equal(rows[0].serviceBinding, "LSP_MCP");
+  assert.equal(rows[0].kind, undefined, "no connection ⇒ no udsForward kind");
+});
+
+test("transport=uds emits a udsForward row carrying socketPath", () => {
+  const rows = deriveGeneratedBackends(
+    {
+      ...specDefaults({ name: "llo" }),
+      urlBinding: "LLO_MCP_URL",
+      connection: { transport: { uds: null }, socketPath: "/run/cloister-uds/llo.sock", vaultSlice: "" },
+    },
+    null,
+  );
+  assert.equal(rows[0].kind, "udsForward");
+  assert.equal(rows[0].socketPath, "/run/cloister-uds/llo.sock");
+  assert.equal(rows[0].urlBinding, undefined, "a uds row carries no urlBinding");
+});
+
+test("uds does NOT carry requiresSession — a capnp call has no HTTP to bind a session to", () => {
+  const rows = deriveGeneratedBackends(
+    {
+      ...specDefaults({ name: "x" }),
+      requiresSession: true,
+      connection: { transport: { uds: null }, socketPath: "/run/x.sock", vaultSlice: "" },
+    },
+    null,
+  );
+  assert.equal(rows[0].requiresSession, undefined);
+});
+
+test("uds with an empty socketPath FAILS rather than falling back to mcpProxy", () => {
+  // Silently resolving a declared uds intent into a different transport would
+  // change what the operator asked for without saying so.
+  assert.throws(
+    () => udsSocketPath({ name: "llo", connection: { transport: { uds: null }, socketPath: "" } }),
+    /must name the socket to dial/,
+  );
+});
+
+test("the TOML string form of transport is accepted alongside the union", () => {
+  // TOML has no unions; the operator writes transport = "uds".
+  assert.equal(
+    udsSocketPath({ name: "x", connection: { transport: "uds", socketPath: "/run/x.sock" } }),
+    "/run/x.sock",
+  );
+  assert.equal(udsSocketPath({ name: "x", connection: { transport: "unset" } }), null);
+  assert.equal(udsSocketPath({ name: "x" }), null);
 });

@@ -265,6 +265,17 @@ function canonicalizeInputs(arr) {
     if (typeof inp.urlBinding     === "string" && inp.urlBinding     !== "") body.urlBinding     = inp.urlBinding;
     if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
     if (inp.requiresSession === true) body.requiresSession = true;
+    // Emit [inputs.<name>.connection] only for a declared transport. An
+    // `unset` transport is the absence of a connection, and writing it back as
+    // a table would make every existing input grow a no-op block and break the
+    // byte-stable round-trip.
+    const conn = inp.connection;
+    if (conn && typeof conn === "object" && conn.transport && "uds" in conn.transport) {
+      const c = { transport: "uds" };
+      if (typeof conn.socketPath === "string" && conn.socketPath !== "") c.socketPath = conn.socketPath;
+      if (typeof conn.vaultSlice === "string" && conn.vaultSlice !== "") c.vaultSlice = conn.vaultSlice;
+      body.connection = sortKeys(c);
+    }
     if (Array.isArray(inp.provides) && inp.provides.length > 0) body.provides = [...inp.provides];
     if (Array.isArray(inp.requires) && inp.requires.length > 0) body.requires = [...inp.requires];
     // ADR-0030 §A5 (cloister-0e3004): emit a `[inputs.<name>.tenancy]`
