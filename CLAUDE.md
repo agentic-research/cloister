@@ -45,6 +45,22 @@ published publicly on npmjs and requires no registry authentication. The SDK
 used to be vendored at `src/vendor/notme-dpop.ts`; it is now a real dependency
 (`notme-18450e` / `cloister-195e47`) — don't re-vendor it.
 
+### Pinning ley-line-open
+
+LLO crates are pinned by **git rev AND version, and both must match** — cargo
+resolves on the pair, so bumping the rev alone fails with a bare "location
+searched" error that does not mention the version. All five crates
+(`leyline-core`, `-cas-ffi`, `-fs`, `-sign`, `-schema-bridge`) should move
+together: they once drifted to five different revs with `leyline-core`
+resolving three times in one lockfile, which is what `cargo update -p
+leyline-core` refusing as *ambiguous* looks like.
+
+The release tag is **not** the delivery path for the schema-bridge generator —
+`task cluster:zod` builds it from the pinned git rev, so a stale pin silently
+regenerates against an old generator and exits 0. As of LLO v0.12.0 the
+generator ships as a downloadable release binary; moving `schema-bridge:build`
+onto it is `cloister-9170d0`.
+
 ```sh
 task lint            # tsc + worker tests + script/rail tests, ~2s gate
 task test            # workerd integration (real DOs, real SQLite)
@@ -80,7 +96,7 @@ Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bund
 
 ### Trust-surface rails
 
-Six further rails run per `task lint`. Each exists because an invariant was
+Eight further rails run per `task lint`. Each exists because an invariant was
 stated somewhere (an ADR, a schema comment, a code comment) but nothing
 enforced it, and it drifted. Each has a companion test asserting *the shipped
 tree satisfies it*, so the rail cannot pass vacuously.
@@ -93,6 +109,8 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
+| `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
+| `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs
@@ -169,6 +187,20 @@ was discovered under.
   fail-closed property is the symbolic half of ADR-0054. Operator guide:
   [`docs/reference/capability-lattice.md`](docs/reference/capability-lattice.md).
   No input declares a lattice yet; the gate is wired so the first one is checked.
+- **A field list that mirrors the schema is a bug waiting to happen.**
+  `cluster.capnp` is projected to a strict zod schema (`src/generated/
+  cluster.zod.ts`, 41 schemas, `.strict()`), and consumers read the field list
+  from *that* rather than enumerating it. `[[generated_backends]]` rows are
+  declared as `struct GeneratedBackend`; `toml-to-cluster` and `resolve-inputs`
+  derive their `[inputs.*]` keys from `InputSpecSchema`. Hand-enumerating is
+  how ADR-0051's `connection` shipped declarable-and-invisible, and how a
+  typo'd `[inputs.*]` key was silently *erased* from cluster.toml by the
+  round-trip. capnp's native `= value` defaults are honoured as of LLO f72fca,
+  so a default is declared once in the schema and nowhere else. The exception
+  that proves it: required-ness. capnp has no required fields, so
+  `toml-to-cluster`'s check 4z states what the schema structurally *cannot* —
+  that is the one case where an explicit list is right.
+
 - **Path matching uses `URLPattern`** — Web Platform standard,
   workerd-native, no regex. Exact-match routes use `pathname === "..."`;
   parameterized routes use `new URLPattern({ pathname: "/foo/:bar" })`

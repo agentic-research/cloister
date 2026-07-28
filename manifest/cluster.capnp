@@ -1101,14 +1101,9 @@ struct InterlacePolicy {
 # schema-bridge emits a schema per struct regardless of reachability, which
 # is what makes a standalone declaration work.
 #
-# `dynamicTools` defaults TRUE, and that default is applied in
-# build-manifest.mjs rather than here. Writing `= true` in capnp would be a
-# LIE: schema-bridge reads explicit defaults only from a `$Default(json)`
-# annotation (ll-core/schema-spec/_traits.capnp), never from capnp's native
-# `= value` syntax, so a native default falls through to the type's zero and
-# `= true` silently generates `.default(false)` — the inverse of what the
-# schema says. Using $Default would mean importing LLO's _traits.capnp at
-# capnp-compile time, which CI has no checkout for.
+# `dynamicTools` defaults TRUE. The declaration is the only statement of that
+# default — schema-bridge honours capnp's native `= value` as of
+# ley-line-open f72fca, so nothing restates it in JS.
 struct GeneratedBackend {
   # Backend name. Required — a row without one is a build failure.
   name            @0 :Text;
@@ -1124,7 +1119,7 @@ struct GeneratedBackend {
   # Service binding, when the backend is wired in-process.
   serviceBinding  @5 :Text;
   # Whether the backend advertises tools dynamically.
-  dynamicTools    @6 :Bool;
+  dynamicTools    @6 :Bool = true;
   # Whether the upstream requires a session id on each call.
   requiresSession @7 :Bool;
   # Bare upstream tool names this backend claims.

@@ -612,7 +612,7 @@ export const GeneratedBackendSchema: z.ZodType<GeneratedBackend> = z.lazy(() =>
     stripPrefix: z.string().default(""),
     urlBinding: z.string().default(""),
     serviceBinding: z.string().default(""),
-    dynamicTools: z.boolean().default(false),
+    dynamicTools: z.boolean().default(true),
     requiresSession: z.boolean().default(false),
     claims: z.array(z.string()).readonly().default([]),
   }).strict());
