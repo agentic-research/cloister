@@ -1014,6 +1014,23 @@ struct GatewayMetadata {
   # Semver of the manifest, bumped by the consumer when their slice
   # changes. Empty string ⇒ fall-through (same rule as `name`).
   version @1 :Text;
+
+  # The `_meta` extension namespace this deployment publishes under —
+  # e.g. "art.cloister/v1". Declared here so consumers do not carry it as a
+  # constant.
+  #
+  # It already appears in three places that must agree: the key cloister emits
+  # into its MCP Registry `_meta` envelope, the key downstream projects write in
+  # their own server.json `_meta` (canonical-hours, mache), and the key external
+  # readers match on. A cross-repo graph generator currently hardcodes
+  # "art.cloister/v1 -> cloister" precisely because nothing machine-readable
+  # states it — an asserted edge resting on a constant in the reader.
+  #
+  # Empty ⇒ the runtime default. Per ADR-0057: the fact is authored once, at the
+  # deployment that owns it, and read everywhere else.
+  #
+  # Append-only ordinal per ADR-0004.
+  metaNamespace @2 :Text;
 }
 
 struct Actor {

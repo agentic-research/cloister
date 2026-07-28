@@ -472,6 +472,7 @@ function normalizeGateway(raw) {
     metadata: {
       name:    typeof metadata.name    === "string" ? metadata.name    : "",
       version: typeof metadata.version === "string" ? metadata.version : "",
+      metaNamespace: typeof metadata.metaNamespace === "string" ? metadata.metaNamespace : "",
     },
     actor: {
       fingerprint:     assertActorFingerprint(typeof actor.fingerprint === "string" ? actor.fingerprint : ""),

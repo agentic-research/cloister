@@ -459,7 +459,8 @@ export const cluster: Cluster = {
   "gateway": {
     "metadata": {
       "name": "cloister-art",
-      "version": "0.1.0"
+      "version": "0.1.0",
+      "metaNamespace": "art.cloister/v1"
     },
     "actor": {
       "fingerprint": "",

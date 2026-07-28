@@ -602,12 +602,75 @@ describe("registry _meta advertises derived capabilities", () => {
   it("an empty capability set OMITS the key rather than emitting []", () => {
     // Absence and emptiness are different claims: no key means "does not
     // advertise capabilities", `[]` means "advertises none".
+    // Was vacuous: a fixture with only a health route yields ZERO envelopes,
+    // so the loop asserted nothing. Needs an mcp route to produce an envelope
+    // AND no vaultProxy route so the capability set is genuinely empty.
     const envelopes = synthesizeAll(
-      gw([{ path: "/health", kind: { health: null } }]),
+      gw([{
+        path: "/mcp",
+        kind: { mcp: { backends: [{
+          name: "lsp", handlesPrefix: "lsp_",
+          kind: { mcpProxy: { urlBinding: "LLO_MCP_URL", tools: [
+            { name: "lsp_hover", description: "Hover", inputSchemaJson: "{}" },
+          ] } },
+        }] } },
+      }]),
       "https://example.test",
     );
+    expect(envelopes.length).toBeGreaterThan(0);
     for (const e of envelopes) {
       expect(e._meta).not.toHaveProperty("art.cloister/v1");
     }
+  });
+});
+
+describe("the _meta namespace is declared, not hardcoded", () => {
+  // Must include an mcp route with an externally-shaped backend: registry
+  // envelopes are synthesized per proxied server, so a fixture without one
+  // yields [] and every assertion over it passes vacuously.
+  const mcpRoute = {
+    path: "/mcp",
+    kind: {
+      mcp: {
+        backends: [{
+          name: "lsp",
+          handlesPrefix: "lsp_",
+          kind: {
+            mcpProxy: {
+              urlBinding: "LLO_MCP_URL",
+              tools: [{ name: "lsp_hover", description: "Hover", inputSchemaJson: "{}" }],
+            },
+          },
+        }],
+      },
+    },
+  };
+  const gwNs = (ns?: string) =>
+    ({
+      metadata: { name: "t", version: "0", ...(ns === undefined ? {} : { metaNamespace: ns }) },
+      routes: [mcpRoute, { path: "/vault/proxy", kind: { vaultProxy: { bundleIdName: "x" } } }],
+      actor: {},
+      policy: {},
+    } as never);
+
+  it("uses the namespace the manifest declares", () => {
+    const [e] = synthesizeAll(gwNs("art.example/v9"), "https://x.test");
+    expect(e._meta).toHaveProperty("art.example/v9");
+    expect(e._meta).not.toHaveProperty("art.cloister/v1");
+  });
+
+  it("falls back to the default when the manifest predates the field", () => {
+    // Back-compat: a manifest with no metaNamespace must keep working rather
+    // than emitting under an empty key.
+    const [e] = synthesizeAll(gwNs(undefined), "https://x.test");
+    expect(e._meta).toHaveProperty("art.cloister/v1");
+  });
+
+  it("the SHIPPED manifest declares its namespace", async () => {
+    // The point of the field: an external reader can learn the key from the
+    // manifest instead of hardcoding it, which is what a cross-repo graph
+    // generator was doing.
+    const { manifest } = await import("../../src/generated/manifest.js");
+    expect(manifest.metadata.metaNamespace).toBe("art.cloister/v1");
   });
 });

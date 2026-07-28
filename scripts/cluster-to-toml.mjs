@@ -160,6 +160,7 @@ function canonicalizeGateway(g) {
   const metaBody = {};
   if (typeof meta.name    === "string" && meta.name    !== "") metaBody.name    = meta.name;
   if (typeof meta.version === "string" && meta.version !== "") metaBody.version = meta.version;
+  if (typeof meta.metaNamespace === "string" && meta.metaNamespace !== "") metaBody.metaNamespace = meta.metaNamespace;
 
   const actorBody = {};
   if (typeof actor.fingerprint     === "string" && actor.fingerprint     !== "") actorBody.fingerprint     = actor.fingerprint;

@@ -16,7 +16,7 @@
 using Cloister = import "/cloister/manifest/cloister.capnp";
 
 const gateway :Cloister.Gateway = (
-  metadata = (name = "cloister-art", version = "0.1.0"),
+  metadata = (name = "cloister-art", version = "0.1.0", metaNamespace = "art.cloister/v1"),
 
   actor = (
     fingerprint     = "",

@@ -486,11 +486,13 @@ export const GatewayMetadataSchema: z.ZodType<GatewayMetadata> = z.lazy(() =>
   z.object({
     name: z.string(),
     version: z.string(),
+    metaNamespace: z.string(),
   }).strict());
 
 export interface GatewayMetadata {
   name: string;
   version: string;
+  metaNamespace: string;
 }
 
 export const ActorSchema: z.ZodType<Actor> = z.lazy(() =>

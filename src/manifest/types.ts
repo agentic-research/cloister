@@ -82,6 +82,11 @@ export type VaultProxyInjection =
 export interface Metadata {
   name:    string;
   version: string;
+  /**
+   * `_meta` extension namespace this deployment publishes under, e.g.
+   * `"art.cloister/v1"`. Projected from cluster.toml. Empty ⇒ runtime default.
+   */
+  metaNamespace?: string;
 }
 
 // ── Interlace identity + policy (ADR-0007) ────────────────────────────────

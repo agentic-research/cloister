@@ -228,6 +228,10 @@ function normalizeGatewayForRender(g) {
     metadata: {
       name:    typeof m.name    === "string" ? m.name    : "",
       version: typeof m.version === "string" ? m.version : "",
+      // Deliberately NOT added to DEFAULT_GATEWAY: that value exists to keep
+      // the back-compat fall-through byte-identical, and metaNamespace omits
+      // itself when empty, so the fall-through output is unchanged.
+      metaNamespace: typeof m.metaNamespace === "string" ? m.metaNamespace : "",
     },
     actor: {
       fingerprint:     typeof a.fingerprint     === "string" ? a.fingerprint     : "",
@@ -317,7 +321,14 @@ function renderCapnp(g) {
   lines.push('using Cloister = import "/cloister/manifest/cloister.capnp";');
   lines.push("");
   lines.push("const gateway :Cloister.Gateway = (");
-  lines.push(`  metadata = (name = ${q(g.metadata.name)}, version = ${q(g.metadata.version)}),`);
+  // metaNamespace is omitted when empty rather than emitted as "": an absent
+  // field means "use the runtime default", an empty string would assert the
+  // deployment publishes under no namespace. Different claims (cloister-9c196b).
+  {
+    const ns = typeof g.metadata.metaNamespace === "string" ? g.metadata.metaNamespace : "";
+    const nsPart = ns ? `, metaNamespace = ${q(ns)}` : "";
+    lines.push(`  metadata = (name = ${q(g.metadata.name)}, version = ${q(g.metadata.version)}${nsPart}),`);
+  }
   lines.push("");
   lines.push("  actor = (");
   lines.push(`    fingerprint     = ${q(g.actor.fingerprint)},`);

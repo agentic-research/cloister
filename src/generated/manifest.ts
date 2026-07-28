@@ -8,7 +8,8 @@ import type { Gateway } from "../manifest/types.js";
 export const manifest: Gateway = {
   "metadata": {
     "name": "cloister-art",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "metaNamespace": "art.cloister/v1"
   },
   "routes": [
     {
