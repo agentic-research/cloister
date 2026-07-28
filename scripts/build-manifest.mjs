@@ -89,6 +89,36 @@ try {
 
 await overlayToolSchemas(json);
 
+/**
+ * The declared shape of a `[[generated_backends]]` row (cloister-71a9f4).
+ *
+ * This table is the row's contract. Before it existed, every field was read as
+ * `typeof x === "string" ? x : ""` — which cannot distinguish "absent", "wrong
+ * type", and "deliberately empty", because `stripPrefix = ""` is a real value
+ * in every shipped row. A typo'd key and a wrong-typed value both produced
+ * output byte-identical to a legitimate empty one, so a malformed row built
+ * cleanly into a backend that matched nothing.
+ *
+ * `input` is not consumed by this function but IS load-bearing: the caller
+ * uses it to report cross-input name collisions and to build the qualified
+ * name. It is declared here because an undeclared key now fails the build.
+ *
+ * Adding a field: add it here AND read it below. A field present in the
+ * lockfile but absent from this table now fails the build rather than being
+ * silently dropped — which is the point.
+ */
+const GENERATED_BACKEND_FIELDS = {
+  name:            "string",
+  input:           "string",
+  handlesPrefix:   "string",
+  stripPrefix:     "string",
+  urlBinding:      "string",
+  serviceBinding:  "string",
+  dynamicTools:    "boolean",
+  requiresSession: "boolean",
+  claims:          "string[]",
+};
+
 // ── Overlay [[generated_backends]] from cluster.lock.toml ────────────────
 //
 // Phase 1 of the LLO arc (cloister-05334b). Reads cluster.lock.toml when
@@ -444,8 +474,9 @@ function overlayLockfileBackends(g) {
   const generatedNamesByInput = new Map(); // name -> input that generated it
 
   for (const row of rows) {
+    // No null guard: backendFromGeneratedRow either returns a backend or
+    // fails the build. A malformed row is no longer skippable.
     const backend = backendFromGeneratedRow(row);
-    if (backend === null) continue;
 
     const priorInput = generatedNamesByInput.get(backend.name);
     if (priorInput !== undefined && priorInput !== row.input) {
@@ -532,21 +563,55 @@ function overlayLockfileBackends(g) {
  * right value; this function only threads it through.
  */
 function backendFromGeneratedRow(row) {
-  if (!row || typeof row !== "object") {
-    console.error(`build-manifest: skipping malformed generated_backends row: ${JSON.stringify(row)}`);
-    return null;
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    fail(`generated_backends row is not a table: ${JSON.stringify(row)}`);
   }
+
+  // Unknown key ⇒ fail. Without this, `handlesPrefixx` (one typo) is accepted
+  // and the backend silently gets handlesPrefix "", matching nothing; `claim`
+  // for `claims` yields a route claiming zero tools. Both produce a working
+  // build and a dead backend.
+  for (const key of Object.keys(row)) {
+    if (!(key in GENERATED_BACKEND_FIELDS)) {
+      fail(
+        `generated_backends row ${JSON.stringify(row.name ?? "(unnamed)")} has unknown ` +
+          `field ${JSON.stringify(key)} — declared fields are ` +
+          `${Object.keys(GENERATED_BACKEND_FIELDS).sort().join(", ")}. ` +
+          `A typo here builds cleanly and produces a backend that matches nothing.`,
+      );
+    }
+  }
+
+  // Present-but-wrong-type ⇒ fail. ABSENT is still allowed and still takes the
+  // default: older lockfiles predate newer fields, and rewriting them is not a
+  // precondition for building. Only a field that IS there and is wrong fails.
+  for (const [key, want] of Object.entries(GENERATED_BACKEND_FIELDS)) {
+    if (!(key in row)) continue;
+    const value = row[key];
+    const ok =
+      want === "string[]"
+        ? Array.isArray(value) && value.every((v) => typeof v === "string")
+        : typeof value === want;
+    if (!ok) {
+      const got = Array.isArray(value) ? "array" : typeof value;
+      fail(
+        `generated_backends row ${JSON.stringify(row.name ?? "(unnamed)")} field ` +
+          `${JSON.stringify(key)} must be ${want}, got ${got} (${JSON.stringify(value)})`,
+      );
+    }
+  }
+
   if (typeof row.name !== "string" || row.name === "") {
-    console.error(`build-manifest: skipping generated_backends row with missing name: ${JSON.stringify(row)}`);
-    return null;
+    fail(`generated_backends row has no name: ${JSON.stringify(row)}`);
   }
-  const handlesPrefix  = typeof row.handlesPrefix  === "string" ? row.handlesPrefix  : "";
-  const stripPrefix    = typeof row.stripPrefix    === "string" ? row.stripPrefix    : "";
-  const urlBinding     = typeof row.urlBinding     === "string" ? row.urlBinding     : "";
-  const serviceBinding = typeof row.serviceBinding === "string" ? row.serviceBinding : "";
-  const dynamicTools   = row.dynamicTools !== false; // default true
-  const requiresSession = row.requiresSession === true;
-  const claims         = Array.isArray(row.claims) ? row.claims.slice() : [];
+
+  const handlesPrefix   = row.handlesPrefix   ?? "";
+  const stripPrefix     = row.stripPrefix     ?? "";
+  const urlBinding      = row.urlBinding      ?? "";
+  const serviceBinding  = row.serviceBinding  ?? "";
+  const dynamicTools    = row.dynamicTools    ?? true;
+  const requiresSession = row.requiresSession ?? false;
+  const claims          = (row.claims ?? []).slice();
 
   const mcpProxy = {
     urlBinding,
