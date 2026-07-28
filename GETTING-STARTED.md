@@ -305,29 +305,24 @@ make sure notme-proxy is forwarding to your daemon's UDS socket. See
 
 ## 6. Install the CC plugin (optional but recommended)
 
-The `cloister-stale-sync` plugin lives in this repo — it auto-fires
-`reparse` on every Edit/Write/MultiEdit/NotebookEdit so `lsp_*` tools
-return up-to-date data inside long Claude Code sessions.
+Keeping `lsp_*` fresh during long Claude Code sessions is handled by
+**ley-line-open's** `leyline-stale-sync`, not by cloister. It auto-fires
+`reparse` on every Edit/Write/MultiEdit/NotebookEdit, talking to the LLO
+daemon directly:
 
 ```sh
 # In a Claude Code session:
-claude plugin add ~/path/to/cloister
+claude plugin add ~/path/to/ley-line-open/wrappers/claude-code
 ```
 
-Or, without installing:
+See
+[wrappers/claude-code/README.md](https://github.com/agentic-research/ley-line-open/tree/main/wrappers/claude-code)
+for the plugin contract and configuration.
 
-```sh
-claude --plugin-dir ~/path/to/cloister
-```
-
-Configure (optional):
-
-```sh
-export CLOISTER_MCP_URL=http://localhost:8787/mcp   # default
-export CLOISTER_SYNC_LOG=1                          # debug to stderr
-```
-
-See [hooks/README.md](hooks/README.md) for the full plugin contract.
+> Cloister shipped its own `cloister-stale-sync` (routing `reparse`
+> through cloister at `:8787`) until 2026-07-27. It was retired:
+> ley-line-open owns the parse / LSP surface per ADR-0035, and installing
+> both plugins double-fires `reparse` on every edit.
 
 ## 7. Verify the full chain
 

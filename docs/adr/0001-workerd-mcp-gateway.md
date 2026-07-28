@@ -81,6 +81,8 @@ tools to rosary is obsolete — tool routing is now explicit per backend, not fa
 
 - [x] Wire `lsp_*` and lifecycle ops to ley-line-open via `LLO_MCP_URL` (ADR-0002)
 - [x] Ship the `cloister-stale-sync` Claude Code plugin (ADR-0002, hooks/)
+      — *retired 2026-07-27 (cloister-68e5ed); superseded by ley-line-open's
+      `leyline-stale-sync`. See ADR-0002's work-item note.*
 - [x] Tighten CORS from `*` — env-driven `ALLOWED_ORIGINS` allowlist with port-`:*`
       glob support, falls back to wildcard for dev (commit `3b4f5e6`, `src/cors.ts`)
 - [x] Write `melange.yaml` for cloister package and `apko.yaml` composing the

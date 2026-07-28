@@ -553,4 +553,7 @@ never patch. Synthesis-lead integrates findings into
   `docs/adr/` (0037 reserved for secure MCP ingress; the current list +
   status is the generated [ADR index](adr/INDEX.md), never hand-counted;
   rules at the top of each ADR file)
-- Plugin contract: [../hooks/README.md](../hooks/README.md)
+- Claude Code stale-sync plugin contract: owned by ley-line-open at
+  [`wrappers/claude-code`](https://github.com/agentic-research/ley-line-open/tree/main/wrappers/claude-code).
+  Cloister's `cloister-stale-sync` was retired 2026-07-27 (ADR-0035: LLO
+  owns the parse / LSP surface)
