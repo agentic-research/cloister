@@ -720,9 +720,9 @@ export function deriveStripPrefix(group) {
  * Derive whether generated backends must run the MCP session lifecycle, from
  * the transport the SERVER declares (cloister-4ae222, ADR-0057 property A).
  *
- * The tool already publishes this. mache, rosary and canonical-hours all
- * declare `"remotes": [{ "type": "streamable-http", ... }]`. Requiring an
- * operator to ALSO set `requiresSession` in cluster.toml made it a second
+ * The tool already publishes this, in one of two places — see
+ * `declaredTransportTypes()` for both shapes and why both are read. Requiring
+ * an operator to ALSO set `requiresSession` in cluster.toml made it a second
  * statement of one fact — and mache's row omitted it, so every `mache_*` tool
  * silently vanished from tools/list with a 404 "Invalid session ID"
  * (cloister-af794d). A boolean per input is also unrepresentable for a server
@@ -748,17 +748,51 @@ export function deriveStripPrefix(group) {
  * @returns {boolean|null}
  */
 export function deriveRequiresSession(doc) {
-  const remotes = doc && typeof doc === "object" ? doc.remotes : undefined;
-  if (!Array.isArray(remotes) || remotes.length === 0) return null;
-  const types = remotes
-    .map((r) => (r && typeof r === "object" && typeof r.type === "string" ? r.type : ""))
-    .filter(Boolean);
+  const types = declaredTransportTypes(doc);
   if (types.length === 0) return null;
   // Any HTTP-shaped transport means run the lifecycle. A server offering both
   // stdio and streamable-http still needs it on the HTTP leg, which is the leg
   // cloister uses — a single boolean cannot express "depends", so bias to the
   // transport cloister actually speaks.
   return types.some((t) => t === "streamable-http" || t === "sse");
+}
+
+/**
+ * Transport type strings a server.json declares, from EITHER location.
+ *
+ * Two shapes coexist in the ecosystem as of 2026-07-28 and both are live:
+ *
+ *   remotes[].type              mache, rosary, canonical-hours
+ *   packages[].transport.type   ley-line-open (11.2 dropped `remotes` entirely)
+ *
+ * Reading only `remotes[]` silently returns null for ley-line-open, which falls
+ * back to the operator's explicit flag — unset for [inputs.llo] — and would have
+ * treated a streamable-http server as sessionless. That is the same failure that
+ * hid every mache_* tool behind a 404, arriving from the other direction.
+ *
+ * This is deliberately tolerant rather than picking a winner: cloister does not
+ * own the registry schema and cannot make upstreams converge. When one shape
+ * wins, delete the other branch — do not add a third.
+ *
+ * @param {unknown} doc Parsed server.json.
+ * @returns {string[]}
+ */
+export function declaredTransportTypes(doc) {
+  if (!doc || typeof doc !== "object") return [];
+  const out = [];
+  const push = (t) => { if (typeof t === "string" && t) out.push(t); };
+
+  if (Array.isArray(doc.remotes)) {
+    for (const r of doc.remotes) if (r && typeof r === "object") push(r.type);
+  }
+  if (Array.isArray(doc.packages)) {
+    for (const pkg of doc.packages) {
+      if (pkg && typeof pkg === "object" && pkg.transport && typeof pkg.transport === "object") {
+        push(pkg.transport.type);
+      }
+    }
+  }
+  return out;
 }
 
 export function deriveGeneratedBackends(spec, meta, doc = null) {
