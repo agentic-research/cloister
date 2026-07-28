@@ -182,15 +182,45 @@ describe("the generated cluster.ts (consumer manifest)", () => {
     expect(() => validateCluster(real)).not.toThrow();
   });
 
-  it("declares the four expected bundles", async () => {
+  it("declares the five expected bundles", async () => {
     const { cluster: real } = await import("../../src/generated/cluster.js");
     const names = real.bundles.map(b => b.name).sort();
-    expect(names).toEqual(["cloister-router", "mache", "notme-identity", "rosary"]);
+    expect(names).toEqual([
+      "cloister-router",
+      "mache",
+      "notme-identity",
+      "notme-proxy",
+      "rosary",
+    ]);
   });
 
-  it("declares three wires originating at cloister-router", async () => {
+  // notme-proxy is the cloister-companion (ADR-0005; cloister-46fc1a,
+  // cloister-4cdba5) — the UDS bridge workerd dials through and the holder of
+  // the bridge cert. It was reachable only by hand-editing COMPANION_URL away
+  // from the stub until it was declared here (cloister-af3d5d), so assert both
+  // the bundle and its wire rather than a bare count.
+  it("declares notme-proxy as a hypervisor-tier companion with a COMPANION wire", async () => {
     const { cluster: real } = await import("../../src/generated/cluster.js");
-    expect(real.wires.length).toBe(3);
+    const proxy = real.bundles.find(b => b.name === "notme-proxy");
+    expect(proxy?.tier).toBe("hypervisor");
+    expect(proxy?.hypervisorRationale ?? "").not.toBe("");
+
+    const wire = real.wires.find(w => w.binding === "COMPANION");
+    expect(wire?.to).toBe("notme-proxy");
+    // WireTransport is a tagged union ({uds:null} | {leylineNet:null}), not a
+    // string — intra-cluster must be uds, never the cross-cluster leylineNet.
+    expect(wire?.transport).toEqual({ uds: null });
+  });
+
+  it("every wire originates at cloister-router", async () => {
+    const { cluster: real } = await import("../../src/generated/cluster.js");
+    const bindings = real.wires.map(w => w.binding).sort();
+    expect(bindings).toEqual([
+      "COMPANION",
+      "MACHE_BUNDLE",
+      "NOTME",
+      "ROSARY_BUNDLE",
+    ]);
     expect(real.wires.every(w => w.from === "cloister-router")).toBe(true);
   });
 
