@@ -6,8 +6,22 @@
  * `<repo>/done-rules/`), runs each as a shell command, and reports
  * pass / warn / block. Exit code = 0 if no block-severity failures;
  * 1 if any block; 2 on toolchain errors (malformed rule, JSON parse
- * error). Mirrors mache's external smell-rules shape — adding a
- * gate is one drop-in file, no runner edits needed.
+ * error). Borrows the drop-in file layout from mache's external smell
+ * rules — adding a gate is one drop-in file, no runner edits needed.
+ *
+ * The layout is shared; the SEVERITY VOCABULARY IS NOT, and rule files
+ * are portable in neither direction (cloister-2fb46a):
+ *
+ *   here    block | warn        default block   fail-secure ship gate
+ *   mache   off | warn | error  default warn    fail-open observability,
+ *                                               gate decided at --fail-on
+ *
+ * A mache rule at `Severity: "error"` throws a ToolchainError below; a
+ * rule from here at `"block"` is unrecognised there. Both defaults are
+ * right for their tool, so the divergence is deliberate rather than a
+ * bug to fix — but it is unstated nowhere: scripts/lint-smell-rule-kinship.mjs
+ * records both vocabularies and fails if either source drifts from the
+ * record.
  *
  * Rule file shape (one rule per file):
  *
