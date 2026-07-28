@@ -33,6 +33,7 @@ import {
   deriveStripPrefix,
   parsePackagesOci,
   resolveOciDigest,
+  deriveRequiresSession,
 } from "../resolve-inputs.mjs";
 
 function sha256hex(bytes) {
@@ -1209,4 +1210,49 @@ test("resolveOciDigest: no registry host or empty ref returns empty string witho
   };
   assert.equal(await resolveOciDigest("no-slash-identifier", "v1", fetchImpl), "");
   assert.equal(await resolveOciDigest("ghcr.io/x/y", "", fetchImpl), "");
+});
+
+// ── Session-ness is DERIVED from the declared transport (cloister-4ae222) ──
+//
+// The tool already publishes its transport; requiring an operator to also set
+// `requiresSession` made it a second statement of one fact. mache's row omitted
+// it, so every mache_* tool silently vanished from tools/list behind a 404
+// "Invalid session ID" (cloister-af794d).
+
+test("streamable-http derives a session", () => {
+  assert.equal(deriveRequiresSession({ remotes: [{ type: "streamable-http" }] }), true);
+});
+
+test("stdio derives no session — a pipe has nothing to establish", () => {
+  assert.equal(deriveRequiresSession({ remotes: [{ type: "stdio" }] }), false);
+});
+
+test("a server offering BOTH biases to the transport cloister speaks", () => {
+  // The exact case a single boolean per input cannot express, and the reason
+  // the operator flagged the old model as wrong.
+  assert.equal(
+    deriveRequiresSession({ remotes: [{ type: "stdio" }, { type: "streamable-http" }] }),
+    true,
+  );
+});
+
+test("no declared transport returns null so the explicit value still applies", () => {
+  // Null, not false: absence must not silently mean "no session" — that is the
+  // defect class this change exists to remove, not to relocate.
+  assert.equal(deriveRequiresSession({}), null);
+  assert.equal(deriveRequiresSession({ remotes: [] }), null);
+  assert.equal(deriveRequiresSession(null), null);
+});
+
+test("the SHIPPED server.json of every pinned input derives a session", async () => {
+  // Real documents, not fixtures: mache, rosary and canonical-hours all declare
+  // streamable-http, so the derivation reproduces rosary's hand-set `true` and
+  // supplies the one mache was missing.
+  const { readFileSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  for (const repo of ["mache", "rosary", "canonical-hours"]) {
+    const path = `${homedir()}/remotes/art/${repo}/server.json`;
+    const doc = JSON.parse(readFileSync(path, "utf8"));
+    assert.equal(deriveRequiresSession(doc), true, `${repo} derives a session`);
+  }
 });

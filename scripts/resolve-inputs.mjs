@@ -200,6 +200,11 @@ export async function resolveInput(spec) {
   // derive one backend declaration per group. If absent (or the bytes
   // aren't parseable as JSON), fall back to a single-backend heuristic
   // and warn the operator.
+  // Parsed once: `meta` drives backend partitioning, the whole document also
+  // carries `remotes[].type`, from which session-ness is derived.
+  let doc = null;
+  try { doc = JSON.parse(new TextDecoder().decode(bytes)); } catch { doc = null; }
+
   let meta = null;
   try {
     meta = parseServerJsonMeta(bytes);
@@ -216,7 +221,7 @@ export async function resolveInput(spec) {
   let generatedBackends;
   if (meta) {
     try {
-      generatedBackends = deriveGeneratedBackends(spec, meta);
+      generatedBackends = deriveGeneratedBackends(spec, meta, doc);
     } catch (e) {
       // deriveStripPrefix (cloister-2d987e, Bug 3) throws when a
       // group's upstreamNames mix bare + already-prefixed names — a
@@ -226,7 +231,7 @@ export async function resolveInput(spec) {
       throw new ResolveError(spec.name, e.message);
     }
   } else {
-    generatedBackends = deriveGeneratedBackends(spec, null);
+    generatedBackends = deriveGeneratedBackends(spec, null, doc);
     // Warn so the operator knows they're getting a single backend
     // rather than a partitioned set. README §"Heuristic fallback":
     // the fallback exists + emits a warning + does NOT fail the build.
@@ -711,10 +716,59 @@ export function deriveStripPrefix(group) {
  *
  * Exported for unit tests.
  */
-export function deriveGeneratedBackends(spec, meta) {
+/**
+ * Derive whether generated backends must run the MCP session lifecycle, from
+ * the transport the SERVER declares (cloister-4ae222, ADR-0057 property A).
+ *
+ * The tool already publishes this. mache, rosary and canonical-hours all
+ * declare `"remotes": [{ "type": "streamable-http", ... }]`. Requiring an
+ * operator to ALSO set `requiresSession` in cluster.toml made it a second
+ * statement of one fact — and mache's row omitted it, so every `mache_*` tool
+ * silently vanished from tools/list with a 404 "Invalid session ID"
+ * (cloister-af794d). A boolean per input is also unrepresentable for a server
+ * offering both stdio and streamable-http.
+ *
+ * What is derived, and why it is safe:
+ *   stdio            -> false. A pipe has no session; there is nothing to
+ *                       establish.
+ *   streamable-http  -> true. NOTE the MCP spec makes `Mcp-Session-Id`
+ *                       OPTIONAL for the server to assign, so this is not
+ *                       "the spec guarantees a session". It is: perform the
+ *                       `initialize` handshake (which MCP requires anyway) and
+ *                       carry the session id back IF one is returned. That is
+ *                       correct against both session-requiring servers
+ *                       (mark3labs/mcp-go — mache, rosary) and sessionless
+ *                       ones, so deriving true costs nothing when false.
+ *   sse              -> true. Legacy transport with its own session model.
+ *
+ * Returns null when no transport is declared, so the caller can fall back to
+ * the operator's explicit value rather than guessing.
+ *
+ * @param {unknown} doc Parsed server.json.
+ * @returns {boolean|null}
+ */
+export function deriveRequiresSession(doc) {
+  const remotes = doc && typeof doc === "object" ? doc.remotes : undefined;
+  if (!Array.isArray(remotes) || remotes.length === 0) return null;
+  const types = remotes
+    .map((r) => (r && typeof r === "object" && typeof r.type === "string" ? r.type : ""))
+    .filter(Boolean);
+  if (types.length === 0) return null;
+  // Any HTTP-shaped transport means run the lifecycle. A server offering both
+  // stdio and streamable-http still needs it on the HTTP leg, which is the leg
+  // cloister uses — a single boolean cannot express "depends", so bias to the
+  // transport cloister actually speaks.
+  return types.some((t) => t === "streamable-http" || t === "sse");
+}
+
+export function deriveGeneratedBackends(spec, meta, doc = null) {
   const urlBinding     = typeof spec.urlBinding     === "string" ? spec.urlBinding     : "";
   const serviceBinding = typeof spec.serviceBinding === "string" ? spec.serviceBinding : "";
-  const requiresSession = spec.requiresSession === true;
+  // Derived from the server's declared transport wins over the operator's
+  // explicit flag; the tool is the site that knows. The explicit value remains
+  // the fallback for a server.json that declares no transport at all.
+  const derived = deriveRequiresSession(doc);
+  const requiresSession = derived === null ? spec.requiresSession === true : derived;
 
   if (meta === null) {
     // Heuristic fallback: one backend, claims=[] (legacy claim-all),
