@@ -128,25 +128,7 @@ async function loadGeneratedBackendContract() {
     );
   }
 
-  // capnp's native `= value` syntax is NOT read by schema-bridge; only a
-  // `$Default(json)` annotation is, and importing LLO's _traits.capnp at
-  // capnp-compile time is not available to CI. So `dynamicTools`, whose
-  // intended default is TRUE, generates `.default(false)` — the inverse. It is
-  // corrected after parsing, for omitted rows only.
-  //
-  // Self-retiring on the REAL condition: if the generated default ever becomes
-  // true, this correction is redundant and the build says so. Checking merely
-  // "are there defaults" would have retired it while it was still needed.
-  const rawDefault = node?._def?.defaultValue ?? node?.def?.defaultValue;
-  const generatedDefault = typeof rawDefault === "function" ? rawDefault() : rawDefault;
-  if (generatedDefault === true) {
-    fail(
-      "GeneratedBackendSchema now defaults dynamicTools to true — delete the correction in " +
-      "loadGeneratedBackendContract() and the note in manifest/cluster.capnp.",
-    );
-  }
-
-  return { schema, dynamicToolsDefault: true };
+  return { schema };
 }
 
 // ── Overlay [[generated_backends]] from cluster.lock.toml ────────────────
@@ -615,9 +597,7 @@ function backendFromGeneratedRow(row, contract) {
       `${issue.message}`,
     );
   }
-  const omittedDynamicTools = !("dynamicTools" in row);
   row = parsed.data;
-  if (omittedDynamicTools) row.dynamicTools = contract.dynamicToolsDefault;
 
   if (typeof row.name !== "string" || row.name === "") {
     fail(`generated_backends row has no name: ${JSON.stringify(row)}`);
