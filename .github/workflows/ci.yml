@@ -163,10 +163,33 @@ jobs:
             echo "verify=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD")
-          if printf '%s\n' "$files" | grep -qE '^(rs/|src/wire/|tools/harness-sandbox/|manifest/|cluster\.capnp|Taskfile\.yml|\.github/workflows/ci\.yml)'; then
+
+          # Fail-safe direction (cloister-d19015). This filter used to ENUMERATE
+          # substrate paths and skip verify for anything unlisted — so a path
+          # nobody remembered to add silently lost its strict gate. It had
+          # already happened: cloister.capnp (the consumer manifest — routes,
+          # backends, scopes), cluster.toml, cluster.lock.toml, config.capnp
+          # and wrangler.toml were ALL unlisted. A PR touching only the
+          # manifest ran lint and nothing else. The list even matched
+          # `cluster.capnp` while missing `cloister.capnp`.
+          #
+          # Inverted: verify runs UNLESS every changed file is provably
+          # non-substrate. Forgetting to list a substrate path now costs a
+          # slower CI run instead of a missing gate — the omission fails safe.
+          # Keep this list narrow; when in doubt, leave a path off it.
+          SAFE='^(docs/|\.beads/|\.github/ISSUE_TEMPLATE/|[^/]*\.md$|LICENSE$|\.gitignore$)'
+
+          if [ -z "$files" ]; then
             echo "verify=true" >> "$GITHUB_OUTPUT"
+            echo "empty diff — verifying (fail-safe)"
+          elif printf '%s\n' "$files" | grep -qvE "$SAFE"; then
+            echo "verify=true" >> "$GITHUB_OUTPUT"
+            echo "substrate-relevant changes:"
+            printf '%s\n' "$files" | grep -vE "$SAFE" | sed 's/^/  /'
           else
             echo "verify=false" >> "$GITHUB_OUTPUT"
+            echo "docs-only PR — verify skipped. Files:"
+            printf '%s\n' "$files" | sed 's/^/  /'
           fi
 
   verify:
