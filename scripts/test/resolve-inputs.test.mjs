@@ -33,6 +33,7 @@ import {
   deriveStripPrefix,
   parsePackagesOci,
   resolveOciDigest,
+  probeOciDigest,
   deriveRequiresSession,
   declaredTransportTypes,
   udsSocketPath,
@@ -1122,7 +1123,14 @@ test("resolveInput: file:// server.json with oci packages populates row.oci", as
       ...specDefaults({ name: "mache", ref: `file://${path}` }),
       mutableTagReason: "synthetic test fixture — no registry to probe",
     });
+    // `unresolved: "absent"` is correct and load-bearing here: this fixture
+    // names tag 0.13.0, which the real registry 404s (mache ships v0.17.0+).
+    // A 404 is the one status that genuinely means not-there — distinct from
+    // ley-line-open's "unauthorized", where ghcr refuses the anonymous token
+    // and we cannot tell unpublished from private.
     assert.deepEqual(row.oci, {
+      unresolved: "absent",
+      unresolvedDetail: "",
       identifier: "ghcr.io/agentic-research/mache", version: "0.13.0", digest: "",
     });
   } finally {
@@ -1412,4 +1420,51 @@ test("a stated mutableTagReason accepts the downgrade explicitly", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── The four states, not one collapsed "" (lectio's model) ────────────────
+//
+// resolveOciDigest collapses six conditions into "", so a caller cannot tell
+// "not published" from "could not look". lectio forbids exactly that: absence
+// is not nonexistence, and "outside coverage" must never be reported as "does
+// not exist".
+
+const fakeRes = (status, headers = {}) => ({
+  status, ok: status >= 200 && status < 300,
+  headers: { get: (k) => headers[k.toLowerCase()] ?? null },
+});
+
+test("probe: a resolved digest is present", async () => {
+  const r = await probeOciDigest("ghcr.io/x/y", "v1", async () =>
+    fakeRes(200, { "docker-content-digest": "sha256:abc" }));
+  assert.deepEqual(r, { state: "present", digest: "sha256:abc" });
+});
+
+test("probe: 404 is the ONLY status that means absent", async () => {
+  assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(404))).state, "absent");
+});
+
+test("probe: 403 is unauthorized, NOT absent", async () => {
+  // The distinction that matters operationally: 403 says "you cannot see it",
+  // which is silent about whether it exists. Reporting that as absent would
+  // tell an operator to publish an image that may already be published.
+  assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(403))).state, "unauthorized");
+});
+
+test("probe: 5xx and network faults are unreachable, NOT absent", async () => {
+  assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(503))).state, "unreachable");
+  assert.equal(
+    (await probeOciDigest("ghcr.io/x/y", "v1", async () => { throw new Error("ECONNRESET"); })).state,
+    "unreachable",
+  );
+});
+
+test("probe: a ref with no registry host was never asked — notApplicable", async () => {
+  assert.equal((await probeOciDigest("bare-name", "v1", async () => fakeRes(200))).state, "notApplicable");
+});
+
+test("probe: 200 without a digest header is unreachable, not present", async () => {
+  // A 200 that carries no digest cannot pin anything; calling it present would
+  // put an empty digest in the lockfile.
+  assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(200))).state, "unreachable");
 });

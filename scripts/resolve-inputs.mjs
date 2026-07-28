@@ -259,7 +259,8 @@ export async function resolveInput(spec) {
   // on failure (private image w/o creds, offline) fall back to the tag with a
   // LOUD warning — a mutable-tag pull is a real supply-chain downgrade.
   if (oci && oci.identifier && oci.version && !oci.digest) {
-    const digest = await resolveOciDigest(oci.identifier, oci.version);
+    const probe = await probeOciDigest(oci.identifier, oci.version);
+    const digest = probe.state === "present" ? probe.digest : "";
     if (digest) {
       oci = { ...oci, digest };
     } else if (typeof spec.mutableTagReason === "string" && spec.mutableTagReason !== "") {
@@ -268,9 +269,16 @@ export async function resolveInput(spec) {
       // WHO accepted it, not that it stopped being one.
       process.stderr.write(
         `resolve-inputs: ${spec.name}: pinning by MUTABLE TAG ` +
-        `${oci.identifier}:${oci.version} — reason: ${spec.mutableTagReason}. An ` +
-        `upstream re-push can flow through until that condition lifts.\n`,
+        `${oci.identifier}:${oci.version} (${probe.state}` +
+        `${probe.detail ? `: ${probe.detail}` : ""}) — reason: ` +
+        `${spec.mutableTagReason}. An upstream re-push can flow through until ` +
+        `that condition lifts.\n`,
       );
+      // Record WHY there is no digest, rather than omitting the field and
+      // leaving a reader to infer it. lectio's rule: an unresolved reference is
+      // surfaced, not hidden, and "outside coverage" is never reported as
+      // "does not exist".
+      oci = { ...oci, unresolved: probe.state, unresolvedDetail: probe.detail ?? "" };
     } else {
       // FAIL CLOSED (ADR-0041). Previously this warned and pinned by mutable
       // tag anyway, which is a supply-chain downgrade accepted silently-enough
@@ -285,8 +293,11 @@ export async function resolveInput(spec) {
       throw new ResolveError(
         spec.name,
         `could not resolve an OCI digest for ${oci.identifier}:${oci.version} — ` +
-        `the image is unpublished, private without registry creds, or the registry ` +
-        `is unreachable. Refusing to pin by mutable tag: the lockfile would look ` +
+        `registry probe returned "${probe.state}"` +
+        `${probe.detail ? ` (${probe.detail})` : ""}. ` +
+        `Note ghcr answers identically for an unpublished and a private image, so ` +
+        `"unauthorized" does NOT mean the image is absent. ` +
+        `Refusing to pin by mutable tag: the lockfile would look ` +
         `pinned while an upstream re-push flowed through. Publish the image, provide ` +
         `registry auth, or set \`mutableTagReason = "…"\` on [inputs.${spec.name}] ` +
         `stating why and what lifts it (ADR-0041).`,
@@ -609,6 +620,89 @@ export function parsePackagesOci(bytes) {
  * the caller warns loudly + falls back to the tag. `fetchImpl` is injectable
  * for tests.
  */
+/**
+ * Probe a registry for a tag's digest, reporting WHICH outcome occurred.
+ *
+ * `resolveOciDigest` collapses six distinct conditions into `""` — no registry
+ * host, an unparseable auth challenge, no realm, no bearer, any non-ok status,
+ * and a thrown fetch. A caller then cannot tell "the image is not published"
+ * from "I could not look", and the refusal message has to hedge with a
+ * disjunction ("unpublished, private without creds, or unreachable").
+ *
+ * That collapse is what lectio's model forbids: absence is not nonexistence,
+ * and "outside coverage" must not be reported as "does not exist"
+ * (lectio ARCHITECTURE.md; `read.rs` — "predating first_observed_at is
+ * 'outside coverage', not absent"). lectio surfaces an unresolvable reference
+ * explicitly — `dangling: true`, "surfaced not hidden" — rather than omitting
+ * the field.
+ *
+ * Outcomes, and what each tells an operator to DO:
+ *
+ *   { state: "present",     digest }  pinned; nothing to do
+ *   { state: "absent"    }            the registry answered 404 — publish it
+ *   { state: "unauthorized" }         401/403 and no anonymous token — it may
+ *                                     or may not exist; provide creds
+ *   { state: "unreachable", detail }  network/5xx — retry; says nothing about
+ *                                     whether the image exists
+ *   { state: "notApplicable" }        no registry host in the ref — nothing
+ *                                     was ever asked
+ *
+ * @returns {Promise<{state: string, digest?: string, detail?: string}>}
+ */
+export async function probeOciDigest(ref, version, fetchImpl = fetch) {
+  const slash = String(ref || "").indexOf("/");
+  if (slash < 0 || !ref) return { state: "notApplicable" };
+  const registry = String(ref).slice(0, slash);
+  const repo = String(ref).slice(slash + 1);
+  const accept = [
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+  ].join(", ");
+  const manifestUrl = `https://${registry}/v2/${repo}/manifests/${version}`;
+  try {
+    let res = await fetchImpl(manifestUrl, { method: "HEAD", headers: { Accept: accept } });
+    if (res.status === 401) {
+      const challenge = res.headers.get("www-authenticate") || "";
+      const m = /Bearer\s+(.+)/i.exec(challenge);
+      if (!m) return { state: "unauthorized", detail: "401 with no parseable Bearer challenge" };
+      const params = Object.fromEntries(
+        m[1].split(",").map((kv) => {
+          const eq = kv.indexOf("=");
+          return [kv.slice(0, eq).trim(), kv.slice(eq + 1).trim().replace(/^"|"$/g, "")];
+        }),
+      );
+      if (!params.realm) return { state: "unauthorized", detail: "401 challenge names no realm" };
+      const tokenUrl = new URL(params.realm);
+      if (params.service) tokenUrl.searchParams.set("service", params.service);
+      if (params.scope) tokenUrl.searchParams.set("scope", params.scope);
+      const tok = await fetchImpl(tokenUrl.toString())
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const bearer = tok && (tok.token || tok.access_token);
+      if (!bearer) return { state: "unauthorized", detail: "anonymous token exchange refused" };
+      res = await fetchImpl(manifestUrl, {
+        method: "HEAD",
+        headers: { Accept: accept, Authorization: `Bearer ${bearer}` },
+      });
+    }
+    // 404 is the one status that means the image genuinely is not there.
+    // Everything else non-ok is "could not determine" and must not be reported
+    // as absence.
+    if (res.status === 404) return { state: "absent" };
+    if (res.status === 401 || res.status === 403) {
+      return { state: "unauthorized", detail: `registry returned ${res.status}` };
+    }
+    if (!res.ok) return { state: "unreachable", detail: `registry returned ${res.status}` };
+    const digest = res.headers.get("docker-content-digest") || "";
+    if (!digest) return { state: "unreachable", detail: "200 with no docker-content-digest header" };
+    return { state: "present", digest };
+  } catch (e) {
+    return { state: "unreachable", detail: String(e && e.message ? e.message : e) };
+  }
+}
+
 export async function resolveOciDigest(identifier, ref, fetchImpl = fetch) {
   try {
     const slash = identifier.indexOf("/");
@@ -663,6 +757,17 @@ function ociLockfileRow(oci) {
   const row = { identifier: oci.identifier };
   if (oci.version) row.version = oci.version;
   if (oci.digest) row.digest = oci.digest;
+  // When there is no digest, say WHY. Omitting the field made "unpinned"
+  // indistinguishable from "digest not applicable" — a reader of the lockfile
+  // alone could not tell a deliberate downgrade from a shape that never had an
+  // image. Per lectio's rule, an unresolved reference is surfaced rather than
+  // hidden, and "outside coverage" is never rendered as "does not exist":
+  // ghcr answers identically for an unpublished and a private image, so this
+  // records `unauthorized`, never `absent`, unless the registry actually 404s.
+  if (!oci.digest && oci.unresolved) {
+    row.unresolved = oci.unresolved;
+    if (oci.unresolvedDetail) row.unresolvedDetail = oci.unresolvedDetail;
+  }
   return row;
 }
 
