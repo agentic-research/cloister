@@ -1080,3 +1080,53 @@ struct InterlacePolicy {
   # Minimum signature algorithm the actor will accept on incoming certs.
   minAlgorithm           @2 :Text;
 }
+
+# ── GeneratedBackend: one [[generated_backends]] row in cluster.lock.toml ──
+#
+# Declared here so the row shape is DERIVED rather than hand-maintained
+# (cloister-71a9f4 / cloister-11cd61). schema-bridge emits a strict
+# `GeneratedBackendSchema` for this struct, and build-manifest.mjs validates
+# against it — so an unknown key or a wrong-typed value fails the build
+# without anyone maintaining a parallel field table in JavaScript.
+#
+# The history this replaces: every field was read as
+# `typeof x === "string" ? x : ""`, which cannot distinguish absent from
+# wrong-typed from deliberately-empty — `stripPrefix = ""` is a real value in
+# all 15 shipped rows. A typo'd key produced output byte-identical to a
+# legitimate empty one, and the build exited 0 with a backend matching
+# nothing.
+#
+# This struct is NOT reachable from `Cluster`: the lockfile is a separate
+# artifact (resolve-inputs.mjs writes it; build-manifest.mjs reads it).
+# schema-bridge emits a schema per struct regardless of reachability, which
+# is what makes a standalone declaration work.
+#
+# `dynamicTools` defaults TRUE, and that default is applied in
+# build-manifest.mjs rather than here. Writing `= true` in capnp would be a
+# LIE: schema-bridge reads explicit defaults only from a `$Default(json)`
+# annotation (ll-core/schema-spec/_traits.capnp), never from capnp's native
+# `= value` syntax, so a native default falls through to the type's zero and
+# `= true` silently generates `.default(false)` — the inverse of what the
+# schema says. Using $Default would mean importing LLO's _traits.capnp at
+# capnp-compile time, which CI has no checkout for.
+struct GeneratedBackend {
+  # Backend name. Required — a row without one is a build failure.
+  name            @0 :Text;
+  # Which [inputs.*] produced this row. Read by build-manifest.mjs to report
+  # cross-input name collisions and to build the qualified name.
+  input           @1 :Text;
+  # Advertised tool-name prefix this backend handles.
+  handlesPrefix   @2 :Text;
+  # Prefix stripped before matching against `claims` (cloister-2d987e).
+  stripPrefix     @3 :Text;
+  # Env binding carrying the upstream MCP URL.
+  urlBinding      @4 :Text;
+  # Service binding, when the backend is wired in-process.
+  serviceBinding  @5 :Text;
+  # Whether the backend advertises tools dynamically.
+  dynamicTools    @6 :Bool;
+  # Whether the upstream requires a session id on each call.
+  requiresSession @7 :Bool;
+  # Bare upstream tool names this backend claims.
+  claims          @8 :List(Text);
+}

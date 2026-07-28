@@ -64,7 +64,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parse as parseToml, stringify as stringifyToml } from "@iarna/toml";
 
@@ -1089,31 +1089,77 @@ async function main() {
 
   // [inputs.<name>] tables parse as { inputs: { <name>: {...} } }
   const inputsTable = parsed.inputs ?? {};
-  const specs = Object.entries(inputsTable).map(([name, spec]) => ({
-    name,
-    ref:            typeof spec.ref            === "string" ? spec.ref            : "",
-    version:        typeof spec.version        === "string" ? spec.version        : "",
-    digest:         typeof spec.digest         === "string" ? spec.digest         : "",
-    from:           typeof spec.from           === "string" ? spec.from           : "",
-    // urlBinding / serviceBinding pass through to generated_backends
-    // rows (cloister-cb7263, P3). They name env bindings; the resolver
-    // doesn't dereference them — that's the downstream manifest
-    // emitter's job.
-    urlBinding:     typeof spec.urlBinding     === "string" ? spec.urlBinding     : "",
-    serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
-    requiresSession: spec.requiresSession === true,
-    // ADR-0051. Passed through so deriveGeneratedBackends can emit a
-    // udsForward row. Without this the connection block is declarable in
-    // cluster.toml and invisible to the resolver — the field would exist and
-    // do nothing, which is how #211 shipped: its tests called
-    // deriveGeneratedBackends directly with hand-built specs, so the
-    // cluster.toml -> resolver -> lockfile path was never exercised.
-    connection:     spec.connection,
-    // ADR-0041. Empty ⇒ an unresolvable OCI digest fails closed.
-    mutableTagReason: typeof spec.mutableTagReason === "string" ? spec.mutableTagReason : "",
-    provides:       Array.isArray(spec.provides) ? spec.provides : [],
-    requires:       Array.isArray(spec.requires) ? spec.requires : [],
-  }));
+  // The input field list is DERIVED from `struct InputSpec` in
+  // manifest/cluster.capnp, via the strict schema schema-bridge generates
+  // (cloister-71a9f4). It used to be hand-enumerated here, and that list
+  // silently dropped whatever nobody remembered to add: ADR-0051's
+  // `connection` shipped declarable-and-invisible for exactly this reason
+  // (#211), and `tenancy` is dropped by this function today.
+  //
+  // Deriving the list means a new schema field reaches the resolver without
+  // anyone editing this file, and an unknown key in cluster.toml fails
+  // instead of being dropped.
+  //
+  // NOT a full `InputSpecSchema.parse` yet: the pinned schema-bridge (v0.7.9)
+  // does not emit capnp defaults into zod, so a strict parse would reject
+  // every real input for the fields it legitimately omits. Synthesising those
+  // defaults by hand — including a union default for `connection` — would be
+  // the same manumation this replaces. Once the v0.11.3 bump lands
+  // (cloister-9170d0, blocked on cloister-944766) the schema supplies its own
+  // defaults and this becomes a plain `.parse()`.
+  const { InputSpecSchema } = await import(
+    pathToFileURL(resolvePath(REPO_ROOT, "src/generated/cluster.zod.ts")).href
+  );
+  const inputShape = InputSpecSchema?._def?.getter?.()?.shape
+    ?? InputSpecSchema?.def?.getter?.()?.shape;
+  if (!inputShape) {
+    throw new ToolchainError(
+      "could not introspect InputSpecSchema from src/generated/cluster.zod.ts — " +
+      "the generator's output shape changed. Fix that rather than reinstating a " +
+      "hand-written field list; the contract should have one source.",
+    );
+  }
+  const declaredInputFields = Object.keys(inputShape);
+  const nodeType = (n) => n?._def?.type ?? n?.def?.type;
+
+  const specs = Object.entries(inputsTable).map(([name, spec]) => {
+    for (const key of Object.keys(spec)) {
+      if (!declaredInputFields.includes(key)) {
+        throw new ToolchainError(
+          `[inputs.${name}] declares unknown field ${JSON.stringify(key)} — ` +
+          `manifest/cluster.capnp's InputSpec declares: ` +
+          `${declaredInputFields.slice().sort().join(", ")}`,
+        );
+      }
+    }
+    const out = { name };
+    for (const key of declaredInputFields) {
+      if (key === "name") continue;
+      const t = nodeType(inputShape[key]);
+      const present = key in spec;
+      if (present) {
+        const v = spec[key];
+        const ok =
+          t === "string" ? typeof v === "string"
+          : t === "boolean" ? typeof v === "boolean"
+          : (t === "array" || t === "readonly") ? Array.isArray(v)
+          : true; // nested struct — judged downstream, not here
+        if (!ok) {
+          throw new ToolchainError(
+            `[inputs.${name}].${key} must be ${t}, got ${Array.isArray(v) ? "array" : typeof v}`,
+          );
+        }
+        out[key] = v;
+      } else {
+        out[key] =
+          t === "string" ? ""
+          : t === "boolean" ? false
+          : (t === "array" || t === "readonly") ? []
+          : undefined; // nested struct absent — same as before
+      }
+    }
+    return out;
+  });
 
   if (specs.length === 0) {
     console.log(`resolve-inputs: no [inputs.*] declared in ${CLUSTER_TOML_PATH} — nothing to resolve`);

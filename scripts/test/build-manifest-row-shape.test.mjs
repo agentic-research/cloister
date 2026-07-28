@@ -8,6 +8,12 @@
 // exporting the function for a unit test, because it exercises the path that
 // actually ships.
 //
+// The row shape is now DERIVED: `struct GeneratedBackend` in
+// manifest/cluster.capnp -> schema-bridge -> a strict GeneratedBackendSchema
+// that build-manifest parses against. The hand-written JS field table this
+// replaced was itself the defect it was written to fix — a list nothing
+// checked against the schema it mirrored.
+//
 // What this guards. Every field used to be read as
 // `typeof x === "string" ? x : ""`, which collapses three distinct states into
 // one. It cannot be otherwise: `stripPrefix = ""` is a real value in all 15
@@ -109,13 +115,13 @@ test("a typo'd field name fails the build", (t) => {
     t,
   );
   assert.notEqual(status, 0, "a typo'd key must not build");
-  assert.match(stderr, /unknown field "handlesPrefixx"/);
+  assert.match(stderr, /Unrecognized key: "handlesPrefixx"/);
 });
 
 test("`claim` singular is rejected rather than yielding zero claims", (t) => {
   const { status, stderr } = buildWith(VALID_ROW.replace("claims =", "claim ="), t);
   assert.notEqual(status, 0, "`claim` must not build");
-  assert.match(stderr, /unknown field "claim"/);
+  assert.match(stderr, /Unrecognized key: "claim"/);
 });
 
 // ── Wrong types ───────────────────────────────────────────────────────────
@@ -126,7 +132,7 @@ test("a non-string handlesPrefix fails rather than coercing to empty", (t) => {
     t,
   );
   assert.notEqual(status, 0, "wrong-typed handlesPrefix must not build");
-  assert.match(stderr, /must be string, got number/);
+  assert.match(stderr, /"handlesPrefix": Invalid input: expected string, received number/);
 });
 
 test("a non-array claims fails rather than coercing to []", (t) => {
@@ -135,21 +141,21 @@ test("a non-array claims fails rather than coercing to []", (t) => {
     t,
   );
   assert.notEqual(status, 0, "wrong-typed claims must not build");
-  assert.match(stderr, /"claims" must be string\[\]/);
+  assert.match(stderr, /"claims": Invalid input: expected array/);
 });
 
 test("a claims array containing a non-string fails the build", (t) => {
   // Caught by TOML itself ("inline lists must be a single type"), not by the
   // element check — so through the lockfile surface this state is
   // unreachable. Asserted at the level that is actually true: the build
-  // fails. The element check in GENERATED_BACKEND_FIELDS still covers a doc
-  // that reaches the function from any non-TOML source.
+  // fails. The generated schema's element check still covers a doc that
+  // reaches the function from any non-TOML source.
   const { status, stderr } = buildWith(
     VALID_ROW.replace('claims = ["a_tool"]', 'claims = ["a_tool", 7]'),
     t,
   );
   assert.notEqual(status, 0, "claims must be uniformly string");
-  assert.match(stderr, /single type|must be string\[\]/);
+  assert.match(stderr, /single type|expected array|expected string/);
 });
 
 test("a string dynamicTools fails rather than being truthy", (t) => {
@@ -160,7 +166,7 @@ test("a string dynamicTools fails rather than being truthy", (t) => {
     t,
   );
   assert.notEqual(status, 0, "wrong-typed dynamicTools must not build");
-  assert.match(stderr, /"dynamicTools" must be boolean, got string/);
+  assert.match(stderr, /"dynamicTools": Invalid input: expected boolean/);
 });
 
 // ── Missing name ──────────────────────────────────────────────────────────

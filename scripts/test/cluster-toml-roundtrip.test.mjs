@@ -2044,3 +2044,47 @@ test("gateway.actor.fingerprint: empty opts out, malformed is rejected", async (
   assert.throws(() => assertActorFingerprint("sha256:" + "A".repeat(64)), /malformed/);
   assert.throws(() => assertActorFingerprint("a".repeat(64)), /malformed/);
 });
+
+// ── [inputs.*] unknown-key guard (cloister-71a9f4) ────────────────────────
+//
+// normalizeInputDefaults rebuilds each input from a fixed field list, so an
+// unknown key was DROPPED before the strict ClusterSchema ever saw it — and
+// then erased from the operator's own cluster.toml by the
+// `cluster-to-toml --write` round-trip. Not ignored: deleted, evidence and
+// all. assertDeclaredInputKeys runs before normalization and reads its
+// declared key list from the generated InputSpec schema.
+
+test("an unknown [inputs.*] key fails instead of being silently erased", (t) => {
+  const dir = mkdtempSync(resolve(tmpdir(), "input-key-guard-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const toml = resolve(dir, "cluster.toml");
+  writeFileSync(
+    toml,
+    readFileSync(resolve(REPO_ROOT, "cluster.toml"), "utf8") +
+      `\n[inputs.probe]\nref = "x"\nurlBindingg = "TYPO"\n`,
+  );
+  const r = spawnSync(process.execPath, ["--import", TSX_LOADER, TOML_TO_CLUSTER], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: { ...process.env, CLUSTER_TOML: toml, CLUSTER_OUTPUT: resolve(dir, "cluster.ts") },
+  });
+  assert.notEqual(r.status, 0, "an undeclared input key must fail the build");
+  assert.match(`${r.stderr}${r.stdout}`, /unknown field "urlBindingg"/);
+});
+
+test("the shipped cluster.toml passes the input-key guard", (t) => {
+  // Non-vacuous: proves the guard's declared-key list actually matches the
+  // tree, rather than rejecting everything.
+  const dir = mkdtempSync(resolve(tmpdir(), "input-key-ok-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const r = spawnSync(process.execPath, ["--import", TSX_LOADER, TOML_TO_CLUSTER], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CLUSTER_TOML: resolve(REPO_ROOT, "cluster.toml"),
+      CLUSTER_OUTPUT: resolve(dir, "cluster.ts"),
+    },
+  });
+  assert.equal(r.status, 0, `shipped cluster.toml must pass:\n${r.stderr}`);
+});

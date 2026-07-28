@@ -90,34 +90,64 @@ try {
 await overlayToolSchemas(json);
 
 /**
- * The declared shape of a `[[generated_backends]]` row (cloister-71a9f4).
+ * The row contract, DERIVED from `manifest/cluster.capnp` (cloister-71a9f4).
  *
- * This table is the row's contract. Before it existed, every field was read as
- * `typeof x === "string" ? x : ""` — which cannot distinguish "absent", "wrong
- * type", and "deliberately empty", because `stripPrefix = ""` is a real value
- * in every shipped row. A typo'd key and a wrong-typed value both produced
- * output byte-identical to a legitimate empty one, so a malformed row built
- * cleanly into a backend that matched nothing.
+ * `struct GeneratedBackend` is declared in the schema; schema-bridge emits a
+ * strict `GeneratedBackendSchema` for it. Reading the shape from that schema
+ * means the field list, the types, and the strictness all come from one
+ * declaration. The hand-maintained JS table this replaces was the same
+ * species of defect it was written to fix: a list nothing checked against
+ * the schema it was mirroring.
  *
- * `input` is not consumed by this function but IS load-bearing: the caller
- * uses it to report cross-input name collisions and to build the qualified
- * name. It is declared here because an undeclared key now fails the build.
- *
- * Adding a field: add it here AND read it below. A field present in the
- * lockfile but absent from this table now fails the build rather than being
- * silently dropped — which is the point.
+ * Absence still takes the capnp zero value, so older lockfiles predating a
+ * field keep building. Those zeros are derived from the schema's own types,
+ * not enumerated here.
  */
-const GENERATED_BACKEND_FIELDS = {
-  name:            "string",
-  input:           "string",
-  handlesPrefix:   "string",
-  stripPrefix:     "string",
-  urlBinding:      "string",
-  serviceBinding:  "string",
-  dynamicTools:    "boolean",
-  requiresSession: "boolean",
-  claims:          "string[]",
-};
+async function loadGeneratedBackendContract() {
+  const mod = await import(pathToFileURL(resolve(REPO, "src/generated/cluster.zod.ts")).href);
+  const schema = mod.GeneratedBackendSchema;
+  const inner = schema?._def?.getter?.() ?? schema?.def?.getter?.();
+  const shape = inner?.shape;
+  if (!shape) {
+    fail(
+      "could not introspect GeneratedBackendSchema from src/generated/cluster.zod.ts — " +
+      "the generator's output shape changed. Fix this rather than reinstating a hand-written " +
+      "field table; the whole point is that the contract has one source.",
+    );
+  }
+
+  // The generator emits `.default(...)` per field (ley-line-open 8c00c6), so
+  // absence is handled by the schema itself and there are no zeros to
+  // synthesise here.
+  const node = shape.dynamicTools;
+  const nodeType = node?._def?.type ?? node?.def?.type;
+  if (nodeType !== "default") {
+    fail(
+      "GeneratedBackendSchema no longer supplies field defaults — an older schema-bridge " +
+      "is pinned. Absence would be rejected instead of defaulted, breaking older lockfiles.",
+    );
+  }
+
+  // capnp's native `= value` syntax is NOT read by schema-bridge; only a
+  // `$Default(json)` annotation is, and importing LLO's _traits.capnp at
+  // capnp-compile time is not available to CI. So `dynamicTools`, whose
+  // intended default is TRUE, generates `.default(false)` — the inverse. It is
+  // corrected after parsing, for omitted rows only.
+  //
+  // Self-retiring on the REAL condition: if the generated default ever becomes
+  // true, this correction is redundant and the build says so. Checking merely
+  // "are there defaults" would have retired it while it was still needed.
+  const rawDefault = node?._def?.defaultValue ?? node?.def?.defaultValue;
+  const generatedDefault = typeof rawDefault === "function" ? rawDefault() : rawDefault;
+  if (generatedDefault === true) {
+    fail(
+      "GeneratedBackendSchema now defaults dynamicTools to true — delete the correction in " +
+      "loadGeneratedBackendContract() and the note in manifest/cluster.capnp.",
+    );
+  }
+
+  return { schema, dynamicToolsDefault: true };
+}
 
 // ── Overlay [[generated_backends]] from cluster.lock.toml ────────────────
 //
@@ -126,7 +156,7 @@ const GENERATED_BACKEND_FIELDS = {
 // into the /mcp route's `backends` list. Hand-shells with the same name
 // as a generated row are replaced + a warning is logged so the operator
 // knows to delete the shell.
-overlayLockfileBackends(json);
+await overlayLockfileBackends(json);
 
 // ── Static validation (build-time, before the TS compiler sees this) ──────
 
@@ -423,7 +453,7 @@ function relPath(p) {
 // means extending the row→backend mapping inside this function; the
 // schema add at @ordinal lives in `manifest/cloister.capnp:HttpForwardBackend`.
 
-function overlayLockfileBackends(g) {
+async function overlayLockfileBackends(g) {
   if (!existsSync(LOCKFILE)) {
     return;
   }
@@ -452,6 +482,10 @@ function overlayLockfileBackends(g) {
   }
   const backends = mcpRoute.kind.mcp.backends ?? (mcpRoute.kind.mcp.backends = []);
 
+  // Loaded once, after the early returns — a manifest with no lockfile rows
+  // should not pay to import the generated schema.
+  const contract = await loadGeneratedBackendContract();
+
   // Index hand-shells by name so collision detection is O(N) not O(N*M).
   const shellsByName = new Map(backends.map((b, i) => [b.name, i]));
   const collisions = [];
@@ -476,7 +510,7 @@ function overlayLockfileBackends(g) {
   for (const row of rows) {
     // No null guard: backendFromGeneratedRow either returns a backend or
     // fails the build. A malformed row is no longer skippable.
-    const backend = backendFromGeneratedRow(row);
+    const backend = backendFromGeneratedRow(row, contract);
 
     const priorInput = generatedNamesByInput.get(backend.name);
     if (priorInput !== undefined && priorInput !== row.input) {
@@ -562,44 +596,28 @@ function overlayLockfileBackends(g) {
  * prefix first — `resolve-inputs.mjs:deriveStripPrefix` computes the
  * right value; this function only threads it through.
  */
-function backendFromGeneratedRow(row) {
+function backendFromGeneratedRow(row, contract) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     fail(`generated_backends row is not a table: ${JSON.stringify(row)}`);
   }
 
-  // Unknown key ⇒ fail. Without this, `handlesPrefixx` (one typo) is accepted
-  // and the backend silently gets handlesPrefix "", matching nothing; `claim`
-  // for `claims` yields a route claiming zero tools. Both produce a working
-  // build and a dead backend.
-  for (const key of Object.keys(row)) {
-    if (!(key in GENERATED_BACKEND_FIELDS)) {
-      fail(
-        `generated_backends row ${JSON.stringify(row.name ?? "(unnamed)")} has unknown ` +
-          `field ${JSON.stringify(key)} — declared fields are ` +
-          `${Object.keys(GENERATED_BACKEND_FIELDS).sort().join(", ")}. ` +
-          `A typo here builds cleanly and produces a backend that matches nothing.`,
-      );
-    }
+  // Absent ⇒ capnp zero (older lockfiles predate newer fields). Present ⇒ the
+  // row's own value, which the strict schema then judges. Because the schema
+  // is `.strict()`, an unknown key survives the spread and is rejected — that
+  // is the typo case (`handlesPrefixx` used to build cleanly into a backend
+  // matching nothing).
+  const parsed = contract.schema.safeParse(row);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const where = issue.path.length ? ` field ${JSON.stringify(issue.path.join("."))}` : "";
+    fail(
+      `generated_backends row ${JSON.stringify(row.name ?? "(unnamed)")}${where}: ` +
+      `${issue.message}`,
+    );
   }
-
-  // Present-but-wrong-type ⇒ fail. ABSENT is still allowed and still takes the
-  // default: older lockfiles predate newer fields, and rewriting them is not a
-  // precondition for building. Only a field that IS there and is wrong fails.
-  for (const [key, want] of Object.entries(GENERATED_BACKEND_FIELDS)) {
-    if (!(key in row)) continue;
-    const value = row[key];
-    const ok =
-      want === "string[]"
-        ? Array.isArray(value) && value.every((v) => typeof v === "string")
-        : typeof value === want;
-    if (!ok) {
-      const got = Array.isArray(value) ? "array" : typeof value;
-      fail(
-        `generated_backends row ${JSON.stringify(row.name ?? "(unnamed)")} field ` +
-          `${JSON.stringify(key)} must be ${want}, got ${got} (${JSON.stringify(value)})`,
-      );
-    }
-  }
+  const omittedDynamicTools = !("dynamicTools" in row);
+  row = parsed.data;
+  if (omittedDynamicTools) row.dynamicTools = contract.dynamicToolsDefault;
 
   if (typeof row.name !== "string" || row.name === "") {
     fail(`generated_backends row has no name: ${JSON.stringify(row)}`);
