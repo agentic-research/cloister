@@ -604,3 +604,28 @@ export interface BodyFieldSpec {
   path: string;
 }
 
+export const GeneratedBackendSchema: z.ZodType<GeneratedBackend> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    input: z.string(),
+    handlesPrefix: z.string(),
+    stripPrefix: z.string(),
+    urlBinding: z.string(),
+    serviceBinding: z.string(),
+    dynamicTools: z.boolean(),
+    requiresSession: z.boolean(),
+    claims: z.array(z.string()).readonly(),
+  }).strict());
+
+export interface GeneratedBackend {
+  name: string;
+  input: string;
+  handlesPrefix: string;
+  stripPrefix: string;
+  urlBinding: string;
+  serviceBinding: string;
+  dynamicTools: boolean;
+  requiresSession: boolean;
+  claims: readonly string[];
+}
+
