@@ -199,8 +199,10 @@ substrate-internal vault DO as the v1 impl.
 
 **Spec dep:** this is the first instance of the capability-discovery
 shape that `cloister-1b59a2` charted. Land a tiny spec for the
-registry-endpoint format itself (`leyline-schema-spec/capability-discovery/
-v1/` — out of scope for this bead, file as follow-up).
+registry-endpoint format itself — out of scope for this bead, file as
+follow-up.
+<!-- lint-allow-unresolved: planned, not shipped — LLO's schema-spec has no capability-discovery/ yet -->
+(`leyline-schema-spec/capability-discovery/v1/`)
 
 **Closes when:** the 3 tests above pass + Phases 1-7 still pass.
 
