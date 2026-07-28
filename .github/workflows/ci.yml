@@ -282,3 +282,99 @@ jobs:
         # codec ↔ capnp CLI ↔ production codec) and the stub-companion
         # HTTP smoke. Per ADR-0005's amendment.
         run: task verify
+
+  # Full-stack end-to-end: real ley-line-open daemon + real mache + real
+  # cloister, exercising cloister's dispatch layer against live upstreams.
+  #
+  # Distinct from the `verify` job's `smoke:leyline-stub`, which drives the wire
+  # codec against a STUB companion. That stub speaks the wire contract but
+  # enforces no auth and implements no upstream tool discovery, so it cannot
+  # catch the class of break this job exists for: on 2026-07-28 `task smoke`
+  # was failing 12 of 15 assertions with every dynamically-discovered tool
+  # missing, and no CI job noticed because none ran it (cloister-aef43a).
+  #
+  # Non-blocking today: the script tolerates a declared KNOWN_FAILING list
+  # (currently cloister-af794d, mache's Streamable HTTP session lifecycle) and
+  # fails on anything outside it — or on a listed assertion that starts passing,
+  # which forces the list to shrink rather than calcify.
+  smoke-e2e:
+    name: smoke-e2e (real leyline + mache + cloister)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Pinned deliberately. These are BINARY release tags and move on their own
+      # cadence, independent of the server.json `version` pins in cluster.toml
+      # ([inputs.llo] 0.8.0, [inputs.mache] 0.17.0) which pin the tool CONTRACT,
+      # not the executable. Bump these when validating against a newer upstream.
+      LEYLINE_RELEASE: v0.10.4
+      MACHE_RELEASE: v0.19.0
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install capnp
+        # `task manifest` (a dep of the wrangler dev the smoke starts) compiles
+        # cloister.capnp at build time, per ADR-0004.
+        run: sudo apt-get update && sudo apt-get install -y capnproto
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pnpm store
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install Node dependencies
+        run: task deps:node
+
+      - name: Download upstream binaries
+        # Both repos publish linux-amd64 release assets, so the smoke runs
+        # against SHIPPED artifacts rather than a cross-repo source build —
+        # which also means this job tests what an operator would actually
+        # install. mache ships checksums; leyline does not, so only mache's
+        # integrity is verifiable here (worth raising upstream).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          gh release download "$LEYLINE_RELEASE" \
+            --repo agentic-research/ley-line-open \
+            --pattern 'leyline-linux-amd64' --output "$RUNNER_TEMP/bin/leyline"
+          gh release download "$MACHE_RELEASE" \
+            --repo agentic-research/mache \
+            --pattern 'mache-linux-amd64' --output "$RUNNER_TEMP/bin/mache"
+          gh release download "$MACHE_RELEASE" \
+            --repo agentic-research/mache \
+            --pattern 'checksums-sha256.txt' --output "$RUNNER_TEMP/mache-sums.txt"
+          ( cd "$RUNNER_TEMP/bin" \
+            && grep 'mache-linux-amd64' "$RUNNER_TEMP/mache-sums.txt" \
+               | sed 's/mache-linux-amd64/mache/' \
+               | sha256sum -c - )
+          chmod +x "$RUNNER_TEMP/bin/leyline" "$RUNNER_TEMP/bin/mache"
+
+      - name: Run the full-stack smoke
+        # LEYLINE / MACHE / CLOISTER_DIR override the script's laptop defaults
+        # (~/remotes/art/...), which do not exist on a runner.
+        env:
+          LEYLINE: ${{ runner.temp }}/bin/leyline
+          MACHE: ${{ runner.temp }}/bin/mache
+        run: CLOISTER_DIR="$GITHUB_WORKSPACE" task smoke
