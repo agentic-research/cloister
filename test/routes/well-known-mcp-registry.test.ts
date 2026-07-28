@@ -21,6 +21,7 @@ import { env } from "cloudflare:test";
 import {
   WellKnownMcpRegistryRoute,
   synthesizeAll,
+  deriveCapabilities,
 } from "../../src/routes/well-known-mcp-registry.js";
 import type { Env } from "../../src/types.js";
 import type { Gateway } from "../../src/manifest/types.js";
@@ -552,3 +553,61 @@ describe("WellKnownMcpRegistryRoute — detail endpoint", () => {
 
 // Suppress unused `env` import warning — kept for parity with other route tests.
 void env;
+
+// ── Capability advertisement (cloister-9c196b) ────────────────────────────
+//
+// `cloister/credential-isolation/v1` is implemented (ADR-0024) and declared as
+// a vaultProxy route, and until this landed it was invisible to any external
+// reader. The MCP Registry spec reserves `_meta` for registries to extend, so
+// it rides the surface that already exists rather than a new well-known path.
+
+describe("registry _meta advertises derived capabilities", () => {
+  const gw = (routes: unknown[]) =>
+    ({ metadata: { name: "t", version: "0" }, routes, actor: {}, policy: {} } as never);
+
+  it("a declared vaultProxy route yields credential-isolation/v1", () => {
+    const caps = deriveCapabilities(
+      gw([{ path: "/vault/proxy", kind: { vaultProxy: { bundleIdName: "x" } } }]),
+    );
+    expect(caps).toEqual(["cloister/credential-isolation/v1"]);
+  });
+
+  it("no vaultProxy route yields nothing — the route IS the evidence", () => {
+    // Derived, not declared: absent route means the capability is genuinely
+    // absent, not merely unlisted.
+    expect(deriveCapabilities(gw([{ path: "/health", kind: { health: null } }]))).toEqual([]);
+  });
+
+  it("duplicate routes do not duplicate the capability", () => {
+    const caps = deriveCapabilities(
+      gw([
+        { path: "/vault/proxy", kind: { vaultProxy: { bundleIdName: "a" } } },
+        { path: "/vault/proxy2", kind: { vaultProxy: { bundleIdName: "b" } } },
+      ]),
+    );
+    expect(caps).toEqual(["cloister/credential-isolation/v1"]);
+  });
+
+  it("the SHIPPED manifest advertises credential-isolation", async () => {
+    // Against the real generated manifest, so this cannot pass vacuously
+    // against an invented gateway.
+    // `manifest` IS the Gateway — there is no nested .gateway on the
+    // generated value, unlike cluster.ts where gateway is a field.
+    const { manifest } = await import("../../src/generated/manifest.js");
+    expect(deriveCapabilities(manifest)).toContain(
+      "cloister/credential-isolation/v1",
+    );
+  });
+
+  it("an empty capability set OMITS the key rather than emitting []", () => {
+    // Absence and emptiness are different claims: no key means "does not
+    // advertise capabilities", `[]` means "advertises none".
+    const envelopes = synthesizeAll(
+      gw([{ path: "/health", kind: { health: null } }]),
+      "https://example.test",
+    );
+    for (const e of envelopes) {
+      expect(e._meta).not.toHaveProperty("art.cloister/v1");
+    }
+  });
+});

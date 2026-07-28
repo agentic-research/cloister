@@ -99,6 +99,59 @@ const SERVER_JSON_SCHEMA_URL =
  */
 const META_REGISTRY_KEY = "io.modelcontextprotocol.registry/official";
 
+/**
+ * Cloister's own `_meta` extension namespace (cloister-9c196b, ADR-0028 lane 2).
+ *
+ * The Registry spec reserves `_meta` for registries to extend, and consumers
+ * already read `art.cloister/v1` out of a server.json's `_meta` — canonical-hours
+ * and mache both publish under that key. Reusing it here means a consumer parses
+ * one namespace whether it reads a project's server.json directly or reads
+ * cloister's registry view of it.
+ */
+const META_CLOISTER_KEY = "art.cloister/v1";
+
+/**
+ * Substrate capabilities this gateway provides, DERIVED from its declared
+ * routes (cloister-9c196b).
+ *
+ * Why derived rather than a declared list: a second list would be a second
+ * statement of the same fact and could disagree with the routes it describes.
+ * A route's presence IS the evidence — `/vault/proxy` existing is what makes
+ * `cloister/credential-isolation/v1` true, so the route table is the honest
+ * source.
+ *
+ * Why this table is short: it names only capability identifiers that actually
+ * exist in the codebase. `cloister/credential-isolation/v1` (ADR-0024) is
+ * implemented, declared, and — until now — invisible to any external reader.
+ * Other route kinds (disclosure, wellKnownInterlace, ociRegistry) are real
+ * surfaces but have no canonical capability identifier; inventing one here to
+ * pad the list would be exactly the restating this derivation avoids. Add a row
+ * when an identifier is declared somewhere authoritative, not before.
+ */
+const ROUTE_CAPABILITY: ReadonlyArray<readonly [string, string]> = [
+  ["vaultProxy", "cloister/credential-isolation/v1"],
+];
+
+/**
+ * Capability identifiers advertised for this gateway.
+ *
+ * Note the scope: these are CLOISTER's own capabilities, not a resolved
+ * cluster-wide set. Per ADR-0027 no input declares a `provides`/`requires`
+ * lattice yet, so there is nothing cluster-wide to resolve — when there is,
+ * this is where the resolved set surfaces.
+ *
+ * Exported for tests.
+ */
+export function deriveCapabilities(manifest: Gateway): readonly string[] {
+  const found = new Set<string>();
+  for (const route of manifest.routes) {
+    for (const [kind, capability] of ROUTE_CAPABILITY) {
+      if (kind in route.kind) found.add(capability);
+    }
+  }
+  return [...found].sort();
+}
+
 // ── Schema (TS mirror of server.json) ─────────────────────────────────────
 
 interface ServerRemote {
@@ -128,8 +181,14 @@ interface RegistryMetaEntry {
   readonly status:       "active";
 }
 
+interface CloisterMetaEntry {
+  /** Capability identifiers this gateway provides (ADR-0028 lane 2 form). */
+  readonly capabilities: readonly string[];
+}
+
 interface RegistryEnvelopeMeta {
   readonly [META_REGISTRY_KEY]: RegistryMetaEntry;
+  readonly [META_CLOISTER_KEY]?: CloisterMetaEntry;
 }
 
 interface ServerEnvelope {
@@ -229,6 +288,10 @@ export class WellKnownMcpRegistryRoute implements EdgeRoute {
  */
 export function synthesizeAll(manifest: Gateway, base: string): readonly ServerEnvelope[] {
   const out: ServerEnvelope[] = [];
+  // Derived once per response, not per entry: capabilities describe the
+  // GATEWAY, not the individual proxied server, and recomputing per backend
+  // would imply otherwise.
+  const capabilities = deriveCapabilities(manifest);
   for (const route of manifest.routes) {
     if (!("mcp" in route.kind)) continue;
     for (const backend of route.kind.mcp.backends) {
@@ -236,7 +299,7 @@ export function synthesizeAll(manifest: Gateway, base: string): readonly ServerE
       if (!detail) continue;
       out.push({
         server: detail,
-        _meta:  buildMetaEnvelope(detail.name),
+        _meta:  buildMetaEnvelope(detail.name, capabilities),
       });
     }
   }
@@ -301,7 +364,7 @@ function describeBackend(backend: Backend, toolCount: number, dynamic: boolean):
   return text.length > 100 ? `${text.slice(0, 97)}...` : text;
 }
 
-function buildMetaEnvelope(serverName: string): RegistryEnvelopeMeta {
+function buildMetaEnvelope(serverName: string, capabilities: readonly string[]): RegistryEnvelopeMeta {
   // The public registry stamps real UUIDs + ISO timestamps on every
   // record. Cloister's catalog is manifest-derived and stateless —
   // there's no "publishedAt" event to record. We emit deterministic
@@ -319,6 +382,13 @@ function buildMetaEnvelope(serverName: string): RegistryEnvelopeMeta {
       isLatest:    true,
       status:      "active",
     },
+    // Omitted entirely when empty rather than emitted as `[]`. An absent key
+    // says "this registry does not advertise capabilities"; an empty array
+    // says "it advertises none", and those are different claims. Absence
+    // carrying the wrong meaning is the defect this substrate keeps finding.
+    ...(capabilities.length > 0
+      ? { [META_CLOISTER_KEY]: { capabilities } }
+      : {}),
   };
 }
 
