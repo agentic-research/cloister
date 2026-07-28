@@ -59,10 +59,25 @@ fi
 # ── Start backends ────────────────────────────────────────────────────────
 
 echo "→ starting leyline daemon on :$LLO_PORT"
+# --mcp-no-auth: the daemon defaults to an ADR-0022 shared-secret gate, reading
+# a 32-byte token from the platform data dir and rejecting anything without
+# `x-leyline-token`. Cloister has no way to send it — workerd has no filesystem,
+# so it cannot read that token file, and per ADR-0010 a credential would have to
+# arrive as a vault slice rather than a var. In production cloister does not need
+# the token at all: it reaches the daemon through notme-proxy, which presents the
+# bridge cert (see this script's header).
+#
+# So in this dev-mode harness the gate is relaxed on the DAEMON side rather than
+# a credential being smuggled into a Worker — which is the flag's documented
+# purpose ("pre-provisioned containers / CI smokes where no token file is
+# mounted"). The daemon logs a warning at startup. Without it every upstream call
+# here returns HTTP 401 and all lsp_*/lifecycle discovery silently yields zero
+# tools.
 "$LEYLINE" daemon \
   --arena   "$WORK/test.arena" \
   --control "$WORK/test.ctrl" \
   --mcp-port "$LLO_PORT" \
+  --mcp-no-auth \
   --timeout 120s \
   > "$WORK/llo.log" 2>&1 &
 LLO_PID=$!
@@ -88,9 +103,25 @@ echo "→ starting cloister wrangler dev on :$CLST_PORT"
   cd "$CLOISTER_DIR"
   # `--var key:value` overrides [vars] from wrangler.toml. Plain env vars are
   # silently ignored by wrangler dev.
+  # Establish the dev-mode gate posture this script's header claims, rather
+  # than inheriting whatever the developer's .env.local happens to hold.
+  #
+  # resolveLeaseGate (src/routes/lease-gate.ts, ADR-0053) has exactly ONE
+  # "off" state: CLOISTER_MODE=dev AND no authority. Every other combination
+  # enforces — including "no authority at all", which enforces and then fails
+  # closed at resolveCABundle with -32005 "CA bundle unavailable".
+  #
+  # So clearing INTERLACE_ROOT_PUBKEY alone is NOT enough, and omitting both
+  # is worst of all. Without both vars set here, this script dies at the first
+  # tools/list on any machine whose .env.local sets a pubkey — which is every
+  # machine that has run `task dev:setup`. The gate is behaving correctly;
+  # the script was simply not declaring which posture it wanted.
   pnpm exec wrangler dev \
     --port "$CLST_PORT" \
     --local \
+    --var "CLOISTER_MODE:dev" \
+    --var "INTERLACE_ROOT_PUBKEY:" \
+    --var "DEV_CA_MASTER:" \
     --var "LLO_MCP_URL:http://127.0.0.1:$LLO_PORT/mcp" \
     --var "MACHE_MCP_URL:http://127.0.0.1:$MACHE_PORT/mcp" \
     > "$WORK/clst.log" 2>&1
@@ -156,9 +187,24 @@ LIST=$(post_mcp "$CLST_PORT" '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
 COUNT=$(echo "$LIST" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['result']['tools']))")
 NAMES=$(echo "$LIST" | python3 -c "import json,sys; print(' '.join(t['name'] for t in json.load(sys.stdin)['result']['tools']))")
 
-# 14 prior (bead+lsp+lifecycle) + ~17 mache_* tools through dynamic discovery.
-[[ "$COUNT" -ge 25 ]] && pass "tools/list returned $COUNT tools" \
-                      || fail "tools/list returned $COUNT (want >= 25)"
+# Per-family counts, not a bare total. A `>= 25` threshold is satisfied by the
+# statically-declared bead_* tools alone, so it passed green on 2026-07-28 while
+# EVERY dynamically-discovered tool (lsp_*, mache_*, and the lifecycle trio) was
+# absent because both upstreams were failing. A threshold that cannot tell
+# "discovered" from "did not discover" reports success for the one condition
+# this script exists to catch.
+assert_family() {
+  local label="$1" pattern="$2" want="$3" got
+  got=$(echo " $NAMES " | tr ' ' '\n' | grep -cE "$pattern" || true)
+  [[ "$got" -ge "$want" ]] && pass "tools/list has $got $label tool(s)" \
+                           || fail "tools/list has $got $label tool(s), want >= $want — upstream discovery likely failed"
+}
+
+pass "tools/list returned $COUNT tools total"
+assert_family "bead_*"    '^bead_'                     6   # static, DO-backed
+assert_family "lsp_*"     '^lsp_'                      5   # discovered from ley-line-open
+assert_family "lifecycle" '^(reparse|enrich|status)$'  3   # discovered from ley-line-open
+assert_family "mache_*"   '^mache_'                    3   # discovered from mache
 
 for required in bead_create lsp_hover lsp_diagnostics reparse status mache_get_overview mache_find_callers mache_search; do
   if echo " $NAMES " | grep -q " $required "; then
