@@ -162,7 +162,7 @@ for i in $(seq 1 30); do
   if [[ $i -eq 30 ]]; then
     echo
     echo "FAIL: backends did not become ready in 30s" >&2
-    tail -30 "$WORK/llo.log" "$WORK/clst.log" "$WORK/mache.log" >&2 || true
+    for L in llo clst mache; do echo "--- $L.log (last 30) ---" >&2; tail -n 30 "$WORK/$L.log" >&2 2>/dev/null || true; done
     exit 1
   fi
 done
@@ -387,11 +387,11 @@ KNOWN=$(( FAIL - UNEXPECTED ))
 
 dump_logs() {
   echo
-  echo "Last 20 lines of LLO log:";      tail -20 "$WORK/llo.log"   2>/dev/null || true
+  echo "Last 20 lines of LLO log:";      tail -n 20 "$WORK/llo.log"   2>/dev/null || true
   echo
-  echo "Last 20 lines of mache log:";    tail -20 "$WORK/mache.log" 2>/dev/null || true
+  echo "Last 20 lines of mache log:";    tail -n 20 "$WORK/mache.log" 2>/dev/null || true
   echo
-  echo "Last 20 lines of cloister log:"; tail -20 "$WORK/clst.log"  2>/dev/null || true
+  echo "Last 20 lines of cloister log:"; tail -n 20 "$WORK/clst.log"  2>/dev/null || true
 }
 
 # Rule 2 before rule 1: a fixed defect must not leave a stale entry behind.
