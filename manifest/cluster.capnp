@@ -901,26 +901,38 @@ struct HarnessTarget {
   # refusal rather than a quiet downgrade that moves billing.
   authModes @8 :List(Text);
 
-  # Upstream that OWNS these facts, when cloister is holding them on someone
-  # else's behalf. Empty ⇒ first-party: the fact belongs here, or should be
-  # derived from a `server.json` the project publishes.
+  # WHO OWNS these facts — the URL of the project that decides them.
+  # Required, and always a concrete owner. Examples:
   #
-  # Why this field exists (ADR-0057 property A, third open question): every
-  # other declaration in this file is a fact cloister legitimately owns —
-  # topology, bindings, pins. A harness row is different: `codex` reads
-  # OPENAI_API_KEY and keeps state in ~/.codex because CODEX says so, and it
-  # will never publish an `art.cloister/v1` block saying it. So cloister
-  # vendors the declaration.
+  #   "https://github.com/openai/codex"              third-party: cloister is
+  #                                                  TRANSCRIBING, and this row
+  #                                                  goes stale when codex
+  #                                                  changes.
+  #   "https://github.com/agentic-research/cloister" cloister's own decision.
+  #   "https://github.com/agentic-research/mache"    a first-party project that
+  #                                                  publishes its own
+  #                                                  server.json — prefer
+  #                                                  DERIVING over copying.
   #
-  # Marking it makes the difference legible. Without this, "declared in
-  # cluster.toml" reads as "cloister owns this", and the next person cannot
-  # tell a fact we decided from a fact we transcribed — which is the same
-  # ambiguity that let the sha256: label and the schema-spec citations drift.
-  # A vendored row is a copy that can go stale when its upstream changes, and
-  # it should be reviewed as such.
+  # Deliberately NOT a category label ("first-party" / "vendored") and
+  # deliberately NOT empty-means-something. Both are silent buckets: a category
+  # word tells you which bin a row is in but not who to ask, and an empty
+  # string is indistinguishable from a row nobody filled in — absence carrying
+  # meaning is the exact defect that let a `sha256:` prefix sit on BLAKE3 bytes
+  # and let thirteen files cite a schema path that never existed. Naming the
+  # owner answers "who do I ask when this is wrong?" directly, and whether it
+  # is first- or third-party is then readable from the org rather than asserted
+  # separately (two statements of one fact, which is the other defect).
+  #
+  # Why this matters here specifically: every other declaration in this file is
+  # a fact cloister legitimately owns — topology, bindings, pins, tiers. A
+  # harness row is not. `codex` reads OPENAI_API_KEY and keeps state in
+  # ~/.codex because CODEX says so, and it will never publish an
+  # `art.cloister/v1` block saying so. A reader must be able to tell a decision
+  # from a transcription. (ADR-0057 property A, third open question.)
   #
   # Append-only ordinal per ADR-0004.
-  vendoredFrom @9 :Text;
+  provenance @9 :Text;
 }
 
 struct VaultProxyService {

@@ -213,7 +213,7 @@ function canonicalizeGateway(g) {
 // the drift gate flap between an absent key and an empty one.
 function canonicalizeHarnessTarget(t) {
   const body = {};
-  for (const key of ["name", "service", "entryPoint", "apiKeyEnv", "baseUrlEnv", "stateDirEnv", "stateDir", "vendoredFrom"]) {
+  for (const key of ["name", "service", "entryPoint", "apiKeyEnv", "baseUrlEnv", "stateDirEnv", "stateDir", "provenance"]) {
     if (typeof t[key] === "string" && t[key] !== "") body[key] = t[key];
   }
   if (Array.isArray(t.stripEnv))  body.stripEnv  = [...t.stripEnv];

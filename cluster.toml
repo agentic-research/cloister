@@ -213,22 +213,22 @@ apiKeyEnv = "ANTHROPIC_API_KEY"
 authModes = [ "custody", "audit" ]
 baseUrlEnv = "ANTHROPIC_BASE_URL"
 name = "claude-code"
+provenance = "https://github.com/anthropics/claude-code"
 service = "anthropic"
 stateDir = ".claude"
 stateDirEnv = "CLAUDE_CONFIG_DIR"
 stripEnv = [ "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN" ]
-vendoredFrom = "https://github.com/anthropics/claude-code"
 
 [[gateway.harnessTargets]]
 apiKeyEnv = "OPENAI_API_KEY"
 authModes = [ "custody" ]
 baseUrlEnv = "OPENAI_BASE_URL"
 name = "codex"
+provenance = "https://github.com/openai/codex"
 service = "openai"
 stateDir = ".codex"
 stateDirEnv = "CODEX_HOME"
 stripEnv = [ "OPENAI_API_KEY", "OPENAI_AUTH_TOKEN" ]
-vendoredFrom = "https://github.com/openai/codex"
 
 [gateway.metadata]
 name = "cloister-art"

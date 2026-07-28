@@ -598,7 +598,7 @@ export interface HarnessTargetConfig {
    * in cluster.toml" from reading as "cloister owns this", and flags the row as
    * a copy that can go stale when its upstream changes.
    */
-  vendoredFrom: string;
+  provenance: string;
 }
 
 export interface VaultProxyServiceConfig {

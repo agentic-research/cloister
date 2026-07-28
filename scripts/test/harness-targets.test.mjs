@@ -55,23 +55,23 @@ test("every target carries the full field set", () => {
   }
 });
 
-test("every target declares its provenance", () => {
-  // ADR-0057 property A: a fact cloister TRANSCRIBED must be distinguishable
-  // from one it DECIDED. Both current targets are third-party harnesses that
-  // will never publish an `art.cloister/v1` block, so both are vendored — and
-  // a vendored row is a copy that can go stale when its upstream changes.
+test("every target names its OWNER concretely", () => {
+  // Required, a URL, never empty and never a category word.
+  //
+  // Empty would be indistinguishable from a row nobody filled in, so absence
+  // would silently mean "cloister owns this" — absence carrying meaning is the
+  // defect that let a sha256: prefix sit on BLAKE3 bytes. A category label
+  // ("first-party") is the same trap one level up: it names the bin, not who to
+  // ask when the row is wrong. First- vs third-party is then readable from the
+  // org rather than asserted as a second, drift-prone fact.
   for (const t of TARGETS) {
-    assert.ok(
-      typeof t.vendoredFrom === "string",
-      `${t.name} declares vendoredFrom (empty = first-party)`,
+    assert.ok(t.provenance, `${t.name} declares provenance`);
+    assert.match(
+      t.provenance,
+      /^https?:\/\//,
+      `${t.name} names an owning project by URL, not a category`,
     );
   }
-  // Guard against the field existing but never being used, which would make
-  // the distinction decorative.
-  assert.ok(
-    TARGETS.some((t) => t.vendoredFrom !== ""),
-    "at least one target is marked vendored — the field is load-bearing, not decorative",
-  );
 });
 
 test("targets do NOT restate upstream or injection", () => {

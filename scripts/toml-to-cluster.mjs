@@ -146,6 +146,30 @@ export async function parseTomlToCluster(tomlString) {
     }
   }
 
+  //    4c-2b. Every harness target names its OWNER (cloister-742e19). Required
+  //        and concrete — a URL, never a category word, never empty. An empty
+  //        value is indistinguishable from a row nobody filled in, so absence
+  //        would silently mean "ours"; a category label ("first-party") tells
+  //        you the bin but not who to ask when the row is wrong. Naming the
+  //        owning project answers both, and first- vs third-party is then
+  //        readable from the org rather than asserted as a second fact.
+  for (const t of validated.gateway?.harnessTargets ?? []) {
+    const p = typeof t.provenance === "string" ? t.provenance.trim() : "";
+    if (p === "") {
+      throw new Error(
+        `harness target "${t.name}" declares no provenance — set it to the URL ` +
+          `of the project that owns these facts (e.g. the harness's own repo). ` +
+          `Empty would silently read as "cloister owns this"`,
+      );
+    }
+    if (!/^https?:\/\//.test(p)) {
+      throw new Error(
+        `harness target "${t.name}" declares provenance "${p}", which is not a URL — ` +
+          `name the owning project concretely, not a category`,
+      );
+    }
+  }
+
   //    4c-3. Every harness target names a declared vault service. The target
   //        deliberately does not restate upstream/injection, so an unresolvable
   //        `service` means the harness has no credential path at all — better a
@@ -486,7 +510,7 @@ function normalizeHarnessTargets(raw) {
       stateDirEnv: typeof h.stateDirEnv === "string" ? h.stateDirEnv : "",
       stateDir: typeof h.stateDir === "string" ? h.stateDir : "",
       authModes: Array.isArray(h.authModes) ? h.authModes : [],
-      vendoredFrom: typeof h.vendoredFrom === "string" ? h.vendoredFrom : "",
+      provenance: typeof h.provenance === "string" ? h.provenance : "",
     };
   });
 }

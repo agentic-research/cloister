@@ -484,7 +484,7 @@ export const cluster: Cluster = {
           "custody",
           "audit"
         ],
-        "vendoredFrom": "https://github.com/anthropics/claude-code"
+        "provenance": "https://github.com/anthropics/claude-code"
       },
       {
         "name": "codex",
@@ -501,7 +501,7 @@ export const cluster: Cluster = {
         "authModes": [
           "custody"
         ],
-        "vendoredFrom": "https://github.com/openai/codex"
+        "provenance": "https://github.com/openai/codex"
       }
     ]
   },
