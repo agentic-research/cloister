@@ -486,6 +486,7 @@ function normalizeHarnessTargets(raw) {
       stateDirEnv: typeof h.stateDirEnv === "string" ? h.stateDirEnv : "",
       stateDir: typeof h.stateDir === "string" ? h.stateDir : "",
       authModes: Array.isArray(h.authModes) ? h.authModes : [],
+      vendoredFrom: typeof h.vendoredFrom === "string" ? h.vendoredFrom : "",
     };
   });
 }

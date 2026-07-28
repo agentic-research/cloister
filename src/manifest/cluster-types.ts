@@ -588,6 +588,17 @@ export interface HarnessTargetConfig {
   stateDir:    string;
   /** Supported auth modes — `"custody"` and/or `"audit"`. */
   authModes:   readonly string[];
+  /**
+   * Upstream that owns these facts, when cloister holds them on someone else's
+   * behalf. Empty ⇒ first-party (owned here, or derivable from a published
+   * `server.json`).
+   *
+   * A third-party harness will never publish an `art.cloister/v1` block, so its
+   * row is a transcription rather than a decision. Marking it keeps "declared
+   * in cluster.toml" from reading as "cloister owns this", and flags the row as
+   * a copy that can go stale when its upstream changes.
+   */
+  vendoredFrom: string;
 }
 
 export interface VaultProxyServiceConfig {

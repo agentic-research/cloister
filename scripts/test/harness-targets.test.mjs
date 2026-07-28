@@ -55,6 +55,25 @@ test("every target carries the full field set", () => {
   }
 });
 
+test("every target declares its provenance", () => {
+  // ADR-0057 property A: a fact cloister TRANSCRIBED must be distinguishable
+  // from one it DECIDED. Both current targets are third-party harnesses that
+  // will never publish an `art.cloister/v1` block, so both are vendored — and
+  // a vendored row is a copy that can go stale when its upstream changes.
+  for (const t of TARGETS) {
+    assert.ok(
+      typeof t.vendoredFrom === "string",
+      `${t.name} declares vendoredFrom (empty = first-party)`,
+    );
+  }
+  // Guard against the field existing but never being used, which would make
+  // the distinction decorative.
+  assert.ok(
+    TARGETS.some((t) => t.vendoredFrom !== ""),
+    "at least one target is marked vendored — the field is load-bearing, not decorative",
+  );
+});
+
 test("targets do NOT restate upstream or injection", () => {
   // Those belong to the vault service. Restating them would be two statements
   // of one fact that can disagree — the defect class this substrate keeps

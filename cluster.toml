@@ -217,6 +217,7 @@ service = "anthropic"
 stateDir = ".claude"
 stateDirEnv = "CLAUDE_CONFIG_DIR"
 stripEnv = [ "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN" ]
+vendoredFrom = "https://github.com/anthropics/claude-code"
 
 [[gateway.harnessTargets]]
 apiKeyEnv = "OPENAI_API_KEY"
@@ -227,6 +228,7 @@ service = "openai"
 stateDir = ".codex"
 stateDirEnv = "CODEX_HOME"
 stripEnv = [ "OPENAI_API_KEY", "OPENAI_AUTH_TOKEN" ]
+vendoredFrom = "https://github.com/openai/codex"
 
 [gateway.metadata]
 name = "cloister-art"

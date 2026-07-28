@@ -900,6 +900,27 @@ struct HarnessTarget {
   # bypass. Declaring the supported set makes an unsupported `--audit` a named
   # refusal rather than a quiet downgrade that moves billing.
   authModes @8 :List(Text);
+
+  # Upstream that OWNS these facts, when cloister is holding them on someone
+  # else's behalf. Empty ⇒ first-party: the fact belongs here, or should be
+  # derived from a `server.json` the project publishes.
+  #
+  # Why this field exists (ADR-0057 property A, third open question): every
+  # other declaration in this file is a fact cloister legitimately owns —
+  # topology, bindings, pins. A harness row is different: `codex` reads
+  # OPENAI_API_KEY and keeps state in ~/.codex because CODEX says so, and it
+  # will never publish an `art.cloister/v1` block saying it. So cloister
+  # vendors the declaration.
+  #
+  # Marking it makes the difference legible. Without this, "declared in
+  # cluster.toml" reads as "cloister owns this", and the next person cannot
+  # tell a fact we decided from a fact we transcribed — which is the same
+  # ambiguity that let the sha256: label and the schema-spec citations drift.
+  # A vendored row is a copy that can go stale when its upstream changes, and
+  # it should be reviewed as such.
+  #
+  # Append-only ordinal per ADR-0004.
+  vendoredFrom @9 :Text;
 }
 
 struct VaultProxyService {
