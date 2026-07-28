@@ -21,7 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
-leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "f62a54307c6c6d6d4e39c333a19b8913f8826c61", version = "0.8.0", package = "leyline-fs", default-features = false }
+leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "74db5a9725631ad9ef7076a6c1e7a5467bf31d2d", version = "0.11.3", package = "leyline-fs", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
