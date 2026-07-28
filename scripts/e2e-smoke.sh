@@ -187,10 +187,15 @@ FAIL=0
 #      allowlist becomes permanent. Shrinking it is mandatory, not optional.
 #
 # Delete an entry the moment its bead closes; rule 2 will remind you.
-KNOWN_FAILING=(
-  "mache_"                 # cloister-af794d — Streamable HTTP session lifecycle
-  "tools/list has 0 mache" # cloister-af794d — consequence of the above
-)
+# Assertions known to fail, each with the bead that owns the defect. Two rules
+# make the list self-retiring: an unlisted failure fails the run, and a LISTED
+# assertion that PASSES also fails the run — so a fixed defect cannot sit here
+# quietly reading as still-broken.
+#
+# Emptied 2026-07-28: ley-line-open v0.11.3 fixed the Streamable HTTP session
+# lifecycle (cloister-af794d), and all 18 mache_* tools now advertise and
+# round-trip. The empty list is the strict state — every assertion must pass.
+KNOWN_FAILING=()
 
 UNEXPECTED=0
 STALE_KNOWN=()
