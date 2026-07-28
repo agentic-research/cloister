@@ -33,10 +33,10 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  loadHarnessConfig,
   resolveTarget,
-  validateTarget,
+  serviceFor,
   credentialHeaders,
-  loadVaultProxyServices,
   targetNames,
   UsageError,
 } from "./harness-targets.mjs";
@@ -52,18 +52,23 @@ const SETUP_ONLY = process.argv.includes("--setup-only");
 // and upstream are each declared in BOTH places, and a disagreement should be a
 // named error here rather than a provider 401 twenty seconds later with nothing
 // pointing at the cause.
-let TARGET_NAME, TARGET;
+let TARGET, SVC, DECLARED = [];
 try {
-  ({ name: TARGET_NAME, target: TARGET } = resolveTarget(process.argv));
-  validateTarget(TARGET, await loadVaultProxyServices(resolve(ROOT, "cluster.toml")));
+  const cfg = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  DECLARED = cfg.targets;
+  TARGET = resolveTarget(DECLARED, process.argv);
+  SVC = serviceFor(TARGET, cfg.services);
 } catch (err) {
   if (err instanceof UsageError) {
     console.error(`harness:dev — ${err.message}`);
-    console.error(`  usage: task harness:dev -- --target <${targetNames().join("|")}>`);
+    if (DECLARED.length) {
+      console.error(`  usage: task harness:dev -- --target <${targetNames(DECLARED).join("|")}>`);
+    }
     process.exit(2);
   }
   throw err;
 }
+const TARGET_NAME = TARGET.name;
 const SHIM_PORT = process.env.HARNESS_SHIM_PORT ?? "8799";
 
 // Pluggable sandbox provider (cloister-24717d). SANDBOX=nono runs the
@@ -97,7 +102,8 @@ if (SANDBOX === "nono" && !existsSync(CONFINE_BIN)) {
 }
 const CLOISTER_BASE = "http://127.0.0.1:8787";
 const SERVICE = TARGET.service;
-const UPSTREAM = TARGET.upstream;
+// Upstream is the SERVICE's declaration, never restated on the target.
+const UPSTREAM = SVC.upstreamBaseUrl;
 
 // Mode. AUDIT: no key to vault — forward the harness's OWN auth + receipt
 // (ADR-0040 amendment). CUSTODY: vault the key + inject it. Audit is chosen
@@ -182,7 +188,7 @@ const modeVars = AUDIT
   // Custody: seed the vaulted key for injection.
   : [`DEV_VAULT_SEED = ${JSON.stringify(JSON.stringify({
       peerFp: dev.peerFp, service: SERVICE, upstream: UPSTREAM,
-      headers: credentialHeaders(TARGET, apiKey), allowedSubs: [dev.peerFp],
+      headers: credentialHeaders(SVC, apiKey), allowedSubs: [dev.peerFp],
     }))}`];
 writeFileSync(resolve(ROOT, ".dev.vars"), [...common, ...modeVars].join("\n") + "\n");
 console.error(`harness:dev — wrote .dev.vars (peerFp ${dev.peerFp}, service ${SERVICE}, ${AUDIT ? "passthrough" : "vaulted"}).`);
@@ -222,15 +228,32 @@ if (SANDBOX === "nono") {
   // external network is blocked, the shim port is the only localhost TCP —
   // it reaches the vault proxy but not ~/.ssh / ~/.aws / the wider internet.
   const home = homedir();
-  const cmd = process.env.HARNESS_CMD ?? TARGET.bin;
   const workdir = resolve(process.env.HARNESS_WORKDIR ?? process.cwd());
   const stateDir = process.env[TARGET.stateDirEnv] ?? join(home, TARGET.stateDir);
-  // Resolve the harness to a full path — the confined binary is a DECLARED
-  // grant and we exec it by path (no $PATH lookup inside the sandbox), which
-  // is why `claude: command not found` used to happen.
-  const harnessBin = cmd.includes("/")
-    ? cmd
-    : execFileSync("/usr/bin/which", [cmd], { encoding: "utf8" }).trim();
+
+  // The executable is a DECLARED absolute path — the same concept as a bundle's
+  // `entryPoint`, and for the same reason: confined exec resolves by path with
+  // no $PATH inside the sandbox. A declared path is the supported form.
+  //
+  // Falling back to `$PATH` lookup when entryPoint is empty is a convenience for
+  // the unconfined case only. It uses `which` off $PATH rather than a hardcoded
+  // /usr/bin/which (which is not where it lives on every distro), and failure is
+  // a named error pointing at the declaration — the silent version of this is
+  // where `claude: command not found` came from.
+  const cmd = process.env.HARNESS_CMD || TARGET.entryPoint || TARGET.name;
+  let harnessBin = cmd;
+  if (!cmd.includes("/")) {
+    try {
+      harnessBin = execFileSync("which", [cmd], { encoding: "utf8" }).trim();
+    } catch {
+      console.error(
+        `harness:dev — could not resolve ${JSON.stringify(cmd)} on $PATH. ` +
+          `Declare an absolute \`entryPoint\` on the ${JSON.stringify(TARGET.name)} ` +
+          `[[gateway.harnessTargets]] row in cluster.toml (required under confinement).`,
+      );
+      process.exit(2);
+    }
+  }
 
   // nono's macOS system defaults — replicated from `nono run -v` (the
   // system_read_macos / system_write_macos / user_tools / homebrew groups the
@@ -304,7 +327,7 @@ if (SANDBOX === "nono") {
   } else {
     console.error(`  # no ${TARGET.apiKeyEnv} on the harness — the key is vaulted in cloister.`);
   }
-  console.error(`  ${TARGET.bin}`);
+  console.error(`  ${TARGET.entryPoint || TARGET.name}`);
   console.error(`  # (or: SANDBOX=nono task harness:dev to launch it kernel-confined)`);
   console.error(`${bar}\n`);
 }

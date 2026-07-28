@@ -208,6 +208,26 @@ name = "bead"
 algorithm = "ed25519"
 pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
 
+[[gateway.harnessTargets]]
+apiKeyEnv = "ANTHROPIC_API_KEY"
+authModes = [ "custody", "audit" ]
+baseUrlEnv = "ANTHROPIC_BASE_URL"
+name = "claude-code"
+service = "anthropic"
+stateDir = ".claude"
+stateDirEnv = "CLAUDE_CONFIG_DIR"
+stripEnv = [ "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN" ]
+
+[[gateway.harnessTargets]]
+apiKeyEnv = "OPENAI_API_KEY"
+authModes = [ "custody" ]
+baseUrlEnv = "OPENAI_BASE_URL"
+name = "codex"
+service = "openai"
+stateDir = ".codex"
+stateDirEnv = "CODEX_HOME"
+stripEnv = [ "OPENAI_API_KEY", "OPENAI_AUTH_TOKEN" ]
+
 [gateway.metadata]
 name = "cloister-art"
 version = "0.1.0"

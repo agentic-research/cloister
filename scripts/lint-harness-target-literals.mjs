@@ -4,9 +4,15 @@
 // lint:harness-target-literals — provider strings live in ONE file.
 //
 // cloister-742e19 / ADR-0057. A harness is a lattice participant, not a target
-// the substrate special-cases: Claude Code and Codex are two rows in
-// scripts/harness-targets.mjs, not two branches in the harness path. This rail
-// keeps that true by failing when a provider literal reappears anywhere else.
+// the substrate special-cases: Claude Code and Codex are two
+// `[[gateway.harnessTargets]]` rows in cluster.toml — the operator surface —
+// not two branches in the harness path. This rail keeps that true by failing
+// when a provider literal reappears in code.
+//
+// The declaration lives in cluster.toml rather than a JS table on purpose: a
+// table in a script is still a config surface an operator cannot reach without
+// editing JavaScript, which is the same defect one file over. Adding a harness
+// is writing TOML.
 //
 // Without it the declaration model decays the ordinary way — someone adds
 // `?? "claude"` or reads `process.env.ANTHROPIC_API_KEY` "just here", the
@@ -23,7 +29,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The one file allowed to name providers. */
-export const DECLARATION_FILE = "scripts/harness-targets.mjs";
+export const DECLARATION_FILE = "cluster.toml ([[gateway.harnessTargets]] + [[gateway.vaultProxyServices]])";
 
 /** Files scanned. The harness path — where a literal would actually bite. */
 export const SCANNED = [
@@ -115,9 +121,10 @@ function main() {
     console.error(`  ${v.file}:${v.line}  matched ${JSON.stringify(v.pattern)}`);
     console.error(`    ${v.text}`);
   }
-  console.error(`\n  Provider-specific values belong in ${DECLARATION_FILE} as a target row,`);
-  console.error(`  read through TARGET.<field>. Adding a harness must not require editing`);
-  console.error(`  the harness path (cloister-742e19, ADR-0057).`);
+  console.error(`\n  Provider-specific values belong in cluster.toml as a`);
+  console.error(`  [[gateway.harnessTargets]] row (or its [[gateway.vaultProxyServices]]`);
+  console.error(`  entry), read through TARGET.<field> / SVC.<field>. Adding a harness must`);
+  console.error(`  not require editing code (cloister-742e19, ADR-0057).`);
   return 1;
 }
 

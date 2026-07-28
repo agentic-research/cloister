@@ -551,6 +551,43 @@ export interface Gateway {
    * safe-closed until the operator opts services in.
    */
   vaultProxyServices: readonly VaultProxyServiceConfig[];
+
+  /**
+   * Harness profiles (cloister-742e19, ADR-0057). A harness is a lattice
+   * participant, not a special case: adding one is an operator writing a
+   * `[[gateway.harnessTargets]]` row, never an edit to the harness path.
+   *
+   * `service` names a {@link VaultProxyServiceConfig}; injection strategy and
+   * upstream are read from THAT entry rather than restated, so the two halves
+   * cannot disagree.
+   */
+  harnessTargets: readonly HarnessTargetConfig[];
+}
+
+export interface HarnessTargetConfig {
+  /** Selector for `task harness:dev -- --target <name>`. */
+  name:        string;
+  /** Vault service this harness authenticates through. */
+  service:     string;
+  /**
+   * Absolute path to the executable — the same concept as
+   * {@link BundleExternal.entryPoint}. Empty ⇒ resolve `name` on `$PATH`,
+   * which is the convenience path and unavailable under confinement (the
+   * sandbox execs by path with no `$PATH` inside).
+   */
+  entryPoint:  string;
+  /** Env var supplying an API key in custody mode; never enters the harness env. */
+  apiKeyEnv:   string;
+  /** Env var the harness reads to find the vault proxy. */
+  baseUrlEnv:  string;
+  /** Credential env vars scrubbed before exec. Should include `apiKeyEnv`. */
+  stripEnv:    readonly string[];
+  /** Env var overriding the harness state directory. */
+  stateDirEnv: string;
+  /** State dir relative to `$HOME`; granted rw under confinement. */
+  stateDir:    string;
+  /** Supported auth modes — `"custody"` and/or `"audit"`. */
+  authModes:   readonly string[];
 }
 
 export interface VaultProxyServiceConfig {

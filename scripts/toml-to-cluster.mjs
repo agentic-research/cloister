@@ -124,6 +124,43 @@ export async function parseTomlToCluster(tomlString) {
     }
   });
 
+  //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
+  //        tables are the blind spot: @iarna/toml rejects a duplicate KEY inside
+  //        a table because the TOML spec requires it, but two `[[bundles]]` or
+  //        two `[[gateway.harnessTargets]]` with the same `name` are perfectly
+  //        legal TOML and silently wrong — every consumer does `.find()`, which
+  //        takes the first and ignores the rest. Bundles and wires were already
+  //        guarded above; the gateway lists were not.
+  const gatewayLists = [
+    ["gateway.vaultProxyServices", validated.gateway?.vaultProxyServices, "name"],
+    ["gateway.harnessTargets", validated.gateway?.harnessTargets, "name"],
+  ];
+  for (const [label, list, key] of gatewayLists) {
+    if (!Array.isArray(list)) continue;
+    const dup = firstDuplicate(list.map((x) => x?.[key]).filter((v) => v !== undefined));
+    if (dup) {
+      throw new Error(
+        `[[${label}]] ${key} "${dup}" is declared more than once — ` +
+          `consumers resolve by ${key} and would silently use the first entry`,
+      );
+    }
+  }
+
+  //    4c-3. Every harness target names a declared vault service. The target
+  //        deliberately does not restate upstream/injection, so an unresolvable
+  //        `service` means the harness has no credential path at all — better a
+  //        build error than a 401 at launch.
+  const services = validated.gateway?.vaultProxyServices ?? [];
+  for (const t of validated.gateway?.harnessTargets ?? []) {
+    if (!services.some((svc) => svc.name === t.service)) {
+      throw new Error(
+        `harness target "${t.name}" names service "${t.service}", which no ` +
+          `[[gateway.vaultProxyServices]] entry declares ` +
+          `(declared: ${services.map((s) => s.name).sort().join(", ") || "none"})`,
+      );
+    }
+  }
+
   //    4d. The capability lattice resolves (ADR-0027 / cloister-e059ea).
   //        `provides` / `requires` are declared per input in
   //        manifest/cluster.capnp, and the matchmaker is what makes them
@@ -428,7 +465,29 @@ function normalizeGateway(raw) {
         typeof policy.minAlgorithm === "string" ? policy.minAlgorithm : "",
     },
     vaultProxyServices: normalizeVaultProxyServices(g.vaultProxyServices),
+    harnessTargets: normalizeHarnessTargets(g.harnessTargets),
   };
+}
+
+// Harness profiles (cloister-742e19, ADR-0057). Injection strategy and upstream
+// are deliberately ABSENT: they are read from the named vaultProxyServices
+// entry, so the two declarations cannot drift apart.
+function normalizeHarnessTargets(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((t) => {
+    const h = t && typeof t === "object" && !Array.isArray(t) ? t : {};
+    return {
+      name: typeof h.name === "string" ? h.name : "",
+      service: typeof h.service === "string" ? h.service : "",
+      entryPoint: typeof h.entryPoint === "string" ? h.entryPoint : "",
+      apiKeyEnv: typeof h.apiKeyEnv === "string" ? h.apiKeyEnv : "",
+      baseUrlEnv: typeof h.baseUrlEnv === "string" ? h.baseUrlEnv : "",
+      stripEnv: Array.isArray(h.stripEnv) ? h.stripEnv : [],
+      stateDirEnv: typeof h.stateDirEnv === "string" ? h.stateDirEnv : "",
+      stateDir: typeof h.stateDir === "string" ? h.stateDir : "",
+      authModes: Array.isArray(h.authModes) ? h.authModes : [],
+    };
+  });
 }
 
 function normalizeVaultProxyServices(raw) {

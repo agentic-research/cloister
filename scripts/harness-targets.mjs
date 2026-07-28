@@ -1,229 +1,162 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// harness-targets — the declared harness profiles (cloister-742e19, ADR-0057).
+// harness-targets — read the declared harness profiles (cloister-742e19, ADR-0057).
 //
-// THIS FILE IS THE ONLY LEGAL HOME FOR PROVIDER LITERALS in the harness path.
-// `lint:harness-target-literals` asserts that no provider string ("anthropic",
-// "api.openai.com", "ANTHROPIC_API_KEY", …) appears in scripts/harness-dev.mjs
-// or anywhere else outside this module. If you are about to add one somewhere
-// else, add a target here instead.
+// The profiles themselves live in `cluster.toml` under
+// `[[gateway.harnessTargets]]`, projected through manifest/cluster.capnp like
+// every other operator-facing declaration. This module only READS them.
 //
-// Why this shape (ADR-0057, "the declaration model"): a harness is a lattice
-// PARTICIPANT, not a target the substrate special-cases. Codex and Claude Code
-// are two rows here, not two branches in harness-dev.mjs. Adding a third means
-// adding a row — no control-flow edit anywhere.
+// Why not a table in this file: cloister's rule is that operator configuration
+// goes in the manifest, not in code ("hand-coded route registration goes in the
+// manifest, not in TS"). A JS table would be a second config surface an
+// operator cannot reach without editing JavaScript — the same defect as the
+// hardcoded constants it replaced, one file over. Adding a third harness is a
+// TOML row.
 //
-// The `service` + `inject` fields are not free-form: they must correspond to a
-// `[[gateway.vaultProxyServices]]` entry in cluster.toml, which independently
-// declares the same injection strategy for the vault proxy. `validateTarget()`
-// is where those two declarations are checked against each other — the harness
-// says which service it wants, the manifest says how that service injects, and
-// a disagreement is a build-time error rather than a runtime 401.
+// What a target deliberately does NOT declare: upstream URL and injection
+// strategy. Those belong to the vault service (`[[gateway.vaultProxyServices]]`)
+// and are read from there via `service`. Restating them would create two
+// statements of one fact that can disagree — which is exactly the class of
+// defect this substrate keeps finding.
 
 /**
  * @typedef {object} HarnessTarget
- * @property {string}   service       Vault service name; MUST match a
- *                                    `[[gateway.vaultProxyServices]].name`.
- * @property {string}   upstream      Provider API base the vault proxy forwards to.
- * @property {string}   apiKeyEnv     Env var the operator sets to supply a key
- *                                    (custody mode). Never enters the harness env.
- * @property {string}   baseUrlEnv    Env var the harness reads to find the proxy.
- * @property {"headerNamed"|"authorizationBearer"} inject
- *                                    Injection strategy; MUST match the manifest's
- *                                    `[[gateway.vaultProxyServices]].injection`.
- * @property {string}  [injectHeader] Header name when inject === "headerNamed".
- * @property {string[]} stripEnv      Credential env vars scrubbed before exec, so
- *                                    the confined harness cannot see a key even
- *                                    if the operator exported one.
- * @property {string}   bin           Default executable name.
- * @property {string}   stateDirEnv   Env var overriding the harness state dir.
- * @property {string}   stateDir      State dir relative to $HOME; granted rw
- *                                    under confinement.
- * @property {("custody"|"audit")[]} authModes
- *                                    Supported auth modes. "custody" vaults an
- *                                    API key and injects it. "audit" forwards
- *                                    the harness's own OAuth and receipts the
- *                                    call — only meaningful where the provider
- *                                    sells a subscription the key would replace.
+ * @property {string}   name        `--target <name>` selector.
+ * @property {string}   service     Vault service; names a vaultProxyServices entry.
+ * @property {string}   entryPoint  Absolute path to the executable. Empty ⇒ resolve
+ *                                  `name` on $PATH (convenience only; unavailable
+ *                                  under confinement, which execs by path).
+ * @property {string}   apiKeyEnv   Env var supplying a key in custody mode.
+ * @property {string}   baseUrlEnv  Env var the harness reads for the proxy URL.
+ * @property {string[]} stripEnv    Credential env vars scrubbed before exec.
+ * @property {string}   stateDirEnv Env var overriding the state dir.
+ * @property {string}   stateDir    State dir relative to $HOME.
+ * @property {string[]} authModes   "custody" and/or "audit".
  */
 
-/** @type {Record<string, HarnessTarget>} */
-export const TARGETS = {
-  "claude-code": {
-    service: "anthropic",
-    upstream: "https://api.anthropic.com",
-    apiKeyEnv: "ANTHROPIC_API_KEY",
-    baseUrlEnv: "ANTHROPIC_BASE_URL",
-    inject: "headerNamed",
-    injectHeader: "x-api-key",
-    // ANTHROPIC_AUTH_TOKEN is stripped alongside the key: it is the OAuth
-    // credential, and leaving it visible would let a confined harness bypass
-    // the vault proxy entirely by talking to the provider directly.
-    stripEnv: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-    bin: "claude",
-    stateDirEnv: "CLAUDE_CONFIG_DIR",
-    stateDir: ".claude",
-    // Audit mode exists here because a Max subscription is worth preserving:
-    // setting a key would silently move billing off it (ADR-0040 amendment).
-    authModes: ["custody", "audit"],
-  },
-
-  codex: {
-    service: "openai",
-    upstream: "https://api.openai.com",
-    apiKeyEnv: "OPENAI_API_KEY",
-    baseUrlEnv: "OPENAI_BASE_URL",
-    inject: "authorizationBearer",
-    stripEnv: ["OPENAI_API_KEY", "OPENAI_AUTH_TOKEN"],
-    bin: "codex",
-    stateDirEnv: "CODEX_HOME",
-    stateDir: ".codex",
-    // Custody only, deliberately. Audit mode forwards the harness's own OAuth
-    // instead of vaulting a key; that is only correct where a subscription
-    // would otherwise be bypassed. Declaring ["custody"] makes an
-    // unsupported `--audit` a named refusal instead of a silent no-op.
-    authModes: ["custody"],
-  },
-};
+/** Thrown for operator-facing misuse; callers exit 2 rather than stack-trace. */
+export class UsageError extends Error {}
 
 export const DEFAULT_TARGET = "claude-code";
 
-/** Target names, sorted — for usage text and error messages. */
-export function targetNames() {
-  return Object.keys(TARGETS).sort();
+/**
+ * Load `[[gateway.harnessTargets]]` + `[[gateway.vaultProxyServices]]` from the
+ * operator surface.
+ *
+ * Parses cluster.toml rather than importing src/generated/cluster.ts because
+ * `task harness:dev` runs under plain `node` — making the turnkey path require
+ * tsx to read one field would add a toolchain dependency to the single command
+ * meant to just work. cluster.toml is also what the operator edits, so errors
+ * name the file they changed.
+ *
+ * @param {string} clusterTomlPath
+ * @returns {Promise<{targets: HarnessTarget[], services: any[]}>}
+ */
+export async function loadHarnessConfig(clusterTomlPath) {
+  const { readFileSync } = await import("node:fs");
+  const TOML = (await import("@iarna/toml")).default;
+  const parsed = TOML.parse(readFileSync(clusterTomlPath, "utf8"));
+  const gateway = parsed?.gateway ?? {};
+  return {
+    targets: gateway.harnessTargets ?? [],
+    services: gateway.vaultProxyServices ?? [],
+  };
+}
+
+/** Declared target names, sorted — for usage text and error messages. */
+export function targetNames(targets) {
+  return targets.map((t) => t.name).sort();
 }
 
 /**
- * Resolve `--target <name>` (or HARNESS_TARGET) to a declared profile.
- * Unknown names fail loudly and list what is available — an unknown target
- * must never fall back to a default, or an operator typo silently bills the
- * wrong provider.
+ * Resolve `--target <name>` (or HARNESS_TARGET) against the declared set.
  *
+ * An unknown name fails and lists what is declared. It must never fall back to
+ * a default: a typo would silently launch a different provider and bill the
+ * wrong account with nothing indicating anything was wrong.
+ *
+ * @param {HarnessTarget[]} targets
  * @param {string[]} argv
  * @param {NodeJS.ProcessEnv} env
- * @returns {{ name: string, target: HarnessTarget }}
+ * @returns {HarnessTarget}
  */
-export function resolveTarget(argv, env = process.env) {
+export function resolveTarget(targets, argv, env = process.env) {
+  if (targets.length === 0) {
+    throw new UsageError(
+      "no harness targets declared — add a [[gateway.harnessTargets]] entry to cluster.toml",
+    );
+  }
   const flagIdx = argv.indexOf("--target");
   let name = env.HARNESS_TARGET ?? DEFAULT_TARGET;
   if (flagIdx !== -1) {
     const value = argv[flagIdx + 1];
     if (!value || value.startsWith("--")) {
-      throw new UsageError(`--target needs a value (one of: ${targetNames().join(", ")})`);
+      throw new UsageError(`--target needs a value (declared: ${targetNames(targets).join(", ")})`);
     }
     name = value;
   }
-  const target = TARGETS[name];
+  const target = targets.find((t) => t.name === name);
   if (!target) {
-    throw new UsageError(`unknown harness target ${JSON.stringify(name)} (declared: ${targetNames().join(", ")})`);
+    throw new UsageError(
+      `unknown harness target ${JSON.stringify(name)} (declared: ${targetNames(targets).join(", ")})`,
+    );
   }
-  return { name, target };
+  return target;
 }
 
 /**
- * Cross-check a target against the manifest's vaultProxyServices declaration.
+ * The vault service a target authenticates through.
  *
- * Two independent statements exist about how a service authenticates: this
- * module's `inject`, and `[[gateway.vaultProxyServices]].injection` in
- * cluster.toml. They must agree. When they disagree the failure mode is a
- * runtime 401 from the provider with no indication which half is wrong — so
- * this collapses it into a build-time error naming both sides.
+ * This is the only cross-reference left: the target names a service, the
+ * service owns upstream + injection. There is nothing to reconcile because
+ * nothing is stated twice.
  *
  * @param {HarnessTarget} target
- * @param {Array<{name: string, injection: string}>} services
+ * @param {any[]} services
  */
-export function validateTarget(target, services) {
+export function serviceFor(target, services) {
   const svc = services.find((s) => s.name === target.service);
   if (!svc) {
     throw new UsageError(
-      `target declares service ${JSON.stringify(target.service)}, which no ` +
-        `[[gateway.vaultProxyServices]] entry declares ` +
-        `(available: ${services.map((s) => s.name).sort().join(", ") || "none"})`,
+      `harness target ${JSON.stringify(target.name)} names service ` +
+        `${JSON.stringify(target.service)}, which no [[gateway.vaultProxyServices]] ` +
+        `entry declares (available: ${services.map((s) => s.name).sort().join(", ") || "none"})`,
     );
   }
-
-  // `injection` is a TAGGED UNION in the manifest ({headerNamed:{name}} /
-  // {authorizationBearer:null}), not a string — same shape as WireTransport.
-  // Read the tag rather than comparing to the object, which would always differ.
-  const declared = injectionTag(svc.injection);
-  if (declared !== target.inject) {
-    throw new UsageError(
-      `injection mismatch for service ${JSON.stringify(target.service)}: ` +
-        `harness target declares ${JSON.stringify(target.inject)}, ` +
-        `cluster.toml declares ${JSON.stringify(declared)}`,
-    );
-  }
-
-  // For headerNamed the HEADER NAME is also declared twice. Injecting under the
-  // wrong header is a 401 from the provider with nothing pointing at the cause,
-  // so check it here where both halves are in hand.
-  if (declared === "headerNamed") {
-    const manifestHeader = svc.injection?.headerNamed?.name;
-    if (manifestHeader && manifestHeader !== target.injectHeader) {
-      throw new UsageError(
-        `injection header mismatch for service ${JSON.stringify(target.service)}: ` +
-          `harness target declares ${JSON.stringify(target.injectHeader)}, ` +
-          `cluster.toml declares ${JSON.stringify(manifestHeader)}`,
-      );
-    }
-  }
-
-  // Upstream is declared in both places too. A harness pointed at one provider
-  // while the vault proxy forwards to another is a silent cross-provider leak
-  // of whatever credential is vaulted.
-  if (svc.upstreamBaseUrl && svc.upstreamBaseUrl !== target.upstream) {
-    throw new UsageError(
-      `upstream mismatch for service ${JSON.stringify(target.service)}: ` +
-        `harness target declares ${JSON.stringify(target.upstream)}, ` +
-        `cluster.toml declares ${JSON.stringify(svc.upstreamBaseUrl)}`,
-    );
-  }
-}
-
-/** Tag name of an injection union — accepts the manifest object or a bare string. */
-function injectionTag(injection) {
-  if (typeof injection === "string") return injection;
-  if (injection && typeof injection === "object") return Object.keys(injection)[0];
-  return undefined;
+  return svc;
 }
 
 /**
- * The credential headers for a custody-mode vault seed, derived from the
- * declared injection strategy rather than hardcoded per provider.
+ * Credential headers for a custody-mode vault seed, derived from the SERVICE's
+ * declared injection strategy.
  *
- * @param {HarnessTarget} target
+ * In cluster.toml the strategy is a string tag with its parameters in a sibling
+ * table (`injection = "headerNamed"` + `[gateway.vaultProxyServices.headerNamed]
+ * name = "x-api-key"`). In the generated manifest the same thing is a tagged
+ * union object. Both shapes are accepted so this works against either surface.
+ *
+ * @param {any} service
  * @param {string} apiKey
  * @returns {Record<string, string>}
  */
-export function credentialHeaders(target, apiKey) {
-  if (target.inject === "authorizationBearer") {
-    return { Authorization: `Bearer ${apiKey}` };
-  }
-  if (!target.injectHeader) {
-    throw new UsageError(`target with inject="headerNamed" must declare injectHeader`);
-  }
-  return { [target.injectHeader]: apiKey };
-}
+export function credentialHeaders(service, apiKey) {
+  const tag = typeof service.injection === "string"
+    ? service.injection
+    : Object.keys(service.injection ?? {})[0];
 
-/**
- * Read `[[gateway.vaultProxyServices]]` from the operator surface.
- *
- * Deliberately parses cluster.toml rather than importing
- * src/generated/cluster.ts: `task harness:dev` runs under plain `node`, and
- * making the turnkey path depend on tsx to validate a config field would add a
- * toolchain requirement to the one command meant to Just Work. cluster.toml is
- * also the surface an operator edits, so a mismatch is reported against what
- * they actually changed.
- *
- * @param {string} clusterTomlPath
- * @returns {Array<{name: string, injection: unknown, upstreamBaseUrl?: string}>}
- */
-export async function loadVaultProxyServices(clusterTomlPath) {
-  const { readFileSync } = await import("node:fs");
-  const TOML = (await import("@iarna/toml")).default;
-  const parsed = TOML.parse(readFileSync(clusterTomlPath, "utf8"));
-  return parsed?.gateway?.vaultProxyServices ?? [];
+  if (tag === "authorizationBearer") return { Authorization: `Bearer ${apiKey}` };
+  if (tag === "headerNamed") {
+    const header = service.headerNamed?.name ?? service.injection?.headerNamed?.name;
+    if (!header) {
+      throw new UsageError(
+        `service ${JSON.stringify(service.name)} declares injection "headerNamed" ` +
+          `but no header name`,
+      );
+    }
+    return { [header]: apiKey };
+  }
+  throw new UsageError(
+    `service ${JSON.stringify(service.name)} declares injection ${JSON.stringify(tag)}, ` +
+      `which the harness path does not support (expected headerNamed or authorizationBearer)`,
+  );
 }
-
-/** Thrown for operator-facing misuse; callers exit 2 rather than stack-trace. */
-export class UsageError extends Error {}
