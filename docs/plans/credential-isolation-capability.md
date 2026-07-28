@@ -201,7 +201,7 @@ substrate-internal vault DO as the v1 impl.
 shape that `cloister-1b59a2` charted. Land a tiny spec for the
 registry-endpoint format itself — out of scope for this bead, file as
 follow-up.
-<!-- lint-allow-unresolved: planned, not shipped — LLO's schema-spec has no capability-discovery/ yet -->
+<!-- lint-allow-unresolved: the endpoint-FORMAT spec is unwritten. LLO has the capability IDENTIFIER scheme (schema-spec/_capability-mapping.md, ADR-0028 crosswalk, cloister-224917) but nothing specifying the discovery response shape. Different concerns; the identifier lanes do not answer what a registry endpoint returns. -->
 (`leyline-schema-spec/capability-discovery/v1/`)
 
 **Closes when:** the 3 tests above pass + Phases 1-7 still pass.
