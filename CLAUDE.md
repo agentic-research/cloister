@@ -108,9 +108,10 @@ Every commit must reference a bead, enforced by the commit-msg hook
 ```
 
 The hook auto-injects the prefix if `.rsry-bead-id` exists at the
-repo root. For session work without an active bead, use
-`bead: cloister` as the trailer instead — the hook treats that as
-sufficient.
+repo root. Otherwise the `[bead-id]` prefix is **required** — the
+hook has no `bead:` trailer escape hatch, so session work still needs
+a real bead to reference. File one, or reference the bead the work
+was discovered under.
 
 ## Architecture conventions
 
@@ -137,10 +138,16 @@ sufficient.
   skew bound → wasm32 cert chain verify → claims required → epoch +
   validity-window check → Web Crypto Ed25519 request-sig verify →
   scope match → seen-nonces replay check → TrustStore RPC upsert.
-  **Wired into `McpEdgeRoute.handlePost`** (cloister-b89fdb); the gate
-  is active when `INTERLACE_ROOT_PUBKEY` is set, skipped when unset
-  (dev/test mode — deployment-binding granularity, NOT per-request
-  bypass). The verified `VerifiedLease` (peerFp + scope + cert DER + sig)
+  **Wired into `McpEdgeRoute.handlePost`** (cloister-b89fdb). The gate
+  posture comes from `resolveLeaseGate` (`src/routes/lease-gate.ts`) per
+  ADR-0053, and the **only** "off" is `CLOISTER_MODE=dev` *and* no
+  authority (neither `DEV_CA_MASTER` nor `INTERLACE_ROOT_PUBKEY` set).
+  Everything else enforces — including "no authority at all", which
+  enforces and then fails closed at `resolveCABundle` with
+  `-32005 CA bundle unavailable`. Unsetting `INTERLACE_ROOT_PUBKEY`
+  alone does **not** disable the gate. Granularity is the deployment
+  binding, NOT a per-request bypass.
+  The verified `VerifiedLease` (peerFp + scope + cert DER + sig)
   is threaded into `callTool` so the cross-DO `bead_create` orchestrator
   can write attestation rows against the same cert that authorized the
   call. Per cloister-492c08.
@@ -172,9 +179,11 @@ sufficient.
   `GET /interlace/peers/{fp}` streams a peer's attestation chain +
   pending state as JSONL, with HMAC-signed cursors and constant-time
   404 error responses (threat model §9). Registered in `cloister.capnp`
-  as a `disclosure` route kind. Lease-gated when `INTERLACE_ROOT_PUBKEY`
-  is set (scope `disclosure:<fp>`); auth-failure collapses into the
-  same constant-time 404 to avoid peer-existence + cert-validity oracles.
+  as a `disclosure` route kind. Lease-gated whenever the gate enforces
+  (see `resolveLeaseGate` above — not merely "when
+  `INTERLACE_ROOT_PUBKEY` is set"); scope `disclosure:<fp>`.
+  Auth-failure collapses into the same constant-time 404 to avoid
+  peer-existence + cert-validity oracles.
 - **Threat model is the contract** for the lease/attestation surface —
   `docs/security/threat-model.md` (math-friend authored, cross-linked
   from ADR-0007/0011/0012 frontmatter). Adding a new seam (cert mint,
