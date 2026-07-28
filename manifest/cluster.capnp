@@ -481,6 +481,44 @@ struct InputSpec {
   # Streamable HTTP initialize/session handshake (for example mcp-go).
   # Threaded into every generated backend derived from this input.
   requiresSession @10 :Bool;
+
+  # How to REACH this input (ADR-0051). Structured components — never a
+  # connection string. A `postgres://user:pass@host/db` blob fuses transport,
+  # endpoint, credential and options into one opaque, ungovernable value; this
+  # keeps them independently governable.
+  #
+  # UNSET preserves today's behavior exactly: resolve to an `mcpProxy` backend
+  # via urlBinding / serviceBinding. So existing manifests parse unchanged
+  # (ADR-0004 evolution rules).
+  #
+  # Append-only ordinal per ADR-0004.
+  connection @11 :Connection;
+}
+
+# ── Connection: how an input is reached (ADR-0051) ────────────────────────
+#
+# Transport, endpoint and credential as separate first-class fields. A future
+# data-backend input adds a transport variant and a vaultSlice with no schema
+# break and no connection string.
+struct Connection {
+  # Transport kind. Mirrors the Wire.transport idiom above.
+  #
+  # `uds` is the point of this ADR: a same-host MCP server needs NO listening
+  # TCP port at all, so its exposure is scoped by filesystem permissions rather
+  # than by a port reachable to anything that can reach loopback. That is the
+  # win — not throughput.
+  transport :union {
+    unset @0 :Void;   # no connection declared — mcpProxy via urlBinding
+    uds   @1 :Void;   # capnp ToolCall over UDS via the companion dial
+  }
+
+  # Filesystem path of the socket, when transport is `uds`. Empty otherwise.
+  socketPath @2 :Text;
+
+  # Credential for this connection, ALWAYS a vault slice reference, NEVER an
+  # inline secret (ADR-0010). Empty = no credential needed, which is the
+  # same-host UDS case: filesystem permissions are the boundary.
+  vaultSlice @3 :Text;
 }
 
 # ── TenancySpec (ADR-0030 §A5 / cloister-0e3004) ─────────────────────────

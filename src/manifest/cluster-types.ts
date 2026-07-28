@@ -116,6 +116,15 @@ export interface InputSpec {
   /** Require MCP initialize + Mcp-Session-Id on generated backends. */
   requiresSession: boolean;
   /**
+   * How to REACH this input (ADR-0051). Structured components, never a
+   * connection string — transport, endpoint and credential stay independently
+   * governable.
+   *
+   * Unset (or `transport: {unset:null}`) preserves today's behavior exactly:
+   * resolve to an `mcpProxy` backend via `urlBinding` / `serviceBinding`.
+   */
+  connection?: Connection;
+  /**
    * Composable tenancy declaration (ADR-0030 §A5 / cloister-0e3004).
    * Operator-set fields override the input's server.json
    * `_meta.art.cloister/v1.tenancy` defaults. All-empty value = inherit
@@ -137,6 +146,23 @@ export interface InputSpec {
  * input's server.json `_meta.art.cloister/v1.tenancy` defaults. Empty
  * fields inherit from server.json (or substrate defaults if absent).
  */
+/**
+ * How an input is reached (ADR-0051). A `uds` transport means the input is a
+ * same-host server with NO listening TCP port — exposure scoped by filesystem
+ * permissions rather than by a loopback port.
+ */
+export interface Connection {
+  transport:   ConnectionTransport;
+  /** Socket path when transport is `uds`; empty otherwise. */
+  socketPath:  string;
+  /** Vault slice reference — never an inline secret (ADR-0010). Empty = none. */
+  vaultSlice:  string;
+}
+
+export type ConnectionTransport =
+  | { unset: null }   // no connection declared — mcpProxy via urlBinding
+  | { uds:   null };  // capnp ToolCall over UDS via the companion dial
+
 export interface TenancySpec {
   /**
    * Tenancy mode:

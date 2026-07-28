@@ -1,6 +1,6 @@
 ---
 title: "ADR-0051: Same-host UDS as an input transport — structured connection components, not connection strings"
-status: Proposed (2026-07-20)
+status: Accepted (2026-07-28)
 date: 2026-07-20
 tags: [inputs, transport, uds, companion, connection, credentials, vault, schema-evolution]
 threat_model: docs/security/threat-model.md

@@ -89,6 +89,7 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     serviceBinding: z.string(),
     tenancy: TenancySpecSchema,
     requiresSession: z.boolean(),
+    connection: ConnectionSchema,
   }).strict());
 
 export interface InputSpec {
@@ -103,6 +104,7 @@ export interface InputSpec {
   serviceBinding: string;
   tenancy: TenancySpec;
   requiresSession: boolean;
+  connection: Connection;
 }
 
 export const RouteSchema: z.ZodType<Route> = z.lazy(() =>
@@ -293,6 +295,22 @@ export interface TenancySpec {
   workerdId: string;
   trustedTier: boolean;
   sharesWorkerdWith: readonly string[];
+}
+
+export const ConnectionSchema: z.ZodType<Connection> = z.lazy(() =>
+  z.object({
+    socketPath: z.string(),
+    vaultSlice: z.string(),
+    transport: z.union([
+      z.object({ unset: z.null() }).strict(),
+      z.object({ uds: z.null() }).strict(),
+    ]),
+  }).strict());
+
+export interface Connection {
+  socketPath: string;
+  vaultSlice: string;
+  transport: { unset: null } | { uds: null };
 }
 
 export const McpRouteSpecSchema: z.ZodType<McpRouteSpec> = z.lazy(() =>

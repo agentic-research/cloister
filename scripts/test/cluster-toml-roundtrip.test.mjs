@@ -991,6 +991,13 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
       requiresSession: false,
       tenancy: { mode: "", workerdId: "", trustedTier: false, sharesWorkerdWith: [] },
+      // ADR-0051. This fixture hand-builds a CURRENT-shape cluster object and
+      // feeds it straight to zod, so it carries every field the schema has.
+      // Backward compatibility for OLD documents lives one layer up, in
+      // parseTomlToCluster's normalizers — verified separately: a cluster.toml
+      // with no [inputs.*.connection] parses and defaults to
+      // `{transport: {unset: null}}`.
+      connection: { transport: { unset: null }, socketPath: "", vaultSlice: "" },
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field

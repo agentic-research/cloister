@@ -515,6 +515,23 @@ function normalizeHarnessTargets(raw) {
   });
 }
 
+// ADR-0051. An absent [inputs.*.connection] table normalizes to the `unset`
+// transport, which the resolver treats exactly as today (mcpProxy via
+// urlBinding). That is what makes the field backward-compatible: existing
+// manifests parse and resolve unchanged.
+//
+// `transport` is a string in TOML and a tagged union in the schema, the same
+// asymmetry `injection` has on vaultProxyServices — TOML has no unions.
+function normalizeConnection(raw) {
+  const c = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const t = typeof c.transport === "string" ? c.transport.trim() : "";
+  return {
+    transport: t === "uds" ? { uds: null } : { unset: null },
+    socketPath: typeof c.socketPath === "string" ? c.socketPath : "",
+    vaultSlice: typeof c.vaultSlice === "string" ? c.vaultSlice : "",
+  };
+}
+
 function normalizeVaultProxyServices(raw) {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) return [];
@@ -578,6 +595,7 @@ function normalizeInputDefaults(spec) {
     urlBinding:     typeof spec.urlBinding === "string" ? spec.urlBinding : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
     requiresSession: spec.requiresSession === true,
+    connection: normalizeConnection(spec.connection),
     tenancy: {
       mode:              typeof rawTenancy.mode      === "string" ? rawTenancy.mode      : "",
       workerdId:         typeof rawTenancy.workerdId === "string" ? rawTenancy.workerdId : "",
