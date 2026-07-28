@@ -201,7 +201,7 @@ substrate-internal vault DO as the v1 impl.
 shape that `cloister-1b59a2` charted. Land a tiny spec for the
 registry-endpoint format itself — out of scope for this bead, file as
 follow-up.
-<!-- lint-allow-unresolved: the endpoint-FORMAT spec is unwritten. LLO has the capability IDENTIFIER scheme (schema-spec/_capability-mapping.md, ADR-0028 crosswalk, cloister-224917) but nothing specifying the discovery response shape. Different concerns; the identifier lanes do not answer what a registry endpoint returns. -->
+<!-- lint-allow-unresolved: DEFERRED BY DECISION, not missing. ADR-0024 Phase 8 held the capability registry on 2026-06-20 (cred-iso audit R-5, cloister-12bf80): the ADR-0027 matchmaker surfaces discovery through input resolution, making a separate /.well-known/ lookup likely redundant. Adjacent pieces exist and are NOT this: signet owns grant representation (docs/design/010, urn:signet:cap:), LLO owns identifier lanes (schema-spec/_capability-mapping.md, ADR-0028). Neither specifies a discovery response shape. Revisit per ADR-0024's own condition — see cloister-9c196b. -->
 (`leyline-schema-spec/capability-discovery/v1/`)
 
 **Closes when:** the 3 tests above pass + Phases 1-7 still pass.
