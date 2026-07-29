@@ -1038,6 +1038,15 @@ tasks:
       - src/**/*.ts
       - scripts/lint-trust-env-locality.mjs
 
+  lint:structured-parse:
+    desc: "Do not hand-match a format that has a parser (cloister-2fb46a). Born from a real bug: lint-binding-parity regexed wrangler.toml, missed every inline-table DO binding, and reported four violations that did not exist. Flags .toml/.json/.yaml read-then-regex; .capnp is exempt (no parser without a capnp toolchain) as is prose. Escape hatch: lint-allow-rawparse: <reason>."
+    cmds:
+      - node scripts/lint-structured-parse.mjs
+    sources:
+      - scripts/lint-structured-parse.mjs
+      - scripts/**/*.mjs
+      - src/**/*.ts
+
   lint:binding-parity:
     desc: "config.capnp and wrangler.toml must declare the same bindings for anything read in src/ (cloister-9aeb3f). CLAUDE.md called this a manual sync obligation and ADR-0001 recorded it as a known weakness; it had drifted — six trust-surface vars were CF-only, so the lease gate could not be exercised under workerd at all."
     cmds:
@@ -1172,7 +1181,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/oci-artifact.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/oci-artifact.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
@@ -1247,7 +1256,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, config:check, cluster:zod:verify]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

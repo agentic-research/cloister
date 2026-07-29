@@ -685,6 +685,8 @@ test("cloister-fe891f: Taskfile cluster:toml entry has BOTH legs of the chain", 
   // canonicalize step fails CI immediately. Companion to the
   // behavior test above — behavior tests the contract; this tests
   // the wire-up.
+  // lint-allow-rawparse: extracts a task block WITH its comments and indentation.
+  // A YAML parser discards exactly the formatting this assertion is about.
   const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
 
   // Extract the cluster:toml: block (up to the next top-level entry).
@@ -2060,6 +2062,8 @@ test("an unknown [inputs.*] key fails instead of being silently erased", (t) => 
   const toml = resolve(dir, "cluster.toml");
   writeFileSync(
     toml,
+    // lint-allow-rawparse: deliberately constructs MALFORMED toml by appending an
+    // undeclared key. A parser would reject it — being rejected is the test.
     readFileSync(resolve(REPO_ROOT, "cluster.toml"), "utf8") +
       `\n[inputs.probe]\nref = "x"\nurlBindingg = "TYPO"\n`,
   );
