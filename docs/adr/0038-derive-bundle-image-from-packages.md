@@ -112,6 +112,41 @@ build error.
   `oci` package is a warning (fail-loud, not fail-closed — an operator
   mid-migration is legitimate).
 
+## Amendment 2026-07-29 — artifact-only producers (`cloister-02dd65`)
+
+A producer that publishes **images and serves no MCP** cannot express itself
+through `packages[]` at all. The 2025-12-11 registry schema's
+`Package.required` is `["registryType","identifier","transport"]`, so a
+transport-less package **fails the schema its own `$schema` key names** —
+notme's `server.json` was in exactly that state (`notme-6e5330`).
+
+The tempting fix is a placeholder `{"type":"stdio"}`. That is worse than the
+problem: it is schema-valid and semantically **false**, and this ADR's own
+mechanism means cloister derives session behaviour from
+`packages[].transport.type` — so a fake transport makes cloister generate
+backends for tools that do not exist. notme was right to omit it.
+
+**Amended decision.** The image may also be derived from
+`_meta['io.modelcontextprotocol.registry/publisher-provided'].artifacts[]`,
+whose entries carry the same `registryType` / `identifier` / `version` shape.
+The schema makes `packages[]` optional and declares this `_meta` slot an
+extension point (`additionalProperties: true`), so an artifact-only document
+validates against the schema it names.
+
+Precedence: **`packages[]` wins when both are present.** A producer
+mid-migration may carry both, and behaviour must not change under one who adds
+the extension before dropping `packages[]`.
+
+**The load-bearing constraint.** An `artifacts` entry is **package identity
+only**. It never implies a transport, a session, or a backend.
+`declaredTransportTypes` and `deriveRequiresSession` deliberately do not read
+that slot, and two tests pin the negative — because leaking it there
+reintroduces precisely the defect the placeholder transport would have caused.
+
+This is a strictly additive read path; nothing about the `packages[]` behaviour
+above changes. Three-sided contract with notme (`6e5330`) and LLO's
+`leyline-mcp-descriptor` emitter side.
+
 ## Rationale
 
 ### Why `packages[]` (not a cloister-specific `_meta` field)

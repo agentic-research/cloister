@@ -1468,3 +1468,89 @@ test("probe: 200 without a digest header is unreachable, not present", async () 
   // put an empty digest in the lockfile.
   assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(200))).state, "unreachable");
 });
+
+// ── Artifact-only descriptors (cloister-02dd65 / notme-6e5330) ─────────────
+//
+// A producer that publishes IMAGES and serves no MCP cannot express itself in
+// the MCP registry schema: `Package.required` includes `transport`, so a
+// transport-less package fails the schema its own `$schema` key names. notme
+// hit this — and the wrong fix is a placeholder `{"type":"stdio"}`, which would
+// be schema-valid and semantically FALSE. Cloister derives session behaviour
+// from `packages[].transport.type`, so a fake transport would make cloister
+// generate backends for tools that do not exist.
+//
+// Three-sided contract (final, notme-6e5330): the 2025-12-11 schema makes
+// `packages[]` OPTIONAL and `_meta['io.modelcontextprotocol.registry/
+// publisher-provided']` is its designed extension slot. An artifact-only
+// producer emits NO `packages[]` and declares its images under
+// `.artifacts[]`. That validates, and implies no MCP surface.
+//
+// The load-bearing semantic, and the reason the negative tests below matter as
+// much as the positive one: an `artifacts` entry NEVER implies a session or a
+// backend. It is package identity, nothing else.
+
+const PUBLISHER_PROVIDED = "io.modelcontextprotocol.registry/publisher-provided";
+
+const ARTIFACT_ONLY = JSON.stringify({
+  $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  name: "io.github.agentic-research/notme",
+  version: "0.1.0-rc3",
+  _meta: {
+    [PUBLISHER_PROVIDED]: {
+      artifacts: [
+        { registryType: "oci", identifier: "ghcr.io/agentic-research/notme", version: "0.1.0-rc3" },
+        { registryType: "oci", identifier: "ghcr.io/agentic-research/notme-proxy", version: "0.1.0-rc3" },
+      ],
+    },
+  },
+});
+
+test("parsePackagesOci: derives the OCI pin from artifacts[] when packages[] is absent", () => {
+  const oci = parsePackagesOci(Buffer.from(ARTIFACT_ONLY));
+  assert.deepEqual(oci, {
+    identifier: "ghcr.io/agentic-research/notme",
+    version: "0.1.0-rc3",
+    digest: "",
+  });
+});
+
+test("parsePackagesOci: packages[] wins when BOTH are present", () => {
+  // Tolerant-parallel reading: a producer mid-migration may carry both. The
+  // MCP-native field is authoritative so behaviour cannot change under a
+  // producer who adds the extension before dropping packages[].
+  const both = JSON.parse(ARTIFACT_ONLY);
+  both.packages = [{ registryType: "oci", identifier: "ghcr.io/x/from-packages", version: "v9" }];
+  const oci = parsePackagesOci(Buffer.from(JSON.stringify(both)));
+  assert.equal(oci.identifier, "ghcr.io/x/from-packages");
+});
+
+test("parsePackagesOci: a non-oci artifact is skipped, not misread", () => {
+  const doc = JSON.parse(ARTIFACT_ONLY);
+  doc._meta[PUBLISHER_PROVIDED].artifacts = [
+    { registryType: "npm", identifier: "@scope/pkg", version: "1.0.0" },
+    { registryType: "oci", identifier: "ghcr.io/x/real", version: "v2" },
+  ];
+  assert.equal(parsePackagesOci(Buffer.from(JSON.stringify(doc))).identifier, "ghcr.io/x/real");
+});
+
+test("parsePackagesOci: an oci artifact with no identifier throws, like packages[]", () => {
+  const doc = JSON.parse(ARTIFACT_ONLY);
+  doc._meta[PUBLISHER_PROVIDED].artifacts = [{ registryType: "oci", version: "v1" }];
+  assert.throws(() => parsePackagesOci(Buffer.from(JSON.stringify(doc))), /no "identifier"/);
+});
+
+// ── The negative half: artifacts imply NOTHING about MCP ───────────────────
+
+test("artifacts[] NEVER implies a transport — declaredTransportTypes stays empty", () => {
+  // If artifacts leaked into transport derivation, an image-publishing producer
+  // would be treated as an MCP server. That is the exact failure notme avoided
+  // by refusing a placeholder transport; cloister must not reintroduce it.
+  assert.deepEqual(declaredTransportTypes(JSON.parse(ARTIFACT_ONLY)), []);
+});
+
+test("artifacts[] NEVER implies a session — deriveRequiresSession stays null", () => {
+  // null means "the document says nothing", NOT false. An artifact-only
+  // producer has no transport to reason from, and inventing `false` would be a
+  // claim the document does not make.
+  assert.equal(deriveRequiresSession(JSON.parse(ARTIFACT_ONLY)), null);
+});

@@ -561,18 +561,35 @@ export function parseServerJsonMeta(bytes) {
 }
 
 /**
- * Parse the tool's self-declared container image from a resolved
- * server.json's top-level `packages[]` (MCP registry field, sibling to
- * `_meta`). Per ADR-0038, an `oci` package entry is how a tool tells
- * cloister its own runtime image — the same way `_meta.art.cloister/v1`
- * tells cloister its tool surface.
+ * Parse the tool's self-declared container image from a resolved server.json.
+ *
+ * Two sources, in precedence order (ADR-0038; artifact-only mode per
+ * cloister-02dd65 / notme-6e5330):
+ *
+ *   1. `packages[]` — the MCP-native field. Authoritative when present.
+ *   2. `_meta['io.modelcontextprotocol.registry/publisher-provided'].artifacts`
+ *      — for a producer that publishes IMAGES and serves no MCP.
+ *
+ * Why (2) exists: the 2025-12-11 schema's `Package.required` includes
+ * `transport`, so an artifact-only producer cannot use `packages[]` without
+ * failing the schema its own `$schema` key names. The tempting fix — a
+ * placeholder `{"type":"stdio"}` — would be schema-valid and semantically
+ * FALSE, and cloister derives session behaviour from
+ * `packages[].transport.type`, so it would generate backends for tools that do
+ * not exist. The schema makes `packages[]` optional and this `_meta` slot is
+ * its designed extension point, so the artifact-only shape validates AND
+ * implies no MCP surface.
+ *
+ * An `artifacts` entry is PACKAGE IDENTITY ONLY — never a transport, a
+ * session, or a backend. See `declaredTransportTypes` / `deriveRequiresSession`,
+ * which deliberately do not read this slot.
  *
  * Returns `{ identifier, version, digest }` for the FIRST
- * `registryType == "oci"` entry, or `null` when the bytes aren't JSON,
- * carry no `packages[]`, or carry no oci entry (→ emit falls back to the
- * operator's `ext.image`). Throws when an oci entry is present but
- * malformed (declared-but-no-identifier) — an opt-in must be correct,
- * mirroring `parseServerJsonMeta`'s constraint handling.
+ * `registryType == "oci"` entry, or `null` when the bytes aren't JSON or
+ * neither source carries one (→ emit falls back to the operator's
+ * `ext.image`). Throws when an oci entry is present but malformed
+ * (declared-but-no-identifier) — an opt-in must be correct, mirroring
+ * `parseServerJsonMeta`'s constraint handling.
  */
 export function parsePackagesOci(bytes) {
   let doc;
@@ -582,12 +599,44 @@ export function parsePackagesOci(bytes) {
   } catch {
     return null; // Not JSON ⇒ no packages block.
   }
-  if (!doc || typeof doc !== "object" || !Array.isArray(doc.packages)) {
-    return null;
-  }
+  if (!doc || typeof doc !== "object") return null;
+
+  // Where to look, in precedence order.
+  //
+  // `packages[]` is the MCP-native field and stays authoritative: a producer
+  // mid-migration may carry BOTH, and behaviour must not change under one who
+  // adds the extension before dropping packages[] (tolerant-parallel reading,
+  // notme-6e5330).
+  //
+  // `_meta['io.modelcontextprotocol.registry/publisher-provided'].artifacts`
+  // is the fallback for an ARTIFACT-ONLY producer — one that publishes images
+  // and serves no MCP. Such a producer cannot use `packages[]` at all: the
+  // 2025-12-11 schema's `Package.required` includes `transport`, so a
+  // transport-less package fails the schema its own `$schema` names. The wrong
+  // fix is a placeholder `{"type":"stdio"}` — schema-valid and semantically
+  // false, which would make cloister generate backends for tools that do not
+  // exist. The schema makes `packages[]` optional and this `_meta` slot is its
+  // designed extension point, so an artifact-only file validates AND implies
+  // no MCP surface.
+  //
+  // CRITICAL SEMANTIC: an `artifacts` entry is PACKAGE IDENTITY ONLY. It never
+  // implies a transport, a session, or a backend. `declaredTransportTypes` and
+  // `deriveRequiresSession` deliberately do not read this slot — pinned by
+  // tests, because leaking it there is exactly the failure notme avoided by
+  // refusing a placeholder transport.
+  const publisherProvided = doc._meta?.["io.modelcontextprotocol.registry/publisher-provided"];
+  const candidates = Array.isArray(doc.packages)
+    ? doc.packages
+    : Array.isArray(publisherProvided?.artifacts)
+      ? publisherProvided.artifacts
+      : null;
+  if (!candidates) return null;
+
+  const source = Array.isArray(doc.packages) ? "packages[]" : "_meta publisher-provided artifacts[]";
+
   // Tolerate both the camelCase (`registryType`) and snake_case
   // (`registry_type`) spellings the MCP registry schema has used.
-  const oci = doc.packages.find(
+  const oci = candidates.find(
     (p) => p && typeof p === "object" && (p.registryType ?? p.registry_type) === "oci",
   );
   if (!oci) return null;
@@ -595,8 +644,8 @@ export function parsePackagesOci(bytes) {
   const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
   if (!identifier) {
     throw new Error(
-      `packages[] declares a registryType="oci" entry with no "identifier" — ` +
-      `an oci package must name a pullable image reference`,
+      `${source} declares a registryType="oci" entry with no "identifier" — ` +
+      `an oci entry must name a pullable image reference`,
     );
   }
   const version = typeof oci.version === "string" ? oci.version.trim() : "";
@@ -905,6 +954,12 @@ export function deriveRequiresSession(doc) {
  */
 export function declaredTransportTypes(doc) {
   if (!doc || typeof doc !== "object") return [];
+  // Deliberately does NOT read
+  // `_meta['io.modelcontextprotocol.registry/publisher-provided'].artifacts`.
+  // Those entries are package identity for an artifact-only producer and imply
+  // no MCP surface (cloister-02dd65 / notme-6e5330). Reading them here would
+  // treat an image publisher as an MCP server — the exact failure notme avoided
+  // by refusing a placeholder transport. Pinned by test.
   const out = [];
   const push = (t) => { if (typeof t === "string" && t) out.push(t); };
 
