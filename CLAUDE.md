@@ -24,7 +24,8 @@ top-level docs describe *what*.
   backends, scopes. Edit this, then `task manifest`. Schema lives at
   `manifest/cloister.capnp`. Schema-evolution rules: append-only fields,
   monotonically-increasing ordinals, never renumber. Per ADR-0004.
-- **`config.capnp` + `wrangler.toml`** — must stay in sync. Same
+- **`config.capnp` + `wrangler.toml`** — must stay in sync, now ENFORCED by
+  `lint:binding-parity` rather than asserted (`cloister-9aeb3f`). Same
   bindings (`BEAD_STORE`, `NOTME`, `LLO_MCP_URL`, etc.) declared on
   both paths because workerd-local and CF-prod each parse their own.
 - **`docs/adr/`** — every architectural decision lives here. Add a new
@@ -98,7 +99,7 @@ Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bund
 
 ### Trust-surface rails
 
-Eight further rails run per `task lint`. Each exists because an invariant was
+Ten further rails run per `task lint`. Each exists because an invariant was
 stated somewhere (an ADR, a schema comment, a code comment) but nothing
 enforced it, and it drifted. Each has a companion test asserting *the shipped
 tree satisfies it*, so the rail cannot pass vacuously.
@@ -111,6 +112,8 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
+| `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
+| `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 

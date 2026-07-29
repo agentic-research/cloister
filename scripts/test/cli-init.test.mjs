@@ -221,10 +221,15 @@ for (const recipe of RECIPES) {
 
       // Sanity: cluster.toml body declares the metadata table (the
       // operator-readable surface entry point).
+      // lint-allow-rawparse: asserting on the EMITTED TEXT — that the generator
+      // wrote the section — not extracting data. A parser would confirm semantics;
+      // this test is about what was written to the file.
       const tomlBody = readFileSync(resolve(tmp.dir, "cluster.toml"), "utf8");
       assert.match(tomlBody, /\[metadata\]/);
 
       // Sanity: compose body declares cloister-router.
+      // lint-allow-rawparse: same — asserts the emitted compose text names the
+      // router service, not that a parsed document has that key.
       const compose = readFileSync(resolve(tmp.dir, "cluster.compose.yaml"), "utf8");
       assert.match(compose, /cloister-router/);
     } finally {
