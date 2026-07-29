@@ -36,8 +36,21 @@ import { verifyCertChain, type CertClaims } from "../wire/signet-verify.js";
 
 // ── Error codes ──────────────────────────────────────────────────────────
 //
-// JSON-RPC 2.0 error codes outside the reserved -32700..-32099 range.
-// Cloister-specific. Stable for clients to switch on.
+// Cloister-specific JSON-RPC error codes. Stable for clients to switch on.
+//
+// Allocation (MCP 2026-07-28 error-code policy): -32000..-32019 is
+// implementation-defined — every code below lives there, grandfathered.
+// -32020..-32099 is RESERVED for the MCP specification (e.g.
+// HeaderMismatchError -32020, emitted by validateMcpHeaders in routes/mcp.ts)
+// — never allocate cloister codes in that range. This comment previously
+// claimed the codes sat "outside the reserved -32700..-32099 range" while
+// defining them inside it; the new policy replaces that framing.
+//
+// Known cross-revision ambiguity, deliberate: ERR_SCOPE_DENIED is -32002,
+// which pre-2026-07-28 MCP used for resource-not-found (since moved to
+// -32602). A client on the old revision may read cloister's scope-denied as
+// not-found. Renumbering would break existing callers for a transitional
+// ambiguity; the message string disambiguates.
 
 export const ERR_UNAUTHENTICATED = -32001;
 export const ERR_SCOPE_DENIED    = -32002;

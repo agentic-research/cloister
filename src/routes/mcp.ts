@@ -148,6 +148,8 @@ export function validateMcpHeaders(
  * the `io.modelcontextprotocol` namespace.
  */
 const META_PROTOCOL_VERSION_KEY = "io.modelcontextprotocol/protocolVersion";
+/** Result-side `_meta` key: server identity on every sessionless result (SEP-2575 SHOULD). */
+const META_SERVER_INFO_KEY = "io.modelcontextprotocol/serverInfo";
 
 /**
  * Capabilities cloister-as-server advertises. In sessionless mode these
@@ -279,6 +281,24 @@ export class McpEdgeRoute implements EdgeRoute {
 
     const sessionless = headerVersion !== null;
     const out = await this.dispatch(req, env, lease, nowMs, sessionless);
+
+    // ── 2026-07-28 result shape (cloister-c8e3bd) ─────────────────────────
+    //
+    // Every RESULT on the sessionless surface carries the required
+    // `resultType` ("complete" — cloister has no MRTR interim results yet,
+    // cloister-db14c3) and the SHOULD-level `_meta` serverInfo. Done at this
+    // single choke point so beads.ts and every future backend inherit it.
+    // Deliberately sessionless-only: legacy 2025-11-25 responses stay
+    // byte-shaped as before — that revision has no resultType. Errors are
+    // untouched: resultType is a field of results, not error objects.
+    if (sessionless && out.result !== undefined && out.result !== null
+        && typeof out.result === "object" && !Array.isArray(out.result)) {
+      const result = out.result as Record<string, unknown>;
+      if (result.resultType === undefined) result.resultType = "complete";
+      const meta = (result._meta ?? {}) as Record<string, unknown>;
+      if (meta[META_SERVER_INFO_KEY] === undefined) meta[META_SERVER_INFO_KEY] = SERVER_INFO;
+      result._meta = meta;
+    }
 
     // ── Receipt emission (cloister-ae713f / RECEIPTS.md §2.1, §2.6) ───────
     //
@@ -498,6 +518,13 @@ export class McpEdgeRoute implements EdgeRoute {
       case "tools/call":
         return this.callTool(req, env, lease, nowMs);
       case "ping":
+        // REMOVED in 2026-07-28 (with logging/setLevel and roots notify) —
+        // not deprecated, removed. Legacy clients keep it for the 2025-11-25
+        // lifecycle; the sessionless surface answers as it would any unknown
+        // method, so its absence is not a version oracle.
+        if (sessionless) {
+          return errResponse(req.id, -32601, "method not found: ping");
+        }
         return okResponse(req.id, {});
       default:
         return errResponse(req.id, -32601, `method not found: ${req.method}`);

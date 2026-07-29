@@ -61,7 +61,7 @@ graph TB
     subgraph host ["Host runtime — workerd router and tenants;<br/>optional krunvm boundary for external tools on macOS"]
         subgraph hyp ["Hypervisor layer — cloister-router bundle"]
             ROUTER["Router<br/>declarative EdgeRoute table<br/>(from cloister.capnp)"]
-            MCP["MCP face<br/>/mcp (JSON-RPC + SSE)"]
+            MCP["MCP face<br/>/mcp (JSON-RPC / Streamable HTTP)"]
             IDENT["/identity/*<br/>(Interlace lease verification,<br/>per ADR-0007)"]
             WK[".well-known/<br/>interlace/index.json<br/>(capability discovery)"]
             HLT["/health"]
