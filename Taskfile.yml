@@ -94,19 +94,13 @@ tasks:
   # imports it as a side-effect to keep it in the dependency graph for
   # `task lint`'s tsc pass.
   schema-bridge:build:
-    desc: "Build LLO's leyline-schema-bridge capnp plugins (zod + go) into rs/target/release."
-    dir: rs
+    desc: "Fetch LLO's schema-bridge capnp plugins (zod + go) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."
     cmds:
-      # Build both bins from the SHA-pinned git dep anchored in
-      # crates/cas — the leyline-sign-helper pattern (`cargo build -p
-      # <llo-crate> --bin <bin>` emits into the shared rs/target).
-      - cargo build --release -p leyline-schema-bridge --bin capnpc-schema-bridge-zod --bin capnpc-schema-bridge-go
+      - node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod
+      - node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-go
     sources:
-      - crates/cas/Cargo.toml
-      - Cargo.lock
-    generates:
-      - target/release/capnpc-schema-bridge-zod
-      - target/release/capnpc-schema-bridge-go
+      - schema-bridge.lock.json
+      - scripts/fetch-schema-bridge.mjs
 
   harness:sandbox:build:
     desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
@@ -158,7 +152,7 @@ tasks:
         # :check-drift below.
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -166,7 +160,7 @@ tasks:
         mv "$TMPDIR/cluster.zod.ts" src/generated/cluster.zod.ts
     sources:
       - manifest/cluster.capnp
-      - rs/target/release/capnpc-schema-bridge-zod
+      - schema-bridge.lock.json
     generates:
       - src/generated/cluster.zod.ts
 
@@ -192,7 +186,7 @@ tasks:
         # Check that the output file actually landed before diffing,
         # otherwise `diff` would fail on a missing file with a
         # misleading "DRIFT" framing.
-        capnp compile -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -207,7 +201,7 @@ tasks:
         echo "OK — cluster.zod.ts matches the schema-bridge codegen output"
     sources:
       - manifest/cluster.capnp
-      - rs/target/release/capnpc-schema-bridge-zod
+      - schema-bridge.lock.json
       - src/generated/cluster.zod.ts
 
   cluster:go:
@@ -220,7 +214,7 @@ tasks:
         # silently write nothing on stderr; existence-check first).
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.go" ]; then
           echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
           exit 1
@@ -232,7 +226,7 @@ tasks:
         gofmt -s "$TMPDIR/cluster.go" > pkg/cluster/cluster.go
     sources:
       - manifest/cluster.capnp
-      - rs/target/release/capnpc-schema-bridge-go
+      - schema-bridge.lock.json
     generates:
       - pkg/cluster/cluster.go
 
@@ -244,7 +238,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/cluster.capnp
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/cluster.capnp
         if [ ! -f "$TMPDIR/cluster.go" ]; then
           echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
           exit 1
@@ -260,7 +254,7 @@ tasks:
         echo "OK — pkg/cluster/cluster.go matches the schema-bridge Go codegen output"
     sources:
       - manifest/cluster.capnp
-      - rs/target/release/capnpc-schema-bridge-go
+      - schema-bridge.lock.json
       - pkg/cluster/cluster.go
 
   cluster:go:verify:
@@ -287,7 +281,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -295,7 +289,7 @@ tasks:
         mv "$TMPDIR/identity.zod.ts" src/generated/identity.zod.ts
     sources:
       - manifest/identity.capnp
-      - rs/target/release/capnpc-schema-bridge-zod
+      - schema-bridge.lock.json
     generates:
       - src/generated/identity.zod.ts
 
@@ -307,7 +301,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-zod:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
           echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
           exit 1
@@ -322,7 +316,7 @@ tasks:
         echo "OK — identity.zod.ts matches the schema-bridge codegen output"
     sources:
       - manifest/identity.capnp
-      - rs/target/release/capnpc-schema-bridge-zod
+      - schema-bridge.lock.json
       - src/generated/identity.zod.ts
 
   identity:go:
@@ -333,7 +327,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.go" ]; then
           echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
           exit 1
@@ -341,7 +335,7 @@ tasks:
         gofmt -s "$TMPDIR/identity.go" > pkg/identity/identity.go
     sources:
       - manifest/identity.capnp
-      - rs/target/release/capnpc-schema-bridge-go
+      - schema-bridge.lock.json
     generates:
       - pkg/identity/identity.go
 
@@ -353,7 +347,7 @@ tasks:
         set -eu
         TMPDIR=$(mktemp -d)
         trap 'rm -rf "$TMPDIR"' EXIT
-        capnp compile -I./wire -o./rs/target/release/capnpc-schema-bridge-go:"$TMPDIR" manifest/identity.capnp
+        capnp compile -I./wire -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/identity.capnp
         if [ ! -f "$TMPDIR/identity.go" ]; then
           echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
           exit 1
@@ -369,7 +363,7 @@ tasks:
         echo "OK — pkg/identity/identity.go matches the schema-bridge Go codegen output"
     sources:
       - manifest/identity.capnp
-      - rs/target/release/capnpc-schema-bridge-go
+      - schema-bridge.lock.json
       - pkg/identity/identity.go
 
   cluster:emit:
@@ -1181,7 +1175,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/oci-artifact.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/fetch-schema-bridge.test.mjs scripts/test/oci-artifact.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
@@ -1256,7 +1250,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

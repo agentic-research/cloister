@@ -15,8 +15,8 @@ export type CertScope = "bridgeCert" | "authorityManage" | "certMint";
 
 export const KeyEntrySchema: z.ZodType<KeyEntry> = z.lazy(() =>
   z.object({
-    kid: z.string(),
-    publicKey: z.instanceof(Uint8Array),
+    kid: z.string().default(""),
+    publicKey: z.instanceof(Uint8Array).default(new Uint8Array()),
   }).strict());
 
 export interface KeyEntry {
@@ -26,13 +26,13 @@ export interface KeyEntry {
 
 export const CABundleSchema: z.ZodType<CABundle> = z.lazy(() =>
   z.object({
-    epoch: z.number().int().nonnegative(),
-    seqno: z.number().int().nonnegative(),
-    keys: z.array(KeyEntrySchema).readonly(),
-    keyId: z.string(),
-    prevKeyId: z.string(),
-    issuedAt: z.number().int(),
-    signature: z.instanceof(Uint8Array),
+    epoch: z.number().int().nonnegative().default(0),
+    seqno: z.number().int().nonnegative().default(0),
+    keys: z.array(KeyEntrySchema).readonly().default([]),
+    keyId: z.string().default(""),
+    prevKeyId: z.string().default(""),
+    issuedAt: z.number().int().default(0),
+    signature: z.instanceof(Uint8Array).default(new Uint8Array()),
   }).strict());
 
 export interface CABundle {
@@ -47,8 +47,8 @@ export interface CABundle {
 
 export const TokenClaimsSchema: z.ZodType<TokenClaims> = z.lazy(() =>
   z.object({
-    keyId: z.string(),
-    epoch: z.number().int().nonnegative(),
+    keyId: z.string().default(""),
+    epoch: z.number().int().nonnegative().default(0),
   }).strict());
 
 export interface TokenClaims {
@@ -58,8 +58,8 @@ export interface TokenClaims {
 
 export const RevocationResultSchema: z.ZodType<RevocationResult> = z.lazy(() =>
   z.object({
-    revoked: z.boolean(),
-    reason: RevocationReasonSchema,
+    revoked: z.boolean().default(false),
+    reason: RevocationReasonSchema.default("epochMismatch"),
   }).strict());
 
 export interface RevocationResult {
@@ -69,11 +69,11 @@ export interface RevocationResult {
 
 export const BridgeCertResultSchema: z.ZodType<BridgeCertResult> = z.lazy(() =>
   z.object({
-    certificate: z.string(),
-    privateKey: z.string(),
-    expiresAt: z.number().int(),
-    subject: z.string(),
-    scope: CertScopeSchema,
+    certificate: z.string().default(""),
+    privateKey: z.string().default(""),
+    expiresAt: z.number().int().default(0),
+    subject: z.string().default(""),
+    scope: CertScopeSchema.default("bridgeCert"),
   }).strict());
 
 export interface BridgeCertResult {
@@ -86,15 +86,15 @@ export interface BridgeCertResult {
 
 export const BridgeCertPairSchema: z.ZodType<BridgeCertPair> = z.lazy(() =>
   z.object({
-    mtlsCert: z.string(),
-    signingCert: z.string(),
-    identity: z.string(),
-    scopes: z.array(z.string()).readonly(),
-    expiresAt: z.number().int(),
-    subject: z.string(),
-    binding: z.string(),
-    epoch: z.number().int().nonnegative(),
-    authMethod: z.string(),
+    mtlsCert: z.string().default(""),
+    signingCert: z.string().default(""),
+    identity: z.string().default(""),
+    scopes: z.array(z.string()).readonly().default([]),
+    expiresAt: z.number().int().default(0),
+    subject: z.string().default(""),
+    binding: z.string().default(""),
+    epoch: z.number().int().nonnegative().default(0),
+    authMethod: z.string().default(""),
   }).strict());
 
 export interface BridgeCertPair {
@@ -111,8 +111,8 @@ export interface BridgeCertPair {
 
 export const AuthorityStateSchema: z.ZodType<AuthorityState> = z.lazy(() =>
   z.object({
-    epoch: z.number().int().nonnegative(),
-    keyId: z.string(),
+    epoch: z.number().int().nonnegative().default(0),
+    keyId: z.string().default(""),
   }).strict());
 
 export interface AuthorityState {
@@ -137,8 +137,8 @@ export type Proof = { ghaOidc: GHAClaims } | { passkey: Uint8Array } | { bootstr
 
 export const CertPairPublicKeysSchema: z.ZodType<CertPairPublicKeys> = z.lazy(() =>
   z.object({
-    mtls: z.string(),
-    signing: z.string(),
+    mtls: z.string().default(""),
+    signing: z.string().default(""),
   }).strict());
 
 export interface CertPairPublicKeys {
@@ -148,8 +148,8 @@ export interface CertPairPublicKeys {
 
 export const CertPairPoPSchema: z.ZodType<CertPairPoP> = z.lazy(() =>
   z.object({
-    mtls: z.instanceof(Uint8Array),
-    signing: z.instanceof(Uint8Array),
+    mtls: z.instanceof(Uint8Array).default(new Uint8Array()),
+    signing: z.instanceof(Uint8Array).default(new Uint8Array()),
   }).strict());
 
 export interface CertPairPoP {
@@ -172,22 +172,22 @@ export interface CertPairRequest {
 
 export const GHAClaimsSchema: z.ZodType<GHAClaims> = z.lazy(() =>
   z.object({
-    iss: z.string(),
-    sub: z.string(),
-    aud: z.string(),
-    exp: z.number().int(),
-    iat: z.number().int(),
-    jti: z.string(),
-    repository: z.string(),
-    repositoryOwner: z.string(),
-    ref: z.string(),
-    sha: z.string(),
-    actor: z.string(),
-    workflow: z.string(),
-    jobWorkflowRef: z.string(),
-    runId: z.string(),
-    eventName: z.string(),
-    environment: z.string(),
+    iss: z.string().default(""),
+    sub: z.string().default(""),
+    aud: z.string().default(""),
+    exp: z.number().int().default(0),
+    iat: z.number().int().default(0),
+    jti: z.string().default(""),
+    repository: z.string().default(""),
+    repositoryOwner: z.string().default(""),
+    ref: z.string().default(""),
+    sha: z.string().default(""),
+    actor: z.string().default(""),
+    workflow: z.string().default(""),
+    jobWorkflowRef: z.string().default(""),
+    runId: z.string().default(""),
+    eventName: z.string().default(""),
+    environment: z.string().default(""),
   }).strict());
 
 export interface GHAClaims {
@@ -211,7 +211,7 @@ export interface GHAClaims {
 
 export const CertRequestSchema: z.ZodType<CertRequest> = z.lazy(() =>
   z.object({
-    scopes: z.array(CertScopeSchema).readonly(),
+    scopes: z.array(CertScopeSchema).readonly().default([]),
     proof: ProofSchema,
   }).strict());
 
@@ -222,9 +222,9 @@ export interface CertRequest {
 
 export const BeadRefSchema: z.ZodType<BeadRef> = z.lazy(() =>
   z.object({
-    repo: z.string(),
-    beadId: z.string(),
-    contentHash: z.string(),
+    repo: z.string().default(""),
+    beadId: z.string().default(""),
+    contentHash: z.string().default(""),
   }).strict());
 
 export interface BeadRef {
@@ -235,10 +235,10 @@ export interface BeadRef {
 
 export const AgentIdentitySchema: z.ZodType<AgentIdentity> = z.lazy(() =>
   z.object({
-    name: z.string(),
-    provider: z.string(),
-    model: z.string(),
-    definition: z.string(),
+    name: z.string().default(""),
+    provider: z.string().default(""),
+    model: z.string().default(""),
+    definition: z.string().default(""),
   }).strict());
 
 export interface AgentIdentity {
@@ -250,9 +250,9 @@ export interface AgentIdentity {
 
 export const PipelineContextSchema: z.ZodType<PipelineContext> = z.lazy(() =>
   z.object({
-    phases: z.array(z.string()).readonly(),
-    currentPhase: z.number().int().nonnegative(),
-    pipelineId: z.string(),
+    phases: z.array(z.string()).readonly().default([]),
+    currentPhase: z.number().int().nonnegative().default(0),
+    pipelineId: z.string().default(""),
   }).strict());
 
 export interface PipelineContext {
@@ -280,13 +280,13 @@ export interface DispatchPredicate {
 
 export const HandoffPredicateSchema: z.ZodType<HandoffPredicate> = z.lazy(() =>
   z.object({
-    fromPhase: z.string(),
-    toPhase: z.string(),
-    summary: z.string(),
-    filesChanged: z.array(z.string()).readonly(),
-    commitShas: z.array(z.string()).readonly(),
-    previousChainHash: z.string(),
-    chainHash: z.string(),
+    fromPhase: z.string().default(""),
+    toPhase: z.string().default(""),
+    summary: z.string().default(""),
+    filesChanged: z.array(z.string()).readonly().default([]),
+    commitShas: z.array(z.string()).readonly().default([]),
+    previousChainHash: z.string().default(""),
+    chainHash: z.string().default(""),
     signingCert: BridgeCertResultSchema,
     certPair: BridgeCertPairSchema,
   }).strict());
@@ -305,9 +305,9 @@ export interface HandoffPredicate {
 
 export const SignRequestSchema: z.ZodType<SignRequest> = z.lazy(() =>
   z.object({
-    digest: z.instanceof(Uint8Array),
-    algorithm: z.string(),
-    purpose: z.string(),
+    digest: z.instanceof(Uint8Array).default(new Uint8Array()),
+    algorithm: z.string().default(""),
+    purpose: z.string().default(""),
   }).strict());
 
 export interface SignRequest {
@@ -318,8 +318,8 @@ export interface SignRequest {
 
 export const SignResponseSchema: z.ZodType<SignResponse> = z.lazy(() =>
   z.object({
-    signature: z.instanceof(Uint8Array),
-    identity: z.string(),
+    signature: z.instanceof(Uint8Array).default(new Uint8Array()),
+    identity: z.string().default(""),
   }).strict());
 
 export interface SignResponse {
@@ -329,11 +329,11 @@ export interface SignResponse {
 
 export const OraclePublicKeySchema: z.ZodType<OraclePublicKey> = z.lazy(() =>
   z.object({
-    key: z.instanceof(Uint8Array),
-    algorithm: z.string(),
-    certPem: z.string(),
-    identity: z.string(),
-    expiresAt: z.number().int(),
+    key: z.instanceof(Uint8Array).default(new Uint8Array()),
+    algorithm: z.string().default(""),
+    certPem: z.string().default(""),
+    identity: z.string().default(""),
+    expiresAt: z.number().int().default(0),
   }).strict());
 
 export interface OraclePublicKey {
@@ -346,9 +346,9 @@ export interface OraclePublicKey {
 
 export const OracleInfoSchema: z.ZodType<OracleInfo> = z.lazy(() =>
   z.object({
-    keys: z.array(OraclePublicKeySchema).readonly(),
-    scopes: z.array(z.string()).readonly(),
-    epoch: z.number().int().nonnegative(),
+    keys: z.array(OraclePublicKeySchema).readonly().default([]),
+    scopes: z.array(z.string()).readonly().default([]),
+    epoch: z.number().int().nonnegative().default(0),
   }).strict());
 
 export interface OracleInfo {

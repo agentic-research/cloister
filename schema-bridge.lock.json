@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "Pinned schema-bridge generator binaries from ley-line-open releases.",
+    "",
+    "The DIGEST is the trust root, not the tag. A tag is mutable and a release",
+    "asset can be replaced under a stable tag name; the failure would be silent",
+    "because generated output looks plausible either way. This is the same",
+    "lesson as the OCI mutable-tag work (cloister-195e47) and the stale",
+    "generator pin it replaces (cloister-9170d0), where a v0.7.9 plugin",
+    "regenerated cluster.zod.ts green for five minor versions.",
+    "",
+    "SHA256SUMS ships in the release too, but it is NOT the trust root: it",
+    "comes from the same place as the binary, so a compromised release supplies",
+    "both. These digests were captured out-of-band and are what a download is",
+    "checked against.",
+    "",
+    "Bumping: change version, replace ALL digests, run `task schema-bridge:fetch`",
+    "on one platform to confirm, and regenerate. A digest that does not match",
+    "fails the build closed."
+  ],
+  "repo": "agentic-research/ley-line-open",
+  "version": "v0.12.1",
+  "binaries": {
+    "capnpc-schema-bridge-zod": {
+      "darwin-amd64": "70e89c323c50c08dcce5c16356e0f1b30b7bd77f0328c11c7f20ca106ad18b5f",
+      "darwin-arm64": "008e3eea5c3599902940faaeefadafe77f01806c1231ff69fff3d1d65e76f4f2",
+      "linux-amd64": "a9dbd463cc39dbf95dca2e6f4f0e61998a24dd856cfdb32582a1e2775aa6bb08",
+      "linux-arm64": "a60568980510256a666ca6c681e199a3e749ac5821614319c7aa2e1c8f200ca5"
+    },
+    "capnpc-schema-bridge-go": {
+      "darwin-amd64": "728c165cbe1b7ab720cddbf42038a64f4b269f782822cc47ebe61f388c1ba4e0",
+      "darwin-arm64": "41d0b5559f6914d08f253591c3aa02d55c4d7d4405ef44ae1b0b3a254aeb1a9a",
+      "linux-amd64": "fdf0afbd20bac275837cc1329af5d03ca2867b836d1b20f787d3f31d19a5bcbe",
+      "linux-arm64": "2464296619eebcadb111909f20639efbd853cd1c60c439f1c9648bacbd35410e"
+    }
+  }
+}
