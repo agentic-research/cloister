@@ -35,6 +35,15 @@ export interface ToolBackend {
    * calls. Errors are swallowed — Asserted catalog stays as fallback.
    */
   refreshTools?(env: Env): Promise<void>;
+  /**
+   * Optional cache metadata from the backend's last refresh (SEP-2549 /
+   * cloister-db6ac8). For proxy backends this is whatever the UPSTREAM's
+   * tools/list declared; the MCP edge merges across backends by taking the
+   * MINIMUM ttlMs — serving one backend's entries past the freshness it
+   * declared is a correctness bug — and never widens cacheScope beyond
+   * "private". Backends without an opinion omit the method.
+   */
+  cacheMeta?(): { ttlMs?: number; cacheScope?: "public" | "private" } | undefined;
 }
 
 export class JsonRpcInvocationError extends Error {

@@ -489,9 +489,29 @@ export class McpProxyToolBackend implements ToolBackend {
    * multi-backend-per-upstream shape (P3 resolver) where each backend
    * sees the same upstream `tools/list` but owns a disjoint slice.
    */
+  /**
+   * Upstream cache metadata from the last tools/list (SEP-2549 /
+   * cloister-db6ac8). Undefined until the upstream declares something —
+   * silence is not a claim, and the edge treats a silent backend as
+   * "no opinion" rather than letting it veto or widen the merge.
+   */
+  private upstreamCacheMeta: { ttlMs?: number; cacheScope?: "public" | "private" } | undefined;
+
+  cacheMeta(): { ttlMs?: number; cacheScope?: "public" | "private" } | undefined {
+    return this.upstreamCacheMeta;
+  }
+
   private captureDerivedTools(result: unknown): void {
     const upstreamResult = result as UpstreamToolsListResult | undefined;
     if (!upstreamResult || !Array.isArray(upstreamResult.tools)) return;
+
+    // CacheableResult fields, when the upstream sends them.
+    const raw = result as { ttlMs?: unknown; cacheScope?: unknown };
+    const ttlMs = typeof raw.ttlMs === "number" ? raw.ttlMs : undefined;
+    const cacheScope = raw.cacheScope === "public" || raw.cacheScope === "private" ? raw.cacheScope : undefined;
+    this.upstreamCacheMeta = ttlMs !== undefined || cacheScope !== undefined
+      ? { ...(ttlMs !== undefined ? { ttlMs } : {}), ...(cacheScope !== undefined ? { cacheScope } : {}) }
+      : undefined;
 
     const next = new Map<string, McpTool>();
     for (const t of upstreamResult.tools) {
