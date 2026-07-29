@@ -512,9 +512,25 @@ export class McpEdgeRoute implements EdgeRoute {
           implementationStatus: "stub",
         });
 
-      case "tools/list":
+      case "tools/list": {
         await Promise.all(this.backends.map(b => b.refreshTools?.(env)));
-        return okResponse(req.id, { tools: this.allTools() });
+        const tools = this.allTools();
+        if (!sessionless) return okResponse(req.id, { tools });
+        // CacheableResult (SEP-2549, required on the 2026-07-28 surface).
+        // ttlMs: MINIMUM across backends that report one — the aggregate
+        // must not outlive any contributor's declared freshness; none
+        // reporting ⇒ 0 (always revalidate). cacheScope: "private"
+        // unconditionally — this response was authorized by a specific cert
+        // (ADR-0016), and an upstream's "public" must never widen that.
+        const ttls = this.backends
+          .map(b => b.cacheMeta?.()?.ttlMs)
+          .filter((t): t is number => typeof t === "number");
+        return okResponse(req.id, {
+          tools,
+          ttlMs:      ttls.length > 0 ? Math.min(...ttls) : 0,
+          cacheScope: "private",
+        });
+      }
       case "tools/call":
         return this.callTool(req, env, lease, nowMs);
       case "ping":
@@ -546,6 +562,10 @@ export class McpEdgeRoute implements EdgeRoute {
         out.push(t);
       }
     }
+    // Deterministic order (2026-07-28 SHOULD): sorted by name, so client
+    // caches and LLM prompt caches see a stable listing regardless of
+    // backend registration order or upstream response order.
+    out.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     return out;
   }
 

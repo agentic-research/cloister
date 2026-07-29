@@ -57,7 +57,9 @@ describe("McpEdgeRoute + LeylineNetToolBackend integration", () => {
     const res = await postMcp(route, { jsonrpc: "2.0", method: "tools/list", id: 1 }, envWith("http://x/"));
     const body = (await res.json()) as JsonRpcResponse;
     const tools = (body.result as { tools: Array<{ name: string }> }).tools.map(t => t.name);
-    expect(tools).toEqual(["rsry_status", "rsry_search"]);
+    expect(tools).toEqual(// Sorted by name (2026-07-28 deterministic-ordering SHOULD) — this used
+      // to pin registration order.
+      ["rsry_search", "rsry_status"]);
   });
 
   it("tools/call: success surfaces upstream's text-content as MCP content[0].text", async () => {

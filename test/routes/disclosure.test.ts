@@ -312,6 +312,13 @@ describe("DisclosureRoute.handle — pagination", () => {
 // ── Error paths: constant-time + indistinguishability ───────────────────
 
 describe("DisclosureRoute.handle — error paths (threat model §9.2)", () => {
+  it("the constant-time 404 carries no-store — a cached deny outlives the gate (cloister-db6ac8)", async () => {
+    const route = new DisclosureRoute();
+    const res = await route.handle(makeReq(`/interlace/peers/${PEER}`), makeEnv());
+    expect(res.status).toBe(404);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("returns 404 with constant-time body for an unknown peer (no rows)", async () => {
     const route = new DisclosureRoute();
     const res = await route.handle(makeReq(`/interlace/peers/${PEER}`), makeEnv());

@@ -838,3 +838,24 @@ describe("McpProxyToolBackend — outbound header derivation", () => {
     for (const c of listCalls) expect(c.headers["mcp-name"]).toBeUndefined();
   });
 });
+
+
+// ── Upstream CacheableResult capture (SEP-2549 / cloister-db6ac8) ──────────
+describe("McpProxyToolBackend — upstream cache metadata", () => {
+  const spec: HttpForwardBackend = { urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true };
+
+  it("captures ttlMs + cacheScope from the upstream tools/list result", async () => {
+    const { fetcher } = mockFetch(() =>
+      jsonResponse({ ...TOOLS_LIST_RESULT, ttlMs: 30000, cacheScope: "private" }));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/"));
+    expect(b.cacheMeta()).toEqual({ ttlMs: 30000, cacheScope: "private" });
+  });
+
+  it("returns undefined when the upstream declares nothing — silence is not a claim", async () => {
+    const { fetcher } = mockFetch(() => jsonResponse(TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/"));
+    expect(b.cacheMeta()).toBeUndefined();
+  });
+});

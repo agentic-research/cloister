@@ -566,3 +566,83 @@ describe("2026-07-28 result shape and removed methods", () => {
     expect((body.error as Record<string, unknown>).resultType).toBeUndefined();
   });
 });
+
+
+// ── CacheableResult on tools/list (SEP-2549 / cloister-db6ac8) ─────────────
+//
+// ttlMs + cacheScope are REQUIRED on list results in 2026-07-28. Rules here:
+// cacheScope is "private" unconditionally — the response was authorized by a
+// specific cert (ADR-0016 private registry), and an upstream's "public" must
+// never widen that. ttlMs merges as the MINIMUM across backends that report
+// one (serving a backend's entries past their declared freshness is a
+// correctness bug, not a tuning choice); no reports ⇒ 0 (always revalidate).
+describe("CacheableResult on tools/list", () => {
+  const post = (backends: ToolBackend[]) =>
+    new McpEdgeRoute(backends).handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "MCP-Protocol-Version": "2026-07-28" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      fakeEnv(),
+    );
+
+  function stubBackend(name: string, meta?: { ttlMs?: number; cacheScope?: "public" | "private" }): ToolBackend {
+    return {
+      handles: (t: string) => t === name,
+      tools:   () => [{ name, description: name, inputSchemaJson: '{"type":"object"}' }],
+      invoke:  async () => ({ content: [] }),
+      ...(meta ? { cacheMeta: () => meta } : {}),
+    } as unknown as ToolBackend;
+  }
+
+  it("sessionless tools/list carries ttlMs + cacheScope private", async () => {
+    const res = await post([stubBackend("a_tool")]);
+    const body = (await res.json()) as JsonRpcResponse;
+    const result = body.result as Record<string, unknown>;
+    expect(result.cacheScope).toBe("private");
+    expect(typeof result.ttlMs).toBe("number");
+  });
+
+  it("ttlMs merges as the MINIMUM across reporting backends", async () => {
+    const res = await post([
+      stubBackend("a_tool", { ttlMs: 60000, cacheScope: "private" }),
+      stubBackend("b_tool", { ttlMs: 5000,  cacheScope: "private" }),
+      stubBackend("c_tool"), // silent backend must not veto the merge
+    ]);
+    const result = ((await res.json()) as JsonRpcResponse).result as Record<string, unknown>;
+    expect(result.ttlMs).toBe(5000);
+  });
+
+  it("an upstream declaring public cannot widen the merged scope", async () => {
+    const res = await post([stubBackend("a_tool", { ttlMs: 60000, cacheScope: "public" })]);
+    const result = ((await res.json()) as JsonRpcResponse).result as Record<string, unknown>;
+    expect(result.cacheScope).toBe("private");
+  });
+
+  it("no backend reporting ⇒ ttlMs 0 (always revalidate)", async () => {
+    const res = await post([stubBackend("a_tool")]);
+    const result = ((await res.json()) as JsonRpcResponse).result as Record<string, unknown>;
+    expect(result.ttlMs).toBe(0);
+  });
+
+  it("tools/list ordering is deterministic — sorted by name (SEP minor-3)", async () => {
+    const res = await post([stubBackend("zeta_tool"), stubBackend("alpha_tool")]);
+    const result = ((await res.json()) as JsonRpcResponse).result as { tools: Array<{ name: string }> };
+    expect(result.tools.map(t => t.name)).toEqual(["alpha_tool", "zeta_tool"]);
+  });
+
+  it("legacy tools/list stays byte-shaped — no cache fields", async () => {
+    const res = await new McpEdgeRoute([stubBackend("a_tool")]).handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
+      fakeEnv(),
+    );
+    const result = ((await res.json()) as JsonRpcResponse).result as Record<string, unknown>;
+    expect(result.ttlMs).toBeUndefined();
+    expect(result.cacheScope).toBeUndefined();
+  });
+});
