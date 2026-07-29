@@ -73,7 +73,12 @@ const LEGACY_PROTOCOL_VERSION = "2024-11-05";
  * string; cloister advertises `2026-XX-XX` matching the Phase 0 fixture's
  * default and will reconcile when SEP-2575 lands a final version string.
  */
-const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
+const SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
+// Pre-release placeholder, still ACCEPTED inbound: peers negotiated it before
+// the spec shipped. Removal condition: e2e smoke green with every peer
+// sending 2026-07-28 — then delete this constant, its supportedVersions
+// entry, and the transition test in contracts.test.ts together.
+const TRANSITIONAL_PLACEHOLDER_VERSION = "2026-XX-XX";
 
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
 const KEEPALIVE_MS = 15_000;
@@ -183,7 +188,7 @@ export class McpEdgeRoute implements EdgeRoute {
     this.supportedVersions =
       supportedVersions && supportedVersions.length > 0
         ? supportedVersions
-        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION];
+        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION, TRANSITIONAL_PLACEHOLDER_VERSION];
   }
 
   match(request: Request): boolean {

@@ -465,7 +465,7 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
       expect(call.headers["mcp-session-id"]).toBeUndefined();
       const meta = call.body.params?._meta;
       expect(meta).toBeDefined();
-      expect(meta?.["io.modelcontextprotocol/protocolVersion"]).toBe("2026-XX-XX");
+      expect(meta?.["io.modelcontextprotocol/protocolVersion"]).toBe("2026-07-28");
       expect(meta?.clientInfo).toBeDefined();
       expect(meta?.clientCapabilities).toBeDefined();
     }
@@ -535,7 +535,7 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
 
     expect(callBody).not.toBeNull();
     expect(callBody!.params?._meta).toBeDefined();
-    expect(callHeaders["mcp-protocol-version"]).toBe("2026-XX-XX");
+    expect(callHeaders["mcp-protocol-version"]).toBe("2026-07-28");
     expect(callHeaders["mcp-session-id"]).toBeUndefined();
   });
 });

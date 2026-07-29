@@ -465,7 +465,7 @@ export class FixtureMcpServer {
 
     if (req.method === "server/discover") {
       const result = {
-        protocolVersion: this.opts.forceProtocolVersion ?? "2026-XX-XX",
+        protocolVersion: this.opts.forceProtocolVersion ?? "2026-07-28",
         capabilities:    this.opts.serverCapabilities,
         serverInfo:      this.opts.serverInfo,
       };

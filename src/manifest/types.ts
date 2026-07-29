@@ -28,7 +28,7 @@ export interface Gateway {
    * MCP protocol versions this gateway advertises (ADR-0015 Phase 2 /
    * cloister-a35fdb / SEP-2575). Empty ⇒ runtime default of just the
    * current-spec version. Declare both the legacy ("2025-11-25") and
-   * sessionless ("2026-XX-XX") version strings here for dual-stack
+   * sessionless ("2026-07-28") version strings here for dual-stack
    * deployments.
    */
   supportedProtocolVersions?: readonly string[];

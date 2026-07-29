@@ -129,7 +129,7 @@ const DERIVED_TTL_MS = 60_000;
 /** Legacy MCP-spec wire version (`initialize` lifecycle). */
 const LEGACY_PROTOCOL_VERSION = "2024-11-05";
 /** Sessionless wire version (SEP-2575). Provisional — see mcp.ts. */
-const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
+const SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
 const CLOISTER_INFO    = { name: "cloister", version: "0.1.0" } as const;
 /**
  * Client capabilities cloister-the-MCP-client declares to upstreams.

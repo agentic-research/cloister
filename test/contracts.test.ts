@@ -224,7 +224,7 @@ async function postSessionless(
 }
 
 describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
-  const NEXT = "2026-XX-XX";
+  const NEXT = "2026-07-28";  // the released revision (was the 2026-XX-XX placeholder)
 
   it("server/discover returns supportedVersions + capabilities + serverInfo", async () => {
     const route = new McpEdgeRoute([]);
@@ -432,6 +432,40 @@ describe("Mcp-Method / Mcp-Name header agreement", () => {
 // nothing. Scope grammar entries (server:discover, subscriptions:listen)
 // make the method grantable to non-admin certs — the grant is tested at the
 // unit level in lease-middleware.test.ts.
+describe("protocol version acceptance (cloister-c8e3bd)", () => {
+  const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+  const call = (version: string) =>
+    new McpEdgeRoute([]).handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "MCP-Protocol-Version": version },
+        body: JSON.stringify(rpc),
+      }),
+      fakeEnv(),
+    );
+
+  it("accepts the released 2026-07-28 revision", async () => {
+    const res = await call("2026-07-28");
+    expect(res.status).toBe(200);
+  });
+
+  it("still accepts the 2026-XX-XX placeholder during the transition", async () => {
+    // In-flight peers (LLO upstreams, older cloister builds) negotiated the
+    // placeholder before the spec shipped. Removal condition: once the e2e
+    // smoke passes with every peer sending 2026-07-28, drop this entry and
+    // this test together.
+    const res = await call("2026-XX-XX");
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects an unknown version with UnsupportedProtocolVersionError", async () => {
+    const res = await call("2031-01-01");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.message).toContain("UnsupportedProtocolVersion");
+  });
+});
+
 describe("server/discover gate posture", () => {
   it("unauthenticated discover is denied with the same shape as any unauthenticated call", async () => {
     const enforcing = { INTERLACE_ROOT_PUBKEY: "ed25519:AAAA" } as unknown as Env;
@@ -446,7 +480,7 @@ describe("server/discover gate posture", () => {
             // calls return UnsupportedProtocolVersionError before the gate
             // and the test compares two version rejections — vacuously
             // identical while proving nothing about the gate. (Caught live.)
-            "MCP-Protocol-Version": "2026-XX-XX",
+            "MCP-Protocol-Version": "2026-07-28",
           },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }),
         }),
