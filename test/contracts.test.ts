@@ -224,7 +224,7 @@ async function postSessionless(
 }
 
 describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
-  const NEXT = "2026-XX-XX";
+  const NEXT = "2026-07-28";  // the released revision (was the 2026-XX-XX placeholder)
 
   it("server/discover returns supportedVersions + capabilities + serverInfo", async () => {
     const route = new McpEdgeRoute([]);
@@ -337,5 +337,172 @@ describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
     );
     const result = body.result as { supportedVersions: string[] };
     expect(result.supportedVersions).toEqual(["custom-version-1", "custom-version-2"]);
+  });
+});
+
+// ── Mcp-Method / Mcp-Name header agreement (SEP-2243 / cloister-da49a6) ────
+//
+// MCP 2026-07-28 requires these headers on Streamable HTTP POST so
+// intermediaries can route without parsing bodies. Cloister's TRUST decisions
+// derive from the signed body (`canonicalRequestBytes` covers method+url+ts+
+// nonce+body — the headers are NOT signed), so the headers are ADVISORY here:
+// if present they MUST agree with the body, and disagreement is rejected with
+// HeaderMismatchError (-32020) BEFORE the lease gate does any work. A request
+// routed as one method and scope-checked as another is the seam this closes.
+describe("Mcp-Method / Mcp-Name header agreement", () => {
+  function postWithHeaders(
+    route: McpEdgeRoute,
+    body: unknown,
+    extra: Record<string, string>,
+    env: Env = fakeEnv(),
+  ): Promise<Response> {
+    return route.handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...extra },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  }
+
+  const rpc = (method: string, params?: unknown) =>
+    ({ jsonrpc: "2.0", id: 1, method, ...(params !== undefined ? { params } : {}) });
+
+  it("Mcp-Method disagreeing with the body is rejected -32020 (HTTP 400)", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/call", { name: "bead_list", arguments: {} }), {
+      "Mcp-Method": "tools/list",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+    expect(body.error?.message).toContain("HeaderMismatch");
+  });
+
+  it("Mcp-Name disagreeing with params.name on tools/call is rejected -32020", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/call", { name: "bead_list", arguments: {} }), {
+      "Mcp-Method": "tools/call",
+      "Mcp-Name":   "bead_close",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+  });
+
+  it("agreeing headers pass through to normal dispatch", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), { "Mcp-Method": "tools/list" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error).toBeUndefined();
+  });
+
+  it("absent headers are tolerated (body is the signed authority)", async () => {
+    // The spec obliges CLIENTS to send them; cloister's trust layer does not
+    // depend on them, so absence is not an error — enforcement of a client
+    // obligation would only break legacy clients for zero trust benefit.
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), {});
+    expect(res.status).toBe(200);
+  });
+
+  it("mismatch is rejected BEFORE the lease gate runs", async () => {
+    // Enforcing env (authority present), no lease headers at all: if the gate
+    // ran first this would be ERR_UNAUTHENTICATED (-32001). Getting -32020
+    // proves the header check precedes any gate work.
+    const enforcing = { INTERLACE_ROOT_PUBKEY: "ed25519:AAAA" } as unknown as Env;
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), { "Mcp-Method": "tools/call" }, enforcing);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+  });
+});
+
+
+// ── server/discover gate posture (cloister-dabbe1) ─────────────────────────
+//
+// Posture: server/discover stays lease-gated — a DOCUMENTED deviation from
+// the spec's pre-auth discovery intent (ADR-0016 private registry; threat
+// model §9 anti-enumeration). What the posture requires: an unauthenticated
+// discover must be denied with the SAME shape as any other unauthenticated
+// call, so the method's existence and the server's capability inventory leak
+// nothing. Scope grammar entries (server:discover, subscriptions:listen)
+// make the method grantable to non-admin certs — the grant is tested at the
+// unit level in lease-middleware.test.ts.
+describe("protocol version acceptance (cloister-c8e3bd)", () => {
+  const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+  const call = (version: string) =>
+    new McpEdgeRoute([]).handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "MCP-Protocol-Version": version },
+        body: JSON.stringify(rpc),
+      }),
+      fakeEnv(),
+    );
+
+  it("accepts the released 2026-07-28 revision", async () => {
+    const res = await call("2026-07-28");
+    expect(res.status).toBe(200);
+  });
+
+  it("still accepts the 2026-XX-XX placeholder during the transition", async () => {
+    // In-flight peers (LLO upstreams, older cloister builds) negotiated the
+    // placeholder before the spec shipped. Removal condition: once the e2e
+    // smoke passes with every peer sending 2026-07-28, drop this entry and
+    // this test together.
+    const res = await call("2026-XX-XX");
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects an unknown version with UnsupportedProtocolVersionError", async () => {
+    const res = await call("2031-01-01");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.message).toContain("UnsupportedProtocolVersion");
+  });
+});
+
+describe("server/discover gate posture", () => {
+  it("unauthenticated discover is denied with the same shape as any unauthenticated call", async () => {
+    const enforcing = { INTERLACE_ROOT_PUBKEY: "ed25519:AAAA" } as unknown as Env;
+    const route = new McpEdgeRoute([]);
+    const call = (method: string) =>
+      route.handle(
+        new Request("http://x/mcp", {
+          method: "POST",
+          headers: {
+            "Content-Type":         "application/json",
+            // MUST be a supported version: with an unsupported one, BOTH
+            // calls return UnsupportedProtocolVersionError before the gate
+            // and the test compares two version rejections — vacuously
+            // identical while proving nothing about the gate. (Caught live.)
+            "MCP-Protocol-Version": "2026-07-28",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }),
+        }),
+        enforcing,
+      );
+
+    const discover = await call("server/discover");
+    const list     = await call("tools/list");
+    const dBody = (await discover.json()) as JsonRpcResponse;
+    const lBody = (await list.json()) as JsonRpcResponse;
+
+    // Same status, same error code, same message — no method-shaped oracle.
+    expect(discover.status).toBe(list.status);
+    expect(dBody.error?.code).toBe(lBody.error?.code);
+    expect(dBody.error?.message).toBe(lBody.error?.message);
+    // And the shape compared is the GATE's deny — here -32005: authority is
+    // set with no CA bundle behind it, so per ADR-0053 the gate enforces and
+    // fails closed at resolveCABundle. The load-bearing property is that the
+    // code comes from the lease pipeline, not a version rejection (-32600) —
+    // with an unsupported version this test compares two version errors and
+    // proves nothing (caught live, twice: first -32600, then expecting the
+    // wrong gate code).
+    expect(dBody.error?.code).toBe(-32005);
   });
 });

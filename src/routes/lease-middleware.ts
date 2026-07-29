@@ -180,6 +180,14 @@ export function canonicalRequestBytes(
  */
 export function deriveRequestScope(method: string, params: unknown): string {
   if (method === "tools/list") return "tools:list";
+  // SEP-2575 protocol methods (cloister-dabbe1). Explicit entries so a
+  // standard cert profile can grant them — the `unknown:` fallthrough is
+  // grantable only to a "*" cert, and server/discover is a spec MUST that
+  // clients are expected to call FIRST. Gate posture stays: these are still
+  // lease-gated (ADR-0016 private registry; threat model §9 anti-enumeration
+  // — the documented deviation from the spec's pre-auth discovery intent).
+  if (method === "server/discover")     return "server:discover";
+  if (method === "subscriptions/listen") return "subscriptions:listen";
   if (method !== "tools/call") return `unknown:${method}`;
 
   const p = params as { name?: string; arguments?: { repo?: string } } | undefined;

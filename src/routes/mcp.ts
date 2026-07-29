@@ -73,7 +73,12 @@ const LEGACY_PROTOCOL_VERSION = "2024-11-05";
  * string; cloister advertises `2026-XX-XX` matching the Phase 0 fixture's
  * default and will reconcile when SEP-2575 lands a final version string.
  */
-const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
+const SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
+// Pre-release placeholder, still ACCEPTED inbound: peers negotiated it before
+// the spec shipped. Removal condition: e2e smoke green with every peer
+// sending 2026-07-28 — then delete this constant, its supportedVersions
+// entry, and the transition test in contracts.test.ts together.
+const TRANSITIONAL_PLACEHOLDER_VERSION = "2026-XX-XX";
 
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
 const KEEPALIVE_MS = 15_000;
@@ -84,6 +89,58 @@ const KEEPALIVE_MS = 15_000;
  * sessionless path.
  */
 const PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
+
+// ── Mcp-Method / Mcp-Name agreement (SEP-2243 / cloister-da49a6) ──────────
+//
+// MCP 2026-07-28 requires these headers on Streamable HTTP POST so
+// intermediaries can route and meter without parsing bodies. Cloister's trust
+// decisions derive from the SIGNED body — `canonicalRequestBytes` covers
+// method+url+ts+nonce+body, and the headers are not in it — so here they are
+// ADVISORY: if present they must agree with the body; disagreement rejects
+// with the spec's HeaderMismatchError (-32020, the renumbered code from the
+// error-code allocation policy) BEFORE the lease gate does any work. The seam
+// this closes: a request ROUTED as one method but SCOPE-CHECKED as another
+// (deriveRequestScope reads the body). Absence is tolerated — the headers are
+// a client obligation, and rejecting their absence buys no trust because the
+// body is what's signed either way.
+const MCP_METHOD_HEADER = "mcp-method";
+const MCP_NAME_HEADER   = "mcp-name";
+export const ERR_HEADER_MISMATCH = -32020;
+
+/**
+ * Reject when Mcp-Method / Mcp-Name disagree with the (signed) body.
+ * @returns an error envelope to send, or null when consistent.
+ */
+export function validateMcpHeaders(
+  request: Request,
+  req: JsonRpcRequest,
+): { body: JsonRpcResponse; status: number } | null {
+  const mismatch = (header: string, got: string, bodyValue: string): { body: JsonRpcResponse; status: number } => ({
+    status: 400,
+    body: {
+      jsonrpc: "2.0",
+      id:      req.id ?? null,
+      error: {
+        code:    ERR_HEADER_MISMATCH,
+        message: `HeaderMismatchError: ${header} header ${JSON.stringify(got)} disagrees with body ${JSON.stringify(bodyValue)}`,
+      },
+    },
+  });
+
+  const headerMethod = request.headers.get(MCP_METHOD_HEADER);
+  if (headerMethod !== null && headerMethod !== req.method) {
+    return mismatch("Mcp-Method", headerMethod, req.method);
+  }
+
+  const headerName = request.headers.get(MCP_NAME_HEADER);
+  if (headerName !== null) {
+    const bodyName = (req.params as { name?: unknown } | undefined)?.name;
+    if (typeof bodyName === "string" && headerName !== bodyName) {
+      return mismatch("Mcp-Name", headerName, bodyName);
+    }
+  }
+  return null;
+}
 
 /**
  * Per-request `_meta` key under which sessionless clients declare their
@@ -131,7 +188,7 @@ export class McpEdgeRoute implements EdgeRoute {
     this.supportedVersions =
       supportedVersions && supportedVersions.length > 0
         ? supportedVersions
-        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION];
+        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION, TRANSITIONAL_PLACEHOLDER_VERSION];
   }
 
   match(request: Request): boolean {
@@ -158,6 +215,19 @@ export class McpEdgeRoute implements EdgeRoute {
     } catch {
       return Response.json(errResponse(null, -32700, "parse error"), {
         status: 400,
+        headers: { "Access-Control-Allow-Origin": allowOrigin },
+      });
+    }
+
+    // ── Header/body agreement (SEP-2243 / cloister-da49a6) ───────────────
+    //
+    // Before the sessionless check and BEFORE the lease gate: a request whose
+    // routing headers lie about its body must not cause any gate work, scope
+    // derivation, or counter writes. Threat model §13.11.
+    const headerCheck = validateMcpHeaders(request, req);
+    if (headerCheck) {
+      return Response.json(headerCheck.body, {
+        status:  headerCheck.status,
         headers: { "Access-Control-Allow-Origin": allowOrigin },
       });
     }

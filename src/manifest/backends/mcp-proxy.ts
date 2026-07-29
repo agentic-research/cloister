@@ -129,7 +129,7 @@ const DERIVED_TTL_MS = 60_000;
 /** Legacy MCP-spec wire version (`initialize` lifecycle). */
 const LEGACY_PROTOCOL_VERSION = "2024-11-05";
 /** Sessionless wire version (SEP-2575). Provisional — see mcp.ts. */
-const SESSIONLESS_PROTOCOL_VERSION = "2026-XX-XX";
+const SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
 const CLOISTER_INFO    = { name: "cloister", version: "0.1.0" } as const;
 /**
  * Client capabilities cloister-the-MCP-client declares to upstreams.
@@ -452,9 +452,22 @@ export class McpProxyToolBackend implements ToolBackend {
    * shape.
    */
   private postJson(up: Upstream, body: unknown): Promise<Response> {
+    // Mcp-Method / Mcp-Name (SEP-2243) are DERIVED from the body at the one
+    // choke point that sends it — never set independently. That is the
+    // header/body-agreement rule cloister enforces inbound (cloister-da49a6):
+    // emitting anything else here would make cloister the lying intermediary
+    // its own edge rejects.
+    const headers = this.requestHeaders();
+    const rpc = body as { method?: unknown; params?: { name?: unknown } };
+    if (typeof rpc?.method === "string") {
+      headers["Mcp-Method"] = rpc.method;
+      if (typeof rpc.params?.name === "string") {
+        headers["Mcp-Name"] = rpc.params.name;
+      }
+    }
     return up.fetch({
       method:  "POST",
-      headers: this.requestHeaders(),
+      headers,
       body:    JSON.stringify(body),
     });
   }
