@@ -27,6 +27,7 @@
  * Exit codes: 0 = all fixtures verified; 1 = any mismatch.
  */
 
+import { schemaRoot } from "./schema-root.mjs";
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,8 +41,11 @@ import { encodeToolResult, decodeToolResult } from "../dist-verify/src/wire/tool
 // regardless of repo path. Override via CLOISTER_SCHEMA_ROOT for
 // non-`cloister/`-named worktrees.
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const REPO_PARENT = process.env.CLOISTER_SCHEMA_ROOT
-  ?? resolve(SCRIPT_DIR, "..", "..");
+// Shared derivation (cloister-70df69) — resolves in worktrees without env setup.
+const REPO_PARENT = schemaRoot({
+  schemaFile: resolve(SCRIPT_DIR, "..", "wire/cloister.capnp"),
+  cwd: resolve(SCRIPT_DIR, ".."),
+});
 const SCHEMA = "wire/cloister.capnp";
 
 const filled = (n, byte) => { const a = new Uint8Array(n); a.fill(byte); return a; };

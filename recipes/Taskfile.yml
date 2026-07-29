@@ -1,0 +1,60 @@
+version: "3"
+
+# Recipe tasks live here, not in the root Taskfile.
+#
+# The root is an index: it wires includes and owns cross-cutting gates. Work
+# that belongs to one directory belongs in that directory's Taskfile, pulled in
+# via `includes:` — the same shape as `rs/Taskfile.yml`. Anything recipe-shaped
+# added later (a per-recipe boot smoke, a compose lint) lands here rather than
+# growing the root.
+#
+# Invoked from the root as `task recipes:<name>`.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  validate:
+    desc: "Structural validation of every recipes/<name>/ (cloister-449f82). README.md + capnp/TOML presence + canonical doc links."
+    dir: ..
+    cmds:
+      - "{{.NODE_TSX}} scripts/lint-recipes.mjs"
+    sources:
+      - recipes/**/*
+      - scripts/lint-recipes.mjs
+
+  compose:
+    desc: |
+      Regenerate a recipe's cluster.compose.yaml from its own cluster.toml.
+      Usage: task recipes:compose -- <recipe-name>
+
+      Exists because recipes/multi-tenant-smoke shipped WITHOUT one and nothing
+      noticed: `lint:recipes` accepts README + (capnp OR toml), while the init
+      CLI requires capnp AND compose AND toml. Two definitions of "valid
+      recipe", the weaker one gating — so the recipe passed lint, its README
+      told users to run `task init -- --recipe multi-tenant-smoke`, and the CLI
+      answered `unknown recipe`. Reconciled by a property in
+      scripts/test/gate-integrity.test.mjs; this task is how you satisfy it.
+    dir: ..
+    cmds:
+      - |
+        set -euo pipefail
+        R="{{.CLI_ARGS}}"
+        if [ -z "$R" ]; then echo "usage: task recipes:compose -- <recipe-name>" >&2; exit 2; fi
+        D="recipes/$R"
+        [ -f "$D/cluster.toml" ] || { echo "no $D/cluster.toml" >&2; exit 2; }
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+        CLUSTER_TOML="$D/cluster.toml" CLUSTER_OUTPUT="$TMP/cluster.ts" \
+          {{.NODE_TSX}} scripts/toml-to-cluster.mjs
+        CLUSTER_TS="$TMP/cluster.ts" COMPOSE_OUTPUT="$D/cluster.compose.yaml" \
+          node scripts/emit-compose.mjs
+
+  instantiable:
+    desc: "Assert every recipe with a README can actually be instantiated by `task init` — the contract lint:recipes does not check."
+    dir: ..
+    cmds:
+      - "{{.NODE_TSX}} --test scripts/test/gate-integrity.test.mjs"
+    sources:
+      - recipes/**/*
+      - scripts/cli-init.mjs

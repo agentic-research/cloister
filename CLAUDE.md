@@ -114,12 +114,39 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
 | `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
+| gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs
 against the real tree, not just fixtures.
+
+## Recipes have TWO validity contracts — keep them reconciled
+
+`lint:recipes` accepts `README.md` + (`cloister.capnp` OR `cluster.toml`).
+The init CLI's `listRecipes` requires `cloister.capnp` AND
+`cluster.compose.yaml` AND `cluster.toml`. The weaker one was the gate, so
+`recipes/multi-tenant-smoke` passed lint, shipped a README telling users to
+run `task init -- --recipe multi-tenant-smoke`, and the CLI answered
+`unknown recipe` (`cloister-449f82` thread).
+
+The reconciliation is a property, not a comment:
+`scripts/test/gate-integrity.test.mjs` asserts every recipe with a README is
+instantiable by the CLI. Missing a compose file? `task recipes:compose --
+<name>`.
+
+## Taskfiles are hierarchical
+
+The root `Taskfile.yml` is an **index**: it wires `includes:` and owns
+cross-cutting gates. Work belonging to one directory lives in that
+directory's own Taskfile and is pulled in — `rs/Taskfile.yml` (Rust /
+wasm) and `recipes/Taskfile.yml` (recipe validation, compose emission,
+instantiability) today, invoked as `task rs:*` / `task recipes:*`.
+
+Adding a directory-scoped task means adding it there, not growing the root.
+If a new area needs more than one task, give it a Taskfile and an
+`includes:` entry.
 
 ## Commit conventions
 
@@ -358,13 +385,15 @@ Two gotchas to know:
 
 1. **`pnpm install` doesn't auto-run** when `git worktree add` creates
    a new tree. Run it manually before `task lint`.
-2. **`task manifest` needs `CLOISTER_SCHEMA_ROOT`** in worktrees because
-   the capnp `import "/cloister/manifest/cloister.capnp"` expects a
-   literal `cloister/`-named directory at the schema root. Workaround:
-   either set `CLOISTER_SCHEMA_ROOT` to the parent of a `cloister/`-named
-   checkout (e.g. point it at the main repo's parent dir if the bead
-   doesn't change schema), or symlink the worktree directory so a
-   parent named `cloister/` exists alongside it.
+2. **`CLOISTER_SCHEMA_ROOT` is derived now — you should not need to set it**
+   (`cloister-70df69`). The capnp `import "/cloister/manifest/cloister.capnp"`
+   needs a literal `cloister/`-named directory at the schema root, which a
+   worktree path lacks; `build-manifest.mjs` finds the main checkout via
+   `git rev-parse --git-common-dir` and uses its parent. Explicit env still
+   wins. This used to be a documented workaround, and the tests that spawn
+   `task manifest` inherit the caller's env — so 19 script tests failed in any
+   worktree and passed in the main checkout and CI, a signal indistinguishable
+   from a real regression until you checked.
 3. **The pre-push hook enforces the pinned pnpm.** It reads
    `package.json#packageManager` and refuses to run the gate with an
    ambient mismatched `pnpm` (Codex's bundled runtime has exposed newer

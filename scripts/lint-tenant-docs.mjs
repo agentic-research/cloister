@@ -57,6 +57,7 @@
 //   1 — drift found; missing-doc list on stderr
 //   2 — toolchain error (capnp eval failed, compose.yaml unreadable, …)
 
+import { schemaRoot as deriveSchemaRoot } from "./schema-root.mjs";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -114,11 +115,12 @@ const SUBSTRATE_COMPOSE_SERVICES = new Map([
 // ── capnp eval — load cloister.capnp into JSON ───────────────────────────
 
 function evalGateway() {
-  const schemaRoot = process.env.CLOISTER_SCHEMA_ROOT ?? resolve(REPO, "..");
+  // Shared derivation (cloister-70df69): works in worktrees without env setup.
+  const root = deriveSchemaRoot({ schemaFile: resolve(REPO, "manifest/cloister.capnp"), cwd: REPO });
   try {
     const out = execFileSync(
       "capnp",
-      ["eval", "-I", schemaRoot, "--no-standard-import",
+      ["eval", "-I", root, "--no-standard-import",
        resolve(REPO, "cloister.capnp"), "gateway", "-o", "json"],
       { encoding: "utf8" },
     );

@@ -30,10 +30,12 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { parse as parseToml } from "@iarna/toml";
+
+import { schemaRoot } from "./schema-root.mjs";
 
 const REPO          = process.cwd();
 const MANIFEST_FILE = process.env.CLOISTER_MANIFEST    ?? resolve(REPO, "cloister.capnp");
@@ -61,7 +63,7 @@ const LOCKFILE       = process.env.CLOISTER_LOCKFILE   ?? resolve(dirname(MANIFE
 //      schemaDir   = /work/cloister/manifest
 //      schemaRoot  = /work
 // so an `import "/cloister/manifest/cloister.capnp"` resolves correctly.
-const SCHEMA_ROOT   = process.env.CLOISTER_SCHEMA_ROOT ?? resolve(dirname(SCHEMA_FILE), "../..");
+const SCHEMA_ROOT   = schemaRoot({ schemaFile: SCHEMA_FILE, cwd: REPO });
 
 // ── Run capnp eval → JSON ─────────────────────────────────────────────────
 
