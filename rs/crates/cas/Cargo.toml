@@ -74,20 +74,21 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "28bc32626a4e7b23cbc82fe228af2369f691b1d5", version = "0.12.0", package = "leyline-sign", features = ["host"] }
 
-# LLO's schema-bridge capnp-plugin crate, anchored here for the same
-# reason as leyline-sign above: naming it as a workspace-graph dep makes
-# `cargo build -p leyline-schema-bridge --bin capnpc-schema-bridge-{zod,go}`
-# resolve, emitting the two plugins into `rs/target/release/` (consumed by
-# the Taskfile `cluster:*` / `identity:*` codegen + drift targets via
-# `capnp compile -o./rs/target/release/capnpc-schema-bridge-…`). Lifted
-# from cloister's deleted `tools/schema-bridge` per ADR-0036 Phase 2 (LLO
-# PR #222, bead ley-line-open-0806dc); cloister-side repoint is bead
-# cloister-a7346b. It is NOT `pub use`-d from cloister-cas' lib.rs — a
-# codegen tool, never linked into any cloister artifact. Native-cfg-gated
-# because it is a build-time host tool (capnp/thiserror closure); wasm32
-# builds of cloister_cas.wasm must not pull it. `version` accompanies the
-# git+rev for cargo-deny's wildcards rule (same as the deps above).
-leyline-schema-bridge = { git = "https://github.com/agentic-research/ley-line-open", rev = "28bc32626a4e7b23cbc82fe228af2369f691b1d5", version = "0.12.0", package = "leyline-schema-bridge" }
+# NOTE: leyline-schema-bridge is deliberately NOT a dependency.
+#
+# It used to be anchored here so `cargo build -p leyline-schema-bridge --bin
+# capnpc-schema-bridge-{zod,go}` would resolve. That build was the delivery
+# path for the codegen plugins, and it is exactly how the generator went five
+# minor versions stale without anyone noticing (cloister-9170d0): the rev sat
+# at v0.7.9 while the fix cloister needed shipped in 0.11.3, and the regen
+# exited 0 the whole time.
+#
+# The plugins now come from ley-line-open's published releases, pinned BY
+# DIGEST in schema-bridge.lock.json and fetched by
+# scripts/fetch-schema-bridge.mjs. Re-adding a cargo dep here would restore a
+# second, weaker pin for the same artifact — and a version that can disagree
+# with the lockfile, which it already had (this said 0.12.0 while the binaries
+# were v0.12.1).
 
 [dev-dependencies]
 # Used in the bridge crate's tests to cross-check the re-exported FFI's

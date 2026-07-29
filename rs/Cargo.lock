@@ -244,15 +244,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "capnp"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe8af2e2d255489928e31504fa51d86a41d040179098a8ad6828e0d11c54dcd6"
-dependencies = [
- "embedded-io",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -317,7 +308,6 @@ dependencies = [
  "ed25519-dalek",
  "leyline-cas-ffi",
  "leyline-core",
- "leyline-schema-bridge",
  "leyline-sign",
  "rand",
  "serde_json",
@@ -567,12 +557,6 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
-
-[[package]]
-name = "embedded-io"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9eb1aa714776b75c7e67e1da744b81a129b3ff919c8712b5e1b32252c1f07cc7"
 
 [[package]]
 name = "errno"
@@ -916,15 +900,6 @@ source = "git+https://github.com/agentic-research/ley-line-open?rev=28bc32626a4e
 dependencies = [
  "anyhow",
  "rusqlite",
-]
-
-[[package]]
-name = "leyline-schema-bridge"
-version = "0.12.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=28bc32626a4e7b23cbc82fe228af2369f691b1d5#28bc32626a4e7b23cbc82fe228af2369f691b1d5"
-dependencies = [
- "capnp",
- "thiserror",
 ]
 
 [[package]]
