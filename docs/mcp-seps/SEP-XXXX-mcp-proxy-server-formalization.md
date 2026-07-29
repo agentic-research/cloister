@@ -321,6 +321,26 @@ The RPC explicitly forbids returning credentials or routing state (§2), so even
 
 The proxy's outbound URLs (where it forwards requests to upstreams) are configured by the proxy operator, not by the client. This SEP introduces no new client-controlled URL fetching, so the SSRF surface from the Security Best Practices is unchanged. (Hosts that consume `proxy/upstreams` metadata still MUST NOT use URLs from that response to make their own outbound requests — they're informational only.)
 
+## Deviations in the reference implementation (cloister)
+
+Recorded here so a reviewer comparing cloister against MCP 2026-07-28 finds
+the deltas stated rather than discovered.
+
+1. **`server/discover` is authenticated.** The spec intends discovery as a
+   pre-auth first call. Cloister is a private MCP registry (ADR-0016) whose
+   threat model treats capability inventory as enumerable surface (threat
+   model §9 uses constant-time 404s for exactly this class), so `server/
+   discover` sits behind the lease gate like every other method, grantable
+   via the `server:discover` scope. An unauthenticated probe receives the
+   same deny shape as any unauthenticated call — the method's existence
+   leaks nothing (pinned by test, contracts.test.ts "gate posture").
+   Deployments wanting spec-literal pre-auth discovery can front cloister
+   with a static discovery document; the gate stays.
+
+2. **`Mcp-Method` / `Mcp-Name` are advisory.** Trust decisions derive from
+   the signed body; present-and-disagreeing headers reject with
+   `HeaderMismatchError` (-32020) before the gate. Threat model §13.11.
+
 ## Open Questions
 
 ### Should `perUpstreamConsent` be a stronger MUST?

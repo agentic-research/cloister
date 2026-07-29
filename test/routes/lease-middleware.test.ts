@@ -189,6 +189,36 @@ describe("deriveRequestScope", () => {
       .toBe("bead_create:/r/foo");
   });
 
+  // SEP-2575 methods (cloister-dabbe1). Before these entries existed, both
+  // derived "unknown:<method>" — grantable only to a "*" cert, which the
+  // grammar's own comment says should never be minted in production. Net:
+  // server/discover (a spec MUST, intended as the FIRST call a client makes)
+  // was scope-denied for every production cert whenever the gate enforced.
+  it("server/discover → server:discover", () => {
+    expect(deriveRequestScope("server/discover", undefined)).toBe("server:discover");
+  });
+
+  it("subscriptions/listen → subscriptions:listen", () => {
+    expect(deriveRequestScope("subscriptions/listen", { subscriptions: ["toolsListChanged"] }))
+      .toBe("subscriptions:listen");
+  });
+
+  it("a cert scoped server:discover grants exactly the derived discover scope", () => {
+    // The grammar entry and the grant compose: this is what makes the spec's
+    // MUST reachable by a NON-admin cert. Before, only "*" could pass.
+    expect(scopeAllows("server:discover", deriveRequestScope("server/discover", undefined))).toBe(true);
+    expect(scopeAllows("subscriptions:listen", deriveRequestScope("subscriptions/listen", undefined))).toBe(true);
+    // And it grants nothing else — no accidental widening.
+    expect(scopeAllows("server:discover", "tools:list")).toBe(false);
+    expect(scopeAllows("server:discover", deriveRequestScope("tools/call", { name: "bead_list" }))).toBe(false);
+  });
+
+  it("genuinely unknown methods still derive the ungrantable unknown: scope", () => {
+    // Deny-by-default is correct for methods the grammar has never heard of;
+    // the fix for SEP-2575 methods must not accidentally open this up.
+    expect(deriveRequestScope("some/new-method", undefined)).toBe("unknown:some/new-method");
+  });
+
   it("tools/call name=X without repo → X:*", () => {
     expect(deriveRequestScope("tools/call", { name: "lsp_hover", arguments: { file: "/a.rs" } }))
       .toBe("lsp_hover:*");

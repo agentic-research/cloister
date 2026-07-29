@@ -420,3 +420,55 @@ describe("Mcp-Method / Mcp-Name header agreement", () => {
     expect(body.error?.code).toBe(-32020);
   });
 });
+
+
+// ── server/discover gate posture (cloister-dabbe1) ─────────────────────────
+//
+// Posture: server/discover stays lease-gated — a DOCUMENTED deviation from
+// the spec's pre-auth discovery intent (ADR-0016 private registry; threat
+// model §9 anti-enumeration). What the posture requires: an unauthenticated
+// discover must be denied with the SAME shape as any other unauthenticated
+// call, so the method's existence and the server's capability inventory leak
+// nothing. Scope grammar entries (server:discover, subscriptions:listen)
+// make the method grantable to non-admin certs — the grant is tested at the
+// unit level in lease-middleware.test.ts.
+describe("server/discover gate posture", () => {
+  it("unauthenticated discover is denied with the same shape as any unauthenticated call", async () => {
+    const enforcing = { INTERLACE_ROOT_PUBKEY: "ed25519:AAAA" } as unknown as Env;
+    const route = new McpEdgeRoute([]);
+    const call = (method: string) =>
+      route.handle(
+        new Request("http://x/mcp", {
+          method: "POST",
+          headers: {
+            "Content-Type":         "application/json",
+            // MUST be a supported version: with an unsupported one, BOTH
+            // calls return UnsupportedProtocolVersionError before the gate
+            // and the test compares two version rejections — vacuously
+            // identical while proving nothing about the gate. (Caught live.)
+            "MCP-Protocol-Version": "2026-XX-XX",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method }),
+        }),
+        enforcing,
+      );
+
+    const discover = await call("server/discover");
+    const list     = await call("tools/list");
+    const dBody = (await discover.json()) as JsonRpcResponse;
+    const lBody = (await list.json()) as JsonRpcResponse;
+
+    // Same status, same error code, same message — no method-shaped oracle.
+    expect(discover.status).toBe(list.status);
+    expect(dBody.error?.code).toBe(lBody.error?.code);
+    expect(dBody.error?.message).toBe(lBody.error?.message);
+    // And the shape compared is the GATE's deny — here -32005: authority is
+    // set with no CA bundle behind it, so per ADR-0053 the gate enforces and
+    // fails closed at resolveCABundle. The load-bearing property is that the
+    // code comes from the lease pipeline, not a version rejection (-32600) —
+    // with an unsupported version this test compares two version errors and
+    // proves nothing (caught live, twice: first -32600, then expecting the
+    // wrong gate code).
+    expect(dBody.error?.code).toBe(-32005);
+  });
+});
