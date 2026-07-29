@@ -81,6 +81,14 @@ import { BLOB_PUT_FAULT_DIGEST } from "../blob-store.js";
  * fingerprint claimed by the cert. The shape mirrors `VerifiedLease`
  * but adds the cert+sig bytes that the verifier collected on the way.
  */
+// MRTR (threat model §13.12 / cloister-db14c3): this orchestration must
+// never return `input_required` from inside itself. If cloister ever
+// interrupts a bead_create for client input, it interrupts BEFORE step 1 or
+// not at all — a mid-orchestration interrupt re-enters a partially-completed
+// four-step handoff on retry, and steps 3-4 (TrustStore attestation write,
+// pending enqueue) are not idempotent the way step 2's CAS put is.
+// Interrupting before step 1 costs nothing: no state has been written.
+
 export interface BeadCreateContext {
   peerFp: string;
   scope:  string;

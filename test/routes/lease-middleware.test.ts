@@ -688,6 +688,39 @@ describe("verifyAndUpsertLease — replay defense", () => {
     expect(second.message).toMatch(/replayed/i);
   });
 
+  it("an MRTR-style retry reusing the original nonce is ERR_REPLAY (cloister-db14c3)", async () => {
+    // MCP 2026-07-28 MRTR (SEP-2322): a server returns input_required and the
+    // client RETRIES THE ORIGINAL REQUEST with inputResponses attached. The
+    // retry body differs, so it must be freshly signed with a fresh nonce and
+    // seen_nonces never sees a duplicate — replay protection and MRTR compose
+    // by construction.
+    //
+    // That composition holds only if reusing the original nonce is still
+    // rejected. Pinned here so the property is ENFORCED rather than
+    // incidental: a future MRTR adoption cannot quietly introduce a
+    // nonce-reuse allowance for "the same logical call".
+    const original = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const first = await verifyAndUpsertLease({ ...baseArgs(), req: original });
+    expect("code" in first).toBe(false);
+
+    // The retry: same envelope (same nonce), different params — exactly what
+    // an implementation would produce if it treated the retry as "the same
+    // request continued" instead of a new signed request.
+    const retry = new Request(SAMPLE_URL, { method: SAMPLE_METHOD, headers: happyHeaders() });
+    const second = await verifyAndUpsertLease({
+      ...baseArgs(),
+      req: retry,
+      params: { ...SAMPLE_PARAMS, inputResponses: [{ requestId: "r1", value: "yes" }] },
+    });
+
+    expect("code" in second).toBe(true);
+    if (!("code" in second)) return;
+    // Rejected — as replay if the nonce is checked first, or as a bad
+    // signature because the body changed under a signature that covers it.
+    // Either is correct and fail-closed; what must never happen is a pass.
+    expect([-32004, -32003]).toContain(second.code);
+  });
+
   it("replay rejection short-circuits BEFORE the counter UPSERT", async () => {
     // The counter chain must NOT advance on a replay — otherwise an
     // attacker could use replays to spin the counter and corrupt the

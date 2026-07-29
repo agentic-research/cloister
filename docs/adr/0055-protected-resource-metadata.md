@@ -112,6 +112,43 @@ reachable pre-credential, whereas disclosure guards existence.
   should source all three from one place rather than three literals (the
   scope/alg-drift lesson from the notme discovery work).
 
+## Amendment 2026-07-29 — reviewed against MCP 2026-07-28
+
+This ADR was drafted 2026-07-22, six days before the spec revision shipped.
+Reviewed before acceptance rather than amended after, since the revision
+changes the authorization surface this ADR sits on. Three effects:
+
+**1. Client registration: CIMD, not DCR.** 2026-07-28 deprecates OAuth 2.0
+Dynamic Client Registration (RFC 7591) in favour of Client ID Metadata
+Documents, keeping DCR only for authorization servers that do not support
+CIMD. This ADR's discovery chain is unaffected — RFC 9728 resource metadata
+points at the authorization server, and how clients *register* there is a
+different hop. But the chain's endpoint is notme, so **notme's registration
+posture is now a dependency**: if notme offers only DCR, cloister's
+discovery chain terminates at a deprecated mechanism. Cloister does not
+implement registration, so nothing here changes; the obligation is to state
+the dependency rather than let a reviewer infer the chain is complete when
+its last hop is deprecated.
+
+**2. RFC 9207 `iss` validation is a CLIENT duty cloister also bears.**
+Clients MUST validate a present `iss` against the recorded issuer before
+redeeming an authorization code. Cloister is a resource server here, so this
+ADR's surface is unaffected — but cloister acts as an OAuth *client*
+elsewhere (harness credential proxy, ADR-0040; vault-proxy services), and
+those paths carry the MUST. Out of scope for this ADR; tracked as `cloister-1cc8bb` so
+"unaffected here" does not read as "unaffected anywhere".
+
+**3. `application_type` at registration** (SEP-837) and **credentials keyed
+by issuer** (SEP-2352, MUST NOT reuse across authorization servers, MUST
+re-register when the AS changes) attach to the same client-side paths as
+(2), not to this ADR's resource-server metadata.
+
+**Net: no change to the decision.** The scope/boundary section stands as
+written, with one addition — the alg-drift follow-up should now source the
+value from one place across *four* consumers (cloister's lease gate, the
+published metadata, notme's document, and any CIMD document), which
+strengthens rather than alters the existing recommendation.
+
 ## Threat-model note
 
 Adding a public metadata surface widens the unauthenticated attack surface by

@@ -116,4 +116,49 @@ describe("signedMcpRequest helper", () => {
     if ("code" in result) throw new Error(`expected ok, got ${result.code}: ${result.message}`);
     expect(result.scope).toBe("*");
   });
+
+  // ── MRTR retry semantics (SEP-2322 / cloister-db14c3) ───────────────────
+  //
+  // MRTR: the server returns input_required; the client RETRIES THE ORIGINAL
+  // REQUEST with inputResponses attached. Replay protection and MRTR compose
+  // by construction — the retry body differs, so it is freshly signed with a
+  // fresh nonce and seen_nonces never sees a duplicate.
+  //
+  // Pinned as a PAIR so neither half can pass vacuously: a properly re-signed
+  // retry must PASS (proving the harness can produce a valid retry at all),
+  // and a retry reusing the original nonce must FAIL. Without the first, the
+  // second proves only that something rejected something.
+  describe("MRTR retry", () => {
+    const ORIGINAL = { name: "bead_create", arguments: { repo: "/repos/foo" } };
+    const RETRY    = { ...ORIGINAL, inputResponses: [{ requestId: "r1", value: "yes" }] };
+    const verify = (r: { request: Request; body: string }, params: unknown) =>
+      verifyAndUpsertLease({
+        req: r.request, body: r.body, id: 1, method: "tools/call", params,
+        env, bundle: BUNDLE, nowMs: DEFAULT_NOW_MS,
+      });
+
+    it("a properly re-signed retry (fresh nonce) passes", async () => {
+      const first = await signedMcpRequest({ method: "tools/call", params: ORIGINAL });
+      expect("code" in (await verify(first, ORIGINAL))).toBe(false);
+
+      const retry = await signedMcpRequest({ method: "tools/call", params: RETRY });
+      const result = await verify(retry, RETRY);
+      if ("code" in result) throw new Error(`retry should pass, got ${result.code}: ${result.message}`);
+      expect(result.scope).toBe("bead_create:/repos/foo");
+    });
+
+    it("a retry reusing the original nonce is rejected", async () => {
+      const nonce = new Uint8Array(16).fill(9);
+      const first = await signedMcpRequest({ method: "tools/call", params: ORIGINAL, nonce });
+      expect("code" in (await verify(first, ORIGINAL))).toBe(false);
+
+      // Same nonce, new body — what an implementation produces if it treats
+      // the retry as "the same request continued" rather than a new one.
+      const retry = await signedMcpRequest({ method: "tools/call", params: RETRY, nonce });
+      const result = await verify(retry, RETRY);
+      expect("code" in result).toBe(true);
+      if (!("code" in result)) return;
+      expect(result.code).toBe(-32004);  // ERR_REPLAY
+    });
+  });
 });
