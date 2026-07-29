@@ -7,7 +7,9 @@ past ~25 lines it probably wants to be its own ADR or doc.
 ## What cloister is
 
 A v8-isolate hypervisor running on workerd. The public face is
-SSE/HTTP (MCP/JSON-RPC over it); inside, a typed capnp manifest
+MCP over Streamable HTTP (JSON-RPC POST; the legacy HTTP+SSE transport
+is Deprecated per MCP 2026-07-28 and kept only for the 12-month window);
+inside, a typed capnp manifest
 declares routes and backends; outside, the same TypeScript bundle runs
 on `workerd serve config.capnp` locally and on Cloudflare Workers in
 production.

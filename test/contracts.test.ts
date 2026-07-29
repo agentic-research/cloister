@@ -506,3 +506,63 @@ describe("server/discover gate posture", () => {
     expect(dBody.error?.code).toBe(-32005);
   });
 });
+
+
+// ── 2026-07-28 result shape + removed methods (cloister-c8e3bd) ────────────
+//
+// Dual-stack rule: the released revision's obligations bind the SESSIONLESS
+// surface. Legacy (2025-11-25) responses stay byte-shaped as before — that
+// revision has no resultType, and its clients still legitimately send ping.
+describe("2026-07-28 result shape and removed methods", () => {
+  const route = () => new McpEdgeRoute([]);
+  const post = (body: unknown, sessionless: boolean) =>
+    route().handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionless ? { "MCP-Protocol-Version": "2026-07-28" } : {}),
+        },
+        body: JSON.stringify(body),
+      }),
+      fakeEnv(),
+    );
+  const rpc = (method: string) => ({ jsonrpc: "2.0", id: 1, method });
+
+  it("sessionless results carry resultType complete + _meta serverInfo", async () => {
+    const res = await post(rpc("tools/list"), true);
+    const body = (await res.json()) as JsonRpcResponse;
+    const result = body.result as Record<string, unknown>;
+    expect(result.resultType).toBe("complete");
+    const meta = result._meta as Record<string, unknown>;
+    expect(meta?.["io.modelcontextprotocol/serverInfo"]).toEqual({ name: "cloister", version: "0.1.0" });
+  });
+
+  it("legacy results carry neither — that revision has no such fields", async () => {
+    const res = await post(rpc("tools/list"), false);
+    const body = (await res.json()) as JsonRpcResponse;
+    const result = body.result as Record<string, unknown>;
+    expect(result.resultType).toBeUndefined();
+    expect(result._meta).toBeUndefined();
+  });
+
+  it("ping is -32601 on the sessionless surface (removed in 2026-07-28)", async () => {
+    const res = await post(rpc("ping"), true);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32601);
+  });
+
+  it("ping still works for legacy clients (dual-stack, 12-month window)", async () => {
+    const res = await post(rpc("ping"), false);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error).toBeUndefined();
+  });
+
+  it("error responses carry no resultType — it is a field of results only", async () => {
+    const res = await post(rpc("nonexistent/method"), true);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error).toBeDefined();
+    expect((body as Record<string, unknown>).resultType).toBeUndefined();
+    expect((body.error as Record<string, unknown>).resultType).toBeUndefined();
+  });
+});
