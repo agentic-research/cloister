@@ -169,6 +169,41 @@ const cloisterWorker :Workerd.Worker = (
       text = "",
     ),
 
+    # ── Trust-surface bindings (cloister-9aeb3f) ────────────────────────
+    #
+    # Declared with empty text for the same reason VAULT_KEK_SOURCE is:
+    # plaintext key material is not representable in committed config, but
+    # the BINDING must exist on this path or code reading it gets undefined
+    # where the CF path gets a value. They were present in wrangler.toml and
+    # absent here, which meant the lease gate, disclosure HMAC and receipt
+    # signing could not be exercised under `serve:local` or `task smoke` at
+    # all — a testability gap on exactly the surface the threat model treats
+    # as the contract.
+    #
+    # Empty is NOT a posture change: resolveLeaseGate tests
+    # `!!env.INTERLACE_ROOT_PUBKEY`, so "" reads as absent exactly as before
+    # (ADR-0053 — no authority still enforces, then fails closed at
+    # resolveCABundle). An operator supplies real values by overriding these
+    # bindings, which is now possible where before it was not.
+    ( name = "INTERLACE_ROOT_PUBKEY",
+      text = "",
+    ),
+    ( name = "INTERLACE_MASTER_PUBKEY",
+      text = "",
+    ),
+    ( name = "INTERLACE_DISCLOSURE_HMAC_KEY",
+      text = "",
+    ),
+    ( name = "RECEIPT_SIGNING_KEY",
+      text = "",
+    ),
+    ( name = "RECEIPT_EPOCH",
+      text = "",
+    ),
+    ( name = "CANONICAL_HOURS_MCP_URL",
+      text = "",
+    ),
+
     # notme-bot service binding — /identity/* proxy
     ( name = "NOTME",
       service = "notme-bot",
