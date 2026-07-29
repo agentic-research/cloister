@@ -796,6 +796,46 @@ in the `server/discover` response, which is reachable pre-auth in dev
 mode (no `INTERLACE_ROOT_PUBKEY`) and post-auth otherwise. In production
 the advertisement is gated by the lease pipeline. No oracle leak.
 
+## 13.11 MCP routing headers (SEP-2243 / cloister-da49a6)
+
+MCP 2026-07-28 requires `Mcp-Method` and `Mcp-Name` headers on Streamable
+HTTP POST so intermediaries can route and meter without parsing bodies.
+
+**The adversary.** The request signature (§6.2, `canonicalRequestBytes`)
+covers `method\nurl\nts\nnonce\nbody` — the routing headers are NOT
+signed. An on-path attacker, or a misbehaving intermediary, can rewrite
+`Mcp-Method: tools/call` → `tools/list` (or `Mcp-Name`) without
+invalidating the signature. If any component routes, meters, or gates on
+the header while scope derivation (§6.3, `deriveRequestScope`) reads the
+body, one request is ROUTED as one method and SCOPE-CHECKED as another.
+
+**Disposition: headers are advisory; the signature covers what decides.**
+
+1. Every trust and dispatch decision derives from the signed body. The
+   headers never feed `deriveRequestScope`, the gate, counters, or
+   receipts.
+2. If a routing header is present and disagrees with the body, the edge
+   rejects with the spec's `HeaderMismatchError` (-32020) BEFORE the
+   lease gate does any work — no scope derivation, no counter write, no
+   TrustStore RPC for a request that lies about itself
+   (`validateMcpHeaders`, src/routes/mcp.ts; ordering pinned by test —
+   an enforcing-gate request with a mismatched header yields -32020, not
+   -32001).
+3. Absence is tolerated. The headers are a client obligation; rejecting
+   their absence buys no trust because the body is signed either way,
+   and would break legacy clients for nothing.
+4. Outbound, the proxy leg derives `Mcp-Method`/`Mcp-Name` FROM the body
+   at the single choke point that sends it (`postJson`,
+   src/manifest/backends/mcp-proxy.ts). Cloister must never be the lying
+   intermediary its own edge rejects.
+
+The alternative — signing the headers into the canonical bytes — was
+considered and rejected: it changes the wire format at the notme seam
+(ADR-0007 cert/signing amendment) to protect data that carries no
+decision weight once rule 1 holds. Revisit only if a future component
+must act on the header where the body is unavailable (e.g. body-blind
+WAF metering that must be trusted, which today it is not).
+
 ## 14. Cross-references
 
 - ADR-0007 §154 (bolded transactional rule) — preserved-via-substitute by

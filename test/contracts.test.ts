@@ -339,3 +339,84 @@ describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
     expect(result.supportedVersions).toEqual(["custom-version-1", "custom-version-2"]);
   });
 });
+
+// ── Mcp-Method / Mcp-Name header agreement (SEP-2243 / cloister-da49a6) ────
+//
+// MCP 2026-07-28 requires these headers on Streamable HTTP POST so
+// intermediaries can route without parsing bodies. Cloister's TRUST decisions
+// derive from the signed body (`canonicalRequestBytes` covers method+url+ts+
+// nonce+body — the headers are NOT signed), so the headers are ADVISORY here:
+// if present they MUST agree with the body, and disagreement is rejected with
+// HeaderMismatchError (-32020) BEFORE the lease gate does any work. A request
+// routed as one method and scope-checked as another is the seam this closes.
+describe("Mcp-Method / Mcp-Name header agreement", () => {
+  function postWithHeaders(
+    route: McpEdgeRoute,
+    body: unknown,
+    extra: Record<string, string>,
+    env: Env = fakeEnv(),
+  ): Promise<Response> {
+    return route.handle(
+      new Request("http://x/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...extra },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  }
+
+  const rpc = (method: string, params?: unknown) =>
+    ({ jsonrpc: "2.0", id: 1, method, ...(params !== undefined ? { params } : {}) });
+
+  it("Mcp-Method disagreeing with the body is rejected -32020 (HTTP 400)", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/call", { name: "bead_list", arguments: {} }), {
+      "Mcp-Method": "tools/list",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+    expect(body.error?.message).toContain("HeaderMismatch");
+  });
+
+  it("Mcp-Name disagreeing with params.name on tools/call is rejected -32020", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/call", { name: "bead_list", arguments: {} }), {
+      "Mcp-Method": "tools/call",
+      "Mcp-Name":   "bead_close",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+  });
+
+  it("agreeing headers pass through to normal dispatch", async () => {
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), { "Mcp-Method": "tools/list" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error).toBeUndefined();
+  });
+
+  it("absent headers are tolerated (body is the signed authority)", async () => {
+    // The spec obliges CLIENTS to send them; cloister's trust layer does not
+    // depend on them, so absence is not an error — enforcement of a client
+    // obligation would only break legacy clients for zero trust benefit.
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), {});
+    expect(res.status).toBe(200);
+  });
+
+  it("mismatch is rejected BEFORE the lease gate runs", async () => {
+    // Enforcing env (authority present), no lease headers at all: if the gate
+    // ran first this would be ERR_UNAUTHENTICATED (-32001). Getting -32020
+    // proves the header check precedes any gate work.
+    const enforcing = { INTERLACE_ROOT_PUBKEY: "ed25519:AAAA" } as unknown as Env;
+    const route = new McpEdgeRoute([]);
+    const res = await postWithHeaders(route, rpc("tools/list"), { "Mcp-Method": "tools/call" }, enforcing);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.code).toBe(-32020);
+  });
+});

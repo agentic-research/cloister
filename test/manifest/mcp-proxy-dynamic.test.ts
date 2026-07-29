@@ -785,3 +785,56 @@ describe("McpProxyToolBackend — protocolMode: 'auto' downgrade", () => {
     expect(b.tools().map(t => t.name).sort()).toEqual(["mache_find_callers", "mache_get_overview"]);
   });
 });
+
+// ── Outbound Mcp-Method / Mcp-Name derivation (SEP-2243 / cloister-da49a6) ─
+//
+// Cloister's edge rejects requests whose routing headers disagree with the
+// body. The proxy leg must therefore DERIVE its outbound headers from the body
+// it sends — emitting anything else would make cloister the lying
+// intermediary its own edge rejects.
+describe("McpProxyToolBackend — outbound header derivation", () => {
+  function headerCapturingFetch(respond: (method: string, body: unknown) => Response) {
+    const seen: Array<{ headers: Record<string, string>; body: { method?: string; params?: { name?: string } } }> = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      const h: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => { h[k.toLowerCase()] = v; });
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      seen.push({ headers: h, body });
+      return respond(body?.method ?? "", body);
+    };
+    return { fetcher, seen };
+  }
+
+  const spec: HttpForwardBackend = {
+    urlBinding: "MACHE_MCP_URL",
+    tools: [],
+    dynamicTools: true,
+    protocolMode: "next",   // sessionless: no initialize leg to special-case
+  };
+
+  it("every outbound POST carries Mcp-Method equal to its body method", async () => {
+    const { fetcher, seen } = headerCapturingFetch(() => jsonResponse(TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/"));
+    expect(seen.length).toBeGreaterThan(0);
+    for (const call of seen) {
+      expect(call.headers["mcp-method"]).toBe(call.body.method);
+    }
+  });
+
+  it("tools/call carries Mcp-Name equal to params.name; tools/list carries none", async () => {
+    const { fetcher, seen } = headerCapturingFetch((method) =>
+      method === "tools/call"
+        ? jsonResponse({ content: [{ type: "text", text: "ok" }] })
+        : jsonResponse(TOOLS_LIST_RESULT));
+    const b = new McpProxyToolBackend(spec, "mache_", fetcher);
+    await b.refreshTools(envWith("http://stub/"));
+    await b.invoke("mache_search", { q: "x" }, envWith("http://stub/"));
+
+    const listCalls = seen.filter(c => c.body?.method === "tools/list");
+    const toolCalls = seen.filter(c => c.body?.method === "tools/call");
+    expect(toolCalls.length).toBe(1);
+    expect(toolCalls[0].headers["mcp-name"]).toBe(toolCalls[0].body.params?.name);
+    for (const c of listCalls) expect(c.headers["mcp-name"]).toBeUndefined();
+  });
+});
