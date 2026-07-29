@@ -836,6 +836,65 @@ decision weight once rule 1 holds. Revisit only if a future component
 must act on the header where the body is unavailable (e.g. body-blind
 WAF metering that must be trusted, which today it is not).
 
+## 13.12 MRTR retry semantics (SEP-2322 / cloister-db14c3)
+
+MCP 2026-07-28 replaces server-initiated requests with Multi Round-Trip
+Requests: a server returns `resultType: "input_required"` carrying
+`inputRequests`, and the client RETRIES THE ORIGINAL REQUEST with
+`inputResponses` attached. Cloister does not emit `input_required` yet; this
+section fixes the trust semantics BEFORE it does, so adoption is a code
+change against a decided model rather than a decision made under
+implementation pressure.
+
+### Replay defense composes by construction
+
+The retry body differs from the original (it gains `inputResponses`), so it
+must be freshly signed with a fresh nonce, and `seen_nonces` (§6.2.8) never
+sees a duplicate. That is the good case — but it holds only while nonce
+reuse stays rejected. Both halves are pinned as a PAIR in
+`test/helpers/signed-request.test.ts`: a properly re-signed retry PASSES
+(proving the harness can produce a valid retry at all), and a retry reusing
+the original nonce is `ERR_REPLAY`. Without the first, the second would
+prove only that something rejected something.
+
+**Rule: a retry is a new request.** No implementation may introduce a
+nonce-reuse allowance for "the same logical call".
+
+### Attestation semantics: one logical operation, two attested calls
+
+§13.2 attests on every authenticated call, and receipts emit on 2xx — and an
+`input_required` interim result IS a 2xx. So one logical tool call that goes
+through an MRTR round produces TWO attestations and TWO receipts.
+
+**Disposition: that is correct, and deliberately not collapsed.** Each wire
+crossing was separately authenticated, separately scope-checked, and
+separately advanced the counter chain; the audit record should show what
+actually crossed the boundary, not a reconstructed logical view. Collapsing
+them would mean either suppressing an attestation for an authenticated call
+(breaking §13.2's "every authenticated call" invariant, and creating a state
+where a peer's counter advanced with no attestation to explain it) or
+back-dating the second onto the first (falsifying when the client supplied
+the input).
+
+Correlation, when a consumer wants the logical view, rides the spec's own
+hook: servers encode their own identifier in `requestState` (the mechanism
+the spec names after removing `elicitationId`). That is a presentation
+concern for a disclosure consumer, not a change to what is attested.
+
+### Orchestrator re-entry
+
+`bead-create-orchestrator` runs the ADR-0012 four-step handoff. Step 2
+(`BlobStore.put`) is idempotent CAS — a retry produces the same digest — and
+`beads.content_hash` links the row to those bytes.
+
+**Rule: `input_required` must never be returned from inside the
+orchestration.** If cloister ever interrupts a `bead_create`, it interrupts
+BEFORE step 1 or not at all. A mid-orchestration interrupt would re-enter a
+partially-completed four-step handoff on retry, and steps 3-4 (the
+TrustStore attestation write and the pending enqueue) are not idempotent the
+way step 2 is. Interrupting before step 1 costs nothing: no state has been
+written, and the retry is an ordinary first attempt.
+
 ## 14. Cross-references
 
 - ADR-0007 §154 (bolded transactional rule) — preserved-via-substitute by
