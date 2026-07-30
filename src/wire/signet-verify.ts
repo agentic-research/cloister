@@ -59,17 +59,36 @@ interface SignetWasmExports {
   /** Free a buffer previously returned by lsign_alloc. Must pair every alloc. */
   lsign_free: (ptr: number, size: number) => void;
 
-  /**
-   * Sign data with CMS/PKCS#7 + Ed25519 + signed attributes.
-   * Returns bytes written to out_buf, or -1 on error / buffer too small.
-   * Not used by the verifier path; kept here for symmetry with FFI.
-   */
-  leyline_sign_data: (
-    data_ptr: number, data_len: number,
-    cert_der_ptr: number, cert_der_len: number,
-    private_key_ptr: number,
-    out_buf: number, out_len: number,
-  ) => number;
+  // `leyline_sign_data` is DELIBERATELY NOT DECLARED (cloister-d51165).
+  //
+  // The wasm module exports it — LLO owns the CMS/PKCS#7 + Ed25519 primitive
+  // (rs/ll-open/sign/src/cms.rs) — but cloister does not reach it from
+  // TypeScript, for two reasons:
+  //
+  //   1. Nothing needs it. APAS's attestation envelope is an in-toto Statement
+  //      v1 wrapped in DSSE, Ed25519-signed (signet
+  //      docs/apas/agent-provenance-standard.md, Normative References + §2 L2).
+  //      CMS appears there as the shared SIGNING IMPLEMENTATION consumers may
+  //      consolidate onto, not as the envelope. Cloister already signs receipts
+  //      with non-extractable Web Crypto Ed25519 (src/wire/receipts.ts), which
+  //      is the primitive APAS asks for.
+  //   2. Its signature takes `private_key_ptr` — raw key bytes in wasm linear
+  //      memory inside the isolate. Declaring it invites a caller, and the one
+  //      caller it would attract is a signing path with a private key in the
+  //      V8 heap. Web Crypto's non-extractable CryptoKey is strictly better.
+  //
+  // It previously WAS declared, commented "not used by the verifier path; kept
+  // here for symmetry with FFI", with exactly one other reference in the tree:
+  // a test asserting `typeof … === "function"`. That assertion proves the
+  // symbol is exported, not that calling it works — a wrong signature, broken
+  // pointer contract, or panicking body passes it identically. So cloister
+  // advertised a signing capability nobody had executed. Removing the
+  // declaration removes the invitation; the primitive remains available to
+  // whoever legitimately needs it (notme mints, LLO signs).
+  //
+  // If a CMS envelope is ever required here, prove the primitive from
+  // TypeScript FIRST — sign real bytes and verify them — before anything
+  // depends on it.
 
   /**
    * Verify a CMS/PKCS#7 signature against the original data. On success,

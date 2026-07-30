@@ -60,7 +60,12 @@ describe("signet-verify wasm wrapper", () => {
       expect(typeof exports.lsign_alloc).toBe("function");
       expect(typeof exports.lsign_free).toBe("function");
       expect(typeof exports.leyline_verify).toBe("function");
-      expect(typeof exports.leyline_sign_data).toBe("function");
+      // leyline_sign_data is deliberately NOT in the typed interface
+      // (cloister-d51165) — see the note in src/wire/signet-verify.ts. The
+      // assertion that used to live here checked `typeof … === "function"`,
+      // which proves a symbol is exported and NOT that calling it works: a
+      // wrong signature, broken pointer contract, or panicking body all pass
+      // it. It read as coverage of a signing path nobody had executed.
       expect(exports.memory).toBeInstanceOf(WebAssembly.Memory);
       expect(ptr).toBeGreaterThan(0);
       expect(length).toBe(3);
