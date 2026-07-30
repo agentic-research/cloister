@@ -1,8 +1,22 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Every ley-line-open git dependency in the Rust workspace shares ONE rev and
-// ONE version (cloister-9170d0 / the CLAUDE.md LLO-pinning rule).
+// ONE upstream, ONE version — across every channel that states it.
+//
+// cloister consumes ley-line-open through FOUR independent channels, and each
+// used to carry its own version string:
+//
+//   1. [inputs.llo] in cluster.toml       server.json @ git SHA
+//   2. Cargo git deps (two manifests)     5 crates @ rev + version
+//   3. schema-bridge.lock.json            generator binaries @ release tag
+//   4. [inputs.llo.oci] in the lockfile   image, DERIVED from (1) — not checked here
+//
+// Channel 4 is already derived, which is why it never drifts. The other three
+// are hand-stated, and on 2026-07-29 they read 0.11.3, 0.12.0 and 0.12.1
+// simultaneously. Nothing reported it: the first version of this rail asserted
+// only that the CARGO pins agreed with EACH OTHER, so intra-channel drift was
+// caught and cross-channel drift was not. The three were realigned by hand,
+// which is not a fix — it is the same maintenance this file exists to remove.
 //
 // WHY THIS EXISTS, precisely. `task lint`'s own description has claimed
 // "cargo-pin lint" among its checks for as long as the line has existed. No
@@ -33,7 +47,7 @@
 // in exactly the same way, and a reader diffing manifests sees a version that
 // misdescribes the code.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import TOML from "@iarna/toml";
@@ -103,7 +117,7 @@ export function collectLloPins(rsDir = RS) {
 }
 
 function fail(msg) {
-  process.stderr.write(`lint:cargo-pins: ${msg}\n`);
+  process.stderr.write(`lint:upstream-pins: ${msg}\n`);
   process.exit(1);
 }
 
@@ -158,11 +172,97 @@ function main() {
     );
   }
 
+  // ── Cross-channel: the check the first version of this rail lacked ──────
+  //
+  // Everything above compares Cargo pins to EACH OTHER. That caught the
+  // leyline-fs pin left behind in a second manifest, and it would not have
+  // caught the three-way 0.11.3 / 0.12.0 / 0.12.1 drift, because each channel
+  // was internally consistent while disagreeing with the others.
+  const cargoVersion = versions[0];
+  const channels = [
+    { name: "Cargo git deps (rs/**/Cargo.toml)", version: cargoVersion },
+    ...readInputVersion(),
+    ...readGeneratorVersion(),
+  ];
+
+  // Non-vacuity: with only the Cargo channel readable, the comparison below is
+  // over a one-element set and proves nothing — the same silent-pass shape the
+  // MIN_EXPECTED_PINS floor guards against upstream of it.
+  if (channels.length < 3) {
+    fail(
+      `only ${channels.length} of the 3 hand-stated channels were readable ` +
+      `(${channels.map((c) => c.name).join(", ")}). The cross-channel comparison ` +
+      `would pass over a set too small to disagree. Either a channel moved, or ` +
+      `this lint's readers need updating.`,
+    );
+  }
+
+  const distinct = [...new Set(channels.map((c) => c.version))];
+  if (distinct.length > 1) {
+    fail(
+      `ley-line-open is stated at ${distinct.length} different versions across ` +
+      `channels. Each channel can be internally consistent and still disagree ` +
+      `with the others — that is exactly how 0.11.3 / 0.12.0 / 0.12.1 shipped ` +
+      `together, with nothing reporting it:\n` +
+      channels.map((c) => `  ${c.version.padEnd(10)} ${c.name}`).join("\n") +
+      `\nBump every channel together, or derive the ones that can be derived.`,
+    );
+  }
+
   process.stdout.write(
-    `lint:cargo-pins: OK — ${pins.length} ley-line-open pin(s) across ` +
-    `${new Set(pins.map((p) => p.file)).size} manifest(s), all at ` +
-    `${versions[0]} / ${revs[0].slice(0, 8)}\n`,
+    `lint:upstream-pins: OK — ley-line-open at ${distinct[0]} across ` +
+    `${channels.length} channels; ${pins.length} cargo pin(s) in ` +
+    `${new Set(pins.map((p) => p.file)).size} manifest(s) @ ${revs[0].slice(0, 8)}\n`,
   );
+}
+
+/**
+ * Channel 1 — the operator's input declaration.
+ *
+ * Returns [] rather than throwing when unreadable, so a fixture tree without a
+ * cluster.toml still exercises the Cargo half. The non-vacuity floor above is
+ * what stops that leniency from becoming a silent pass on the real tree.
+ */
+function readInputVersion() {
+  const p = process.env.CLOISTER_CLUSTER_TOML ?? resolve(ROOT, "cluster.toml");
+  if (!existsSync(p)) return [];
+  try {
+    const doc = TOML.parse(readFileSync(p, "utf8"));
+    const v = doc.inputs?.llo?.version;
+    return typeof v === "string" && v ? [{ name: "[inputs.llo] (cluster.toml)", version: normalize(v) }] : [];
+  } catch {
+    // lint-allow-silent: an unparseable cluster.toml is `test:cluster-toml`'s
+    // failure to report, not this rail's — and reporting it twice, in different
+    // words, sends a reader to the wrong file.
+    return [];
+  }
+}
+
+/** Channel 3 — the digest-pinned schema-bridge generator binaries. */
+function readGeneratorVersion() {
+  const p = resolve(ROOT, "schema-bridge.lock.json");
+  if (!existsSync(p)) return [];
+  try {
+    const v = JSON.parse(readFileSync(p, "utf8")).version;
+    return typeof v === "string" && v ? [{ name: "schema-bridge.lock.json", version: normalize(v) }] : [];
+  } catch {
+    // lint-allow-silent: as above — fetch-schema-bridge owns that error.
+    return [];
+  }
+}
+
+/**
+ * Strip a leading `v`.
+ *
+ * ADR-0041 settled that the prefix is a PER-REPO convention, not a mandate:
+ * rosary tags `0.10.0`, mache and ley-line-open tag `v0.19.0` / `v0.13.0`, and
+ * all three are correct because each matches its own pushed tag. So the same
+ * upstream legitimately appears as `0.13.0` in a Cargo `version` field (semver,
+ * never v-prefixed) and `v0.13.0` in a release tag. Comparing them raw would
+ * report a permanent false disagreement.
+ */
+function normalize(v) {
+  return v.replace(/^v/, "");
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) main();
