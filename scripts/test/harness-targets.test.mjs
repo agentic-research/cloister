@@ -243,57 +243,84 @@ test("a missing .env.local fails BEFORE minting, not after", () => {
 
 // ── the selector is not the executable (ADR-0060 / cloister-1011aa) ────────
 
-test("every declared target's executable resolves — against cluster.toml, not a fixture", async () => {
-  // The bug this exists for: `name` was doing two jobs — the selector you type
-  // after `--harness`, and the binary to find on `$PATH`. They coincide for
-  // `codex` and do NOT for Claude Code, whose product is `claude-code` and
-  // whose binary is `claude`. So `cloister run --harness claude-code` failed on
-  // a machine WITH Claude Code installed, and every test stayed green: they
-  // either passed `--harness-bin` explicitly or asserted on the LaunchRequest
-  // before resolution, so the `$PATH` lookup was only ever exercised where the
-  // two names happened to match.
+// The DECLARATION is checkable anywhere — including a CI runner with no harness
+// installed. The RESOLUTION is not. An earlier version of this file merged them
+// into one test with an anti-vacuity guard that hard-failed when nothing
+// resolved; that guard is right for a developer machine and wrong for CI, where
+// "no harness installed" is the normal state. It failed the gate.
+//
+// Splitting them keeps both properties honest: the declaration assertion runs
+// everywhere and is what actually catches the bug, and the resolution check
+// SKIPS with a named reason (node:test reports skips distinctly from passes, so
+// it stays visible) rather than silently passing.
+
+test("a target whose stateDir stem differs from its name MUST declare an executable", async () => {
+  // The general form of the bug, and checkable with no binary present — which
+  // matters, because the machine most likely to run this has neither harness
+  // installed.
   //
-  // Which is why this reads the REAL cluster.toml. A fixture would have to
-  // encode the same wrong assumption to pass, and then it would pass.
+  // The tell was already in the row: claude-code declares `stateDir = ".claude"`.
+  // A harness names its state directory after ITSELF, so the stem of stateDir is
+  // the execution identity. When that stem differs from the selector, the two
+  // concerns have come apart and `name` can no longer stand in for the binary —
+  // which is precisely the state that shipped broken, with the evidence sitting
+  // in the same row nobody read.
+  //
+  // codex: stateDir ".codex", stem "codex" == name → nothing required.
+  // claude-code: stem "claude" != name "claude-code" → executable required.
   const { loadHarnessConfig } = await import("../harness-targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
 
-  const unresolved = [];
-  const checked = [];
   for (const t of targets) {
-    // Same order the launcher uses, minus the per-invocation override.
-    if (t.entryPoint) {
-      // An absolute path is the pinned form; assert it exists as given.
-      checked.push(t.name);
-      assert.ok(existsSync(t.entryPoint), `${t.name}: entryPoint ${t.entryPoint} does not exist`);
-      continue;
-    }
-    const cmd = t.executable || t.name;
-    const r = spawnSync("which", [cmd], { encoding: "utf8" });
-    if (r.status === 0) {
-      checked.push(`${t.name} → ${cmd}`);
-    } else {
-      // NOT installed here. That is legitimate — a developer need not have both
-      // harnesses — but it must be NAMED, never a silent pass, because "not
-      // installed" and "declared the wrong binary" are indistinguishable from a
-      // green test. This is the exact shape that hid the bug.
-      unresolved.push(`${t.name} (looked for ${JSON.stringify(cmd)})`);
-    }
-  }
-
-  if (unresolved.length) {
-    process.stderr.write(
-      `harness-targets: not installed here, so unverified: ${unresolved.join(", ")}\n`,
+    const stem = (t.stateDir || "").replace(/^\./, "");
+    if (!stem || stem === t.name) continue;
+    assert.ok(
+      t.executable,
+      `${t.name}: stateDir ${JSON.stringify(t.stateDir)} implies the binary is ` +
+      `${JSON.stringify(stem)}, not ${JSON.stringify(t.name)} — declare ` +
+      `executable, or the $PATH fallback looks for a binary that does not ` +
+      `exist (ADR-0060)`,
+    );
+    assert.equal(
+      t.executable, stem,
+      `${t.name}: executable ${JSON.stringify(t.executable)} disagrees with the ` +
+      `identity its own stateDir implies (${JSON.stringify(stem)})`,
     );
   }
-  // Non-vacuity: if NOTHING resolved, this test proved nothing and must say so
-  // rather than reporting green on an empty check.
-  assert.ok(
-    checked.length > 0,
-    `no declared harness resolved on this machine (${unresolved.join(", ")}), so this ` +
-    `assertion is vacuous — install one, or the declaration is unverifiable here`,
-  );
+});
+
+test("every declared target's executable resolves on THIS machine", async (t) => {
+  // Complements the declaration check above: that one proves the row is
+  // self-consistent, this one proves the named binary is actually findable.
+  // Only meaningful where a harness is installed, so it stands down explicitly
+  // rather than passing on an empty check.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+
+  const checked = [], missing = [];
+  for (const row of targets) {
+    if (row.entryPoint) {
+      assert.ok(existsSync(row.entryPoint), `${row.name}: entryPoint ${row.entryPoint} does not exist`);
+      checked.push(row.name);
+      continue;
+    }
+    const cmd = row.executable || row.name;
+    if (spawnSync("which", [cmd], { encoding: "utf8" }).status === 0) checked.push(`${row.name} → ${cmd}`);
+    else missing.push(`${row.name} (looked for ${JSON.stringify(cmd)})`);
+  }
+
+  if (checked.length === 0) {
+    // NOT a silent pass: node:test renders this as a skip with the reason
+    // attached, so a log reader can tell "no harness here" from "verified".
+    t.skip(`no declared harness installed here (${missing.join(", ")}) — ` +
+           `resolution is unverifiable on this machine; the declaration check above still ran`);
+    return;
+  }
+  if (missing.length) {
+    process.stderr.write(`harness-targets: not installed here, so unverified: ${missing.join(", ")}\n`);
+  }
+  assert.ok(checked.length > 0);
 });
 
 test("claude-code declares an executable distinct from its selector", async () => {
