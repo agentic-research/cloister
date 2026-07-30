@@ -241,7 +241,11 @@ describe("McpEdgeRoute sessionless protocol (Phase 2)", () => {
     };
     expect(result.protocolVersion).toBe(NEXT);
     expect(result.supportedVersions).toContain(NEXT);
-    expect(result.supportedVersions).toContain("2024-11-05");
+    // cloister-55d31c: the session-based revision is NO LONGER advertised.
+    // Asserted as absence rather than deleted, so the narrowing is a claim the
+    // suite makes and not merely a line that stopped existing.
+    expect(result.supportedVersions).not.toContain("2024-11-05");
+    expect(result.supportedVersions).toEqual([NEXT]);
     expect(result.capabilities).toHaveProperty("tools");
     expect(result.serverInfo.name).toBe("cloister");
   });
@@ -455,6 +459,17 @@ describe("protocol version acceptance (cloister-c8e3bd)", () => {
     // placeholder names nothing — this asserts the inbound surface actually
     // narrowed, rather than the constant merely being deleted from a list.
     const res = await call("2026-XX-XX");
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.message).toContain("UnsupportedProtocolVersion");
+  });
+
+  it("REJECTS the retired session-based 2024-11-05 revision", async () => {
+    // The breaking half of no-legacy-posture (cloister-55d31c). SEP-2567 deleted
+    // sessions, so this revision names a lifecycle the substrate no longer
+    // implements. Recoverable per-deployment: `supportedVersions` from the
+    // manifest overrides the default this now excludes.
+    const res = await call("2024-11-05");
     expect(res.status).toBe(400);
     const body = (await res.json()) as JsonRpcResponse;
     expect(body.error?.message).toContain("UnsupportedProtocolVersion");

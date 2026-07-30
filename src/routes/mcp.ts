@@ -54,18 +54,6 @@ import {
 } from "./roots-state.js";
 import { McpProxyToolBackend } from "../manifest/backends/mcp-proxy.js";
 
-/**
- * Legacy MCP protocol version — `initialize` + sessions path. Returned in
- * `initialize` responses to current-protocol clients. The string tracks
- * the MCP-spec basic transport release date and is intentionally NOT a
- * cloister version.
- *
- * NOTE: the historical value `2024-11-05` is preserved here (rather than
- * bumped to the 2025-11-25 spec lifecycle) so existing tests + clients
- * pinning to it continue to work. ADR-0015 Phase 1 will reconcile the
- * version-string against the MCP lifecycle spec.
- */
-const LEGACY_PROTOCOL_VERSION = "2024-11-05";
 
 /**
  * Sessionless MCP protocol version — SEP-2575 + SEP-2567 path. Returned in
@@ -185,13 +173,31 @@ export class McpEdgeRoute implements EdgeRoute {
     supportedVersions?: readonly string[],
   ) {
     assertNoDuplicateToolNames(backends);
-    // Runtime default — manifest is authoritative when set, otherwise we
-    // advertise both legacy and sessionless. This keeps Phase 1 backends
-    // unchanged while still letting Phase 2 sessionless clients discover us.
+    // Runtime default — manifest is authoritative when set, otherwise the
+    // sessionless revision ALONE.
+    //
+    // cloister-55d31c: `2024-11-05` used to be advertised beside it. SEP-2567
+    // deleted sessions and SEP-2575 replaced the handshake, so the session-based
+    // lifecycle is legacy, and the decision on this substrate is no legacy
+    // posture. Line ~352 validates the declared header against this list, so
+    // dropping the entry is what makes a 2024-11-05 request actually rejected
+    // rather than merely undocumented.
+    //
+    // This is a BREAKING change to the served edge, deliberately: a client
+    // pinned to 2024-11-05 now gets UnsupportedProtocolVersionError. It is
+    // recoverable per-deployment — `supportedVersions` from the manifest wins
+    // over this default, so an operator who must serve a pinned client can
+    // declare it. Only the default moved.
+    //
+    // NOT touched: src/manifest/backends/mcp-proxy.ts still sends 2024-11-05 in
+    // its `initialize` to UPSTREAMS. That is not legacy posture, it is interop
+    // with servers cloister does not control (mache + rosary are
+    // mark3labs/mcp-go); removing it there would break the handshake, exactly
+    // as with requiresSession.
     this.supportedVersions =
       supportedVersions && supportedVersions.length > 0
         ? supportedVersions
-        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION];
+        : [SESSIONLESS_PROTOCOL_VERSION];
   }
 
   match(request: Request): boolean {
@@ -436,7 +442,7 @@ export class McpEdgeRoute implements EdgeRoute {
           // in mcp-proxy.ts.
           this.captureRootsFromInitialize(peerFp, params.capabilities?.roots, params.roots);
           return okResponse(req.id, {
-            protocolVersion: requested ?? LEGACY_PROTOCOL_VERSION,
+            protocolVersion: requested ?? SESSIONLESS_PROTOCOL_VERSION,
             capabilities:    SERVER_CAPABILITIES,
             serverInfo:      SERVER_INFO,
           });
@@ -715,7 +721,7 @@ function handleSse(request: Request, env: Env): Response {
       const init: JsonRpcResponse = {
         jsonrpc: "2.0",
         id: 0,
-        result: { protocolVersion: LEGACY_PROTOCOL_VERSION, capabilities: SERVER_CAPABILITIES },
+        result: { protocolVersion: SESSIONLESS_PROTOCOL_VERSION, capabilities: SERVER_CAPABILITIES },
       };
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(init)}\n\n`));
       const keepAlive = setInterval(() => {
