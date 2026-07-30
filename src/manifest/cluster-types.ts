@@ -113,8 +113,14 @@ export interface InputSpec {
    * `internet` ACL. Per cloister-05334b.
    */
   serviceBinding: string;
-  /** Require MCP initialize + Mcp-Session-Id on generated backends. */
-  requiresSession: boolean;
+  /**
+   * RETIRED ordinal @10 (cloister-553c39). Was `requiresSession`, an operator
+   * override. The value is now DERIVED from the transport the server declares
+   * and lives on the backend rows (see HttpForwardBackend below); an input that
+   * declares no transport is REFUSED rather than defaulted. Retained under a
+   * retired name because capnp ordinals are append-only (ADR-0004).
+   */
+  requiresSessionRetired: boolean;
   /**
    * How to REACH this input (ADR-0051). Structured components, never a
    * connection string — transport, endpoint and credential stay independently

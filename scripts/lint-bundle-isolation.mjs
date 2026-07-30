@@ -897,10 +897,75 @@ function checkInvariant10(cluster, ociByInput, warnings) {
   const { colocation: inputsByBundle } = resolveTenancy(cluster);
   for (const b of cluster.bundles ?? []) {
     if (!("external" in b.kind)) continue;
-    if (b.kind.external.image) continue; // operator image present — fine
     const linked = inputsByBundle.get(b.name) ?? [];
-    const derivable = linked.some((n) => ociByInput.get(n)?.identifier);
-    if (!derivable) {
+
+    // Colocation means "this bundle ROUTES this input", not "this bundle IS
+    // this input's container" — and the agreement check below is only
+    // meaningful for the second relationship.
+    //
+    // The first draft conflated them and produced a false positive on
+    // `cloister-router`: it hand-sets `cloister:0.1.0` (correctly — it is
+    // cloister's own router) and has llo + canonical-hours colocated, so the
+    // check demanded its image be ley-line-open's. That is the same shape as
+    // the line-anchored TOML regex that produced four phantom binding-parity
+    // violations: a relation read one rung too loosely.
+    //
+    // The discriminator is the repo's own convention, which mache and rosary
+    // both follow: a bundle that IS an input's container carries that input's
+    // NAME. A router does not.
+    //
+    // The two halves of Inv 10 need DIFFERENT relations, and conflating them
+    // broke a passing test ("image-less gateway bundle can derive oci from
+    // fallback-colocated input"):
+    //
+    //   DERIVABILITY (no image set) — ANY linked input with an oci will do.
+    //     An image-less gateway legitimately derives from a fallback-colocated
+    //     input that does not share its name. Narrowing this to same-name made
+    //     a derivable bundle report as un-derivable.
+    //   AGREEMENT (image set) — ONLY the same-name input. Anything looser asks
+    //     a router to claim the image of something it merely routes.
+    const derivableOci = linked.map((n) => ociByInput.get(n)).find((o) => o?.identifier);
+    const ownInput = linked.find((n) => n === b.name);
+    const ownOci = ownInput ? ociByInput.get(ownInput) : undefined;
+
+    if (b.kind.external.image) {
+      // The operator hand-set an image. This USED TO `continue` — so setting the
+      // field was what turned the invariant OFF, and the one bundle that
+      // restated an image by hand was the only one nothing checked.
+      //
+      // cloister-cb735c measured it: rosary's bundle carried
+      // `image = "rosary:0.7.0"` while the lockfile had already resolved
+      // ghcr.io/agentic-research/rosary:0.8.1 to a digest, and rosary's real
+      // version was 0.10.0 — three disagreeing numbers for one upstream, none
+      // reported. mache passes cleanly for the opposite reason: it declares NO
+      // image, so ADR-0038 derives it and there is nothing to drift.
+      //
+      // A hand-set image is still legitimate — a locally-built bundle
+      // (`cloister:0.1.0`, `notme:0.1.0`) has no registry to derive from, and no
+      // linked input resolves an oci for it. What is NOT legitimate is
+      // restating an image the substrate ALREADY resolved, differently.
+      if (!ownOci) continue;
+
+      const declared = b.kind.external.image;
+      // Compare on identifier+tag, ignoring any digest the operator pinned:
+      // `identifier:version` is what emit-compose derives, and a digest the
+      // operator added themselves is strictly more pinned, not a disagreement.
+      const expected = `${ownOci.identifier}:${ownOci.version}`;
+      const declaredNoDigest = declared.split("@")[0];
+      if (declaredNoDigest !== expected) {
+        warnings.push(
+          `bundle "${b.name}" (external) hand-sets image "${declared}" but its linked ` +
+          `input (${linked.join(", ")}) already resolved "${expected}"` +
+          `${ownOci.digest ? ` @ ${ownOci.digest.slice(0, 19)}…` : ""}. ` +
+          `Two statements of one fact, and only the resolved one tracks the ` +
+          `upstream. DELETE the image line so ADR-0038 derives it — that is why ` +
+          `mache has nothing to drift (Inv 10, ADR-0038, cloister-cb735c).`,
+        );
+      }
+      continue;
+    }
+
+    if (!derivableOci) {
       warnings.push(
         `bundle "${b.name}" (external) has no image — no operator ext.image and no ` +
         `packages[].oci from a linked input (${linked.join(", ") || "none"}). Set image in ` +
@@ -993,6 +1058,54 @@ function checkInvariant11(cluster, violations) {
  * reference is exactly the "guess that can only be discovered wrong at
  * runtime" this rail exists to catch.
  */
+/**
+ * Inv 13 (ADR-0048, cloister-54b834) — every external bundle declares an
+ * `executionMode`, and it is one the host runtime implements.
+ *
+ * The sandbox is one of ADR-0048's four tool facets, and the ADR's whole point
+ * is that a facet must be declared INSIDE the boundary rather than left
+ * ambient. Four of five bundles left it ambient: only mache said `microvm`.
+ *
+ * Left ambient it is not merely undocumented — it is a deferred hard failure.
+ * `scripts/emit-host-launch-plan.mjs` REQUIRES "microvm" or "process" and
+ * throws otherwise, so `task runtime:plan -- <bundle>` could not emit a plan
+ * for any of the four, and nothing said so until someone tried. This is the
+ * same shape as Inv 10 before cloister-cb735c: the check existed downstream,
+ * and no gate reached it.
+ *
+ * FAIL-level, not warn. Unlike Inv 10 — where an operator mid-migration who
+ * dropped a hand-set image before the producer ships its oci is legitimate —
+ * there is no legitimate in-between state here. A bundle either runs in a
+ * microVM or as a process; "unstated" is not a third option, it is just the
+ * answer being kept out of the manifest.
+ */
+function checkInvariant13(cluster, violations) {
+  // Kept in step with emit-host-launch-plan.mjs, which is the consumer that
+  // actually enforces these two values at launch. A third mode added there
+  // must be added here, or this rail starts rejecting a mode the runtime
+  // accepts.
+  const MODES = ["microvm", "process"];
+  for (const b of cluster.bundles ?? []) {
+    if (!("external" in b.kind)) continue;
+    const mode = b.kind.external.executionMode;
+    if (!mode) {
+      violations.push(
+        `bundle "${b.name}" (external) declares no executionMode. ADR-0048 makes the ` +
+        `sandbox a facet that must be declared, not inferred — and ` +
+        `emit-host-launch-plan refuses to launch without it, so leaving it unset ` +
+        `defers the failure to \`task runtime:plan\` instead of reporting it here ` +
+        `(Inv 13, cloister-54b834).`,
+      );
+    } else if (!MODES.includes(mode)) {
+      violations.push(
+        `bundle "${b.name}" (external) declares executionMode "${mode}", which the host ` +
+        `runtime does not implement — it selects exactly and never substitutes a weaker ` +
+        `backend. Expected one of: ${MODES.join(", ")} (Inv 13).`,
+      );
+    }
+  }
+}
+
 function checkInvariant12(workerSvc, bundleName, config, violations) {
   const workersByName = new Map(workersIn(config).map((w) => [w.name, w]));
   const bundleLabel = bundleName ? `"${bundleName}"` : "(unmapped)";
@@ -1055,6 +1168,7 @@ checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
 checkInvariant10(cluster, loadOciByInput(), warnings);
 checkInvariant11(cluster, violations);
+checkInvariant13(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -1103,4 +1217,4 @@ const doBindingCount = workersIn(config).reduce(
   0,
 );
 console.log(`  ${doBindingCount} durableObjectNamespace binding(s) checked for Inv 12 (cloister-f9d473)`);
-console.log(`  invariants 1–12 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity + DO-namespace resolution)`);
+console.log(`  invariants 1–13 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity + DO-namespace resolution + ADR-0048 executionMode declared)`);

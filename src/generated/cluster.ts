@@ -22,7 +22,7 @@ export const cluster: Cluster = {
   "bundles": [
     {
       "name": "cloister-router",
-      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)",
+      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834).",
       "tier": "hypervisor",
       "holdsCredential": [
         "VAULT_KEK_SOURCE",
@@ -52,7 +52,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },
@@ -85,7 +85,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },
@@ -118,7 +118,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },
@@ -168,7 +168,7 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch",
+      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c).",
       "tier": "cluster",
       "holdsCredential": [],
       "workerdServiceName": "",
@@ -189,7 +189,7 @@ export const cluster: Cluster = {
       },
       "kind": {
         "external": {
-          "image": "rosary:0.7.0",
+          "image": "",
           "ipcSocket": "/run/cloister-uds/rosary.sock",
           "httpPort": 0,
           "args": [
@@ -199,7 +199,7 @@ export const cluster: Cluster = {
           ],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     }
@@ -244,8 +244,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@39e1e9b4fa3081157e018e51adac62aef23632d1",
-      "version": "0.11.3",
+      "ref": "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354fafb14ff685e867e31ba4a",
+      "version": "0.13.0",
       "digest": "",
       "from": "",
       "provides": [],
@@ -258,7 +258,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -266,7 +266,7 @@ export const cluster: Cluster = {
           "unset": null
         }
       },
-      "mutableTagReason": "ghcr.io/agentic-research/ley-line-open is not published yet — ley-line-open-e44960 adds the publish job + provenance attestation. Remove this line once `docker pull ghcr.io/agentic-research/ley-line-open:v0.11.3` succeeds; resolution then pins by digest automatically."
+      "mutableTagReason": ""
     },
     {
       "name": "mache",
@@ -284,7 +284,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -310,7 +310,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": true,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -336,7 +336,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",

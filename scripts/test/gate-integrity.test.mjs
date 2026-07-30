@@ -27,7 +27,6 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fc from "fast-check";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -135,33 +134,51 @@ function resolvedInputs() {
   return byInput;
 }
 
-test("PROPERTY: an explicit operator declaration is never contradicted by the resolved value", () => {
+test("PROPERTY: no derived field is declarable on the operator surface at all", () => {
+  // STRENGTHENED, and the previous version is why (cloister-553c39).
+  //
+  // It used to assert: IF an operator declares a derived field, the substrate
+  // must not resolve the opposite. That was the strongest claim available while
+  // `requiresSession` was still an operator-facing knob — the contradiction was
+  // the only reachable harm.
+  //
+  // The knob is gone. requiresSession is now derived from the transport the
+  // server declares, with NO fallback: an input declaring no transport is
+  // refused rather than defaulted. So the contradiction is not merely absent
+  // from the tree, it is unreachable — which made the old property's own
+  // non-vacuity guard fire ("no explicit declaration ... would pass vacuously").
+  // That guard doing its job is what brought us here, and the honest response is
+  // a stronger property rather than a relaxed one.
+  //
+  // The property now: a derived field must not APPEAR on the operator surface.
+  // That is checkable without needing anyone to declare one, and it fails if a
+  // future change re-adds an operator-declarable derived field — the drift the
+  // old property could only catch after it had already produced a disagreement.
   const declared = operatorDeclaredInputs();
-  const resolved = resolvedInputs();
   assert.ok(declared.length > 0, "sanity: cluster.toml must declare inputs");
-  assert.ok(resolved.size > 0, "sanity: the lockfile must carry resolved rows");
+  assert.ok(DERIVED_INPUT_FIELDS.length > 0, "sanity: at least one field is derived");
 
-  const pairs = declared
-    .filter((i) => resolved.has(i.name))
-    .flatMap((i) =>
-      DERIVED_INPUT_FIELDS
-        .filter((f) => i[f] !== undefined)          // EXPLICIT declarations only
-        .map((f) => ({ input: i.name, field: f, declared: i[f], resolved: resolved.get(i.name)[f] })),
-    );
-
-  // Non-vacuity: if nobody declares a derived field explicitly, this property
-  // is true of the empty set and proves nothing. Today `rosary` supplies the
-  // one explicit `requiresSession = true`. If that disappears, this assertion
-  // fails and says so rather than passing on air.
-  assert.ok(
-    pairs.length > 0,
-    "no explicit declaration of any derived field — property would pass vacuously",
+  const offenders = declared.flatMap((i) =>
+    DERIVED_INPUT_FIELDS.filter((f) => i[f] !== undefined).map((f) => ({ input: i.name, field: f })),
   );
 
   forAll(
-    pairs,
-    (p) => `${p.input}.${p.field}: operator declared ${p.declared}, substrate resolved ${p.resolved}`,
-    (p) => p.resolved === undefined || p.declared === p.resolved,
+    offenders,
+    (o) =>
+      `[inputs.${o.input}] declares "${o.field}", which the substrate DERIVES from the ` +
+      `server's declared transport. Two statements of one fact — and the operator's is ` +
+      `the one nothing keeps current (cloister-af794d was that outage). Delete it.`,
+    () => false,   // any offender is a violation
+  );
+
+  // And the derived value must still actually be produced, or the removal
+  // silently dropped the fact instead of relocating it.
+  const resolved = resolvedInputs();
+  assert.ok(resolved.size > 0, "sanity: the lockfile must carry resolved rows");
+  forAll(
+    [...resolved.entries()].filter(([, row]) => row.kind !== "udsForward"),
+    ([name]) => `${name}: no resolved row carries a derived requiresSession — the fact was dropped, not moved`,
+    ([, row]) => "requiresSession" in row || row.requiresSession === false,
   );
 });
 
@@ -193,5 +210,200 @@ test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () 
     onDisk,
     (n) => `recipes/${n} has a README but the init CLI cannot instantiate it`,
     (n) => instantiable.has(n),
+  );
+});
+
+// ── every check-shaped task is invoked by some gate ───────────────────────
+//
+// The pattern this exists for, seven instances in one session:
+//
+//   1. scripts/test/oci-artifact.test.mjs — on disk, in no test list (#189→#223)
+//   2. CI verify path filter — enumerated substrate paths, skipped the rest
+//   3. config.capnp ↔ wrangler.toml — "must stay in sync", nothing checked
+//   4. identity:zod:check-drift — existed, in no gate (found #224)
+//   5. runtime:doctor — referenced ONLY by its own definition
+//   6. cluster:zod:check-drift — same shape as (4), still orphaned
+//   7. leyline_sign_data — compiled, declared, never executed
+//
+// Each was invisible for one reason: THE CHECK'S EXISTENCE READS AS COVERAGE.
+// A task named `*:doctor` or `*:check-drift` looks like a guarantee whether or
+// not anything runs it, and the tree offers no way to tell the difference by
+// reading.
+//
+// So: a task whose NAME declares it a check must appear in some gate's deps,
+// or be declared deliberately opt-in WITH A REASON. Silence is not an option.
+
+// Each entry declares WHY the check is absent from `task lint`, and — this is
+// the load-bearing part — WHERE it is gated instead. `gatedBy` names a workflow
+// file that must actually invoke the task; `null` asserts the check is gated
+// nowhere, deliberately.
+//
+// The `gatedBy` field exists because the first version of this table got it
+// WRONG. Two entries claimed the Go drift checks were "gated in the
+// cloister-schema-go workflow". That workflow gates a different surface
+// entirely — clients/go/cloister-schema/, generated by regen.sh with upstream
+// capnpc-go from wire/cloister.capnp — and never touches pkg/cluster/cluster.go
+// or pkg/identity/identity.go, which come from LLO's capnpc-schema-bridge-go
+// off manifest/*.capnp. Two Go surfaces, two generators, one gate.
+//
+// The consequence was measured, not theorised: pkg/cluster/cluster.go was stale
+// by four fields (InputSpec.requiresSession, .connection, .mutableTagReason,
+// Gateway.harnessTargets), each added to the capnp schema by shipped work.
+//
+// So a prose reason naming a gate was itself an unchecked citation — the same
+// defect as an orphaned check, committed inside the rail written to end it.
+// A cited gate is now verified to exist and to invoke the task.
+const OPT_IN_CHECKS = {
+  "cluster:go:verify": {
+    reason:
+      "needs a Go toolchain for the end-to-end round-trip (dump cluster.ts → " +
+      "unmarshal into the generated Go types → round-trip without loss). The " +
+      "drift half of this pair IS gated in CI; only the semantic round-trip is " +
+      "opt-in, and it cannot run in `task lint` without making Go a hard " +
+      "prerequisite of the inner loop.",
+    gatedBy: null,
+  },
+  "image:check": {
+    reason:
+      "needs the melange AND apko binaries, which `task lint` must not require — a " +
+      "developer without them still has to be able to run the gate. It also is NOT " +
+      "read-only: its dep `apk:keygen` runs `melange keygen`, writing melange.rsa into " +
+      "the tree. I gated it in cc1c1c0 calling it \"offline syntax validation, cheap\" " +
+      "and it passed locally because I had the toolchain installed; CI failed with exit " +
+      "127. Both halves of that justification were wrong, which is why this entry states " +
+      "the toolchain AND the side effect rather than just 'opt-in'. Gating it for real " +
+      "means installing melange + apko in a workflow — tracked separately.",
+    gatedBy: null,
+  },
+  "runtime:doctor": {
+    reason:
+      "host-dependent (krunvm/Buildah availability). NOT in `task lint` by design — a " +
+      "developer without a microVM host must still be able to run the gate. It is now a " +
+      "dep of runtime:run, which is where it is load-bearing (cloister-66f1ce).",
+    gatedBy: null,
+  },
+};
+
+/** Task names defined at the top level of the Taskfile. */
+function taskNames(src) {
+  return new Set([...src.matchAll(/^ {2}([a-z][\w:-]*):\s*$/gm)].map((m) => m[1]));
+}
+
+/** Every task named inside any deps array, inline or block form. */
+function dependedOn(src) {
+  const out = new Set();
+  for (const m of src.matchAll(/deps:\s*\[([^\]]*)\]/g)) {
+    for (const x of m[1].split(",")) if (x.trim()) out.add(x.trim());
+  }
+  for (const m of src.matchAll(/deps:\s*\n((?:\s+- .*\n)+)/g)) {
+    for (const l of m[1].trim().split("\n")) out.add(l.trim().replace(/^-\s*/, ""));
+  }
+  return out;
+}
+
+/**
+ * Every task invoked by a CI workflow.
+ *
+ * A Taskfile deps array is not the only real gate. Some checks CANNOT live in
+ * `task lint` — the two schema-bridge Go drift checks need a Go toolchain, and
+ * requiring Go for the inner loop would be a worse trade than leaving them to
+ * CI. A workflow that runs them is a genuine gate, and treating it as one is
+ * what keeps OPT_IN_CHECKS honest: the table should hold only checks gated
+ * NOWHERE, not everything that happens to sit outside the Taskfile.
+ */
+function invokedByCi(root) {
+  const dir = resolve(root, ".github/workflows");
+  if (!existsSync(dir)) return new Set();
+  const out = new Set();
+  for (const f of readdirSync(dir)) {
+    if (!/\.ya?ml$/.test(f)) continue;
+    const src = readFileSync(resolve(dir, f), "utf8");
+    // `task <name>` in a run: block. Comments are excluded deliberately —
+    // a task NAMED in a comment is exactly the unbacked citation this file
+    // exists to reject.
+    for (const line of src.split("\n")) {
+      const code = line.replace(/^\s*#.*$/, "");
+      for (const m of code.matchAll(/\btask\s+([a-z][\w:-]*)/g)) out.add(m[1]);
+    }
+  }
+  return out;
+}
+
+test("PROPERTY: every check-shaped task is invoked by a gate, or declared opt-in with a reason", () => {
+  // lint-allow-rawparse: reads Taskfile TEXT because the question is which
+  // names appear in a deps array literally — a YAML parse would answer the
+  // same, but this must keep working if deps move between inline and block
+  // form, or into an included Taskfile.
+  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const names = taskNames(src);
+  const deps = dependedOn(src);
+
+  const checkShaped = [...names].filter(
+    (n) =>
+      n.startsWith("lint:") ||
+      n.endsWith(":doctor") ||
+      n.endsWith(":check") ||
+      n.endsWith(":check-drift") ||
+      n.endsWith(":verify"),
+  ).sort();
+
+  assert.ok(
+    checkShaped.length > 20,
+    `sanity: expected many check-shaped tasks, found ${checkShaped.length}`,
+  );
+
+  const ci = invokedByCi(ROOT);
+
+  forAll(
+    checkShaped,
+    (n) => `${n} is check-shaped but neither a Taskfile gate nor a CI workflow invokes it, and it is not a declared opt-in`,
+    (n) => deps.has(n) || ci.has(n) || n in OPT_IN_CHECKS,
+  );
+});
+
+test("PROPERTY: no declared opt-in is stale, and each states a reason", () => {
+  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const names = taskNames(src);
+  const deps = dependedOn(src);
+
+  forAll(
+    Object.keys(OPT_IN_CHECKS),
+    (n) => `${n} is declared opt-in but ${names.has(n) ? "IS now gated — delete the entry" : "no longer exists"}`,
+    // Still defined, and still genuinely un-gated. `runtime:doctor` is the
+    // exception: it IS a dep of runtime:run, and its entry says why it is
+    // nonetheless absent from `task lint`.
+    (n) => names.has(n) && (n === "runtime:doctor" || !(deps.has(n) || invokedByCi(ROOT).has(n))),
+  );
+
+  forAll(
+    Object.entries(OPT_IN_CHECKS),
+    ([n]) => `${n}'s opt-in reason is too short to be a reason`,
+    ([, e]) => typeof e.reason === "string" && e.reason.length > 30,
+  );
+});
+
+test("PROPERTY: an opt-in that cites a gate is cited correctly", () => {
+  // The property the first version of this table lacked. Two entries named a
+  // workflow that gates a DIFFERENT surface, so the table asserted coverage
+  // that did not exist — and nothing could tell, because the claim was prose.
+  //
+  // `gatedBy: null` is a real answer meaning "gated nowhere, deliberately", and
+  // it is checked too: the reason must then say why running nowhere is
+  // acceptable, not merely that a toolchain is missing.
+  forAll(
+    Object.entries(OPT_IN_CHECKS).filter(([, e]) => e.gatedBy !== null),
+    ([n, e]) => `${n} claims it is gated by ${e.gatedBy}, but that file does not invoke it`,
+    ([n, e]) => {
+      const p = resolve(ROOT, e.gatedBy);
+      if (!existsSync(p)) return false;
+      // The workflow must name the task, or invoke a task that depends on it.
+      return readFileSync(p, "utf8").includes(n);
+    },
+  );
+
+  forAll(
+    Object.entries(OPT_IN_CHECKS),
+    ([n]) => `${n} must declare gatedBy explicitly — a workflow path, or null for "gated nowhere, deliberately"`,
+    ([, e]) => e.gatedBy === null || typeof e.gatedBy === "string",
   );
 });

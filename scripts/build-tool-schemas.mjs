@@ -30,7 +30,8 @@
 //   0 — wrote tool-schemas.ts
 //   1 — schema compile failed
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { writeGeneratedFile } from "./write-generated.mjs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -86,6 +87,6 @@ export const toolNames: readonly string[] = Object.keys(toolSchemas) as readonly
 `;
 
 mkdirSync(dirname(OUTPUT_FILE), { recursive: true });
-writeFileSync(OUTPUT_FILE, text);
+writeGeneratedFile(OUTPUT_FILE, text);
 console.log(`build-tool-schemas: wrote ${OUTPUT_FILE.replace(REPO + "/", "")}`);
 console.log(`build-tool-schemas:   ${Object.keys(sorted).length} tool(s): ${Object.keys(sorted).join(", ")}`);

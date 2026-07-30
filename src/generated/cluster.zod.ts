@@ -88,7 +88,7 @@ export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
     urlBinding: z.string().default(""),
     serviceBinding: z.string().default(""),
     tenancy: TenancySpecSchema,
-    requiresSession: z.boolean().default(false),
+    requiresSessionRetired: z.boolean().default(false),
     connection: ConnectionSchema,
     mutableTagReason: z.string().default(""),
   }).strict());
@@ -104,7 +104,7 @@ export interface InputSpec {
   urlBinding: string;
   serviceBinding: string;
   tenancy: TenancySpec;
-  requiresSession: boolean;
+  requiresSessionRetired: boolean;
   connection: Connection;
   mutableTagReason: string;
 }

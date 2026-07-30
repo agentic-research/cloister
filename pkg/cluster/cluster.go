@@ -79,16 +79,19 @@ type StoragePolicy struct {
 }
 
 type InputSpec struct {
-	Name           string      `json:"name"`
-	Ref            string      `json:"ref"`
-	Version        string      `json:"version"`
-	Digest         string      `json:"digest"`
-	From           string      `json:"from"`
-	Provides       []string    `json:"provides"`
-	Requires       []string    `json:"requires"`
-	UrlBinding     string      `json:"urlBinding"`
-	ServiceBinding string      `json:"serviceBinding"`
-	Tenancy        TenancySpec `json:"tenancy"`
+	Name                   string      `json:"name"`
+	Ref                    string      `json:"ref"`
+	Version                string      `json:"version"`
+	Digest                 string      `json:"digest"`
+	From                   string      `json:"from"`
+	Provides               []string    `json:"provides"`
+	Requires               []string    `json:"requires"`
+	UrlBinding             string      `json:"urlBinding"`
+	ServiceBinding         string      `json:"serviceBinding"`
+	Tenancy                TenancySpec `json:"tenancy"`
+	RequiresSessionRetired bool        `json:"requiresSessionRetired"`
+	Connection             Connection  `json:"connection"`
+	MutableTagReason       string      `json:"mutableTagReason"`
 }
 
 type RouteKindUnion struct {
@@ -215,6 +218,7 @@ type Gateway struct {
 	Actor              Actor               `json:"actor"`
 	Policy             InterlacePolicy     `json:"policy"`
 	VaultProxyServices []VaultProxyService `json:"vaultProxyServices"`
+	HarnessTargets     []HarnessTarget     `json:"harnessTargets"`
 }
 
 type EdgeSpec struct {
@@ -240,11 +244,13 @@ type WorkerdBundle struct {
 }
 
 type ExternalBundle struct {
-	Image     string   `json:"image"`
-	IpcSocket string   `json:"ipcSocket"`
-	HttpPort  uint16   `json:"httpPort"`
-	Args      []string `json:"args"`
-	Env       []EnvVar `json:"env"`
+	Image         string   `json:"image"`
+	IpcSocket     string   `json:"ipcSocket"`
+	HttpPort      uint16   `json:"httpPort"`
+	Args          []string `json:"args"`
+	Env           []EnvVar `json:"env"`
+	EntryPoint    string   `json:"entryPoint"`
+	ExecutionMode string   `json:"executionMode"`
 }
 
 type Confinement struct {
@@ -282,6 +288,41 @@ type TenancySpec struct {
 	WorkerdId         string   `json:"workerdId"`
 	TrustedTier       bool     `json:"trustedTier"`
 	SharesWorkerdWith []string `json:"sharesWorkerdWith"`
+}
+
+type ConnectionTransportUnion struct {
+	Unset *struct{} `json:"unset,omitempty"`
+	Uds   *struct{} `json:"uds,omitempty"`
+}
+
+func (u ConnectionTransportUnion) MarshalJSON() ([]byte, error) {
+	if u.Unset != nil {
+		return []byte(`{"unset":null}`), nil
+	}
+	if u.Uds != nil {
+		return []byte(`{"uds":null}`), nil
+	}
+	return []byte(`{}`), nil
+}
+
+func (u *ConnectionTransportUnion) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["unset"]; ok {
+		u.Unset = &struct{}{}
+	}
+	if _, ok := raw["uds"]; ok {
+		u.Uds = &struct{}{}
+	}
+	return nil
+}
+
+type Connection struct {
+	SocketPath string                   `json:"socketPath"`
+	VaultSlice string                   `json:"vaultSlice"`
+	Transport  ConnectionTransportUnion `json:"transport"`
 }
 
 type McpRouteSpec struct {
@@ -368,8 +409,9 @@ type TenantDispatchRow struct {
 }
 
 type GatewayMetadata struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	MetaNamespace string `json:"metaNamespace"`
 }
 
 type Actor struct {
@@ -453,6 +495,19 @@ type VaultProxyService struct {
 	Injection          VaultProxyServiceInjectionUnion `json:"injection"`
 }
 
+type HarnessTarget struct {
+	Name        string   `json:"name"`
+	Service     string   `json:"service"`
+	EntryPoint  string   `json:"entryPoint"`
+	ApiKeyEnv   string   `json:"apiKeyEnv"`
+	BaseUrlEnv  string   `json:"baseUrlEnv"`
+	StripEnv    []string `json:"stripEnv"`
+	StateDirEnv string   `json:"stateDirEnv"`
+	StateDir    string   `json:"stateDir"`
+	AuthModes   []string `json:"authModes"`
+	Provenance  string   `json:"provenance"`
+}
+
 type HeaderNamedSpec struct {
 	Name string `json:"name"`
 }
@@ -463,4 +518,16 @@ type QueryParamSpec struct {
 
 type BodyFieldSpec struct {
 	Path string `json:"path"`
+}
+
+type GeneratedBackend struct {
+	Name            string   `json:"name"`
+	Input           string   `json:"input"`
+	HandlesPrefix   string   `json:"handlesPrefix"`
+	StripPrefix     string   `json:"stripPrefix"`
+	UrlBinding      string   `json:"urlBinding"`
+	ServiceBinding  string   `json:"serviceBinding"`
+	DynamicTools    bool     `json:"dynamicTools"`
+	RequiresSession bool     `json:"requiresSession"`
+	Claims          []string `json:"claims"`
 }

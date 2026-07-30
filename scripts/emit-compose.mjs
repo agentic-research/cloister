@@ -34,6 +34,7 @@
  */
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { writeGeneratedFile } from "./write-generated.mjs";
 import { parse as parseToml } from "@iarna/toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -511,7 +512,7 @@ async function runCLI() {
   }
 
   mkdirSync(dirname(OUTPUT), { recursive: true });
-  writeFileSync(OUTPUT, body);
+  writeGeneratedFile(OUTPUT, body);
   const rel = OUTPUT.replace(REPO + "/", "");
   console.log(`emit-compose: wrote ${rel}`);
   const externalCount = cluster.bundles.filter((b) => "external" in b.kind).length;

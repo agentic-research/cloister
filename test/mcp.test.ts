@@ -88,7 +88,10 @@ describe("MCP lifecycle", () => {
       "initialize",
     );
     expect(res.result.serverInfo.name).toBe("cloister");
-    expect(res.result.protocolVersion).toBe("2024-11-05");
+    // cloister-55d31c: `initialize` still answers — SEP-2567 removed the
+    // requirement, not the tolerance — but it reports the revision cloister
+    // actually speaks rather than the retired session-based one.
+    expect(res.result.protocolVersion).toBe("2026-07-28");
   });
 
   it("ping returns empty result", async () => {

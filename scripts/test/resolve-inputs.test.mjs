@@ -32,7 +32,6 @@ import {
   deriveGeneratedBackends,
   deriveStripPrefix,
   parsePackagesOci,
-  resolveOciDigest,
   probeOciDigest,
   deriveRequiresSession,
   declaredTransportTypes,
@@ -573,7 +572,8 @@ test("parseServerJsonMeta: non-JSON bytes returns null", () => {
 
 test("parseServerJsonMeta: JSON without _meta block returns null", () => {
   const bytes = Buffer.from(JSON.stringify({
-    name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }], name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }],
     version: "0.1.0",
   }));
   assert.equal(parseServerJsonMeta(bytes), null);
@@ -581,7 +581,8 @@ test("parseServerJsonMeta: JSON without _meta block returns null", () => {
 
 test("parseServerJsonMeta: JSON with _meta but no art.cloister/v1 key returns null", () => {
   const bytes = Buffer.from(JSON.stringify({
-    name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }], name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }],
     _meta: { "other.vendor/v1": { groups: [] } },
   }));
   assert.equal(parseServerJsonMeta(bytes), null);
@@ -617,7 +618,8 @@ test("parseServerJsonMeta: empty groups[] returns null (treated as opt-out per w
   // 'this server author opted in but declared no groups.' It is
   // semantically equivalent to omitting `_meta.art.cloister/v1` entirely."
   const bytes = Buffer.from(JSON.stringify({
-    name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }], name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }],
     _meta: { "art.cloister/v1": { groups: [] } },
   }));
   assert.equal(parseServerJsonMeta(bytes), null);
@@ -627,7 +629,8 @@ test("parseServerJsonMeta: empty groups[] returns null (treated as opt-out per w
 
 test("parseServerJsonMeta: groups not an array throws explanatory error", () => {
   const bytes = Buffer.from(JSON.stringify({
-    name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }], name: "io.github.example/foo",
+    remotes: [{ type: "streamable-http" }],
     _meta: { "art.cloister/v1": { groups: "lsp" } },
   }));
   assert.throws(
@@ -705,7 +708,7 @@ test("deriveGeneratedBackends: canonical LLO vector emits three backends", () =>
     ],
   };
   const spec = specDefaults({ name: "llo" });
-  const rows = deriveGeneratedBackends(spec, meta);
+  const rows = deriveGeneratedBackends(spec, meta, HTTP_DOC);
   assert.equal(rows.length, 3);
 
   // Each row carries the source input name so operators can trace the
@@ -784,7 +787,7 @@ test("deriveGeneratedBackends: mache-shape bare upstreamNames under non-empty pr
       { name: "callgraph", advertisedPrefix: "mache_", upstreamNames: ["find_callers", "find_callees"] },
     ],
   };
-  const rows = deriveGeneratedBackends(specDefaults({ name: "mache" }), meta);
+  const rows = deriveGeneratedBackends(specDefaults({ name: "mache" }), meta, HTTP_DOC);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].handlesPrefix, "mache_");
   assert.equal(rows[0].stripPrefix, "mache_", "bare upstreamNames under a non-empty prefix must derive stripPrefix");
@@ -794,7 +797,7 @@ test("deriveGeneratedBackends: single-group _meta emits one backend", () => {
   const meta = {
     groups: [{ name: "only", advertisedPrefix: "x_", upstreamNames: ["x_one"] }],
   };
-  const rows = deriveGeneratedBackends(specDefaults({ name: "mono" }), meta);
+  const rows = deriveGeneratedBackends(specDefaults({ name: "mono" }), meta, HTTP_DOC);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].name, "only");
   assert.equal(rows[0].handlesPrefix, "x_");
@@ -806,7 +809,7 @@ test("deriveGeneratedBackends: group without advertisedPrefix defaults handlesPr
   const meta = {
     groups: [{ name: "bare", upstreamNames: ["status"] }],
   };
-  const rows = deriveGeneratedBackends(specDefaults({ name: "x" }), meta);
+  const rows = deriveGeneratedBackends(specDefaults({ name: "x" }), meta, HTTP_DOC);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].handlesPrefix, "");
 });
@@ -822,7 +825,7 @@ test("deriveGeneratedBackends: inherits urlBinding/serviceBinding from input spe
     serviceBinding: "LLO_MCP",
     requiresSession: true,
   };
-  const rows = deriveGeneratedBackends(spec, meta);
+  const rows = deriveGeneratedBackends(spec, meta, HTTP_DOC);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].urlBinding, "LLO_MCP_URL");
   assert.equal(rows[0].serviceBinding, "LLO_MCP");
@@ -831,9 +834,10 @@ test("deriveGeneratedBackends: inherits urlBinding/serviceBinding from input spe
 
 test("deriveGeneratedBackends: missing urlBinding/serviceBinding leaves them as empty string", () => {
   const meta = { groups: [{ name: "g", upstreamNames: ["t"] }] };
-  const rows = deriveGeneratedBackends(specDefaults({ name: "noBindings" }), meta);
+  const rows = deriveGeneratedBackends(specDefaults({ name: "noBindings" }), meta, STDIO_DOC);
   assert.equal(rows[0].urlBinding, "");
   assert.equal(rows[0].serviceBinding, "");
+  // Omitted because stdio derives false — a pipe has no session to establish.
   assert.equal("requiresSession" in rows[0], false);
 });
 
@@ -843,7 +847,7 @@ test("deriveGeneratedBackends: null _meta emits single-backend fallback with cla
   // README §"Heuristic fallback": when _meta is absent, the resolver
   // MUST produce a single-backend default with claims=[], handlesPrefix="",
   // dynamicTools=true (legacy "claim everything" shape).
-  const rows = deriveGeneratedBackends(specDefaults({ name: "legacyInput" }), null);
+  const rows = deriveGeneratedBackends(specDefaults({ name: "legacyInput" }), null, HTTP_DOC);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].input, "legacyInput");
   // Per resolver convention: fallback backend name == input name.
@@ -860,6 +864,7 @@ test("resolveInput: file:// pointing at server.json with canonical _meta produce
   try {
     const path = resolve(dir, "server.json");
     const serverJson = {
+      remotes: [{ type: "streamable-http" }],
       "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
       name: "io.github.agentic-research/ley-line-open",
       version: "0.2.0",
@@ -927,7 +932,8 @@ test("resolveInput: file:// pointing at malformed _meta (empty upstreamNames) er
   try {
     const path = resolve(dir, "broken.json");
     writeFileSync(path, JSON.stringify({
-      name: "broken",
+      remotes: [{ type: "streamable-http" }], name: "broken",
+      remotes: [{ type: "streamable-http" }],
       _meta: { "art.cloister/v1": { groups: [
         { name: "broken", upstreamNames: [] },
       ] } },
@@ -952,7 +958,8 @@ test("resolveInput: file:// pointing at a group with mixed bare + already-prefix
   try {
     const path = resolve(dir, "mixed.json");
     writeFileSync(path, JSON.stringify({
-      name: "mixed",
+      remotes: [{ type: "streamable-http" }], name: "mixed",
+      remotes: [{ type: "streamable-http" }],
       _meta: { "art.cloister/v1": { groups: [
         { name: "callgraph", advertisedPrefix: "mache_", upstreamNames: ["find_callers", "mache_already_prefixed"] },
       ] } },
@@ -1013,6 +1020,7 @@ test("e2e: file:// LLO server.json with canonical _meta block produces 3-backend
   try {
     const path = resolve(dir, "server.json");
     const serverJson = {
+      remotes: [{ type: "streamable-http" }],
       "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
       name: "io.github.agentic-research/ley-line-open",
       version: "0.2.0",
@@ -1047,10 +1055,20 @@ test("e2e: file:// LLO server.json with canonical _meta block produces 3-backend
   }
 });
 
+// Every real server.json declares a transport, and cloister now REFUSES one that
+// does not (cloister-553c39) rather than guessing requiresSession. Group-shape
+// tests are not about session-ness, so they pass this minimal realistic doc: in
+// production `resolveInput` always hands `deriveGeneratedBackends` the parsed
+// document, so a no-doc call was asserting a state that cannot occur.
+const HTTP_DOC  = { remotes: [{ type: "streamable-http" }] };
+// stdio derives requiresSession=false, so the field is omitted from the row —
+// which is what tests about bindings/groups previously got from the default.
+const STDIO_DOC = { remotes: [{ type: "stdio" }] };
+
 // ── ADR-0038: packages[].oci → self-declared bundle image ────────────────
 
 test("parsePackagesOci: no packages[] → null", () => {
-  assert.equal(parsePackagesOci(Buffer.from(JSON.stringify({ name: "x", _meta: {} }))), null);
+  assert.equal(parsePackagesOci(Buffer.from(JSON.stringify({ remotes: [{ type: "streamable-http" }], name: "x", remotes: [{ type: "streamable-http" }], _meta: {} }))), null);
 });
 
 test("parsePackagesOci: non-JSON bytes → null", () => {
@@ -1111,7 +1129,8 @@ test("resolveInput: file:// server.json with oci packages populates row.oci", as
   try {
     const path = resolve(dir, "server.json");
     writeFileSync(path, JSON.stringify({
-      name: "io.github.org/mache",
+      remotes: [{ type: "streamable-http" }], name: "io.github.org/mache",
+      remotes: [{ type: "streamable-http" }],
       version: "0.13.0",
       packages: [{ registryType: "oci", identifier: "ghcr.io/agentic-research/mache", version: "0.13.0" }],
     }));
@@ -1142,7 +1161,7 @@ test("resolveInput: file:// server.json with no packages → row.oci is null", a
   const dir = mkdtempSync(resolve(tmpdir(), "resolve-nooci-"));
   try {
     const path = resolve(dir, "server.json");
-    writeFileSync(path, JSON.stringify({ name: "x", version: "1.0.0" }));
+    writeFileSync(path, JSON.stringify({ remotes: [{ type: "streamable-http" }], name: "x", remotes: [{ type: "streamable-http" }], version: "1.0.0" }));
     const row = await resolveInput(specDefaults({ name: "x", ref: `file://${path}` }));
     assert.equal(row.oci, null);
   } finally {
@@ -1170,65 +1189,6 @@ test("buildLockfile: omits oci key when a row has no oci (back-compat)", () => {
   assert.equal("oci" in doc.inputs.llo, false);
 });
 
-// ── resolveOciDigest: tag → immutable digest (ADR-0041 / cloister-091106) ──
-
-function mockRegistryRes({ status = 200, headers = {}, json = null }) {
-  const h = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-  return {
-    status,
-    ok: status >= 200 && status < 300,
-    headers: { get: (k) => h.get(String(k).toLowerCase()) ?? null },
-    json: async () => json,
-  };
-}
-
-test("resolveOciDigest: 401 → anonymous token → retry returns docker-content-digest", async () => {
-  const calls = [];
-  const fetchImpl = async (url, opts = {}) => {
-    calls.push({ url, auth: opts.headers?.Authorization ?? "" });
-    if (url.includes("/manifests/") && !opts.headers?.Authorization) {
-      return mockRegistryRes({
-        status: 401,
-        headers: {
-          "www-authenticate":
-            'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:agentic-research/mache:pull"',
-        },
-      });
-    }
-    if (url.startsWith("https://ghcr.io/token")) {
-      return mockRegistryRes({ status: 200, json: { token: "anon-abc" } });
-    }
-    return mockRegistryRes({ status: 200, headers: { "docker-content-digest": "sha256:deadbeef" } });
-  };
-  const digest = await resolveOciDigest("ghcr.io/agentic-research/mache", "v0.16.2", fetchImpl);
-  assert.equal(digest, "sha256:deadbeef");
-  // The token request carried service + scope parsed from the challenge.
-  const tokenCall = calls.find((c) => c.url.startsWith("https://ghcr.io/token"));
-  assert.ok(tokenCall.url.includes("service=ghcr.io"));
-  assert.ok(tokenCall.url.includes("scope="));
-  // The retried manifest HEAD carried the bearer token.
-  assert.ok(calls.some((c) => c.url.includes("/manifests/") && c.auth === "Bearer anon-abc"));
-});
-
-test("resolveOciDigest: direct 200 (public, no auth challenge) returns digest", async () => {
-  const fetchImpl = async () =>
-    mockRegistryRes({ status: 200, headers: { "docker-content-digest": "sha256:cafe" } });
-  assert.equal(await resolveOciDigest("ghcr.io/x/y", "v1", fetchImpl), "sha256:cafe");
-});
-
-test("resolveOciDigest: unresolvable (403, private w/o creds) falls back to empty string", async () => {
-  const fetchImpl = async () => mockRegistryRes({ status: 403 });
-  assert.equal(await resolveOciDigest("ghcr.io/private/img", "v1", fetchImpl), "");
-});
-
-test("resolveOciDigest: no registry host or empty ref returns empty string without fetching", async () => {
-  const fetchImpl = async () => {
-    throw new Error("resolveOciDigest should not fetch for a malformed input");
-  };
-  assert.equal(await resolveOciDigest("no-slash-identifier", "v1", fetchImpl), "");
-  assert.equal(await resolveOciDigest("ghcr.io/x/y", "", fetchImpl), "");
-});
-
 // ── Session-ness is DERIVED from the declared transport (cloister-4ae222) ──
 //
 // The tool already publishes its transport; requiring an operator to also set
@@ -1242,6 +1202,55 @@ test("streamable-http derives a session", () => {
 
 test("stdio derives no session — a pipe has nothing to establish", () => {
   assert.equal(deriveRequiresSession({ remotes: [{ type: "stdio" }] }), false);
+});
+
+test("a PARSED server.json declaring NO transport is REFUSED, not defaulted", () => {
+  // cloister-553c39. There used to be a fallback: derived===null took the
+  // operator's requiresSession flag from cluster.toml, defaulting false when
+  // unset. That guessed, and neither guess is defensible — false skips the
+  // handshake and 404s a session-requiring server (mache + rosary are
+  // mark3labs/mcp-go, which enforces Mcp-Session-Id; cloister-af794d is that
+  // outage), true sends a handshake to a stdio server with no session.
+  //
+  // Load-bearing, not hypothetical: rosary's server.json on main ships
+  // packages[0].transport MISSING (rosary-5d9d56), so bumping that input
+  // reaches exactly this branch.
+  assert.throws(
+    () => deriveGeneratedBackends(
+      specDefaults({ name: "noTransport" }),
+      { groups: [{ name: "g", upstreamNames: ["t"] }] },
+      { name: "io.github.org/x", version: "1.0.0" },   // parses; declares nothing
+    ),
+    /declares no transport/,
+  );
+});
+
+test("an operator-declared requiresSession does NOT rescue a missing transport", () => {
+  // The operator field is gone, so this asserts the ABSENCE of the old rescue:
+  // even with the flag set, an undeclared transport still refuses. Without this
+  // the removal could regress to a fallback and only the message would differ.
+  assert.throws(
+    () => deriveGeneratedBackends(
+      { ...specDefaults({ name: "noTransport" }), requiresSession: true },
+      { groups: [{ name: "g", upstreamNames: ["t"] }] },
+      { name: "io.github.org/x", version: "1.0.0" },
+    ),
+    /declares no transport/,
+  );
+});
+
+test("a UDS input with no declared transport is NOT refused — the field cannot apply", () => {
+  // A capnp-over-UDS call has no HTTP request to carry Mcp-Session-Id on, so
+  // requiresSession is never emitted on a udsForward row and an undeclared
+  // transport is not a problem for it. Narrowing the refusal to the HTTP path
+  // is why this stays legal.
+  const rows = deriveGeneratedBackends(
+    { ...specDefaults({ name: "udsInput" }), connection: { transport: "uds", socketPath: "/run/x.sock" } },
+    { groups: [{ name: "g", upstreamNames: ["t"] }] },
+    { name: "io.github.org/x", version: "1.0.0" },
+  );
+  assert.equal(rows[0].kind, "udsForward");
+  assert.equal("requiresSession" in rows[0], false);
 });
 
 test("a server offering BOTH biases to the transport cloister speaks", () => {
@@ -1390,7 +1399,7 @@ test("an unresolvable OCI digest REFUSES rather than pinning by mutable tag", as
   try {
     const path = resolve(dir, "server.json");
     writeFileSync(path, JSON.stringify({
-      name: "x", version: "1",
+      remotes: [{ type: "streamable-http" }], name: "x", version: "1",
       packages: [{ registryType: "oci", identifier: "ghcr.io/nope/nope", version: "9.9.9" }],
     }));
     await assert.rejects(
@@ -1407,7 +1416,7 @@ test("a stated mutableTagReason accepts the downgrade explicitly", async () => {
   try {
     const path = resolve(dir, "server.json");
     writeFileSync(path, JSON.stringify({
-      name: "x", version: "1",
+      remotes: [{ type: "streamable-http" }], name: "x", version: "1",
       packages: [{ registryType: "oci", identifier: "ghcr.io/nope/nope", version: "9.9.9" }],
     }));
     const row = await resolveInput({
@@ -1424,8 +1433,9 @@ test("a stated mutableTagReason accepts the downgrade explicitly", async () => {
 
 // ── The four states, not one collapsed "" (lectio's model) ────────────────
 //
-// resolveOciDigest collapses six conditions into "", so a caller cannot tell
-// "not published" from "could not look". lectio forbids exactly that: absence
+// The predecessor probeOciDigest replaced collapsed six conditions into "", so
+// a caller could not tell "not published" from "could not look" — it was
+// deleted once nothing called it. lectio forbids exactly that: absence
 // is not nonexistence, and "outside coverage" must never be reported as "does
 // not exist".
 

@@ -19,6 +19,7 @@ fails if a tenant declared in either file lacks a matching page here.
 | [rsry-mcp](rsry-mcp.md) | cluster | `mcpProxy` (Service binding `ROSARY_BUNDLE`) | `rsry_` | ~35 `rsry_*` tools — `rsry_bead_create`, `rsry_bead_search`, `rsry_status`, `rsry_dispatch`, … (full list in `cluster.toml`) |
 | [mache-mcp](mache-mcp.md) | cluster | `mcpProxy` (Service binding `MACHE_MCP`) | `mache_` | `mache_*` — derived from upstream (ADR-0006) |
 | [identity-bridge](identity-bridge.md) | hypervisor | `wellKnownIdentityBridge` | *(non-MCP)* | `/.well-known/openid-configuration`, `/.well-known/jwks.json`, `/.well-known/webfinger`, `/.well-known/nostr.json`, `/oauth/token` |
+| [notme-proxy](notme-proxy-mcp.md) | hypervisor | *(egress mediator, not a backend)* | *(non-MCP)* | Reached only by the `COMPANION` wire from cloister-router — no public path. Holds the bridge cert; every outbound call and every UDS dial transits it. |
 
 `lsp_*` tools (`lsp_hover`, `lsp_defs`, `lsp_refs`, `lsp_symbols`,
 `lsp_diagnostics`) plus the `reparse` / `enrich` / `status` lifecycle
