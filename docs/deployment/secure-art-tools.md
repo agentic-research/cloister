@@ -90,7 +90,7 @@ expects, `GET /internal/ca-bundle`, and returns a signed JSON
 `CABundle` for the deterministic test root.
 
 ```sh
-CLUSTER_DEV_DIR_NOTME_IDENTITY="$PWD/tools/notme-ca-bundle-proof" \
+CLUSTER_DEV_DIR_NOTME_IDENTITY="$PWD/test/fixtures/notme-ca-bundle-proof" \
 CLUSTER_DEV_INTERLACE_ROOT_PUBKEY='ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=' \
 node scripts/cluster-dev.mjs
 ```
