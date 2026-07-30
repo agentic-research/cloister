@@ -16,6 +16,31 @@ bytes = 2_626
   version = "v0.13.0"
   digest = "sha256:256b46f418897b17248f51ca38109c889aff778559ef16a5ff182776cdc6e814"
 
+[inputs.notme]
+ref = "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c"
+resolved = "0.1.0"
+sha256 = "sha256:de9a8bcd86b8bfff49f2502c52efeb970694edbef054be4bece979500c0f375a"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/notme/d01db044b969832dc3aae958e7000afee2e03c4c/server.json"
+signer = ""
+bytes = 5_300
+
+  [inputs.notme.oci]
+  identifier = "ghcr.io/agentic-research/notme"
+  version = "0.1.0"
+  digest = "sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a"
+
+  [[inputs.notme.ociBundles]]
+  bundle = "notme-identity"
+  identifier = "ghcr.io/agentic-research/notme"
+  version = "0.1.0"
+  digest = "sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a"
+
+  [[inputs.notme.ociBundles]]
+  bundle = "notme-proxy"
+  identifier = "ghcr.io/agentic-research/notme-proxy"
+  version = "0.1.0"
+  digest = "sha256:4f55809ba44bdadb63db338e5c33a5b733b2aaa62c9d5de6600d8370be5c1b96"
+
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
 resolved = "0.17.0"

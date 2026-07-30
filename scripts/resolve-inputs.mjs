@@ -219,7 +219,14 @@ export async function resolveInput(spec) {
   }
 
   let generatedBackends;
-  if (meta) {
+  if (isArtifactOnly(doc)) {
+    // An artifact publisher declares image identity and NOTHING else. It gets
+    // no backends, no routes, no session state — cloister-02dd65's acceptance
+    // says so explicitly, and the heuristic fallback below would otherwise
+    // manufacture a single claim-all backend for a producer that serves no MCP
+    // at all. That backend would then be wired to a urlBinding nothing answers.
+    generatedBackends = [];
+  } else if (meta) {
     try {
       generatedBackends = deriveGeneratedBackends(spec, meta, doc);
     } catch (e) {
@@ -258,6 +265,25 @@ export async function resolveInput(spec) {
   // pins `identifier@sha256:…` and emit-compose pulls by digest. Best-effort:
   // on failure (private image w/o creds, offline) fall back to the tag with a
   // LOUD warning — a mutable-tag pull is a real supply-chain downgrade.
+  // Every artifact gets a digest, not just the primary. A producer's SECOND
+  // image is exactly as much a supply-chain input as its first, and pinning one
+  // while leaving the other on a mutable tag would be the same downgrade this
+  // block exists to prevent — just quieter, because nothing would say so.
+  if (oci && Array.isArray(oci.all) && oci.all.length > 1) {
+    const resolvedAll = [];
+    for (const entry of oci.all) {
+      if (entry.identifier && entry.version && !entry.digest) {
+        const p = await probeOciDigest(entry.identifier, entry.version);
+        resolvedAll.push(p.state === "present" && p.digest ? { ...entry, digest: p.digest } : entry);
+      } else {
+        resolvedAll.push(entry);
+      }
+    }
+    oci = { ...oci, all: resolvedAll };
+    // Keep the primary in step with its own resolved entry.
+    if (resolvedAll[0]?.digest) oci = { ...oci, digest: resolvedAll[0].digest };
+  }
+
   if (oci && oci.identifier && oci.version && !oci.digest) {
     const probe = await probeOciDigest(oci.identifier, oci.version);
     const digest = probe.state === "present" ? probe.digest : "";
@@ -305,6 +331,22 @@ export async function resolveInput(spec) {
     }
   }
 
+  // Bundle -> image map from the producer's own topology block. Joined against
+  // the resolved artifacts so each bundle carries a DIGEST, not just a name.
+  const bundleMap = parseBundlePackageMap(doc);
+  const ociBundles = bundleMap.size === 0 ? [] : [...bundleMap].map(([bundle, identifier]) => {
+    const hit = (oci?.all ?? []).find((e) => e.identifier === identifier);
+    if (!hit) {
+      throw new ResolveError(
+        spec.name,
+        `_meta.art.cloister/v1.bundles declares bundle ${JSON.stringify(bundle)} runs ` +
+        `${JSON.stringify(identifier)}, but no artifact with that identifier is declared. ` +
+        `The topology block and the artifacts list disagree.`,
+      );
+    }
+    return { bundle, identifier, version: hit.version, digest: hit.digest };
+  });
+
   return {
     name:              spec.name,
     ref:               spec.ref,
@@ -315,6 +357,10 @@ export async function resolveInput(spec) {
     bytes:             bytes.length,
     generatedBackends,
     oci,
+    // Bundle -> resolved image, as the PRODUCER declares it. Empty for a
+    // single-image input. Not derivable from the addresses — notme's bundle
+    // `notme-identity` runs image `.../notme` — so it is carried, not inferred.
+    ociBundles,
   };
 }
 
@@ -591,6 +637,65 @@ export function parseServerJsonMeta(bytes) {
  * (declared-but-no-identifier) — an opt-in must be correct, mirroring
  * `parseServerJsonMeta`'s constraint handling.
  */
+/**
+ * Is this descriptor an ARTIFACT PUBLISHER rather than an MCP server?
+ *
+ * Derived, never declared — the same discipline as requiresSession itself. A
+ * descriptor that carries `_meta` artifacts and declares no tool groups is
+ * publishing image identity and nothing else: notme ships two hypervisor-tier
+ * bundle images and serves no MCP surface at all.
+ *
+ * This exists because two correct changes collided. #226 taught the resolver to
+ * read the artifacts extension so artifact-only producers could be consumed;
+ * cloister-553c39 then made an input that declares no transport a hard refusal,
+ * on the grounds that guessing requiresSession is indefensible. Both hold for an
+ * MCP server. For an artifact publisher the refusal asks a question that does
+ * not apply — there is no session to require because there is no protocol —
+ * and `[inputs.notme]` became undeclarable.
+ *
+ * Note declaredTransportTypes already refuses to read the artifacts array,
+ * documented as "reading them here would treat an image publisher as an MCP
+ * server". That instinct was right and is now load-bearing in both directions:
+ * artifacts do not make you a server, and not being a server exempts you from
+ * the server's obligations.
+ *
+ * @param {unknown} doc Parsed server.json.
+ * @returns {boolean}
+ */
+export function isArtifactOnly(doc) {
+  if (!doc || typeof doc !== "object") return false;
+  const pp = doc._meta?.["io.modelcontextprotocol.registry/publisher-provided"];
+  const hasArtifacts = Array.isArray(pp?.artifacts) && pp.artifacts.length > 0;
+  if (!hasArtifacts) return false;
+  const groups = doc._meta?.["art.cloister/v1"]?.groups;
+  return !Array.isArray(groups) || groups.length === 0;
+}
+
+/**
+ * Bundle name -> image identifier, as the producer declares it.
+ *
+ * A multi-image producer names which bundle runs which image; the mapping is NOT
+ * derivable from the addresses. notme declares bundle `notme-identity` running
+ * image `.../notme` — basename matching would bind it to nothing, or worse, to
+ * the wrong image without saying so. Its own descriptor states the reason:
+ * "This block is notme's own topology and is not derivable from the image
+ * addresses."
+ *
+ * @param {unknown} doc
+ * @returns {Map<string,string>} bundle name -> identifier
+ */
+export function parseBundlePackageMap(doc) {
+  const out = new Map();
+  const bundles = doc?._meta?.["art.cloister/v1"]?.bundles;
+  if (!Array.isArray(bundles)) return out;
+  for (const b of bundles) {
+    if (b && typeof b === "object" && typeof b.name === "string" && typeof b.package === "string") {
+      out.set(b.name, b.package.trim());
+    }
+  }
+  return out;
+}
+
 export function parsePackagesOci(bytes) {
   let doc;
   try {
@@ -636,21 +741,39 @@ export function parsePackagesOci(bytes) {
 
   // Tolerate both the camelCase (`registryType`) and snake_case
   // (`registry_type`) spellings the MCP registry schema has used.
-  const oci = candidates.find(
+  // ALL oci entries, not the first. A single-image producer is the common case
+  // and still yields a one-element list; a multi-image producer is why this is a
+  // list at all.
+  //
+  // This was `.find(...)` returning one entry, which meant notme — one manifest
+  // declaring TWO images for TWO separately-declared bundles — could only ever
+  // pin its first. notme called it before it bit: "Whatever 02dd65 implements
+  // shouldn't inherit that." It did (cloister-370eac).
+  const ociEntries = candidates.filter(
     (p) => p && typeof p === "object" && (p.registryType ?? p.registry_type) === "oci",
   );
-  if (!oci) return null;
+  if (ociEntries.length === 0) return null;
 
-  const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
-  if (!identifier) {
-    throw new Error(
-      `${source} declares a registryType="oci" entry with no "identifier" — ` +
-      `an oci entry must name a pullable image reference`,
-    );
-  }
-  const version = typeof oci.version === "string" ? oci.version.trim() : "";
-  const digest = typeof oci.digest === "string" ? oci.digest.trim() : "";
-  return { identifier, version, digest };
+  const parsed = ociEntries.map((oci) => {
+    const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
+    if (!identifier) {
+      throw new Error(
+        `${source} declares a registryType="oci" entry with no "identifier" — ` +
+        `an oci entry must name a pullable image reference`,
+      );
+    }
+    return {
+      identifier,
+      version: typeof oci.version === "string" ? oci.version.trim() : "",
+      digest: typeof oci.digest === "string" ? oci.digest.trim() : "",
+    };
+  });
+
+  // The first entry stays the primary for every single-image consumer; `all`
+  // carries the rest so a multi-image producer is not silently truncated.
+  // Additive rather than a shape change, because four inputs already depend on
+  // the single-object form.
+  return { ...parsed[0], all: parsed };
 }
 
 /**
@@ -1007,7 +1130,9 @@ export function deriveGeneratedBackends(spec, meta, doc = null) {
   // here would be a second, unrelated behaviour change smuggled in — the tests
   // that pin the tolerant path caught the attempt.
   let requiresSession = false;
-  if (uds === null && doc !== null && typeof doc === "object") {
+  // An artifact publisher is exempt: it declares no protocol, so "does it need a
+  // session" is not an unanswered question, it is an inapplicable one.
+  if (uds === null && doc !== null && typeof doc === "object" && !isArtifactOnly(doc)) {
     const derived = deriveRequiresSession(doc);
     if (derived === null) {
       // Plain Error, not ResolveError: deriveGeneratedBackends' caller already
@@ -1105,6 +1230,13 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
           // when present. Omitted for inputs whose server.json carries no
           // oci package — back-compat with pre-ADR-0038 lockfiles.
           ...(row.oci ? { oci: ociLockfileRow(row.oci) } : {}),
+          // Per-bundle images for a multi-image producer, each digest-pinned.
+          // Absent for the single-image case, so four existing inputs are
+          // byte-unchanged.
+          ...(row.ociBundles?.length ? { ociBundles: row.ociBundles.map((b) => ({
+            bundle: b.bundle,
+            ...ociLockfileRow(b),
+          })) } : {}),
         },
       ]),
     ),

@@ -231,6 +231,7 @@ function perTenantSocketForWire(wire, cluster, targetBundle) {
  * Exported for tests.
  */
 export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
+  const ociByBundle = opts.ociByBundle ?? new Map();
   // CLOISTER_DO_BIND: when set to a host path, /data/do is mounted from host
   // bind-mounts rooted there (one subdir per store) instead of named docker
   // volumes — making the cluster's data an owned, backup-able, dev:securevol-
@@ -279,10 +280,10 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
     const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle);
     }
   }
 
@@ -344,8 +345,8 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
  *   3. else warn loudly and return the (empty) `ext.image` — `compose up`
  *      fails, not this emitter, and a blank image is never shipped silently.
  */
-function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName) {
-  const image = resolveBundleImage(ext.image, colocatedInputs, ociByInput);
+function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName, ociByBundle = new Map()) {
+  const image = resolveBundleImage(ext.image, colocatedInputs, ociByInput, bundleName, ociByBundle);
   if (image) return image;
   console.warn(
     `emit-compose: bundle "${bundleName}" has no image — no operator ext.image ` +
@@ -402,14 +403,14 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "") {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map()) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
   const containerName = `cloister-${serviceName}`;
   // ADR-0038: operator ext.image wins; else derive from a linked input's
   // self-declared packages[].oci; else a loud warning + empty image.
-  const image = resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, b.name);
+  const image = resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, b.name, ociByBundle);
 
   lines.push(`  ${serviceName}:`);
   lines.push(`    image: ${image}`);
@@ -547,6 +548,7 @@ async function runCLI() {
   // → empty map → emitCompose falls back to the operator's ext.image as
   // before (fully back-compat).
   const ociByInput = new Map();
+  const ociByBundle = new Map();
   const LOCKFILE = process.env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
   if (existsSync(LOCKFILE)) {
     try {
@@ -554,6 +556,9 @@ async function runCLI() {
       for (const [name, row] of Object.entries(lock.inputs ?? {})) {
         if (row && typeof row === "object" && row.oci && row.oci.identifier) {
           ociByInput.set(name, row.oci);
+        }
+        for (const b of row?.ociBundles ?? []) {
+          if (b && typeof b === "object" && b.bundle && b.identifier) ociByBundle.set(b.bundle, b);
         }
       }
     } catch (e) {
@@ -563,7 +568,7 @@ async function runCLI() {
 
   let body;
   try {
-    body = emitCompose(cluster, ociByInput, { doBindPath: process.env.CLOISTER_DO_BIND || "" });
+    body = emitCompose(cluster, ociByInput, { doBindPath: process.env.CLOISTER_DO_BIND || "", ociByBundle });
   } catch (e) {
     console.error(e.message);
     process.exit(1);

@@ -3,7 +3,7 @@
 #
 # Cluster: art-default v0.1.0
 # 5 bundle(s), 4 wire(s)
-# 4 input(s); tenancy resolved per ADR-0030 §A5
+# 5 input(s); tenancy resolved per ADR-0030 §A5
 
 name: art-default
 
@@ -16,7 +16,7 @@ services:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
-      - "cloister.colocated-inputs=llo,canonical-hours"
+      - "cloister.colocated-inputs=llo,notme,canonical-hours"
     ports:
       - "8787:8787"
     volumes:
@@ -29,26 +29,26 @@ services:
       - "COMPANION=/run/cloister-uds/companion.sock"
 
   notme-identity:
-    image: notme:0.1.0
+    image: ghcr.io/agentic-research/notme@sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a
     pull_policy: never
     container_name: cloister-notme-identity
     labels:
       - "cloister.bundle=notme-identity"
       - "cloister.tier=hypervisor"
-      - "cloister.description=notme:0.1.0 — Identity authority — Signet master CA, lease cert mint"
+      - "cloister.description=ghcr.io/agentic-research/notme@sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a — Identity authority — Signet master CA, lease cert mint"
     ports:
       - "8788:8788"
     volumes:
       - cloister-uds:/run/cloister-uds
 
   notme-proxy:
-    image: notme-proxy:0.1.0
+    image: ghcr.io/agentic-research/notme-proxy@sha256:4f55809ba44bdadb63db338e5c33a5b733b2aaa62c9d5de6600d8370be5c1b96
     pull_policy: never
     container_name: cloister-notme-proxy
     labels:
       - "cloister.bundle=notme-proxy"
       - "cloister.tier=hypervisor"
-      - "cloister.description=notme-proxy:0.1.0 — cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
+      - "cloister.description=ghcr.io/agentic-research/notme-proxy@sha256:4f55809ba44bdadb63db338e5c33a5b733b2aaa62c9d5de6600d8370be5c1b96 — cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
     volumes:
       - cloister-uds:/run/cloister-uds
 

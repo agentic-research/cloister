@@ -865,21 +865,29 @@ try {
 // lockfile (resolve-inputs records packages[].oci there). CLOISTER_LOCKFILE
 // overrides the path (test fixtures). Missing/unreadable lockfile → empty
 // map → Inv 10 treats every image-less external bundle as un-derivable.
-function loadOciByInput() {
-  const map = new Map();
+function loadOci() {
+  const byInput = new Map();
+  // An input that publishes SEVERAL images names which bundle runs which, in
+  // `_meta["art.cloister/v1"].bundles[]`. resolve-inputs records that as
+  // `ociBundles`; without it the lockfile's `oci` is merely the FIRST artifact,
+  // and a bundle that runs the second one has no derivable image at all.
+  const byBundle = new Map();
   const lockfile = process.env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
-  if (!existsSync(lockfile)) return map;
+  if (!existsSync(lockfile)) return { byInput, byBundle };
   try {
     const lock = parseToml(readFileSync(lockfile, "utf8"));
     for (const [name, row] of Object.entries(lock.inputs ?? {})) {
       if (row && typeof row === "object" && row.oci && row.oci.identifier) {
-        map.set(name, row.oci);
+        byInput.set(name, row.oci);
+      }
+      for (const b of row?.ociBundles ?? []) {
+        if (b && typeof b === "object" && b.bundle && b.identifier) byBundle.set(b.bundle, b);
       }
     }
   } catch {
     // Warn-level invariant: a bad lockfile never fails the substrate lint.
   }
-  return map;
+  return { byInput, byBundle };
 }
 
 /**
@@ -890,7 +898,7 @@ function loadOciByInput() {
  * operator mid-migration who dropped the hand-set image before the producer
  * ships its oci is legitimate, so this must never block.
  */
-function checkInvariant10(cluster, ociByInput, warnings) {
+function checkInvariant10(cluster, ociByInput, warnings, ociByBundle = new Map()) {
   // bundle name → linked input names, using the same three-rung tenancy
   // resolution as emit-compose. If tenancy has violations, Inv 6 reports
   // them; Inv 10 remains warn-level and uses the valid partial colocation.
@@ -924,9 +932,20 @@ function checkInvariant10(cluster, ociByInput, warnings) {
     //     a derivable bundle report as un-derivable.
     //   AGREEMENT (image set) — ONLY the same-name input. Anything looser asks
     //     a router to claim the image of something it merely routes.
-    const derivableOci = linked.map((n) => ociByInput.get(n)).find((o) => o?.identifier);
+    // A producer's explicit bundle→image declaration outranks BOTH relations
+    // below: it is the one statement of the mapping that is not an inference.
+    // notme publishes two images and names them per bundle — `notme-identity`
+    // shares no name with input `notme`, so the same-name rung below could
+    // never have found it (cloister-370eac).
+    const declaredForBundle = ociByBundle.get(b.name);
+    const derivableOci =
+      declaredForBundle?.identifier
+        ? declaredForBundle
+        : linked.map((n) => ociByInput.get(n)).find((o) => o?.identifier);
     const ownInput = linked.find((n) => n === b.name);
-    const ownOci = ownInput ? ociByInput.get(ownInput) : undefined;
+    const ownOci = declaredForBundle?.identifier
+      ? declaredForBundle
+      : ownInput ? ociByInput.get(ownInput) : undefined;
 
     if (b.kind.external.image) {
       // The operator hand-set an image. This USED TO `continue` — so setting the
@@ -950,8 +969,16 @@ function checkInvariant10(cluster, ociByInput, warnings) {
       // Compare on identifier+tag, ignoring any digest the operator pinned:
       // `identifier:version` is what emit-compose derives, and a digest the
       // operator added themselves is strictly more pinned, not a disagreement.
-      const expected = `${ownOci.identifier}:${ownOci.version}`;
-      const declaredNoDigest = declared.split("@")[0];
+      // A per-bundle declaration carries no version of its own (the producer
+      // names an identifier, and the digest is the pin) — comparing against
+      // `identifier:undefined` would report every hand-set image as drifted
+      // for a reason that is an artifact of the message, not of the tree.
+      const expected = ownOci.version
+        ? `${ownOci.identifier}:${ownOci.version}`
+        : ownOci.identifier;
+      const declaredNoDigest = ownOci.version
+        ? declared.split("@")[0]
+        : declared.split("@")[0].replace(/:[^/:]+$/, "");
       if (declaredNoDigest !== expected) {
         warnings.push(
           `bundle "${b.name}" (external) hand-sets image "${declared}" but its linked ` +
@@ -1166,7 +1193,8 @@ checkInvariant6(cluster, violations);
 checkInvariant7(cluster, violations);
 checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
-checkInvariant10(cluster, loadOciByInput(), warnings);
+const oci = loadOci();
+checkInvariant10(cluster, oci.byInput, warnings, oci.byBundle);
 checkInvariant11(cluster, violations);
 checkInvariant13(cluster, violations);
 

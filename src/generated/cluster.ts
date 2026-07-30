@@ -79,7 +79,7 @@ export const cluster: Cluster = {
       },
       "kind": {
         "external": {
-          "image": "notme:0.1.0",
+          "image": "",
           "ipcSocket": "",
           "httpPort": 8788,
           "args": [],
@@ -112,7 +112,7 @@ export const cluster: Cluster = {
       },
       "kind": {
         "external": {
-          "image": "notme-proxy:0.1.0",
+          "image": "",
           "ipcSocket": "/run/cloister-uds/companion.sock",
           "httpPort": 0,
           "args": [],
@@ -252,6 +252,32 @@ export const cluster: Cluster = {
       "requires": [],
       "urlBinding": "LLO_MCP_URL",
       "serviceBinding": "LSP_MCP",
+      "tenancy": {
+        "mode": "",
+        "workerdId": "",
+        "trustedTier": false,
+        "sharesWorkerdWith": []
+      },
+      "requiresSessionRetired": false,
+      "connection": {
+        "socketPath": "",
+        "vaultSlice": "",
+        "transport": {
+          "unset": null
+        }
+      },
+      "mutableTagReason": ""
+    },
+    {
+      "name": "notme",
+      "ref": "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c",
+      "version": "0.1.0",
+      "digest": "",
+      "from": "",
+      "provides": [],
+      "requires": [],
+      "urlBinding": "",
+      "serviceBinding": "",
       "tenancy": {
         "mode": "",
         "workerdId": "",
