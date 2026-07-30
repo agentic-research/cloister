@@ -168,7 +168,7 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch",
+      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c).",
       "tier": "cluster",
       "holdsCredential": [],
       "workerdServiceName": "",
@@ -189,7 +189,7 @@ export const cluster: Cluster = {
       },
       "kind": {
         "external": {
-          "image": "rosary:0.7.0",
+          "image": "",
           "ipcSocket": "/run/cloister-uds/rosary.sock",
           "httpPort": 0,
           "args": [
@@ -199,7 +199,7 @@ export const cluster: Cluster = {
           ],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     }

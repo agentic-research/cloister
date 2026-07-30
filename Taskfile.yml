@@ -1036,6 +1036,26 @@ tasks:
       - src/**/*.ts
       - scripts/lint-trust-env-locality.mjs
 
+  cluster:emit:check-drift:
+    desc: "Drift gate for cluster.compose.yaml — re-emit to a temp file and diff against the committed copy. It is a GENERATED artifact that is committed, and it had no gate: the committed copy was found stale by an entire bundle (4 bundles/3 wires/3 inputs vs the manifest's 5/4/4), predating notme-proxy and the canonical-hours input. `lint:tenant-docs` READS this file, so it was checking tenant coverage against stale input and passing vacuously (cloister-cb735c)."
+    cmds:
+      - |
+        set -eu
+        TMP=$(mktemp -d)
+        trap 'rm -rf "$TMP"' EXIT
+        COMPOSE_OUTPUT="$TMP/cluster.compose.yaml" node scripts/emit-compose.mjs >/dev/null
+        if ! diff -u cluster.compose.yaml "$TMP/cluster.compose.yaml"; then
+          echo "DRIFT — cluster.compose.yaml differs from what the emitter produces." >&2
+          echo "Regenerate + commit:  task cluster:emit && git add cluster.compose.yaml" >&2
+          exit 1
+        fi
+        echo "OK — cluster.compose.yaml matches the emitter output"
+    sources:
+      - scripts/emit-compose.mjs
+      - src/generated/cluster.ts
+      - cluster.lock.toml
+      - cluster.compose.yaml
+
   lint:cargo-pins:
     desc: "Every ley-line-open git dependency across the Rust workspace shares ONE rev and ONE version. `task lint`'s description claimed a \"cargo-pin lint\" that was never written; a v0.13.0 bump then missed the leyline-fs pin in a second manifest, and cargo compiled leyline-core twice (two BLAKE3 folds, two PARTITION_CONTEXT constants) with `cargo check` still exiting 0."
     cmds:
@@ -1262,7 +1282,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, image:check, lint:cargo-pins]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, image:check, lint:cargo-pins, cluster:emit:check-drift]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

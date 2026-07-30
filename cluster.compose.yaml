@@ -2,8 +2,8 @@
 # Regenerate via `task cluster:emit` after editing cluster.toml.
 #
 # Cluster: art-default v0.1.0
-# 4 bundle(s), 3 wire(s)
-# 3 input(s); tenancy resolved per ADR-0030 §A5
+# 5 bundle(s), 4 wire(s)
+# 4 input(s); tenancy resolved per ADR-0030 §A5
 
 name: art-default
 
@@ -16,7 +16,7 @@ services:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
-      - "cloister.colocated-inputs=llo"
+      - "cloister.colocated-inputs=llo,canonical-hours"
     ports:
       - "8787:8787"
     volumes:
@@ -26,6 +26,7 @@ services:
       - "MACHE_BUNDLE=http://127.0.0.1:7532"
       - "ROSARY_BUNDLE=/run/cloister-uds/rosary.sock"
       - "NOTME=http://notme-identity:8788"
+      - "COMPANION=/run/cloister-uds/companion.sock"
 
   notme-identity:
     image: notme:0.1.0
@@ -40,31 +41,44 @@ services:
     volumes:
       - cloister-uds:/run/cloister-uds
 
+  notme-proxy:
+    image: notme-proxy:0.1.0
+    pull_policy: never
+    container_name: cloister-notme-proxy
+    labels:
+      - "cloister.bundle=notme-proxy"
+      - "cloister.tier=hypervisor"
+      - "cloister.description=notme-proxy:0.1.0 — cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
+    volumes:
+      - cloister-uds:/run/cloister-uds
+
   mache:
-    image: ghcr.io/agentic-research/mache@sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095
+    image: ghcr.io/agentic-research/mache@sha256:8620a0dc2d4c2ae7f6cc1f0ee68d6823a8bc9af6a8cf01d332c08738d9203ac7
     pull_policy: never
     container_name: cloister-mache
     labels:
       - "cloister.bundle=mache"
       - "cloister.tier=cluster"
-      - "cloister.description=ghcr.io/agentic-research/mache@sha256:cd465d973795f774a1b95b948b17b8e6f0e6d50e36dcd488661f153102e38095 — Code intelligence — symbol search, definitions, callgraph"
+      - "cloister.description=ghcr.io/agentic-research/mache@sha256:8620a0dc2d4c2ae7f6cc1f0ee68d6823a8bc9af6a8cf01d332c08738d9203ac7 — Code intelligence — symbol search, definitions, callgraph"
       - "cloister.colocated-inputs=mache"
     command:
       - "serve"
       - "--http"
-      - "localhost:7532"
+      - "127.0.0.1:7532"
+      - "--path"
+      - "/workspace"
     network_mode: "service:cloister-router"
     volumes:
       - cloister-uds:/run/cloister-uds
 
   rosary:
-    image: rosary:0.4.0
+    image: ghcr.io/agentic-research/rosary@sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad
     pull_policy: never
     container_name: cloister-rosary
     labels:
       - "cloister.bundle=rosary"
       - "cloister.tier=cluster"
-      - "cloister.description=rosary:0.4.0 — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
+      - "cloister.description=ghcr.io/agentic-research/rosary@sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately "process", not "microvm": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."
       - "cloister.colocated-inputs=rosary"
     command:
       - "mcp"

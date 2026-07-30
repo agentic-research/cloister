@@ -59,14 +59,14 @@ bind = 7_532
   httpPort = 7_532
 
 [[bundles]]
-description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch"
+description = 'Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately "process", not "microvm": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c).'
 kind = "external"
 name = "rosary"
 tier = "cluster"
 
   [bundles.external]
   args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
-  image = "rosary:0.7.0"
+  executionMode = "process"
   ipcSocket = "/run/cloister-uds/rosary.sock"
 
 [[wires]]
