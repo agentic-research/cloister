@@ -41,7 +41,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve, isAbsolute, dirname } from "node:path";
-import { HARNESS_ENV } from "./cli-surface.mjs";
+import { HARNESS_ENV, renderCommandHelp } from "./cli-surface.mjs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -49,21 +49,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export class RunUsageError extends Error {}
 
 function printHelp(log = console.log) {
-  log("Usage: cloister run --harness <name> --repo <absolute-path> [options]");
-  log("");
-  log("Execute a harness confined to one repository, and nothing else.");
-  log("");
-  log("Required:");
-  log("  --repo <abs>       the ONLY directory the harness may read or write");
-  log("");
-  log("Options:");
-  log("  --harness <name>   harness to launch (default: the declared default)");
-  log("  --dry-run          print what would be confined; mint nothing, launch nothing");
-  log("  --setup-only       mint the identity and write .dev.vars, do not launch");
-  log("  --audit            forward harness auth and emit a receipt; no key vaulted");
-  log("  --no-sandbox       DANGEROUS: skip kernel confinement (debugging only)");
-  log("  --help             this text — mints nothing, writes nothing");
-  log("");
+  // Derived from cli-surface.mjs — the same declaration that produces the
+  // top-level help and docs/reference/cli.md. This was a hardcoded list, which
+  // is how --harness-bin could be declared and parsed while --help omitted it.
+  log(renderCommandHelp("run"));
   log("The harness gets: rw on --repo, loopback to cloister, and nothing else.");
   log("~/.ssh, other repos, and outbound network are kernel-denied (EPERM).");
 }
@@ -75,21 +64,26 @@ function printHelp(log = console.log) {
  */
 export function parseArgs(argv) {
   const out = {
-    help: false, repo: null, harness: null,
-    dryRun: false, passthrough: [], sandbox: true,
+    help: false, repo: null, harness: null, harnessBin: null,
+    dryRun: false, passthrough: [], sandbox: true, harnessArgs: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // Everything after `--` belongs to the harness, not to us. Taken verbatim
+    // so a prompt containing --flags reaches the harness unmangled.
+    if (a === "--") { out.harnessArgs = argv.slice(i + 1); break; }
     if (a === "--help" || a === "-h") { out.help = true; continue; }
     if (a === "--dry-run") { out.dryRun = true; continue; }
     if (a === "--no-sandbox") { out.sandbox = false; continue; }
     if (a === "--setup-only" || a === "--audit") { out.passthrough.push(a); continue; }
-    if (a === "--repo" || a === "--harness") {
+    if (a === "--repo" || a === "--harness" || a === "--harness-bin") {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) {
         throw new RunUsageError(`${a} requires a value`);
       }
-      if (a === "--repo") out.repo = v; else out.harness = v;
+      if (a === "--repo") out.repo = v;
+      else if (a === "--harness-bin") out.harnessBin = v;
+      else out.harness = v;
       i++;
       continue;
     }
@@ -174,8 +168,21 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     );
   }
 
+  // Absolute for the same reason --repo is: there is no $PATH inside the
+  // sandbox, so a bare name cannot resolve there and would fail at exec time
+  // rather than here.
+  if (args.harnessBin && !isAbsolute(args.harnessBin)) {
+    errLog(
+      `cloister run: --harness-bin must be absolute, got ${JSON.stringify(args.harnessBin)}. ` +
+      `There is no $PATH inside the sandbox for a bare name to resolve against.`,
+    );
+    return 2;
+  }
+
   // Names come from the shared contract, not literals — see HARNESS_ENV.
   const env = { ...process.env, [HARNESS_ENV.workdir]: repo };
+  if (args.harnessBin) env[HARNESS_ENV.harnessBin] = args.harnessBin;
+  if (args.harnessArgs.length) env[HARNESS_ENV.harnessArgs] = JSON.stringify(args.harnessArgs);
   // SANDBOX=nono is what harness-dev.mjs keys on to apply the declared
   // default-deny profile. Confinement is the POINT of this verb, so it is the
   // default here even though it is opt-in on the underlying task.

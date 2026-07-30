@@ -55,6 +55,28 @@ export const HARNESS_ENV = Object.freeze({
   sandbox: "SANDBOX",
   /** The only provider harness-dev.mjs implements. */
   sandboxProvider: "nono",
+  /**
+   * Absolute path to the harness executable, per-machine.
+   *
+   * Under confinement there is no $PATH inside the sandbox, so the binary must
+   * be named by absolute path. `entryPoint` on the harnessTargets row is the
+   * DECLARED form — but the path is machine-local
+   * (`/Users/me/.local/bin/claude` is not a fact about the cluster), so
+   * committing it to a shared manifest would be wrong. This is the
+   * per-invocation rung of the ladder the launcher already implements:
+   *
+   *     HARNESS_CMD  >  TARGET.entryPoint  >  TARGET.name ($PATH, unconfined only)
+   */
+  harnessBin: "HARNESS_CMD",
+  /**
+   * JSON array of arguments passed through to the harness itself.
+   *
+   * Needed for any non-interactive run: with no TTY inside the sandbox, claude
+   * defaults to --print and exits asking for a prompt. Everything after `--` on
+   * the cloister run line lands here, which is what makes an ephemeral attested
+   * run scriptable rather than interactive-only.
+   */
+  harnessArgs: "HARNESS_ARGS",
 });
 
 /**
@@ -67,7 +89,7 @@ export const HARNESS_ENV = Object.freeze({
 export const COMMANDS = [
   {
     name: "run",
-    usage: "cloister run --harness <name> --repo <absolute-path>",
+    usage: "cloister run --harness <name> --repo <absolute-path> [-- <harness args...>]",
     summary: "Run a harness confined to one repo",
     detail:
       "Executes a harness with the named repository as its ONLY readable and " +
@@ -82,7 +104,9 @@ export const COMMANDS = [
       { flag: "--dry-run", summary: "print what would be confined; mint nothing, launch nothing" },
       { flag: "--setup-only", summary: "mint the identity and write .dev.vars, do not launch" },
       { flag: "--audit", summary: "forward harness auth and emit a receipt; no key vaulted" },
+      { flag: "--harness-bin", value: "<abs>", summary: "absolute path to the harness executable. Required under confinement when the target declares no entryPoint, because there is no $PATH inside the sandbox — and the path is machine-local, so it belongs on the invocation rather than in a shared manifest" },
       { flag: "--no-sandbox", summary: "DANGEROUS: skip kernel confinement (debugging only)" },
+      { flag: "--", value: "<args...>", summary: "everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read" },
     ],
     seeAlso: "docs/reference/confinement-model.md",
   },
@@ -129,6 +153,31 @@ export const COMMANDS = [
   { name: "runtime storage gc", usage: "cloister runtime storage gc",
     summary: "Preview or execute safe reclamation" },
 ];
+
+/**
+ * Per-command help, derived.
+ *
+ * cli-run.mjs used to hardcode its own option list, which is how `--harness-bin`
+ * could be declared, documented and parsed while `cloister run --help` did not
+ * mention it — the same defect as the top-level list, one level down. Both help
+ * texts and the docs page now read from this one declaration.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+export function renderCommandHelp(name) {
+  const c = COMMANDS.find((x) => x.name === name);
+  if (!c) throw new Error(`no declared command ${JSON.stringify(name)}`);
+  const lines = [`Usage: ${c.usage}`, "", c.detail ?? c.summary, ""];
+  const required = (c.flags ?? []).filter((f) => f.required);
+  const optional = (c.flags ?? []).filter((f) => !f.required);
+  const width = Math.max(...(c.flags ?? []).map((f) => `${f.flag} ${f.value ?? ""}`.trim().length), 10) + 2;
+  const row = (f) => `  ${`${f.flag} ${f.value ?? ""}`.trim().padEnd(width)} ${f.summary}`;
+  if (required.length) { lines.push("Required:", ...required.map(row), ""); }
+  if (optional.length) { lines.push("Options:", ...optional.map(row), ""); }
+  lines.push("  --help".padEnd(width + 2) + " this text — mints nothing, writes nothing", "");
+  return lines.join("\n");
+}
 
 /** The top-level help text, derived. Colour is applied by the caller, not here. */
 export function renderHelp() {
