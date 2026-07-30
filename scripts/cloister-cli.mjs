@@ -11,23 +11,13 @@ import { main as planMain } from "./emit-host-launch-plan.mjs";
 import { main as storageMain } from "./init-krun-storage.mjs";
 import { runHostRuntime } from "./host-runtime-cli.mjs";
 import { main as runMain } from "./cli-run.mjs";
+import { renderHelp } from "./cli-surface.mjs";
 
 function printHelp(log = console.log) {
-  log("Usage: cloister <command> [options]");
-  log("");
-  log("Commands:");
-  log("  cloister run ...              Run a harness confined to one repo");
-  log("  cloister init ...             Scaffold a cluster recipe");
-  log("  cloister add ...              Add and resolve a tool input");
-  log("  cloister artifacts pull ...   Acquire lockfile-pinned OCI artifacts");
-  log("  cloister runtime plan ...     Emit a fail-closed host launch plan");
-  log("  cloister runtime run ...      Run a plan through the krunvm backend");
-  log("  cloister runtime doctor       Check runtime prerequisites and storage");
-  log("  cloister runtime storage init Create/attach bounded krunvm storage");
-  log("  cloister runtime storage status Show bounded storage state");
-  log("  cloister runtime storage gc   Preview or execute safe reclamation");
-  log("");
-  log("Run `cloister <command> --help` for command-specific options.");
+  // Derived from scripts/cli-surface.mjs — the SAME declaration that generates
+  // docs/reference/cli.md. This list was hardcoded here, which is how `cloister
+  // run` could ship while docs/reference/ had no CLI page at all.
+  log(renderHelp());
 }
 
 export async function main(argv = process.argv.slice(2)) {
