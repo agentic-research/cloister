@@ -90,7 +90,10 @@ services:
 volumes:
   cloister-uds:
     driver: local
-    # tmpfs is fine — UDS sockets are ephemeral; recreated on container start
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777"
   cloister-do:
     driver: local
     # SQLite DO storage — survives container restarts; backup target
