@@ -32,6 +32,8 @@ import {
   deriveGeneratedBackends,
   deriveStripPrefix,
   parsePackagesOci,
+  parseBundlePackageMap,
+  isArtifactOnly,
   probeOciDigest,
   deriveRequiresSession,
   declaredTransportTypes,
@@ -1079,9 +1081,9 @@ test("parsePackagesOci: oci entry → identifier + version + empty digest", () =
   const bytes = Buffer.from(JSON.stringify({
     packages: [{ registryType: "oci", identifier: "ghcr.io/org/mache", version: "0.13.0" }],
   }));
-  assert.deepEqual(parsePackagesOci(bytes), {
-    identifier: "ghcr.io/org/mache", version: "0.13.0", digest: "",
-  });
+  const { all, ...pin } = parsePackagesOci(bytes);
+  assert.deepEqual(pin, { identifier: "ghcr.io/org/mache", version: "0.13.0", digest: "" });
+  assert.equal(all.length, 1, "a single-image producer carries exactly one artifact");
 });
 
 test("parsePackagesOci: snake_case registry_type is tolerated", () => {
@@ -1147,7 +1149,8 @@ test("resolveInput: file:// server.json with oci packages populates row.oci", as
     // A 404 is the one status that genuinely means not-there — distinct from
     // ley-line-open's "unauthorized", where ghcr refuses the anonymous token
     // and we cannot tell unpublished from private.
-    assert.deepEqual(row.oci, {
+    const { all: _all, ...pin } = row.oci;
+    assert.deepEqual(pin, {
       unresolved: "absent",
       unresolvedDetail: "",
       identifier: "ghcr.io/agentic-research/mache", version: "0.13.0", digest: "",
@@ -1500,6 +1503,7 @@ test("probe: 200 without a digest header is unreachable, not present", async () 
 // backend. It is package identity, nothing else.
 
 const PUBLISHER_PROVIDED = "io.modelcontextprotocol.registry/publisher-provided";
+const CLOISTER_META = "art.cloister/v1";
 
 const ARTIFACT_ONLY = JSON.stringify({
   $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
@@ -1516,12 +1520,72 @@ const ARTIFACT_ONLY = JSON.stringify({
 });
 
 test("parsePackagesOci: derives the OCI pin from artifacts[] when packages[] is absent", () => {
-  const oci = parsePackagesOci(Buffer.from(ARTIFACT_ONLY));
-  assert.deepEqual(oci, {
+  const { all, ...pin } = parsePackagesOci(Buffer.from(ARTIFACT_ONLY));
+  assert.deepEqual(pin, {
     identifier: "ghcr.io/agentic-research/notme",
     version: "0.1.0-rc3",
     digest: "",
   });
+  // The regression this shape exists for: notme publishes TWO images, and the
+  // old `.find()` return threw the second one away — so `notme-proxy` had no
+  // resolvable image anywhere in the substrate (cloister-370eac). The leading
+  // entry stays the input-level pin for back-compat; `all` is what a
+  // multi-image consumer selects from.
+  assert.deepEqual(all.map((a) => a.identifier), [
+    "ghcr.io/agentic-research/notme",
+    "ghcr.io/agentic-research/notme-proxy",
+  ]);
+});
+
+// ── the producer's bundle → image topology ────────────────────────────────
+//
+// Which bundle runs which image is NOT derivable from the addresses: notme's
+// `notme-identity` bundle runs `.../notme`, sharing no name with it. Basename
+// matching would bind it to nothing, or — worse — to the wrong image silently.
+// So the producer states it and cloister carries the statement.
+
+test("parseBundlePackageMap: reads the producer's bundle → image declaration", () => {
+  const doc = JSON.parse(ARTIFACT_ONLY);
+  doc._meta[CLOISTER_META] = {
+    bundles: [
+      { name: "notme-identity", package: "ghcr.io/agentic-research/notme" },
+      { name: "notme-proxy", package: "ghcr.io/agentic-research/notme-proxy" },
+    ],
+  };
+  assert.deepEqual([...parseBundlePackageMap(doc)], [
+    ["notme-identity", "ghcr.io/agentic-research/notme"],
+    ["notme-proxy", "ghcr.io/agentic-research/notme-proxy"],
+  ]);
+});
+
+test("parseBundlePackageMap: absent / malformed topology yields an empty map, never a guess", () => {
+  assert.equal(parseBundlePackageMap(JSON.parse(ARTIFACT_ONLY)).size, 0);
+  assert.equal(parseBundlePackageMap(null).size, 0);
+  const junk = JSON.parse(ARTIFACT_ONLY);
+  junk._meta[CLOISTER_META] = { bundles: [{ name: "x" }, "nope", { package: "y" }] };
+  assert.equal(parseBundlePackageMap(junk).size, 0, "a half-stated row is not half-believed");
+});
+
+test("isArtifactOnly: an image-publishing input with no groups declares no transport", () => {
+  // Why this predicate exists: resolve-inputs REFUSES an input that declares no
+  // transport, because guessing one is how a backend silently points at the
+  // wrong place. notme is the shape that refusal was not written for — it
+  // publishes images and is wired by service binding, so it has no transport to
+  // declare and no backend to generate. Refusing it made a correct server.json
+  // unusable; generating a backend for it would have been the invented one.
+  assert.equal(isArtifactOnly(JSON.parse(ARTIFACT_ONLY)), true);
+});
+
+test("isArtifactOnly: false for a producer that DOES declare groups, and for no artifacts", () => {
+  // Non-vacuity: the exemption must not swallow the refusal it is carved out of.
+  const withGroups = JSON.parse(ARTIFACT_ONLY);
+  withGroups._meta[CLOISTER_META] = { groups: [{ name: "g" }] };
+  assert.equal(isArtifactOnly(withGroups), false);
+
+  const noArtifacts = JSON.parse(ARTIFACT_ONLY);
+  delete noArtifacts._meta[PUBLISHER_PROVIDED];
+  assert.equal(isArtifactOnly(noArtifacts), false, "no artifacts is not an artifact-only input");
+  assert.equal(isArtifactOnly(null), false);
 });
 
 test("parsePackagesOci: packages[] wins when BOTH are present", () => {

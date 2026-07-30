@@ -19,9 +19,19 @@ export function ociImageRef(oci) {
   return identifier;
 }
 
-export function resolveBundleImage(operatorImage, colocatedInputs, ociByInput) {
+export function resolveBundleImage(operatorImage, colocatedInputs, ociByInput, bundleName = "", ociByBundle = new Map()) {
   const override = typeof operatorImage === "string" ? operatorImage.trim() : "";
   if (override) return override;
+  // A multi-image producer names WHICH bundle runs WHICH image, and that
+  // mapping is not derivable from the addresses: notme's `notme-identity`
+  // bundle runs image `.../notme`. Basename matching would bind it to nothing
+  // — or to the wrong image without saying so. Checked BEFORE the per-input
+  // fallback, because for such a producer the input-level `oci` is merely its
+  // first artifact (cloister-370eac).
+  if (bundleName) {
+    const byBundle = ociImageRef(ociByBundle.get(bundleName));
+    if (byBundle) return byBundle;
+  }
   for (const inputName of colocatedInputs) {
     const ref = ociImageRef(ociByInput.get(inputName));
     if (ref) return ref;

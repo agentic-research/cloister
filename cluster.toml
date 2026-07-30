@@ -27,7 +27,6 @@ tier = "hypervisor"
   [bundles.external]
   executionMode = "process"
   httpPort = 8_788
-  image = "notme:0.1.0"
 
 [[bundles]]
 description = "cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
@@ -38,7 +37,6 @@ tier = "hypervisor"
 
   [bundles.external]
   executionMode = "process"
-  image = "notme-proxy:0.1.0"
   ipcSocket = "/run/cloister-uds/companion.sock"
 
 [[bundles]]
@@ -101,6 +99,10 @@ ref = "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354faf
 version = "0.13.0"
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
+
+[inputs.notme]
+ref = "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c"
+version = "0.1.0"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
