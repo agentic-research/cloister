@@ -13,6 +13,8 @@ relates_to:
   - 0057-declaration-model.md
 external_refs:
   - signet:docs/apas/agent-provenance-standard.md
+  - signet:docs/design/004-bridge-certs.md
+  - notme:action/action.yml
 ---
 
 # ADR-0059 — The attested ephemeral run
@@ -98,8 +100,9 @@ inputs.
 2. The `signer` field lands on lockfile entries — the ADR-0026 phase already
    named above.
 3. Receipts gain an **actor-attested** shape: cloister asserting *"I produced
-   exactly these bytes at time T under my master key"*, with no caller lease
-   to bind.
+   exactly these bytes at time T"*, with the actor named from the run's
+   bridge-cert subject rather than from a caller lease envelope (see the
+   2026-07-29 amendment).
 
 Phase 1 delivers the provenance without depending on anything unshipped.
 
@@ -208,25 +211,62 @@ whose policy cannot be satisfied does not start.
   path needs a mache-populated leyline-fs arena, where the demo path serves a
   `MemoryGraph`.
 
-## Open question
+## Amendment 2026-07-29 — the "who" was already answered
 
-**What lease does a run present?**
+The first draft of this ADR carried an open question asking what lease an
+ephemeral run presents, and speculated that *"the capability core assumes every
+call is on behalf of someone, and some calls are the substrate acting as
+itself."*
 
-ADR-0046 invariant 1 requires the caller to present a verified Interlace
-lease. A CI-triggered collection has no human caller. The same shape appears
-in Phase 1's actor-attested receipt: cloister asserting something under its
-own identity rather than on behalf of a caller.
+**That was wrong, and it is corrected here rather than left in the record.**
 
-That this gap appears twice, from two directions, suggests it is a real
-absence in the model rather than an edge case: **the capability core assumes
-every call is on behalf of someone.** Some calls are the substrate acting as
-itself.
+A CI-triggered run *is* on behalf of someone, and the mechanism is built:
 
-This ADR does not settle it. Candidate shapes — a self-issued actor lease, an
-`actor:` scope class, or an explicit unattributed-call path with its own
-audit treatment — each have different blast radii and belong in the threat
-model before code. Related: `cloister-ceb57c` (tenant-scope enforcement in
-lease middleware) has an unresolved posture question of the same family.
+| piece | where |
+|---|---|
+| Ephemeral, single-use identity carrying a capability list | signet `docs/design/004-bridge-certs.md` — bridge certs bind a verified public identity to an anonymous session's ephemeral key; the relying party enforces `token capabilities ⊆ bridge cert capabilities` and never sees the private root |
+| The exchange a CI run needs | **`notme/action`**, shipped — *"Exchange GHA OIDC token for bridge cert pair (P-256 mTLS + Ed25519 signing). Zero secrets — private keys never leave process memory."* One output is explicitly *"Ed25519 bridge cert PEM — for git commit signing and APAS attestations"* |
+| The vocabulary, already in cloister | `CertScope` includes `bridgeCert` (`manifest/identity.capnp` → `identity.zod.ts`) |
+| Verification, already live | `verifyCertChain`, two callers, carries the lease pipeline |
+
+APAS names this directly in its Normative References: *"Signet Bridge
+Certificates — **delegated identity for dispatches**"*, with `pkg/sigid`
+supplying the Owner / Machine / Actor / Identity decomposition.
+
+Ephemeral and single-use is exactly a run's shape. Nothing needed inventing on
+either side; the ADR simply failed to look.
+
+### The actual remaining gap
+
+APAS L1 states it itself: **"Binding the dispatch ID to a bridge-cert subject
+is not yet implemented."** Both endpoints exist — notme mints, cloister
+verifies — and the binding between them does not. That is an implementation
+task, not a design hole.
+
+So the run's credential is a notme-minted bridge cert derived from its GHA OIDC
+identity, and the receipt names the delegated actor from the cert subject.
+
+### What this dissolves
+
+`cloister-ceb57c`'s unresolved posture question — *what happens when a cert
+carries no claim for the thing being checked* — likely answers itself. A tenant
+claim is a **capability**, and the rule is already `token capabilities ⊆ bridge
+cert capabilities`. A cert with no tenant capability grants no tenant access:
+fail-closed, without breaking single-tenant certs that never resolve a tenant.
+
+### What remains true
+
+`buildReceiptContext` derives `request_canon`, `serverTs` and `nonce` **from the
+lease envelope**. Bridge certs answer *who*; they do not supply a receipt's
+field derivation. An actor-attested receipt still needs a shape that does not
+depend on a caller envelope, and that is Phase 1's remaining work.
+
+### The general lesson
+
+Three times in one session a gap turned out to be filled by a sibling repo —
+LLO's published generator binaries, notme's proxy, and now notme's minting.
+**Check whether a sibling already implements it before designing it here.**
+ADR-0035 states the principle for `leyline-*`; it generalises.
 
 ## Alternatives considered
 
