@@ -240,3 +240,84 @@ test("a missing .env.local fails BEFORE minting, not after", () => {
     assert.ok(existsSync(resolve(ROOT, ".env.local")), "either the guard fires or the file exists");
   }
 });
+
+// ── the selector is not the executable (ADR-0060 / cloister-1011aa) ────────
+
+test("every declared target's executable resolves — against cluster.toml, not a fixture", async () => {
+  // The bug this exists for: `name` was doing two jobs — the selector you type
+  // after `--harness`, and the binary to find on `$PATH`. They coincide for
+  // `codex` and do NOT for Claude Code, whose product is `claude-code` and
+  // whose binary is `claude`. So `cloister run --harness claude-code` failed on
+  // a machine WITH Claude Code installed, and every test stayed green: they
+  // either passed `--harness-bin` explicitly or asserted on the LaunchRequest
+  // before resolution, so the `$PATH` lookup was only ever exercised where the
+  // two names happened to match.
+  //
+  // Which is why this reads the REAL cluster.toml. A fixture would have to
+  // encode the same wrong assumption to pass, and then it would pass.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
+
+  const unresolved = [];
+  const checked = [];
+  for (const t of targets) {
+    // Same order the launcher uses, minus the per-invocation override.
+    if (t.entryPoint) {
+      // An absolute path is the pinned form; assert it exists as given.
+      checked.push(t.name);
+      assert.ok(existsSync(t.entryPoint), `${t.name}: entryPoint ${t.entryPoint} does not exist`);
+      continue;
+    }
+    const cmd = t.executable || t.name;
+    const r = spawnSync("which", [cmd], { encoding: "utf8" });
+    if (r.status === 0) {
+      checked.push(`${t.name} → ${cmd}`);
+    } else {
+      // NOT installed here. That is legitimate — a developer need not have both
+      // harnesses — but it must be NAMED, never a silent pass, because "not
+      // installed" and "declared the wrong binary" are indistinguishable from a
+      // green test. This is the exact shape that hid the bug.
+      unresolved.push(`${t.name} (looked for ${JSON.stringify(cmd)})`);
+    }
+  }
+
+  if (unresolved.length) {
+    process.stderr.write(
+      `harness-targets: not installed here, so unverified: ${unresolved.join(", ")}\n`,
+    );
+  }
+  // Non-vacuity: if NOTHING resolved, this test proved nothing and must say so
+  // rather than reporting green on an empty check.
+  assert.ok(
+    checked.length > 0,
+    `no declared harness resolved on this machine (${unresolved.join(", ")}), so this ` +
+    `assertion is vacuous — install one, or the declaration is unverifiable here`,
+  );
+});
+
+test("claude-code declares an executable distinct from its selector", async () => {
+  // The specific regression, pinned. Deriving the expectation from cluster.toml
+  // would make this pass again the moment someone deletes the field — the state
+  // that shipped broken — so the expected value is stated here.
+  //
+  // Read through the PARSER, not a regex over the file: `executable = "claude"`
+  // is one of several shapes TOML allows for the same fact (inline table,
+  // literal string, different key order), and a pattern that matched only the
+  // current spelling would report CLEAN on a rewrite that still declared it.
+  // That is the failure lint:structured-parse exists to prevent, and it caught
+  // an earlier draft of this test doing exactly that.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  const claude = targets.find((t) => t.name === "claude-code");
+  assert.ok(claude, "the claude-code target must stay declared");
+  assert.equal(
+    claude.executable, "claude",
+    "claude-code's binary is `claude`, not `claude-code`; without this the " +
+    "$PATH fallback looks for a binary that has never existed (ADR-0060)",
+  );
+  assert.notEqual(
+    claude.executable, claude.name,
+    "the point of the field is that these differ — equal means it is doing nothing",
+  );
+});

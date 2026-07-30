@@ -546,6 +546,7 @@ function normalizeHarnessTargets(raw) {
       name: typeof h.name === "string" ? h.name : "",
       service: typeof h.service === "string" ? h.service : "",
       entryPoint: typeof h.entryPoint === "string" ? h.entryPoint : "",
+      executable: typeof h.executable === "string" ? h.executable : "",
       apiKeyEnv: typeof h.apiKeyEnv === "string" ? h.apiKeyEnv : "",
       baseUrlEnv: typeof h.baseUrlEnv === "string" ? h.baseUrlEnv : "",
       stripEnv: Array.isArray(h.stripEnv) ? h.stripEnv : [],
