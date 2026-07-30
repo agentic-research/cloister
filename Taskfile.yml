@@ -128,18 +128,6 @@ tasks:
     cmds:
       - bash tools/libkrun-spike/run-mediated.sh
 
-  mediator:test:
-    desc: "Compatibility check for the former tools/mediator crate. The canonical ConfinementGraph implementation now lives in rs/crates/host-runtime and is gated by rs:host-runtime:test."
-    dir: tools/mediator
-    cmds:
-      - cargo test
-
-  mediator:dev:
-    desc: "cloister-b2d2b1 — mount the confinement-wrapped leyline-fs graph over NFS (Plan 3 Task 5). BLOCKED on ley-line-open-95cd90 (leyline-fs `nfs` feature missing dep:libc). Once LLO ships the fix: cargo run --bin mount --features nfs. macOS-native (nfsserve, kext-free)."
-    dir: tools/mediator
-    cmds:
-      - cargo run --bin mount --features nfs
-
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
     deps: [schema-bridge:build]
