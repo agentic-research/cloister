@@ -617,6 +617,14 @@ export interface HarnessTargetConfig {
    * sandbox execs by path with no `$PATH` inside).
    */
   entryPoint:  string;
+  /**
+   * The binary's NAME, when it differs from the selector (`name`). Claude
+   * Code's product name is `claude-code`; its executable is `claude`. Empty ⇒
+   * use `name`. Distinct from {@link HarnessTargetConfig.entryPoint}, which is
+   * absolute: entryPoint answers WHERE, this answers WHAT IT IS CALLED.
+   * Per ADR-0060.
+   */
+  executable:  string;
   /** Env var supplying an API key in custody mode; never enters the harness env. */
   apiKeyEnv:   string;
   /** Env var the harness reads to find the vault proxy. */

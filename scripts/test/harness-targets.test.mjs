@@ -240,3 +240,111 @@ test("a missing .env.local fails BEFORE minting, not after", () => {
     assert.ok(existsSync(resolve(ROOT, ".env.local")), "either the guard fires or the file exists");
   }
 });
+
+// ── the selector is not the executable (ADR-0060 / cloister-1011aa) ────────
+
+// The DECLARATION is checkable anywhere — including a CI runner with no harness
+// installed. The RESOLUTION is not. An earlier version of this file merged them
+// into one test with an anti-vacuity guard that hard-failed when nothing
+// resolved; that guard is right for a developer machine and wrong for CI, where
+// "no harness installed" is the normal state. It failed the gate.
+//
+// Splitting them keeps both properties honest: the declaration assertion runs
+// everywhere and is what actually catches the bug, and the resolution check
+// SKIPS with a named reason (node:test reports skips distinctly from passes, so
+// it stays visible) rather than silently passing.
+
+test("a target whose stateDir stem differs from its name MUST declare an executable", async () => {
+  // The general form of the bug, and checkable with no binary present — which
+  // matters, because the machine most likely to run this has neither harness
+  // installed.
+  //
+  // The tell was already in the row: claude-code declares `stateDir = ".claude"`.
+  // A harness names its state directory after ITSELF, so the stem of stateDir is
+  // the execution identity. When that stem differs from the selector, the two
+  // concerns have come apart and `name` can no longer stand in for the binary —
+  // which is precisely the state that shipped broken, with the evidence sitting
+  // in the same row nobody read.
+  //
+  // codex: stateDir ".codex", stem "codex" == name → nothing required.
+  // claude-code: stem "claude" != name "claude-code" → executable required.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
+
+  for (const t of targets) {
+    const stem = (t.stateDir || "").replace(/^\./, "");
+    if (!stem || stem === t.name) continue;
+    assert.ok(
+      t.executable,
+      `${t.name}: stateDir ${JSON.stringify(t.stateDir)} implies the binary is ` +
+      `${JSON.stringify(stem)}, not ${JSON.stringify(t.name)} — declare ` +
+      `executable, or the $PATH fallback looks for a binary that does not ` +
+      `exist (ADR-0060)`,
+    );
+    assert.equal(
+      t.executable, stem,
+      `${t.name}: executable ${JSON.stringify(t.executable)} disagrees with the ` +
+      `identity its own stateDir implies (${JSON.stringify(stem)})`,
+    );
+  }
+});
+
+test("every declared target's executable resolves on THIS machine", async (t) => {
+  // Complements the declaration check above: that one proves the row is
+  // self-consistent, this one proves the named binary is actually findable.
+  // Only meaningful where a harness is installed, so it stands down explicitly
+  // rather than passing on an empty check.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+
+  const checked = [], missing = [];
+  for (const row of targets) {
+    if (row.entryPoint) {
+      assert.ok(existsSync(row.entryPoint), `${row.name}: entryPoint ${row.entryPoint} does not exist`);
+      checked.push(row.name);
+      continue;
+    }
+    const cmd = row.executable || row.name;
+    if (spawnSync("which", [cmd], { encoding: "utf8" }).status === 0) checked.push(`${row.name} → ${cmd}`);
+    else missing.push(`${row.name} (looked for ${JSON.stringify(cmd)})`);
+  }
+
+  if (checked.length === 0) {
+    // NOT a silent pass: node:test renders this as a skip with the reason
+    // attached, so a log reader can tell "no harness here" from "verified".
+    t.skip(`no declared harness installed here (${missing.join(", ")}) — ` +
+           `resolution is unverifiable on this machine; the declaration check above still ran`);
+    return;
+  }
+  if (missing.length) {
+    process.stderr.write(`harness-targets: not installed here, so unverified: ${missing.join(", ")}\n`);
+  }
+  assert.ok(checked.length > 0);
+});
+
+test("claude-code declares an executable distinct from its selector", async () => {
+  // The specific regression, pinned. Deriving the expectation from cluster.toml
+  // would make this pass again the moment someone deletes the field — the state
+  // that shipped broken — so the expected value is stated here.
+  //
+  // Read through the PARSER, not a regex over the file: `executable = "claude"`
+  // is one of several shapes TOML allows for the same fact (inline table,
+  // literal string, different key order), and a pattern that matched only the
+  // current spelling would report CLEAN on a rewrite that still declared it.
+  // That is the failure lint:structured-parse exists to prevent, and it caught
+  // an earlier draft of this test doing exactly that.
+  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  const claude = targets.find((t) => t.name === "claude-code");
+  assert.ok(claude, "the claude-code target must stay declared");
+  assert.equal(
+    claude.executable, "claude",
+    "claude-code's binary is `claude`, not `claude-code`; without this the " +
+    "$PATH fallback looks for a binary that has never existed (ADR-0060)",
+  );
+  assert.notEqual(
+    claude.executable, claude.name,
+    "the point of the field is that these differ — equal means it is doing nothing",
+  );
+});

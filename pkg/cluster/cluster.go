@@ -506,6 +506,7 @@ type HarnessTarget struct {
 	StateDir    string   `json:"stateDir"`
 	AuthModes   []string `json:"authModes"`
 	Provenance  string   `json:"provenance"`
+	Executable  string   `json:"executable"`
 }
 
 type HeaderNamedSpec struct {

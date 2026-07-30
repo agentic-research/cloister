@@ -216,6 +216,7 @@ pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
 apiKeyEnv = "ANTHROPIC_API_KEY"
 authModes = [ "custody", "audit" ]
 baseUrlEnv = "ANTHROPIC_BASE_URL"
+executable = "claude"
 name = "claude-code"
 provenance = "https://github.com/anthropics/claude-code"
 service = "anthropic"

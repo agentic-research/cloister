@@ -562,6 +562,7 @@ export const HarnessTargetSchema: z.ZodType<HarnessTarget> = z.lazy(() =>
     stateDir: z.string().default(""),
     authModes: z.array(z.string()).readonly().default([]),
     provenance: z.string().default(""),
+    executable: z.string().default(""),
   }).strict());
 
 export interface HarnessTarget {
@@ -575,6 +576,7 @@ export interface HarnessTarget {
   stateDir: string;
   authModes: readonly string[];
   provenance: string;
+  executable: string;
 }
 
 export const HeaderNamedSpecSchema: z.ZodType<HeaderNamedSpec> = z.lazy(() =>

@@ -26,6 +26,10 @@
  * @property {string}   entryPoint  Absolute path to the executable. Empty ⇒ resolve
  *                                  `name` on $PATH (convenience only; unavailable
  *                                  under confinement, which execs by path).
+ * @property {string}   executable  Binary NAME when it differs from `name`
+ *                                  (claude-code's binary is `claude`). Empty ⇒
+ *                                  use `name`. Distinct from entryPoint, which
+ *                                  is absolute. Per ADR-0060.
  * @property {string}   apiKeyEnv   Env var supplying a key in custody mode.
  * @property {string}   baseUrlEnv  Env var the harness reads for the proxy URL.
  * @property {string[]} stripEnv    Credential env vars scrubbed before exec.

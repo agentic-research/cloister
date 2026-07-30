@@ -968,6 +968,21 @@ struct HarnessTarget {
   # refusal rather than a quiet downgrade that moves billing.
   authModes @8 :List(Text);
 
+  # The binary's NAME, when it differs from the selector above. Per ADR-0060.
+  #
+  # `name` is what you type after `--harness`; this is what to look for on
+  # `$PATH`. They coincide for `codex` and do NOT for Claude Code — the product
+  # is `claude-code`, the executable is `claude` — so falling back to `name`
+  # looked for a binary that has never existed, and `cloister run --harness
+  # claude-code` failed on a machine with Claude Code installed.
+  #
+  # Distinct from `entryPoint`, which is an ABSOLUTE path for a pinned
+  # deployment. `entryPoint` answers WHERE; this answers WHAT IT IS CALLED.
+  # Resolution order: --harness-bin, entryPoint, executable, name.
+  #
+  # Empty ⇒ use `name`, which stays correct wherever the two coincide.
+  executable @10 :Text;
+
   # WHO OWNS these facts — the URL of the project that decides them.
   # Required, and always a concrete owner. Examples:
   #

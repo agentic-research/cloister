@@ -308,7 +308,16 @@ function resolveSandbox(requested, target, root, { run, exists }) {
   // for the unconfined case only, and its failure is a named error pointing at
   // the declaration — the silent version is where `claude: command not found`
   // came from.
-  const cmd = requested.harnessBin || target.entryPoint || target.name;
+  // Four rungs, each narrower than the last (ADR-0060):
+  //   harnessBin  explicit per-invocation override
+  //   entryPoint  absolute path, pinned deployment — WHERE
+  //   executable  the binary's name when it differs from the selector — WHAT
+  //   name        the default, correct wherever selector and binary coincide
+  //
+  // The third rung exists because `name` was doing both jobs: the product is
+  // `claude-code`, the binary is `claude`, so the fallback looked for a binary
+  // that has never existed and the verb failed on a stock install.
+  const cmd = requested.harnessBin || target.entryPoint || target.executable || target.name;
   let harnessBin = cmd;
   if (!cmd.includes("/")) {
     try {
