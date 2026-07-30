@@ -975,6 +975,16 @@ tasks:
       - src/routes/vault-proxy-credential-store.ts
       - scripts/lint-vault-id-source.mjs
 
+  test:harness-binary:
+    desc: "Kernel-confinement tests for the cloister-harness BINARY — the artifact that actually ships (cloister-e22a56). Distinct from `nono-isolation`, which drives the `nono` CLI: that is a different artifact at a different version, so it says nothing about the library pinned in tools/harness-sandbox/Cargo.toml. Measured: the installed CLI was 0.56.0 while the pin moved to 0.70, and the CLI suite stayed green throughout. DEPENDS on harness:sandbox:build so the binary exists — wiring this into `lint` instead would make it skip forever, because `lint` is ordered before the build."
+    deps: [harness:sandbox:build]
+    cmds:
+      - node --test tools/harness-sandbox/test/cloister-harness-binary.test.mjs
+    sources:
+      - tools/harness-sandbox/src/main.rs
+      - tools/harness-sandbox/Cargo.toml
+      - tools/harness-sandbox/test/cloister-harness-binary.test.mjs
+
   harness:dev:
     desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the base-URL export. Pick the harness with `-- --target claude-code|codex` (default claude-code); each target declares its own key env var, upstream, injection and auth modes in scripts/harness-targets.mjs (cloister-742e19). Set that target's key env var first — it is vaulted, never seen by the harness. Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config. This task and `cloister run --harness <name> --repo <abs> [--repo <abs> …]` are two DOORS onto one orchestration (scripts/lib/harness/launch.mjs) — this one reads the environment because an operator types it; the CLI passes typed arguments. Neither re-implements the other."
     cmds:
@@ -1311,7 +1321,7 @@ tasks:
 
   verify:strict:
     desc: "Strict-only gates run after `lint`: external-process equivalence, stub smoke, Rust audit/host-extras, and generated drift checks."
-    deps: [wire:verify-roundtrip, smoke:leyline-stub, rs:verify, harness:sandbox:build, cluster:toml:roundtrip, emit:cloister-capnp:drift]
+    deps: [wire:verify-roundtrip, smoke:leyline-stub, rs:verify, harness:sandbox:build, test:harness-binary, cluster:toml:roundtrip, emit:cloister-capnp:drift]
 
   done:
     desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/` (mache-smell-rules-shaped). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
