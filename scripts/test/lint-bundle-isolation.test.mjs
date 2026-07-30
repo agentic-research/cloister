@@ -2078,7 +2078,7 @@ test("Inv 14 holds on the SHIPPED tree — not just on fixtures", async () => {
   // Non-vacuity of the useful kind: the invariant is asserted against the real
   // cluster.toml and the real lockfile, so it cannot pass by describing a
   // fixture that agrees by construction.
-  const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+  const r = spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
     cwd: REPO_ROOT, encoding: "utf8",
   });
   assert.equal(r.status, 0, `the shipped tree must satisfy Inv 14:\n${r.stdout}${r.stderr}`);
@@ -2108,7 +2108,7 @@ test("Inv 14 FIRES when the operator's value disagrees with the producer's", asy
     assert.notEqual(flipped, lock, "the fixture must actually contain a declared port to flip");
     writeFileSync(lockPath, flipped);
 
-    const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+    const r = spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
       cwd: REPO_ROOT, encoding: "utf8", env: { ...process.env, CLOISTER_LOCKFILE: lockPath },
     });
     const out = `${r.stdout}${r.stderr}`;
@@ -2138,7 +2138,7 @@ test("Inv 14 treats an ABSENT fact as not-stated, never as disagreement", async 
     assert.notEqual(stripped, lock, "the fixture must actually have declared facts to strip");
     writeFileSync(lockPath, stripped);
 
-    const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+    const r = spawnSync(process.execPath, ["--import", TSX_LOADER, LINT_SCRIPT], {
       cwd: REPO_ROOT, encoding: "utf8", env: { ...process.env, CLOISTER_LOCKFILE: lockPath },
     });
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /Inv 14/, "absent ≠ disagrees");
