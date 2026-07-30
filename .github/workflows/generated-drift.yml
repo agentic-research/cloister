@@ -36,7 +36,14 @@ concurrency:
 
 jobs:
   drift-check:
-    name: regen + diff (manifest, tool-schemas, cluster, pkg/*.go)
+    # DO NOT RENAME. This exact string is a REQUIRED status check in main's
+    # branch protection. A required context that no job produces never posts,
+    # so the PR sits on "Expected — waiting for status" forever. Renaming it to
+    # mention pkg/*.go did exactly that on PR #229 — the header below already
+    # said it was required, which is why the coupling is now pinned by
+    # scripts/test/required-checks.test.mjs rather than by a comment.
+    # Changing it means updating branch protection FIRST (admin action).
+    name: regen + diff (manifest, tool-schemas, cluster)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
