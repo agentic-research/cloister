@@ -31,6 +31,16 @@ declare module "node:fs" {
   export function writeFileSync(path: string, data: string): void;
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
   export function existsSync(path: string): boolean;
+  export function readdirSync(path: string): string[];
+  export function statSync(path: string): { isDirectory(): boolean };
+}
+
+declare module "node:crypto" {
+  export interface Hash {
+    update(data: string | Uint8Array): Hash;
+    digest(encoding: "hex"): string;
+  }
+  export function createHash(algorithm: string): Hash;
 }
 
 declare module "node:os" {

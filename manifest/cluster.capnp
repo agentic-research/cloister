@@ -921,6 +921,17 @@ struct Gateway {
   #
   # Append-only ordinal per ADR-0004.
   harnessTargets @4 :List(HarnessTarget);
+
+  # Skills admitted to the trust boundary, per ADR-0061.
+  #
+  # A skill is DECLARED and DIGEST-VERIFIED before a run mints anything —
+  # deliberately the same shape as adding an input (ADR-0026), because it is the
+  # same kind of act: admitting third-party content to a trust boundary.
+  #
+  # Confinement already bounds how much damage a skill can do; this answers the
+  # different question of WHICH skills ran. Undeclared content in the skills
+  # directory is reported rather than silently honoured.
+  skills @5 :List(SkillDeclaration);
 }
 
 struct HarnessTarget {
@@ -1049,6 +1060,26 @@ struct VaultProxyService {
 struct HeaderNamedSpec { name @0 :Text; }
 struct QueryParamSpec  { name @0 :Text; }
 struct BodyFieldSpec   { path @0 :Text; }
+
+# A skill admitted to the trust boundary (ADR-0061).
+#
+# NOTE the property this does NOT provide: the skills directory stays WRITABLE,
+# because nono's grants are a union rather than an intersection — a narrower
+# read grant does not constrain a broader rw parent, and `deny` is a full deny
+# rather than a write-deny, so a read-only subtree inside a writable tree is not
+# expressible. Verification therefore happens at LOAD: a substituted skill fails
+# the next run, it is not blocked mid-run. Measured, not assumed; see ADR-0061.
+struct SkillDeclaration {
+  # Directory name under the harness's skills directory.
+  name @0 :Text;
+
+  # Expected digest of the skill's contents, `sha256:<hex>`, over a canonical
+  # walk of the directory (sorted relative paths, each path then its bytes).
+  # Empty ⇒ DECLARED BUT UNPINNED: the skill is admitted and its digest is
+  # reported so an operator can pin it, but nothing is enforced. Deliberately
+  # not silent — an unpinned skill says so on every run.
+  digest @1 :Text;
+}
 
 struct GatewayMetadata {
   # e.g. "cloister-art", "cloister-agent-cluster". Distinct from

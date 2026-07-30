@@ -156,6 +156,14 @@ function canonicalizeGateway(g) {
   const harnessTargets = Array.isArray(g.harnessTargets)
     ? g.harnessTargets.map(canonicalizeHarnessTarget)
     : [];
+  // ADR-0061. An empty `digest` is MEANINGFUL — declared but unpinned — so
+  // unlike the other canonicalizers this keeps the key rather than dropping it,
+  // otherwise the round-trip would turn "admitted, unverified" into "absent".
+  const skills = Array.isArray(g.skills)
+    ? g.skills
+        .filter((k) => k && typeof k.name === "string" && k.name !== "")
+        .map((k) => sortKeys({ name: k.name, digest: typeof k.digest === "string" ? k.digest : "" }))
+    : [];
 
   const metaBody = {};
   if (typeof meta.name    === "string" && meta.name    !== "") metaBody.name    = meta.name;
@@ -195,7 +203,8 @@ function canonicalizeGateway(g) {
     Object.keys(actorBody).length === 0 &&
     Object.keys(policyBody).length === 0 &&
     vaultProxyServices.length === 0 &&
-    harnessTargets.length === 0
+    harnessTargets.length === 0 &&
+    skills.length === 0
   ) {
     return null;
   }
@@ -205,6 +214,7 @@ function canonicalizeGateway(g) {
   if (Object.keys(policyBody).length > 0) out.policy   = sortKeys(policyBody);
   if (vaultProxyServices.length > 0) out.vaultProxyServices = vaultProxyServices;
   if (harnessTargets.length > 0) out.harnessTargets = harnessTargets;
+  if (skills.length > 0) out.skills = skills;
   return sortKeys(out);
 }
 

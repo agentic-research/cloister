@@ -140,6 +140,7 @@ export const GatewaySchema: z.ZodType<Gateway> = z.lazy(() =>
     policy: InterlacePolicySchema,
     vaultProxyServices: z.array(VaultProxyServiceSchema).readonly().default([]),
     harnessTargets: z.array(HarnessTargetSchema).readonly().default([]),
+    skills: z.array(SkillDeclarationSchema).readonly().default([]),
   }).strict());
 
 export interface Gateway {
@@ -148,6 +149,7 @@ export interface Gateway {
   policy: InterlacePolicy;
   vaultProxyServices: readonly VaultProxyService[];
   harnessTargets: readonly HarnessTarget[];
+  skills: readonly SkillDeclaration[];
 }
 
 export const EdgeSpecSchema: z.ZodType<EdgeSpec> = z.lazy(() =>
@@ -577,6 +579,17 @@ export interface HarnessTarget {
   authModes: readonly string[];
   provenance: string;
   executable: string;
+}
+
+export const SkillDeclarationSchema: z.ZodType<SkillDeclaration> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    digest: z.string().default(""),
+  }).strict());
+
+export interface SkillDeclaration {
+  name: string;
+  digest: string;
 }
 
 export const HeaderNamedSpecSchema: z.ZodType<HeaderNamedSpec> = z.lazy(() =>

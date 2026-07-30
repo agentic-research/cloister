@@ -38,7 +38,8 @@
 // (--help minted a credential). Both were ordering bugs in a script.
 
 import { execFileSync, spawn as nodeSpawn } from "node:child_process";
-import { writeFileSync, rmSync, existsSync } from "node:fs";
+import { writeFileSync, rmSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 
@@ -159,6 +160,154 @@ export function validateWorkdirSet(dirs, label) {
 }
 
 /**
+ * Canonical digest of a skill directory: a sorted walk of relative paths, each
+ * path's bytes folded in after the path itself.
+ *
+ * Sorted so the digest does not depend on readdir order, and the PATH is folded
+ * in alongside the bytes so renaming a file changes the digest — hashing
+ * contents alone would let `evil.sh` be renamed to `setup.sh` invisibly.
+ *
+ * @param {string} dir
+ * @param {{readdirSync?: Function, readFileSync?: Function, statSync?: Function}} [io]
+ */
+export function digestSkillDir(dir, io = {}) {
+  const rd = io.readdirSync ?? readdirSync;
+  const rf = io.readFileSync ?? readFileSync;
+  const st = io.statSync ?? statSync;
+  /** @type {string[]} */
+  const files = [];
+  const walk = (/** @type {string} */ rel) => {
+    for (const entry of rd(join(dir, rel))) {
+      const r = rel ? `${rel}/${entry}` : entry;
+      if (st(join(dir, r)).isDirectory()) walk(r);
+      else files.push(r);
+    }
+  };
+  walk("");
+  const h = createHash("sha256");
+  for (const rel of files.sort()) {
+    h.update(rel);
+    h.update("\0");
+    h.update(rf(join(dir, rel)));
+  }
+  return `sha256:${h.digest("hex")}`;
+}
+
+/**
+ * Verify every DECLARED skill before anything is minted (ADR-0061).
+ *
+ * Confinement already bounds how much damage a skill can do — proven three
+ * levels deep, across a language boundary. This answers the different question
+ * of WHICH skills ran, which is the one an operator has to answer to a
+ * colleague.
+ *
+ * Three outcomes, all of them loud:
+ *
+ *   pinned + matching    verified, named in the receipt
+ *   pinned + mismatched  the run REFUSES — content changed under a pin
+ *   declared, no digest  admitted UNPINNED, and says so every run with the
+ *                        digest to paste, so pinning is one copy away
+ *
+ * An undeclared directory is reported, not honoured silently: the operator
+ * should know their harness can see content the manifest never admitted.
+ *
+ * NOT continuous. The skills directory stays writable because nono's grants are
+ * a union rather than an intersection — a narrower read grant does not
+ * constrain a broader rw parent (measured; ADR-0061). A skill substituted
+ * mid-run is caught on the NEXT run, not blocked in this one, and the receipt
+ * says "verified at load" rather than implying more.
+ *
+ * @param {any} plan
+ * @param {(m: string) => void} log
+ * @param {LaunchDeps & {readdirSync?: Function, readFileSync?: Function, statSync?: Function}} [deps]
+ * @returns {{name: string, digest: string, pinned: boolean}[]}
+ */
+export function verifySkills(plan, log, deps = {}) {
+  const declared = plan.skills ?? [];
+  const exists = deps.exists ?? existsSync;
+  const rd = deps.readdirSync ?? readdirSync;
+  const skillsDir = join(plan.sandbox?.stateDir ?? "", "skills");
+
+  if (declared.length === 0 && !exists(skillsDir)) return [];
+  void exists;
+
+  // Listing is best-effort; DECLARED skills are not. If the directory cannot be
+  // read — absent, or an injected `exists` that disagrees with the real fs —
+  // `present` is empty and every declared skill then fails its own
+  // "declared but absent" check below, loudly and by name. So an unreadable
+  // directory degrades to a precise refusal rather than a stack trace, without
+  // weakening anything: nothing is treated as verified that was not read.
+  let present = [];
+  try {
+    present = rd(skillsDir).filter((/** @type {string} */ n) => {
+      try { return (deps.statSync ?? statSync)(join(skillsDir, n)).isDirectory(); } catch { return false; }
+    });
+  } catch { /* lint-allow-silent: absent or unreadable ⇒ nothing present; declared skills still refuse below */ }
+
+  const verified = [];
+  for (const decl of declared) {
+    if (!present.includes(decl.name)) {
+      throw new PreconditionError(
+        `skill ${JSON.stringify(decl.name)} is declared in cluster.toml but absent from ` +
+        `${skillsDir}. A declared skill that is not there means the run would not be the ` +
+        `one the manifest describes (ADR-0061).`, 1,
+      );
+    }
+    const actual = digestSkillDir(join(skillsDir, decl.name), deps);
+    if (!decl.digest) {
+      log(`harness:dev — skill ${decl.name}: UNPINNED. Pin it with  digest = "${actual}"`);
+      verified.push({ name: decl.name, digest: actual, pinned: false });
+      continue;
+    }
+    if (actual !== decl.digest) {
+      throw new PreconditionError(
+        `skill ${JSON.stringify(decl.name)} does not match its pin.\n` +
+        `  declared: ${decl.digest}\n` +
+        `  actual:   ${actual}\n` +
+        `Its contents changed under a pin. Re-pin deliberately if that was you ` +
+        `(ADR-0061); refusing the run rather than loading unreviewed content.`, 1,
+      );
+    }
+    verified.push({ name: decl.name, digest: actual, pinned: true });
+  }
+
+  const undeclared = present.filter((/** @type {string} */ n) => !declared.some((/** @type {{name:string}} */ d) => d.name === n));
+  // ── the receipt ─────────────────────────────────────────────────────────
+  //
+  // The FULL picture goes to a file; stdout gets one line. A real machine has
+  // dozens of skills, and a wall of names on every run is how a true warning
+  // becomes scrollback — the operator stops reading it, which costs more than
+  // not printing it. The count is the signal, the receipt is the detail.
+  //
+  // This is also what ADR-0043 promised and had not delivered: a LOAD-EVENT
+  // RECEIPT, so which skills were present is answerable after the fact rather
+  // than only at the moment it scrolled past.
+  const receipt = {
+    version: "cloister/skill-load/v1",
+    skillsDir,
+    // "at load" is stated in the artifact itself, because the artifact will
+    // outlive the conversation where the distinction was explained.
+    verifiedAt: "load",
+    note: "Verification is at load, not continuous: the skills directory stays " +
+          "writable (nono grants are a union, not an intersection), so a skill " +
+          "substituted mid-run is caught on the NEXT run. See ADR-0061.",
+    verified,
+    undeclared,
+  };
+  const receiptPath = join(plan.root ?? ".", ".harness-skills.json");
+  try {
+    (deps.writeFileSync ?? writeFileSync)(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  } catch { /* lint-allow-silent: the summary line below is the report; a receipt we could not write must not fail a run that is otherwise fine */ }
+
+  const pinned = verified.filter((v) => v.pinned).length;
+  const parts = [];
+  if (verified.length) parts.push(`${verified.length} declared (${pinned} pinned)`);
+  if (undeclared.length) parts.push(`${undeclared.length} UNDECLARED`);
+  if (parts.length) log(`harness:dev — skills: ${parts.join(", ")} · ${receiptPath}`);
+  return verified;
+}
+
+/**
  * Resolve a LaunchRequest into a LaunchPlan, running every precondition.
  *
  * Throws before anything is minted or written. Holding the returned plan is the
@@ -187,11 +336,12 @@ export async function resolvePlan(request, deps = {}) {
   // literals (lint:harness-target-literals enforces it). Cross-checked against
   // cluster.toml's vaultProxyServices before anything is minted, so a
   // disagreement is a named error here rather than a provider 401 later.
-  let target, service;
+  let target, service, skills = [];
   try {
     const cfg = await loadHarnessConfig(resolve(root, "cluster.toml"));
     target = resolveTargetByName(cfg.targets, request.targetName);
     service = serviceFor(target, cfg.services);
+    skills = cfg.skills ?? [];
   } catch (err) {
     if (err instanceof UsageError) throw new LaunchUsageError(err.message);
     throw err;
@@ -214,6 +364,9 @@ export async function resolvePlan(request, deps = {}) {
     shimPort,
     baseUrl: `http://127.0.0.1:${shimPort}/vault/proxy/${target.service}`,
     setupOnly,
+    // Declared skills, carried so verifySkills can run against the resolved
+    // plan — BEFORE performSetup mints anything (ADR-0061).
+    skills,
     // Built from the plan and NOT yet written. The root count comes from the
     // SAME sandbox object the kernel grants are built from below, so a root
     // cannot be attested without being granted, or granted without being
@@ -678,6 +831,10 @@ export async function launch(request, deps = {}) {
         ? "AUDIT mode (forward harness auth + receipt; no key vaulted)"
         : "CUSTODY mode (API key vaulted + injected)"));
   warnIfAuditIsUnauthenticated(plan, log, deps);
+  // ADR-0061: verify declared skills BEFORE minting. Same ordering as every
+  // other precondition — an operator who aborts on a failed pin has not caused
+  // a credential to be written.
+  if (plan.sandbox) verifySkills(plan, log, deps);
 
   const artifacts = performSetup(plan, deps);
   if (plan.setupOnly) {

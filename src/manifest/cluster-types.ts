@@ -603,6 +603,22 @@ export interface Gateway {
    * cannot disagree.
    */
   harnessTargets: readonly HarnessTargetConfig[];
+  /** Skills admitted to the trust boundary, digest-verified at load. ADR-0061. */
+  skills: readonly SkillDeclarationConfig[];
+}
+
+/**
+ * A skill admitted to the trust boundary (ADR-0061).
+ *
+ * Verification is at LOAD, not continuous: the skills directory stays writable
+ * because nono grants are a union, not an intersection. A substituted skill
+ * fails the NEXT run rather than being blocked mid-run.
+ */
+export interface SkillDeclarationConfig {
+  /** Directory name under the harness skills directory. */
+  name:   string;
+  /** `sha256:<hex>` over a canonical walk. Empty ⇒ declared but UNPINNED. */
+  digest: string;
 }
 
 export interface HarnessTargetConfig {
