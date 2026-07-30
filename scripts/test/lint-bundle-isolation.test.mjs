@@ -23,7 +23,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -130,6 +130,13 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       perTenant = false,
       confinement,
       image = `${name}:test`,
+      // Inv 13 (cloister-54b834) requires every external bundle to declare a
+      // mode. Defaulted here so the ~30 fixtures that predate the invariant
+      // stay valid manifests without each restating an unrelated field — the
+      // helper's job is to produce a well-formed cluster unless a test is
+      // deliberately malforming one. Tests exercising Inv 13 pass "" or a bogus
+      // value explicitly.
+      executionMode = "process",
     }) => ({
       name,
       description: `${name} test bundle`,
@@ -148,6 +155,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       kind: {
         external: {
           image,
+          executionMode,
           ipcSocket: `/run/cloister-uds/${name}.sock`,
           httpPort: 0,
           args: [],
@@ -1602,6 +1610,91 @@ test("Inv 8 — MULTIPLE perTenant bundles all flagged when no tenantDispatch ro
   } finally {
     scenario.cleanup();
   }
+});
+
+// ── Inv 13 (ADR-0048): executionMode declared, and implementable ──────────
+
+const INV13_CONFIG = {
+  workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+  services: [{ name: "internet", network: { allow: ["public"] } }],
+};
+
+test("Inv 13 — an external bundle with NO executionMode is a violation (fail, not warn)", () => {
+  // cloister-54b834. Four of five shipped bundles left this ambient, and it was
+  // not merely undocumented: emit-host-launch-plan REQUIRES microvm|process and
+  // throws otherwise, so `task runtime:plan` could not emit for any of them and
+  // nothing said so until someone tried. Fail-level because there is no
+  // legitimate in-between — "unstated" is the answer being kept out of the
+  // manifest, not a third mode.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.notEqual(r.status, 0, "a missing executionMode must FAIL");
+    assert.match(r.stderr, /Inv 13/);
+    assert.match(r.stderr, /declares no executionMode/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 13 — an executionMode the host runtime does not implement is a violation", () => {
+  // The runtime "selects exactly and never substitutes a weaker backend", so an
+  // unimplemented mode must not silently degrade to process.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "gvisor" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.notEqual(r.status, 0, "an unknown executionMode must FAIL");
+    assert.match(r.stderr, /executionMode "gvisor"/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 13 — both implemented modes are accepted", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister", executionMode: "process" },
+        { name: "vm", tier: "cluster", image: "vm:1", executionMode: "microvm" },
+        { name: "proc", tier: "cluster", image: "proc:1", executionMode: "process" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.doesNotMatch(r.stderr, /Inv 13/, `both modes must pass:\n${r.stderr}`);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 13 — the SHIPPED tree declares an executionMode on every external bundle", async () => {
+  // The rail must hold against the real manifest, not only fixtures — otherwise
+  // it could be enforcing a shape nothing conforms to.
+  const { cluster } = await import(pathToFileURL(resolve(REPO_ROOT, "src/generated/cluster.ts")).href);
+  const external = (cluster.bundles ?? []).filter((b) => "external" in b.kind);
+  assert.ok(external.length >= 4, `sanity: expected several external bundles, got ${external.length}`);
+  const undeclared = external
+    .filter((b) => !["microvm", "process"].includes(b.kind.external.executionMode))
+    .map((b) => b.name);
+  assert.deepEqual(undeclared, [], `these ship without a usable executionMode: ${undeclared}`);
 });
 
 // ── Inv 10 (ADR-0038): bundle image derivable from packages[].oci ─────────

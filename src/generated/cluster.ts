@@ -22,7 +22,7 @@ export const cluster: Cluster = {
   "bundles": [
     {
       "name": "cloister-router",
-      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)",
+      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834).",
       "tier": "hypervisor",
       "holdsCredential": [
         "VAULT_KEK_SOURCE",
@@ -52,7 +52,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },
@@ -85,7 +85,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },
@@ -118,7 +118,7 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": ""
+          "executionMode": "process"
         }
       }
     },

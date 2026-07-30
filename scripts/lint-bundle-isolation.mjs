@@ -1058,6 +1058,54 @@ function checkInvariant11(cluster, violations) {
  * reference is exactly the "guess that can only be discovered wrong at
  * runtime" this rail exists to catch.
  */
+/**
+ * Inv 13 (ADR-0048, cloister-54b834) — every external bundle declares an
+ * `executionMode`, and it is one the host runtime implements.
+ *
+ * The sandbox is one of ADR-0048's four tool facets, and the ADR's whole point
+ * is that a facet must be declared INSIDE the boundary rather than left
+ * ambient. Four of five bundles left it ambient: only mache said `microvm`.
+ *
+ * Left ambient it is not merely undocumented — it is a deferred hard failure.
+ * `scripts/emit-host-launch-plan.mjs` REQUIRES "microvm" or "process" and
+ * throws otherwise, so `task runtime:plan -- <bundle>` could not emit a plan
+ * for any of the four, and nothing said so until someone tried. This is the
+ * same shape as Inv 10 before cloister-cb735c: the check existed downstream,
+ * and no gate reached it.
+ *
+ * FAIL-level, not warn. Unlike Inv 10 — where an operator mid-migration who
+ * dropped a hand-set image before the producer ships its oci is legitimate —
+ * there is no legitimate in-between state here. A bundle either runs in a
+ * microVM or as a process; "unstated" is not a third option, it is just the
+ * answer being kept out of the manifest.
+ */
+function checkInvariant13(cluster, violations) {
+  // Kept in step with emit-host-launch-plan.mjs, which is the consumer that
+  // actually enforces these two values at launch. A third mode added there
+  // must be added here, or this rail starts rejecting a mode the runtime
+  // accepts.
+  const MODES = ["microvm", "process"];
+  for (const b of cluster.bundles ?? []) {
+    if (!("external" in b.kind)) continue;
+    const mode = b.kind.external.executionMode;
+    if (!mode) {
+      violations.push(
+        `bundle "${b.name}" (external) declares no executionMode. ADR-0048 makes the ` +
+        `sandbox a facet that must be declared, not inferred — and ` +
+        `emit-host-launch-plan refuses to launch without it, so leaving it unset ` +
+        `defers the failure to \`task runtime:plan\` instead of reporting it here ` +
+        `(Inv 13, cloister-54b834).`,
+      );
+    } else if (!MODES.includes(mode)) {
+      violations.push(
+        `bundle "${b.name}" (external) declares executionMode "${mode}", which the host ` +
+        `runtime does not implement — it selects exactly and never substitutes a weaker ` +
+        `backend. Expected one of: ${MODES.join(", ")} (Inv 13).`,
+      );
+    }
+  }
+}
+
 function checkInvariant12(workerSvc, bundleName, config, violations) {
   const workersByName = new Map(workersIn(config).map((w) => [w.name, w]));
   const bundleLabel = bundleName ? `"${bundleName}"` : "(unmapped)";
@@ -1120,6 +1168,7 @@ checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
 checkInvariant10(cluster, loadOciByInput(), warnings);
 checkInvariant11(cluster, violations);
+checkInvariant13(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
@@ -1168,4 +1217,4 @@ const doBindingCount = workersIn(config).reduce(
   0,
 );
 console.log(`  ${doBindingCount} durableObjectNamespace binding(s) checked for Inv 12 (cloister-f9d473)`);
-console.log(`  invariants 1–12 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity + DO-namespace resolution)`);
+console.log(`  invariants 1–13 hold (ADR-0013 sandbox + ADR-0030 §A5 tenancy + ADR-0034 dispatch alignment + perTenant routing/wiring + ADR-0038 image derivation + confinement/v1 §2-4 validity + DO-namespace resolution + ADR-0048 executionMode declared)`);

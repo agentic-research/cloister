@@ -15,7 +15,7 @@ services:
     labels:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
-      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = "process": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
       - "cloister.colocated-inputs=llo,canonical-hours"
     ports:
       - "8787:8787"

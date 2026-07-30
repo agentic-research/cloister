@@ -78,7 +78,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 ### Substrate-property lint invariants (lint:bundle-isolation)
 
-`scripts/lint-bundle-isolation.mjs` runs twelve invariants per `task lint`:
+`scripts/lint-bundle-isolation.mjs` runs thirteen invariants per `task lint`:
 
 | Inv | What | ADR |
 |---|---|---|
@@ -94,6 +94,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 | 10 | External bundle image derivable (operator `ext.image` OR a linked input's `packages[].oci`); WARN-level | ADR-0038 |
 | 11 | Confinement facet (fs.allow / allowHosts / port.bind) is valid + fail-closed | cloister-a34edc |
 | 12 | Every `durableObjectNamespace` binding on a bundle's Worker resolves to a declared `durableObjectNamespaces` entry (same-Worker or named cross-worker `serviceName`) | cloister-f9d473 |
+| 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`) | ADR-0048 / cloister-54b834 |
 
 Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments (see [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md)); Inv 12 enforces the parallel chain `bundle DO binding → durableObjectNamespaces entry` — config.capnp's `durableObjectNamespaces` list (line ~235) is a hardcoded host-side declaration on behalf of every bundle that binds a Durable Object, and until Inv 12 nothing checked that a binding's named class was actually declared there.
 
@@ -112,6 +113,8 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
+| `lint:cargo-pins` | every ley-line-open git dep across the Rust workspace shares ONE rev + version | `cloister-9170d0` |
+| `cluster:emit:check-drift` | `cluster.compose.yaml` matches the emitter — it is generated, committed, and `lint:tenant-docs` READS it | `cloister-cb735c` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
 | `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
