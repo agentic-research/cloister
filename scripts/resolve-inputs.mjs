@@ -333,8 +333,9 @@ export async function resolveInput(spec) {
 
   // Bundle -> image map from the producer's own topology block. Joined against
   // the resolved artifacts so each bundle carries a DIGEST, not just a name.
-  const bundleMap = parseBundlePackageMap(doc);
-  const ociBundles = bundleMap.size === 0 ? [] : [...bundleMap].map(([bundle, identifier]) => {
+  const bundleDecls = parseBundleDeclarations(doc);
+  const ociBundles = bundleDecls.size === 0 ? [] : [...bundleDecls].map(([bundle, decl]) => {
+    const identifier = decl.package;
     const hit = (oci?.all ?? []).find((e) => e.identifier === identifier);
     if (!hit) {
       throw new ResolveError(
@@ -344,7 +345,12 @@ export async function resolveInput(spec) {
         `The topology block and the artifacts list disagree.`,
       );
     }
-    return { bundle, identifier, version: hit.version, digest: hit.digest };
+    return {
+      bundle, identifier, version: hit.version, digest: hit.digest,
+      // The producer's own declaration, carried so Inv 14 can compare it with
+      // what cluster.toml restates by hand (cloister-d8e8fb).
+      declared: { tier: decl.tier, kind: decl.kind, httpPort: decl.httpPort, ipcSocket: decl.ipcSocket },
+    };
   });
 
   return {
@@ -686,12 +692,48 @@ export function isArtifactOnly(doc) {
  */
 export function parseBundlePackageMap(doc) {
   const out = new Map();
+  for (const [name, row] of parseBundleDeclarations(doc)) out.set(name, row.package);
+  return out;
+}
+
+/**
+ * The producer's FULL per-bundle declaration, not just the image.
+ *
+ * `cluster.toml` restates four of these by hand — tier, kind, the wire fact
+ * (httpPort or ipcSocket), and the rationale paragraph verbatim — with nothing
+ * checking agreement (cloister-d8e8fb). That is the shape cloister-cb735c
+ * measured for images: two statements of one fact, only one of which tracks the
+ * upstream. The image half is railed by Inv 10; these were not.
+ *
+ * Carried into the lockfile so the lint can compare. The lockfile is GENERATED,
+ * so a derived copy there cannot rot the way a hand-written one does — which is
+ * the distinction that makes this a fix rather than a second duplication.
+ *
+ * SCALARS ONLY. The `rationale` paragraph is deliberately NOT carried: exact
+ * prose comparison would flap on any rewording, and a rail that cries wolf on a
+ * typo fix gets disabled — which costs more than it catches. Tier, port and
+ * socket have crisp equality and are the facts whose disagreement actually
+ * changes behaviour.
+ *
+ * @returns {Map<string, {package: string, tier: string, kind: string, httpPort: number|null, ipcSocket: string|null}>}
+ */
+export function parseBundleDeclarations(doc) {
+  const out = new Map();
   const bundles = doc?._meta?.["art.cloister/v1"]?.bundles;
   if (!Array.isArray(bundles)) return out;
   for (const b of bundles) {
-    if (b && typeof b === "object" && typeof b.name === "string" && typeof b.package === "string") {
-      out.set(b.name, b.package.trim());
-    }
+    // A half-stated row is not half-believed: name + package are what make the
+    // row usable at all, so a row missing either is skipped entirely rather
+    // than contributing a partial entry nothing can act on.
+    if (!b || typeof b !== "object") continue;
+    if (typeof b.name !== "string" || typeof b.package !== "string") continue;
+    out.set(b.name, {
+      package: b.package.trim(),
+      tier: typeof b.tier === "string" ? b.tier : "",
+      kind: typeof b.kind === "string" ? b.kind : "",
+      httpPort: Number.isInteger(b.httpPort) ? b.httpPort : null,
+      ipcSocket: typeof b.ipcSocket === "string" ? b.ipcSocket : null,
+    });
   }
   return out;
 }
@@ -1236,6 +1278,14 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
           ...(row.ociBundles?.length ? { ociBundles: row.ociBundles.map((b) => ({
             bundle: b.bundle,
             ...ociLockfileRow(b),
+            // The producer's own per-bundle facts, carried so Inv 14 can compare
+            // them against what cluster.toml restates by hand (cloister-d8e8fb).
+            // Empty values are dropped so the lockfile stays byte-stable for a
+            // producer that declares only the image.
+            ...(b.declared?.tier ? { declaredTier: b.declared.tier } : {}),
+            ...(b.declared?.kind ? { declaredKind: b.declared.kind } : {}),
+            ...(b.declared?.httpPort ? { declaredHttpPort: b.declared.httpPort } : {}),
+            ...(b.declared?.ipcSocket ? { declaredIpcSocket: b.declared.ipcSocket } : {}),
           })) } : {}),
         },
       ]),

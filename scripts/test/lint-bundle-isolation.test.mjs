@@ -22,7 +22,7 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join as tmpResolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -2064,5 +2064,85 @@ test("Inv 12 — cross-worker serviceName naming a nonexistent worker is rejecte
     assert.match(r.stderr, /ghost-worker/);
   } finally {
     scenario.cleanup();
+  }
+});
+
+// ── Inv 14: the producer's per-bundle facts vs what cluster.toml restates ──
+//
+// cloister-d8e8fb. cluster.toml hand-restates tier, kind and the wire fact
+// (httpPort / ipcSocket) for notme's two bundles. Nothing checked them, which is
+// the same shape cloister-cb735c measured for images — two statements of one
+// fact, only one of which tracks the upstream. Inv 10 rails the image half.
+
+test("Inv 14 holds on the SHIPPED tree — not just on fixtures", async () => {
+  // Non-vacuity of the useful kind: the invariant is asserted against the real
+  // cluster.toml and the real lockfile, so it cannot pass by describing a
+  // fixture that agrees by construction.
+  const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+    cwd: REPO_ROOT, encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `the shipped tree must satisfy Inv 14:\n${r.stdout}${r.stderr}`);
+  assert.doesNotMatch(`${r.stdout}${r.stderr}`, /Inv 14/, "no Inv 14 warning on the shipped tree");
+});
+
+test("Inv 14 FIRES when the operator's value disagrees with the producer's", async () => {
+  // The falsifier. Without this the test above is satisfied by an invariant
+  // that never looks at anything.
+  const { readFileSync, writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(tmpResolve(tmpdir(), "inv14-"));
+  try {
+    const lockPath = tmpResolve(dir, "cluster.lock.toml");
+    // Round-tripping through a TOML parser and writer just to produce a
+    // deliberately-WRONG file would add a serializer dependency to say the
+    // same thing.
+    //
+    // lint-allow-rawparse: this CORRUPTS a fixture rather than reading a fact.
+    // The lint guards against an under-matching pattern silently reporting
+    // CLEAN; here under-matching makes the flip a no-op, which the
+    // assert.notEqual below catches loudly.
+    const lock = readFileSync(resolve(REPO_ROOT, "cluster.lock.toml"), "utf8");
+    // Flip the PRODUCER's side, leaving cluster.toml untouched — so the
+    // disagreement is unambiguous and the operator surface is not mutated.
+    const flipped = lock.replace(/declaredHttpPort = [0-9_]+/, "declaredHttpPort = 9999");
+    assert.notEqual(flipped, lock, "the fixture must actually contain a declared port to flip");
+    writeFileSync(lockPath, flipped);
+
+    const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+      cwd: REPO_ROOT, encoding: "utf8", env: { ...process.env, CLOISTER_LOCKFILE: lockPath },
+    });
+    const out = `${r.stdout}${r.stderr}`;
+    assert.match(out, /Inv 14/, "a disagreeing fact must be reported");
+    assert.match(out, /httpPort/, "…naming the field that disagrees");
+    assert.match(out, /9999/, "…and both values, so the operator can decide which is right");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Inv 14 treats an ABSENT fact as not-stated, never as disagreement", async () => {
+  // A producer may legitimately declare fewer facts than the operator
+  // configures. Reporting that as drift would make the rail fire on every input
+  // that declares only an image — noise that gets the rail turned off.
+  const { readFileSync, writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(tmpResolve(tmpdir(), "inv14-absent-"));
+  try {
+    const lockPath = tmpResolve(dir, "cluster.lock.toml");
+    // lint-allow-rawparse: same as above — this STRIPS lines to build a
+    // deliberately-incomplete fixture, rather than reading a fact to decide
+    // something. Under-matching here weakens the fixture, and the assertion it
+    // feeds would then fail rather than silently pass.
+    const lock = readFileSync(resolve(REPO_ROOT, "cluster.lock.toml"), "utf8");
+    const stripped = lock.replace(/^\s*declared[A-Za-z]+ = .*$/gm, "");
+    assert.notEqual(stripped, lock, "the fixture must actually have declared facts to strip");
+    writeFileSync(lockPath, stripped);
+
+    const r = spawnSync(process.execPath, [resolve(REPO_ROOT, "scripts/lint-bundle-isolation.mjs")], {
+      cwd: REPO_ROOT, encoding: "utf8", env: { ...process.env, CLOISTER_LOCKFILE: lockPath },
+    });
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /Inv 14/, "absent ≠ disagrees");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1195,7 +1195,57 @@ checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
 const oci = loadOci();
 checkInvariant10(cluster, oci.byInput, warnings, oci.byBundle);
+/**
+ * Inv 14 (cloister-d8e8fb) — a bundle's tier / kind / wire fact must AGREE with
+ * what the producing input declares about it.
+ *
+ * cluster.toml restates these by hand for notme's two bundles, and until now
+ * nothing checked them. That is the exact shape cloister-cb735c measured for
+ * images: two statements of one fact, only one of which tracks the upstream.
+ * Inv 10 rails the image half; this rails the rest.
+ *
+ * WARN, and the OPERATOR stays authoritative — deliberately. `tier` is a trust
+ * decision under ADR-0011's three-criterion test, so an operator MUST be able to
+ * place a bundle at a tier the producer did not ask for; deriving it would let
+ * an upstream promote itself to hypervisor by editing its own server.json. So a
+ * disagreement is reported, never silently resolved, and the message names which
+ * side is which so the operator can decide rather than guess.
+ *
+ * `rationale` is deliberately NOT compared. Exact prose equality would flap on
+ * any rewording, and a rail that cries wolf on a typo fix gets disabled — which
+ * costs more than it catches.
+ */
+function checkInvariant14(cluster, ociByBundle, warnings) {
+  for (const b of cluster.bundles ?? []) {
+    const declared = ociByBundle.get(b.name);
+    if (!declared) continue;
+    const ext = "external" in b.kind ? b.kind.external : null;
+
+    const rows = [
+      ["tier", b.tier, declared.declaredTier],
+      ["kind", "external" in b.kind ? "external" : Object.keys(b.kind)[0], declared.declaredKind],
+      ["httpPort", ext?.httpPort ?? null, declared.declaredHttpPort ?? null],
+      ["ipcSocket", ext?.ipcSocket || null, declared.declaredIpcSocket || null],
+    ];
+    for (const [field, ours, theirs] of rows) {
+      // Absent on either side is "not stated", not "disagrees" — a producer may
+      // legitimately declare fewer facts than the operator configures.
+      if (theirs === null || theirs === undefined || theirs === "") continue;
+      if (ours === null || ours === undefined || ours === "") continue;
+      if (String(ours) === String(theirs)) continue;
+      warnings.push(
+        `bundle "${b.name}" declares ${field}=${JSON.stringify(ours)} but its producing ` +
+        `input declares ${JSON.stringify(theirs)}. Two statements of one fact, and only ` +
+        `the producer's tracks the upstream. If the operator's value is deliberate, it ` +
+        `stays — this is a warning, not a refusal — but it should be deliberate ` +
+        `(Inv 14, cloister-d8e8fb).`,
+      );
+    }
+  }
+}
+
 checkInvariant11(cluster, violations);
+checkInvariant14(cluster, oci.byBundle, warnings);
 checkInvariant13(cluster, violations);
 
 const services = config.services ?? [];
