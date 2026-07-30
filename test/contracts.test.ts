@@ -449,13 +449,15 @@ describe("protocol version acceptance (cloister-c8e3bd)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("still accepts the 2026-XX-XX placeholder during the transition", async () => {
-    // In-flight peers (LLO upstreams, older cloister builds) negotiated the
-    // placeholder before the spec shipped. Removal condition: once the e2e
-    // smoke passes with every peer sending 2026-07-28, drop this entry and
-    // this test together.
+  it("REJECTS the retired 2026-XX-XX placeholder", async () => {
+    // Was accepted while SEP-2575 was in flight, for peers that negotiated the
+    // placeholder before the spec shipped. The revision has shipped, so the
+    // placeholder names nothing — this asserts the inbound surface actually
+    // narrowed, rather than the constant merely being deleted from a list.
     const res = await call("2026-XX-XX");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as JsonRpcResponse;
+    expect(body.error?.message).toContain("UnsupportedProtocolVersion");
   });
 
   it("rejects an unknown version with UnsupportedProtocolVersionError", async () => {

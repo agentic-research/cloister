@@ -68,17 +68,18 @@ import { McpProxyToolBackend } from "../manifest/backends/mcp-proxy.js";
 const LEGACY_PROTOCOL_VERSION = "2024-11-05";
 
 /**
- * Sessionless MCP protocol version — SEP-2575 + SEP-2567 path. Returned
- * in `server/discover` responses. The SEPs do not (yet) lock a date
- * string; cloister advertises `2026-XX-XX` matching the Phase 0 fixture's
- * default and will reconcile when SEP-2575 lands a final version string.
+ * Sessionless MCP protocol version — SEP-2575 + SEP-2567 path. Returned in
+ * `server/discover` responses.
+ *
+ * This was provisional while SEP-2575 was in flight, alongside a
+ * `2026-XX-XX` placeholder that in-flight peers had negotiated before the
+ * spec shipped. The revision has now shipped, and LLO v0.13.0 derives all 21
+ * method constants from the verified 2026-07-28 bytes (failing compilation on
+ * a digest mismatch), so the placeholder no longer names anything real —
+ * accepting it would only widen the inbound surface. Removed with its
+ * transition test, per the removal condition recorded here.
  */
 const SESSIONLESS_PROTOCOL_VERSION = "2026-07-28";
-// Pre-release placeholder, still ACCEPTED inbound: peers negotiated it before
-// the spec shipped. Removal condition: e2e smoke green with every peer
-// sending 2026-07-28 — then delete this constant, its supportedVersions
-// entry, and the transition test in contracts.test.ts together.
-const TRANSITIONAL_PLACEHOLDER_VERSION = "2026-XX-XX";
 
 const SERVER_INFO = { name: "cloister", version: "0.1.0" } as const;
 const KEEPALIVE_MS = 15_000;
@@ -190,7 +191,7 @@ export class McpEdgeRoute implements EdgeRoute {
     this.supportedVersions =
       supportedVersions && supportedVersions.length > 0
         ? supportedVersions
-        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION, TRANSITIONAL_PLACEHOLDER_VERSION];
+        : [LEGACY_PROTOCOL_VERSION, SESSIONLESS_PROTOCOL_VERSION];
   }
 
   match(request: Request): boolean {

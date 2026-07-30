@@ -443,7 +443,7 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
       const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
       recorded.push({ method: body.method, headers, body });
 
-      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-07-28", capabilities: {} });
       if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
       return jsonResponse({ content: [{ type: "text", text: "{}" }] });
     };
@@ -476,7 +476,7 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
     const fetcher: typeof fetch = async (_input, init) => {
       const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
       seenMethods.push(body.method);
-      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-07-28", capabilities: {} });
       if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
       return jsonResponse({});
     };
@@ -511,7 +511,7 @@ describe("McpProxyToolBackend — protocolMode: 'next' (sessionless)", () => {
       else for (const [k, v] of Object.entries(raw)) headers[k.toLowerCase()] = String(v);
 
       const body = init?.body ? JSON.parse(String(init.body)) : { method: "?" };
-      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-XX-XX", capabilities: {} });
+      if (body.method === "server/discover") return jsonResponse({ protocolVersion: "2026-07-28", capabilities: {} });
       if (body.method === "tools/list")      return jsonResponse(TOOLS_LIST_RESULT);
       if (body.method === "tools/call") {
         callBody = body;
