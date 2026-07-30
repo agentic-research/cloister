@@ -10,11 +10,13 @@ import { main as pullMain } from "./pull-inputs.mjs";
 import { main as planMain } from "./emit-host-launch-plan.mjs";
 import { main as storageMain } from "./init-krun-storage.mjs";
 import { runHostRuntime } from "./host-runtime-cli.mjs";
+import { main as runMain } from "./cli-run.mjs";
 
 function printHelp(log = console.log) {
   log("Usage: cloister <command> [options]");
   log("");
   log("Commands:");
+  log("  cloister run ...              Run a harness confined to one repo");
   log("  cloister init ...             Scaffold a cluster recipe");
   log("  cloister add ...              Add and resolve a tool input");
   log("  cloister artifacts pull ...   Acquire lockfile-pinned OCI artifacts");
@@ -34,6 +36,7 @@ export async function main(argv = process.argv.slice(2)) {
     printHelp();
     return 0;
   }
+  if (command === "run") return runMain(rest);
   if (command === "init") return initMain(["init", ...rest]);
   if (command === "add") return addMain(rest);
   if (command === "artifacts" && rest[0] === "pull") return pullMain(rest.slice(1));
