@@ -4,15 +4,15 @@
 // It implements just the service-binding endpoint cloister needs:
 // GET /internal/ca-bundle -> signed JSON CABundle.
 
-import type { CABundle } from "../../../src/storage/ca-bundle-cache.js";
-import { bundleCanonical } from "../../../src/storage/bundle-canonical.js";
+import type { CABundle } from "../../../../src/storage/ca-bundle-cache.js";
+import { bundleCanonical } from "../../../../src/storage/bundle-canonical.js";
 // Single source of truth for the test master keypair is the generated cert
 // fixtures. Importing (rather than re-pasting) means a fixture regen can't
 // silently leave this harness signing with a stale key (cloister-31c844).
 import {
   MASTER_PUBKEY_B64_STD,
   MASTER_PUBKEY_B64 as MASTER_PUBKEY_B64_URL,
-} from "../../../test/wire/fixtures/cert-chain.js";
+} from "../../wire/fixtures/cert-chain.js";
 
 // Well-known test seed = raw bytes 0x01..0x20, the private half of the master
 // keypair whose public half is imported above. NOT a real secret; paired with
