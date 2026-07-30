@@ -35,6 +35,29 @@
 // identity — the docs emitter has to get clean markdown from the same source.
 
 /**
+ * The env-var contract between `cloister run` and the harness launcher.
+ *
+ * These names were string literals in TWO files with nothing pairing them:
+ * cli-run.mjs wrote them, harness-dev.mjs read them. Rename either side and
+ * `cloister run --repo X` silently confines to process.cwd() instead of X — the
+ * wrong tree, with every test still green, because a test that only checks the
+ * CLI SETS a variable cannot notice the consumer stopped reading it.
+ *
+ * Declared here so both sides reference one definition, and railed by
+ * scripts/test/cli-surface.test.mjs asserting the consumer still honours it.
+ * The process boundary between them is a separate concern (cloister-d8599e);
+ * this is the part that drifts silently.
+ */
+export const HARNESS_ENV = Object.freeze({
+  /** Absolute path the harness is confined to — the ONLY writable surface. */
+  workdir: "HARNESS_WORKDIR",
+  /** Selects the confinement provider. */
+  sandbox: "SANDBOX",
+  /** The only provider harness-dev.mjs implements. */
+  sandboxProvider: "nono",
+});
+
+/**
  * @typedef {{flag: string, value?: string, summary: string, required?: boolean}} Flag
  * @typedef {{name: string, usage: string, summary: string, detail?: string,
  *            flags?: Flag[], seeAlso?: string}} Command

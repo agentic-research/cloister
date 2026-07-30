@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { COMMANDS, renderHelp } from "../cli-surface.mjs";
+import { COMMANDS, renderHelp, HARNESS_ENV } from "../cli-surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -65,4 +65,30 @@ test("the declaration carries no ANSI colour — colour belongs to the renderer"
   const ESC = String.fromCharCode(27);
   assert.ok(!raw.includes(ESC), "escape sequences must not appear in the declaration");
   assert.doesNotMatch(raw, /from ["']chalk["']/, "the declaration must not import chalk");
+});
+
+test("the harness launcher still READS the env contract cli-run writes", () => {
+  // The assertion cli-surface.mjs claimed existed and did not. Without it the
+  // pairing is two string literals in two files: cli-run.mjs writes
+  // HARNESS_WORKDIR/SANDBOX, harness-dev.mjs reads them, and renaming either
+  // side leaves `cloister run --repo X` silently confining to process.cwd()
+  // instead of X — with every other test still green, because a test that only
+  // checks the CLI SETS a variable cannot notice the consumer stopped reading it.
+  //
+  // lint-allow-rawparse: the property IS "does this literal name appear in the
+  // consumer", so reading the literal text is the property, not a shortcut.
+  const consumer = readFileSync(resolve(ROOT, "scripts/harness-dev.mjs"), "utf8");
+  const unread = Object.entries(HARNESS_ENV)
+    .filter(([k]) => k !== "sandboxProvider")
+    .filter(([, name]) => !consumer.includes(name))
+    .map(([k, name]) => `${k} (${name})`);
+  assert.deepEqual(
+    unread,
+    [],
+    `harness-dev.mjs no longer reads: ${unread}. cloister run would confine to the wrong tree.`,
+  );
+  assert.ok(
+    consumer.includes(HARNESS_ENV.sandboxProvider),
+    `harness-dev.mjs no longer implements the ${HARNESS_ENV.sandboxProvider} provider`,
+  );
 });

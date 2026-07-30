@@ -41,6 +41,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve, isAbsolute, dirname } from "node:path";
+import { HARNESS_ENV } from "./cli-surface.mjs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -173,11 +174,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     );
   }
 
-  const env = { ...process.env, HARNESS_WORKDIR: repo };
+  // Names come from the shared contract, not literals — see HARNESS_ENV.
+  const env = { ...process.env, [HARNESS_ENV.workdir]: repo };
   // SANDBOX=nono is what harness-dev.mjs keys on to apply the declared
   // default-deny profile. Confinement is the POINT of this verb, so it is the
   // default here even though it is opt-in on the underlying task.
-  if (args.sandbox) env.SANDBOX = "nono";
+  if (args.sandbox) env[HARNESS_ENV.sandbox] = HARNESS_ENV.sandboxProvider;
   const forwarded = [...args.passthrough];
   if (args.harness) forwarded.push("--target", args.harness);
 
