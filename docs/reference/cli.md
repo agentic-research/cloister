@@ -21,7 +21,7 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 ## cloister run
 
 ```
-cloister run --harness <name> --repo <absolute-path>
+cloister run --harness <name> --repo <absolute-path> [-- <harness args...>]
 ```
 
 Executes a harness with the named repository as its ONLY readable and writable path. Every other path is kernel-denied — `~/.ssh`, other repositories, and outbound network — with EPERM rather than ENOENT, so the boundary does not leak whether a path exists. Loopback to cloister stays open, which is what makes cloister the only route tools arrive by.
@@ -33,7 +33,9 @@ Executes a harness with the named repository as its ONLY readable and writable p
 | `--dry-run` |  | print what would be confined; mint nothing, launch nothing |
 | `--setup-only` |  | mint the identity and write .dev.vars, do not launch |
 | `--audit` |  | forward harness auth and emit a receipt; no key vaulted |
+| `--harness-bin` `<abs>` |  | absolute path to the harness executable. Required under confinement when the target declares no entryPoint, because there is no $PATH inside the sandbox — and the path is machine-local, so it belongs on the invocation rather than in a shared manifest |
 | `--no-sandbox` |  | DANGEROUS: skip kernel confinement (debugging only) |
+| `--` `<args...>` |  | everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read |
 
 See also: [`docs/reference/confinement-model.md`](confinement-model.md)
 
