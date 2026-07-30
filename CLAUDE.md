@@ -115,12 +115,34 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
 | `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
+| `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs
 against the real tree, not just fixtures.
+
+## Two hand-mirrored type surfaces, and why they still exist
+
+`src/manifest/types.ts` mirrors `manifest/cloister.capnp`; `src/manifest/cluster-types.ts`
+mirrors `manifest/cluster.capnp`. The latter duplicates 29 types that
+`src/generated/cluster.zod.ts` already generates from the same schema.
+
+**Do not "consolidate" it by deleting the hand copies yet.** `cluster.capnp`
+carries 727 comment lines; the generated file carries 6. schema-bridge receives
+the doc comments (capnp's `schema.capnp` declares `docComment`, and
+`capnp compile` populates it) and discards them, so the hand file's 137 comment
+lines are the only documented version in TypeScript. Deleting it trades
+duplication for lost documentation. Tracked upstream as
+`ley-line-open-d554a0`; when comments are projected, re-export instead.
+
+Until then `lint`'s `type-duplication` rail asserts the two do not DIVERGE —
+the real risk being silent disagreement, not duplication itself.
+
+Also: both schemas declare `McpTool` and `VaultProxyService`. The `*Spec` /
+`*Config` suffixes in the hand files disambiguate them; they are not
+accidental renames to be reconciled.
 
 ## Recipes have TWO validity contracts — keep them reconciled
 
