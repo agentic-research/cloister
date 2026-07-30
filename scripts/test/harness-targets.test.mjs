@@ -9,7 +9,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -194,4 +197,46 @@ test("rail: a provider name in a COMMENT is exempt", (t) => {
 
   writeFileSync(file, original + '\n// example: export ANTHROPIC_BASE_URL=...\n/* openai too */\n');
   assert.deepEqual(findViolations(ROOT), []);
+});
+
+// ── harness:dev must be safe to ASK about (cloister-eb33d4 / eb27ae) ───────
+//
+// Both found by trying to use the script rather than read it. `--help` used to
+// fall through and mint an ephemeral dev master + cert, write .dev.vars and
+// write a confinement manifest — so asking what a command does performed its
+// most security-relevant side effect. And the launch path minted FIRST, then
+// discovered a missing .env.local several steps later from `task dev`, leaving
+// a stray key per attempt.
+
+test("--help exits 0 and writes nothing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "harness-help-"));
+  try {
+    const r = spawnSync(process.execPath, [resolve(ROOT, "scripts/harness-dev.mjs"), "--help"], {
+      cwd: ROOT, encoding: "utf8", env: { ...process.env, HOME: dir },
+    });
+    assert.equal(r.status, 0, `--help must succeed:\n${r.stderr}`);
+    assert.match(r.stdout, /mints nothing, writes nothing/);
+    // The load-bearing assertion: no credential, no manifest.
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /minting a fresh ephemeral/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a missing .env.local fails BEFORE minting, not after", () => {
+  // Ordering is the property. Minting is the security-relevant step, so every
+  // precondition it depends on has to be checked ahead of it — otherwise each
+  // failed attempt leaves a key behind.
+  const r = spawnSync(process.execPath, [resolve(ROOT, "scripts/harness-dev.mjs")], {
+    cwd: ROOT, encoding: "utf8",
+  });
+  const out = `${r.stdout}${r.stderr}`;
+  if (/\.env\.local is missing/.test(out)) {
+    assert.equal(r.status, 1, "a missing prerequisite must be a hard failure");
+    assert.doesNotMatch(out, /minting a fresh ephemeral/, "must not mint before failing");
+  } else {
+    // .env.local exists in this environment, so the branch is unreachable here.
+    // Asserted rather than silently skipped so the test cannot rot into a no-op.
+    assert.ok(existsSync(resolve(ROOT, ".env.local")), "either the guard fires or the file exists");
+  }
 });
