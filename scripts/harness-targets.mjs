@@ -55,7 +55,9 @@ export const DEFAULT_TARGET = "claude-code";
 export async function loadHarnessConfig(clusterTomlPath) {
   const { readFileSync } = await import("node:fs");
   const TOML = (await import("@iarna/toml")).default;
-  const parsed = TOML.parse(readFileSync(clusterTomlPath, "utf8"));
+  // The TOML parser returns AnyJson; the shape below is cluster.toml's declared
+  // gateway block, checked for real by `task cluster:toml` on the way in.
+  const parsed = /** @type {any} */ (TOML.parse(readFileSync(clusterTomlPath, "utf8")));
   const gateway = parsed?.gateway ?? {};
   return {
     targets: gateway.harnessTargets ?? [],
@@ -63,7 +65,10 @@ export async function loadHarnessConfig(clusterTomlPath) {
   };
 }
 
-/** Declared target names, sorted — for usage text and error messages. */
+/**
+ * Declared target names, sorted — for usage text and error messages.
+ * @param {HarnessTarget[]} targets
+ */
 export function targetNames(targets) {
   return targets.map((t) => t.name).sort();
 }
@@ -77,7 +82,7 @@ export function targetNames(targets) {
  *
  * @param {HarnessTarget[]} targets
  * @param {string[]} argv
- * @param {NodeJS.ProcessEnv} env
+ * @param {Record<string, string|undefined>} env
  * @returns {HarnessTarget}
  */
 export function resolveTarget(targets, argv, env = process.env) {

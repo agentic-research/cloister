@@ -1,28 +1,33 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// `cloister run` — execute a harness confined to one repo, and nothing else.
+// `cloister run` — execute a harness confined to the repos you name, and
+// nothing else.
 //
 //     cloister run --harness claude-code --repo /abs/path/to/repo
+//     cloister run --harness claude-code --repo /abs/api --repo /abs/shared
 //
-// This is PACKAGING, deliberately. Every mechanism it needs already exists:
-// harness-dev.mjs mints the ephemeral dev identity, builds the declared
-// default-deny confinement profile, and execs the harness under nono
-// (Seatbelt on macOS, Landlock on Linux). It already reads HARNESS_WORKDIR and
-// threads it into the nono policy as the single writable path.
+// This is a DOOR, deliberately. The orchestration — mint the ephemeral dev
+// identity, build the declared default-deny confinement profile, exec the
+// harness under nono (Seatbelt on macOS, Landlock on Linux) — lives in
+// scripts/lib/harness/launch.mjs, and this file calls it IN-PROCESS.
 //
-// So this file does NOT reimplement any of that. It validates the arguments a
-// person would get wrong, sets the two environment variables the existing path
-// already understands, and delegates. Two implementations of a mint-and-confine
-// sequence is how the two drift, and the security-relevant half is the one that
-// would drift silently.
+// It used to spawn `node scripts/harness-dev.mjs` and hand its already-parsed
+// flags over as environment variables. That round-trip is where orchestration
+// stops being first-party: every value crossing it becomes an untyped string,
+// and `--repo a --repo b` — the shape of the confinement — depended on a JSON
+// blob surviving an env var whose name had to match on both sides. A typo in
+// that name is a silently unconfined run.
+//
+// So there is one orchestration and two front doors onto it. `task harness:dev`
+// is the other; it reads the environment because an OPERATOR types it.
 //
 // ── What the confinement actually gives you ────────────────────────────────
 //
 // Verified on macOS, and worth stating precisely because "sandboxed" is a word
 // people use loosely:
 //
-//   the --repo you name          readable + writable
+//   each --repo you name         readable + writable
 //   ~/.ssh, ~/.aws, $HOME        EPERM — kernel-denied, not ENOENT, so the
 //                                boundary does not leak whether a path exists
 //   ANY OTHER REPO on the box    EPERM — this is the "and nothing else" half
@@ -30,19 +35,32 @@
 //   127.0.0.1                    reachable — cloister is the ONLY egress, which
 //                                is what makes tool delivery go through it
 //
-// ── Why --repo does not break the attestation ─────────────────────────────
+// ── Why --repo does not break the attestation, but --repo --repo changes it ─
 //
 // The confinement manifest that gets BLAKE3-digested into the cert keeps
 // symbolic paths (`workspace`, `state`), so its digest is identical no matter
-// which repo you pass — measured: symbolic 5098bcde…, /repo-A b93439f6…,
+// WHICH repo you pass — measured: symbolic 5098bcde…, /repo-A b93439f6…,
 // /repo-B e7514fbe…. The absolute path travels only on the nono plane, which is
 // not digested. Attest the shape, bind the path at exec (cloister-d84875).
+//
+// HOW MANY repos you pass is a different question, and the opposite answer.
+// Two writable roots is a materially wider confinement than one, so it is part
+// of the SHAPE: the manifest gains a `workspace.1` entry per extra root and the
+// digest changes. If it did not, a cert minted against a one-repo shape would
+// satisfy the §7 commitment check for a run confined to five — the manifest
+// would be attesting a boundary it no longer describes.
+//
+// The single-repo manifest is byte-identical to before, so its digest is
+// unchanged and the measurement above still holds. Asserted, not assumed:
+// see scripts/test/confinement-shape.test.mjs.
 
-import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { resolve, isAbsolute, dirname } from "node:path";
-import { HARNESS_ENV, renderCommandHelp } from "./cli-surface.mjs";
+import { renderCommandHelp } from "./cli-surface.mjs";
 import { fileURLToPath } from "node:url";
+import {
+  launch, validateWorkdirSet, LaunchUsageError, PreconditionError,
+} from "./lib/harness/launch.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -59,12 +77,12 @@ function printHelp(log = console.log) {
 
 /**
  * @param {string[]} argv
- * @returns {{help:boolean, repo:string|null, harness:string|null, dryRun:boolean,
+ * @returns {{help:boolean, repos:string[], harness:string|null, dryRun:boolean,
  *            passthrough:string[], sandbox:boolean}}
  */
 export function parseArgs(argv) {
   const out = {
-    help: false, repo: null, harness: null, harnessBin: null,
+    help: false, repos: [], harness: null, harnessBin: null,
     dryRun: false, passthrough: [], sandbox: true, harnessArgs: [],
   };
   for (let i = 0; i < argv.length; i++) {
@@ -81,7 +99,11 @@ export function parseArgs(argv) {
       if (v === undefined || v.startsWith("--")) {
         throw new RunUsageError(`${a} requires a value`);
       }
-      if (a === "--repo") out.repo = v;
+      // Repeatable, and ACCUMULATES rather than overwrites. Last-one-wins on a
+      // confinement flag is the wrong default: a user who passes two repos and
+      // silently gets one confined to the second has a harness that cannot see
+      // the tree they were working in, with nothing said about it.
+      if (a === "--repo") out.repos.push(v);
       else if (a === "--harness-bin") out.harnessBin = v;
       else out.harness = v;
       i++;
@@ -93,7 +115,7 @@ export function parseArgs(argv) {
 }
 
 /**
- * Validate the repo argument.
+ * Validate one --repo value.
  *
  * Absolute is REQUIRED rather than resolved-from-cwd. A relative path would be
  * resolved against wherever the command was typed, and the resulting confinement
@@ -122,10 +144,31 @@ export function validateRepo(repo) {
   return resolve(repo);
 }
 
+/**
+ * Validate the whole --repo set, in the order given.
+ *
+ * The FIRST repo is the primary workspace: it becomes the harness's cwd, so it
+ * is the one a bare relative path inside the harness resolves against. Order is
+ * therefore meaningful and is preserved, not sorted.
+ *
+ * Per-value checks (absolute, exists, is a directory) are `--repo`'s own syntax
+ * and live above. The SET rules — no duplicates, no nesting — are a property of
+ * the confinement, so they live in the pipeline and every door gets them; this
+ * only supplies the flag's vocabulary and re-raises in the CLI's error type.
+ */
+export function validateRepos(repos) {
+  if (!repos || repos.length === 0) validateRepo(null); // throws, named
+  try {
+    return validateWorkdirSet(repos.map(validateRepo), "--repo");
+  } catch (e) {
+    if (e instanceof LaunchUsageError) throw new RunUsageError(e.message);
+    throw e;
+  }
+}
+
 export async function main(argv = process.argv.slice(2), deps = {}) {
   const log = deps.log ?? console.log;
   const errLog = deps.errLog ?? console.error;
-  const spawnImpl = deps.spawn ?? spawn;
 
   let args;
   try {
@@ -139,9 +182,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   // command does must never be the path that mints a credential.
   if (args.help) { printHelp(log); return 0; }
 
-  let repo;
+  let repos;
   try {
-    repo = validateRepo(args.repo);
+    repos = validateRepos(args.repos);
   } catch (e) {
     if (e instanceof RunUsageError) { errLog(`cloister run: ${e.message}`); return 2; }
     throw e;
@@ -152,12 +195,17 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     // and nothing minted, written, or launched to find out.
     log(`cloister run — DRY RUN, nothing minted or launched`);
     log(`  harness:      ${args.harness ?? "(declared default)"}`);
-    log(`  workspace:    ${repo}   rw`);
+    repos.forEach((r, i) => {
+      // Naming the primary explicitly: it is the cwd, so it is what a relative
+      // path inside the harness resolves against. Ordering is not cosmetic.
+      log(`  workspace:    ${r}   rw${i === 0 && repos.length > 1 ? "   (primary — harness cwd)" : ""}`);
+    });
     log(`  confinement:  ${args.sandbox ? "nono (kernel: Seatbelt/Landlock)" : "NONE — --no-sandbox"}`);
     log(`  egress:       127.0.0.1 only (cloister); outbound network kernel-denied`);
     log(`  denied:       every other path, including ~/.ssh and other repos`);
-    log(`  attested:     the confinement SHAPE (symbolic workspace/state), so the`);
-    log(`                cert digest is identical whichever --repo you pass`);
+    log(`  attested:     the confinement SHAPE — symbolic paths, so the digest is`);
+    log(`                identical whichever repos you pass, and DIFFERENT for how`);
+    log(`                many (${repos.length} writable root${repos.length === 1 ? "" : "s"} + state)`);
     return 0;
   }
 
@@ -179,26 +227,45 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return 2;
   }
 
-  // Names come from the shared contract, not literals — see HARNESS_ENV.
-  const env = { ...process.env, [HARNESS_ENV.workdir]: repo };
-  if (args.harnessBin) env[HARNESS_ENV.harnessBin] = args.harnessBin;
-  if (args.harnessArgs.length) env[HARNESS_ENV.harnessArgs] = JSON.stringify(args.harnessArgs);
-  // SANDBOX=nono is what harness-dev.mjs keys on to apply the declared
-  // default-deny profile. Confinement is the POINT of this verb, so it is the
-  // default here even though it is opt-in on the underlying task.
-  if (args.sandbox) env[HARNESS_ENV.sandbox] = HARNESS_ENV.sandboxProvider;
-  const forwarded = [...args.passthrough];
-  if (args.harness) forwarded.push("--target", args.harness);
+  // The LaunchRequest is built from the flags this file already parsed. No
+  // env round-trip: `repos` arrives as a string[] with a type, not as JSON in a
+  // variable whose name has to match on both sides of a spawn.
+  //
+  // Confinement is the POINT of this verb, so sandbox is present unless the
+  // operator asked for it not to be — the opposite default to the underlying
+  // task, where it is opt-in. Absence is the only "off": there is no
+  // `{enabled: false}` for a mis-read boolean to leave unapplied.
+  const request = {
+    root: ROOT,
+    targetName: args.harness,
+    setupOnly: args.passthrough.includes("--setup-only"),
+    wantsAudit: args.passthrough.includes("--audit"),
+    // WHICH env var holds the key is the target's declaration, so resolving it
+    // here would mean restating that mapping in a second place.
+    credentialEnv: process.env,
+    sandbox: args.sandbox
+      ? {
+          provider: "nono",
+          workdirs: repos,
+          harnessBin: args.harnessBin,
+          harnessArgs: args.harnessArgs,
+        }
+      : null,
+  };
 
-  return await new Promise((res) => {
-    const child = spawnImpl(
-      process.execPath,
-      [resolve(ROOT, "scripts/harness-dev.mjs"), ...forwarded],
-      { cwd: ROOT, env, stdio: "inherit" },
-    );
-    child.on("error", (e) => { errLog(`cloister run: ${e.message}`); res(1); });
-    child.on("close", (code) => res(code ?? 0));
-  });
+  // deps.launch is the seam the tests drive; the default is the real pipeline.
+  const launchImpl = deps.launch ?? launch;
+  try {
+    const { session } = await launchImpl(request, { errLog, ...deps.launchDeps });
+    if (!session) return 0;
+    const end = await session.done;
+    return end.code ?? 0;
+  } catch (e) {
+    if (e instanceof LaunchUsageError) { errLog(`cloister run: ${e.message}`); return 2; }
+    if (e instanceof PreconditionError) { errLog(`cloister run: ${e.message}`); return e.exitCode; }
+    errLog(`cloister run: ${e.message}`);
+    return 1;
+  }
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {

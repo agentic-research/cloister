@@ -7,7 +7,7 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 
 | Command | What it does |
 |---|---|
-| [`cloister run`](#cloister-run) | Run a harness confined to one repo |
+| [`cloister run`](#cloister-run) | Run a harness confined to the repos you name |
 | [`cloister init`](#cloister-init) | Scaffold a cluster recipe |
 | [`cloister add`](#cloister-add) | Add and resolve a tool input |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
@@ -21,14 +21,16 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 ## cloister run
 
 ```
-cloister run --harness <name> --repo <absolute-path> [-- <harness args...>]
+cloister run --harness <name> --repo <abs> [--repo <abs> …] [-- <harness args...>]
 ```
 
-Executes a harness with the named repository as its ONLY readable and writable path. Every other path is kernel-denied — `~/.ssh`, other repositories, and outbound network — with EPERM rather than ENOENT, so the boundary does not leak whether a path exists. Loopback to cloister stays open, which is what makes cloister the only route tools arrive by.
+Executes a harness with the named repositories as its ONLY readable and writable paths. Every other path is kernel-denied — `~/.ssh`, other repositories, and outbound network — with EPERM rather than ENOENT, so the boundary does not leak whether a path exists. Loopback to cloister stays open, which is what makes cloister the only route tools arrive by.
+
+`--repo` repeats. The first is the primary workspace and becomes the harness's working directory. WHICH repos you name does not change the attested confinement digest — the manifest holds symbolic paths — but HOW MANY does, because more writable roots is a wider boundary and the cert commits to the shape.
 
 | Flag | | |
 |---|---|---|
-| `--repo` `<abs>` | **required** | the ONLY directory the harness may read or write. Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer |
+| `--repo` `<abs>` | **required** | a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has |
 | `--harness` `<name>` |  | harness to launch (default: the declared default target) |
 | `--dry-run` |  | print what would be confined; mint nothing, launch nothing |
 | `--setup-only` |  | mint the identity and write .dev.vars, do not launch |

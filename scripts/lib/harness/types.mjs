@@ -63,10 +63,19 @@ export class PreconditionError extends Error {
  * Kernel confinement as REQUESTED, before resolution.
  *
  * @typedef {object} SandboxRequest
- * @property {"nono"} provider  The only provider. An unknown string is a
- *                              LaunchUsageError at the bin boundary, so this
- *                              type never carries one.
- * @property {string} workdir   As given; validated and absolutized by resolvePlan.
+ * @property {"nono"} provider    The only provider. An unknown string is a
+ *                                LaunchUsageError at the bin boundary, so this
+ *                                type never carries one.
+ * @property {string[]} workdirs  The writable roots, in the order given. The
+ *                                FIRST is the primary and becomes the harness's
+ *                                cwd, so order is meaningful and is never sorted.
+ *                                Absolutized by resolvePlan.
+ * @property {string|null} [harnessBin]  Declared executable override.
+ * @property {string[]} [harnessArgs]    Passed through to the harness verbatim.
+ * @property {string} [stateDir]         Overrides the target's declared state dir.
+ * @property {string} [label]            How the door spells a root in errors
+ *                                       (`--repo`, `HARNESS_WORKDIRS`), so one
+ *                                       validator can speak both vocabularies.
  */
 
 /**
@@ -83,8 +92,18 @@ export class PreconditionError extends Error {
  * @property {string|null} targetName  null ⇒ the declared default target.
  * @property {boolean}     setupOnly
  * @property {boolean}     wantsAudit  --audit was passed explicitly.
- * @property {string|null} apiKey      Value of the target's declared key env var.
+ * @property {Record<string, string|undefined>} credentialEnv
+ *                                     Where the target's declared key env var is
+ *                                     read from, AFTER the target is known —
+ *                                     which env var to read is the target's
+ *                                     declaration, so the door cannot resolve it
+ *                                     in advance without restating that mapping.
+ *                                     Both doors pass process.env: an API key is
+ *                                     genuinely an operator-supplied environment
+ *                                     value, unlike the confinement shape, which
+ *                                     is an argument and travels as one.
  * @property {SandboxRequest|null} sandbox  null ⇒ unconfined.
+ * @property {string} [shimPort]       Defaults to the declared shim port.
  */
 
 /**
@@ -110,7 +129,12 @@ export class PreconditionError extends Error {
  * @typedef {object} SandboxPlan
  * @property {"nono"} provider
  * @property {string} confineBin   Absolute path to cloister-harness; existence-checked.
- * @property {string} workdir      Absolute. The ONLY writable tree, with stateDir.
+ * @property {string[]} workdirs   Absolute. The ONLY writable trees, with stateDir.
+ *                                 A LIST rather than a string because the count is
+ *                                 part of the attested shape: the confinement
+ *                                 manifest gains a `workspace.N` entry per extra
+ *                                 root, so a cert minted against one root does not
+ *                                 satisfy the §7 check for a run confined to five.
  * @property {string} stateDir     Absolute.
  * @property {string} harnessBin   Absolute: declared entryPoint or $PATH-resolved.
  * @property {string[]} harnessArgs
@@ -125,8 +149,9 @@ export class PreconditionError extends Error {
  *
  * @typedef {object} LaunchPlan
  * @property {string} root
- * @property {object} target               The harness-targets.mjs row.
- * @property {object} service              The vaultProxyServices row.
+ * @property {import("../../harness-targets.mjs").HarnessTarget} target
+ *                                         The harness-targets.mjs row.
+ * @property {any} service                 The vaultProxyServices row.
  * @property {AuthPlan} auth
  * @property {SandboxPlan|null} sandbox
  * @property {string} shimPort
@@ -174,17 +199,43 @@ export class PreconditionError extends Error {
  *
  * @typedef {object} HarnessSession
  * @property {Promise<SessionEnd>} done
- * @property {() => Promise<void>} shutdown  Idempotent.
- * @property {object|null} confined  The confined child, or null when unconfined.
- *                                   Non-null iff plan.sandbox was non-null —
- *                                   asserted by rail, since this is the pairing
- *                                   whose breakage would be silent.
+ * @property {(end?: SessionEnd) => Promise<void>} shutdown  Idempotent.
+ * @property {any|null} confined  The confined child, or null when unconfined.
+ *                                Non-null iff plan.sandbox was non-null —
+ *                                asserted by rail, since this is the pairing
+ *                                whose breakage would be silent.
+ * @property {string[]} ephemeralPaths  What shutdown() removed, accumulated at
+ *                                      each write site rather than restated.
  */
 
 /**
  * @typedef {object} SessionEnd
  * @property {number|null} code
  * @property {string|null} signal
+ */
+
+/**
+ * Re-exported so the pipeline's own typedefs can name it without every consumer
+ * reaching back into harness-targets.mjs.
+ *
+ * @typedef {import("../../harness-targets.mjs").HarnessTarget} HarnessTarget
+ */
+
+/**
+ * Injectable seams, so the pipeline is testable without spawning a toolchain.
+ *
+ * Every field is optional and defaults to the real thing. A test supplies the
+ * two or three it needs; nothing in the pipeline reaches for a global directly.
+ *
+ * @typedef {object} LaunchDeps
+ * @property {Function} [execFileSync]
+ * @property {Function} [spawn]
+ * @property {(path: string, data: string) => void} [writeFileSync]
+ * @property {(path: string, options?: object) => void} [rmSync]
+ * @property {(path: string) => boolean} [exists]
+ * @property {(message: string) => void} [errLog]
+ * @property {(url: string, timeoutMs: number) => Promise<void>} [waitForHealth]
+ * @property {(url: string, timeoutMs: number) => Promise<void>} [waitForPort]
  */
 
 export {};
