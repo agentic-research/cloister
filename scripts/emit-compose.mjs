@@ -289,7 +289,35 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   lines.push(`volumes:`);
   lines.push(`  cloister-uds:`);
   lines.push(`    driver: local`);
-  lines.push(`    # tmpfs is fine — UDS sockets are ephemeral; recreated on container start`);
+  // tmpfs with /tmp semantics (mode 1777), and BOTH halves are load-bearing.
+  //
+  // The comment here used to say "tmpfs is fine — UDS sockets are ephemeral"
+  // while emitting a plain local volume: a stated intent the code did not
+  // implement. The consequence was measured (cloister-047b06) — `docker compose
+  // up` started all five containers and rosary immediately died:
+  //
+  //     Error: binding UDS at /run/cloister-uds/rosary.sock
+  //     Caused by: Permission denied (os error 13)
+  //
+  // A default local volume is created root:root 0755. The bundles that must
+  // bind sockets in it do not run as root, and they do not agree on a uid
+  // either — rosary and cloister-router are 65532, notme and notme-proxy are
+  // 1000, mache uses a named user. So there is no single owner to chown to.
+  //
+  // 1777 is the answer Unix already has for exactly this: a shared directory
+  // where any uid may create an entry and only the entry's owner may remove it
+  // — /tmp semantics. Preferred over an init container that chowns, because
+  // that would need a shell-bearing image (every image here is distroless) and
+  // would add an unpinned dependency to a tree whose whole posture is
+  // digest-pinned images.
+  //
+  // tmpfs rather than a disk-backed volume because a socket has no business
+  // surviving a restart: a stale socket file from a previous run is a bind
+  // failure waiting to happen, not state worth keeping.
+  lines.push(`    driver_opts:`);
+  lines.push(`      type: tmpfs`);
+  lines.push(`      device: tmpfs`);
+  lines.push(`      o: "mode=1777"`);
   if (!doBindPath) {
     lines.push(`  cloister-do:`);
     lines.push(`    driver: local`);

@@ -709,3 +709,26 @@ test("a description containing quotes and backslashes still emits a valid scalar
   assert.ok(parsed.includes('"process"'), "the quotes must survive into the value");
   assert.ok(parsed.includes("C:\\x"), "the backslash must survive into the value");
 });
+
+test("the shared UDS volume is tmpfs with 1777 — bundles do not share a uid", () => {
+  // cloister-047b06. A default local volume is root:root 0755, and the bundles
+  // that bind sockets in it run as 65532 (rosary, cloister-router), 1000 (notme,
+  // notme-proxy) and a named user (mache). No single owner to chown to, so the
+  // directory needs /tmp semantics: any uid may create, only the owner may
+  // remove.
+  //
+  // This is a rail rather than a comment because the previous state WAS a
+  // comment — the emitter said "tmpfs is fine, UDS sockets are ephemeral" while
+  // emitting a plain local volume, and rosary died on `Permission denied`
+  // every `cluster:up`.
+  // lint-allow-rawparse: there is no YAML parser in this repo's dependency tree,
+  // so a declaration in a .yaml file cannot be read structurally. Adding `yaml`
+  // as a devDependency would be the principled fix and would also let the label
+  // test above stop hand-matching — worth doing, but not inside a P1 socket fix.
+  const body = readFileSync(resolve(ROOT, "cluster.compose.yaml"), "utf8");
+  const block = /^  cloister-uds:\n((?:    .*\n)*)/m.exec(body);
+  assert.ok(block, "cluster.compose.yaml must declare the cloister-uds volume");
+
+  assert.match(block[1], /type: tmpfs/, "a socket dir must not survive a restart — a stale socket is a bind failure");
+  assert.match(block[1], /mode=1777/, "without 1777 a non-root bundle cannot bind its socket");
+});
