@@ -1660,6 +1660,103 @@ test("Inv 10 — image-less external bundle with a linked input's oci is clean (
   }
 });
 
+test("Inv 10 — a hand-set image that DISAGREES with the input's resolved oci warns", () => {
+  // cloister-cb735c. Setting `image` used to `continue` past the invariant, so
+  // hand-setting the field was what turned the check off — and the one bundle
+  // that restated an image was the only one nothing verified. Measured on the
+  // real tree: rosary carried "rosary:0.7.0" while the lockfile had resolved
+  // ghcr.io/agentic-research/rosary:0.8.1 to a digest and upstream was 0.10.0.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary", tier: "cluster", image: "rosary:0.7.0" },
+      ],
+      inputs: [{ name: "rosary" }],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[inputs.rosary]\nref = "github://test/rosary@main"\nresolved = "0.8.1"\n' +
+      'sha256 = "sha256:aa"\nfetched_from = "file:///x"\nsigner = ""\nbytes = 10\n' +
+      '[inputs.rosary.oci]\nidentifier = "ghcr.io/agentic-research/rosary"\nversion = "0.8.1"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `Inv 10 stays warn-level; got ${r.status}\n${r.stderr}`);
+    assert.match(r.stderr, /Inv 10/);
+    assert.match(r.stderr, /hand-sets image "rosary:0\.7\.0"/);
+    assert.match(r.stderr, /ghcr\.io\/agentic-research\/rosary:0\.8\.1/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 10 — a hand-set image that AGREES with the resolved oci is clean", () => {
+  // The check must be about disagreement, not about the field being present.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "rosary", tier: "cluster", image: "ghcr.io/agentic-research/rosary:0.8.1" },
+      ],
+      inputs: [{ name: "rosary" }],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[inputs.rosary]\nref = "github://test/rosary@main"\nresolved = "0.8.1"\n' +
+      'sha256 = "sha256:aa"\nfetched_from = "file:///x"\nsigner = ""\nbytes = 10\n' +
+      '[inputs.rosary.oci]\nidentifier = "ghcr.io/agentic-research/rosary"\nversion = "0.8.1"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /Inv 10/, "an agreeing image must not warn");
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 10 — a ROUTER's own image is not compared against the inputs it routes", () => {
+  // The false positive the first draft produced. Colocation means "this bundle
+  // ROUTES this input", not "this bundle IS this input's container". A router
+  // legitimately hand-sets its own locally-built image while hosting inputs
+  // whose oci resolves to something else entirely; demanding they match would
+  // force cloister's router to claim ley-line-open's image.
+  //
+  // The discriminator is the convention mache and rosary both follow: a bundle
+  // that IS an input's container carries that input's NAME.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "some-router", tier: "cluster", image: "cloister:0.1.0" },
+      ],
+      inputs: [{ name: "llo", workerdId: "some-router" }],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[inputs.llo]\nref = "github://test/llo@main"\nresolved = "v0.13.0"\n' +
+      'sha256 = "sha256:aa"\nfetched_from = "file:///x"\nsigner = ""\nbytes = 10\n' +
+      '[inputs.llo.oci]\nidentifier = "ghcr.io/agentic-research/ley-line-open"\nversion = "v0.13.0"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `expected clean; got ${r.status}\n${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /hand-sets image/, "a router must not be asked to claim a routed input's image");
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("Inv 10 — image-less gateway bundle can derive oci from fallback-colocated input", () => {
   const scenario = makeScenario({
     clusterTs: clusterTs({
