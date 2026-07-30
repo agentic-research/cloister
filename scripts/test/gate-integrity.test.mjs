@@ -195,3 +195,104 @@ test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () 
     (n) => instantiable.has(n),
   );
 });
+
+// ── every check-shaped task is invoked by some gate ───────────────────────
+//
+// The pattern this exists for, seven instances in one session:
+//
+//   1. scripts/test/oci-artifact.test.mjs — on disk, in no test list (#189→#223)
+//   2. CI verify path filter — enumerated substrate paths, skipped the rest
+//   3. config.capnp ↔ wrangler.toml — "must stay in sync", nothing checked
+//   4. identity:zod:check-drift — existed, in no gate (found #224)
+//   5. runtime:doctor — referenced ONLY by its own definition
+//   6. cluster:zod:check-drift — same shape as (4), still orphaned
+//   7. leyline_sign_data — compiled, declared, never executed
+//
+// Each was invisible for one reason: THE CHECK'S EXISTENCE READS AS COVERAGE.
+// A task named `*:doctor` or `*:check-drift` looks like a guarantee whether or
+// not anything runs it, and the tree offers no way to tell the difference by
+// reading.
+//
+// So: a task whose NAME declares it a check must appear in some gate's deps,
+// or be declared deliberately opt-in WITH A REASON. Silence is not an option.
+
+const OPT_IN_CHECKS = {
+  "cluster:go:check-drift":
+    "needs a Go toolchain; gated in the cloister-schema-go workflow, not in `task lint`",
+  "identity:go:check-drift":
+    "needs a Go toolchain; parallel to cluster:go:check-drift and gated the same way",
+  "cluster:go:verify":
+    "needs a Go toolchain for the end-to-end round-trip; opt-in per its own desc",
+  "runtime:doctor":
+    "host-dependent (krunvm/Buildah availability). NOT in `task lint` by design — a " +
+    "developer without a microVM host must still be able to run the gate. It is now a " +
+    "dep of runtime:run, which is where it is load-bearing (cloister-66f1ce).",
+};
+
+/** Task names defined at the top level of the Taskfile. */
+function taskNames(src) {
+  return new Set([...src.matchAll(/^ {2}([a-z][\w:-]*):\s*$/gm)].map((m) => m[1]));
+}
+
+/** Every task named inside any deps array, inline or block form. */
+function dependedOn(src) {
+  const out = new Set();
+  for (const m of src.matchAll(/deps:\s*\[([^\]]*)\]/g)) {
+    for (const x of m[1].split(",")) if (x.trim()) out.add(x.trim());
+  }
+  for (const m of src.matchAll(/deps:\s*\n((?:\s+- .*\n)+)/g)) {
+    for (const l of m[1].trim().split("\n")) out.add(l.trim().replace(/^-\s*/, ""));
+  }
+  return out;
+}
+
+test("PROPERTY: every check-shaped task is invoked by a gate, or declared opt-in with a reason", () => {
+  // lint-allow-rawparse: reads Taskfile TEXT because the question is which
+  // names appear in a deps array literally — a YAML parse would answer the
+  // same, but this must keep working if deps move between inline and block
+  // form, or into an included Taskfile.
+  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const names = taskNames(src);
+  const deps = dependedOn(src);
+
+  const checkShaped = [...names].filter(
+    (n) =>
+      n.startsWith("lint:") ||
+      n.endsWith(":doctor") ||
+      n.endsWith(":check") ||
+      n.endsWith(":check-drift") ||
+      n.endsWith(":verify"),
+  ).sort();
+
+  assert.ok(
+    checkShaped.length > 20,
+    `sanity: expected many check-shaped tasks, found ${checkShaped.length}`,
+  );
+
+  forAll(
+    checkShaped,
+    (n) => `${n} is check-shaped but no gate invokes it, and it is not a declared opt-in`,
+    (n) => deps.has(n) || n in OPT_IN_CHECKS,
+  );
+});
+
+test("PROPERTY: no declared opt-in is stale, and each states a reason", () => {
+  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const names = taskNames(src);
+  const deps = dependedOn(src);
+
+  forAll(
+    Object.keys(OPT_IN_CHECKS),
+    (n) => `${n} is declared opt-in but ${names.has(n) ? "IS now gated — delete the entry" : "no longer exists"}`,
+    // Still defined, and still genuinely un-gated. `runtime:doctor` is the
+    // exception: it IS a dep of runtime:run, and its entry says why it is
+    // nonetheless absent from `task lint`.
+    (n) => names.has(n) && (n === "runtime:doctor" || !deps.has(n)),
+  );
+
+  forAll(
+    Object.entries(OPT_IN_CHECKS),
+    ([n]) => `${n}'s opt-in reason is too short to be a reason`,
+    ([, reason]) => typeof reason === "string" && reason.length > 30,
+  );
+});
