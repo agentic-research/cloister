@@ -244,8 +244,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@39e1e9b4fa3081157e018e51adac62aef23632d1",
-      "version": "0.11.3",
+      "ref": "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354fafb14ff685e867e31ba4a",
+      "version": "0.13.0",
       "digest": "",
       "from": "",
       "provides": [],
@@ -266,7 +266,7 @@ export const cluster: Cluster = {
           "unset": null
         }
       },
-      "mutableTagReason": "ghcr.io/agentic-research/ley-line-open is not published yet — ley-line-open-e44960 adds the publish job + provenance attestation. Remove this line once `docker pull ghcr.io/agentic-research/ley-line-open:v0.11.3` succeeds; resolution then pins by digest automatically."
+      "mutableTagReason": ""
     },
     {
       "name": "mache",

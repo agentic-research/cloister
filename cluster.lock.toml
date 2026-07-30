@@ -4,18 +4,17 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@39e1e9b4fa3081157e018e51adac62aef23632d1"
-resolved = "0.11.3"
-sha256 = "sha256:2fe091b526a26edc0b546b33b759a9f7f0f7f6c5de317483e875457cd7c065bc"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/39e1e9b4fa3081157e018e51adac62aef23632d1/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354fafb14ff685e867e31ba4a"
+resolved = "0.13.0"
+sha256 = "sha256:6f2621e7760b5b0bc75d0174ac45d214acf2f2ab115b8a36db6cc0e79bd63ea4"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/aac291a4fd2448b354fafb14ff685e867e31ba4a/server.json"
 signer = ""
 bytes = 2_626
 
   [inputs.llo.oci]
   identifier = "ghcr.io/agentic-research/ley-line-open"
-  version = "v0.11.3"
-  unresolved = "unauthorized"
-  unresolvedDetail = "anonymous token exchange refused"
+  version = "v0.13.0"
+  digest = "sha256:256b46f418897b17248f51ca38109c889aff778559ef16a5ff182776cdc6e814"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"

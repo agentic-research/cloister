@@ -672,7 +672,7 @@ export function parsePackagesOci(bytes) {
 /**
  * Probe a registry for a tag's digest, reporting WHICH outcome occurred.
  *
- * `resolveOciDigest` collapses six distinct conditions into `""` — no registry
+ * The predecessor this replaced collapsed six distinct conditions into `""` — no registry
  * host, an unparseable auth challenge, no realm, no bearer, any non-ok status,
  * and a thrown fetch. A caller then cannot tell "the image is not published"
  * from "I could not look", and the refusal message has to hedge with a
@@ -749,52 +749,6 @@ export async function probeOciDigest(ref, version, fetchImpl = fetch) {
     return { state: "present", digest };
   } catch (e) {
     return { state: "unreachable", detail: String(e && e.message ? e.message : e) };
-  }
-}
-
-export async function resolveOciDigest(identifier, ref, fetchImpl = fetch) {
-  try {
-    const slash = identifier.indexOf("/");
-    if (slash < 0 || !ref) return "";
-    const host = identifier.slice(0, slash);
-    const repo = identifier.slice(slash + 1);
-    const manifestUrl = `https://${host}/v2/${repo}/manifests/${encodeURIComponent(ref)}`;
-    const accept = [
-      "application/vnd.oci.image.index.v1+json",
-      "application/vnd.docker.distribution.manifest.list.v2+json",
-      "application/vnd.oci.image.manifest.v1+json",
-      "application/vnd.docker.distribution.manifest.v2+json",
-    ].join(", ");
-
-    let res = await fetchImpl(manifestUrl, { method: "HEAD", headers: { Accept: accept } });
-    if (res.status === 401) {
-      const challenge = res.headers.get("www-authenticate") || "";
-      const m = /Bearer\s+(.+)/i.exec(challenge);
-      if (!m) return "";
-      const params = Object.fromEntries(
-        m[1].split(",").map((kv) => {
-          const eq = kv.indexOf("=");
-          return [kv.slice(0, eq).trim(), kv.slice(eq + 1).trim().replace(/^"|"$/g, "")];
-        }),
-      );
-      if (!params.realm) return "";
-      const tokenUrl = new URL(params.realm);
-      if (params.service) tokenUrl.searchParams.set("service", params.service);
-      if (params.scope) tokenUrl.searchParams.set("scope", params.scope);
-      const tok = await fetchImpl(tokenUrl.toString())
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
-      const bearer = tok && (tok.token || tok.access_token);
-      if (!bearer) return "";
-      res = await fetchImpl(manifestUrl, {
-        method: "HEAD",
-        headers: { Accept: accept, Authorization: `Bearer ${bearer}` },
-      });
-    }
-    if (!res.ok) return "";
-    return res.headers.get("docker-content-digest") || "";
-  } catch {
-    return "";
   }
 }
 
