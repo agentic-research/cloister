@@ -44,6 +44,49 @@ import {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SETUP_ONLY = process.argv.includes("--setup-only");
 
+// ── --help, and preflight BEFORE any side effect (cloister-eb33d4 / eb27ae) ──
+//
+// Both of these were found by trying to use this script rather than read it.
+//
+// `--help` used to fall through to the main path, so asking what the command
+// does MINTED AN EPHEMERAL DEV MASTER AND CERT, wrote .dev.vars and wrote a
+// confinement manifest. `--help` is what you type when you do not yet know what
+// something does; making it the most side-effectful path inverts that, and the
+// side effect here is minting a credential.
+//
+// And the launch path used to mint FIRST and discover a missing .env.local
+// LAST — from `task dev`, several steps later:
+//
+//     harness:dev — minting a fresh ephemeral dev master + cert…
+//     harness:dev — wrote .dev.vars (peerFp sha256:ba1e21f2…)
+//     ✗ .env.local missing — run `task dev:bootstrap` first
+//
+// leaving a half-bootstrapped tree and a stray key per attempt. Minting is the
+// security-relevant step, not a cheap retryable one, so every precondition it
+// depends on is checked before it runs.
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  process.stdout.write(
+    `harness:dev — launch a harness against a local cloister, kernel-confined.\n\n` +
+    `  --target <name>   harness to launch (default: the declared DEFAULT_TARGET)\n` +
+    `  --setup-only      mint the dev identity + write .dev.vars, do not launch\n` +
+    `  --audit           forward harness auth and emit a receipt; no key vaulted\n` +
+    `  --help            this text — mints nothing, writes nothing\n\n` +
+    `  SANDBOX=nono      apply the declared default-deny confinement profile\n\n` +
+    `Prereq: \`task dev:bootstrap\` once (writes .env.local). Checked before minting.\n`,
+  );
+  process.exit(0);
+}
+
+// SETUP_ONLY never reaches `task dev`, so it does not need .env.local.
+if (!SETUP_ONLY && !existsSync(resolve(ROOT, ".env.local"))) {
+  console.error(
+    `harness:dev — .env.local is missing, and the launch step needs it.\n` +
+    `  run: task dev:bootstrap\n` +
+    `  (checked BEFORE minting, so nothing has been written and no cert exists yet)`,
+  );
+  process.exit(1);
+}
+
 // Which harness are we launching? Declared in harness-targets.mjs — this file
 // holds NO provider literals (lint:harness-target-literals enforces it).
 //
