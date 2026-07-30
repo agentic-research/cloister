@@ -34,12 +34,18 @@ bytes = 5_300
   identifier = "ghcr.io/agentic-research/notme"
   version = "0.1.0"
   digest = "sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a"
+  declaredTier = "hypervisor"
+  declaredKind = "external"
+  declaredHttpPort = 8_788
 
   [[inputs.notme.ociBundles]]
   bundle = "notme-proxy"
   identifier = "ghcr.io/agentic-research/notme-proxy"
   version = "0.1.0"
   digest = "sha256:4f55809ba44bdadb63db338e5c33a5b733b2aaa62c9d5de6600d8370be5c1b96"
+  declaredTier = "hypervisor"
+  declaredKind = "external"
+  declaredIpcSocket = "/run/cloister-uds/companion.sock"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
