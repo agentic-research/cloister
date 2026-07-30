@@ -263,6 +263,18 @@ const OPT_IN_CHECKS = {
       "prerequisite of the inner loop.",
     gatedBy: null,
   },
+  "image:check": {
+    reason:
+      "needs the melange AND apko binaries, which `task lint` must not require — a " +
+      "developer without them still has to be able to run the gate. It also is NOT " +
+      "read-only: its dep `apk:keygen` runs `melange keygen`, writing melange.rsa into " +
+      "the tree. I gated it in cc1c1c0 calling it \"offline syntax validation, cheap\" " +
+      "and it passed locally because I had the toolchain installed; CI failed with exit " +
+      "127. Both halves of that justification were wrong, which is why this entry states " +
+      "the toolchain AND the side effect rather than just 'opt-in'. Gating it for real " +
+      "means installing melange + apko in a workflow — tracked separately.",
+    gatedBy: null,
+  },
   "runtime:doctor": {
     reason:
       "host-dependent (krunvm/Buildah availability). NOT in `task lint` by design — a " +
