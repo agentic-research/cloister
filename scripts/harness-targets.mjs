@@ -20,6 +20,16 @@
 // defect this substrate keeps finding.
 
 /**
+ * A skill admitted to the trust boundary (ADR-0061). Verified at LOAD — the
+ * skills dir stays writable because nono grants are a union, not an
+ * intersection, so a substituted skill fails the NEXT run.
+ *
+ * @typedef {object} SkillDeclaration
+ * @property {string} name    directory under the harness skills dir
+ * @property {string} digest  `sha256:<hex>`; empty ⇒ declared but UNPINNED
+ */
+
+/**
  * @typedef {object} HarnessTarget
  * @property {string}   name        `--target <name>` selector.
  * @property {string}   service     Vault service; names a vaultProxyServices entry.
@@ -54,7 +64,7 @@ export const DEFAULT_TARGET = "claude-code";
  * name the file they changed.
  *
  * @param {string} clusterTomlPath
- * @returns {Promise<{targets: HarnessTarget[], services: any[]}>}
+ * @returns {Promise<{targets: HarnessTarget[], services: any[], skills: SkillDeclaration[]}>}
  */
 export async function loadHarnessConfig(clusterTomlPath) {
   const { readFileSync } = await import("node:fs");
@@ -66,6 +76,8 @@ export async function loadHarnessConfig(clusterTomlPath) {
   return {
     targets: gateway.harnessTargets ?? [],
     services: gateway.vaultProxyServices ?? [],
+    // ADR-0061 — declared skills, verified at load by verifySkills().
+    skills: gateway.skills ?? [],
   };
 }
 

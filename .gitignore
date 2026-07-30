@@ -95,6 +95,8 @@ __pycache__/
 # Written as an INPUT to minting (the cert digests it); removed after. Ignored
 # so a crashed run leaves an untracked file rather than a staged one.
 .harness-confinement.json
+# Load-event receipt for skills (ADR-0061). Runtime-only, regenerated per run.
+.harness-skills.json
 .cloister/
 # S1 confinement binary build dir (tools/harness-sandbox is a standalone crate)
 tools/harness-sandbox/target/

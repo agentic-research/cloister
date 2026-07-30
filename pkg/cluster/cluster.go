@@ -219,6 +219,7 @@ type Gateway struct {
 	Policy             InterlacePolicy     `json:"policy"`
 	VaultProxyServices []VaultProxyService `json:"vaultProxyServices"`
 	HarnessTargets     []HarnessTarget     `json:"harnessTargets"`
+	Skills             []SkillDeclaration  `json:"skills"`
 }
 
 type EdgeSpec struct {
@@ -507,6 +508,11 @@ type HarnessTarget struct {
 	AuthModes   []string `json:"authModes"`
 	Provenance  string   `json:"provenance"`
 	Executable  string   `json:"executable"`
+}
+
+type SkillDeclaration struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
 }
 
 type HeaderNamedSpec struct {

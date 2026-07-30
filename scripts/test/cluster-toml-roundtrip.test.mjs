@@ -61,6 +61,8 @@ const EMPTY_GATEWAY = {
   },
   vaultProxyServices: [],
       harnessTargets: [],
+      // ADR-0061 — appended field; an empty gateway declares no skills.
+      skills: [],
 };
 
 /** A minimal cluster shape that passes ClusterSchema. */
@@ -1881,6 +1883,8 @@ test("gateway: partial population (only metadata.name) emits only that subtable"
       policy: { maxCertLifetimeSeconds: 0, requireInterlock: false, minAlgorithm: "" },
       vaultProxyServices: [],
       harnessTargets: [],
+      // ADR-0061 — appended field; an empty gateway declares no skills.
+      skills: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1908,6 +1912,8 @@ test("gateway: requireInterlock = false lands in TOML when other fields are set 
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: false, minAlgorithm: "ed25519" },
       vaultProxyServices: [],
       harnessTargets: [],
+      // ADR-0061 — appended field; an empty gateway declares no skills.
+      skills: [],
     },
   };
   const toml = clusterToToml(cluster);
@@ -1938,6 +1944,8 @@ test("gateway: canonical roundtrip is byte-equal across two emissions", async ()
       policy: { maxCertLifetimeSeconds: 300, requireInterlock: true, minAlgorithm: "ed25519" },
       vaultProxyServices: [],
       harnessTargets: [],
+      // ADR-0061 — appended field; an empty gateway declares no skills.
+      skills: [],
     },
   };
   const t1 = clusterToToml(cluster);

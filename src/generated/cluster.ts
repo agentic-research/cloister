@@ -564,7 +564,8 @@ export const cluster: Cluster = {
         "provenance": "https://github.com/openai/codex",
         "executable": ""
       }
-    ]
+    ],
+    "skills": []
   },
   "edges": []
 } as const;

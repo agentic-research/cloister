@@ -152,6 +152,9 @@ export class PreconditionError extends Error {
  * @property {import("../../harness-targets.mjs").HarnessTarget} target
  *                                         The harness-targets.mjs row.
  * @property {any} service                 The vaultProxyServices row.
+ * @property {import("../../harness-targets.mjs").SkillDeclaration[]} skills
+ *                                         Declared skills, verified BEFORE
+ *                                         minting (ADR-0061).
  * @property {AuthPlan} auth
  * @property {SandboxPlan|null} sandbox
  * @property {string} shimPort

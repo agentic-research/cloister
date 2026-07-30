@@ -532,6 +532,7 @@ function normalizeGateway(raw) {
     },
     vaultProxyServices: normalizeVaultProxyServices(g.vaultProxyServices),
     harnessTargets: normalizeHarnessTargets(g.harnessTargets),
+    skills: normalizeSkills(g.skills),
   };
 }
 
@@ -554,6 +555,21 @@ function normalizeHarnessTargets(raw) {
       stateDir: typeof h.stateDir === "string" ? h.stateDir : "",
       authModes: Array.isArray(h.authModes) ? h.authModes : [],
       provenance: typeof h.provenance === "string" ? h.provenance : "",
+    };
+  });
+}
+
+// ADR-0061. Skills admitted to the trust boundary. An absent [[gateway.skills]]
+// normalizes to [] — declaring none is a valid posture (confinement still
+// applies), and is distinct from declaring one with no digest, which is
+// "admitted but unpinned" and says so on every run.
+function normalizeSkills(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((t) => {
+    const k = t && typeof t === "object" && !Array.isArray(t) ? t : {};
+    return {
+      name: typeof k.name === "string" ? k.name : "",
+      digest: typeof k.digest === "string" ? k.digest : "",
     };
   });
 }
