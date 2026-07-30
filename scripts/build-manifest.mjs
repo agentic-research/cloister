@@ -29,7 +29,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeGeneratedFile } from "./write-generated.mjs";
 import { dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -184,7 +185,7 @@ const body = [
 ].join("\n");
 
 mkdirSync(dirname(OUTPUT_FILE), { recursive: true });
-writeFileSync(OUTPUT_FILE, banner + body);
+writeGeneratedFile(OUTPUT_FILE, banner + body);
 
 console.error(`build-manifest: wrote ${relPath(OUTPUT_FILE)}`);
 console.error(`build-manifest:   ${json.metadata.name} v${json.metadata.version}`);
