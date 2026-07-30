@@ -109,7 +109,7 @@ test(
 );
 
 test(
-  "an unwritable $HOME skips ONLY the decoy test, leaving the rest of the gate live",
+  "an unwritable $HOME skips ONLY the $HOME-dependent tests, leaving the rest of the gate live",
   { skip: SKIP },
   () => {
     const r = withUnwritableHome(runSuiteWithHome);
@@ -126,20 +126,28 @@ test(
 
     // The anti-vacuous guard. If a future change makes the whole suite stand
     // down whenever $HOME is awkward, nono could regress silently while this
-    // gate stayed green. Six of the eight tests never touch $HOME — boot,
+    // gate stayed green. Six of the NINE tests never touch $HOME — boot,
     // workdir read, workdir write, --open-port, --allow-unix-socket,
     // --block-net — and every one must still execute.
     assert.ok(
       count(out, "pass") >= 6,
       `the $HOME-independent isolation assertions must still run; got ${count(out, "pass")} passes:\n${out}`,
     );
-    // Ceiling, not an exact count: ~/.ssh legitimately stands down too, since
-    // a scratch $HOME has no .ssh — and it lives under /tmp, which nono
-    // default-allows, so it could not be a meaningful denial target there.
-    // Anything above two means we started over-skipping.
+    // Ceiling, not an exact count. THREE tests legitimately stand down:
+    //   - the decoy, which cannot be planted in an unwritable $HOME;
+    //   - ~/.ssh, since a scratch $HOME has no .ssh — and it lives under /tmp,
+    //     which nono default-allows, so it could not be a meaningful denial
+    //     target there;
+    //   - multi-root (cloister-d8599e), whose three peer directories live in
+    //     $HOME for exactly the /tmp reason above.
+    //
+    // This ceiling was 2 and correctly FAILED when the multi-root test landed —
+    // which is the point: the number is a claim about which tests depend on
+    // $HOME, so adding one has to be an explicit edit here, not a silent drift
+    // upward. Anything above three means we started over-skipping.
     assert.ok(
-      count(out, "skipped") <= 2,
-      `only the two $HOME-dependent tests may skip; got ${count(out, "skipped")}:\n${out}`,
+      count(out, "skipped") <= 3,
+      `only the three $HOME-dependent tests may skip; got ${count(out, "skipped")}:\n${out}`,
     );
   },
 );

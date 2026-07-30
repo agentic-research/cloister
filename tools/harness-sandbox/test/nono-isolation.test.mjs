@@ -24,7 +24,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +44,13 @@ const workdir = HAVE_NONO ? mkdtempSync(join(realpathSync(tmpdir()), "nono-wd-")
 // removed again in after().
 const decoy = HAVE_NONO ? join(homedir(), `.nono-isolation-decoy-${process.pid}.txt`) : null;
 const DECOY_CONTENT = "SIMULATED PRIVATE KEY — must never be readable confined";
+
+// Multi-root fixture: three PEER directories under one parent. See the
+// multi-root test below for why they live in $HOME rather than /tmp.
+const multiBase = HAVE_NONO ? join(homedir(), `.nono-multiroot-${process.pid}`) : null;
+const multiA = HAVE_NONO ? join(multiBase, "a") : null;
+const multiB = HAVE_NONO ? join(multiBase, "b") : null;
+const multiC = HAVE_NONO ? join(multiBase, "c") : null;
 
 if (HAVE_NONO) {
   writeFileSync(join(workdir, "inside.txt"), "hello-from-workdir");
@@ -217,8 +224,66 @@ test("nono: --block-net kernel-denies external connects (EPERM before any packet
   assert.match(r.stderr, /code=(EPERM|EACCES)/);
 });
 
+// ── multi-root confinement (cloister-d8599e) ──────────────────────────────
+//
+// `cloister run --repo A --repo B` grants N writable roots, and the attested
+// manifest gains a `workspace.N` entry per extra root so the count is part of
+// the shape. Everything above this point tests ONE root — so the claim the
+// multi-root change rests on ("each --repo is rw, everything else EPERM") was
+// proven at the plan and manifest layers and NOT at the kernel, which is the
+// only layer that actually enforces it.
+//
+// The sibling is the load-bearing case: A, B and C are peers under one parent,
+// so a grant that leaked to the parent directory would still pass a test that
+// only checked ~/.ssh. It has to be denied while its two siblings are writable.
+//
+// $HOME, not /tmp, for the same reason the decoy above lives there: nono
+// default-ALLOWS /tmp so binaries can run. An earlier version of this test used
+// /tmp siblings, "passed" trivially, and proved nothing — the ungranted sibling
+// was readable because nono had granted /tmp, not because the grant leaked.
+const MULTI_ROOT_SKIP = (() => {
+  if (SKIP) return SKIP;
+  try {
+    mkdirSync(multiBase, { recursive: true });
+    for (const d of [multiA, multiB, multiC]) mkdirSync(d, { recursive: true });
+    writeFileSync(join(multiA, "f.txt"), "root-one");
+    writeFileSync(join(multiC, "secret.txt"), "must never be readable confined");
+    return false;
+  } catch (err) {
+    if (err.code === "EACCES" || err.code === "EPERM" || err.code === "EROFS") {
+      return `outer sandbox denies $HOME writes (${err.code}) — cannot plant the multi-root fixture`;
+    }
+    throw err;
+  }
+})();
+
+test("nono: TWO granted roots are both rw, and their ungranted sibling is EPERM",
+  { skip: MULTI_ROOT_SKIP }, () => {
+    // cwd is the first root: nono refuses to grant a directory overlapping its
+    // own state root, which $HOME does, so `--allow-cwd` must not resolve there.
+    const r = spawnSync("nono", [
+      "run", "-s", "-a", multiA, "-a", multiB, "--allow-cwd", "--block-net", "--no-audit",
+      "--", "/bin/sh", "-c",
+      `cat ${multiA}/f.txt 2>&1; ` +
+      `(echo x > ${multiB}/w.txt && echo WROTE-B) 2>&1; ` +
+      `cat ${multiC}/secret.txt 2>&1`,
+    ], { encoding: "utf8", cwd: multiA, timeout: 60_000 });
+
+    assert.match(r.stdout, /root-one/, "the first --repo must be readable");
+    assert.match(r.stdout, /WROTE-B/, "the second --repo must be WRITABLE, not merely readable");
+    assert.match(
+      r.stdout, /Operation not permitted|Permission denied/,
+      "an ungranted SIBLING of the granted roots must be kernel-denied",
+    );
+    assert.doesNotMatch(
+      r.stdout, /must never be readable confined/,
+      "the ungranted sibling's contents must never appear",
+    );
+  });
+
 test.after(() => {
   if (workdir) rmSync(workdir, { recursive: true, force: true });
+  if (multiBase && !MULTI_ROOT_SKIP) rmSync(multiBase, { recursive: true, force: true });
   // Only if we actually planted it: `force` swallows ENOENT but not the
   // EACCES that unlinking inside an unwritable $HOME would raise.
   if (decoy && !DECOY_SKIP) rmSync(decoy, { force: true });
