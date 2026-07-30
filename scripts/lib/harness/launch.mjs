@@ -617,6 +617,51 @@ async function waitForPort(url, timeoutMs) {
 }
 
 /**
+ * Audit mode + confinement + a Keychain-backed credential = a harness that
+ * launches fine and then reports "Not logged in", with nothing saying why.
+ *
+ * Measured, not assumed (cloister-72f540): a confined process cannot read a
+ * Keychain item, and granting the keychain FILE does not change that, because
+ * Keychain is mediated by securityd over mach/XPC rather than by reading the
+ * file. nono has no mach/XPC grant to reach for, and `deny_keychains_macos` is
+ * in its DEFAULT profile — every agent profile it ships inherits it. So this is
+ * the platform's granularity, not a missing flag.
+ *
+ * That matches the licensing side independently: an Anthropic seat token is
+ * harness-bound by policy as much as by mechanism, so cloister relaying it is
+ * the disallowed shape even where it would work.
+ *
+ * WARN rather than refuse. On a setup whose credential lives in a FILE under
+ * the harness's state dir, audit mode works fine — that directory is granted
+ * rw. Failing closed would break a working configuration to prevent a confusing
+ * message, which is the wrong trade. The operator gets the explanation and the
+ * alternative, and keeps the decision.
+ *
+ * @param {import("./types.mjs").LaunchPlan} plan
+ * @param {(message: string) => void} log
+ * @param {LaunchDeps} [deps]
+ */
+function warnIfAuditIsUnauthenticated(plan, log, deps = {}) {
+  if (plan.auth.mode !== "audit" || !plan.sandbox) return;
+  const exists = deps.exists ?? existsSync;
+  // Existence only — never read. Whether a credential FILE is present is what
+  // decides if this warning applies; its contents are none of cloister's
+  // business, and in audit mode the whole point is that cloister never holds
+  // the credential.
+  if (exists(join(plan.sandbox.stateDir, ".credentials.json"))) return;
+
+  log(
+    `harness:dev — NOTE: audit mode under confinement may be unauthenticated.\n` +
+    `  No credential file in ${plan.sandbox.stateDir}, so ${plan.target.name} likely\n` +
+    `  authenticates from the system keychain — which the sandbox denies by design\n` +
+    `  (nono's default profile carries deny_keychains_macos; there is no per-item\n` +
+    `  grant). The harness may report "Not logged in".\n` +
+    `  To run authenticated: set ${plan.target.apiKeyEnv} and use the custody lane —\n` +
+    `  the key is vaulted and injected at the proxy, never entering the harness env.`,
+  );
+}
+
+/**
  * The whole pipeline, for a caller that wants the default wiring.
  *
  * Both front doors call THIS. `cloister run` does it in-process; `task
@@ -632,6 +677,7 @@ export async function launch(request, deps = {}) {
       (plan.auth.mode === "audit"
         ? "AUDIT mode (forward harness auth + receipt; no key vaulted)"
         : "CUSTODY mode (API key vaulted + injected)"));
+  warnIfAuditIsUnauthenticated(plan, log, deps);
 
   const artifacts = performSetup(plan, deps);
   if (plan.setupOnly) {
