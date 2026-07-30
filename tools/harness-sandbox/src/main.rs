@@ -142,7 +142,11 @@ struct ConfinementCommitment {
 /// as a connection that should have been denied and was not.
 #[cfg(target_os = "linux")]
 fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
-    use nono::sandbox::linux::SeccompNetFallback;
+    //  is a PRIVATE module (`mod linux;`); the enum is
+    // re-exported from `sandbox` itself. Reaching through the module path
+    // compiles nowhere — and on macOS this arm is cfg'd out, so it compiled
+    // nowhere LOCALLY either. CI found it, which is the arrangement working.
+    use nono::sandbox::SeccompNetFallback;
     match Sandbox::apply_auto(caps)? {
         SeccompNetFallback::None | SeccompNetFallback::BlockAll => Ok(()),
         SeccompNetFallback::ProxyOnly { proxy_port, .. } => bail!(

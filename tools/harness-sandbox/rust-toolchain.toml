@@ -1,4 +1,4 @@
-# Native dev-tool crate — pin to match nono 0.54's MSRV (1.95), same channel as
+# Native dev-tool crate — pin to match nono 0.70's MSRV (1.95), same channel as
 # rs/rust-toolchain.toml. No wasm target: this binary is host-only (Seatbelt /
 # Landlock + keyring do not build for wasm32). Keep in lockstep with the nono dep.
 [toolchain]
