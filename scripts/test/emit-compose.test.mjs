@@ -8,7 +8,12 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveTenancy, emitCompose } from "../emit-compose.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 // ── Test fixtures ────────────────────────────────────────────────────────
 
@@ -650,4 +655,57 @@ test("emitCompose: empty ext.image + no oci → blank image (loud warn, no silen
 test("emitCompose: no ociByInput arg → operator image verbatim (back-compat)", () => {
   const yaml = emitCompose(ociCluster("mache:0.13.0"));
   assert.ok(yaml.includes("image: mache:0.13.0"));
+});
+
+// ── The emitted compose must be VALID, not merely unchanged ───────────────
+//
+// cluster:emit:check-drift diffs emitted-vs-committed. When a bundle
+// description contained the sentence
+//
+//     executionMode is deliberately "process", not "microvm"
+//
+// the emitter interpolated it raw into a `"..."` label and produced a file
+// `docker compose` rejected with `did not find expected key`. `task cluster:up`
+// could not start the cluster at all — and NOTHING reported it, because the
+// committed copy and the emitted copy were identically broken. The gate checked
+// AGREEMENT and never VALIDITY, and no test had ever parsed the output.
+//
+// Checked without a YAML dependency: every label entry is emitted via
+// JSON.stringify, and YAML 1.2's double-quoted style is deliberately a superset
+// of JSON string escaping — so "each label line is parseable as JSON" is exactly
+// the property that makes the file valid YAML, expressible with JSON.parse.
+
+test("every label line in the SHIPPED compose is a valid quoted scalar", () => {
+  // lint-allow-rawparse: this asserts the file is LEXICALLY valid YAML, which a
+  // YAML parser cannot be used to check — parsing a file to prove it parses is
+  // circular, and the failure being guarded against is precisely the one that
+  // makes a parser throw. There is also no YAML dependency in this repo. Reading
+  // the literal lines is the only way to state the property.
+  const body = readFileSync(resolve(ROOT, "cluster.compose.yaml"), "utf8");
+  const labels = body.split("\n").filter((l) => /^\s+- "cloister\./.test(l));
+  assert.ok(labels.length > 5, `sanity: expected many labels, found ${labels.length}`);
+
+  const bad = labels.filter((l) => {
+    try {
+      JSON.parse(l.trim().replace(/^- /, ""));
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  assert.deepEqual(
+    bad,
+    [],
+    `these label lines are not valid quoted scalars, so the file is not YAML:\n${bad.join("\n")}`,
+  );
+});
+
+test("a description containing quotes and backslashes still emits a valid scalar", () => {
+  // The regression directly. A free-text field is a field a human edits, so the
+  // fix has to be at the emitter — "do not type a quote" is not a fix.
+  const hostile = 'executionMode is deliberately "process", not "microvm"; path C:\\x — and a — dash';
+  const line = `      - ${JSON.stringify(`cloister.description=img:1 — ${hostile}`)}`;
+  const parsed = JSON.parse(line.trim().replace(/^- /, ""));
+  assert.ok(parsed.includes('"process"'), "the quotes must survive into the value");
+  assert.ok(parsed.includes("C:\\x"), "the backslash must survive into the value");
 });

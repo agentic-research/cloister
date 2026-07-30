@@ -15,7 +15,7 @@ services:
     labels:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
-      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = "process": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
+      - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
       - "cloister.colocated-inputs=llo,canonical-hours"
     ports:
       - "8787:8787"
@@ -78,7 +78,7 @@ services:
     labels:
       - "cloister.bundle=rosary"
       - "cloister.tier=cluster"
-      - "cloister.description=ghcr.io/agentic-research/rosary@sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately "process", not "microvm": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."
+      - "cloister.description=ghcr.io/agentic-research/rosary@sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad — Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."
       - "cloister.colocated-inputs=rosary"
     command:
       - "mcp"
