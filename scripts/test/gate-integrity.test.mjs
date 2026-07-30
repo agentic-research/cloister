@@ -134,33 +134,51 @@ function resolvedInputs() {
   return byInput;
 }
 
-test("PROPERTY: an explicit operator declaration is never contradicted by the resolved value", () => {
+test("PROPERTY: no derived field is declarable on the operator surface at all", () => {
+  // STRENGTHENED, and the previous version is why (cloister-553c39).
+  //
+  // It used to assert: IF an operator declares a derived field, the substrate
+  // must not resolve the opposite. That was the strongest claim available while
+  // `requiresSession` was still an operator-facing knob — the contradiction was
+  // the only reachable harm.
+  //
+  // The knob is gone. requiresSession is now derived from the transport the
+  // server declares, with NO fallback: an input declaring no transport is
+  // refused rather than defaulted. So the contradiction is not merely absent
+  // from the tree, it is unreachable — which made the old property's own
+  // non-vacuity guard fire ("no explicit declaration ... would pass vacuously").
+  // That guard doing its job is what brought us here, and the honest response is
+  // a stronger property rather than a relaxed one.
+  //
+  // The property now: a derived field must not APPEAR on the operator surface.
+  // That is checkable without needing anyone to declare one, and it fails if a
+  // future change re-adds an operator-declarable derived field — the drift the
+  // old property could only catch after it had already produced a disagreement.
   const declared = operatorDeclaredInputs();
-  const resolved = resolvedInputs();
   assert.ok(declared.length > 0, "sanity: cluster.toml must declare inputs");
-  assert.ok(resolved.size > 0, "sanity: the lockfile must carry resolved rows");
+  assert.ok(DERIVED_INPUT_FIELDS.length > 0, "sanity: at least one field is derived");
 
-  const pairs = declared
-    .filter((i) => resolved.has(i.name))
-    .flatMap((i) =>
-      DERIVED_INPUT_FIELDS
-        .filter((f) => i[f] !== undefined)          // EXPLICIT declarations only
-        .map((f) => ({ input: i.name, field: f, declared: i[f], resolved: resolved.get(i.name)[f] })),
-    );
-
-  // Non-vacuity: if nobody declares a derived field explicitly, this property
-  // is true of the empty set and proves nothing. Today `rosary` supplies the
-  // one explicit `requiresSession = true`. If that disappears, this assertion
-  // fails and says so rather than passing on air.
-  assert.ok(
-    pairs.length > 0,
-    "no explicit declaration of any derived field — property would pass vacuously",
+  const offenders = declared.flatMap((i) =>
+    DERIVED_INPUT_FIELDS.filter((f) => i[f] !== undefined).map((f) => ({ input: i.name, field: f })),
   );
 
   forAll(
-    pairs,
-    (p) => `${p.input}.${p.field}: operator declared ${p.declared}, substrate resolved ${p.resolved}`,
-    (p) => p.resolved === undefined || p.declared === p.resolved,
+    offenders,
+    (o) =>
+      `[inputs.${o.input}] declares "${o.field}", which the substrate DERIVES from the ` +
+      `server's declared transport. Two statements of one fact — and the operator's is ` +
+      `the one nothing keeps current (cloister-af794d was that outage). Delete it.`,
+    () => false,   // any offender is a violation
+  );
+
+  // And the derived value must still actually be produced, or the removal
+  // silently dropped the fact instead of relocating it.
+  const resolved = resolvedInputs();
+  assert.ok(resolved.size > 0, "sanity: the lockfile must carry resolved rows");
+  forAll(
+    [...resolved.entries()].filter(([, row]) => row.kind !== "udsForward"),
+    ([name]) => `${name}: no resolved row carries a derived requiresSession — the fact was dropped, not moved`,
+    ([, row]) => "requiresSession" in row || row.requiresSession === false,
   );
 });
 

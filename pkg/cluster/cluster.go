@@ -79,19 +79,19 @@ type StoragePolicy struct {
 }
 
 type InputSpec struct {
-	Name             string      `json:"name"`
-	Ref              string      `json:"ref"`
-	Version          string      `json:"version"`
-	Digest           string      `json:"digest"`
-	From             string      `json:"from"`
-	Provides         []string    `json:"provides"`
-	Requires         []string    `json:"requires"`
-	UrlBinding       string      `json:"urlBinding"`
-	ServiceBinding   string      `json:"serviceBinding"`
-	Tenancy          TenancySpec `json:"tenancy"`
-	RequiresSession  bool        `json:"requiresSession"`
-	Connection       Connection  `json:"connection"`
-	MutableTagReason string      `json:"mutableTagReason"`
+	Name                   string      `json:"name"`
+	Ref                    string      `json:"ref"`
+	Version                string      `json:"version"`
+	Digest                 string      `json:"digest"`
+	From                   string      `json:"from"`
+	Provides               []string    `json:"provides"`
+	Requires               []string    `json:"requires"`
+	UrlBinding             string      `json:"urlBinding"`
+	ServiceBinding         string      `json:"serviceBinding"`
+	Tenancy                TenancySpec `json:"tenancy"`
+	RequiresSessionRetired bool        `json:"requiresSessionRetired"`
+	Connection             Connection  `json:"connection"`
+	MutableTagReason       string      `json:"mutableTagReason"`
 }
 
 type RouteKindUnion struct {

@@ -265,7 +265,9 @@ function canonicalizeInputs(arr) {
     // pass through to [[generated_backends]] rows in cluster.lock.toml.
     if (typeof inp.urlBinding     === "string" && inp.urlBinding     !== "") body.urlBinding     = inp.urlBinding;
     if (typeof inp.serviceBinding === "string" && inp.serviceBinding !== "") body.serviceBinding = inp.serviceBinding;
-    if (inp.requiresSession === true) body.requiresSession = true;
+    // requiresSession is NOT rendered back: it was retired as an operator-facing
+    // knob (cloister-553c39) and emitting it would reintroduce the second
+    // statement of a fact the server's own transport declares.
     if (typeof inp.mutableTagReason === "string" && inp.mutableTagReason !== "") body.mutableTagReason = inp.mutableTagReason;
     // Emit [inputs.<name>.connection] only for a declared transport. An
     // `unset` transport is the absence of a connection, and writing it back as

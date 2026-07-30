@@ -477,10 +477,21 @@ struct InputSpec {
   # Append-only ordinal per ADR-0004.
   tenancy @9 :TenancySpec;
 
-  # Operator transport override for MCP servers that require the
-  # Streamable HTTP initialize/session handshake (for example mcp-go).
-  # Threaded into every generated backend derived from this input.
-  requiresSession @10 :Bool;
+  # RETIRED @10 — was `requiresSession`, an operator override for MCP servers
+  # needing the Streamable HTTP initialize/session handshake (cloister-553c39).
+  #
+  # The ordinal STAYS. ADR-0004: adding a field is fine under capnp's add-only
+  # rules, removing or renumbering one is not. Only the NAME changed, which is
+  # safe because capnp puts ordinals on the wire and names only in generated
+  # code. Do not reuse @10 for anything else.
+  #
+  # Why it went: it restated a fact the server already publishes in its own
+  # server.json, and as a fallback for an undeclared transport it GUESSED —
+  # defaulting false, which skips the MCP handshake and 404s every tool on a
+  # session-requiring server. resolve-inputs now derives the value from the
+  # declared transport and REFUSES to resolve an input that declares none.
+  # The derived value still ships on the backend rows (@4 / @7 below).
+  requiresSessionRetired @10 :Bool;
 
   # How to REACH this input (ADR-0051). Structured components — never a
   # connection string. A `postgres://user:pass@host/db` blob fuses transport,

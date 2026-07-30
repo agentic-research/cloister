@@ -960,12 +960,6 @@ export function udsSocketPath(spec) {
 export function deriveGeneratedBackends(spec, meta, doc = null) {
   const urlBinding     = typeof spec.urlBinding     === "string" ? spec.urlBinding     : "";
   const serviceBinding = typeof spec.serviceBinding === "string" ? spec.serviceBinding : "";
-  // Derived from the server's declared transport wins over the operator's
-  // explicit flag; the tool is the site that knows. The explicit value remains
-  // the fallback for a server.json that declares no transport at all.
-  const derived = deriveRequiresSession(doc);
-  const requiresSession = derived === null ? spec.requiresSession === true : derived;
-
   // ADR-0051 §3: a UDS input emits `udsForward` rows carrying socketPath;
   // everything else keeps emitting `mcpProxy` exactly as before. The companion
   // dial and capnp ToolCall/ToolResult codec downstream are reused unchanged —
@@ -976,6 +970,62 @@ export function deriveGeneratedBackends(spec, meta, doc = null) {
   // has no HTTP request to carry `Mcp-Session-Id` on. Emitting it would be a
   // field the transport cannot honour.
   const uds = udsSocketPath(spec);
+
+  // requiresSession is DERIVED from the transport the server declares, and there
+  // is no fallback (cloister-553c39).
+  //
+  // The operator used to be able to state it in cluster.toml, and an undeclared
+  // transport fell back to that flag — defaulting to false when unset. Both
+  // halves were wrong:
+  //
+  //   As a declaration, it restated a fact the server already publishes. mache's
+  //   row omitted it once and every mache_* tool vanished from tools/list behind
+  //   a 404 "Invalid session ID" (cloister-af794d), because a boolean nobody
+  //   maintained disagreed with the transport.
+  //
+  //   As a fallback, it GUESSED. An undeclared transport is an unresolvable
+  //   fact, and neither guess is defensible: false skips the handshake and
+  //   404s a session-requiring server (mache + rosary are mark3labs/mcp-go,
+  //   which enforces Mcp-Session-Id); true sends a handshake to a stdio server
+  //   that has no session to establish.
+  //
+  // So it fails closed instead, naming the input — the same posture as the OCI
+  // digest refusal above, and for the same reason: a lockfile that LOOKS
+  // resolved is worse than a build that stops. This is measurably load-bearing,
+  // not theoretical: rosary's server.json on main ships packages[0].transport
+  // MISSING (rosary-5d9d56), so bumping that input reaches exactly this branch.
+  //
+  // Not applicable to a UDS row: the MCP session lifecycle is a Streamable-HTTP
+  // concern and a capnp-over-UDS call has no HTTP request to carry
+  // `Mcp-Session-Id` on, so the field is never emitted there and an undeclared
+  // transport is not a problem for it.
+  // Scope: this refuses a server.json that PARSED and declares no transport —
+  // rosary's actual shape. It deliberately does NOT refuse `doc === null`, which
+  // means the bytes were not JSON at all. That path already has a documented,
+  // deliberately tolerant contract (README §"Heuristic fallback": one backend,
+  // a loud warning, and NOT a build failure), and turning it into a hard refusal
+  // here would be a second, unrelated behaviour change smuggled in — the tests
+  // that pin the tolerant path caught the attempt.
+  let requiresSession = false;
+  if (uds === null && doc !== null && typeof doc === "object") {
+    const derived = deriveRequiresSession(doc);
+    if (derived === null) {
+      // Plain Error, not ResolveError: deriveGeneratedBackends' caller already
+      // wraps thrown messages as `ResolveError(spec.name, e.message)`, so
+      // constructing one here produced `input "llo": input "llo": …`. Same
+      // convention as deriveStripPrefix.
+      throw new Error(
+        `declares no transport, so requiresSession cannot be derived. Cloister ` +
+        `reads either \`remotes[].type\` or \`packages[].transport.type\`; this ` +
+        `server.json has neither. Refusing to guess: false would skip the MCP ` +
+        `session handshake and 404 every tool on a session-requiring server, ` +
+        `true would send a handshake to a stdio server. Ask the producer to ` +
+        `publish its transport (ADR-0057 property A).`,
+      );
+    }
+    requiresSession = derived;
+  }
+
   const transportFields = uds !== null
     ? { kind: "udsForward", socketPath: uds }
     : { urlBinding, serviceBinding, ...(requiresSession ? { requiresSession: true } : {}) };

@@ -664,7 +664,11 @@ function normalizeInputDefaults(spec) {
     requires:       Array.isArray(spec.requires) ? spec.requires : [],
     urlBinding:     typeof spec.urlBinding === "string" ? spec.urlBinding : "",
     serviceBinding: typeof spec.serviceBinding === "string" ? spec.serviceBinding : "",
-    requiresSession: spec.requiresSession === true,
+    // RETIRED ordinal (cloister-553c39). Always false: the value is DERIVED
+    // from the server's declared transport by resolve-inputs and lives on the
+    // generated backend rows. Kept in the shape because capnp ordinals are
+    // append-only (ADR-0004); an operator can no longer state it.
+    requiresSessionRetired: false,
     connection: normalizeConnection(spec.connection),
     mutableTagReason: typeof spec.mutableTagReason === "string" ? spec.mutableTagReason : "",
     tenancy: {

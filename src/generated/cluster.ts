@@ -258,7 +258,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -284,7 +284,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -310,7 +310,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": true,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",
@@ -336,7 +336,7 @@ export const cluster: Cluster = {
         "trustedTier": false,
         "sharesWorkerdWith": []
       },
-      "requiresSession": false,
+      "requiresSessionRetired": false,
       "connection": {
         "socketPath": "",
         "vaultSlice": "",

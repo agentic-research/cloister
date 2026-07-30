@@ -110,7 +110,6 @@ ref = "github://agentic-research/rosary/server.json@7ca39874672104d8e75cece51f9f
 version = "0.8.1"
 urlBinding = "ROSARY_MCP_URL"
 serviceBinding = "ROSARY_BUNDLE"
-requiresSession = true
 
 [inputs.canonical-hours]
 ref = "github://agentic-research/canonical-hours/server.json@f7321b3c088a9fef61908225cadbfaab981c1c05"

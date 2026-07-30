@@ -991,7 +991,8 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
       name: "llo", ref: "x", version: "1", digest: "", from: "",
       provides: [], requires: [],
       urlBinding: "LLO_MCP_URL", serviceBinding: "LSP_MCP",
-      requiresSession: false,
+      // Retired ordinal, name-only change (cloister-553c39 / ADR-0004).
+      requiresSessionRetired: false,
       tenancy: { mode: "", workerdId: "", trustedTier: false, sharesWorkerdWith: [] },
       // ADR-0051. This fixture hand-builds a CURRENT-shape cluster object and
       // feeds it straight to zod, so it carries every field the schema has.
