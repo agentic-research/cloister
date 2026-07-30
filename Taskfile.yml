@@ -129,7 +129,7 @@ tasks:
       - bash tools/libkrun-spike/run-mediated.sh
 
   cluster:zod:
-    desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. NOT a verify gate yet; run manually after cluster.capnp schema edits."
+    desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. Run after cluster.capnp schema edits; `cluster:zod:check-drift` (in `task lint`) fails if you forget."
     deps: [schema-bridge:build]
     cmds:
       - |
@@ -166,7 +166,7 @@ tasks:
       - scripts/validate-cluster-zod.mjs
 
   cluster:zod:check-drift:
-    desc: "Drift check — regenerate cluster.zod.ts into a temp file and diff against the committed copy. Fails if schema-bridge's output diverges from what's checked in. Opt-in; not part of `task verify` yet. Requires the `capnp` CLI."
+    desc: "Drift check — regenerate cluster.zod.ts into a temp file and diff against the committed copy. Fails if schema-bridge's output diverges from what's checked in. IN `task lint`. Requires the `capnp` CLI."
     deps: [schema-bridge:build]
     cmds:
       - |
@@ -197,7 +197,7 @@ tasks:
       - src/generated/cluster.zod.ts
 
   cluster:go:
-    desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). NOT a verify gate yet; run manually after cluster.capnp schema edits. Requires `capnp` CLI + `gofmt`."
+    desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). Run after cluster.capnp schema edits; `cluster:go:check-drift` (in the cloister-schema-go workflow) fails if you forget. Requires `capnp` CLI + `gofmt`."
     deps: [schema-bridge:build]
     cmds:
       - |
@@ -223,7 +223,7 @@ tasks:
       - pkg/cluster/cluster.go
 
   cluster:go:check-drift:
-    desc: "Drift check — regenerate pkg/cluster/cluster.go into a temp file (gofmt'd) and diff against the committed copy. Fails if schema-bridge's Go output diverges from what's checked in. Opt-in; not part of `task verify` yet. Requires `capnp` + `gofmt`."
+    desc: "Drift check — regenerate pkg/cluster/cluster.go into a temp file (gofmt'd) and diff against the committed copy. Fails if schema-bridge's Go output diverges from what's checked in. Runs in the cloister-schema-go workflow, which is where the Go toolchain lives — NOT in `task lint`/`verify`, whose CI jobs have no Go. Requires `capnp` + `gofmt`."
     deps: [schema-bridge:build]
     cmds:
       - |
