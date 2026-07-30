@@ -344,6 +344,36 @@ function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName) 
  *
  * Per cloister-cedcf3 Phase 2 piece 2 + Phase 3 pieces 1, 2, 3.
  */
+/**
+ * A YAML double-quoted scalar, escaped.
+ *
+ * This file builds compose YAML by string concatenation, interpolating values
+ * straight into `"..."`. Any value containing a `"` terminates the scalar early
+ * and produces a file that is not YAML at all.
+ *
+ * It happened: a bundle description carrying the sentence
+ *
+ *     executionMode is deliberately "process", not "microvm"
+ *
+ * emitted a label line that `docker compose` refused with
+ * `did not find expected key`, and `task cluster:up` could not start the
+ * cluster at all (cloister-cb735c).
+ *
+ * Not fixed by "don't put quotes in descriptions" — that is a rule a human has
+ * to remember on every edit of a free-text field, which is the class of thing
+ * this repo keeps deleting. Escaping at the emitter fixes every field at once,
+ * including the ones nobody has typed a quote into yet.
+ *
+ * JSON.stringify is the correct primitive here rather than a hand-rolled
+ * replace: YAML 1.2's double-quoted style is deliberately a superset of JSON
+ * string escaping, so a JSON string literal is always a valid YAML scalar —
+ * and it handles backslashes, control characters and newlines, not just the
+ * quote that happened to break first.
+ */
+function yamlStr(value) {
+  return JSON.stringify(String(value));
+}
+
 function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "") {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
@@ -358,18 +388,18 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
   lines.push(`    pull_policy: never`);
   lines.push(`    container_name: ${containerName}`);
   lines.push(`    labels:`);
-  lines.push(`      - "cloister.bundle=${b.name}"`);
-  lines.push(`      - "cloister.tier=${b.tier}"`);
-  lines.push(`      - "cloister.description=${image} — ${b.description}"`);
+  lines.push(`      - ${yamlStr(`cloister.bundle=${b.name}`)}`);
+  lines.push(`      - ${yamlStr(`cloister.tier=${b.tier}`)}`);
+  lines.push(`      - ${yamlStr(`cloister.description=${image} — ${b.description}`)}`);
   if (colocatedInputs.length > 0) {
-    lines.push(`      - "cloister.colocated-inputs=${colocatedInputs.join(",")}"`);
+    lines.push(`      - ${yamlStr(`cloister.colocated-inputs=${colocatedInputs.join(",")}`)}`);
   }
   if (b.perTenant === true) {
     lines.push(`      - "cloister.per-tenant=true"`);
   }
   if (tenant) {
-    lines.push(`      - "cloister.tenant=${tenant.name}"`);
-    lines.push(`      - "cloister.dispatch-mode=${tenant.mode}"`);
+    lines.push(`      - ${yamlStr(`cloister.tenant=${tenant.name}`)}`);
+    lines.push(`      - ${yamlStr(`cloister.dispatch-mode=${tenant.mode}`)}`);
     lines.push(`      - "cloister.dispatch-match=${tenant.matchValue}"`);
   }
 
