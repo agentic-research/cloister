@@ -114,6 +114,55 @@ struct ConfinementCommitment {
 /// runner is about to enforce. Any failure — bad encoding, invalid cert chain, no
 /// committed digest, or a digest mismatch — is an error; the caller bails before
 /// `Sandbox::apply`.
+/// Apply the sandbox, handling the platform split nono 0.70 introduced.
+///
+/// macOS returns `Result<()>` — Seatbelt is applied inline and there is nothing
+/// further to do.
+///
+/// Linux returns a `SeccompNetFallback` describing what the kernel could NOT do
+/// via Landlock alone, and two of its three variants are not "already done":
+///
+///   None      Landlock covered it (ABI V4+), or no filtering was requested.
+///   BlockAll  the seccomp filter is installed INLINE — deny every non-AF_UNIX
+///             socket. Complete on return.
+///   ProxyOnly connect/bind are TRAPPED to a supervisor that must poll a notify
+///             fd for port-level filtering to happen at all.
+///
+/// `cloister-harness` execs the harness immediately and never becomes a
+/// supervisor, so `ProxyOnly` would mean the port allowance silently does not
+/// take effect. We therefore REFUSE it rather than proceed — the same posture as
+/// the non-blocked network mode this binary already rejects, and for the same
+/// reason: a confinement that is weaker than the manifest says is worse than one
+/// that fails loudly.
+///
+/// Cloister's own policy asks for `network.mode = blocked` with a single
+/// localhost port, so on a Landlock V4+ kernel this returns `None` or
+/// `BlockAll`. `ProxyOnly` means the kernel is older than the policy needs, and
+/// that is a deployment fact worth surfacing at launch rather than discovering
+/// as a connection that should have been denied and was not.
+#[cfg(target_os = "linux")]
+fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
+    use nono::sandbox::linux::SeccompNetFallback;
+    match Sandbox::apply_auto(caps)? {
+        SeccompNetFallback::None | SeccompNetFallback::BlockAll => Ok(()),
+        SeccompNetFallback::ProxyOnly { proxy_port, .. } => bail!(
+            "nono returned ProxyOnly network filtering (proxy_port {proxy_port}), which \
+             requires a supervisor to poll a seccomp notify fd. cloister-harness execs the \
+             harness directly and has no supervisor, so the port allowance would NOT be \
+             enforced. Refusing rather than running with weaker confinement than the \
+             manifest declares. This kernel's Landlock ABI is below V4; upgrade it, or run \
+             the harness under a supervisor that can service the notify fd."
+        ),
+    }
+}
+
+/// macOS: Seatbelt is applied inline and returns nothing to service.
+#[cfg(not(target_os = "linux"))]
+fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
+    Sandbox::apply_auto(caps)?;
+    Ok(())
+}
+
 fn verify_confinement_commitment(c: &ConfinementCommitment) -> Result<()> {
     use base64::Engine;
 
@@ -248,7 +297,11 @@ fn main() -> Result<()> {
 
     // Apply — IRREVERSIBLE. After this, this process and everything it execs can
     // only touch what the manifest granted (Seatbelt on macOS, Landlock on Linux).
-    let _applied = Sandbox::apply(&caps).context("applying the nono sandbox")?;
+    //
+    // nono 0.70 renamed `apply` → `apply_auto`, and the two platforms now return
+    // DIFFERENT types. That is not cosmetic, so they are handled separately
+    // rather than papered over with a `let _ =`.
+    apply_confinement(&caps).context("applying the nono sandbox")?;
 
     // Exec the harness, confined. env_strip removes inherited credentials;
     // env_set points it at the vault-proxy seam; the optional resolved secret is
