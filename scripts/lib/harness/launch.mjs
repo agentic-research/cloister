@@ -229,12 +229,20 @@ export function verifySkills(plan, log, deps = {}) {
   const skillsDir = join(plan.sandbox?.stateDir ?? "", "skills");
 
   if (declared.length === 0 && !exists(skillsDir)) return [];
+  void exists;
 
-  const present = exists(skillsDir)
-    ? rd(skillsDir).filter((/** @type {string} */ n) => {
-        try { return (deps.statSync ?? statSync)(join(skillsDir, n)).isDirectory(); } catch { return false; }
-      })
-    : [];
+  // Listing is best-effort; DECLARED skills are not. If the directory cannot be
+  // read — absent, or an injected `exists` that disagrees with the real fs —
+  // `present` is empty and every declared skill then fails its own
+  // "declared but absent" check below, loudly and by name. So an unreadable
+  // directory degrades to a precise refusal rather than a stack trace, without
+  // weakening anything: nothing is treated as verified that was not read.
+  let present = [];
+  try {
+    present = rd(skillsDir).filter((/** @type {string} */ n) => {
+      try { return (deps.statSync ?? statSync)(join(skillsDir, n)).isDirectory(); } catch { return false; }
+    });
+  } catch { /* lint-allow-silent: absent or unreadable ⇒ nothing present; declared skills still refuse below */ }
 
   const verified = [];
   for (const decl of declared) {

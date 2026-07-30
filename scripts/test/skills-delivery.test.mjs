@@ -165,3 +165,24 @@ test("a receipt that cannot be written does not fail an otherwise-fine run", (t)
   assert.equal(verified.length, 1, "verification still happened");
   void out;
 });
+
+test("an UNREADABLE skills dir refuses declared skills by name, not with a stack trace", (t) => {
+  // CI has no ~/.claude/skills, and a neighbouring test injects `exists: () =>
+  // true`. That combination made verifySkills call readdir on a directory that
+  // is not there and throw ENOENT — a stack trace where a named refusal
+  // belongs. Fixed by making the LISTING best-effort while DECLARED skills stay
+  // strict.
+  //
+  // Non-vacuity in the direction that matters: this must not have made an
+  // unreadable directory silently "fine". A declared skill still refuses.
+  const missing = join(tmpdir(), `definitely-not-here-${process.pid}`, "state");
+  assert.throws(
+    () => run(missing, [{ name: "beads", digest: "" }]),
+    (err) => err instanceof PreconditionError && /declared in cluster\.toml but absent/.test(err.message),
+    "an unreadable directory must still refuse a declared skill, by name",
+  );
+  // …and with nothing declared, it is simply quiet.
+  let out = "";
+  assert.deepEqual(run(missing, [], (m) => { out += m; }), []);
+  assert.equal(out, "");
+});
