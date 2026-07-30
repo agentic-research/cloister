@@ -104,3 +104,57 @@ test("the state dir the notice names is the one actually granted rw", async () =
   const t = targets.find((x) => x.name === "claude-code");
   assert.ok(out.includes(join(process.env.HOME ?? "", t.stateDir)), "must name the granted state dir");
 });
+
+// ── the harness's OWN config paths must be granted (cloister-72f540) ───────
+//
+// `~/.claude` and `~/.claude.json` are TWO paths — a directory and a sibling
+// file — and granting the directory does not reach the file. Anthropic's
+// sandbox-runtime guidance names both
+// (code.claude.com/docs/en/sandbox-environments).
+//
+// Granting only the directory produced `error: An internal error occurred
+// (EPERM)` — an opaque failure that I misdiagnosed as an auth problem. With
+// both granted, the harness starts and diagnoses ITSELF far more precisely than
+// cloister can infer.
+
+test("the plan grants the config FILE, not just the state directory", async () => {
+  const { resolvePlan } = await import("../lib/harness/launch.mjs");
+  const plan = await resolvePlan({
+    root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
+    credentialEnv: {},
+    sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
+  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+
+  assert.equal(
+    plan.sandbox.configFile, `${plan.sandbox.stateDir}.json`,
+    "the config file is `<stateDir>.json`, so renaming the state dir keeps them paired",
+  );
+  assert.notEqual(
+    plan.sandbox.configFile, plan.sandbox.stateDir,
+    "they are different paths — that is the entire bug this asserts against",
+  );
+});
+
+test("buildPolicy actually EMITS grants for the config file and install tree", async () => {
+  // The plan carrying the fields proves nothing if the policy drops them —
+  // which is the shape of the original defect one layer down.
+  const { resolvePlan, buildPolicy } = await import("../lib/harness/launch.mjs");
+  const plan = await resolvePlan({
+    root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
+    credentialEnv: {},
+    sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
+  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+
+  const policy = buildPolicy(plan, {
+    certDerB64Url: "x", masterPubB64Std: "y",
+    peerFp: "z", epoch: 1, ephemeralPrivSeedB64Url: "a", ephemeralPubB64Url: "b",
+  });
+  const granted = policy.capabilities.filesystem.grants.map((g) => g.path);
+  assert.ok(
+    granted.includes(plan.sandbox.configFile),
+    `config file must be granted; got:\n${granted.join("\n")}`,
+  );
+  if (plan.sandbox.installDir) {
+    assert.ok(granted.includes(plan.sandbox.installDir), "install tree must be granted");
+  }
+});

@@ -38,10 +38,12 @@
 // (--help minted a credential). Both were ordering bugs in a script.
 
 import { execFileSync, spawn as nodeSpawn } from "node:child_process";
-import { writeFileSync, rmSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  writeFileSync, rmSync, existsSync, readdirSync, readFileSync, statSync, realpathSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 
 import {
   loadHarnessConfig,
@@ -485,10 +487,25 @@ function resolveSandbox(requested, target, root, { run, exists }) {
   }
 
   const home = homedir();
+  // Derived, not declared: the install tree is wherever the resolved executable
+  // actually lives, which a manifest field would only restate and then rot.
+  // `~/.local/bin/claude` is a shim, so follow it to the real binary and grant
+  // its versioned root.
+  let installDir = null;
+  try {
+    const real = realpathSync(harnessBin);
+    const versions = real.indexOf("/versions/");
+    installDir = versions > 0 ? real.slice(0, versions) : dirname(real);
+  } catch { /* lint-allow-silent: an unresolvable path is already a PreconditionError above */ }
+
   return {
     provider: "nono",
     confineBin,
     workdirs,
+    installDir,
+    // `<stateDir>.json` — the sibling config file. Same derivation the harness
+    // itself uses, so a target that renames its state dir keeps them paired.
+    configFile: `${requested.stateDir ?? join(home, target.stateDir)}.json`,
     stateDir: requested.stateDir ?? join(home, target.stateDir),
     harnessBin,
     harnessArgs: requested.harnessArgs ?? [],
@@ -603,6 +620,25 @@ export function buildPolicy(plan, identity) {
           // Same list, so the two cannot disagree.
           ...sandbox.workdirs.map((/** @type {string} */ path) => ({ path, access: "readwrite", type: "directory" })),
           { path: sandbox.stateDir, access: "readwrite", type: "directory" },
+          // The harness's config FILE, a sibling of its state dir rather than
+          // inside it — `~/.claude` and `~/.claude.json` are two paths, and
+          // granting the directory does not reach the file.
+          //
+          // Anthropic's own sandbox-runtime guidance says to allow BOTH
+          // (code.claude.com/docs/en/sandbox-environments). Cloister granted
+          // only the directory, and the result was `error: An internal error
+          // occurred (EPERM)` — which masked a far better message: with the
+          // file granted, `claude doctor` reports "claude.ai subscription auth
+          // not active" and diagnoses the keychain itself.
+          ...(sandbox.configFile
+            ? [{ path: sandbox.configFile, access: "readwrite", type: "file" }]
+            : []),
+          // The harness's own install tree. `~/.local/bin/claude` is a shim
+          // into `~/.local/share/claude/versions/<v>/`, so granting the
+          // executable's path alone is not enough to run it.
+          ...(sandbox.installDir
+            ? [{ path: sandbox.installDir, access: "read", type: "directory" }]
+            : []),
         ],
         // Belt-and-suspenders: the allow-list already excludes these, but deny
         // takes precedence on Seatbelt, so name the credential dirs.
