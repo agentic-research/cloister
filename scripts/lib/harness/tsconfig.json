@@ -1,8 +1,8 @@
 {
-  "//": "Standalone type-check for the harness launch pipeline. `scripts/` is NOT in the root tsconfig (which covers src/**/*.ts only) and has no checkJs anywhere, so JSDoc under scripts/ is unchecked convention — decoration that reads like a guarantee. This turns it on for this directory so the pipeline's types are enforced rather than documented. Same shape and same reason as tools/harness-shim/tsconfig.json + lint:shim. Run via `task lint:harness-types`.",
+  "//": "Standalone type-check for the harness launch pipeline. `scripts/` is NOT in the root tsconfig (which covers src/**/*.ts only) and has no checkJs anywhere, so JSDoc under scripts/ is unchecked convention — decoration that reads like a guarantee. This turns it on for this directory so the pipeline's types are enforced rather than documented. Same shape and same reason as tools/harness-shim/tsconfig.json + lint:shim. Run via `task lint:harness-types`. Node built-ins come from the local node-shims.d.ts (same approach as the shim, and for the same pinned-pnpm reason); `lib: DOM` supplies fetch.",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowJs": true,
@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["*.mjs"]
+  "include": ["*.mjs", "*.d.ts"]
 }

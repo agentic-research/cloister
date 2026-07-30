@@ -145,6 +145,28 @@ jobs:
             exit 1
           fi
 
+      - name: pkg/cluster round-trips the real cluster const
+        # The drift check above proves the EMITTER's output matches what is
+        # committed. It says nothing about whether those Go types can actually
+        # carry cloister's data — a generator that emitted a syntactically valid
+        # but semantically wrong struct passes drift and fails here.
+        #
+        # `cluster:go:verify` existed for exactly that and was invoked by
+        # nothing: not `task lint` (no Go toolchain), not cloister-schema-go.yml
+        # (different surface), not here. Its zod counterpart
+        # (`cluster:zod:verify`) has been a `task lint` dep the whole time, so
+        # the two halves of one property were gated asymmetrically — and the Go
+        # half is the one whose consumers are outside this repo.
+        #
+        # This job already has Go, capnp, Node and Task, so it costs one step.
+        run: |
+          if ! task cluster:go:verify; then
+            echo "::error::pkg/cluster cannot round-trip the cluster const — the" >&2
+            echo "::error::generated Go types disagree with the real data, not just" >&2
+            echo "::error::with the committed file. Reproduce: task cluster:go:verify" >&2
+            exit 1
+          fi
+
       - name: Assert no cluster.toml canonical-form drift
         # Reverse-leg drift gate (ADR-0025). `task cluster:toml:roundtrip`
         # is the SAME drift check operators run via `task verify`. CI

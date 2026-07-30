@@ -51,6 +51,7 @@
 export const HARNESS_ENV = Object.freeze({
   /** Absolute path the harness is confined to — the ONLY writable surface. */
   workdir: "HARNESS_WORKDIR",
+  workdirs: "HARNESS_WORKDIRS",
   /** Selects the confinement provider. */
   sandbox: "SANDBOX",
   /** The only provider harness-dev.mjs implements. */
@@ -89,17 +90,22 @@ export const HARNESS_ENV = Object.freeze({
 export const COMMANDS = [
   {
     name: "run",
-    usage: "cloister run --harness <name> --repo <absolute-path> [-- <harness args...>]",
-    summary: "Run a harness confined to one repo",
+    usage: "cloister run --harness <name> --repo <abs> [--repo <abs> …] [-- <harness args...>]",
+    summary: "Run a harness confined to the repos you name",
     detail:
-      "Executes a harness with the named repository as its ONLY readable and " +
-      "writable path. Every other path is kernel-denied — `~/.ssh`, other " +
+      "Executes a harness with the named repositories as its ONLY readable and " +
+      "writable paths. Every other path is kernel-denied — `~/.ssh`, other " +
       "repositories, and outbound network — with EPERM rather than ENOENT, so " +
       "the boundary does not leak whether a path exists. Loopback to cloister " +
-      "stays open, which is what makes cloister the only route tools arrive by.",
+      "stays open, which is what makes cloister the only route tools arrive by.\n\n" +
+      "`--repo` repeats. The first is the primary workspace and becomes the " +
+      "harness's working directory. WHICH repos you name does not change the " +
+      "attested confinement digest — the manifest holds symbolic paths — but HOW " +
+      "MANY does, because more writable roots is a wider boundary and the cert " +
+      "commits to the shape.",
     flags: [
       { flag: "--repo", value: "<abs>", required: true,
-        summary: "the ONLY directory the harness may read or write. Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer" },
+        summary: "a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has" },
       { flag: "--harness", value: "<name>", summary: "harness to launch (default: the declared default target)" },
       { flag: "--dry-run", summary: "print what would be confined; mint nothing, launch nothing" },
       { flag: "--setup-only", summary: "mint the identity and write .dev.vars, do not launch" },

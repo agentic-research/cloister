@@ -9,9 +9,14 @@
 //      silently resolved against cwd confines the harness to the wrong tree and
 //      still looks like it worked.
 //   2. the DELEGATION, because the whole design of this verb is that it does not
-//      reimplement mint-and-confine. If it ever stops setting SANDBOX or
-//      HARNESS_WORKDIR, the command still runs — just unconfined, or confined to
-//      the wrong place. Neither failure is loud.
+//      reimplement mint-and-confine. It calls scripts/lib/harness/launch.mjs
+//      IN-PROCESS; if it ever stops passing a sandbox, or passes the wrong
+//      workdirs, the command still runs — just unconfined, or confined to the
+//      wrong place. Neither failure is loud.
+//
+//      This used to be checked by inspecting the env of a spawned subprocess.
+//      It is now checked on the LaunchRequest itself, which is the change: the
+//      confinement shape is an argument with a type, not JSON in an env var.
 //
 // The kernel enforcement itself is covered by
 // tools/harness-sandbox/test/nono-isolation.test.mjs, which asserts EPERM on
@@ -19,11 +24,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgs, validateRepo, main, RunUsageError } from "../cli-run.mjs";
+import { parseArgs, validateRepo, validateRepos, main, RunUsageError } from "../cli-run.mjs";
 
 function scratchDir(t) {
   const d = mkdtempSync(join(tmpdir(), "cli-run-"));
@@ -78,40 +83,100 @@ test("parseArgs: --setup-only and --audit pass through untouched", () => {
 
 // ── delegation: the point of the verb ─────────────────────────────────────
 
-test("launching sets HARNESS_WORKDIR and SANDBOX, and delegates to harness-dev", async (t) => {
+test("launching passes the workdirs and a sandbox on the LaunchRequest", async (t) => {
   const d = scratchDir(t);
-  let seen = null;
-  const fakeSpawn = (bin, argv, opts) => {
-    seen = { bin, argv, env: opts.env };
-    return { on: (evt, cb) => { if (evt === "close") queueMicrotask(() => cb(0)); } };
-  };
-
+  let request = null;
   const code = await main(["--repo", d, "--harness", "claude-code"], {
-    spawn: fakeSpawn, log: () => {}, errLog: () => {},
+    launch: async (req) => { request = req; return { session: null }; },
+    log: () => {}, errLog: () => {},
   });
 
   assert.equal(code, 0);
-  assert.ok(seen, "must delegate rather than reimplement mint-and-confine");
-  assert.match(seen.argv[0], /harness-dev\.mjs$/, "delegates to the existing flow");
-  // The two that matter. Losing either is silent: no SANDBOX runs unconfined,
-  // wrong HARNESS_WORKDIR confines to the wrong tree.
-  assert.equal(seen.env.HARNESS_WORKDIR, d);
-  assert.equal(seen.env.SANDBOX, "nono");
-  assert.deepEqual(seen.argv.slice(1), ["--target", "claude-code"]);
+  assert.ok(request, "must delegate rather than reimplement mint-and-confine");
+  // The two that matter. Losing either is silent: no sandbox runs unconfined,
+  // wrong workdirs confine to the wrong tree.
+  assert.deepEqual(request.sandbox.workdirs, [d]);
+  assert.equal(request.sandbox.provider, "nono");
+  assert.equal(request.targetName, "claude-code");
 });
 
-test("--no-sandbox omits SANDBOX and warns — confinement is the default", async (t) => {
-  const d = scratchDir(t);
-  let seen = null, warned = "";
-  const fakeSpawn = (_bin, _argv, opts) => {
-    seen = opts.env;
-    return { on: (evt, cb) => { if (evt === "close") queueMicrotask(() => cb(0)); } };
-  };
-  await main(["--repo", d, "--no-sandbox"], {
-    spawn: fakeSpawn, log: () => {}, errLog: (m) => { warned += m; },
+test("every --repo reaches the request, in the order given", async (t) => {
+  // Order is load-bearing: the first root becomes the harness's cwd, so sorting
+  // or de-duplicating here would silently change what a relative path means
+  // inside the harness.
+  const a = scratchDir(t), b = scratchDir(t);
+  let request = null;
+  await main(["--repo", a, "--repo", b], {
+    launch: async (req) => { request = req; return { session: null }; },
+    log: () => {}, errLog: () => {},
   });
-  assert.equal(seen.SANDBOX, undefined, "--no-sandbox must not silently still confine");
+  assert.deepEqual(request.sandbox.workdirs, [a, b]);
+});
+
+test("--no-sandbox omits the sandbox and warns — confinement is the default", async (t) => {
+  const d = scratchDir(t);
+  let request = null, warned = "";
+  await main(["--repo", d, "--no-sandbox"], {
+    launch: async (req) => { request = req; return { session: null }; },
+    log: () => {}, errLog: (m) => { warned += m; },
+  });
+  // null, not `{enabled:false}` — absence is the only "off", so there is no
+  // boolean a mis-read could leave unapplied.
+  assert.equal(request.sandbox, null, "--no-sandbox must not silently still confine");
   assert.match(warned, /DANGEROUS|full user/i, "removing the sandbox must be loud");
+});
+
+test("the verb does NOT spawn a second node to re-parse its own flags", async (t) => {
+  // The regression this file's rewrite exists for. `cloister run` used to
+  // serialize its parsed arguments into environment variables and spawn
+  // `node scripts/harness-dev.mjs` to parse them back — so the confinement
+  // shape depended on a JSON blob surviving an env var whose name had to match
+  // on both sides. A typo in that name is a silently unconfined run.
+  const d = scratchDir(t);
+  let spawned = false;
+  await main(["--repo", d], {
+    launch: async () => { return { session: null }; },
+    spawn: () => { spawned = true; return { on: () => {} }; },
+    log: () => {}, errLog: () => {},
+  });
+  assert.equal(spawned, false, "the orchestration is called in-process, not re-launched");
+});
+
+// ── multi-root argument validation ────────────────────────────────────────
+
+test("validateRepos: a duplicate --repo is refused, not silently collapsed", () => {
+  // Collapsing would be the tempting fix and is wrong: the attested shape is
+  // built from the COUNT, so accepting two grants for one tree means the cert
+  // claims a wider boundary than the kernel enforces.
+  const d = mkdtempSync(join(tmpdir(), "cli-run-dup-"));
+  try {
+    assert.throws(() => validateRepos([d, d]), /given twice/);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test("validateRepos: a nested --repo is refused in either order", () => {
+  const outer = mkdtempSync(join(tmpdir(), "cli-run-nest-"));
+  const inner = join(outer, "inner");
+  try {
+    mkdirSync(inner);
+    assert.throws(() => validateRepos([outer, inner]), /is inside/);
+    assert.throws(() => validateRepos([inner, outer]), /is inside/);
+  } finally { rmSync(outer, { recursive: true, force: true }); }
+});
+
+test("validateRepos: a sibling whose path is a string prefix is NOT nested", () => {
+  // `/tmp/repo` and `/tmp/repo-two`: a substring check would call the second
+  // nested inside the first and refuse a legitimate pair.
+  const base = mkdtempSync(join(tmpdir(), "cli-run-sib-"));
+  try {
+    const a = join(base, "repo"), b = join(base, "repo-two");
+    mkdirSync(a); mkdirSync(b);
+    assert.deepEqual(validateRepos([a, b]), [a, b]);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test("validateRepos: no --repo at all still names what the flag is FOR", () => {
+  assert.throws(() => validateRepos([]), /ONLY directory the harness may touch/);
 });
 
 // ── no-side-effect paths ──────────────────────────────────────────────────

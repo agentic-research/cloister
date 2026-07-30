@@ -67,28 +67,70 @@ test("the declaration carries no ANSI colour — colour belongs to the renderer"
   assert.doesNotMatch(raw, /from ["']chalk["']/, "the declaration must not import chalk");
 });
 
-test("the harness launcher still READS the env contract cli-run writes", () => {
-  // The assertion cli-surface.mjs claimed existed and did not. Without it the
-  // pairing is two string literals in two files: cli-run.mjs writes
-  // HARNESS_WORKDIR/SANDBOX, harness-dev.mjs reads them, and renaming either
-  // side leaves `cloister run --repo X` silently confining to process.cwd()
-  // instead of X — with every other test still green, because a test that only
-  // checks the CLI SETS a variable cannot notice the consumer stopped reading it.
+test("the harness launcher reads every declared env name THROUGH the shared constant", () => {
+  // This rail used to check that the literal strings appeared in
+  // harness-dev.mjs, because cli-run.mjs wrote them and harness-dev.mjs read
+  // them — two literals in two files, and renaming either side left
+  // `cloister run --repo X` silently confining to process.cwd() instead of X.
   //
-  // lint-allow-rawparse: the property IS "does this literal name appear in the
-  // consumer", so reading the literal text is the property, not a shortcut.
+  // cli-run.mjs no longer writes them at all: it passes a typed LaunchRequest
+  // in-process. What remains couplable is the OPERATOR contract — the names a
+  // person types before `task harness:dev` — and the way that stops drifting is
+  // for the door to reference HARNESS_ENV rather than restate the strings.
+  //
+  // So the property tightened: not "the literal appears somewhere" but "the
+  // door reads it from the one declaration". A literal reintroduced alongside
+  // the constant would pass the old check and fail this one.
+  //
+  // lint-allow-rawparse: the property IS "does this file reference the shared
+  // constant", so reading its text is the property, not a shortcut.
   const consumer = readFileSync(resolve(ROOT, "scripts/harness-dev.mjs"), "utf8");
-  const unread = Object.entries(HARNESS_ENV)
-    .filter(([k]) => k !== "sandboxProvider")
-    .filter(([, name]) => !consumer.includes(name))
-    .map(([k, name]) => `${k} (${name})`);
+  const unread = Object.keys(HARNESS_ENV)
+    .filter((k) => k !== "sandboxProvider")
+    .filter((k) => !consumer.includes(`HARNESS_ENV.${k}`))
+    .map((k) => `${k} (${HARNESS_ENV[k]})`);
   assert.deepEqual(
     unread,
     [],
-    `harness-dev.mjs no longer reads: ${unread}. cloister run would confine to the wrong tree.`,
+    `harness-dev.mjs no longer reads: ${unread}. The operator contract would drift.`,
   );
   assert.ok(
-    consumer.includes(HARNESS_ENV.sandboxProvider),
+    consumer.includes("HARNESS_ENV.sandboxProvider"),
     `harness-dev.mjs no longer implements the ${HARNESS_ENV.sandboxProvider} provider`,
+  );
+
+  // And the names are not ALSO hardcoded next to the constant — which is how a
+  // shared declaration quietly becomes decorative.
+  for (const [key, name] of Object.entries(HARNESS_ENV)) {
+    if (key === "sandboxProvider") continue;
+    assert.ok(
+      !new RegExp(`["'\`]${name}["'\`]`).test(consumer),
+      `harness-dev.mjs hardcodes ${JSON.stringify(name)} alongside HARNESS_ENV.${key}`,
+    );
+  }
+});
+
+test("cloister run does NOT re-launch the harness bin — one orchestration, two doors", () => {
+  // The structural half of the same property. `cloister run` used to spawn
+  // `node scripts/harness-dev.mjs`; if it ever does again, the typed
+  // LaunchRequest silently degrades back into env-var strings and the tests
+  // that assert on the request would keep passing while the real path went
+  // through a serializer nothing checks.
+  //
+  // lint-allow-rawparse: "does this file spawn that file" is a textual property.
+  //
+  // Comment lines are stripped first. The header of cli-run.mjs NAMES
+  // harness-dev.mjs while explaining why it no longer spawns it — a rail that
+  // failed on the explanation would be pressure to delete the explanation.
+  const cliRun = readFileSync(resolve(ROOT, "scripts/cli-run.mjs"), "utf8");
+  const code = cliRun.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
+  assert.doesNotMatch(code, /harness-dev\.mjs/, "cloister run must not re-launch the bin");
+  assert.doesNotMatch(
+    code, /from "node:child_process"/,
+    "cloister run has no reason to spawn anything — the pipeline is called directly",
+  );
+  assert.match(
+    cliRun, /from "\.\/lib\/harness\/launch\.mjs"/,
+    "cloister run must call the shared pipeline directly",
   );
 });

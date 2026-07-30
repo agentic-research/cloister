@@ -254,15 +254,6 @@ test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () 
 // defect as an orphaned check, committed inside the rail written to end it.
 // A cited gate is now verified to exist and to invoke the task.
 const OPT_IN_CHECKS = {
-  "cluster:go:verify": {
-    reason:
-      "needs a Go toolchain for the end-to-end round-trip (dump cluster.ts → " +
-      "unmarshal into the generated Go types → round-trip without loss). The " +
-      "drift half of this pair IS gated in CI; only the semantic round-trip is " +
-      "opt-in, and it cannot run in `task lint` without making Go a hard " +
-      "prerequisite of the inner loop.",
-    gatedBy: null,
-  },
   "image:check": {
     reason:
       "needs the melange AND apko binaries, which `task lint` must not require — a " +
@@ -407,3 +398,4 @@ test("PROPERTY: an opt-in that cites a gate is cited correctly", () => {
     ([, e]) => e.gatedBy === null || typeof e.gatedBy === "string",
   );
 });
+
