@@ -44,6 +44,39 @@ cloister run --harness claude-code --repo /abs/api --repo /abs/shared
 
 ---
 
+## Getting `cloister` on your PATH
+
+`cloister` is not on your PATH until you put it there. `which cloister` returning
+nothing is the expected starting state, not a broken install.
+
+```sh
+cd /path/to/cloister
+task install                 # symlinks into ~/.local/bin
+cloister --help
+```
+
+Override the destination with `CLOISTER_BIN_DIR` if `~/.local/bin` is not on your
+PATH. `task uninstall` removes it, and refuses if the target is not a symlink
+into this checkout.
+
+Deliberately a task rather than `pnpm link --global`: that is a package-manager
+incantation that mutates the machine, and installing cloister is cloister's to
+own. The symlink points INTO the checkout, so it follows the branch you are on —
+re-run `task install` if you move the checkout.
+
+Without installing, every command below works as `node scripts/cloister-cli.mjs …`
+from the repo root.
+
+**You run `cloister` from anywhere** — it is `--repo` that says which tree the
+harness is confined to, not your working directory. That is the whole point:
+
+```sh
+cd ~/anywhere
+cloister run --harness claude-code --repo ~/github/art/ley-line-open
+```
+
+---
+
 ## Prerequisites
 
 **1. An API key — not your subscription.**

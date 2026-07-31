@@ -19,6 +19,7 @@ definitions next.
 ## Running a harness
 
 ```sh
+task install                 # puts `cloister` on your PATH (~/.local/bin)
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
 
