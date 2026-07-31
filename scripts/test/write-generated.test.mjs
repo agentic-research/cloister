@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeGeneratedFile } from "../write-generated.mjs";
+import { writeGeneratedFile } from "../../cli/lib/atomic-write.mjs";
 
 function scratch(t) {
   const dir = mkdtempSync(join(tmpdir(), "write-generated-"));

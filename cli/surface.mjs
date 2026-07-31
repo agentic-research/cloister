@@ -177,6 +177,31 @@ export const COMMANDS = [
     seeAlso: "docs/adr/0061-skills-declared-and-verified.md",
   },
   {
+    name: "cluster generate",
+    usage: "cloister cluster generate [--dir <path>] [--check]",
+    summary: "Generate every committed projection from cluster.toml",
+    detail:
+      "Reads cluster.toml once, validates it, then produces canonical " +
+      "cluster.toml, src/generated/cluster.ts, cloister.capnp and " +
+      "cluster.compose.yaml. If validation or rendering fails, the existing " +
+      "generated files are left alone.",
+    flags: [
+      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+      { flag: "--check", summary: "report drift without writing any file" },
+    ],
+  },
+  {
+    name: "cluster resolve",
+    usage: "cloister cluster resolve [--dir <path>]",
+    summary: "Resolve declared inputs into cluster.lock.toml",
+    detail:
+      "Reads [inputs.*] from cluster.toml, fetches or reads each declared ref, " +
+      "and records its content digest in cluster.lock.toml.",
+    flags: [
+      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+    ],
+  },
+  {
     name: "cluster up",
     usage: "cloister cluster up [--dir <path>] [--detach]",
     summary: "Bring a declared cluster up via compose",

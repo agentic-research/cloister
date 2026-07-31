@@ -362,56 +362,39 @@ tasks:
       - pkg/identity/identity.go
 
   cluster:emit:
-    desc: "Emit deployment artifacts (compose YAML) from cluster.toml via the canonical TOML → cluster.ts pipeline"
-    deps: [cluster:toml]
+    desc: "Generate every committed cluster artifact from cluster.toml through the Cloister CLI."
     cmds:
-      # NODE_TSX, not bare node: emit-compose dynamically imports
-      # src/generated/cluster.ts, and Node 20 (what CI runs) has no TS loader —
-      # `Unknown file extension ".ts"`. Node 25 strips types natively, which is
-      # why this passed locally for as long as nothing in CI invoked it
-      # (cloister-cb735c).
-      - "{{.NODE_TSX}} scripts/emit-compose.mjs"
-    sources:
-      - src/generated/cluster.ts
-      - scripts/emit-compose.mjs
-    generates:
-      - cluster.compose.yaml
-
-  # ── Bidi TOML ↔ cluster.ts pipeline (ADR-0025, cloister-ae06f3) ─────────
-  #
-  # Forward leg (`cluster:toml`):     cluster.toml → cluster.ts via
-  #                                   @iarna/toml.parse → ClusterSchema →
-  #                                   semantic check → render.
-  # Reverse leg (`cluster:toml:export`): cluster.ts → canonical TOML
-  #                                      (stdout; pass `-- --write <path>`
-  #                                      to land at a file).
-  # Drift gate (`cluster:toml:roundtrip`): re-export current cluster.ts to
-  #                                        a tmp TOML and diff against the
-  #                                        committed cluster.toml — fails
-  #                                        on drift. Same shape as
-  #                                        `cluster:zod:check-drift`.
-  #
-  # The tasks require the tsx loader because the scripts dynamically
-  # import the .ts ClusterSchema from src/generated/cluster.zod.ts.
-  cluster:toml:
-    desc: "Operator workflow — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts, then re-canonicalize cluster.toml (cloister-ae06f3 + cloister-fe891f, ADR-0025)."
-    # Two cmds chained: forward leg (cluster.toml → cluster.ts) then
-    # reverse leg (cluster.ts → canonical cluster.toml). Operators edit
-    # cluster.toml in whatever shape (`httpPort = 9999`, bundle inserted
-    # anywhere); after `task cluster:toml`, both files are in canonical
-    # sync. Same idempotency profile as `task cluster:zod` regenerating
-    # cluster.zod.ts. The chain is the SPEC of the workflow; the
-    # cluster-toml contract test pins it.
-    cmds:
-      - "{{.NODE_TSX}} scripts/toml-to-cluster.mjs"
-      - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs --write cluster.toml"
+      - node bin/cloister.mjs cluster generate --dir .
     sources:
       - cluster.toml
-      - scripts/toml-to-cluster.mjs
-      - scripts/cluster-to-toml.mjs
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
+    generates:
+      - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
+
+  # ── cluster.toml source of truth (ADR-0025, cloister-ae06f3) ──────────────
+  #
+  # `cloister cluster generate` owns the forward transaction: it reads and
+  # validates cluster.toml once, then atomically updates every committed
+  # projection. Task targets are aliases, not an independent pipeline.
+  #
+  # `cluster:toml:export` is a repository-only reverse export for migration
+  # and diagnosis. It is not part of ordinary generation.
+  cluster:toml:
+    desc: "Operator workflow alias — generate canonical cluster.toml and every projection through the Cloister CLI."
+    cmds:
+      - node bin/cloister.mjs cluster generate --dir .
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
       - src/generated/cluster.zod.ts
     generates:
       - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
 
   cluster:toml:export:
     desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
@@ -419,105 +402,57 @@ tasks:
       - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs {{.CLI_ARGS}}"
     sources:
       - src/generated/cluster.ts
+      - cli/lib/cluster/cluster-to-toml.mjs
       - scripts/cluster-to-toml.mjs
 
   cluster:toml:roundtrip:
-    desc: "Drift gate — re-export src/generated/cluster.ts to a temp TOML and diff against the committed cluster.toml. Fails if the two diverge (operator edited cluster.toml without running `task cluster:toml`, or vice-versa). Mirrors `cluster:zod:check-drift`."
-    # Intentionally no `sources:` block — gates must always run; the
-    # task-runner's mtime cache would otherwise skip the gate when
-    # nothing visibly changed, which is exactly the case where drift
-    # silently lands (someone hand-edited cluster.ts after a stale
-    # cluster.toml). Same shape as cluster:zod:check-drift.
+    desc: "Compatibility name for the first-party no-write generation check. Verifies every committed projection matches cluster.toml."
     cmds:
-      - |
-        set -eu
-        if [ ! -f cluster.toml ]; then
-          echo "FAIL — cluster.toml does not exist at repo root; run \`task cluster:toml:export -- --write cluster.toml\` to seed it" >&2
-          exit 1
-        fi
-        TMPDIR=$(mktemp -d)
-        trap 'rm -rf "$TMPDIR"' EXIT
-        # Use `--write` so any successful write commits atomically to the
-        # tmpdir before diff; `set -eu` surfaces script failures.
-        {{.NODE_TSX}} scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
-        if [ ! -f "$TMPDIR/cluster.toml" ]; then
-          echo "FAIL — cluster-to-toml produced no output; check tsx stderr above" >&2
-          exit 1
-        fi
-        if ! diff -u cluster.toml "$TMPDIR/cluster.toml"; then
-          echo "" >&2
-          echo "DRIFT — committed cluster.toml differs from what cluster-to-toml.mjs" >&2
-          echo "would generate from the current src/generated/cluster.ts. Either:" >&2
-          echo "  - operator edited cluster.toml: run \`task cluster:toml\` to regenerate cluster.ts, then commit both" >&2
-          echo "  - operator edited cluster.ts: run \`task cluster:toml:export -- --write cluster.toml\` to refresh cluster.toml, then commit both" >&2
-          exit 1
-        fi
-        echo "OK — cluster.toml matches the cluster-to-toml.mjs canonical output for the current cluster.ts"
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   test:cluster-toml:
-    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the scripts can dynamically import src/generated/cluster.zod.ts."
+    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the product cluster library can import src/generated/cluster.zod.ts."
     cmds:
       - "{{.NODE_TSX}} --test scripts/test/cluster-toml-roundtrip.test.mjs"
     sources:
       - scripts/test/cluster-toml-roundtrip.test.mjs
-      - scripts/toml-to-cluster.mjs
-      - scripts/cluster-to-toml.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
+      - cli/lib/cluster/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
 
   emit:cloister-capnp:
-    desc: "Phase 2 of \"cloister.capnp as build artifact\" arc (cloister-345ad1, ADR-0031) — generate cloister.capnp from cluster.toml ([[routes]] + [metadata]) + cluster.lock.toml ([[generated_backends]]). Byte-stable; safe to commit the output."
+    desc: "Compatibility alias — generate cloister.capnp and the other cluster.toml projections through the Cloister CLI."
     cmds:
-      - "{{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write cloister.capnp"
+      - node bin/cloister.mjs cluster generate --dir .
     sources:
       - cluster.toml
       - cluster.lock.toml
-      - scripts/emit-cloister-capnp.mjs
-      - scripts/toml-to-cluster.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
     generates:
       - cloister.capnp
 
   emit:cloister-capnp:drift:
-    desc: "Drift gate — re-emit cloister.capnp to a tmp file + diff against the committed copy. Same shape as cluster:toml:roundtrip + cluster:zod:check-drift. Per cloister-345ad1 / ADR-0031."
+    desc: "Compatibility name for the first-party no-write generation check. Verifies cloister.capnp and the other cluster.toml projections."
     cmds:
-      - |
-        set -eu
-        if [ ! -f cloister.capnp ]; then
-          echo "FAIL — cloister.capnp does not exist at repo root; run \`task emit:cloister-capnp\` to seed it" >&2
-          exit 1
-        fi
-        TMPDIR=$(mktemp -d)
-        trap 'rm -rf "$TMPDIR"' EXIT
-        {{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write "$TMPDIR/cloister.capnp" >/dev/null
-        if [ ! -f "$TMPDIR/cloister.capnp" ]; then
-          echo "FAIL — emit-cloister-capnp produced no output; check tsx stderr above" >&2
-          exit 1
-        fi
-        if ! diff -u cloister.capnp "$TMPDIR/cloister.capnp"; then
-          echo "" >&2
-          echo "DRIFT — committed cloister.capnp differs from what" >&2
-          echo "emit-cloister-capnp.mjs would generate from the current" >&2
-          echo "cluster.toml + cluster.lock.toml. Run \`task emit:cloister-capnp\`" >&2
-          echo "to regenerate, then commit. Per cloister-345ad1 / ADR-0031." >&2
-          exit 1
-        fi
-        echo "OK — cloister.capnp matches the emit-cloister-capnp.mjs canonical output"
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   test:emit-cloister-capnp:
-    desc: "Phase 2 of cloister-345ad1 — contract tests for scripts/emit-cloister-capnp.mjs."
+    desc: "Phase 2 of cloister-345ad1 — contract tests for the product-owned capnp renderer."
     cmds:
       - "{{.NODE_TSX}} --test scripts/test/emit-cloister-capnp.test.mjs"
     sources:
       - scripts/test/emit-cloister-capnp.test.mjs
-      - scripts/emit-cloister-capnp.mjs
-      - scripts/toml-to-cluster.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
 
   cluster:resolve:
     desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
     cmds:
-      - "{{.NODE_TSX}} scripts/resolve-inputs.mjs"
+      - node bin/cloister.mjs cluster resolve --dir .
     sources:
       - cluster.toml
-      - scripts/resolve-inputs.mjs
+      - cli/lib/cluster/resolve-inputs.mjs
     generates:
       - cluster.lock.toml
 
@@ -545,7 +480,7 @@ tasks:
     desc: "Run the cluster locally via nerdctl/podman/docker compose. Delegates to `cloister cluster up` — the SAME verb a scaffolded cluster uses, so this repo's cluster and one you own behave identically. Runtime detection and COMPOSE_CMD live in the CLI, not here."
     deps: [cluster:emit]
     cmds:
-      - node scripts/cloister-cli.mjs cluster up --dir . {{.CLI_ARGS}}
+      - node bin/cloister.mjs cluster up --dir . {{.CLI_ARGS}}
 
   cluster:down:
     desc: "Tear down the local cluster (preserves volumes — pass `-- --destroy` to also remove them). Delegates to `cloister cluster down`; DESTROY=1 still works via the shim below for muscle memory."
@@ -556,7 +491,7 @@ tasks:
         # an operator who learned it should not discover the change by having a
         # teardown silently NOT destroy what they expected.
         if [ "${DESTROY:-0}" = "1" ]; then ARGS="$ARGS --destroy"; fi
-        exec node scripts/cloister-cli.mjs cluster down --dir . $ARGS
+        exec node bin/cloister.mjs cluster down --dir . $ARGS
 
   cluster:test:
     desc: "Tier 1 integration matrix (cloister-1b1124) — builds + smokes all 5 sibling OCI images then boots cluster.capnp via task cluster:up. Opt-in, not part of `task lint`. ~5-10 min cold; SKIP_BUILDS=1 reuses loaded images. See scripts/integration-test.sh."
@@ -1071,24 +1006,9 @@ tasks:
       - scripts/lint-trust-env-locality.mjs
 
   cluster:emit:check-drift:
-    desc: "Drift gate for cluster.compose.yaml — re-emit to a temp file and diff against the committed copy. It is a GENERATED artifact that is committed, and it had no gate: the committed copy was found stale by an entire bundle (4 bundles/3 wires/3 inputs vs the manifest's 5/4/4), predating notme-proxy and the canonical-hours input. `lint:tenant-docs` READS this file, so it was checking tenant coverage against stale input and passing vacuously (cloister-cb735c)."
+    desc: "First-party no-write generation check for cluster.compose.yaml and every other committed cluster.toml projection."
     cmds:
-      - |
-        set -eu
-        TMP=$(mktemp -d)
-        trap 'rm -rf "$TMP"' EXIT
-        COMPOSE_OUTPUT="$TMP/cluster.compose.yaml" {{.NODE_TSX}} scripts/emit-compose.mjs >/dev/null
-        if ! diff -u cluster.compose.yaml "$TMP/cluster.compose.yaml"; then
-          echo "DRIFT — cluster.compose.yaml differs from what the emitter produces." >&2
-          echo "Regenerate + commit:  task cluster:emit && git add cluster.compose.yaml" >&2
-          exit 1
-        fi
-        echo "OK — cluster.compose.yaml matches the emitter output"
-    sources:
-      - scripts/emit-compose.mjs
-      - src/generated/cluster.ts
-      - cluster.lock.toml
-      - cluster.compose.yaml
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   cli:docs:
     desc: "Regenerate docs/reference/cli.md from cli/surface.mjs — the single CLI surface declaration that also produces `cloister --help`."

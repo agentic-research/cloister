@@ -69,23 +69,24 @@ function spawnSyncSafe(bin, args) {
 
 /**
  * @param {string[]} argv
- * @returns {{help:boolean, sub:string|null, dir:string, detach:boolean, destroy:boolean, passthrough:string[]}}
+ * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, passthrough:string[]}}
  */
 export function parseArgs(argv) {
   const out = {
-    help: false, sub: null, dir: ".", detach: false, destroy: false, passthrough: [],
+    help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--help" || a === "-h") { out.help = true; continue; }
     if (a === "--detach" || a === "-d") { out.detach = true; continue; }
     if (a === "--destroy") { out.destroy = true; continue; }
+    if (a === "--check") { out.check = true; continue; }
     if (a === "--dir") {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError("--dir requires a value");
       out.dir = v; i++; continue;
     }
-    if (!out.sub && (a === "up" || a === "down")) { out.sub = a; continue; }
+    if (!out.sub && ["generate", "resolve", "up", "down"].includes(a)) { out.sub = a; continue; }
     if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
     throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
   }
@@ -106,7 +107,7 @@ export function clusterComposePath(dir) {
     throw new ClusterUsageError(
       `no cluster.compose.yaml in ${root}. Either this is not a cluster directory, or it ` +
       `has not been emitted yet — scaffold one with \`cloister init --recipe <name> --out <dir>\`, ` +
-      `or run \`task cluster:emit\` in a cloister checkout.`,
+      `or run \`cloister cluster generate --dir ${root}\`.`,
     );
   }
   return { root, file };
@@ -125,8 +126,54 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw e;
   }
   if (args.help || !args.sub) {
-    log(renderCommandHelp(args.sub === "down" ? "cluster down" : "cluster up"));
+    const helpCommand = args.sub ? `cluster ${args.sub}` : "cluster generate";
+    log(renderCommandHelp(helpCommand));
     return args.sub ? 0 : 2;
+  }
+
+  const selectedRoot = isAbsolute(args.dir) ? args.dir : resolve(process.cwd(), args.dir);
+  if (args.sub === "generate") {
+    try {
+      const generate = deps.generateClusterArtifacts
+        ?? (await import("../lib/cluster/generate.mjs")).generateClusterArtifacts;
+      const result = await generate({
+        root: selectedRoot,
+        check: args.check,
+        env: deps.env ?? process.env,
+        warn: errLog,
+      });
+      const relative = result.changed.map((file) => file.slice(selectedRoot.length + 1));
+      if (args.check && relative.length > 0) {
+        for (const file of relative) errLog(`cloister cluster generate: drift: ${file}`);
+        return 1;
+      }
+      if (args.check) log("cloister cluster generate: all projections match cluster.toml");
+      else if (relative.length === 0) log("cloister cluster generate: generated files already current");
+      else log(`cloister cluster generate: generated ${relative.join(", ")}`);
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster generate: ${error.message}`);
+      return 2;
+    }
+  }
+
+  if (args.sub === "resolve") {
+    try {
+      const resolveInputs = deps.resolveClusterInputs
+        ?? (await import("../lib/cluster/resolve-inputs.mjs")).resolveClusterInputs;
+      const result = await resolveInputs({
+        root: selectedRoot,
+        fetchImpl: deps.fetchImpl ?? fetch,
+        log,
+        errLog,
+        env: deps.env ?? process.env,
+      });
+      log(`cloister cluster resolve: ${result.resolvedCount} input(s) pinned`);
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster resolve: ${error.message}`);
+      return 1;
+    }
   }
 
   let root, file, compose;

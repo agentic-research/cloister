@@ -11,7 +11,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveTenancy, emitCompose } from "../emit-compose.mjs";
+import { resolveTenancy, emitCompose } from "../../cli/lib/cluster/emit-compose.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 

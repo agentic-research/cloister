@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 
-import { emitCloisterCapnp } from "../emit-cloister-capnp.mjs";
+import { emitCloisterCapnp } from "../../cli/lib/cluster/emit-cloister-capnp.mjs";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 

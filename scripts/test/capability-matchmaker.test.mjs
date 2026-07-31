@@ -16,7 +16,7 @@ import {
   collectProviders,
   detectCycle,
   matchCapabilities,
-} from "../capability-matchmaker.mjs";
+} from "../../cli/lib/cluster/capability-matchmaker.mjs";
 
 const input = (name, provides = [], requires = []) => ({ name, provides, requires });
 

@@ -13,11 +13,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { parse as parseToml } from "smol-toml";
 
 import {
   parseArgs, clusterComposePath, resolveComposeCmd, main, ClusterUsageError,
 } from "../../cli/commands/cluster.mjs";
+import { main as cliMain } from "../../cli/index.mjs";
 import { SHARED_FILES } from "../../cli/commands/init.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -28,6 +30,103 @@ function clusterDir(t) {
   writeFileSync(join(d, "cluster.compose.yaml"), "services: {}\n");
   return d;
 }
+
+function generationDir(t) {
+  const d = mkdtempSync(join(tmpdir(), "cluster-generate-"));
+  t.after(() => rmSync(d, { recursive: true, force: true }));
+  writeFileSync(join(d, "cluster.toml"), readFileSync(join(ROOT, "cluster.toml"), "utf8"));
+  return d;
+}
+
+function generatedBodies(root) {
+  return Object.fromEntries([
+    "cluster.toml",
+    "src/generated/cluster.ts",
+    "cloister.capnp",
+    "cluster.compose.yaml",
+  ].map((file) => [file, readFileSync(join(root, file), "utf8")]));
+}
+
+test("generate makes every projection from cluster.toml and is byte-idempotent", async (t) => {
+  const root = generationDir(t);
+  const logs = [];
+
+  assert.equal(
+    await main(["generate", "--dir", root], { log: (line) => logs.push(line), errLog: () => {} }),
+    0,
+  );
+  const first = generatedBodies(root);
+  assert.ok(first["cluster.toml"].length > 0, "canonical cluster.toml must be retained");
+  assert.match(first["src/generated/cluster.ts"], /export const cluster/);
+  assert.match(first["cloister.capnp"], /^@0x[0-9a-f]+;/m);
+  assert.match(first["cluster.compose.yaml"], /^services:/m);
+
+  assert.equal(
+    await main(["generate", "--dir", root], { log: (line) => logs.push(line), errLog: () => {} }),
+    0,
+  );
+  assert.deepEqual(generatedBodies(root), first, "a second generation must be byte-identical");
+  assert.ok(logs.some((line) => /generated/i.test(line)), "the command should name what it did");
+});
+
+test("generate --check reports drift without writing any projection", async (t) => {
+  const root = generationDir(t);
+  assert.equal(await main(["generate", "--dir", root], { log: () => {}, errLog: () => {} }), 0);
+  writeFileSync(join(root, "cluster.compose.yaml"), "services:\n  drift: {}\n");
+  const before = generatedBodies(root);
+  const errors = [];
+
+  assert.equal(
+    await main(["generate", "--check", "--dir", root], {
+      log: () => {},
+      errLog: (line) => errors.push(line),
+    }),
+    1,
+  );
+  assert.deepEqual(generatedBodies(root), before, "--check must not repair or rewrite drift");
+  assert.ok(errors.some((line) => line.includes("cluster.compose.yaml")));
+});
+
+test("the installed dispatcher keeps cluster output on its injected streams", async (t) => {
+  const root = generationDir(t);
+  let stdout = "";
+  let stderr = "";
+
+  const status = await cliMain(["cluster", "generate", "--dir", root], {
+    stdout: { write: (chunk) => { stdout += chunk; } },
+    stderr: { write: (chunk) => { stderr += chunk; } },
+    env: {},
+  });
+
+  assert.equal(status, 0, stderr);
+  assert.match(stdout, /cloister cluster generate:/);
+  assert.match(stderr, /emit-compose: bundle/);
+});
+
+test("resolve materializes lockfile pins from the selected cluster.toml", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "cluster-resolve-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const input = join(root, "server.json");
+  writeFileSync(input, '{"name":"fixture","remotes":[{"type":"streamable-http"}]}\n');
+  writeFileSync(join(root, "cluster.toml"), [
+    "[metadata]",
+    'name = "fixture"',
+    'version = "0.1.0"',
+    "",
+    "[inputs.fixture]",
+    `ref = ${JSON.stringify(pathToFileURL(input).href)}`,
+    "",
+  ].join("\n"));
+
+  const errors = [];
+  const status = await main(["resolve", "--dir", root], {
+    log: () => {},
+    errLog: (line) => errors.push(line),
+  });
+  assert.equal(status, 0, errors.join("\n"));
+  const lock = parseToml(readFileSync(join(root, "cluster.lock.toml"), "utf8"));
+  assert.match(lock.inputs.fixture.sha256, /^sha256:[0-9a-f]{64}$/);
+});
 
 test("a directory with no compose file is refused BEFORE spawning anything", (t) => {
   // compose's own "file not found" reads as a compose problem and sends people

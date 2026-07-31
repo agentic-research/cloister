@@ -1126,7 +1126,7 @@ test("parsePackagesOci: oci entry missing identifier throws (opt-in must be corr
   assert.throws(() => parsePackagesOci(bytes), /identifier/);
 });
 
-test("resolveInput: file:// server.json with oci packages populates row.oci", async () => {
+test("resolveInput: file:// server.json records an injected registry 404 as absent", async () => {
   const dir = mkdtempSync(resolve(tmpdir(), "resolve-oci-"));
   try {
     const path = resolve(dir, "server.json");
@@ -1142,13 +1142,13 @@ test("resolveInput: file:// server.json with oci packages populates row.oci", as
     // the downgrade the same way an operator would.
     const row = await resolveInput({
       ...specDefaults({ name: "mache", ref: `file://${path}` }),
-      mutableTagReason: "synthetic test fixture — no registry to probe",
+      mutableTagReason: "synthetic test fixture — no published image",
+    }, {
+      fetchImpl: async () => new Response("", { status: 404 }),
     });
-    // `unresolved: "absent"` is correct and load-bearing here: this fixture
-    // names tag 0.13.0, which the real registry 404s (mache ships v0.17.0+).
-    // A 404 is the one status that genuinely means not-there — distinct from
-    // ley-line-open's "unauthorized", where ghcr refuses the anonymous token
-    // and we cannot tell unpublished from private.
+    // A deterministic 404 is the one response that genuinely means
+    // not-there. This test must never make its assertion depend on the current
+    // state or reachability of a public registry.
     const { all: _all, ...pin } = row.oci;
     assert.deepEqual(pin, {
       unresolved: "absent",

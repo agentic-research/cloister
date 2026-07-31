@@ -62,24 +62,18 @@
 //   CLOISTER_LOCKFILE     — override path to cluster.lock.toml.
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { tsImport } from "tsx/esm/api";
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import { writeGeneratedFile } from "../atomic-write.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../../..");
 
-const CLUSTER_TOML_PATH = process.env.CLOISTER_CLUSTER_TOML
-  ? resolvePath(process.env.CLOISTER_CLUSTER_TOML)
-  : resolvePath(REPO_ROOT, "cluster.toml");
-
-const LOCKFILE_PATH = process.env.CLOISTER_LOCKFILE
-  ? resolvePath(process.env.CLOISTER_LOCKFILE)
-  : resolvePath(REPO_ROOT, "cluster.lock.toml");
-
-class ToolchainError extends Error {}
+export class ToolchainError extends Error {}
 class ResolveError extends Error {
   constructor(inputName, detail) {
     super(`input "${inputName}": ${detail}`);
@@ -106,7 +100,8 @@ class ResolveError extends Error {
  * Throws `ResolveError` on failure. The CLI wrapper collects all
  * errors before exiting so the operator sees the full list.
  */
-export async function resolveInput(spec) {
+export async function resolveInput(spec, deps = {}) {
+  const fetchImpl = deps.fetchImpl ?? fetch;
   // `from` (dev-loop override) wins over `ref` per ADR-0026
   // §"Why filesystem from = ... is the dev-loop escape only".
   const rawRef = (spec.from && spec.from.length > 0) ? spec.from : spec.ref;
@@ -141,7 +136,7 @@ export async function resolveInput(spec) {
           `http:// is not allowed (man-in-the-middle hazard); use https:// — got ${ref}`,
         );
       }
-      const r = await fetch(ref);
+      const r = await fetchImpl(ref);
       if (!r.ok) {
         throw new ResolveError(spec.name, `HTTP ${r.status} ${r.statusText} for ${ref}`);
       }
@@ -161,7 +156,7 @@ export async function resolveInput(spec) {
         throw new ResolveError(spec.name, e.message);
       }
       const httpsUrl = githubRefToHttpsUrl(parsed);
-      const r = await fetch(httpsUrl);
+      const r = await fetchImpl(httpsUrl);
       if (!r.ok) {
         throw new ResolveError(
           spec.name,
@@ -273,7 +268,7 @@ export async function resolveInput(spec) {
     const resolvedAll = [];
     for (const entry of oci.all) {
       if (entry.identifier && entry.version && !entry.digest) {
-        const p = await probeOciDigest(entry.identifier, entry.version);
+        const p = await probeOciDigest(entry.identifier, entry.version, fetchImpl);
         resolvedAll.push(p.state === "present" && p.digest ? { ...entry, digest: p.digest } : entry);
       } else {
         resolvedAll.push(entry);
@@ -285,7 +280,7 @@ export async function resolveInput(spec) {
   }
 
   if (oci && oci.identifier && oci.version && !oci.digest) {
-    const probe = await probeOciDigest(oci.identifier, oci.version);
+    const probe = await probeOciDigest(oci.identifier, oci.version, fetchImpl);
     const digest = probe.state === "present" ? probe.digest : "";
     if (digest) {
       oci = { ...oci, digest };
@@ -1314,16 +1309,31 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────
 
-export async function main() {
-  if (!existsSync(CLUSTER_TOML_PATH)) {
-    throw new ToolchainError(`cluster.toml not found at ${CLUSTER_TOML_PATH}`);
+export class ResolutionFailedError extends Error {}
+
+export async function resolveClusterInputs({
+  root = REPO_ROOT,
+  fetchImpl = fetch,
+  log = console.log,
+  errLog = console.error,
+  env = process.env,
+} = {}) {
+  const clusterTomlPath = env.CLOISTER_CLUSTER_TOML
+    ? resolvePath(env.CLOISTER_CLUSTER_TOML)
+    : resolvePath(root, "cluster.toml");
+  const lockfilePath = env.CLOISTER_LOCKFILE
+    ? resolvePath(env.CLOISTER_LOCKFILE)
+    : resolvePath(root, "cluster.lock.toml");
+
+  if (!existsSync(clusterTomlPath)) {
+    throw new ToolchainError(`cluster.toml not found at ${clusterTomlPath}`);
   }
-  const raw = readFileSync(CLUSTER_TOML_PATH, "utf8");
+  const raw = readFileSync(clusterTomlPath, "utf8");
   let parsed;
   try {
     parsed = parseToml(raw);
   } catch (e) {
-    throw new ToolchainError(`failed to parse ${CLUSTER_TOML_PATH}: ${e.message}`);
+    throw new ToolchainError(`failed to parse ${clusterTomlPath}: ${e.message}`);
   }
 
   const metadata = parsed.metadata ?? { name: "unknown", version: "0.0.0" };
@@ -1348,8 +1358,9 @@ export async function main() {
   // the same manumation this replaces. Once the v0.11.3 bump lands
   // (cloister-9170d0, blocked on cloister-944766) the schema supplies its own
   // defaults and this becomes a plain `.parse()`.
-  const { InputSpecSchema } = await import(
-    pathToFileURL(resolvePath(REPO_ROOT, "src/generated/cluster.zod.ts")).href
+  const { InputSpecSchema } = await tsImport(
+    pathToFileURL(resolvePath(REPO_ROOT, "src/generated/cluster.zod.ts")).href,
+    { parentURL: import.meta.url },
   );
   const inputShape = InputSpecSchema?._def?.getter?.()?.shape
     ?? InputSpecSchema?.def?.getter?.()?.shape;
@@ -1403,44 +1414,61 @@ export async function main() {
   });
 
   if (specs.length === 0) {
-    console.log(`resolve-inputs: no [inputs.*] declared in ${CLUSTER_TOML_PATH} — nothing to resolve`);
-    return;
+    log(`resolve-inputs: no [inputs.*] declared in ${clusterTomlPath} — nothing to resolve`);
+    return { lockfilePath, resolvedCount: 0 };
   }
 
-  console.log(`resolve-inputs: resolving ${specs.length} input(s) from ${CLUSTER_TOML_PATH}`);
+  log(`resolve-inputs: resolving ${specs.length} input(s) from ${clusterTomlPath}`);
 
   const resolved = [];
   const failures = [];
   for (const spec of specs) {
     try {
-      const row = await resolveInput(spec);
+      const row = await resolveInput(spec, { fetchImpl });
       resolved.push(row);
-      console.log(`  ✓ ${spec.name} → ${row.sha256.slice(0, 19)}... (${row.bytes} bytes)`);
+      log(`  ✓ ${spec.name} → ${row.sha256.slice(0, 19)}... (${row.bytes} bytes)`);
     } catch (e) {
       failures.push(e);
-      console.error(`  ✗ ${spec.name}: ${e.detail ?? e.message}`);
+      errLog(`  ✗ ${spec.name}: ${e.detail ?? e.message}`);
     }
   }
 
   if (failures.length > 0) {
-    console.error(`\nresolve-inputs: ${failures.length} input(s) failed to resolve`);
-    process.exit(1);
+    throw new ResolutionFailedError(`${failures.length} input(s) failed to resolve`);
   }
 
   const doc = buildLockfile(metadata, resolved);
-  writeFileSync(LOCKFILE_PATH, stringifyToml(doc));
-  console.log(`\nresolve-inputs: wrote ${LOCKFILE_PATH}`);
+  writeGeneratedFile(lockfilePath, stringifyToml(doc));
+  log(`\nresolve-inputs: wrote ${lockfilePath}`);
+  return { lockfilePath, resolvedCount: resolved.length };
+}
+
+export async function main(_argv = process.argv.slice(2), deps = {}) {
+  try {
+    await resolveClusterInputs({
+      root: deps.root ?? REPO_ROOT,
+      fetchImpl: deps.fetchImpl ?? fetch,
+      log: deps.log ?? console.log,
+      errLog: deps.errLog ?? console.error,
+      env: deps.env ?? process.env,
+    });
+    return 0;
+  } catch (e) {
+    const errLog = deps.errLog ?? console.error;
+    if (e instanceof ResolutionFailedError) {
+      errLog(`\nresolve-inputs: ${e.message}`);
+      return 1;
+    }
+    if (e instanceof ToolchainError) {
+      errLog(`resolve-inputs: ${e.message}`);
+      return 2;
+    }
+    throw e;
+  }
 }
 
 // Run when invoked as a script (not when imported by tests).
 const invokedAsScript = process.argv[1] && resolvePath(process.argv[1]) === resolvePath(fileURLToPath(import.meta.url));
 if (invokedAsScript) {
-  main().catch((e) => {
-    if (e instanceof ToolchainError) {
-      console.error(`resolve-inputs: ${e.message}`);
-      process.exit(2);
-    }
-    console.error(`resolve-inputs: unexpected error: ${e.message}`);
-    process.exit(2);
-  });
+  process.exitCode = await main();
 }

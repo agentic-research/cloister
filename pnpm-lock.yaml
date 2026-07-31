@@ -27,6 +27,9 @@ importers:
       smol-toml:
         specifier: ^1.7.1
         version: 1.7.1
+      tsx:
+        specifier: ^4.23.0
+        version: 4.23.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -40,9 +43,6 @@ importers:
       fast-check:
         specifier: ^4.9.0
         version: 4.9.0
-      tsx:
-        specifier: ^4.23.0
-        version: 4.23.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

@@ -11,10 +11,9 @@
 // `node:child_process`, or a TOML parser. Node-native test runner +
 // tsx loader (so the .ts zod schema can be imported).
 //
-// Phase 2 baseline: the stub scripts throw `not implemented`; every
-// behavioral test below SHOULD FAIL today. Phases 3-5 turn them
-// green one tranche at a time. Phase 5 closes the loop with byte-
-// equal canonical roundtrip.
+// The product-owned cluster library is exercised directly here. Thin
+// compatibility wrappers under scripts/ are covered only where preserving an
+// older repository workflow is itself the contract.
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
@@ -27,15 +26,15 @@ import { fileURLToPath } from "node:url";
 import {
   parseTomlToCluster,
   renderClusterTs,
-} from "../toml-to-cluster.mjs";
-import { clusterToToml } from "../cluster-to-toml.mjs";
+} from "../../cli/lib/cluster/toml-to-cluster.mjs";
+import { clusterToToml } from "../../cli/lib/cluster/cluster-to-toml.mjs";
 import { ClusterSchema } from "../../src/generated/cluster.zod.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
-const TOML_TO_CLUSTER = resolve(REPO_ROOT, "scripts/toml-to-cluster.mjs");
-const CLUSTER_TO_TOML = resolve(REPO_ROOT, "scripts/cluster-to-toml.mjs");
+const TOML_TO_CLUSTER = resolve(REPO_ROOT, "cli/lib/cluster/toml-to-cluster.mjs");
+const CLUSTER_TO_TOML = resolve(REPO_ROOT, "cli/lib/cluster/cluster-to-toml.mjs");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -579,21 +578,12 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
   assert.deepEqual(validated, empty);
 });
 
-// ── cloister-fe891f: Taskfile cluster:toml chain canonicalizes operator-edited TOML ──
+// ── cloister-fe891f: generation canonicalizes operator-edited TOML ──
 //
-// Spec: `task cluster:toml` MUST chain `toml-to-cluster.mjs` (forward)
-// then `cluster-to-toml.mjs --write cluster.toml` (re-canonicalize) so
-// operator-edited TOML lands in canonical form in one verb. Without
-// the chain, an operator whose edit differs from the serializer's canonical
-// rendering in any way sees the drift gate fail after `task cluster:toml`
-// even though the data is correct. (The original example was `httpPort = 9999`
-// normalizing to `9_999` under @iarna/toml; the repo now uses smol-toml, which
-// does not add separators — the CHAIN is the point, not any one rendering.)
-//
-// Test exercises the chain at the script level (matches what Taskfile
-// will invoke). If the scripts change such that the chain no longer
-// canonicalizes in one pass, this fails. Pair with the Taskfile entry
-// having BOTH commands — see Taskfile.yml `cluster:toml`.
+// Spec: the generation transaction parses the operator's cluster.toml and
+// renders its canonical form before committing any projection. The two pure
+// directions below prove that canonicalization remains a fixed point without
+// giving Taskfile ownership of their ordering.
 
 const NON_CANONICAL_TOML = `
 [metadata]
@@ -655,7 +645,7 @@ test("cloister-fe891f: chained workflow canonicalizes non-canonical operator-edi
   try {
     writeFileSync(tomlPath, NON_CANONICAL_TOML);
 
-    // Single chain pass = the Taskfile `cluster:toml` workflow post-fix.
+    // A single forward/reverse pass models the CLI generation transaction.
     runChain(tmp, tomlPath, tsPath);
 
     const afterChain = readFileSync(tomlPath, "utf8");
@@ -704,11 +694,9 @@ test("cloister-fe891f: chained workflow canonicalizes non-canonical operator-edi
   }
 });
 
-test("cloister-fe891f: Taskfile cluster:toml entry has BOTH legs of the chain", () => {
-  // Pins the Taskfile config so a future edit that drops the
-  // canonicalize step fails CI immediately. Companion to the
-  // behavior test above — behavior tests the contract; this tests
-  // the wire-up.
+test("Taskfile cluster:toml delegates the whole transaction to the product CLI", () => {
+  // The CLI transaction now owns both directions and every projection. Task is
+  // only an alias, so there cannot be a second shell-authored generation order.
   // lint-allow-rawparse: extracts a task block WITH its comments and indentation.
   // A YAML parser discards exactly the formatting this assertion is about.
   const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
@@ -722,21 +710,49 @@ test("cloister-fe891f: Taskfile cluster:toml entry has BOTH legs of the chain", 
 
   assert.match(
     block,
-    /toml-to-cluster\.mjs/,
-    "cluster:toml must invoke the forward leg (toml-to-cluster.mjs)",
+    /node bin\/cloister\.mjs cluster generate --dir \./,
+    "cluster:toml must delegate to cloister cluster generate",
   );
-  assert.match(
+  assert.doesNotMatch(
     block,
-    /cluster-to-toml\.mjs[^\n]*--write[^\n]*cluster\.toml/,
-    "cluster:toml must chain the re-canonicalize step (cluster-to-toml.mjs --write cluster.toml) — per cloister-fe891f",
+    /toml-to-cluster\.mjs|cluster-to-toml\.mjs|emit-compose\.mjs/,
+    "Task must not recreate the CLI's generation pipeline",
   );
+});
+
+test("Taskfile cluster drift gates delegate to the CLI's no-write check", () => {
+  // lint-allow-rawparse: this asserts the literal command ownership and cannot
+  // be expressed through a YAML parser, which intentionally discards layout.
+  const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
+
+  for (const taskName of [
+    "cluster:toml:roundtrip",
+    "emit:cloister-capnp:drift",
+    "cluster:emit:check-drift",
+  ]) {
+    const escapedName = taskName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const blockMatch = taskfile.match(
+      new RegExp(`^  ${escapedName}:\\n([\\s\\S]*?)(?=^  [\\w:-]+:|^\\S)`, "m"),
+    );
+    assert.ok(blockMatch, `Taskfile must contain a ${taskName}: entry`);
+    assert.match(
+      blockMatch[1],
+      /node bin\/cloister\.mjs cluster generate --check --dir \./,
+      `${taskName} must delegate to cloister cluster generate --check`,
+    );
+    assert.doesNotMatch(
+      blockMatch[1],
+      /scripts\/(?:toml-to-cluster|cluster-to-toml|emit-cloister-capnp|emit-compose)\.mjs/,
+      `${taskName} must not recreate a projection check outside the CLI`,
+    );
+  }
 });
 
 // ── cloister-cf7a3b Phase 1a: [inputs.*] schema lands in bidi pipeline ───
 
 test("inputs: TOML [inputs.<name>] table roundtrips to InputSpec[] and back to byte-equal canonical TOML", async () => {
-  const { parseTomlToCluster, renderClusterTs } = await import("../toml-to-cluster.mjs");
-  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const { parseTomlToCluster, renderClusterTs } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../../cli/lib/cluster/cluster-to-toml.mjs");
 
   // Inline TOML fixture covering: ref-only (no version), version-pinned,
   // digest-pinned (defense-in-depth), dev-loop `from` override, and the
@@ -834,7 +850,7 @@ from    = "file:///abs/path/to/mache"
 });
 
 test("inputs: cluster.toml with NO [inputs.*] tables parses to empty inputs array (back-compat)", async () => {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
   const tomlIn = `
 [metadata]
 name    = "no-inputs"
@@ -869,7 +885,7 @@ doStoragePath = "/data/do"
 });
 
 test("inputs: empty inputs array omits the [inputs] section from emitted TOML (back-compat)", async () => {
-  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const { clusterToToml } = await import("../../cli/lib/cluster/cluster-to-toml.mjs");
   const cluster = {
     metadata: { name: "no-inputs", version: "0.0.1" },
     bundles: [
@@ -901,8 +917,8 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
 // InputSpec per ADR-0004 schema-evolution rules.
 
 test("inputs: urlBinding + serviceBinding round-trip through cluster.toml (populated)", async () => {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
-  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../../cli/lib/cluster/cluster-to-toml.mjs");
   const tomlIn = `
 [metadata]
 name    = "with-bindings"
@@ -953,8 +969,8 @@ serviceBinding = "LSP_MCP"
 });
 
 test("inputs: omitting urlBinding + serviceBinding parses to empty strings (back-compat)", async () => {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
-  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../../cli/lib/cluster/cluster-to-toml.mjs");
   const tomlIn = `
 [metadata]
 name    = "no-bindings"
@@ -1041,8 +1057,8 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
 // ── ADR-0030 §A5 / cloister-0e3004 — tenancy on InputSpec roundtrip ────
 
 test("inputs: tenancy block roundtrips byte-identically through cluster.toml (ADR-0030 §A5)", async () => {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
-  const { clusterToToml } = await import("../cluster-to-toml.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
+  const { clusterToToml } = await import("../../cli/lib/cluster/cluster-to-toml.mjs");
 
   const tomlIn = `
 [metadata]
@@ -1111,7 +1127,7 @@ version = "^0.8"
 });
 
 test("inputs: omitting tenancy parses to all-empty TenancySpec (back-compat)", async () => {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
   const tomlIn = `
 [metadata]
 name = "no-tenancy"
@@ -2060,7 +2076,7 @@ doStoragePath = "/data/do"
 });
 
 test("gateway.actor.fingerprint: empty opts out, malformed is rejected", async () => {
-  const { assertActorFingerprint } = await import("../toml-to-cluster.mjs");
+  const { assertActorFingerprint } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
   // Empty is the documented Interlace opt-out (well-known.ts 404s on it).
   assert.equal(assertActorFingerprint(""), "");
   // A real fingerprint round-trips untouched.

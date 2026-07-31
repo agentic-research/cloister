@@ -303,8 +303,8 @@ test("Phase 3: recipe WITHOUT cluster.toml is skipped", () => {
  * drift.
  */
 async function emitMatchingPair(tomlBody) {
-  const { parseTomlToCluster } = await import("../toml-to-cluster.mjs");
-  const { emitCloisterCapnp } = await import("../emit-cloister-capnp.mjs");
+  const { parseTomlToCluster } = await import("../../cli/lib/cluster/toml-to-cluster.mjs");
+  const { emitCloisterCapnp } = await import("../../cli/lib/cluster/emit-cloister-capnp.mjs");
   const cluster = await parseTomlToCluster(tomlBody);
   const capnp = emitCloisterCapnp(cluster, { quiet: true });
   return { toml: tomlBody, capnp };

@@ -12,6 +12,8 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 | [`cloister add`](#cloister-add) | Add and resolve a tool input |
 | [`cloister skills list`](#cloister-skills-list) | Show which skills are pinned, unpinned, undeclared, or CHANGED |
 | [`cloister skills pin`](#cloister-skills-pin) | Emit [[gateway.skills]] declarations with current digests |
+| [`cloister cluster generate`](#cloister-cluster-generate) | Generate every committed projection from cluster.toml |
+| [`cloister cluster resolve`](#cloister-cluster-resolve) | Resolve declared inputs into cluster.lock.toml |
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up via compose |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
@@ -105,6 +107,31 @@ Prints the declarations to paste into cluster.toml. Pinning is an act of TRUST â
 | `--force` |  | also re-pin skills whose bytes changed under an existing pin |
 
 See also: [`docs/adr/0061-skills-declared-and-verified.md`](../adr/0061-skills-declared-and-verified.md)
+
+## cloister cluster generate
+
+```
+cloister cluster generate [--dir <path>] [--check]
+```
+
+Reads cluster.toml once, validates it, then produces canonical cluster.toml, src/generated/cluster.ts, cloister.capnp and cluster.compose.yaml. If validation or rendering fails, the existing generated files are left alone.
+
+| Flag | | |
+|---|---|---|
+| `--dir` `<path>` |  | cluster directory (default: the current directory) |
+| `--check` |  | report drift without writing any file |
+
+## cloister cluster resolve
+
+```
+cloister cluster resolve [--dir <path>]
+```
+
+Reads [inputs.*] from cluster.toml, fetches or reads each declared ref, and records its content digest in cluster.lock.toml.
+
+| Flag | | |
+|---|---|---|
+| `--dir` `<path>` |  | cluster directory (default: the current directory) |
 
 ## cloister cluster up
 

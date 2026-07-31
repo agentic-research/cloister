@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 // pool-workers test. Same pattern used by other workerd-pool fixtures.
 // eslint-disable-next-line import/no-unresolved
 import RECIPE_TOML_STRING from "../../recipes/multi-tenant-smoke/cluster.toml?raw";
-import { parseTomlToCluster } from "../../scripts/toml-to-cluster.mjs";
+import { parseTomlToCluster } from "../../cli/lib/cluster/toml-to-cluster.mjs";
 import { TenantDispatchRoute, compileDispatchTable } from "../../src/routes/tenant-dispatch.js";
 import { instantiate } from "../../src/manifest/runtime.js";
 import type { Gateway, TenantDispatchSpec } from "../../src/manifest/types.js";

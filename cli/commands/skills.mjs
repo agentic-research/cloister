@@ -193,7 +193,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 
   const blocks = renderSkillBlocks(toPin.map((s) => ({ name: s.name, digest: s.digest })));
   if (!args.write) {
-    log(`# ${toPin.length} skill(s) — append to ${tomlPath}, then run \`task cluster:toml\``);
+    log(`# ${toPin.length} skill(s) — append to ${tomlPath}, then run \`cloister cluster generate\``);
     log("");
     log(blocks);
     return 0;
@@ -201,7 +201,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 
   writeFileSync(tomlPath, `${toml.replace(/\n+$/, "")}\n\n${blocks}`);
   log(`cloister skills: appended ${toPin.length} declaration(s) to ${tomlPath}`);
-  log("  next: task cluster:toml    # regenerate cluster.ts from the edited surface");
+  log("  next: cloister cluster generate    # regenerate declared artifacts");
   return 0;
 }
 
