@@ -23,8 +23,25 @@ task install                 # puts `cloister` on your PATH (~/.local/bin)
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
 
-Confined to the repos you name — every other path, and the network, kernel-denied.
-Prerequisites, caveats and known gaps: [`docs/RUNNING.md`](docs/RUNNING.md).
+The tool can read and write the repos you name. Your other repos, your SSH keys,
+your cloud credentials and the network are refused by the operating system — not
+by asking the tool to behave. Anything it starts inherits the same limits, so a
+script that runs Python that runs `curl` still cannot reach the network.
+
+**Before you try it, two things that will bite you:**
+
+- **You need an API key, not a Claude subscription.** A subscription signs in
+  through the macOS keychain, and the sandbox blocks keychain access on purpose,
+  so the tool would just report "not logged in". Set `ANTHROPIC_API_KEY`.
+- **The list of what a tool is allowed to reach was built by hitting errors.**
+  It covers `git` and Claude Code. A tool that needs something else will fail,
+  and on macOS that can show up as a developer-tools install prompt rather than
+  a clear "permission denied".
+
+Neither is a bug we forgot about — the first is a deliberate consequence of
+blocking the keychain, the second is honest about how far this has been
+exercised. Full walkthrough and the rest of the rough edges:
+[`docs/RUNNING.md`](docs/RUNNING.md).
 
 ## Why you'd care
 
