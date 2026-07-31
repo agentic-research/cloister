@@ -17,12 +17,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-import { confinementManifest } from "../lib/harness/launch.mjs";
+import {
+  confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup,
+} from "../lib/harness/launch.mjs";
 import { loadHarnessConfig } from "../harness-targets.mjs";
 
 // NOT a provider name. The confinement shape is provider-independent — that is
@@ -225,4 +228,105 @@ test("a relocated skills store is granted READ, never readwrite", async () => {
   // The state dir stays writable; that is the whole point of relocating rather
   // than narrowing. Sessions, history and settings still need it.
   assert.equal(grants.find((g) => g.path === "/tmp/state")?.access, "readwrite");
+});
+
+// ── Companion Workers ──────────────────────────────────────────────────────
+//
+// A real run printed `env.NOTME (notme-bot) Worker local [not connected]`,
+// which reads as a broken binding and really means nothing local runs that
+// Worker. These assert the SET is DERIVED from wrangler.toml rather than
+// hand-listed — a second list is what drifts the first time a binding is
+// added — and that the shipped tree's real bindings are covered.
+
+test("companion Workers are derived from wrangler.toml's [[services]]", () => {
+  const workers = resolveCompanionWorkers(
+    ['[[services]]', 'binding = "A_BINDING"', 'service = "a-worker"', '',
+     '[[services]]', 'binding = "B_BINDING"', 'service = "b-worker"'].join("\n"),
+    {},
+  );
+  assert.deepEqual(workers.map((w) => w.service), ["a-worker", "b-worker"]);
+  // Absent env → dir null, which the launcher renders as a NAMED warning.
+  // Silence is the bug being fixed: [not connected] with no stated cause.
+  assert.deepEqual(workers.map((w) => w.dir), [null, null]);
+  assert.deepEqual(workers.map((w) => w.envVar),
+    ["CLOISTER_WORKER_DIR_A_WORKER", "CLOISTER_WORKER_DIR_B_WORKER"]);
+});
+
+test("companion Workers: the env knob supplies the path, and ~ expands", () => {
+  const [w] = resolveCompanionWorkers(
+    '[[services]]\nbinding = "NOTME"\nservice = "notme-bot"\n',
+    { CLOISTER_WORKER_DIR_NOTME_BOT: "~/somewhere/worker", HOME: "/Users/x" },
+  );
+  assert.equal(w.dir, "/Users/x/somewhere/worker");
+});
+
+test("no companion Worker can take cloister's port or the shim's", () => {
+  // The bug this exists for: `wrangler dev` defaults to 8787 for EVERY worker,
+  // and neither cloister's wrangler.toml nor notme's declares a port. An
+  // unported companion binds 8787 first and cloister's own `task dev` then dies
+  // on `Address already in use` — the feature meant to connect a binding would
+  // have broken every run instead. Caught before shipping, railed after.
+  const many = Array.from({ length: 12 }, (_, i) =>
+    `[[services]]\nbinding = "B${i}"\nservice = "w-${i}"`).join("\n\n");
+  const ports = resolveCompanionWorkers(many, {}).map((w) => w.port);
+  assert.ok(!ports.includes(8787), `companion took cloister's port: ${ports.join(", ")}`);
+  assert.ok(!ports.includes(8799), `companion took the shim's port: ${ports.join(", ")}`);
+  assert.equal(new Set(ports).size, ports.length, "…and no two companions collide with each other");
+});
+
+test("the SHIPPED wrangler.toml's service bindings are all covered", () => {
+  // Against the real tree, so the rail cannot pass on fixtures alone. NOTME is
+  // the binding the reported run showed disconnected.
+  const real = resolveCompanionWorkers(
+    readFileSync(resolve(ROOT, "wrangler.toml"), "utf8"), {},
+  );
+  assert.ok(real.length > 0, "wrangler.toml declares at least one [[services]] binding");
+  assert.ok(real.some((w) => w.binding === "NOTME" && w.service === "notme-bot"),
+    `NOTME must be among the derived companions; got: ${real.map((w) => w.binding).join(", ")}`);
+});
+
+// ── Run affinity ───────────────────────────────────────────────────────────
+//
+// Five runs leaked five cloisters (8787-8791), because `task dev` spawns
+// wrangler which spawns workerd — grandchildren that survive killing the
+// leader. The leak made the HEALTH CHECK LIE: wrangler falls forward to the
+// next free port, so a later run bound 8788 while waitForHealth polled 8787 and
+// got a healthy 200 from the stale server.
+
+test("assertPortsFree: a free set passes", () => {
+  assertPortsFree([8787, 8799], { probe: () => false });
+});
+
+test("assertPortsFree: a busy port is FAIL-CLOSED, and says how to clear it", () => {
+  // Fail-closed is the whole point: wrangler does not fail on a busy port, it
+  // moves to the next one. A warning here would leave the lying health check.
+  let err;
+  try { assertPortsFree([8787, 8799], { probe: (p) => p === 8787 }); }
+  catch (e) { err = e; }
+  assert.ok(err, "a busy port must throw, not warn");
+  assert.match(err.message, /8787/);
+  assert.match(err.message, /lsof/, "names how to find the holder");
+  assert.match(err.message, /pkill/, "…and how to clear it");
+  // The reason must survive, or the next reader re-derives it from scratch.
+  assert.match(err.message, /wrangler does NOT fail on a busy port/);
+});
+
+test("killProcessGroup signals the GROUP, not just the leader", () => {
+  const signalled = [];
+  const realKill = process.kill;
+  // @ts-ignore — swapped for the assertion, restored below
+  process.kill = (pid, sig) => { signalled.push([pid, sig]); };
+  try {
+    killProcessGroup({ pid: 4242, kill: () => signalled.push(["direct", null]) });
+  } finally {
+    process.kill = realKill;
+  }
+  // NEGATIVE pid = the process group. A positive pid here is the leak.
+  assert.deepEqual(signalled, [[-4242, "SIGTERM"]]);
+});
+
+test("killProcessGroup falls back to the leader when no group exists", () => {
+  let direct = 0;
+  killProcessGroup({ pid: undefined, kill: () => { direct++; } });
+  assert.equal(direct, 1, "a platform without process groups must still stop the leader");
 });
