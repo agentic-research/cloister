@@ -5,19 +5,18 @@
 //
 // ── Why this is a CLI verb and not (only) a Taskfile task ──────────────────
 //
-// `task cluster:up` already existed, and it worked — in THIS repo. A scaffolded
-// cluster (`cloister init --recipe … --out <dir>`) ships `cluster.toml`,
-// `cloister.capnp` and `cluster.compose.yaml` and NO Taskfile, so both the
-// recipe README and the CLI's own next-steps told an operator to run
-// `task cluster:up` in a directory where it cannot work:
+// `task cluster:up` originally worked only in THIS repo. Early scaffolded
+// clusters (`cloister init --recipe … --out <dir>`) shipped `cluster.toml`,
+// `cloister.capnp` and `cluster.compose.yaml` but no Taskfile, even though their
+// README told an operator to run a task there:
 //
 //     $ cd <scaffolded>; task dev
 //     task: No Taskfile found at ""
 //
-// The command lives here so a cluster the operator OWNS is runnable with the
-// same verb as the one in this repo. cloister's Taskfile becomes a door onto
-// this, the scaffold's Taskfile becomes the same door, and there is one
-// implementation of "bring a cluster up" rather than one per directory.
+// The command lives here so a cluster the operator owns is runnable from the
+// CLI. Cloister's Taskfile and the scaffold's Taskfile both delegate here, so
+// there is one implementation of "bring a cluster up" rather than one per
+// directory.
 //
 // ── Why it takes --dir ─────────────────────────────────────────────────────
 //

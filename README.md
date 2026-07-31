@@ -1,32 +1,71 @@
 # cloister
 
-Cloister is a traceable way to bundle your AI tooling and use it with
-your favorite harness — Claude Code, Cursor, anything that speaks MCP.
+Cloister lets you run an AI coding tool with access only to the folders and
+services you choose. It works with Claude Code and other tools that support
+MCP, the common protocol used by AI tools.
 
-Declare the tools you want in one file. Cloister routes them behind a
-single endpoint, keeps hash-chained records for authenticated and
-state-boundary work, and can lower the same cluster shape to local or
-hosted runtimes.
+You describe the tools you want in `cluster.toml`. Cloister gives your coding
+tool one local address for reaching them and records what was available during
+the run. The same file can be used for local development or a hosted setup.
 
 ```sh
 task serve:local        # your bundled tools at http://localhost:8787/mcp
 ```
 
-Point your harness at that one URL and the whole bundle is available —
-and you can see exactly what ran. MCP tools today; skill and agent
-definitions next.
+Point your coding tool at that URL and every declared tool is available there.
 
 ## Run a coding tool inside cloister
 
 ```sh
-task install                 # puts `cloister` on your PATH (~/.local/bin)
+task install                 # installs dependencies and adds `cloister` to your PATH
+task dev:bootstrap           # one-time local setup
+export ANTHROPIC_API_KEY=…   # a Claude subscription cannot be used inside the sandbox
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
 
-The tool can read and write the repos you name. Your other repos, your SSH keys,
-your cloud credentials and the network are refused by the operating system — not
-by asking the tool to behave. Anything it starts inherits the same limits, so a
-script that runs Python that runs `curl` still cannot reach the network.
+The command can read and change the repository you name. Other repositories,
+SSH keys, cloud credentials, and the public internet are blocked by the
+operating system. See [Running a coding tool](docs/RUNNING.md) for setup details
+and current limitations.
+
+## Add a local skill
+
+Today, `cloister run` reads `cluster.toml` from the Cloister checkout. From that
+checkout, add any skill from your Claude Code skills folder:
+
+```sh
+mkdir -p ~/.claude/skills/repo-summary
+printf '%s\n' '# Repo summary' '' 'Read the repository and summarize its current state.' \
+  > ~/.claude/skills/repo-summary/SKILL.md
+
+cloister skills list --dir . --state-dir ~/.claude
+cloister skills pin --dir . --state-dir ~/.claude --write
+task cluster:toml
+cloister run --harness claude-code --repo /abs/path/to/repo
+```
+
+`skills list` shows the skills Cloister found and whether each one has been
+approved for this cluster. `skills pin --write` records a fingerprint of the
+current skill in `cluster.toml`. If the skill changes later, Cloister reports
+the change instead of silently trusting the new version.
+
+`task cluster:toml` regenerates `src/generated/cluster.ts` from `cluster.toml`.
+`cluster.toml` is the file you edit; the TypeScript file is generated output.
+
+## What a run records
+
+`cloister run --dry-run` shows which folders would be writable, which local
+connections would be allowed, and which paths would be blocked. It does not
+start the coding tool.
+
+A real run writes `.harness-skills.json` in the first repository you named.
+That file lists the skills that were loaded, their fingerprints, and whether
+they matched `cluster.toml`.
+
+Cloister does not yet record every attempted file or environment-variable
+access. The operating system still blocks access that was not allowed, and the
+coding tool will show that failure in its own error output. See
+[Running a coding tool](docs/RUNNING.md) for the other records a run creates.
 
 **Before you try it, two things that will bite you:**
 

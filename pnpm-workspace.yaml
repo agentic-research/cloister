@@ -13,6 +13,13 @@ allowBuilds:
 overrides:
   "undici@>=7.0.0 <7.28.0": ^7.28.0
   "esbuild@>=0.27.0 <0.28.1": ^0.28.1
+  # Security floors for transitive tooling dependencies. Vite pulls PostCSS
+  # (GHSA-r28c-9q8g-f849 / Dependabot #26); Wrangler/Miniflare pulls sharp
+  # (GHSA-f88m-g3jw-g9cj / CVE-2026-33327, -33328, -35590, -35591 /
+  # Dependabot #25). Keep vulnerable lockfile resolutions out of fresh
+  # installs until their direct parents publish compatible ranges.
+  "postcss@<8.5.18": ^8.5.19
+  "sharp@<0.35.3": ^0.35.3
   # CVE-2026-48779 (high): memory-exhaustion DoS from tiny fragments/data
   # chunks. Dev-only reach — ws arrives transitively via miniflare -> wrangler /
   # vitest-pool-workers, never in the shipped worker bundle (workerd provides

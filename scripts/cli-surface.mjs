@@ -184,10 +184,9 @@ export const COMMANDS = [
       "Runs the cluster declared by `cluster.compose.yaml` in --dir (default: " +
       "the current directory), using nerdctl, podman or docker — whichever is " +
       "present, or COMPOSE_CMD if set.\n\n" +
-      "This is a CLI verb rather than only a Taskfile task because a SCAFFOLDED " +
-      "cluster ships no Taskfile: `cloister init` emits cluster.toml, " +
-      "cloister.capnp and cluster.compose.yaml, so `task cluster:up` cannot work " +
-      "there. One implementation, reachable from any cluster directory you own.",
+      "A scaffolded cluster includes a small Taskfile, and its `task up` command " +
+      "delegates to this CLI command. Both paths therefore use one implementation " +
+      "of starting a cluster.",
     flags: [
       { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
       { flag: "--detach", summary: "run in the background (compose -d)" },
