@@ -28,10 +28,10 @@ import {
   validatePullSafety,
   isAffirmative,
   selectOciRefs,
-} from "../pull-inputs.mjs";
+} from "../../cli/commands/artifacts-pull.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PULL_SCRIPT = resolve(HERE, "..", "pull-inputs.mjs");
+const PULL_SCRIPT = resolve(HERE, "..", "..", "cli", "commands", "artifacts-pull.mjs");
 
 // ── ociPullRef: ADR-0038 precedence ──────────────────────────────────
 

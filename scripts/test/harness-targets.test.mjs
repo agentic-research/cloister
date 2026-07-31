@@ -24,7 +24,7 @@ import {
   serviceFor,
   credentialHeaders,
   UsageError,
-} from "../harness-targets.mjs";
+} from "../../cli/lib/harness/targets.mjs";
 import {
   findViolations,
   SCANNED,
@@ -268,7 +268,7 @@ test("a target whose stateDir stem differs from its name MUST declare an executa
   //
   // codex: stateDir ".codex", stem "codex" == name → nothing required.
   // claude-code: stem "claude" != name "claude-code" → executable required.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
 
@@ -295,7 +295,7 @@ test("every declared target's executable resolves on THIS machine", async (t) =>
   // self-consistent, this one proves the named binary is actually findable.
   // Only meaningful where a harness is installed, so it stands down explicitly
   // rather than passing on an empty check.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
 
   const checked = [], missing = [];
@@ -334,7 +334,7 @@ test("claude-code declares an executable distinct from its selector", async () =
   // current spelling would report CLEAN on a rewrite that still declared it.
   // That is the failure lint:structured-parse exists to prevent, and it caught
   // an earlier draft of this test doing exactly that.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   const claude = targets.find((t) => t.name === "claude-code");
   assert.ok(claude, "the claude-code target must stay declared");

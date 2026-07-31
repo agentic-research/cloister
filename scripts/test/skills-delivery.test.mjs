@@ -19,7 +19,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { digestSkillDir, verifySkills, PreconditionError } from "../lib/harness/launch.mjs";
+import { digestSkillDir, verifySkills, PreconditionError } from "../../cli/lib/harness/launch.mjs";
 
 function skillTree(t) {
   const base = mkdtempSync(join(tmpdir(), "skills-"));

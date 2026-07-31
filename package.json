@@ -30,7 +30,7 @@
   ],
   "packageManager": "pnpm@10.30.3",
   "bin": {
-    "cloister": "./scripts/cloister-cli.mjs"
+    "cloister": "./bin/cloister.mjs"
   },
   "scripts": {
     "dev": "wrangler dev",

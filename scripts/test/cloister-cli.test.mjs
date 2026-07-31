@@ -13,6 +13,14 @@ const REPO_ROOT = resolve(HERE, "..", "..");
 const PACKAGE = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"));
 const CLI = resolve(REPO_ROOT, PACKAGE.bin.cloister);
 
+test("the installed command enters through the product-owned CLI tree", () => {
+  assert.equal(PACKAGE.bin.cloister, "./bin/cloister.mjs");
+  assert.match(
+    readFileSync(resolve(REPO_ROOT, "bin/cloister.mjs"), "utf8"),
+    /\.\.\/cli\/index\.mjs/,
+  );
+});
+
 function run(args, env = {}) {
   return spawnSync("node", [CLI, ...args], {
     cwd: REPO_ROOT,

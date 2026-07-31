@@ -28,7 +28,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgs, validateRepo, validateRepos, main, RunUsageError } from "../cli-run.mjs";
+import { parseArgs, validateRepo, validateRepos, main, RunUsageError } from "../../cli/commands/run.mjs";
 
 function scratchDir(t) {
   const d = mkdtempSync(join(tmpdir(), "cli-run-"));

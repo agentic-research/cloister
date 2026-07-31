@@ -768,9 +768,9 @@ tasks:
       - |
         set -eu
         BIN_DIR="${CLOISTER_BIN_DIR:-$HOME/.local/bin}"
-        SRC="$(pwd)/scripts/cloister-cli.mjs"
+        SRC="$(pwd)/bin/cloister.mjs"
         if [ ! -x "$SRC" ]; then
-          echo "FAIL — $SRC is not executable. Run: chmod +x scripts/cloister-cli.mjs" >&2
+          echo "FAIL — $SRC is not executable. Run: chmod +x bin/cloister.mjs" >&2
           exit 1
         fi
         mkdir -p "$BIN_DIR"
@@ -1016,7 +1016,7 @@ tasks:
       - scripts/lint-smell-rule-kinship.mjs
 
   harness:dev:
-    desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the base-URL export. Pick the harness with `-- --target claude-code|codex` (default claude-code); each target declares its own key env var, upstream, injection and auth modes in scripts/harness-targets.mjs (cloister-742e19). Set that target's key env var first — it is vaulted, never seen by the harness. Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config. This task and `cloister run --harness <name> --repo <abs> [--repo <abs> …]` are two DOORS onto one orchestration (scripts/lib/harness/launch.mjs) — this one reads the environment because an operator types it; the CLI passes typed arguments. Neither re-implements the other."
+    desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the base-URL export. Pick the harness with `-- --target claude-code|codex` (default claude-code); each target is declared in cluster.toml and loaded through cli/lib/harness/targets.mjs (cloister-742e19). Set that target's key env var first — it is vaulted, never seen by the harness. Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config. This task and `cloister run --harness <name> --repo <abs> [--repo <abs> …]` are two DOORS onto one orchestration (cli/lib/harness/launch.mjs) — this one reads the environment because an operator types it; the CLI passes typed arguments. Neither re-implements the other."
     cmds:
       - node scripts/harness-dev.mjs {{.CLI_ARGS}}
 
@@ -1091,11 +1091,11 @@ tasks:
       - cluster.compose.yaml
 
   cli:docs:
-    desc: "Regenerate docs/reference/cli.md from scripts/cli-surface.mjs — the single CLI surface declaration that also produces `cloister --help`."
+    desc: "Regenerate docs/reference/cli.md from cli/surface.mjs — the single CLI surface declaration that also produces `cloister --help`."
     cmds:
       - node scripts/gen-cli-docs.mjs
     sources:
-      - scripts/cli-surface.mjs
+      - cli/surface.mjs
       - scripts/gen-cli-docs.mjs
 
   cli:docs:check:
@@ -1103,7 +1103,7 @@ tasks:
     cmds:
       - node scripts/gen-cli-docs.mjs --check
     sources:
-      - scripts/cli-surface.mjs
+      - cli/surface.mjs
       - scripts/gen-cli-docs.mjs
       - docs/reference/cli.md
 
@@ -1144,12 +1144,12 @@ tasks:
       - CLAUDE.md
 
   lint:harness-target-literals:
-    desc: "cloister-742e19 / ADR-0057 rail — provider literals (anthropic/openai, key + base-URL env vars, injection headers, harness binaries) live ONLY in scripts/harness-targets.mjs. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
+    desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
     cmds:
       - node scripts/lint-harness-target-literals.mjs
     sources:
       - scripts/harness-dev.mjs
-      - scripts/harness-targets.mjs
+      - cli/lib/harness/targets.mjs
       - scripts/lint-harness-target-literals.mjs
       - tools/harness-shim/index.ts
 
@@ -1167,12 +1167,12 @@ tasks:
       - node scripts/mutation-probe.mjs {{.CLI_ARGS}}
 
   lint:harness-types:
-    desc: "Type-check the harness launch pipeline (scripts/lib/harness). scripts/ is NOT in the root tsconfig and has no checkJs, so JSDoc there is unchecked convention — this makes the pipeline's types enforced rather than decorative. Same shape as lint:shim, and the reason the type-driven refactor of harness-dev.mjs is not itself a comment."
+    desc: "Type-check the product-owned harness launch pipeline under cli/lib/harness. The root worker tsconfig does not include Node CLI modules, so this keeps their JSDoc contracts enforced rather than decorative."
     cmds:
-      - pnpm exec tsc -p scripts/lib/harness/tsconfig.json
+      - pnpm exec tsc -p cli/lib/harness/tsconfig.json
     sources:
-      - scripts/lib/harness/*.mjs
-      - scripts/lib/harness/tsconfig.json
+      - cli/lib/harness/*.mjs
+      - cli/lib/harness/tsconfig.json
 
   lint:shim:
     desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
@@ -1274,6 +1274,7 @@ tasks:
     # Over-inclusive on purpose — a src/-only change skips this whole suite; any
     # change under a listed path re-runs it. CI cold-checkout always runs it.
     sources:
+      - cli/**/*.mjs
       - scripts/**/*.mjs
       - test/fixtures/**
       - tools/harness-sandbox/test/**/*.mjs

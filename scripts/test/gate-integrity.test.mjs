@@ -197,7 +197,7 @@ test("PROPERTY: no derived field is declarable on the operator surface at all", 
 // diverge either.
 
 test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () => {
-  const { listRecipes } = await import("../cli-init.mjs");
+  const { listRecipes } = await import("../../cli/commands/init.mjs");
   const recipesRoot = resolve(ROOT, "recipes");
   const onDisk = readdirSync(recipesRoot).filter((n) =>
     existsSync(resolve(recipesRoot, n, "README.md")),
@@ -398,4 +398,3 @@ test("PROPERTY: an opt-in that cites a gate is cited correctly", () => {
     ([, e]) => e.gatedBy === null || typeof e.gatedBy === "string",
   );
 });
-

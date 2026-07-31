@@ -14,6 +14,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -29,6 +30,8 @@ const PROJECT_FILES = [
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   ".npmrc",
+  "bin",
+  "cli",
   "rs/Taskfile.yml",
   "recipes/Taskfile.yml",
   "cluster.toml",
@@ -69,6 +72,10 @@ test("task install bootstraps dependencies before exposing a usable CLI", () => 
 
   try {
     assert.equal(existsSync(join(root, "node_modules")), false, "fixture must start dependency-free");
+    assert.ok(
+      statSync(join(root, "bin", "cloister.mjs")).mode & 0o111,
+      "the package executable bit must survive a fresh checkout",
+    );
 
     const install = spawnSync("task", ["-d", root, "install"], {
       cwd: REPO_ROOT,

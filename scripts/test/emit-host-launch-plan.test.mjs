@@ -8,7 +8,7 @@ import { parse as parseToml } from "smol-toml";
 import {
   buildLaunchPlan,
   parsePlanArgs,
-} from "../emit-host-launch-plan.mjs";
+} from "../../cli/commands/runtime-plan.mjs";
 
 const cluster = {
   bundles: [

@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
-const CLI_SCRIPT = resolve(REPO_ROOT, "scripts/cli-init.mjs");
+const CLI_SCRIPT = resolve(REPO_ROOT, "cli/commands/init.mjs");
 const RECIPES_DIR = resolve(REPO_ROOT, "recipes");
 
 // ── Recipe discovery ──────────────────────────────────────────────────────

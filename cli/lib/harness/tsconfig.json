@@ -1,0 +1,16 @@
+{
+  "//": "Standalone type-check for the Node harness launch pipeline. The root tsconfig covers the Worker under src/, so this turns on strict JSDoc checking for cli/lib/harness. Run via `task lint:harness-types`. Node built-ins come from the local node-shims.d.ts; `lib: DOM` supplies fetch.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["*.mjs", "*.d.ts"]
+}

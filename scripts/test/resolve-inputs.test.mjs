@@ -38,7 +38,7 @@ import {
   deriveRequiresSession,
   declaredTransportTypes,
   udsSocketPath,
-} from "../resolve-inputs.mjs";
+} from "../../cli/lib/cluster/resolve-inputs.mjs";
 
 function sha256hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");

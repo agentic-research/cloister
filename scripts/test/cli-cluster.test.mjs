@@ -17,8 +17,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   parseArgs, clusterComposePath, resolveComposeCmd, main, ClusterUsageError,
-} from "../cli-cluster.mjs";
-import { SHARED_FILES } from "../cli-init.mjs";
+} from "../../cli/commands/cluster.mjs";
+import { SHARED_FILES } from "../../cli/commands/init.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -106,7 +106,7 @@ test("PROPERTY: _shared is not offered as a recipe", async () => {
   // It has no cluster.toml, so listRecipes already excludes it — asserted
   // because the exclusion is incidental to that filter rather than explicit,
   // and someone adding a cluster.toml to _shared would make it selectable.
-  const { listRecipes } = await import("../cli-init.mjs");
+  const { listRecipes } = await import("../../cli/commands/init.mjs");
   const names = listRecipes(resolve(ROOT, "recipes"));
   assert.ok(names.length > 0, "there must be recipes to list");
   assert.ok(!names.includes("_shared"), `_shared must not be selectable; got ${names.join(", ")}`);
