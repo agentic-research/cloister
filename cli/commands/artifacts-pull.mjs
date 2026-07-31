@@ -40,8 +40,8 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { parse as parseToml } from "smol-toml";
-import chalk from "chalk";
 import { ociImageRef } from "../lib/oci-artifact.mjs";
+import { createOutputContext } from "../lib/output.mjs";
 import {
   isAffirmative,
   requestOperatorConsent,
@@ -145,23 +145,23 @@ function printHelp(log) {
   log("Input names scope the plan without weakening unrelated mutable references.");
 }
 
-function printPlan(rows, log = console.log) {
-  log(chalk.bold("Artifacts requested by cluster.lock.toml:"));
+function printPlan(rows, log, style) {
+  log(style.bold("Artifacts requested by cluster.lock.toml:"));
   for (const row of rows) {
     const trust = row.pinned
-      ? chalk.green("digest-pinned")
-      : chalk.yellow("MUTABLE / UNPINNED");
-    log(`  ${chalk.cyan(row.name)} → ${row.ref}  ${trust}`);
+      ? style.green("digest-pinned")
+      : style.yellow("MUTABLE / UNPINNED");
+    log(`  ${style.cyan(row.name)} → ${row.ref}  ${trust}`);
   }
 }
 
-async function askForConsent(rows, input, output) {
+async function askForConsent(rows, input, output, style) {
   return requestOperatorConsent({
     input,
     output,
     prompt:
       `Download ${rows.length} artifact${rows.length === 1 ? "" : "s"}? ` +
-      `${chalk.dim("[y/N]")} `,
+      `${style.dim("[y/N]")} `,
     nonInteractiveMessage:
       "refusing to download without confirmation on a non-interactive terminal; " +
       "review with --print, then pass --yes",
@@ -174,6 +174,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const error = io.error ?? ((line) => console.error(line));
   const input = io.input ?? process.stdin;
   const output = io.output ?? process.stdout;
+  const style = io.style ?? createOutputContext({ stdout: output }).style;
 
   let opts;
   try {
@@ -189,7 +190,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
 
   if (!existsSync(LOCKFILE_PATH)) {
     error(
-      `pull-inputs: lockfile not found at ${LOCKFILE_PATH} — run \`task cluster:resolve\` first`,
+      `pull-inputs: lockfile not found at ${LOCKFILE_PATH} — run \`cloister cluster resolve\` first`,
     );
     return 2;
   }
@@ -224,7 +225,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     return 0;
   }
 
-  printPlan(withImage, log);
+  printPlan(withImage, log, style);
   if (opts.printOnly) {
     log("pull-inputs: --print — download skipped");
     return 0;
@@ -233,12 +234,12 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   try {
     validatePullSafety(withImage, opts);
   } catch (e) {
-    error(chalk.red(`pull-inputs: ${e.message}`));
+    error(style.red(`pull-inputs: ${e.message}`));
     return 2;
   }
 
   if (opts.allowUnpinned && withImage.some((row) => !row.pinned)) {
-    warn(chalk.yellow.bold(
+    warn(style.yellow.bold(
       "pull-inputs: WARNING — proceeding with mutable artifact references by explicit operator request",
     ));
   }
@@ -246,7 +247,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   if (!opts.yes) {
     let approved;
     try {
-      approved = await askForConsent(withImage, input, output);
+      approved = await askForConsent(withImage, input, output, style);
     } catch (e) {
       error(`pull-inputs: ${e.message}`);
       return 2;
@@ -290,7 +291,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
 
   log(
     `\npull-inputs: pulled ${withImage.length} image(s) — ` +
-    `\`task cluster:up\` (pull_policy: never) can now boot offline.`,
+    `\`cloister cluster up\` (pull_policy: never) can now boot offline.`,
   );
   return 0;
 }

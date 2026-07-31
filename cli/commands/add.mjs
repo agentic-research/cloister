@@ -251,19 +251,21 @@ function printHelp(log) {
   log("  cloister add file:///abs/path/to/skill --name local-skill");
 }
 
-export async function main(argv) {
+export async function main(argv, deps = {}) {
+  const log = deps.log ?? ((line) => console.log(line));
+  const errLog = deps.errLog ?? ((line) => console.error(line));
   let opts;
   try {
     opts = parseArgs(argv);
   } catch (e) {
     if (e instanceof UsageError && e.message === "__HELP__") {
-      printHelp((s) => console.log(s));
+      printHelp(log);
       return 0;
     }
     if (e instanceof UsageError) {
-      console.error(`error: ${e.message}`);
-      console.error("");
-      printHelp((s) => console.error(s));
+      errLog(`error: ${e.message}`);
+      errLog("");
+      printHelp(errLog);
       return 2;
     }
     throw e;
@@ -273,7 +275,7 @@ export async function main(argv) {
   const lockPath = lockfilePath();
 
   if (!existsSync(clusterPath)) {
-    console.error(`error: cluster.toml not found at ${clusterPath}`);
+    errLog(`error: cluster.toml not found at ${clusterPath}`);
     return 2;
   }
 
@@ -288,28 +290,28 @@ export async function main(argv) {
     });
   } catch (e) {
     if (e instanceof AddError) {
-      console.error(`cloister add: ${e.message}`);
+      errLog(`cloister add: ${e.message}`);
       return 1;
     }
     throw e;
   }
 
   writeFileSync(clusterPath, mutated);
-  console.log(`cloister add: added [inputs.${opts.name}] to ${clusterPath}`);
+  log(`cloister add: added [inputs.${opts.name}] to ${clusterPath}`);
 
   // Resolve the new input + refresh the lockfile. If this fails the
   // cluster.toml mutation stays — operator can re-run after fixing the
   // ref, or `git checkout cluster.toml` to roll back.
   try {
     await resolveAllAndWriteLockfile(mutated, lockPath);
-    console.log(`cloister add: ${opts.name} resolved; wrote ${lockPath}`);
+    log(`cloister add: ${opts.name} resolved; wrote ${lockPath}`);
     return 0;
   } catch (e) {
-    console.error(`cloister add: resolve failed: ${e.message}`);
-    console.error(
-      `  cluster.toml was mutated; either fix the ref + re-run \`task verify\`,`,
+    errLog(`cloister add: resolve failed: ${e.message}`);
+    errLog(
+      `  cluster.toml was mutated; either fix the ref + re-run \`cloister cluster resolve\`,`,
     );
-    console.error(`  or roll back with \`git checkout ${clusterPath}\`.`);
+    errLog(`  or roll back with \`git checkout ${clusterPath}\`.`);
     return 1;
   }
 }

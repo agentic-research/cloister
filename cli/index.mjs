@@ -12,6 +12,8 @@ import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
 import { main as runMain } from "./commands/run.mjs";
 import { renderCommandHelp, renderHelp } from "./surface.mjs";
+import { GlobalOptionsError, parseGlobalOptions } from "./lib/global-options.mjs";
+import { createOutputContext } from "./lib/output.mjs";
 
 function printHelp(log = console.log) {
   // Derived from cli/surface.mjs — the SAME declaration that generates
@@ -23,9 +25,24 @@ function printHelp(log = console.log) {
 export async function main(argv = process.argv.slice(2), context = {}) {
   const stdout = context.stdout ?? process.stdout;
   const stderr = context.stderr ?? process.stderr;
-  const log = (value) => stdout.write(`${value}\n`);
-  const error = (value) => stderr.write(`${value}\n`);
-  const [command, ...rest] = argv;
+  const env = context.env ?? process.env;
+  let global;
+  try {
+    global = parseGlobalOptions(argv, env);
+  } catch (cause) {
+    if (!(cause instanceof GlobalOptionsError)) throw cause;
+    stderr.write(`cloister: ${cause.message}\n`);
+    return 2;
+  }
+  const output = createOutputContext({
+    stdout,
+    stderr,
+    env,
+    colorMode: global.colorMode,
+    json: global.argv[0] === "runtime" && global.argv[1] === "plan",
+  });
+  const { log, warn, error } = output;
+  const [command, ...rest] = global.argv;
   if (!command || command === "--help" || command === "-h" || command === "help") {
     printHelp(log);
     return 0;
@@ -35,10 +52,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     return installMain([command, ...rest], {
       log,
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
-  if (command === "run") return runMain(rest);
+  if (command === "run") return runMain(rest, { log, errLog: error, env });
   if (command === "dev") {
     const sub = rest[0];
     if (sub === "bootstrap" || sub === "serve" || sub === undefined || sub === "--help" || sub === "-h") {
@@ -46,18 +63,27 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       return devMain(rest, {
         log,
         errLog: error,
-        env: context.env ?? process.env,
+        env,
       });
     }
   }
-  if (command === "init") return initMain(["init", ...rest]);
-  if (command === "add") return addMain(rest);
-  if (command === "artifacts" && rest[0] === "pull") return pullMain(rest.slice(1));
+  if (command === "init") return initMain(["init", ...rest], { log, errLog: error });
+  if (command === "add") return addMain(rest, { log, errLog: error });
+  if (command === "artifacts" && rest[0] === "pull") {
+    return pullMain(rest.slice(1), {
+      log,
+      warn,
+      error,
+      style: output.style,
+      input: context.stdin ?? process.stdin,
+      output: stdout,
+    });
+  }
   if (command === "skills") {
     const sub = rest[0];
     if (sub === "list" || sub === "pin" || sub === undefined || sub === "--help" || sub === "-h") {
       const { main: skillsMain } = await import("./commands/skills.mjs");
-      return skillsMain(rest);
+      return skillsMain(rest, { output, env });
     }
   }
   if (command === "cluster") {
@@ -71,17 +97,19 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       return clusterMain(rest, {
         log,
         errLog: error,
-        env: context.env ?? process.env,
+        env,
       });
     }
   }
-  if (command === "runtime" && rest[0] === "plan") return planMain(rest.slice(1));
+  if (command === "runtime" && rest[0] === "plan") {
+    return planMain(rest.slice(1), { log, error });
+  }
   if (command === "runtime" && rest[0] === "install") {
     const { main: runtimeMain } = await import("./commands/runtime.mjs");
     return runtimeMain(rest, {
       log,
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
   if (command === "runtime" && (rest.includes("--help") || rest.includes("-h"))) {
@@ -102,32 +130,38 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   if (command === "runtime" && rest[0] === "run") {
     return runHostRuntime(["run", ...rest.slice(1)], {
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
   if (command === "runtime" && rest[0] === "doctor") {
     return runHostRuntime(["doctor", ...rest.slice(1)], {
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "init") {
-    return storageMain(rest.slice(2));
+    return storageMain(rest.slice(2), {
+      log,
+      error,
+      style: output.style,
+      input: context.stdin ?? process.stdin,
+      output: stdout,
+    });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "status") {
     return runHostRuntime(["status", ...rest.slice(2)], {
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "gc") {
     return runHostRuntime(["gc", ...rest.slice(2)], {
       errLog: error,
-      env: context.env ?? process.env,
+      env,
     });
   }
 
-  error(`cloister: unknown command: ${argv.join(" ")}`);
+  error(`cloister: unknown command: ${global.argv.join(" ")}`);
   error("");
   printHelp(error);
   return 2;

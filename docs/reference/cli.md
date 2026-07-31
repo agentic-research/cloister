@@ -5,6 +5,17 @@
 
 Derived from the single CLI surface declaration, so this page and `cloister --help` cannot disagree. A command appears in both or in neither.
 
+## Global options
+
+Global options may appear before or after a command. Cloister stops reading them at `--`, so arguments passed to a coding tool are never changed.
+
+| Flag | What it does |
+|---|---|
+| `--color` `<auto|always|never>` | color human-readable output (default: auto; auto colors only a terminal) |
+| `--no-color` | plain output; alias for --color never (NO_COLOR=1 also works) |
+
+`NO_COLOR=1` also disables color. `--color always` is the explicit override. Piped output is plain in the default `auto` mode, and JSON output is always plain.
+
 | Command | What it does |
 |---|---|
 | [`cloister install`](#cloister-install) | Install Cloister and its experimental compatibility runtime |
@@ -126,7 +137,7 @@ Resolves the ref, records its content digest in cluster.lock.toml, and derives t
 cloister skills list [--dir <cluster>] [--state-dir <path>]
 ```
 
-Surveys the harness skills directory against a cluster's `[[gateway.skills]]` declarations. Exits non-zero when a PINNED skill's bytes no longer match — that is the state worth acting on, and an exit code makes it usable from a script.
+Surveys the harness skills directory against a cluster's `[[gateway.skills]]` declarations. Exits non-zero when a PINNED skill's bytes no longer match — that is the state worth acting on, and an exit code makes it usable from a script. Results are grouped by what needs attention: CHANGED, unpinned, undeclared, then pinned. The text labels remain when color is off.
 
 | Flag | | |
 |---|---|---|

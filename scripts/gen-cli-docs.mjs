@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeGeneratedFile } from "./write-generated.mjs";
-import { COMMANDS } from "../cli/surface.mjs";
+import { COMMANDS, GLOBAL_OPTIONS } from "../cli/surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = resolve(ROOT, "docs/reference/cli.md");
@@ -33,6 +33,26 @@ function render() {
   out.push(
     "Derived from the single CLI surface declaration, so this page and " +
     "`cloister --help` cannot disagree. A command appears in both or in neither.",
+  );
+  out.push("");
+
+  out.push("## Global options");
+  out.push("");
+  out.push(
+    "Global options may appear before or after a command. Cloister stops reading " +
+    "them at `--`, so arguments passed to a coding tool are never changed.",
+  );
+  out.push("");
+  out.push("| Flag | What it does |");
+  out.push("|---|---|");
+  for (const option of GLOBAL_OPTIONS) {
+    const value = option.value ? ` \`${option.value}\`` : "";
+    out.push(`| \`${option.flag}\`${value} | ${option.summary} |`);
+  }
+  out.push("");
+  out.push(
+    "`NO_COLOR=1` also disables color. `--color always` is the explicit override. " +
+    "Piped output is plain in the default `auto` mode, and JSON output is always plain.",
   );
   out.push("");
 

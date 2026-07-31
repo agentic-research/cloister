@@ -376,13 +376,16 @@ function printHelp(log, recipesRoot) {
  * land (`add`, `scaffold`, etc.) extend the dispatch below.
  *
  * @param {readonly string[]} argv
+ * @param {{log?: (s: string) => void, errLog?: (s: string) => void}} [deps]
  * @returns {number}
  */
-export function main(argv) {
+export function main(argv, deps = {}) {
+  const log = deps.log ?? ((s) => console.log(s));
+  const errLog = deps.errLog ?? ((s) => console.error(s));
   // Top-level --help / -h.
   if (argv[0] === "--help" || argv[0] === "-h") {
     const recipesRoot = findRecipesRoot(HERE);
-    printHelp((s) => console.log(s), recipesRoot);
+    printHelp(log, recipesRoot);
     return 0;
   }
 
@@ -395,7 +398,7 @@ export function main(argv) {
     opts = parseArgs(rest);
   } catch (e) {
     if (e instanceof UsageError) {
-      console.error(`error: ${e.message}`);
+      errLog(`error: ${e.message}`);
       return 2;
     }
     throw e;
@@ -403,16 +406,16 @@ export function main(argv) {
 
   if (opts.help) {
     const recipesRoot = findRecipesRoot(HERE);
-    printHelp((s) => console.log(s), recipesRoot);
+    printHelp(log, recipesRoot);
     return 0;
   }
 
   try {
-    runInit(opts);
+    runInit(opts, { ...deps, log });
     return 0;
   } catch (e) {
     if (e instanceof UsageError) {
-      console.error(`error: ${e.message}`);
+      errLog(`error: ${e.message}`);
       return 2;
     }
     throw e;

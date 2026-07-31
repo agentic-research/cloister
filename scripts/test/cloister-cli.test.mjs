@@ -38,6 +38,24 @@ test("top-level help names the real command surface", () => {
   assert.match(r.stdout, /cloister artifacts pull/);
   assert.match(r.stdout, /cloister runtime plan/);
   assert.match(r.stdout, /cloister runtime storage init/);
+  assert.match(r.stdout, /--color <auto\|always\|never>/);
+  assert.match(r.stdout, /--no-color/);
+});
+
+test("invalid global color values fail with usage before command dispatch", () => {
+  const r = run(["skills", "--color", "sometimes", "list"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--color requires one of: auto, always, never/);
+});
+
+test("global color mode applies after the command name", () => {
+  const colored = run(["artifacts", "--color", "always", "pull", "--print"]);
+  assert.equal(colored.status, 0, colored.stderr);
+  assert.match(colored.stdout, /\x1b\[/);
+
+  const plain = run(["artifacts", "--color", "never", "pull", "--print"]);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /\x1b\[/);
 });
 
 test("runtime operator commands delegate exact arguments to one Rust seam", () => {

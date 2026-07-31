@@ -34,6 +34,7 @@ import { homedir } from "node:os";
 import { resolve, join, isAbsolute } from "node:path";
 import { renderCommandHelp } from "../surface.mjs";
 import { digestSkillDir } from "../lib/harness/launch.mjs";
+import { createOutputContext } from "../lib/output.mjs";
 
 export class SkillsUsageError extends Error {}
 
@@ -99,6 +100,69 @@ export function surveySkills(skillsDir, declared, deps = {}) {
     });
 }
 
+const SKILL_STATE_ORDER = new Map([
+  ["CHANGED", 0],
+  ["unpinned", 1],
+  ["undeclared", 2],
+  ["pinned", 3],
+]);
+
+export function classifySkill(skill) {
+  if (skill.changed) return "CHANGED";
+  if (!skill.declared) return "undeclared";
+  return skill.pinned ? "pinned" : "unpinned";
+}
+
+export function sortSkillsForDisplay(survey) {
+  return [...survey].sort((left, right) => {
+    const stateDelta = SKILL_STATE_ORDER.get(classifySkill(left))
+      - SKILL_STATE_ORDER.get(classifySkill(right));
+    return stateDelta || left.name.localeCompare(right.name);
+  });
+}
+
+function skillSummary(survey, skillsDir) {
+  const counts = { pinned: 0, unpinned: 0, undeclared: 0, CHANGED: 0 };
+  for (const skill of survey) counts[classifySkill(skill)] += 1;
+  return `${survey.length} skill(s) in ${skillsDir}: ` +
+    `${counts.pinned} pinned, ${counts.unpinned} unpinned, ` +
+    `${counts.undeclared} undeclared, ${counts.CHANGED} CHANGED`;
+}
+
+export function renderSkillsList(survey, { output, skillsDir }) {
+  const ordered = sortSkillsForDisplay(survey);
+  const summary = skillSummary(ordered, skillsDir);
+  if (ordered.length > 20) {
+    output.log(summary);
+    output.log("");
+  }
+
+  const stateStyle = {
+    CHANGED: output.style.red.bold,
+    unpinned: output.style.yellow,
+    undeclared: output.style.dim,
+    pinned: output.style.green,
+  };
+  for (const skill of ordered) {
+    const state = classifySkill(skill);
+    const padding = " ".repeat(11 - state.length);
+    output.log(
+      `  ${stateStyle[state](state)}${padding} ${skill.name.padEnd(34)} ` +
+      `${output.style.dim(skill.digest)}`,
+    );
+  }
+  output.log("");
+  output.log(summary);
+
+  const changed = ordered.filter((skill) => classifySkill(skill) === "CHANGED");
+  if (changed.length) {
+    output.log("");
+    output.log("CHANGED means the bytes moved under an existing pin. Review before re-pinning —");
+    output.log("re-pinning is how an unreviewed change becomes one that looks deliberate.");
+  }
+  return changed.length ? 1 : 0;
+}
+
 export function parseArgs(argv) {
   const out = { help: false, sub: null, dir: ".", stateDir: null, write: false, force: false };
   for (let i = 0; i < argv.length; i++) {
@@ -119,8 +183,14 @@ export function parseArgs(argv) {
 }
 
 export async function main(argv = process.argv.slice(2), deps = {}) {
-  const log = deps.log ?? console.log;
-  const errLog = deps.errLog ?? console.error;
+  const defaultOutput = createOutputContext({ env: deps.env ?? process.env });
+  const output = deps.output ?? {
+    ...defaultOutput,
+    log: deps.log ?? defaultOutput.log,
+    error: deps.errLog ?? defaultOutput.error,
+  };
+  const log = output.log;
+  const errLog = output.error;
 
   let args;
   try {
@@ -152,25 +222,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return 0;
   }
 
-  const undeclared = survey.filter((s) => !s.declared);
-  const unpinned = survey.filter((s) => s.declared && !s.pinned);
   const changed = survey.filter((s) => s.changed);
 
   if (args.sub === "list") {
-    for (const s of survey) {
-      const state = s.changed ? "CHANGED" : !s.declared ? "undeclared" : s.pinned ? "pinned" : "unpinned";
-      log(`  ${state.padEnd(11)} ${s.name.padEnd(34)} ${s.digest}`);
-    }
-    log("");
-    log(`${survey.length} skill(s) in ${skillsDir}: ` +
-        `${survey.length - undeclared.length - unpinned.length - changed.length} pinned, ` +
-        `${unpinned.length} unpinned, ${undeclared.length} undeclared, ${changed.length} CHANGED`);
-    if (changed.length) {
-      log("");
-      log("CHANGED means the bytes moved under an existing pin. Review before re-pinning —");
-      log("re-pinning is how an unreviewed change becomes one that looks deliberate.");
-    }
-    return changed.length ? 1 : 0;
+    return renderSkillsList(survey, { output, skillsDir });
   }
 
   // pin

@@ -86,6 +86,19 @@ export const HARNESS_ENV = Object.freeze({
  *            flags?: Flag[], seeAlso?: string}} Command
  */
 
+/** Global flags are plain declaration data so terminal help and Markdown agree. */
+export const GLOBAL_OPTIONS = [
+  {
+    flag: "--color",
+    value: "<auto|always|never>",
+    summary: "color human-readable output (default: auto; auto colors only a terminal)",
+  },
+  {
+    flag: "--no-color",
+    summary: "plain output; alias for --color never (NO_COLOR=1 also works)",
+  },
+];
+
 /** @type {Command[]} */
 export const COMMANDS = [
   {
@@ -191,7 +204,9 @@ export const COMMANDS = [
       "Surveys the harness skills directory against a cluster's " +
       "`[[gateway.skills]]` declarations. Exits non-zero when a PINNED skill's " +
       "bytes no longer match — that is the state worth acting on, and an exit " +
-      "code makes it usable from a script.",
+      "code makes it usable from a script. Results are grouped by what needs " +
+      "attention: CHANGED, unpinned, undeclared, then pinned. The text labels " +
+      "remain when color is off.",
     flags: [
       { flag: "--dir", value: "<cluster>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
       { flag: "--state-dir", value: "<path>", summary: "harness state dir; skills are read from <path>/skills (default: ~/.claude)" },
@@ -336,6 +351,14 @@ export function renderHelp() {
   const lines = ["Usage: cloister <command> [options]", "", "Commands:"];
   for (const c of COMMANDS) {
     lines.push(`  ${`cloister ${c.name} ...`.padEnd(width)} ${c.summary}`);
+  }
+  const optionWidth = Math.max(
+    ...GLOBAL_OPTIONS.map((option) => `${option.flag} ${option.value ?? ""}`.trim().length),
+  ) + 2;
+  lines.push("", "Global options:");
+  for (const option of GLOBAL_OPTIONS) {
+    const label = `${option.flag} ${option.value ?? ""}`.trim();
+    lines.push(`  ${label.padEnd(optionWidth)} ${option.summary}`);
   }
   lines.push("", "Run `cloister <command> --help` for command-specific options.");
   return lines.join("\n");

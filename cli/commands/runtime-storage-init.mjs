@@ -10,9 +10,8 @@ import { basename, dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import chalk from "chalk";
-
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
+import { createOutputContext } from "../lib/output.mjs";
 import { requestOperatorConsent } from "../lib/operator-consent.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -97,6 +96,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const error = io.error ?? console.error;
   const input = io.input ?? process.stdin;
   const output = io.output ?? process.stdout;
+  const style = io.style ?? createOutputContext({ stdout: output }).style;
   // Injectable so both the darwin and non-darwin branches are testable on any
   // host. Read straight from process.platform, the refusal path was unreachable
   // on macOS dev machines and the plan path unreachable on Linux CI, so the
@@ -128,9 +128,9 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       }
     : buildStoragePlan(opts);
 
-  log(chalk.bold("krunvm storage plan:"));
-  log(`  image       ${chalk.cyan(opts.image)}`);
-  log(`  mountpoint  ${chalk.cyan(opts.mountpoint)}`);
+  log(style.bold("krunvm storage plan:"));
+  log(`  image       ${style.cyan(opts.image)}`);
+  log(`  mountpoint  ${style.cyan(opts.mountpoint)}`);
   log(`  maximum     ${opts.size} (${exists ? "existing sparsebundle" : "grows on demand"})`);
   log(`  command     ${plan.command} ${plan.args.join(" ")}`);
   if (opts.printOnly) {
@@ -144,7 +144,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       approved = await requestOperatorConsent({
         input,
         output,
-        prompt: `Create and attach this runtime volume? ${chalk.dim("[y/N]")} `,
+        prompt: `Create and attach this runtime volume? ${style.dim("[y/N]")} `,
         nonInteractiveMessage:
           "refusing to change host storage without confirmation; review with --print, then pass --yes",
       });
@@ -184,7 +184,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     return 1;
   }
 
-  log(chalk.green(`init-krun-storage: ready — krunvm state is mounted at ${opts.mountpoint}`));
+  log(style.green(`init-krun-storage: ready — krunvm state is mounted at ${opts.mountpoint}`));
   return 0;
 }
 
