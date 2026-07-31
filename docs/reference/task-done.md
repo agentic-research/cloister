@@ -1,10 +1,26 @@
 # `task done` — pre-PR feature-readiness gate
 
 Per [`cloister-0d5e0f`](../../). Drop-in rule runner that bundles the
-"is this feature ready to ship?" checks into one verb. Shape mirrors
-mache's external smell rules (`MACHE_SMELL_RULES_DIR` →
-`examples/smell-rules/*.json`) — each check is one JSON file under
-`done-rules/`, no central registry to update.
+"is this feature ready to ship?" checks into one verb. The drop-in
+*layout* is borrowed from mache's external smell rules
+(`MACHE_SMELL_RULES_DIR` → `examples/smell-rules/*.json`) — each check
+is one JSON file under `done-rules/`, no central registry to update.
+
+The severity vocabulary is **not** shared, and rule files are portable
+in neither direction ([`cloister-2fb46a`](../../)):
+
+| | accepted | default | posture |
+|---|---|---|---|
+| **`task done`** (here) | `block \| warn` | `block` | fail-secure — an unannotated rule blocks shipment |
+| **mache** `find_smells` | `off \| warn \| error` | `warn` | fail-open — observability; the gate decision is deferred to `--fail-on` |
+
+Each default is right for its tool, so this is a deliberate divergence
+rather than a defect. It is kept honest by
+`scripts/lint-smell-rule-kinship.mjs`, which records both vocabularies
+and fails when either side's source stops matching the record. The mache
+half needs a checkout (`MACHE_REPO`, or a sibling `../mache`); when
+absent it reports `UNKNOWN` and never `satisfied`, so the lint cannot
+pass by having had nothing to compare.
 
 ## Usage
 
