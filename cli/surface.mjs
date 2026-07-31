@@ -227,7 +227,7 @@ export const COMMANDS = [
   },
   {
     name: "skills pin",
-    usage: "cloister skills pin [--dir <cluster>] [--write] [--force]",
+    usage: "cloister skills pin [<name>...] [--dir <cluster>] [--write] [--force]",
     summary: "Emit [[gateway.skills]] declarations with current digests",
     detail:
       "Prints the declarations to paste into cluster.toml. Pinning is an act of " +
@@ -235,7 +235,9 @@ export const COMMANDS = [
       "manifest by default: a command that rewrote it silently would turn " +
       "vouching into a keystroke, and the reflex after a failed verification is " +
       "to re-run it.\n\n" +
-      "`--write` appends for the first-run case. Skills already pinned are left " +
+      "Name one or more skills to pin only those skills; with no names, every " +
+      "discovered skill is selected. `--write` appends for the first-run case. " +
+      "Skills already pinned are left " +
       "alone; re-pinning one whose bytes CHANGED needs `--force`, because " +
       "adopting an unpinned skill is bookkeeping while changing an existing pin " +
       "is a decision.",

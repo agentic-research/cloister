@@ -162,12 +162,12 @@ See also: [`docs/adr/0061-skills-declared-and-verified.md`](../adr/0061-skills-d
 ## cloister skills pin
 
 ```
-cloister skills pin [--dir <cluster>] [--write] [--force]
+cloister skills pin [<name>...] [--dir <cluster>] [--write] [--force]
 ```
 
 Prints the declarations to paste into cluster.toml. Pinning is an act of TRUST — it says you have looked at these bytes — so it does NOT edit your manifest by default: a command that rewrote it silently would turn vouching into a keystroke, and the reflex after a failed verification is to re-run it.
 
-`--write` appends for the first-run case. Skills already pinned are left alone; re-pinning one whose bytes CHANGED needs `--force`, because adopting an unpinned skill is bookkeeping while changing an existing pin is a decision.
+Name one or more skills to pin only those skills; with no names, every discovered skill is selected. `--write` appends for the first-run case. Skills already pinned are left alone; re-pinning one whose bytes CHANGED needs `--force`, because adopting an unpinned skill is bookkeeping while changing an existing pin is a decision.
 
 | Flag | | |
 |---|---|---|

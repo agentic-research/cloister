@@ -6,10 +6,13 @@ MCP, the common protocol used by AI tools.
 
 You describe the tools you want in `cluster.toml`. Cloister gives your coding
 tool one local address for reaching them and records what was available during
-the run. The same file can be used for local development or a hosted setup.
+the run. The same file drives local development and the generated deployment
+files.
 
 ```sh
-task serve:local        # your bundled tools at http://localhost:8787/mcp
+task install             # dependencies, the `cloister` command, and current runtime support
+cloister dev bootstrap   # one-time local setup
+cloister dev serve       # your bundled tools at http://localhost:8787/mcp
 ```
 
 Point your coding tool at that URL and every declared tool is available there.
@@ -18,7 +21,7 @@ Point your coding tool at that URL and every declared tool is available there.
 
 ```sh
 task install                 # installs dependencies and adds `cloister` to your PATH
-task dev:bootstrap           # one-time local setup
+cloister dev bootstrap       # one-time local setup
 export ANTHROPIC_API_KEY=…   # a Claude subscription cannot be used inside the sandbox
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
@@ -39,18 +42,38 @@ printf '%s\n' '# Repo summary' '' 'Read the repository and summarize its current
   > ~/.claude/skills/repo-summary/SKILL.md
 
 cloister skills list --dir . --state-dir ~/.claude
-cloister skills pin --dir . --state-dir ~/.claude --write
-task cluster:toml
+cloister skills pin repo-summary --dir . --state-dir ~/.claude --write
+cloister cluster generate --dir .
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
 
 `skills list` shows the skills Cloister found and whether each one has been
-approved for this cluster. `skills pin --write` records a fingerprint of the
-current skill in `cluster.toml`. If the skill changes later, Cloister reports
-the change instead of silently trusting the new version.
+approved for this cluster. States that need attention come first and are
+colored when output goes to a terminal. Use global `--no-color`,
+`--color never`, or `NO_COLOR=1` for plain output.
 
-`task cluster:toml` regenerates `src/generated/cluster.ts` from `cluster.toml`.
-`cluster.toml` is the file you edit; the TypeScript file is generated output.
+`skills pin repo-summary --write` records a fingerprint of only that skill in
+`cluster.toml`. If the skill changes later, Cloister reports the change instead
+of silently trusting the new version. With no skill name, `skills pin` selects
+every skill it finds.
+
+`cloister cluster generate` regenerates every committed deployment file from
+`cluster.toml`. Edit `cluster.toml`; do not hand-edit its generated outputs.
+
+### Work Board
+
+`pr-board` is the agent skill for answering “what needs me?” Its current
+fingerprint is declared in this reference cluster. If you install skills from
+the agents repository, verify the link with `readlink ~/.claude/skills/pr-board`
+before pinning it in a different cluster.
+
+The agents repository's `work-board/` folder is different: it is a local visual
+app, not a skill or an MCP server. Run its refresh and web server on the host, where
+your authenticated `gh` command and network are available. If a confined agent
+needs to read the resulting board, refresh `data/board.json` first, then name
+the Work Board folder as an additional `--repo`. Live GitHub refresh is blocked
+inside the current confined run unless you deliberately provide a GitHub-facing
+tool through Cloister.
 
 ## What a run records
 
@@ -62,9 +85,11 @@ A real run writes `.harness-skills.json` in the first repository you named.
 That file lists the skills that were loaded, their fingerprints, and whether
 they matched `cluster.toml`.
 
-Cloister does not yet record every attempted file or environment-variable
-access. The operating system still blocks access that was not allowed, and the
-coding tool will show that failure in its own error output. See
+Cloister does not yet record every attempted file, environment-variable,
+process, or network access. The operating system still blocks access that was
+not allowed, and the coding tool will show that failure in its own error
+output. A dedicated recorder is tracked as `cloister-879a5a`; the documentation
+will not claim that coverage before the runtime can prove it. See
 [Running a coding tool](docs/RUNNING.md) for the other records a run creates.
 
 **Before you try it, two things that will bite you:**
@@ -174,7 +199,8 @@ ports, auth setup, plugin install), see
 leyline daemon --mcp-port 8384
 
 # Terminal 2 — cloister
-pnpm install && task dev:bootstrap && task dev    # → http://localhost:8787
+task install && cloister dev bootstrap
+cloister dev serve                                # → http://localhost:8787
 
 # Terminal 3 — notme (optional, for /identity/*)
 cd ../notme/worker && wrangler dev --port 8788
@@ -204,15 +230,17 @@ is in [docs/integration/mcp-client.md](docs/integration/mcp-client.md).
 
 ### Experimental: run an external tool in krunvm
 
-On macOS with `krunvm` and Buildah installed, Cloister can run a
-lockfile-pinned external OCI artifact behind a microVM boundary:
+The current compatibility provider shells out to `krunvm` and Buildah. It is a
+useful bridge, but it is experimental and is not the future LLO execution API.
+On macOS it can run a lockfile-pinned external OCI artifact behind a microVM
+boundary:
 
 ```sh
-task runtime:storage:init -- --yes
-task runtime:build
-task runtime:plan -- mache --workspace "$PWD" --output /tmp/mache-plan.json
-task runtime:doctor
-task runtime:run -- /tmp/mache-plan.json
+cloister runtime install
+cloister runtime storage init --yes
+cloister runtime plan mache --workspace "$PWD" --output /tmp/mache-plan.json
+cloister runtime doctor
+cloister runtime run /tmp/mache-plan.json
 ```
 
 The storage initializer creates one grow-on-demand, project-local,
@@ -222,9 +250,9 @@ digest matches, verifies the exact OCI source after creation, and
 refuses new acquisition when the configured reserve would be crossed.
 
 ```sh
-task runtime:storage:status
-task runtime:storage:gc -- --print
-task runtime:storage:gc -- --yes  # explicit mutation
+cloister runtime storage status
+cloister runtime storage gc --print
+cloister runtime storage gc --yes  # explicit mutation
 ```
 
 GC protects running, active, still-referenced, and unknown state. It

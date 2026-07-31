@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   classifySkill,
+  parseArgs,
   renderSkillsList,
   sortSkillsForDisplay,
 } from "../../cli/commands/skills.mjs";
@@ -37,6 +38,28 @@ test("skill classification gives changed the highest priority", () => {
   assert.equal(classifySkill(skill("u", "unpinned")), "unpinned");
   assert.equal(classifySkill(skill("x", "undeclared")), "undeclared");
   assert.equal(classifySkill(skill("p", "pinned")), "pinned");
+});
+
+test("skills pin accepts explicit skill names", () => {
+  assert.deepEqual(
+    parseArgs(["pin", "pr-board", "repo-summary", "--write"]),
+    {
+      help: false,
+      sub: "pin",
+      dir: ".",
+      stateDir: null,
+      write: true,
+      force: false,
+      names: ["pr-board", "repo-summary"],
+    },
+  );
+});
+
+test("skills list rejects positional skill names", () => {
+  assert.throws(
+    () => parseArgs(["list", "pr-board"]),
+    /skill names are only accepted by `skills pin`/,
+  );
 });
 
 test("skills sort by risk group, then alphabetically", () => {

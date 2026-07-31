@@ -570,7 +570,12 @@ export const cluster: Cluster = {
         "executable": ""
       }
     ],
-    "skills": []
+    "skills": [
+      {
+        "name": "pr-board",
+        "digest": "sha256:8940e07ea53b215ca934ea72539bcdc9878c74c659e1e13c5d7254220cd6a488"
+      }
+    ]
   },
   "edges": []
 } as const;

@@ -164,7 +164,15 @@ export function renderSkillsList(survey, { output, skillsDir }) {
 }
 
 export function parseArgs(argv) {
-  const out = { help: false, sub: null, dir: ".", stateDir: null, write: false, force: false };
+  const out = {
+    help: false,
+    sub: null,
+    dir: ".",
+    stateDir: null,
+    write: false,
+    force: false,
+    names: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--help" || a === "-h") { out.help = true; continue; }
@@ -177,6 +185,13 @@ export function parseArgs(argv) {
       i++; continue;
     }
     if (!out.sub && (a === "list" || a === "pin")) { out.sub = a; continue; }
+    if (!a.startsWith("-")) {
+      if (out.sub !== "pin") {
+        throw new SkillsUsageError("skill names are only accepted by `skills pin`");
+      }
+      if (!out.names.includes(a)) out.names.push(a);
+      continue;
+    }
     throw new SkillsUsageError(`unknown option ${JSON.stringify(a)}`);
   }
   return out;
@@ -222,16 +237,29 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return 0;
   }
 
-  const changed = survey.filter((s) => s.changed);
-
   if (args.sub === "list") {
     return renderSkillsList(survey, { output, skillsDir });
   }
 
   // pin
-  const toPin = args.force ? survey : survey.filter((s) => !s.pinned);
+  const byName = new Map(survey.map((skill) => [skill.name, skill]));
+  const unknown = args.names.filter((name) => !byName.has(name));
+  if (unknown.length) {
+    errLog(
+      `cloister skills: no skill named ${unknown.map((name) => JSON.stringify(name)).join(", ")} ` +
+      `in ${skillsDir}`,
+    );
+    return 2;
+  }
+  const selected = args.names.length
+    ? args.names.map((name) => byName.get(name))
+    : survey;
+  const changed = selected.filter((skill) => skill.changed);
+  const toPin = args.force ? selected : selected.filter((skill) => !skill.pinned);
   if (toPin.length === 0) {
-    log("cloister skills: everything is already pinned; nothing to do.");
+    log(args.names.length
+      ? "cloister skills: the selected skill(s) are already pinned; nothing to do."
+      : "cloister skills: everything is already pinned; nothing to do.");
     if (changed.length) {
       errLog(`  …but ${changed.length} pinned skill(s) CHANGED. Review, then re-pin with --force.`);
       return 1;
