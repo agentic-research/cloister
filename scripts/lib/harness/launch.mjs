@@ -45,6 +45,7 @@ import {
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve, join, dirname } from "node:path";
+import { parse as parseToml } from "@iarna/toml";
 
 import {
   loadHarnessConfig,
@@ -61,6 +62,10 @@ export { LaunchUsageError, PreconditionError };
 
 const CLOISTER_BASE = "http://127.0.0.1:8787";
 const DEFAULT_SHIM_PORT = "8799";
+// Companion Workers start here, above cloister's 8787 and the shim's 8799.
+// wrangler dev defaults to 8787 for EVERY worker, so an unported companion
+// takes cloister's port and the run dies on `Address already in use`.
+const COMPANION_PORT_BASE = 8810;
 
 /**
  * The confinement/v1 manifest a harness identity commits to (§7, cloister-c80953).
@@ -301,7 +306,7 @@ export function verifySkills(plan, log, deps = {}) {
     }
     const actual = digestSkillDir(join(skillsDir, decl.name), deps);
     if (!decl.digest) {
-      log(`harness:dev — skill ${decl.name}: UNPINNED. Pin it with  digest = "${actual}"`);
+      log(`cloister — skill ${decl.name}: UNPINNED. Pin it with  digest = "${actual}"`);
       verified.push({ name: decl.name, digest: actual, pinned: false });
       continue;
     }
@@ -349,7 +354,7 @@ export function verifySkills(plan, log, deps = {}) {
   const parts = [];
   if (verified.length) parts.push(`${verified.length} declared (${pinned} pinned)`);
   if (undeclared.length) parts.push(`${undeclared.length} UNDECLARED`);
-  if (parts.length) log(`harness:dev — skills: ${parts.join(", ")} · ${receiptPath}`);
+  if (parts.length) log(`cloister — skills: ${parts.join(", ")} · ${receiptPath}`);
   return verified;
 }
 
@@ -587,7 +592,7 @@ export function performSetup(plan, deps = {}) {
   // CLOISTER_CONFINEMENT_MANIFEST points the minter at the manifest so the cert
   // commits its §6/BLAKE3 digest (Interlace extension OID .1.7) — the anchor the
   // runner's §7 check verifies against.
-  log("harness:dev — minting a fresh ephemeral dev master + cert…");
+  log("cloister — minting a fresh ephemeral dev master + cert…");
   const identity = JSON.parse(
     run("cargo", ["run", "-q", "-p", "cloister-cas", "--example", "mint-dev-cert"], {
       cwd: resolve(plan.root, "rs"),
@@ -622,7 +627,7 @@ export function performSetup(plan, deps = {}) {
       }))}`];
   const devVarsPath = resolve(plan.root, ".dev.vars");
   write(devVarsPath, `${[...common, ...modeVars].join("\n")}\n`);
-  log(`harness:dev — wrote .dev.vars (peerFp ${identity.peerFp}, service ${service}, ` +
+  log(`cloister — wrote .dev.vars (peerFp ${identity.peerFp}, service ${service}, ` +
       `${plan.auth.mode === "audit" ? "passthrough" : "vaulted"}).`);
 
   // ephemeralPaths is DATA, and teardown removes exactly this list. The
@@ -817,6 +822,178 @@ export function buildPolicy(plan, identity) {
 }
 
 /**
+ * The local Workers a run needs alongside cloister, derived from the
+ * `[[services]]` bindings wrangler.toml already declares.
+ *
+ * ── Why this exists ────────────────────────────────────────────────────────
+ *
+ * A service binding only connects to another `wrangler dev` process running
+ * locally. Nothing started one, so a real run printed:
+ *
+ *     env.NOTME (notme-bot)   Worker   local [not connected]
+ *
+ * which reads as a broken binding and really means "the Worker it names is not
+ * running". `notme-bot` exists and starts clean — it was simply never launched.
+ *
+ * ── Why the SET is derived and only the PATH is an env knob ────────────────
+ *
+ * Which Workers a run needs is already stated once, in wrangler.toml's
+ * `[[services]]` entries, and `lint:binding-parity` governs that list. A second
+ * hand-maintained list here would be manumation — it would drift the first time
+ * someone added a binding.
+ *
+ * WHERE each Worker's checkout lives is machine-specific and must NOT be
+ * committed: ADR-0026 bans the `[inputs.*] from =` dev-escape precisely because
+ * a committed local path silently wins over the declared `ref`, and
+ * `lint:dev-escape` enforces it. So the path comes from the environment, per
+ * service, and its absence is a NAMED warning rather than a silent
+ * `[not connected]`.
+ *
+ *     CLOISTER_WORKER_DIR_NOTME_BOT=~/remotes/art/notme/worker
+ *
+ * ── Why each companion gets an explicit port ───────────────────────────────
+ *
+ * `wrangler dev` defaults to 8787 and NEITHER cloister's wrangler.toml nor
+ * notme's declares a port. Started with no `--port`, the companion binds 8787
+ * first and then cloister's own `task dev` dies on `Address already in use` —
+ * so the feature meant to connect a binding would instead break every run.
+ *
+ * Ports are assigned off COMPANION_PORT_BASE by index, which is safe because
+ * wrangler pairs service bindings through its dev registry by worker NAME, not
+ * by port. Nothing reads these; they only have to not collide.
+ *
+ * @param {string} wranglerToml  contents of wrangler.toml
+ * @param {Record<string,string|undefined>} env
+ * @returns {{binding:string, service:string, dir:string|null, envVar:string, port:number}[]}
+ */
+export function resolveCompanionWorkers(wranglerToml, env = process.env) {
+  // Parsed, not pattern-matched: `lint:structured-parse` — and a regex over
+  // TOML would mis-read a `service` key belonging to any other table.
+  const parsed = parseToml(wranglerToml);
+  const raw = Array.isArray(parsed.services) ? parsed.services : [];
+  /** @type {{service: string, binding: string}[]} */
+  const services = [];
+  for (const sv of raw) {
+    // Narrowed by inspection rather than asserted: wrangler.toml is operator
+    // input, and a `[[services]]` entry missing either key is a config error to
+    // skip, not a crash inside a launch that has already minted an identity.
+    if (!sv || typeof sv !== "object" || Array.isArray(sv)) continue;
+    const row = /** @type {Record<string, unknown>} */ (sv);
+    if (typeof row.service === "string" && typeof row.binding === "string") {
+      services.push({ service: row.service, binding: row.binding });
+    }
+  }
+  return services.map((sv, i) => {
+    const envVar = `CLOISTER_WORKER_DIR_${sv.service.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+    const dir = env[envVar];
+    return {
+      binding: sv.binding,
+      service: sv.service,
+      envVar,
+      port: COMPANION_PORT_BASE + i,
+      dir: dir ? dir.replace(/^~(?=$|\/)/, env.HOME ?? homedir()) : null,
+    };
+  });
+}
+
+// Operational lines are prefixed `cloister —`, not `harness:dev —`.
+//
+// The old prefix was a SCRIPT NAME, and it outlived the script: harness-dev.mjs
+// stopped being the orchestration when this library took over, and `cloister
+// run` imports launch() in-process rather than spawning it. But every line it
+// printed still said `harness:dev`, so a first-party run LOOKED like a shell-out
+// to the old file — which is exactly the drift this refactor removed. Reported
+// as "harness-dev.mjs being used... feels bad", about output, not behaviour.
+//
+// Both doors (`cloister run`, `task harness:dev`) call this same code, so the
+// prefix names the product rather than whichever door you came through.
+
+/**
+ * Kill a child AND everything it spawned — the run's whole process group.
+ *
+ * ── Why a plain .kill() is not enough ──────────────────────────────────────
+ *
+ * cloister is started as `task dev`, and `task` spawns `wrangler`, which spawns
+ * `workerd`. Those are GRANDCHILDREN: killing the `task` process leaves them
+ * running, holding their ports, after the run has exited.
+ *
+ * Observed directly — five leaked cloisters after five runs:
+ *
+ *     8787: BUSY -> …/workerd     8790: BUSY -> …/workerd
+ *     8788: BUSY -> …/workerd     8791: BUSY -> …/workerd
+ *     8789: BUSY -> …/workerd
+ *
+ * The leak is worse than untidy. wrangler falls forward to the next free port,
+ * so run N+1's cloister binds 8788 while `waitForHealth` polls 8787 — and gets
+ * a healthy 200 from the STALE server. The run then looks fine while the shim
+ * talks to an old build. A leak that makes the health check lie is the failure
+ * mode "silence is evidence" is meant to prevent.
+ *
+ * So each child is spawned `detached: true`, which puts it in its OWN process
+ * group, and teardown signals the negated pid — the group, not the leader.
+ *
+ * @param {{pid?: number|undefined, kill: (signal?: string) => void} | null | undefined} child
+ */
+export function killProcessGroup(child) {
+  if (!child) return;
+  try {
+    // Negative pid = "the whole process group", which is the point.
+    if (typeof child.pid === "number") process.kill(-child.pid, "SIGTERM");
+    else child.kill("SIGTERM");
+  } catch {
+    // ESRCH just means it already exited — the desired state either way. Fall
+    // back to the direct kill so a platform without process groups still stops
+    // the leader rather than silently stopping nothing.
+    try { child.kill("SIGTERM"); } catch { /* lint-allow-silent: already gone */ }
+  }
+}
+
+/**
+ * Refuse to launch when a port the run OWNS is already taken.
+ *
+ * ── Why this is fail-closed and not a warning ──────────────────────────────
+ *
+ * `wrangler dev` does not fail on a busy port — it falls forward to the next
+ * free one. So a leaked cloister on 8787 means run N+1 binds 8788 while
+ * `waitForHealth` polls 8787 and gets a healthy 200 from the STALE server. The
+ * run reports success, and the shim spends the session talking to an old build.
+ * Every signal says fine. Observed exactly this, five leaks deep.
+ *
+ * `killProcessGroup` stops this run from leaking. This stops a run from
+ * STARTING on top of anything else holding the port — another session, a
+ * `task dev` in a terminal, an unrelated server. The two are complements:
+ * neither alone makes the health check trustworthy.
+ *
+ * Named, with the fix in the message, because "port busy" is only actionable if
+ * you know which process to look for.
+ *
+ * @param {number[]} ports
+ * @param {{probe?: (port: number) => boolean}} [deps]
+ */
+export function assertPortsFree(ports, deps = {}) {
+  const probe = deps.probe ?? ((/** @type {number} */ port) => {
+    try {
+      execFileSync("lsof", ["-ti", `:${port}`], { stdio: ["ignore", "pipe", "ignore"] });
+      return true;  // lsof exits 0 only when something holds the port
+    } catch {
+      return false; // non-zero = nothing listening. Also the case when lsof is
+                    // absent, which degrades to today's behaviour rather than
+                    // blocking a launch over a missing diagnostic tool.
+    }
+  });
+  const busy = ports.filter((p) => probe(p));
+  if (busy.length === 0) return;
+  throw new PreconditionError(
+    `port${busy.length > 1 ? "s" : ""} already in use: ${busy.join(", ")}\n` +
+    `  A run owns these, and wrangler does NOT fail on a busy port — it moves to\n` +
+    `  the next one, so the health check would pass against whatever is already\n` +
+    `  there and the session would talk to the wrong server.\n` +
+    `  Find it:  lsof -ti :${busy[0]}\n` +
+    `  Clear it: pkill -f workerd; pkill -f "wrangler dev"`,
+  );
+}
+
+/**
  * Launch cloister + the shim, then either exec the confined harness or print the
  * export line. Requires the SetupArtifacts that only performSetup produces.
  *
@@ -832,15 +1009,61 @@ export async function launchSession(plan, artifacts, deps = {}) {
   const log = deps.errLog ?? ((/** @type {string} */ m) => process.stderr.write(`${m}\n`));
   const waitHealth = deps.waitForHealth ?? waitForHealth;
   const waitPort = deps.waitForPort ?? waitForPort;
+  const killGroup = deps.killProcessGroup ?? killProcessGroup;
   const { identity } = artifacts;
   const ephemeral = [...artifacts.ephemeralPaths];
 
-  const cloister = spawn("task", ["dev"], { cwd: plan.root, stdio: "inherit" });
+  const companions = (deps.resolveCompanionWorkers ?? resolveCompanionWorkers)(
+    readFileSync(resolve(plan.root, "wrangler.toml"), "utf8"),
+  );
+  const companionsPorts = companions.filter((c) => c.dir).map((c) => c.port);
+
+  // Before anything binds or is minted: the ports this run owns must be free.
+  (deps.assertPortsFree ?? assertPortsFree)([
+    8787, Number(plan.shimPort), ...companionsPorts,
+  ]);
+
+  // Companion Workers FIRST: wrangler pairs service bindings through its dev
+  // registry at startup, so one started after cloister still reports
+  // [not connected] for that whole session.
+  /** @type {{kill: () => void, pid?: number}[]} */
+  const companionProcs = [];
+  for (const c of companions) {
+    if (!c.dir) {
+      log(
+        `cloister — env.${c.binding} (${c.service}) will report [not connected]: ` +
+        `nothing local is running it.\n` +
+        `  Set ${c.envVar}=<path to its worker dir> to have this run start it.\n` +
+        `  Not fatal — it costs the routes that binding serves, nothing else.`,
+      );
+      continue;
+    }
+    log(`cloister — starting companion Worker ${c.service} (env.${c.binding}) on :${c.port} from ${c.dir}`);
+    companionProcs.push(spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(c.port)], {
+      cwd: c.dir, stdio: "inherit", detached: true,
+    }));
+    // WAIT for it to bind before moving on. Starting it is not enough: wrangler
+    // pairs service bindings through its dev registry at cloister's startup, so
+    // a companion still booting when cloister starts is a companion cloister
+    // never sees — the binding reports [not connected] for the whole session
+    // even though the process is right there. Observed exactly that.
+    try {
+      await waitPort(`http://127.0.0.1:${c.port}/`, 60_000);
+    } catch {
+      // Non-fatal by design: a companion that will not come up costs the routes
+      // its binding serves, and nothing else. Killing the run over it would
+      // make an optional dependency mandatory.
+      log(`cloister — ${c.service} did not come up on :${c.port}; env.${c.binding} will be [not connected].`);
+    }
+  }
+
+  const cloister = spawn("task", ["dev"], { cwd: plan.root, stdio: "inherit", detached: true });
   await waitHealth(`${CLOISTER_BASE}/health`, 60_000);
 
   const shim = spawn(process.execPath, ["--import", "tsx", "tools/harness-shim/index.ts"], {
     cwd: plan.root,
     stdio: "inherit",
+    detached: true,
     env: {
       ...process.env,
       HARNESS_SHIM_PORT: plan.shimPort,
@@ -862,7 +1085,7 @@ export async function launchSession(plan, artifacts, deps = {}) {
     // Appended where it is WRITTEN, so cleanup cannot fall behind what exists.
     ephemeral.push(policyPath);
 
-    log(`\n${bar}\nharness:dev — SANDBOX=nono: launching ${plan.sandbox.harnessBin} kernel-confined (cloister-harness).`);
+    log(`\n${bar}\ncloister — SANDBOX=nono: launching ${plan.sandbox.harnessBin} kernel-confined (cloister-harness).`);
     log(`  policy: ${policyPath} (declared nono manifest, default-deny)`);
     log(`  rw: ${[...plan.sandbox.workdirs, plan.sandbox.stateDir].join(", ")}`);
     log(`  network: blocked, localhost :${plan.shimPort} only → ${plan.baseUrl}\n${bar}\n`);
@@ -876,7 +1099,7 @@ export async function launchSession(plan, artifacts, deps = {}) {
     });
   } else {
     const t = plan.target;
-    log(`\n${bar}\nharness:dev — ready. In your harness shell:\n`);
+    log(`\n${bar}\ncloister — ready. In your harness shell:\n`);
     log(`  export ${t.baseUrlEnv}="${plan.baseUrl}"`);
     if (plan.auth.mode === "audit") {
       log(`  # DO NOT set ${t.stripEnv.join(" / ")} — either leaves your`);
@@ -902,9 +1125,16 @@ export async function launchSession(plan, artifacts, deps = {}) {
   const shutdown = async (end = { code: 0, signal: null }) => {
     if (ended) return;
     ended = true;
+    // Groups, not leaders — see killProcessGroup. The confined harness is left
+    // as a direct kill: cloister-harness is the group leader of the sandboxed
+    // tree and killing it takes its children with it.
     confined?.kill();
-    shim?.kill();
-    cloister?.kill();
+    killGroup(shim);
+    killGroup(cloister);
+    // Companions die with the session too. A wrangler dev left running holds
+    // its port, so the NEXT run's companion fails to bind — which presents as
+    // [not connected] again, i.e. exactly the symptom this path removes.
+    for (const p of companionProcs) killGroup(p);
     // Removes exactly what was written — ephemeral is accumulated at each write
     // site, not restated here. A hand-mirrored list is how a fourth written file
     // gets left behind: nothing fails, the tree just keeps a dev credential.
@@ -988,7 +1218,7 @@ function warnIfAuditIsUnauthenticated(plan, log, deps = {}) {
   if (exists(join(plan.sandbox.stateDir, ".credentials.json"))) return;
 
   log(
-    `harness:dev — NOTE: audit mode under confinement may be unauthenticated.\n` +
+    `cloister — NOTE: audit mode under confinement may be unauthenticated.\n` +
     `  No credential file in ${plan.sandbox.stateDir}, so ${plan.target.name} likely\n` +
     `  authenticates from the system keychain — which the sandbox denies by design\n` +
     `  (nono's default profile carries deny_keychains_macos; there is no per-item\n` +
@@ -1010,7 +1240,7 @@ function warnIfAuditIsUnauthenticated(plan, log, deps = {}) {
 export async function launch(request, deps = {}) {
   const plan = await resolvePlan(request, deps);
   const log = deps.errLog ?? ((/** @type {string} */ m) => process.stderr.write(`${m}\n`));
-  log(`harness:dev — target ${plan.target.name} · ` +
+  log(`cloister — target ${plan.target.name} · ` +
       (plan.auth.mode === "audit"
         ? "AUDIT mode (forward harness auth + receipt; no key vaulted)"
         : "CUSTODY mode (API key vaulted + injected)"));
@@ -1034,7 +1264,7 @@ export async function launch(request, deps = {}) {
     for (const path of artifacts.ephemeralPaths.filter((p) => p !== artifacts.devVarsPath)) {
       try { rm(path, { force: true }); } catch { /* lint-allow-silent: best-effort cleanup */ }
     }
-    log("harness:dev — --setup-only: skipping launch. .dev.vars is ready.");
+    log("cloister — --setup-only: skipping launch. .dev.vars is ready.");
     return { plan, artifacts, session: null };
   }
   const session = await launchSession(plan, artifacts, deps);

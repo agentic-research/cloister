@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// harness:dev — the turnkey local run (ADR-0042). One command:
+// cloister — the turnkey local run (ADR-0042). One command:
 //
 //   1. mint a fresh ephemeral dev master + Interlace cert (rust mint-dev-cert)
 //   2. write .dev.vars so `wrangler dev` binds the dev-mode seams:
@@ -53,7 +53,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // side-effectful path inverts that, and the side effect was minting a credential.
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   process.stdout.write(
-    `harness:dev — launch a harness against a local cloister, kernel-confined.\n\n` +
+    `cloister — launch a harness against a local cloister, kernel-confined.\n\n` +
     `  --target <name>   harness to launch (default: the declared DEFAULT_TARGET)\n` +
     `  --setup-only      mint the dev identity + write .dev.vars, do not launch\n` +
     `  --audit           forward harness auth and emit a receipt; no key vaulted\n` +
@@ -154,7 +154,7 @@ export async function runBin(request, deps = {}) {
     return end.code ?? 0;
   } catch (err) {
     if (err instanceof LaunchUsageError) {
-      errLog(`harness:dev — ${err.message}`);
+      errLog(`cloister — ${err.message}`);
       try {
         const cfg = await loadHarnessConfig(resolve(request.root, "cluster.toml"));
         if (cfg.targets.length) {
@@ -164,7 +164,7 @@ export async function runBin(request, deps = {}) {
       return 2;
     }
     if (err instanceof PreconditionError) {
-      errLog(`harness:dev — ${err.message}`);
+      errLog(`cloister — ${err.message}`);
       return err.exitCode;
     }
     throw err;
@@ -176,7 +176,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   try {
     request = requestFromEnv();
   } catch (e) {
-    process.stderr.write(`harness:dev — ${e.message}\n`);
+    process.stderr.write(`cloister — ${e.message}\n`);
     process.exit(2);
   }
   const code = await runBin(request);

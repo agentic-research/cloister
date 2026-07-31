@@ -63,6 +63,7 @@ declare module "node:url" {
 
 declare const process: {
   getuid?(): number;
+  kill(pid: number, signal?: string | number): void;
   env: Record<string, string | undefined>;
   argv: string[];
   execPath: string;

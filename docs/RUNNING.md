@@ -121,7 +121,34 @@ local credential to run would be a gate contributors could not run.
 **3. Ports 8787 and 8799 free.** A run starts cloister on `:8787` and the lease
 shim on `:8799`. Nothing checks these are free first — see *Known gaps*.
 
-**4. The confinement binary.** Built automatically on first run
+**4. Companion Workers (optional).** A run may declare service bindings to other
+Workers — cloister's own `wrangler.toml` binds `env.NOTME` to `notme-bot`. A
+service binding only connects to another `wrangler dev` running locally, so
+without one the run prints:
+
+```
+env.NOTME (notme-bot)   Worker   local [not connected]
+```
+
+That reads as a broken binding; it means nothing local is running that Worker.
+Point cloister at the checkout and the run starts it for you:
+
+```sh
+export CLOISTER_WORKER_DIR_NOTME_BOT=~/remotes/art/notme/worker
+```
+
+The env-var name derives from the service name
+(`CLOISTER_WORKER_DIR_<SERVICE>`, uppercased, non-alphanumerics to `_`), and the
+SET of companions comes from the `[[services]]` entries wrangler.toml already
+declares — adding a binding needs no second list. Only the machine-specific
+*path* is an env knob, deliberately: ADR-0026 bans committed local paths because
+they silently win over the declared `ref`.
+
+Unset is not fatal — it costs only the routes that binding serves. For
+`cloister run` that is `/identity/*` and the notme-sourced CA bundle; a dev run
+uses `DEV_CA_MASTER` as its authority and touches neither.
+
+**5. The confinement binary.** Built automatically on first run
 (`tools/harness-sandbox`, ~4 min cold). Or ahead of time:
 
 ```sh
@@ -225,8 +252,17 @@ writable because nono's grants are a union — a read grant does not narrow a
 writable parent — so a skill substituted mid-run is caught on the *next* run.
 Relocating the skills tree behind a symlink closes this; see ADR-0061.
 
-**Ports are not checked** before launch. A conflict on 8787 or 8799 surfaces as
-a startup failure from the underlying process.
+**Ports ARE checked now, fail-closed.** A run refuses to start if 8787, 8799 or
+a companion's port (8810+) is held, and names how to find and clear the holder.
+
+This is not tidiness. `wrangler dev` does not fail on a busy port — it moves to
+the next free one. So a leaked cloister on 8787 meant the next run bound 8788
+while the health check polled 8787 and got a healthy 200 **from the stale
+server**: the run reported success while the shim talked to an old build. Five
+leaks accumulated that way during testing (8787–8791).
+
+The leak itself is fixed too — each run owns its process group, so teardown
+takes `task → wrangler → workerd` with it instead of only the leader.
 
 **No subscription auth**, as above. Custody lane only.
 

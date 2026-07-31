@@ -256,6 +256,9 @@ export class PreconditionError extends Error {
  * @property {(message: string) => void} [errLog]
  * @property {(url: string, timeoutMs: number) => Promise<void>} [waitForHealth]
  * @property {(url: string, timeoutMs: number) => Promise<void>} [waitForPort]
+ * @property {(child: unknown) => void} [killProcessGroup]
+ * @property {(ports: number[]) => void} [assertPortsFree]
+ * @property {(wranglerToml: string, env?: Record<string,string|undefined>) => {binding:string, service:string, dir:string|null, envVar:string, port:number}[]} [resolveCompanionWorkers]
  */
 
 export {};
