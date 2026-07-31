@@ -658,6 +658,33 @@ export function buildPolicy(plan, identity) {
     "/private/var/db", "/private/etc", "/private/var", "/private",
     "/System/Volumes", "/System/Cryptexes", "/opt", "/opt/homebrew",
     join(home, ".local/bin"), join(home, ".local/share"),
+    // `/var` — the SYMLINK at `/`, not just its target. macOS ships `git` and
+    // `python3` as Xcode shims that resolve `/var/select/developer_dir`, and
+    // granting `/private/var` alone is not enough: the shim traverses `/var`,
+    // and without it `git --version` fails with
+    //
+    //   xcode-select: error: unable to read data link at '/var/select/developer_dir'
+    //   xcode-select: note: No developer tools were found, requesting install.
+    //
+    // — which pops a macOS install dialog rather than running. A coding harness
+    // runs git constantly, so this made confined runs unusable for their
+    // primary job. Measured, then fixed.
+    // Same for `/etc` → `private/etc`: git reads /etc/gitconfig, and granting
+    // only the target leaves the traversal denied. macOS root-level symlinks
+    // must be granted as themselves, not merely via what they point at.
+    "/var", "/etc",
+    // git's user configuration. Read-only, and scoped to git specifically
+    // rather than granting ~/.config, which would hand over every other tool's
+    // credentials-adjacent config for one tool's benefit.
+    join(home, ".config/git"),
+  ];
+
+  // Single FILES the harness must read. Distinct from the directory grants
+  // above because nono refuses a file path where a directory is expected.
+  const sysReadFiles = [
+    join(home, ".gitconfig"),
+    // Referenced from .gitconfig; git warns loudly on every command without it.
+    join(home, ".gitignore_global"),
   ];
   // /tmp is a symlink to /private/tmp on macOS; grant both so a harness that
   // writes to the literal /tmp path (claude's runtime dir) isn't denied.
@@ -698,6 +725,7 @@ export function buildPolicy(plan, identity) {
       filesystem: {
         grants: [
           ...sysRead.map((/** @type {string} */ path) => ({ path, access: "read", type: "directory" })),
+          ...sysReadFiles.map((/** @type {string} */ path) => ({ path, access: "read", type: "file" })),
           ...sysRw.map((/** @type {string} */ path) => ({ path, access: "readwrite", type: "directory" })),
           // One kernel grant per declared root — the enforcement half of the
           // `workspace` / `workspace.N` entries in the confinement manifest.
