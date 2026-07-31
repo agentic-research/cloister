@@ -16,6 +16,15 @@ Point your harness at that one URL and the whole bundle is available —
 and you can see exactly what ran. MCP tools today; skill and agent
 definitions next.
 
+## Running a harness
+
+```sh
+cloister run --harness claude-code --repo /abs/path/to/repo
+```
+
+Confined to the repos you name — every other path, and the network, kernel-denied.
+Prerequisites, caveats and known gaps: [`docs/RUNNING.md`](docs/RUNNING.md).
+
 ## Why you'd care
 
 - **Your tools never see your secrets.** Give a tool access to an API
