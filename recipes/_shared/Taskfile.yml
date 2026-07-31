@@ -1,0 +1,29 @@
+# Scaffolded cluster — a DOOR onto the cloister CLI, not a second implementation.
+#
+# Every task here delegates to `cloister <verb>`. That is deliberate: cloister's
+# own Taskfile and this one are two doors onto one implementation, so a cluster
+# you own behaves exactly like the reference one. The failure this prevents is
+# the one that shipped — a scaffold whose README said `task cluster:up` into a
+# directory with no Taskfile at all.
+#
+# `cloister` must be on $PATH (or set CLOISTER to point at it).
+version: "3"
+
+vars:
+  CLOISTER: '{{.CLOISTER | default "cloister"}}'
+
+tasks:
+  up:
+    desc: "Bring this cluster up (compose). Pass -- --detach to background it."
+    cmds:
+      - '{{.CLOISTER}} cluster up --dir . {{.CLI_ARGS}}'
+
+  down:
+    desc: "Tear this cluster down. Volumes are PRESERVED — DO SQLite state lives there; pass -- --destroy to remove them."
+    cmds:
+      - '{{.CLOISTER}} cluster down --dir . {{.CLI_ARGS}}'
+
+  pull:
+    desc: "Acquire the lockfile-pinned OCI artifacts this cluster declares."
+    cmds:
+      - '{{.CLOISTER}} artifacts pull {{.CLI_ARGS}}'

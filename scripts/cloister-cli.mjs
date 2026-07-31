@@ -30,6 +30,24 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === "init") return initMain(["init", ...rest]);
   if (command === "add") return addMain(rest);
   if (command === "artifacts" && rest[0] === "pull") return pullMain(rest.slice(1));
+  if (command === "skills") {
+    const sub = rest[0];
+    if (sub === "list" || sub === "pin" || sub === undefined || sub === "--help" || sub === "-h") {
+      const { main: skillsMain } = await import("./cli-skills.mjs");
+      return skillsMain(rest);
+    }
+  }
+  if (command === "cluster") {
+    // The subcommands are named HERE, not only inside cli-cluster.mjs, so
+    // `every declared command is actually dispatched` can see them. A bare
+    // `cluster` or `cluster --help` also routes, so asking for help works
+    // before you know the verbs.
+    const sub = rest[0];
+    if (sub === "up" || sub === "down" || sub === undefined || sub === "--help" || sub === "-h") {
+      const { main: clusterMain } = await import("./cli-cluster.mjs");
+      return clusterMain(rest);
+    }
+  }
   if (command === "runtime" && rest[0] === "plan") return planMain(rest.slice(1));
   if (command === "runtime" && rest[0] === "run") {
     return runHostRuntime(["run", ...rest.slice(1)]);
