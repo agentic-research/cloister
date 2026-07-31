@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 
 /** Return only the system paths that belong to this OS and exist now. */
 export function systemGrants({
-  platform = process.platform,
+  platform = osPlatform(),
   home = homedir(),
   pathExists = existsSync,
 } = {}) {
@@ -45,6 +45,7 @@ export function systemGrants({
   // CapabilityManifest -> CapabilitySet rejects a typed grant whose path is
   // absent. A portable policy must not name the other operating system's tree,
   // or optional user config that is not installed on this machine.
+  /** @param {string[]} paths */
   const existing = (paths) => [...new Set(paths)].filter((path) => pathExists(path));
   return {
     readDirectories: existing(readDirectories),

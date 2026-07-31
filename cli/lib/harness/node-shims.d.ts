@@ -51,6 +51,7 @@ declare module "node:crypto" {
 
 declare module "node:os" {
   export function homedir(): string;
+  export function platform(): string;
 }
 
 declare module "node:path" {

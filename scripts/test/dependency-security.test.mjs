@@ -27,6 +27,8 @@ test("lockfile keeps PostCSS and sharp above current advisory floors", () => {
 });
 
 test("the development toolchain resolves one Miniflare generation", () => {
+  // lint-allow-rawparse: count opaque package keys; no YAML value semantics
+  // are involved, and a parser would only reproduce pnpm's package inventory.
   const lock = readFileSync(resolve(ROOT, "pnpm-lock.yaml"), "utf8");
   const packages = lock.split("\nsnapshots:\n", 1)[0];
   const miniflareVersions = packages.match(/^  miniflare@[^:]+:/gm) ?? [];
