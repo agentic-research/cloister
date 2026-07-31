@@ -1,6 +1,6 @@
 # First-party Cloister CLI
 
-**Status:** Revised after LLO boundary review; awaiting written-spec approval
+**Status:** Approved 2026-07-31 after LLO boundary review
 **Bead:** `cloister-844fb5`
 **Date:** 2026-07-31
 
@@ -124,6 +124,11 @@ temporary exception is that `cloister install` may build the named compatibility
 adapter from its current source location and copy the result to `libexec`;
 normal runs execute that installed artifact, not a path inside `tools/`.
 
+The same rule applies to Task itself: no normal `cloister` command may spawn
+`task`. In particular, the local launch path starts Wrangler/workerd through a
+first-party product module. `task dev` is only an alias back to
+`cloister dev serve`; it is never a runtime dependency in the other direction.
+
 ## Working-main and maturity contract
 
 The migration must not create a period where `main` describes a future runtime
@@ -239,6 +244,9 @@ Operator-facing tasks are aliases onto public commands:
 | Task | Command |
 | --- | --- |
 | `task install` | `node bin/cloister.mjs install` |
+| `task uninstall` | `cloister uninstall` |
+| `task dev:bootstrap` | `cloister dev bootstrap` |
+| `task dev` | `cloister dev serve` |
 | `task init` | `cloister init` |
 | `task add` | `cloister add` |
 | `task cluster:toml` | `cloister cluster generate` |
@@ -267,8 +275,8 @@ operator flow treats generated TypeScript or Cap'n Proto as the source of
 truth.
 
 This subsumes the intent of `cloister-de4c78`: launch code must no longer spawn
-`task dev`. The CLI starts the required service directly, while the Taskfile
-calls the CLI.
+`task dev`. The CLI starts the required service directly through the same
+product module used by `cloister dev serve`, while the Taskfile calls the CLI.
 
 ## Global output and color contract
 
