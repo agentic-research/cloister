@@ -269,7 +269,24 @@ struct ExternalBundle {
   # Enforcement backend requested by the operator. Current values are
   # "microvm" and "process"; the host runtime selects exactly and never
   # substitutes a weaker backend.
+  #
+  # "microvm" is the POSTURE; "process" is an EXEMPTION from it (ADR-0062).
+  # They are not peers: one isolates, the other does not, and a schema that
+  # presents them as equal choices is how four of five bundles ended up
+  # unisolated without anyone deciding to.
   executionMode @6 :Text;
+
+  # Why this bundle cannot be isolated. Required whenever executionMode is
+  # "process"; ignored otherwise. Per ADR-0062.
+  #
+  # The rail checks PRESENCE, not prose — it cannot judge whether an argument
+  # is good, only that someone was made to write one. That is enough: when
+  # this field was introduced, two bundles holding the cluster's highest-value
+  # secrets had no reason at all, and writing one down is what revealed that
+  # nobody had decided rather than that anybody had.
+  #
+  # Same shape and precedent as `hypervisorRationale` on Bundle (ADR-0011).
+  executionModeRationale @7 :Text;
 }
 
 struct EnvVar {

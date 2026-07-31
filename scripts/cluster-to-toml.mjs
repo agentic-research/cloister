@@ -419,6 +419,10 @@ function canonicalizeBundleKindPayload(tag, payload) {
   if (Array.isArray(pruned.env) && pruned.env.length === 0) delete pruned.env;
   if (pruned.entryPoint === "") delete pruned.entryPoint;
   if (pruned.executionMode === "") delete pruned.executionMode;
+  // Same pruning rule: an empty rationale is the "not applicable" case (any
+  // bundle that is not "process"), and emitting it would add a line the
+  // operator never wrote.
+  if (pruned.executionModeRationale === "") delete pruned.executionModeRationale;
   return pruned;
 }
 

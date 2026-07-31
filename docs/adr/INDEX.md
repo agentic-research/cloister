@@ -66,4 +66,4 @@ beads + git (see each ADR's tracking bead), never typed here. Reserved-but-unfil
 | [ADR-0059](0059-attested-ephemeral-run.md) | The attested ephemeral run — cloister as an execution substrate for derivations | Proposed · 2026-07-29 |
 | [ADR-0060](0060-harness-selector-is-not-the-executable.md) | A harness target's selector is not its executable | Accepted · 2026-07-30 |
 | [ADR-0061](0061-skills-declared-and-verified.md) | Skills are declared and digest-verified, not discovered | Accepted · 2026-07-30 |
-| [ADR-0062](0062-process-mode-is-an-exemption-not-a-posture.md) | `process` is an exemption, not a posture | Proposed · 2026-07-31 |
+| [ADR-0062](0062-process-mode-is-an-exemption-not-a-posture.md) | `process` is an exemption, not a posture | Accepted · 2026-07-31 |

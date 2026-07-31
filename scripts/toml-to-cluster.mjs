@@ -787,6 +787,20 @@ function normalizeBundleDefaults(bundle) {
           executionMode: typeof external.executionMode === "string"
             ? external.executionMode
             : "",
+          // ADR-0062. Added here as well as the schema because this object is
+          // hand-enumerated, and a field missing from it is DECLARABLE AND
+          // INVISIBLE: the operator writes it in cluster.toml, the forward leg
+          // drops it, the reverse leg writes back "", and the edit is silently
+          // erased from the operator's own file.
+          //
+          // This is the exact failure CLAUDE.md records for ADR-0051's
+          // `connection`, reproduced by adding one field — which is the
+          // argument for deriving this shape from ClusterSchema rather than
+          // listing it (cloister-8ae1f2). Kept as a list for now only because
+          // changing the derivation is a bigger change than this one.
+          executionModeRationale: typeof external.executionModeRationale === "string"
+            ? external.executionModeRationale
+            : "",
         },
       },
     };

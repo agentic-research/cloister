@@ -1,6 +1,6 @@
 ---
 title: "ADR-0062: `process` is an exemption, not a posture"
-status: Proposed (2026-07-31)
+status: Accepted (2026-07-31)
 date: 2026-07-31
 tags: [isolation, confinement, execution-mode, schema, fail-closed]
 relates_to:
@@ -128,7 +128,33 @@ Revisit once every exemption carries a rationale.
 
 ## Status of the claim
 
-This ADR states a rule; it does not yet enforce one. The rail, the schema field,
-and the two unexplained exemptions are the implementation, tracked on its bead.
-Until then this is a decision on the record, not a property of the tree — the
-distinction this repo insists on everywhere else.
+Shipped with the rail, per this repo's rule that a substrate rule and its
+enforcement land together. `executionModeRationale` is on the external facet,
+Inv 13 fails an unjustified `process`, the exemption count is reported on every
+lint run, and four tests cover it — including one against the shipped tree,
+which is the assertion that would have failed before this change.
+
+Implementing it turned up something the ADR had not: **only `mache` can emit a
+launch plan at all.** All four `process` bundles fail `emit-host-launch-plan` on
+a *different* precondition — no `entryPoint`:
+
+```
+mache             PLAN OK
+notme-proxy       FAILS: requires an absolute external.entryPoint
+notme-identity    FAILS: requires an absolute external.entryPoint
+rosary            FAILS: requires an absolute external.entryPoint
+cloister-router   FAILS: requires an absolute external.entryPoint
+```
+
+So `process` on those four was never a security decision. It is the value in a
+bundle the host runtime **cannot launch in either mode**. Inv 13 was written
+because leaving the facet ambient "defers the failure to `task runtime:plan`
+instead of reporting it here" — and it checked one of that consumer's
+preconditions while hand-mirroring it, so the deferred failure it existed to
+eliminate survived, for the same bundles, at the same consumer, one line
+further down. **A rail that mirrors a slice of its consumer inherits exactly the
+gap it was built to close.** Tracked as `cloister-8ae1f2`.
+
+The two `UNDECIDED` rationales now in `cluster.toml` say precisely that. Writing
+the field is what forced the distinction between "we decided not to isolate
+this" and "nobody decided anything", and the answer was the second one.

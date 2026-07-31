@@ -52,7 +52,8 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": "process"
+          "executionMode": "process",
+          "executionModeRationale": "STRUCTURAL and permanent. This IS the workerd host, and the hypervisor cannot be placed inside its own guest. No future work removes this exemption."
         }
       }
     },
@@ -85,7 +86,8 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": "process"
+          "executionMode": "process",
+          "executionModeRationale": "UNDECIDED. This is a placeholder, not a decision, and recording that is the point of ADR-0062. The bundle holds the Signet master CA and mints lease certs, so it carries the highest-value secret in the cluster and the strongest case for isolation. It says process because it has no entryPoint, so task runtime:plan cannot emit a plan for it in EITHER mode: the host runtime cannot launch it at all. Nobody chose no-isolation here; nobody chose anything. Resolving it needs notme to state what the bundle requires. Tracked in cloister-5fe44f."
         }
       }
     },
@@ -118,7 +120,8 @@ export const cluster: Cluster = {
           "args": [],
           "env": [],
           "entryPoint": "",
-          "executionMode": "process"
+          "executionMode": "process",
+          "executionModeRationale": "UNDECIDED. Placeholder, not a decision. Holds the bridge cert and private key and mediates every attested egress, so the hypervisorRationale in this same entry says its compromise blast radius is every upstream the cluster reaches. Same cause as notme-identity: no entryPoint, so the host runtime cannot launch it in either mode. Its shape, a Rust service binding a UDS under /run/cloister-uds, is the same shape as mache, which IS microvm, so there is no evident structural blocker, only unfinished packaging. Tracked in cloister-5fe44f."
         }
       }
     },
@@ -162,7 +165,8 @@ export const cluster: Cluster = {
           ],
           "env": [],
           "entryPoint": "/usr/local/bin/mache",
-          "executionMode": "microvm"
+          "executionMode": "microvm",
+          "executionModeRationale": ""
         }
       }
     },
@@ -199,7 +203,8 @@ export const cluster: Cluster = {
           ],
           "env": [],
           "entryPoint": "",
-          "executionMode": "process"
+          "executionMode": "process",
+          "executionModeRationale": "CONTINGENT, not structural. rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees plus Keychain, none of which survive VM isolation. rosary-56b557 proposes cloister as a ComputeProvider, which is rosary own pluggable backend seam, and that removes the host-spawn requirement entirely. When it lands this exemption should be WITHDRAWN, not re-justified."
         }
       }
     }

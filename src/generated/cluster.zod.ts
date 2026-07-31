@@ -208,6 +208,7 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     env: z.array(EnvVarSchema).readonly().default([]),
     entryPoint: z.string().default(""),
     executionMode: z.string().default(""),
+    executionModeRationale: z.string().default(""),
   }).strict());
 
 export interface ExternalBundle {
@@ -218,6 +219,7 @@ export interface ExternalBundle {
   env: readonly EnvVar[];
   entryPoint: string;
   executionMode: string;
+  executionModeRationale: string;
 }
 
 export const ConfinementSchema: z.ZodType<Confinement> = z.lazy(() =>
