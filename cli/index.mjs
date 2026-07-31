@@ -11,7 +11,7 @@ import { main as planMain } from "./commands/runtime-plan.mjs";
 import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
 import { main as runMain } from "./commands/run.mjs";
-import { renderHelp } from "./surface.mjs";
+import { renderCommandHelp, renderHelp } from "./surface.mjs";
 
 function printHelp(log = console.log) {
   // Derived from cli/surface.mjs — the SAME declaration that generates
@@ -29,6 +29,14 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   if (!command || command === "--help" || command === "-h" || command === "help") {
     printHelp(log);
     return 0;
+  }
+  if (command === "install" || command === "uninstall") {
+    const { main: installMain } = await import("./commands/install.mjs");
+    return installMain([command, ...rest], {
+      log,
+      errLog: error,
+      env: context.env ?? process.env,
+    });
   }
   if (command === "run") return runMain(rest);
   if (command === "init") return initMain(["init", ...rest]);
@@ -57,20 +65,55 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
   }
   if (command === "runtime" && rest[0] === "plan") return planMain(rest.slice(1));
+  if (command === "runtime" && rest[0] === "install") {
+    const { main: runtimeMain } = await import("./commands/runtime.mjs");
+    return runtimeMain(rest, {
+      log,
+      errLog: error,
+      env: context.env ?? process.env,
+    });
+  }
+  if (command === "runtime" && (rest.includes("--help") || rest.includes("-h"))) {
+    const helpName = rest[0] === "storage"
+      ? `runtime storage ${rest[1] ?? "status"}`
+      : `runtime ${rest[0] ?? "doctor"}`;
+    const declared = [
+      "runtime run",
+      "runtime doctor",
+      "runtime storage status",
+      "runtime storage gc",
+    ];
+    if (declared.includes(helpName)) {
+      log(renderCommandHelp(helpName));
+      return 0;
+    }
+  }
   if (command === "runtime" && rest[0] === "run") {
-    return runHostRuntime(["run", ...rest.slice(1)]);
+    return runHostRuntime(["run", ...rest.slice(1)], {
+      errLog: error,
+      env: context.env ?? process.env,
+    });
   }
   if (command === "runtime" && rest[0] === "doctor") {
-    return runHostRuntime(["doctor", ...rest.slice(1)]);
+    return runHostRuntime(["doctor", ...rest.slice(1)], {
+      errLog: error,
+      env: context.env ?? process.env,
+    });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "init") {
     return storageMain(rest.slice(2));
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "status") {
-    return runHostRuntime(["status", ...rest.slice(2)]);
+    return runHostRuntime(["status", ...rest.slice(2)], {
+      errLog: error,
+      env: context.env ?? process.env,
+    });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "gc") {
-    return runHostRuntime(["gc", ...rest.slice(2)]);
+    return runHostRuntime(["gc", ...rest.slice(2)], {
+      errLog: error,
+      env: context.env ?? process.env,
+    });
   }
 
   error(`cloister: unknown command: ${argv.join(" ")}`);

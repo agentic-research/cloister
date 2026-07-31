@@ -2,8 +2,9 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,6 +76,65 @@ test("runtime command never falls back when the configured binary is missing", (
   });
   assert.equal(result.status, 2);
   assert.match(result.stderr, /CLOISTER_HOST_RUNTIME_BIN/);
+});
+
+test("runtime command names the first-party install command when no provider exists", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-missing-"));
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /The execution runtime is not installed/);
+  assert.match(result.stderr, /cloister runtime install/);
+  assert.doesNotMatch(result.stderr, /task |runtime:build|rs\/target/);
+});
+
+test("runtime help is available before the provider is installed", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-help-"));
+  const result = run(["runtime", "doctor", "--help"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Usage: cloister runtime doctor/);
+  assert.doesNotMatch(result.stderr, /runtime install|not installed/i);
+});
+
+test("runtime command executes the digest-verified provider artifact", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-provider-"));
+  const record = resolve(temp, "argv.json");
+  const fake = resolve(temp, "cloister-host-runtime");
+  writeFileSync(
+    fake,
+    `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(process.argv.slice(2)));
+`,
+  );
+  chmodSync(fake, 0o755);
+  const digest = createHash("sha256").update(readFileSync(fake)).digest("hex");
+  mkdirSync(temp, { recursive: true });
+  writeFileSync(resolve(temp, "runtime-provider.json"), JSON.stringify({
+    schema: "cloister/runtime-provider/v1",
+    provider: "compatibility",
+    maturity: "experimental",
+    transport: "subprocess",
+    apiVersion: "cloister/compatibility-runtime/v1",
+    backends: ["nativeNonoCompatibility", "krunvmCompatibility"],
+    artifacts: {
+      nativeHelper: { file: "cloister-host-runtime", sha256: digest },
+      hostRuntime: { file: "cloister-host-runtime", sha256: digest },
+    },
+  }));
+
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+    RUNTIME_ARGV_RECORD: record,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), ["doctor"]);
 });
 
 // Sparsebundles are an APFS/hdiutil concept, so this subcommand is macOS-only

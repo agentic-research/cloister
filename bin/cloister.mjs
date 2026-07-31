@@ -1,11 +1,67 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { readFileSync, realpathSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+async function bootstrapInstall(argv, io) {
+  const major = Number.parseInt(process.versions.node.split(".")[0], 10);
+  if (!Number.isInteger(major) || major < 20) {
+    io.stderr.write(
+      `cloister install: Node 20 or newer is required; this is Node ${process.versions.node}.\n`,
+    );
+    return 2;
+  }
+
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
+  } catch (error) {
+    io.stderr.write(`cloister install: cannot read package.json: ${error.message}\n`);
+    return 2;
+  }
+  const packageManager = String(packageJson.packageManager || "");
+  if (!/^pnpm@\d/.test(packageManager)) {
+    io.stderr.write(
+      `cloister install: package.json must pin pnpm, got ${JSON.stringify(packageManager)}.\n`,
+    );
+    return 2;
+  }
+
+  const installed = spawnSync("pnpm", ["install", "--frozen-lockfile"], {
+    cwd: ROOT,
+    env: io.env ?? process.env,
+    stdio: "inherit",
+  });
+  if (installed.error) {
+    io.stderr.write(
+      `cloister install: could not start pnpm (${packageManager}): ${installed.error.message}\n`,
+    );
+    return 2;
+  }
+  if (installed.status !== 0) {
+    io.stderr.write(`cloister install: pnpm exited ${installed.status ?? "without a status"}.\n`);
+    return installed.status ?? 1;
+  }
+
+  const { main } = await import("../cli/commands/install.mjs");
+  return main(["install", ...argv.slice(1)], {
+    stdout: io.stdout,
+    stderr: io.stderr,
+    env: io.env,
+    log: (value) => io.stdout.write(`${value}\n`),
+    errLog: (value) => io.stderr.write(`${value}\n`),
+    root: ROOT,
+  });
+}
 
 export async function run(argv = process.argv.slice(2), io = process) {
   try {
+    if (argv[0] === "install") return await bootstrapInstall(argv, io);
     const { main } = await import("../cli/index.mjs");
     return await main(argv, {
       stdout: io.stdout,

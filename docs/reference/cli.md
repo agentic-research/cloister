@@ -7,6 +7,8 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 
 | Command | What it does |
 |---|---|
+| [`cloister install`](#cloister-install) | Install Cloister and its experimental compatibility runtime |
+| [`cloister uninstall`](#cloister-uninstall) | Remove this checkout's installed command |
 | [`cloister run`](#cloister-run) | Run a harness confined to the repos you name |
 | [`cloister init`](#cloister-init) | Scaffold a cluster recipe |
 | [`cloister add`](#cloister-add) | Add and resolve a tool input |
@@ -18,11 +20,28 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
+| [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
 | [`cloister runtime run`](#cloister-runtime-run) | Run a plan through the krunvm backend |
 | [`cloister runtime doctor`](#cloister-runtime-doctor) | Check runtime prerequisites and storage |
 | [`cloister runtime storage init`](#cloister-runtime-storage-init) | Create/attach bounded krunvm storage |
 | [`cloister runtime storage status`](#cloister-runtime-storage-status) | Show bounded storage state |
 | [`cloister runtime storage gc`](#cloister-runtime-storage-gc) | Preview or execute safe reclamation |
+
+## cloister install
+
+```
+cloister install
+```
+
+Installs the locked Node dependencies, regenerates the files declared by cluster.toml, builds and digest-checks the current compatibility runtime, and puts the cloister command in ~/.local/bin (or CLOISTER_BIN_DIR). The compatibility runtime currently starts local processes and krunvm as subprocesses; it is temporary while LLO's native execution API matures.
+
+## cloister uninstall
+
+```
+cloister uninstall
+```
+
+Removes only a symlink that points to this checkout. It refuses to remove an unrelated file or another checkout's command, and keeps runtime files so uninstalling the command cannot silently delete machine state.
 
 ## cloister run
 
@@ -182,6 +201,14 @@ Emit a fail-closed host launch plan
 | `--workspace` `<abs>` | **required** | workspace the plan is scoped to |
 | `--control-socket` `<path>` |  | host-runtime control socket |
 | `--output` `<path>` |  | write the JSON plan here |
+
+## cloister runtime install
+
+```
+cloister runtime install
+```
+
+Builds the native confinement helper and host runtime, copies them into ~/.local/libexec/cloister (or CLOISTER_LIBEXEC_DIR), and writes a provider record containing their SHA-256 digests. Runtime commands verify those digests before execution.
 
 ## cloister runtime run
 

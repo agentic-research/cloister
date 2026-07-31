@@ -89,6 +89,26 @@ export const HARNESS_ENV = Object.freeze({
 /** @type {Command[]} */
 export const COMMANDS = [
   {
+    name: "install",
+    usage: "cloister install",
+    summary: "Install Cloister and its experimental compatibility runtime",
+    detail:
+      "Installs the locked Node dependencies, regenerates the files declared by " +
+      "cluster.toml, builds and digest-checks the current compatibility runtime, " +
+      "and puts the cloister command in ~/.local/bin (or CLOISTER_BIN_DIR). " +
+      "The compatibility runtime currently starts local processes and krunvm as " +
+      "subprocesses; it is temporary while LLO's native execution API matures.",
+  },
+  {
+    name: "uninstall",
+    usage: "cloister uninstall",
+    summary: "Remove this checkout's installed command",
+    detail:
+      "Removes only a symlink that points to this checkout. It refuses to remove " +
+      "an unrelated file or another checkout's command, and keeps runtime files " +
+      "so uninstalling the command cannot silently delete machine state.",
+  },
+  {
     name: "run",
     usage: "cloister run --harness <name> --repo <abs> [--repo <abs> …] [-- <harness args...>]",
     summary: "Run a harness confined to the repos you name",
@@ -239,6 +259,16 @@ export const COMMANDS = [
       { flag: "--control-socket", value: "<path>", summary: "host-runtime control socket" },
       { flag: "--output", value: "<path>", summary: "write the JSON plan here" },
     ] },
+  {
+    name: "runtime install",
+    usage: "cloister runtime install",
+    summary: "Build and install the experimental compatibility runtime",
+    detail:
+      "Builds the native confinement helper and host runtime, copies them into " +
+      "~/.local/libexec/cloister (or CLOISTER_LIBEXEC_DIR), and writes a provider " +
+      "record containing their SHA-256 digests. Runtime commands verify those " +
+      "digests before execution.",
+  },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a plan through the krunvm backend" },
   { name: "runtime doctor", usage: "cloister runtime doctor",
