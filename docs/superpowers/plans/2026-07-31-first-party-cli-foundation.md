@@ -6,7 +6,7 @@
 
 **Architecture:** `bin/cloister.mjs` is a dependency-free bootstrap and the installed executable. Normal commands route into `cli/`; user-facing implementation and shared launch code live there. The compatibility installer builds the current native+nono and krunvm helpers once, copies them into a machine-local libexec directory, records their digests and maturity, and normal commands use only those installed artifacts. `task` is a convenience alias onto the CLI and is never spawned by the CLI. Cluster generators are product libraries called by both the CLI and repository-only checks. LLO remains the owner of the future neutral RunSpec/lifecycle and replaces the compatibility provider through the same Cloister-side client seam.
 
-**Tech Stack:** Node.js 20+ ESM, Chalk 5, smol-toml, tsx ESM API, Go Task, node:test, Rust 2021, serde/serde_json, nono, krunvm compatibility adapter, Docker, GitHub Actions.
+**Tech Stack:** Node.js 22+ ESM, Chalk 5, smol-toml, tsx ESM API, Go Task, node:test, Rust 2021, serde/serde_json, nono, krunvm compatibility adapter, Docker, GitHub Actions.
 
 ## Global Constraints
 
@@ -282,7 +282,7 @@ module-level repository roots and `process.exit` calls with arguments and typed
 errors. Old script files become wrappers/re-exports; product code never imports
 them.
 
-Where a repository-only reverse export must load TypeScript on Node 20, use the
+Where a repository-only reverse export must load TypeScript on Node 22, use the
 tsx API rather than assuming the process was started with a loader:
 
 ```js
@@ -427,7 +427,7 @@ Task still owns the symlink.
 - [ ] **Step 2: Special-case install before importing dependencies**
 
 In `bin/cloister.mjs`, inspect only the first argument with built-ins. For
-`install`, verify Node >=20 and execute the pinned package manager from
+`install`, verify Node >=22 and execute the pinned package manager from
 `package.json`:
 
 ```text
@@ -438,7 +438,7 @@ Only after it succeeds, dynamically import `cli/commands/install.mjs`. For all
 other commands, dynamically import `cli/index.mjs` as in Task 1.
 
 Move `tsx` from `devDependencies` to `dependencies`: cluster generation calls
-`tsx/esm/api` on Node 20, so it is runtime product code, not a test-only tool.
+`tsx/esm/api` on Node 22, so it is runtime product code, not a test-only tool.
 Keep Chalk and smol-toml as direct dependencies.
 
 - [ ] **Step 3: Implement the compatibility provider installer**
@@ -1047,9 +1047,9 @@ tools/*/target
 cloister*.tar
 ```
 
-The Dockerfile uses `node:20-bookworm`, copies the Rust 1.95 toolchain from
-`rust:1.95-bookworm`, and copies the Task 3.49.1 binary from
-`ghcr.io/go-task/task:3.49.1`. Install only the OS build prerequisites needed by
+The Dockerfile uses `node:22-bookworm`, copies the Rust 1.95 toolchain from
+`rust:1.95-bookworm`, and downloads the checksum-pinned Task 3.49.1 release
+binary. Install only the OS build prerequisites needed by
 the two Rust compatibility binaries (`build-essential`, `pkg-config`,
 `libdbus-1-dev`, `git`, and CA certificates).
 

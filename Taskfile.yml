@@ -60,12 +60,10 @@ tasks:
       # `scripts/build-manifest.mjs` dynamically `import()`s
       # `src/generated/tool-schemas.ts` — a `.ts` file directly. Node 23+
       # strips types natively (works locally), but the CI runner uses
-      # Node 20 LTS (matches workerd's runtime line) which can't load .ts
-      # without a loader. `tsx` (in devDeps) provides the loader on any
-      # Node version. Don't switch back to `node` until CI moves off
-      # Node 20 OR build-tool-schemas emits .mjs (the latter would
-      # break tsc on src/generated/tool-schemas.ts; pick the right path
-      # then, not now).
+      # Cloister supports Node 22+, but generated TypeScript is still loaded
+      # through `tsx` so behavior does not depend on a particular Node minor's
+      # type-stripping support. If build-tool-schemas emits .mjs later, this
+      # loader can be removed deliberately.
       - "{{.NODE_TSX}} scripts/build-manifest.mjs"
     sources:
       - cloister.capnp

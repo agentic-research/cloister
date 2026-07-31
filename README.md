@@ -9,6 +9,9 @@ tool one local address for reaching them and records what was available during
 the run. The same file drives local development and the generated deployment
 files.
 
+For a source install, have Node.js 22 or newer, Rust, and Task available. The
+install command fetches the exact pnpm packages declared by this repository.
+
 ```sh
 task install             # dependencies, the `cloister` command, and current runtime support
 cloister dev bootstrap   # one-time local setup

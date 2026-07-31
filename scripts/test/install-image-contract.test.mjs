@@ -19,6 +19,7 @@ test("the clean image excludes every local dependency and build cache", () => {
 
 test("the image runs the real first-time install and installed confinement binary", () => {
   const dockerfile = read("test/install-image/Dockerfile");
+  assert.match(dockerfile, /^FROM node:22-bookworm$/m);
   assert.match(dockerfile, /task install/);
   assert.match(dockerfile, /pnpm@10\.30\.3/);
   assert.match(dockerfile, /chalk.*smol-toml.*tsx/s);
@@ -26,6 +27,16 @@ test("the image runs the real first-time install and installed confinement binar
   assert.match(dockerfile, /cloister cluster generate --check/);
   assert.match(dockerfile, /cloister run .*--dry-run/);
   assert.match(dockerfile, /CLOISTER_REQUIRE_CONFINEMENT=1/);
+});
+
+test("every supported environment declares the Node 22 runtime Wrangler requires", () => {
+  assert.equal(JSON.parse(read("package.json")).engines.node, ">=22");
+  assert.match(read("bin/cloister.mjs"), /major < 22/);
+  assert.match(read("bin/cloister.mjs"), /Node 22 or newer is required/);
+
+  for (const workflow of [".github/workflows/ci.yml", ".github/workflows/generated-drift.yml"]) {
+    assert.doesNotMatch(read(workflow), /node-version:\s*["']?20["']?/);
+  }
 });
 
 test("the binary conformance test can require an installed binary without skips", () => {

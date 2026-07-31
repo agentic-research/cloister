@@ -1,6 +1,6 @@
 FROM rust:1.95-bookworm AS rust-toolchain
 
-FROM node:20-bookworm
+FROM node:22-bookworm
 
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup

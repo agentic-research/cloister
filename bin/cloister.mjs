@@ -12,9 +12,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function bootstrapInstall(argv, io) {
   const major = Number.parseInt(process.versions.node.split(".")[0], 10);
-  if (!Number.isInteger(major) || major < 20) {
+  if (!Number.isInteger(major) || major < 22) {
     io.stderr.write(
-      `cloister install: Node 20 or newer is required; this is Node ${process.versions.node}.\n`,
+      `cloister install: Node 22 or newer is required; this is Node ${process.versions.node}.\n`,
     );
     return 2;
   }

@@ -49,6 +49,10 @@ cloister run --harness claude-code --repo /abs/api --repo /abs/shared
 `cloister` is not on your PATH until you put it there. `which cloister` returning
 nothing is the expected starting state, not a broken install.
 
+Before the first source install, provide Node.js 22 or newer, Rust, and Task.
+You do not need to install pnpm separately; Cloister uses the version pinned by
+the repository.
+
 ```sh
 cd /path/to/cloister
 task install                 # dependencies, CLI symlink, compatibility runtime
