@@ -758,6 +758,40 @@ tasks:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
 
+  install:
+    desc: "Put `cloister` on your PATH — symlinks the CLI into CLOISTER_BIN_DIR (default ~/.local/bin). First-party on purpose: the alternative is telling people to run `pnpm link --global`, which is a package-manager incantation that mutates the machine and that cloister does not own. Idempotent; re-run after moving the checkout. Uninstall with `task uninstall`."
+    cmds:
+      - |
+        set -eu
+        BIN_DIR="${CLOISTER_BIN_DIR:-$HOME/.local/bin}"
+        SRC="$(pwd)/scripts/cloister-cli.mjs"
+        if [ ! -x "$SRC" ]; then
+          echo "FAIL — $SRC is not executable. Run: chmod +x scripts/cloister-cli.mjs" >&2
+          exit 1
+        fi
+        mkdir -p "$BIN_DIR"
+        ln -sf "$SRC" "$BIN_DIR/cloister"
+        echo "installed: $BIN_DIR/cloister -> $SRC"
+        case ":$PATH:" in
+          *":$BIN_DIR:"*) echo "  $BIN_DIR is on PATH — try: cloister --help" ;;
+          *) echo "  WARNING: $BIN_DIR is NOT on your PATH. Add it, or set CLOISTER_BIN_DIR to a directory that is." >&2 ;;
+        esac
+
+  uninstall:
+    desc: "Remove the `cloister` symlink installed by `task install`. Removes ONLY a symlink pointing into this checkout, never a real file."
+    cmds:
+      - |
+        set -eu
+        BIN_DIR="${CLOISTER_BIN_DIR:-$HOME/.local/bin}"
+        LINK="$BIN_DIR/cloister"
+        if [ -L "$LINK" ]; then
+          rm "$LINK"; echo "removed: $LINK"
+        elif [ -e "$LINK" ]; then
+          echo "refusing: $LINK exists but is NOT a symlink — not ours to delete" >&2; exit 1
+        else
+          echo "nothing to remove at $LINK"
+        fi
+
   dev:bootstrap:
     desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent. (Git hooks — incl. the post-merge bead auto-close — are owned by rsry: `rsry hooks install`, not cloister's Taskfile.)"
     cmds:

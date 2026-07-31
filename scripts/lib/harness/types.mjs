@@ -136,6 +136,15 @@ export class PreconditionError extends Error {
  *                                 root, so a cert minted against one root does not
  *                                 satisfy the §7 check for a run confined to five.
  * @property {string} stateDir     Absolute.
+ * @property {string|null} skillStore  Where a RELOCATED skills tree lives, when
+ *                                 `<stateDir>/skills` is a symlink. Granted
+ *                                 READ, so the subtree is immutable while the
+ *                                 state dir stays writable — a read grant
+ *                                 cannot narrow a writable parent, so the fix
+ *                                 is to move the bytes, not the grant.
+ * @property {string} scratchDir   Per-run scratch, replacing the shared /tmp
+ *                                 grant. Two runs no longer share a writable
+ *                                 path neither declared.
  * @property {string} configFile   The harness config FILE — a SIBLING of the
  *                                 state dir (`~/.claude.json` beside
  *                                 `~/.claude`), so granting the directory does
