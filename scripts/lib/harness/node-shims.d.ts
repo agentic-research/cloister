@@ -62,6 +62,7 @@ declare module "node:url" {
 }
 
 declare const process: {
+  getuid?(): number;
   env: Record<string, string | undefined>;
   argv: string[];
   execPath: string;

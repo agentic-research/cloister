@@ -182,6 +182,17 @@ test("scratch is per-run, and the shared /tmp grant is GONE", async () => {
   assert.ok(!paths.includes("/tmp"), `/tmp must not be granted; got: ${paths.join(", ")}`);
   assert.ok(!paths.includes("/private/tmp"), "/private/tmp must not be granted either");
 
+  // …but the harness's OWN per-uid runtime dir must be, or a real launch dies
+  // with `EPERM: mkdir '/tmp/claude-501'`. Claude Code uses a FIXED path there,
+  // not a TMPDIR lookup, so redirecting scratch does not cover it. `claude
+  // doctor` does not hit this — only a full launch does, which is how it
+  // reached a user rather than a test.
+  const runtime = paths.find((p) => /^\/tmp\/claude-\d+$/.test(p));
+  assert.ok(runtime, `the per-uid runtime dir must be granted; got: ${paths.join(", ")}`);
+  // Scoped to one directory — granting /tmp wholesale is what opened the
+  // cross-run channel this test exists to keep closed.
+  assert.ok(runtime.startsWith("/tmp/claude-"), "scoped to the harness's own runtime dir");
+
   // …and the replacement must actually exist, or tools lose scratch entirely.
   assert.ok(paths.includes(plan.sandbox.scratchDir), "per-run scratch must be granted");
   assert.equal(policy.env_set.TMPDIR, plan.sandbox.scratchDir);

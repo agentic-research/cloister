@@ -114,6 +114,10 @@ bootstrap fails with a named error and leaves nothing behind. That ordering is
 deliberate: minting is the security-relevant step, and a half-bootstrapped tree
 with a stray credential is worse than a clean refusal.
 
+This is a prerequisite for **`cloister run` only**. `task lint`, `task test` and
+`task verify` do not need it and must never need it — a gate that required a
+local credential to run would be a gate contributors could not run.
+
 **3. Ports 8787 and 8799 free.** A run starts cloister on `:8787` and the lease
 shim on `:8799`. Nothing checks these are free first — see *Known gaps*.
 
@@ -197,12 +201,17 @@ cluster you own behaves exactly like the reference one.
 Stated because a demo that hits one of these unprepared is worse than one that
 avoids it.
 
-**The full launch path is not verified end-to-end in the current tree.**
-`--dry-run` and `--setup-only` are exercised, as are the confinement properties
-(directly against the `cloister-harness` binary) and `git` working confined. The
-complete `mint → task dev → shim → confined exec` sequence has not been run
-since the most recent changes. **Do a full run once before demoing**, ideally not
-five minutes before.
+**The full launch path is verified.** A real run mints, brings up cloister on
+`:8787` and the shim on `:8799`, verifies the §7 confinement commitment, launches
+the harness kernel-confined, and emits `cloister/credential-isolation/v1`
+receipts with a real `peerFp` — including a 200 through the vault proxy with NO
+API key set, via passthrough.
+
+That run also surfaced a bug `claude doctor` could not: the harness creates a
+per-uid runtime dir at `/tmp/claude-<uid>` using a FIXED path, so redirecting
+`TMPDIR` does not cover it and dropping the blanket `/tmp` grant produced
+`EPERM: mkdir '/tmp/claude-501'`. Now granted as that one directory, so the
+cross-run channel a blanket `/tmp` opens stays closed.
 
 **The grant list was discovered by hitting errors** (`cloister-cd30a6`). `git`
 works — that took `/var`, `/etc`, `~/.config/git`, `~/.gitconfig` and

@@ -719,6 +719,23 @@ export function buildPolicy(plan, identity) {
   // per-user temp there and confstr-based mktemp reaches it regardless of
   // TMPDIR, so denying it breaks tools rather than isolating them.
   const sysRw = ["/dev", "/private/var/folders"];
+
+  // The harness's own per-uid runtime directory under /tmp.
+  //
+  // Claude Code creates `/tmp/claude-<uid>` regardless of TMPDIR — it is a
+  // fixed path, not a temp-file lookup — so dropping the blanket /tmp grant
+  // produced, on a real run:
+  //
+  //     EPERM: operation not permitted, mkdir '/tmp/claude-501'
+  //
+  // `claude doctor` does NOT hit this, which is why the change looked safe when
+  // I verified with it. Only a full launch surfaced it.
+  //
+  // Granted as the SPECIFIC path rather than restoring /tmp: this is one
+  // directory scoped to the current uid, so the cross-run channel that the
+  // blanket grant opened — any confined run reading and writing any other
+  // run's /tmp files — stays closed.
+  const runtimeDir = `/tmp/claude-${typeof process.getuid === "function" ? process.getuid() : "0"}`;
   return {
     capabilities: {
       version: "0.1.0",
@@ -727,6 +744,7 @@ export function buildPolicy(plan, identity) {
           ...sysRead.map((/** @type {string} */ path) => ({ path, access: "read", type: "directory" })),
           ...sysReadFiles.map((/** @type {string} */ path) => ({ path, access: "read", type: "file" })),
           ...sysRw.map((/** @type {string} */ path) => ({ path, access: "readwrite", type: "directory" })),
+          { path: runtimeDir, access: "readwrite", type: "directory" },
           // One kernel grant per declared root — the enforcement half of the
           // `workspace` / `workspace.N` entries in the confinement manifest.
           // Same list, so the two cannot disagree.
