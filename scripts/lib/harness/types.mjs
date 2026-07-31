@@ -136,6 +136,14 @@ export class PreconditionError extends Error {
  *                                 root, so a cert minted against one root does not
  *                                 satisfy the §7 check for a run confined to five.
  * @property {string} stateDir     Absolute.
+ * @property {string} configFile   The harness config FILE — a SIBLING of the
+ *                                 state dir (`~/.claude.json` beside
+ *                                 `~/.claude`), so granting the directory does
+ *                                 not reach it. Anthropic's sandbox-runtime
+ *                                 guidance names both.
+ * @property {string|null} installDir  The harness's install tree, DERIVED from
+ *                                 the resolved executable rather than declared
+ *                                 — a manifest field would restate it and rot.
  * @property {string} harnessBin   Absolute: declared entryPoint or $PATH-resolved.
  * @property {string[]} harnessArgs
  */

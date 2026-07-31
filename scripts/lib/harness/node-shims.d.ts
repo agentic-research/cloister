@@ -33,6 +33,7 @@ declare module "node:fs" {
   export function existsSync(path: string): boolean;
   export function readdirSync(path: string): string[];
   export function statSync(path: string): { isDirectory(): boolean };
+  export function realpathSync(path: string): string;
 }
 
 declare module "node:crypto" {
