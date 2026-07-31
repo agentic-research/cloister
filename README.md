@@ -16,7 +16,7 @@ Point your harness at that one URL and the whole bundle is available —
 and you can see exactly what ran. MCP tools today; skill and agent
 definitions next.
 
-## Running a harness
+## Run a coding tool inside cloister
 
 ```sh
 task install                 # puts `cloister` on your PATH (~/.local/bin)
@@ -40,12 +40,6 @@ Prerequisites, caveats and known gaps: [`docs/RUNNING.md`](docs/RUNNING.md).
   lowered to local `workerd`, native-process, OCI, and Cloudflare paths.
   Those paths are not identical security boundaries; the documentation
   calls out the differences.
-
-## Where to go next
-
-- **Run it** → [GETTING-STARTED.md](GETTING-STARTED.md)
-- **How it works (the tech)** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Verify the security claims** → [docs/security/load-bearing-claims.md](docs/security/load-bearing-claims.md)
 
 ## How it works
 
@@ -113,7 +107,7 @@ graph TB
     style EXT fill:#f5f5f5,color:#000
 ```
 
-## Quickstart
+## Quickstart — start the server and point a tool at it
 
 Five-minute three-terminal smoke. For the full walkthrough (toolchain,
 ports, auth setup, plugin install), see
@@ -290,7 +284,7 @@ chain via the `bead_id` column on TrustStore's `peer_attestations`.
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime
 model + component map + sequence diagrams.
 
-## Run it
+## Three ways to start the server
 
 Three local paths, same code:
 
