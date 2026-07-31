@@ -112,6 +112,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:trust-env-locality` | every other trust-secret env var is read only in its own resolver | `cloister-21e42e` |
 | `lint:silent-swallow` | a bare `catch {}` on the trust/IO surface must surface the error or carry `lint-allow-silent: <reason>` | `cloister-bd7210` |
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
+| `lint:identity-source` | identity/scopes crossing a bundle boundary are DERIVED from a verified proof, never received as params | `cloister-99a85a` (from notme-6ad276) |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
 | `lint:upstream-pins` | ONE ley-line-open version across all three hand-stated channels (input ref, Cargo deps, generator lock) + one rev across the Cargo pins | `cloister-9170d0` |
