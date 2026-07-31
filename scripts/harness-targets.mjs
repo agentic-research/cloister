@@ -68,10 +68,13 @@ export const DEFAULT_TARGET = "claude-code";
  */
 export async function loadHarnessConfig(clusterTomlPath) {
   const { readFileSync } = await import("node:fs");
-  const TOML = (await import("@iarna/toml")).default;
+  // Named import, not `.default` — smol-toml has no default export, and a
+  // dynamic import like this is invisible to a grep for `from "…"`, which is
+  // exactly how it survived the migration sweep and failed only at runtime.
+  const { parse: parseToml } = await import("smol-toml");
   // The TOML parser returns AnyJson; the shape below is cluster.toml's declared
   // gateway block, checked for real by `task cluster:toml` on the way in.
-  const parsed = /** @type {any} */ (TOML.parse(readFileSync(clusterTomlPath, "utf8")));
+  const parsed = /** @type {any} */ (parseToml(readFileSync(clusterTomlPath, "utf8")));
   const gateway = parsed?.gateway ?? {};
   return {
     targets: gateway.harnessTargets ?? [],

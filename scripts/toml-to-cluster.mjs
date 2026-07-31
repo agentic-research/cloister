@@ -11,7 +11,7 @@
  *
  *   cluster.toml
  *       │
- *       │  @iarna/toml.parse  (TOML → JS object)
+ *       │  smol-toml parse      (TOML → JS object)
  *       ▼
  *   { metadata, bundles, wires, storage }   (TOML-flat shape)
  *       │
