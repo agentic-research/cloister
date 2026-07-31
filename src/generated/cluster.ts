@@ -87,7 +87,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "UNDECIDED. This is a placeholder, not a decision, and recording that is the point of ADR-0062. The bundle holds the Signet master CA and mints lease certs, so it carries the highest-value secret in the cluster and the strongest case for isolation. It says process because it has no entryPoint, so task runtime:plan cannot emit a plan for it in EITHER mode: the host runtime cannot launch it at all. Nobody chose no-isolation here; nobody chose anything. Resolving it needs notme to state what the bundle requires. Tracked in cloister-5fe44f."
+          "executionModeRationale": "UNDECIDED, and the only exemption with no known blocker. This bundle holds the Signet master CA and mints lease certs, so it carries the highest-value secret in the cluster and the strongest case for isolation. Unlike notme-proxy and rosary it binds a TCP port rather than a UDS, so the krunvm UDS gap (cloister-66badb) does NOT apply to it. What stops it is only the missing entryPoint, so task runtime:plan cannot emit a plan in either mode (cloister-701b33). That makes it the cheapest exemption to withdraw and the most valuable one to withdraw. Nobody chose no-isolation here; nobody chose anything. Tracked in cloister-5fe44f."
         }
       }
     },
@@ -121,7 +121,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "UNDECIDED. Placeholder, not a decision. Holds the bridge cert and private key and mediates every attested egress, so the hypervisorRationale in this same entry says its compromise blast radius is every upstream the cluster reaches. Same cause as notme-identity: no entryPoint, so the host runtime cannot launch it in either mode. Its shape, a Rust service binding a UDS under /run/cloister-uds, is the same shape as mache, which IS microvm, so there is no evident structural blocker, only unfinished packaging. Tracked in cloister-5fe44f."
+          "executionModeRationale": "STRUCTURAL today, for a reason I initially got wrong. Holds the bridge cert and private key and mediates every attested egress, so the hypervisorRationale in this same entry says its compromise blast radius is every upstream the cluster reaches. This field first read: same shape as mache, which IS microvm, so no evident structural blocker, only unfinished packaging. That was WRONG. mache binds a TCP port; this bundle is UDS-only, and the krunvm host runtime cannot express that at all: krunvm.rs:769 hard-errors when confinement.port.bind == 0 and the crate has zero UDS support (cloister-66badb). So microvm is not available to it yet, independent of the missing entryPoint (cloister-701b33). Both are prerequisites."
         }
       }
     },
@@ -204,7 +204,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "CONTINGENT, not structural. rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees plus Keychain, none of which survive VM isolation. rosary-56b557 proposes cloister as a ComputeProvider, which is rosary own pluggable backend seam, and that removes the host-spawn requirement entirely. When it lands this exemption should be WITHDRAWN, not re-justified."
+          "executionModeRationale": "CONTINGENT, not structural, but blocked twice over. (1) rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees plus Keychain, none of which survive VM isolation; rosary-56b557 proposes cloister as a ComputeProvider, rosary own pluggable backend seam, which removes that requirement. (2) Even with (1) done, the krunvm host runtime cannot express this bundle: it is UDS-only, and rs/crates/host-runtime/src/krunvm.rs:769 hard-errors when confinement.port.bind == 0, with zero UDS support in the crate (cloister-66badb). Both must land before the exemption can be WITHDRAWN, which is what should happen rather than re-justifying it."
         }
       }
     }
