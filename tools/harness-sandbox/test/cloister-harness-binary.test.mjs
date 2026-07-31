@@ -31,13 +31,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, rmdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { systemGrants } from "../../../cli/lib/harness/system-grants.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BIN = resolve(HERE, "..", "target", "release", "cloister-harness");
+const SOURCE_TREE_BIN = resolve(HERE, "..", "target", "release", "cloister-harness");
+const BIN = resolve(process.env.CLOISTER_HARNESS_BIN ?? SOURCE_TREE_BIN);
+const REQUIRE = process.env.CLOISTER_REQUIRE_CONFINEMENT === "1";
 
 // Built by `task harness:sandbox:build`, which `verify:strict` depends on. A
 // missing binary is a NAMED skip rather than a silent pass — "not built" and
@@ -52,15 +55,15 @@ const SKIP = existsSync(BIN)
 const BASE = join(homedir(), `.cloister-harness-test-${process.pid}`);
 const WORK = join(BASE, "work");
 const SECRET = join(BASE, "secret");
+const SSH_DIR = join(homedir(), ".ssh");
 const SECRET_CONTENT = "MUST-NOT-BE-READABLE-CONFINED";
+let createdSshDir = false;
 
-/** nono's macOS defaults, mirrored from the launcher's buildPolicy. */
-const SYS_READ = [
-  "/bin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/share",
-  "/System/Library", "/Library", "/private/var", "/private/etc", "/private",
-  "/opt", "/opt/homebrew",
-];
-const SYS_RW = ["/dev", "/tmp", "/private/tmp", "/private/var/folders"];
+const {
+  readDirectories: SYS_READ,
+  readWriteDirectories: SYS_RW,
+  readFiles: SYS_READ_FILES,
+} = systemGrants();
 
 function runConfined(shellScript, { grants = [WORK] } = {}) {
   const policy = {
@@ -69,6 +72,7 @@ function runConfined(shellScript, { grants = [WORK] } = {}) {
       filesystem: {
         grants: [
           ...SYS_READ.map((path) => ({ path, access: "read", type: "directory" })),
+          ...SYS_READ_FILES.map((path) => ({ path, access: "read", type: "file" })),
           ...SYS_RW.map((path) => ({ path, access: "readwrite", type: "directory" })),
           ...grants.map((path) => ({ path, access: "readwrite", type: "directory" })),
         ],
@@ -124,6 +128,10 @@ const SETUP_SKIP = (() => {
   try {
     mkdirSync(WORK, { recursive: true });
     mkdirSync(SECRET, { recursive: true });
+    if (!existsSync(SSH_DIR)) {
+      mkdirSync(SSH_DIR);
+      createdSshDir = true;
+    }
     writeFileSync(join(WORK, "inside.txt"), "hello-from-workdir");
     writeFileSync(join(SECRET, "secret.txt"), SECRET_CONTENT);
     return false;
@@ -134,6 +142,18 @@ const SETUP_SKIP = (() => {
     throw err;
   }
 })();
+
+test(
+  "cloister-harness: required confinement prerequisite is available",
+  { skip: !REQUIRE },
+  () => {
+    assert.equal(
+      SETUP_SKIP,
+      false,
+      `required confinement prerequisite failed: ${SETUP_SKIP}`,
+    );
+  },
+);
 
 test("cloister-harness: a granted root is readable + writable", { skip: SETUP_SKIP }, () => {
   const r = runConfined(
@@ -184,4 +204,11 @@ test("cloister-harness: a malformed policy is refused, not applied", { skip: SET
 
 test.after(() => {
   if (!SETUP_SKIP) rmSync(BASE, { recursive: true, force: true });
+  if (createdSshDir) {
+    // Remove only the empty directory this test created. If another process
+    // put anything there during the test, rmdir refuses rather than deleting it.
+    try { rmdirSync(SSH_DIR); } catch (error) {
+      if (error?.code !== "ENOTEMPTY" && error?.code !== "ENOENT") throw error;
+    }
+  }
 });

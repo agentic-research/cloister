@@ -144,6 +144,22 @@ jobs:
         # update branch protection FIRST, then the workflow, never the reverse.
         run: task lint
 
+  install-image:
+    name: install (clean Linux image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prove a first install from source only
+        run: task test:install:image
+
   # Path filter: does this PR touch the substrate (rust / wire codec / manifest /
   # build)? If so, `verify` runs on the PR — catching verify-breaks BEFORE merge
   # (the gap that let #130 land a broken verify). Non-substrate PRs stay

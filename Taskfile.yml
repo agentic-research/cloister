@@ -702,6 +702,11 @@ tasks:
     cmds:
       - node bin/cloister.mjs install
 
+  test:install:image:
+    desc: "Prove the documented first install and Linux confinement boundary in a cache-free image."
+    cmds:
+      - docker build --file test/install-image/Dockerfile --tag cloister-install-test:local .
+
   uninstall:
     desc: "Remove only this checkout's installed Cloister command. Keeps runtime files for safety."
     cmds:

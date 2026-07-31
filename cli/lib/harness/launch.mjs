@@ -63,6 +63,7 @@ import {
   UsageError,
 } from "./targets.mjs";
 import { LaunchUsageError, PreconditionError } from "./types.mjs";
+import { systemGrants } from "./system-grants.mjs";
 
 /** @typedef {import("./types.mjs").LaunchDeps} LaunchDeps */
 
@@ -700,44 +701,11 @@ export function buildPolicy(plan, identity) {
   const sandbox = plan.sandbox;
   if (!sandbox) throw new LaunchUsageError("buildPolicy needs a resolved sandbox");
   const home = homedir();
-  // nono's macOS system defaults — replicated from `nono run -v` (the
-  // system_read_macos / system_write_macos / user_tools / homebrew groups the
-  // CLI seeds but the library apply() does not). Read-only unless noted; lets
-  // binaries + dylibs + the harness itself load.
-  const sysRead = [
-    "/bin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/lib", "/usr/local/lib",
-    "/usr/share", "/System/Library", "/Library", "/Library/Frameworks",
-    "/private/var/db", "/private/etc", "/private/var", "/private",
-    "/System/Volumes", "/System/Cryptexes", "/opt", "/opt/homebrew",
-    join(home, ".local/bin"), join(home, ".local/share"),
-    // `/var` — the SYMLINK at `/`, not just its target. macOS ships `git` and
-    // `python3` as Xcode shims that resolve `/var/select/developer_dir`, and
-    // granting `/private/var` alone is not enough: the shim traverses `/var`,
-    // and without it `git --version` fails with
-    //
-    //   xcode-select: error: unable to read data link at '/var/select/developer_dir'
-    //   xcode-select: note: No developer tools were found, requesting install.
-    //
-    // — which pops a macOS install dialog rather than running. A coding harness
-    // runs git constantly, so this made confined runs unusable for their
-    // primary job. Measured, then fixed.
-    // Same for `/etc` → `private/etc`: git reads /etc/gitconfig, and granting
-    // only the target leaves the traversal denied. macOS root-level symlinks
-    // must be granted as themselves, not merely via what they point at.
-    "/var", "/etc",
-    // git's user configuration. Read-only, and scoped to git specifically
-    // rather than granting ~/.config, which would hand over every other tool's
-    // credentials-adjacent config for one tool's benefit.
-    join(home, ".config/git"),
-  ];
-
-  // Single FILES the harness must read. Distinct from the directory grants
-  // above because nono refuses a file path where a directory is expected.
-  const sysReadFiles = [
-    join(home, ".gitconfig"),
-    // Referenced from .gitconfig; git warns loudly on every command without it.
-    join(home, ".gitignore_global"),
-  ];
+  const {
+    readDirectories: sysRead,
+    readWriteDirectories: sysRw,
+    readFiles: sysReadFiles,
+  } = systemGrants({ home });
   // /tmp is a symlink to /private/tmp on macOS; grant both so a harness that
   // writes to the literal /tmp path (claude's runtime dir) isn't denied.
   // ── relocate, don't narrow ────────────────────────────────────────────
@@ -770,8 +738,6 @@ export function buildPolicy(plan, identity) {
   // `sysRw` no longer carries /tmp. /private/var/folders stays: macOS puts the
   // per-user temp there and confstr-based mktemp reaches it regardless of
   // TMPDIR, so denying it breaks tools rather than isolating them.
-  const sysRw = ["/dev", "/private/var/folders"];
-
   // The harness's own per-uid runtime directory under /tmp.
   //
   // Claude Code creates `/tmp/claude-<uid>` regardless of TMPDIR — it is a
