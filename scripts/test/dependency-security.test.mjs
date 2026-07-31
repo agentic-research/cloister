@@ -25,3 +25,15 @@ test("lockfile keeps PostCSS and sharp above current advisory floors", () => {
   assert.doesNotMatch(lock, /postcss@8\.5\.(?:[0-9]|1[0-7])\b/);
   assert.doesNotMatch(lock, /sharp@0\.34\./);
 });
+
+test("the development toolchain resolves one Miniflare generation", () => {
+  const lock = readFileSync(resolve(ROOT, "pnpm-lock.yaml"), "utf8");
+  const packages = lock.split("\nsnapshots:\n", 1)[0];
+  const miniflareVersions = packages.match(/^  miniflare@[^:]+:/gm) ?? [];
+
+  assert.equal(
+    miniflareVersions.length,
+    1,
+    `expected one Miniflare package, found: ${miniflareVersions.join(", ")}`,
+  );
+});
