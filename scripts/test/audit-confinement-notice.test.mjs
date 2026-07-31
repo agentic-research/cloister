@@ -32,6 +32,7 @@ async function noticeFor({ credentialFileExists, sandbox = true }) {
     // Only the credential-file probe consults `exists` in a way that matters
     // here; everything else must resolve so the plan is built.
     exists: (p) => (p.endsWith(".credentials.json") ? credentialFileExists : true),
+    resolveNativeHelper: () => "/usr/bin/true",
     execFileSync: (file, args) => {
       if (file === "which") return "/usr/bin/true\n";
       // The mint step. Throwing here stops before any credential exists, which
@@ -123,7 +124,11 @@ test("the plan grants the config FILE, not just the state directory", async () =
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {},
     sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
 
   assert.equal(
     plan.sandbox.configFile, `${plan.sandbox.stateDir}.json`,
@@ -143,7 +148,11 @@ test("buildPolicy actually EMITS grants for the config file and install tree", a
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {},
     sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
 
   const policy = buildPolicy(plan, {
     certDerB64Url: "x", masterPubB64Std: "y",

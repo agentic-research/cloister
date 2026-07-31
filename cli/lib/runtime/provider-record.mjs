@@ -10,10 +10,12 @@ const RECORD_DIR = Symbol("cloister.runtimeProviderDir");
 export class RuntimeProviderError extends Error {}
 export class RuntimeNotInstalledError extends RuntimeProviderError {}
 
+/** @param {string} file */
 export function sha256File(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+/** @param {any} record @param {string} kind */
 function validateArtifact(record, kind) {
   const artifact = record?.artifacts?.[kind];
   if (!artifact || typeof artifact !== "object") {
@@ -35,6 +37,7 @@ function validateArtifact(record, kind) {
   return artifact;
 }
 
+/** @param {any} record */
 function validateRecord(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     throw new RuntimeProviderError("runtime provider record must be a JSON object");
@@ -68,7 +71,7 @@ function validateRecord(record) {
   if (
     !Array.isArray(record.backends) ||
     record.backends.length !== expectedBackends.length ||
-    record.backends.some((backend, index) => backend !== expectedBackends[index])
+    record.backends.some((/** @type {unknown} */ backend, /** @type {number} */ index) => backend !== expectedBackends[index])
   ) {
     throw new RuntimeProviderError(
       `compatibility provider backends must be ${JSON.stringify(expectedBackends)}`,
@@ -79,6 +82,7 @@ function validateRecord(record) {
   return record;
 }
 
+/** @param {any} record @param {string} dir */
 function attachRecordDir(record, dir) {
   Object.defineProperty(record, RECORD_DIR, {
     value: dir,
@@ -88,6 +92,7 @@ function attachRecordDir(record, dir) {
   return record;
 }
 
+/** @param {{providerRecord:string}} layout */
 export function readProviderRecord(layout) {
   if (!existsSync(layout.providerRecord)) {
     throw new RuntimeNotInstalledError(
@@ -99,12 +104,13 @@ export function readProviderRecord(layout) {
     record = JSON.parse(readFileSync(layout.providerRecord, "utf8"));
   } catch (error) {
     throw new RuntimeProviderError(
-      `cannot read runtime provider record ${layout.providerRecord}: ${error.message}`,
+      `cannot read runtime provider record ${layout.providerRecord}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   return attachRecordDir(validateRecord(record), dirname(layout.providerRecord));
 }
 
+/** @param {any} record @param {string} kind */
 export function resolveProviderArtifact(record, kind) {
   const artifact = validateArtifact(record, kind);
   const recordDir = record[RECORD_DIR];

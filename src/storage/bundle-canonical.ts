@@ -105,7 +105,7 @@ export function bundleCanonical(bundle: CABundle): Uint8Array {
   const out = cborEncoder.encode(message);
   return out instanceof Uint8Array && out.constructor === Uint8Array
     ? out
-    : new Uint8Array(out);
+    : new Uint8Array(out as ArrayLike<number>);
 }
 
 /**

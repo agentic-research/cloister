@@ -70,7 +70,7 @@ setup therefore needs one of the three shapes in ADR-0040's
 "Implementation note":
 
 1. a **lease-aware local shim** in front of the harness that signs each
-   outbound call — **shipped**: [`tools/harness-shim/`](../../tools/harness-shim/README.md)
+   outbound call — **shipped**: [`src/harness-shim/`](../../src/harness-shim/README.md)
    (`cloister-caab2d`). The harness points its base URL at the shim; the
    shim attaches the lease and forwards to cloister;
 2. an **mTLS edge** that terminates the harness's channel identity and

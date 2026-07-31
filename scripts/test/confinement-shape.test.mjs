@@ -173,7 +173,11 @@ test("scratch is per-run, and the shared /tmp grant is GONE", async () => {
   const plan = await resolvePlan({
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {}, sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
   const policy = buildPolicy(plan, {
     certDerB64Url: "x", masterPubB64Std: "y", peerFp: "z",
     epoch: 1, ephemeralPrivSeedB64Url: "a", ephemeralPubB64Url: "b",

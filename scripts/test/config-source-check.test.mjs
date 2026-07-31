@@ -13,7 +13,8 @@ import {
   wranglerDevEffective,
   findConfigSourceIssues,
   collectConfigSourceIssues,
-} from "../config-source-check.mjs";
+  loadLocalEnv,
+} from "../../cli/lib/dev/config-sources.mjs";
 
 test("parseDotenv reads KEY=VALUE, skips comments/blanks, strips quotes", () => {
   const m = parseDotenv('# comment\n\nA=1\nB = two\nC="quoted"\nD=env://X\n');
@@ -103,7 +104,7 @@ test("no issue when .dev.vars also declares the key with the SAME value", () => 
   assert.deepEqual(issues, []);
 });
 
-test("no issue without .dev.vars — process env flows through (plain task dev)", () => {
+test("no issue without .dev.vars — process env flows through (cloister dev serve)", () => {
   const issues = findConfigSourceIssues({
     envLocal: new Map([["INTERLACE_ROOT_PUBKEY", "real"]]),
     devVars: new Map(),
@@ -111,6 +112,15 @@ test("no issue without .dev.vars — process env flows through (plain task dev)"
     devVarsExists: false,
   });
   assert.deepEqual(issues, []);
+});
+
+test("loadLocalEnv merges .env.local over a copied environment", () => {
+  const root = new URL("./fixtures/config-source-env/", import.meta.url);
+  const env = loadLocalEnv(root, { KEEP: "base", REPLACED: "old" }, {
+    existsSync: () => true,
+    readFileSync: () => "REPLACED=new\nADDED=present\n",
+  });
+  assert.deepEqual(env, { KEEP: "base", REPLACED: "new", ADDED: "present" });
 });
 
 test("empty .env.local value is not a lost secret (no false shadow)", () => {

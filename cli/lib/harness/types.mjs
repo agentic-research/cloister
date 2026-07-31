@@ -21,7 +21,7 @@
 // is NOT in the root tsconfig (which covers src/**/*.ts only) and has no
 // checkJs, so JSDoc here would be decoration. cli/lib/harness/tsconfig.json
 // turns it on for this directory and `task lint:harness-types` runs it — the
-// same shape as tools/harness-shim's standalone tsconfig + lint:shim, which
+// same shape as src/harness-shim's standalone tsconfig + lint:shim, which
 // exists for exactly this reason.
 
 /** @typedef {0|1|2} ExitCode */
@@ -258,6 +258,9 @@ export class PreconditionError extends Error {
  * @property {(url: string, timeoutMs: number) => Promise<void>} [waitForPort]
  * @property {(child: unknown) => void} [killProcessGroup]
  * @property {(ports: number[]) => void} [assertPortsFree]
+ * @property {Record<string,string|undefined>} [env]
+ * @property {Function} [resolveNativeHelper]
+ * @property {Function} [startLocalRouter]
  * @property {(wranglerToml: string, env?: Record<string,string|undefined>) => {binding:string, service:string, dir:string|null, envVar:string, port:number}[]} [resolveCompanionWorkers]
  */
 

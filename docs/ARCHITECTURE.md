@@ -604,7 +604,7 @@ Per `cloister-de4c78`.
 | `scripts/lib/harness/launch.mjs` | the orchestration — plan, setup, launch |
 | `scripts/cli-run.mjs` | `cloister run`, calls `launch()` in-process |
 | `tools/harness-sandbox/` | the Rust binary that applies the policy and execs |
-| `tools/harness-shim/` | the localhost endpoint the tool is allowed to reach |
+| `src/harness-shim/` | the localhost endpoint the tool is allowed to reach |
 | `docs/RUNNING.md` | the operator walkthrough, including known gaps |
 
 Design decisions: ADR-0042 (turnkey local run), ADR-0044 and ADR-0050

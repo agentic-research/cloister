@@ -127,6 +127,7 @@ export const COMMANDS = [
       { flag: "--repo", value: "<abs>", required: true,
         summary: "a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has" },
       { flag: "--harness", value: "<name>", summary: "harness to launch (default: the declared default target)" },
+      { flag: "--target", value: "<name>", summary: "deprecated spelling of --harness; accepted during migration and warns once" },
       { flag: "--dry-run", summary: "print what would be confined; mint nothing, launch nothing" },
       { flag: "--setup-only", summary: "mint the identity and write .dev.vars, do not launch" },
       { flag: "--audit", summary: "forward harness auth and emit a receipt; no key vaulted" },
@@ -135,6 +136,29 @@ export const COMMANDS = [
       { flag: "--", value: "<args...>", summary: "everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read" },
     ],
     seeAlso: "docs/reference/confinement-model.md",
+  },
+  {
+    name: "dev bootstrap",
+    usage: "cloister dev bootstrap [--dir <checkout>]",
+    summary: "Prepare a checkout for local development",
+    detail:
+      "Creates or refreshes the gitignored .env.local file needed by the local " +
+      "Worker. Existing secrets are reused. When a local notme or signet " +
+      "authority is available, its public key is recorded so lease checks are on.",
+    flags: [
+      { flag: "--dir", value: "<checkout>", summary: "Cloister checkout (default: the current directory)" },
+    ],
+  },
+  {
+    name: "dev serve",
+    usage: "cloister dev serve [--dir <checkout>]",
+    summary: "Run Cloister locally on port 8787",
+    detail:
+      "Loads .env.local without a shell, checks for conflicting configuration " +
+      "sources, and runs the local Worker directly. Run `cloister dev bootstrap` first.",
+    flags: [
+      { flag: "--dir", value: "<checkout>", summary: "Cloister checkout (default: the current directory)" },
+    ],
   },
   {
     name: "init",

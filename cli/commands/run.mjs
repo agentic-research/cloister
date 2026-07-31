@@ -19,8 +19,8 @@
 // blob surviving an env var whose name had to match on both sides. A typo in
 // that name is a silently unconfined run.
 //
-// So there is one orchestration and two front doors onto it. `task harness:dev`
-// is the other; it reads the environment because an OPERATOR types it.
+// Taskfile aliases delegate to this command; they do not own a second launch
+// path.
 //
 // ── What the confinement actually gives you ────────────────────────────────
 //
@@ -78,12 +78,12 @@ function printHelp(log = console.log) {
 /**
  * @param {string[]} argv
  * @returns {{help:boolean, repos:string[], harness:string|null, dryRun:boolean,
- *            passthrough:string[], sandbox:boolean}}
+ *            passthrough:string[], sandbox:boolean, deprecatedTarget:boolean}}
  */
 export function parseArgs(argv) {
   const out = {
     help: false, repos: [], harness: null, harnessBin: null,
-    dryRun: false, passthrough: [], sandbox: true, harnessArgs: [],
+    dryRun: false, passthrough: [], sandbox: true, harnessArgs: [], deprecatedTarget: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -94,7 +94,7 @@ export function parseArgs(argv) {
     if (a === "--dry-run") { out.dryRun = true; continue; }
     if (a === "--no-sandbox") { out.sandbox = false; continue; }
     if (a === "--setup-only" || a === "--audit") { out.passthrough.push(a); continue; }
-    if (a === "--repo" || a === "--harness" || a === "--harness-bin") {
+    if (a === "--repo" || a === "--harness" || a === "--target" || a === "--harness-bin") {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) {
         throw new RunUsageError(`${a} requires a value`);
@@ -105,7 +105,13 @@ export function parseArgs(argv) {
       // the tree they were working in, with nothing said about it.
       if (a === "--repo") out.repos.push(v);
       else if (a === "--harness-bin") out.harnessBin = v;
-      else out.harness = v;
+      else {
+        if (out.harness !== null && out.harness !== v) {
+          throw new RunUsageError("--harness and --target cannot select different harnesses");
+        }
+        out.harness = v;
+        if (a === "--target") out.deprecatedTarget = true;
+      }
       i++;
       continue;
     }
@@ -182,6 +188,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   // command does must never be the path that mints a credential.
   if (args.help) { printHelp(log); return 0; }
 
+  if (args.deprecatedTarget) {
+    errLog("cloister run: --target is deprecated; use --harness (arguments after -- are unchanged)");
+  }
+
   let repos;
   try {
     repos = validateRepos(args.repos);
@@ -242,7 +252,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     wantsAudit: args.passthrough.includes("--audit"),
     // WHICH env var holds the key is the target's declaration, so resolving it
     // here would mean restating that mapping in a second place.
-    credentialEnv: process.env,
+    credentialEnv: deps.env ?? process.env,
     sandbox: args.sandbox
       ? {
           provider: "nono",

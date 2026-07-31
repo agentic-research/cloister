@@ -39,6 +39,17 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     });
   }
   if (command === "run") return runMain(rest);
+  if (command === "dev") {
+    const sub = rest[0];
+    if (sub === "bootstrap" || sub === "serve" || sub === undefined || sub === "--help" || sub === "-h") {
+      const { main: devMain } = await import("./commands/dev.mjs");
+      return devMain(rest, {
+        log,
+        errLog: error,
+        env: context.env ?? process.env,
+      });
+    }
+  }
   if (command === "init") return initMain(["init", ...rest]);
   if (command === "add") return addMain(rest);
   if (command === "artifacts" && rest[0] === "pull") return pullMain(rest.slice(1));

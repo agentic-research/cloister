@@ -10,6 +10,8 @@ Derived from the single CLI surface declaration, so this page and `cloister --he
 | [`cloister install`](#cloister-install) | Install Cloister and its experimental compatibility runtime |
 | [`cloister uninstall`](#cloister-uninstall) | Remove this checkout's installed command |
 | [`cloister run`](#cloister-run) | Run a harness confined to the repos you name |
+| [`cloister dev bootstrap`](#cloister-dev-bootstrap) | Prepare a checkout for local development |
+| [`cloister dev serve`](#cloister-dev-serve) | Run Cloister locally on port 8787 |
 | [`cloister init`](#cloister-init) | Scaffold a cluster recipe |
 | [`cloister add`](#cloister-add) | Add and resolve a tool input |
 | [`cloister skills list`](#cloister-skills-list) | Show which skills are pinned, unpinned, undeclared, or CHANGED |
@@ -57,6 +59,7 @@ Executes a harness with the named repositories as its ONLY readable and writable
 |---|---|---|
 | `--repo` `<abs>` | **required** | a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has |
 | `--harness` `<name>` |  | harness to launch (default: the declared default target) |
+| `--target` `<name>` |  | deprecated spelling of --harness; accepted during migration and warns once |
 | `--dry-run` |  | print what would be confined; mint nothing, launch nothing |
 | `--setup-only` |  | mint the identity and write .dev.vars, do not launch |
 | `--audit` |  | forward harness auth and emit a receipt; no key vaulted |
@@ -65,6 +68,30 @@ Executes a harness with the named repositories as its ONLY readable and writable
 | `--` `<args...>` |  | everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read |
 
 See also: [`docs/reference/confinement-model.md`](confinement-model.md)
+
+## cloister dev bootstrap
+
+```
+cloister dev bootstrap [--dir <checkout>]
+```
+
+Creates or refreshes the gitignored .env.local file needed by the local Worker. Existing secrets are reused. When a local notme or signet authority is available, its public key is recorded so lease checks are on.
+
+| Flag | | |
+|---|---|---|
+| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
+
+## cloister dev serve
+
+```
+cloister dev serve [--dir <checkout>]
+```
+
+Loads .env.local without a shell, checks for conflicting configuration sources, and runs the local Worker directly. Run `cloister dev bootstrap` first.
+
+| Flag | | |
+|---|---|---|
+| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
 
 ## cloister init
 

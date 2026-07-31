@@ -34,7 +34,7 @@ export const DECLARATION_FILE = "cluster.toml ([[gateway.harnessTargets]] + [[ga
 /** Files scanned. The harness path — where a literal would actually bite. */
 export const SCANNED = [
   "scripts/harness-dev.mjs",
-  "tools/harness-shim/index.ts",
+  "src/harness-shim/index.ts",
 ];
 
 // Provider-identifying substrings. Case-insensitive. Deliberately narrow:

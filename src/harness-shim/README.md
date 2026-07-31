@@ -49,7 +49,7 @@ export CLOISTER_BASE_URL="https://cloister.example"
 export HARNESS_SHIM_CERT_B64=...        # from notme (see "Cert source" below)
 export HARNESS_SHIM_PRIV_SEED_B64=...
 export HARNESS_SHIM_PUBKEY_B64=...
-node tools/harness-shim/index.js        # after `tsc -p tools/harness-shim`
+node src/harness-shim/index.js        # after `tsc -p src/harness-shim`
 ```
 
 Then point the harness at the shim (the path segment selects the cloister
@@ -90,7 +90,7 @@ The shim doesn't change that boundary; it only carries the lease.
 ## What's proven
 
 - `lease-signer.ts` — pure Web Crypto signer, unit-tested
-  (`test/tools/harness-shim-lease-signer.test.ts`): the signature verifies over
+  (`test/harness-shim/lease-signer.test.ts`): the signature verifies over
   the canonical bytes and binds the body.
 - **The signer against the real gate** —
   `test/routes/vault-proxy-lease-gate.test.ts` drives the *un-stubbed*

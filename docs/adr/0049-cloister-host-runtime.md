@@ -34,7 +34,7 @@ as **four separate binaries under `tools/`**, each script/spike-shaped:
 - `tools/mediator` — the fs policy plane: a `ConfinementGraph` decorator over
   leyline-fs's `Graph`, served as NFS (`serve_nfs`) / FUSE (`mount_fuse`).
 - `tools/libkrun-spike` — the microVM boot proof (HVF/KVM, virtio-fs passthrough).
-- `tools/harness-shim` — the ADR-0042 dev-run glue.
+- `src/harness-shim` — the ADR-0042 dev-run glue.
 
 **These are fragments of one thing.** The observation that forced this ADR: each
 fragment is a *wrapper around a library that is designed to be composed

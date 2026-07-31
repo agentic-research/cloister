@@ -6,7 +6,7 @@
 // signer↔gate proof lives in test/routes/vault-proxy-lease-gate.test.ts.
 
 import { describe, expect, it } from "vitest";
-import { b64uEncode, signLeaseHeaders, type EphemeralIdentity } from "../../tools/harness-shim/lease-signer.js";
+import { b64uEncode, signLeaseHeaders, type EphemeralIdentity } from "../../src/harness-shim/lease-signer.js";
 import { EPHEMERAL_PRIV_SEED_B64, EPHEMERAL_PUBKEY_B64, CERT_ADMIN_B64 } from "../wire/fixtures/cert-chain.js";
 
 const IDENTITY: EphemeralIdentity = {

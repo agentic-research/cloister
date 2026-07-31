@@ -40,12 +40,20 @@
 import { execFileSync, spawn as nodeSpawn } from "node:child_process";
 import {
   writeFileSync, rmSync, existsSync, readdirSync, readFileSync, statSync, realpathSync,
-  lstatSync, mkdirSync,
+  lstatSync, mkdirSync, accessSync, constants,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve, join, dirname } from "node:path";
 import { parse as parseToml } from "smol-toml";
+
+import { startLocalRouter } from "../dev/router.mjs";
+import { resolveInstallLayout } from "../install-layout.mjs";
+import {
+  readProviderRecord,
+  resolveProviderArtifact,
+  RuntimeProviderError,
+} from "../runtime/provider-record.mjs";
 
 import {
   loadHarnessConfig,
@@ -373,11 +381,11 @@ export async function resolvePlan(request, deps = {}) {
   const exists = deps.exists ?? existsSync;
   const { root, setupOnly } = request;
 
-  // --setup-only never reaches `task dev`, so it does not need .env.local.
+  // --setup-only never starts the local router, so it does not need .env.local.
   if (!setupOnly && !exists(resolve(root, ".env.local"))) {
     throw new PreconditionError(
       `.env.local is missing, and the launch step needs it.\n` +
-      `  run: task dev:bootstrap\n` +
+      `  run: cloister dev bootstrap\n` +
       `  (checked BEFORE minting, so nothing has been written and no cert exists yet)`,
       1,
     );
@@ -402,7 +410,12 @@ export async function resolvePlan(request, deps = {}) {
 
   let sandbox = null;
   if (request.sandbox) {
-    sandbox = resolveSandbox(request.sandbox, target, root, { run, exists });
+    sandbox = resolveSandbox(request.sandbox, target, root, {
+      run,
+      exists,
+      env: deps.env ?? process.env,
+      resolveNativeHelper: deps.resolveNativeHelper ?? resolveNativeHelper,
+    });
   }
 
   const shimPort = request.shimPort ?? DEFAULT_SHIM_PORT;
@@ -472,40 +485,29 @@ function resolveAuth(target, request) {
 }
 
 /**
- * Resolve confinement, building the binary if absent and resolving the harness
+ * Resolve the digest-verified installed confinement helper and the harness
  * executable to an absolute path.
  *
  * @param {import("./types.mjs").SandboxRequest} requested
  * @param {any} target
  * @param {string} root
- * @param {{run: Function, exists: (p: string) => boolean}} io
- * @param {any} [deps0]
+ * @param {{run: Function, exists: (p: string) => boolean,
+ *          env: Record<string,string|undefined>, resolveNativeHelper: Function}} io
  * @returns {import("./types.mjs").SandboxPlan}
  */
-function resolveSandbox(requested, target, root, { run, exists }, deps0 = {}) {
-  // The CONFINEMENT SHAPE is checked first, before the confine binary is built
+function resolveSandbox(requested, target, root, { run, exists, env, resolveNativeHelper }) {
+  // The CONFINEMENT SHAPE is checked first, before the installed helper is read
   // and before the executable is resolved. Both of those are slower and neither
   // is the security boundary — and when the executable check ran first, a
   // nested-root request was reported as "could not resolve claude-code on
   // $PATH", which names the wrong problem and hides the real one behind a
-  // 45-second cargo build.
+  // a runtime-provider lookup.
   const workdirs = validateWorkdirSet(
     (requested.workdirs?.length ? requested.workdirs : [process.cwd()]).map((p) => resolve(p)),
     requested.label ?? "workdir",
   );
 
-  const confineBin = resolve(root, "tools/harness-sandbox/target/release/cloister-harness");
-  if (!exists(confineBin)) {
-    try {
-      run("cargo",
-        ["build", "--release", "--manifest-path", resolve(root, "tools/harness-sandbox/Cargo.toml")],
-        { stdio: "inherit" });
-    } catch {
-      throw new PreconditionError(
-        "failed to build tools/harness-sandbox (needs the nono crate + rustc 1.95).", 2,
-      );
-    }
-  }
+  const confineBin = resolveNativeHelper({ root, env });
 
   // The executable is a DECLARED absolute path — the same concept as a bundle's
   // `entryPoint`, and for the same reason: confined exec resolves by path with
@@ -541,7 +543,7 @@ function resolveSandbox(requested, target, root, { run, exists }, deps0 = {}) {
   // "Relocate, don't narrow" — see buildPolicy. Adopts an existing symlink;
   // never moves an operator's files.
   const { skillStore, scratchDir } = resolveRelocations(stateDir, root, { exists });
-  try { (deps0.mkdirSync ?? mkdirSync)(scratchDir, { recursive: true }); }
+  try { mkdirSync(scratchDir, { recursive: true }); }
   catch { /* lint-allow-silent: an unwritable root fails louder at the first write */ }
 
   // Derived, not declared: the install tree is wherever the resolved executable
@@ -569,6 +571,51 @@ function resolveSandbox(requested, target, root, { run, exists }, deps0 = {}) {
     harnessBin,
     harnessArgs: requested.harnessArgs ?? [],
   };
+}
+
+/** @param {string} file @param {Function} [access] */
+function executable(file, access = accessSync) {
+  try {
+    access(file, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve only the installed provider or an explicit operator override. */
+/**
+ * @param {{root?:string, env?:Record<string,string|undefined>, access?:Function}} [options]
+ */
+export function resolveNativeHelper({ root, env = process.env, access = accessSync } = {}) {
+  const override = env.CLOISTER_HARNESS_BIN;
+  if (override) {
+    if (!executable(override, access)) {
+      throw new PreconditionError(
+        `CLOISTER_HARNESS_BIN is not executable: ${override}\n` +
+        "No fallback was used because an explicit override must fail closed.",
+        2,
+      );
+    }
+    return override;
+  }
+
+  try {
+    const layout = resolveInstallLayout({ env, checkoutRoot: root ?? process.cwd() });
+    const record = readProviderRecord(layout);
+    const helper = resolveProviderArtifact(record, "nativeHelper");
+    if (!executable(helper, access)) {
+      throw new RuntimeProviderError(`installed native helper is not executable: ${helper}`);
+    }
+    return helper;
+  } catch (error) {
+    if (!(error instanceof RuntimeProviderError)) throw error;
+    throw new PreconditionError(
+      "The execution runtime is not installed or failed its digest check.\n" +
+      "Run: cloister runtime install",
+      2,
+    );
+  }
 }
 
 /**
@@ -913,8 +960,8 @@ export function resolveCompanionWorkers(wranglerToml, env = process.env) {
  *
  * ── Why a plain .kill() is not enough ──────────────────────────────────────
  *
- * cloister is started as `task dev`, and `task` spawns `wrangler`, which spawns
- * `workerd`. Those are GRANDCHILDREN: killing the `task` process leaves them
+ * cloister is started through wrangler, which spawns `workerd`. That is a
+ * GRANDCHILD: killing only wrangler can leave it
  * running, holding their ports, after the run has exited.
  *
  * Observed directly — five leaked cloisters after five runs:
@@ -961,7 +1008,7 @@ export function killProcessGroup(child) {
  *
  * `killProcessGroup` stops this run from leaking. This stops a run from
  * STARTING on top of anything else holding the port — another session, a
- * `task dev` in a terminal, an unrelated server. The two are complements:
+ * `cloister dev serve` in a terminal, or an unrelated server. The two are complements:
  * neither alone makes the health check trustworthy.
  *
  * Named, with the fix in the message, because "port busy" is only actionable if
@@ -1057,15 +1104,19 @@ export async function launchSession(plan, artifacts, deps = {}) {
     }
   }
 
-  const cloister = spawn("task", ["dev"], { cwd: plan.root, stdio: "inherit", detached: true });
+  const cloister = (deps.startLocalRouter ?? startLocalRouter)({
+    root: plan.root,
+    env: deps.env ?? process.env,
+    spawn,
+  });
   await waitHealth(`${CLOISTER_BASE}/health`, 60_000);
 
-  const shim = spawn(process.execPath, ["--import", "tsx", "tools/harness-shim/index.ts"], {
+  const shim = spawn(process.execPath, ["--import", "tsx", "src/harness-shim/index.ts"], {
     cwd: plan.root,
     stdio: "inherit",
     detached: true,
     env: {
-      ...process.env,
+      ...(deps.env ?? process.env),
       HARNESS_SHIM_PORT: plan.shimPort,
       CLOISTER_BASE_URL: CLOISTER_BASE,
       HARNESS_SHIM_CERT_B64: identity.certDerB64Url,
@@ -1109,7 +1160,7 @@ export async function launchSession(plan, artifacts, deps = {}) {
       log(`  # no ${t.apiKeyEnv} on the harness — the key is vaulted in cloister.`);
     }
     log(`  ${t.entryPoint || t.name}`);
-    log(`  # (or: SANDBOX=nono task harness:dev to launch it kernel-confined)`);
+    log(`  # (or: cloister run --harness ${t.name} --repo "$PWD" to launch it kernel-confined)`);
     log(`${bar}\n`);
   }
 

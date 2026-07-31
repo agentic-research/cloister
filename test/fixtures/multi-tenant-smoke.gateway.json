@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "name": "recipe-instantiate-test",
+    "version": "0.0.0"
+  },
+  "routes": [
+    {
+      "path": "/",
+      "kind": {
+        "tenantDispatch": {
+          "tenants": [
+            {
+              "name": "alice",
+              "mode": "sni",
+              "matchValue": "alice.cluster.example",
+              "binding": "T_ALICE"
+            },
+            {
+              "name": "bob",
+              "mode": "path-prefix",
+              "matchValue": "/t/bob",
+              "binding": "T_BOB"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "actor": {
+    "fingerprint": "",
+    "algorithm": "ed25519",
+    "pubkeyBinding": "",
+    "attestationRepo": "",
+    "tunnelEndpoint": ""
+  },
+  "policy": {
+    "maxCertLifetimeSeconds": 300,
+    "requireInterlock": false,
+    "minAlgorithm": "ed25519"
+  }
+}

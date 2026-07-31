@@ -21,6 +21,7 @@ import {
 } from "../../cli/lib/runtime/provider-record.mjs";
 import { installCompatibilityProvider } from "../../cli/lib/runtime/install-compatibility.mjs";
 import { main as runtimeMain } from "../../cli/commands/runtime.mjs";
+import { resolveNativeHelper } from "../../cli/lib/harness/launch.mjs";
 
 function tempRoot(t) {
   const root = mkdtempSync(join(tmpdir(), "cloister-provider-"));
@@ -125,6 +126,26 @@ test("provider resolution refuses a binary whose bytes changed after install", a
   assert.throws(
     () => resolveProviderArtifact(record, "hostRuntime"),
     /digest mismatch.*hostRuntime/i,
+  );
+});
+
+test("confined harness launch resolves the native helper from the installed provider", async (t) => {
+  const root = tempRoot(t);
+  const env = { CLOISTER_LIBEXEC_DIR: join(root, "libexec") };
+  const layout = resolveInstallLayout({ env, home: root, checkoutRoot: root });
+  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []) });
+
+  assert.equal(resolveNativeHelper({ root, env }), layout.nativeHelper);
+});
+
+test("an explicit native-helper override fails without falling back", () => {
+  assert.throws(
+    () => resolveNativeHelper({
+      root: "/src/cloister",
+      env: { CLOISTER_HARNESS_BIN: "/missing/cloister-harness" },
+      access: () => { throw new Error("not executable"); },
+    }),
+    /explicit override must fail closed/i,
   );
 });
 

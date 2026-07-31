@@ -707,30 +707,14 @@ tasks:
       - node bin/cloister.mjs uninstall
 
   dev:bootstrap:
-    desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent. (Git hooks — incl. the post-merge bead auto-close — are owned by rsry: `rsry hooks install`, not cloister's Taskfile.)"
+    desc: "Alias for `cloister dev bootstrap`. Generates the gitignored local development environment."
     cmds:
-      - node scripts/dev-bootstrap.mjs
+      - node bin/cloister.mjs dev bootstrap
 
   dev:
-    desc: Start local dev server on :8787 (sources .env.local for VAULT_KEK_SOURCE)
-    deps: [manifest]
+    desc: "Alias for `cloister dev serve`. Starts the local Worker on :8787."
     cmds:
-      # Source .env.local so VAULT_KEK_SOURCE + DEV_VAULT_KEK flow into
-      # wrangler's env. ADR-0014 v2 (cloister-125199) requires non-empty
-      # VAULT_KEK_SOURCE; the vault DO throws otherwise. Run
-      # `task dev:bootstrap` once to generate .env.local.
-      - |
-        if [ ! -f .env.local ]; then
-          echo "✗ .env.local missing — run \`task dev:bootstrap\` first" >&2
-          exit 1
-        fi
-        # cloister-21f273: fail loudly if .dev.vars would shadow a .env.local
-        # value under `wrangler dev` (the cloister-d2db6d silent gate-off).
-        node scripts/config-source-check.mjs || exit 1
-        set -a
-        . ./.env.local
-        set +a
-        pnpm exec wrangler dev
+      - node bin/cloister.mjs dev serve
 
   config:check:
     desc: "cloister-21f273 — preflight the config-source resolution: fail if a .env.local value would be SHADOWED under `wrangler dev` (because .dev.vars exists and wrangler ignores process env) or CONFLICTs with .dev.vars. No-op in CI (gitignored dev files absent). Values never printed."
@@ -926,14 +910,14 @@ tasks:
       - scripts/lint-smell-rule-kinship.mjs
 
   harness:dev:
-    desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the base-URL export. Pick the harness with `-- --target claude-code|codex` (default claude-code); each target is declared in cluster.toml and loaded through cli/lib/harness/targets.mjs (cloister-742e19). Set that target's key env var first — it is vaulted, never seen by the harness. Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config. This task and `cloister run --harness <name> --repo <abs> [--repo <abs> …]` are two DOORS onto one orchestration (cli/lib/harness/launch.mjs) — this one reads the environment because an operator types it; the CLI passes typed arguments. Neither re-implements the other."
+    desc: "Compatibility alias for `cloister run --repo $PWD`. Prefer `--harness`; `--target` remains accepted with a warning."
     cmds:
-      - node scripts/harness-dev.mjs {{.CLI_ARGS}}
+      - node bin/cloister.mjs run --repo "$PWD" {{.CLI_ARGS}}
 
   harness:dev:setup:
-    desc: "ADR-0042 — mint + write .dev.vars only, no launch (for verifying the dev-identity + seed wiring). `task harness:dev` runs this then launches."
+    desc: "Compatibility alias for setup-only `cloister run`."
     cmds:
-      - node scripts/harness-dev.mjs --setup-only {{.CLI_ARGS}}
+      - node bin/cloister.mjs run --repo "$PWD" --setup-only {{.CLI_ARGS}}
 
   lint:no-dev-mode:
     desc: "ADR-0042 safety rail — fail if any committed config enables a dev-mode harness seam (CLOISTER_MODE=dev or a DEV_* binding with a value). Dev mode is runtime-only via `task harness:dev`; it must never ship in config.capnp / wrangler.toml / cluster.toml / generated runtime."
@@ -1044,9 +1028,10 @@ tasks:
       - node scripts/lint-harness-target-literals.mjs
     sources:
       - scripts/harness-dev.mjs
+      - cli/commands/run.mjs
       - cli/lib/harness/targets.mjs
       - scripts/lint-harness-target-literals.mjs
-      - tools/harness-shim/index.ts
+      - src/harness-shim/index.ts
 
   lint:dev-escape:
     desc: "ADR-0026 rail — a committed cluster.toml must not carry an [inputs.*] `from` dev-escape. `from` wins over `ref`, so committing it silently overrides the durable content-addressed ref for every checkout (and an absolute file:/// path resolves on exactly one machine). manifest/cluster.capnp documented this rule; nothing enforced it until recipes/rosary-dev shipped one. Scoped to [inputs.*] — [[wires]] `from` is a bundle name and is legitimate."
@@ -1072,11 +1057,11 @@ tasks:
   lint:shim:
     desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
     cmds:
-      - pnpm exec tsc -p tools/harness-shim/tsconfig.json
+      - pnpm exec tsc -p src/harness-shim/tsconfig.json
     sources:
-      - tools/harness-shim/*.ts
-      - tools/harness-shim/node-shims.d.ts
-      - tools/harness-shim/tsconfig.json
+      - src/harness-shim/*.ts
+      - src/harness-shim/node-shims.d.ts
+      - src/harness-shim/tsconfig.json
 
   lint:bundle-isolation:
     desc: "Validate ADR-0013 substrate invariants on src/generated/cluster.ts + config.capnp (cloister-ac30e7 + cloister-cf519b) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings. Reads cluster.ts via tsx (the canonical derived artifact per ADR-0025)."
@@ -1161,7 +1146,7 @@ tasks:
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/lint-smell-rule-kinship.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/fetch-schema-bridge.test.mjs scripts/test/gate-integrity.test.mjs scripts/test/type-duplication.test.mjs scripts/test/oci-artifact.test.mjs scripts/test/upstream-pins.test.mjs scripts/test/write-generated.test.mjs scripts/test/required-checks.test.mjs scripts/test/tsx-invocation.test.mjs scripts/test/cli-run.test.mjs scripts/test/cli-surface.test.mjs scripts/test/cli-cluster.test.mjs scripts/test/confinement-shape.test.mjs scripts/test/no-ignored-tracked.test.mjs scripts/test/one-toml-lib.test.mjs scripts/test/install.test.mjs scripts/test/runtime-provider.test.mjs scripts/test/dependency-security.test.mjs scripts/test/audit-confinement-notice.test.mjs scripts/test/skills-delivery.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
+      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/recipe-multi-tenant-bridge.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/lint-smell-rule-kinship.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/fetch-schema-bridge.test.mjs scripts/test/gate-integrity.test.mjs scripts/test/type-duplication.test.mjs scripts/test/oci-artifact.test.mjs scripts/test/upstream-pins.test.mjs scripts/test/write-generated.test.mjs scripts/test/required-checks.test.mjs scripts/test/tsx-invocation.test.mjs scripts/test/cli-run.test.mjs scripts/test/cli-surface.test.mjs scripts/test/cli-cluster.test.mjs scripts/test/cli-dev.test.mjs scripts/test/cli-runtime-boundary.test.mjs scripts/test/confinement-shape.test.mjs scripts/test/no-ignored-tracked.test.mjs scripts/test/one-toml-lib.test.mjs scripts/test/install.test.mjs scripts/test/runtime-provider.test.mjs scripts/test/dependency-security.test.mjs scripts/test/audit-confinement-notice.test.mjs scripts/test/skills-delivery.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
