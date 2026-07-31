@@ -29,6 +29,9 @@ dist-verify/
 # so up-to-date detection works without re-running steps unnecessarily)
 .task/
 
+# Local embedding/model cache used by code-intelligence tooling.
+.fastembed_cache/
+
 # Claude Code session state — cron locks, scheduled-task store, etc.
 .claude/
 
