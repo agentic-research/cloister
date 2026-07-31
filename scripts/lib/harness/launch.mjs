@@ -40,6 +40,7 @@
 import { execFileSync, spawn as nodeSpawn } from "node:child_process";
 import {
   writeFileSync, rmSync, existsSync, readdirSync, readFileSync, statSync, realpathSync,
+  lstatSync, mkdirSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -193,6 +194,49 @@ export function digestSkillDir(dir, io = {}) {
     h.update(rf(join(dir, rel)));
   }
   return `sha256:${h.digest("hex")}`;
+}
+
+/**
+ * Resolve the relocated skills store and the per-run scratch directory.
+ *
+ * Both implement "relocate, don't narrow" (see buildPolicy). Neither MOVES an
+ * operator's files: the skills store is adopted only when `<stateDir>/skills`
+ * is ALREADY a symlink, and reported-but-not-changed otherwise.
+ *
+ * That restraint is deliberate. Silently relocating someone's skills directory
+ * — during a command whose job is to launch a harness — is the kind of helpful
+ * action that is indistinguishable from data loss when it goes wrong, and the
+ * operator has no reason to expect it. `cloister skills relocate` is where that
+ * belongs, as an act someone chooses.
+ *
+ * @param {string} stateDir
+ * @param {string} root
+ * @param {LaunchDeps & {realpathSync?: Function, lstatSync?: Function}} [deps]
+ * @returns {{skillStore: string|null, scratchDir: string, adopted: boolean}}
+ */
+export function resolveRelocations(stateDir, root, deps = {}) {
+  const exists = deps.exists ?? existsSync;
+  const lstat = deps.lstatSync ?? lstatSync;
+  const real = deps.realpathSync ?? realpathSync;
+
+  const skillsPath = join(stateDir, "skills");
+  let skillStore = null;
+  let adopted = false;
+  if (exists(skillsPath)) {
+    try {
+      if (lstat(skillsPath).isSymbolicLink()) {
+        // Already relocated — grant the TARGET read, and the subtree is
+        // immutable because the symlink resolves to that grant.
+        skillStore = real(skillsPath);
+        adopted = true;
+      }
+    } catch { /* lint-allow-silent: an unreadable skills path is reported by verifySkills, not here */ }
+  }
+
+  // Per-run scratch. Under the repo root so it is visible, gitignored, and
+  // removed by teardown alongside the other runtime-only files.
+  const scratchDir = join(root, ".harness-scratch");
+  return { skillStore, scratchDir, adopted };
 }
 
 /**
@@ -430,9 +474,10 @@ function resolveAuth(target, request) {
  * @param {any} target
  * @param {string} root
  * @param {{run: Function, exists: (p: string) => boolean}} io
+ * @param {any} [deps0]
  * @returns {import("./types.mjs").SandboxPlan}
  */
-function resolveSandbox(requested, target, root, { run, exists }) {
+function resolveSandbox(requested, target, root, { run, exists }, deps0 = {}) {
   // The CONFINEMENT SHAPE is checked first, before the confine binary is built
   // and before the executable is resolved. Both of those are slower and neither
   // is the security boundary — and when the executable check ran first, a
@@ -487,6 +532,13 @@ function resolveSandbox(requested, target, root, { run, exists }) {
   }
 
   const home = homedir();
+  const stateDir = requested.stateDir ?? join(home, target.stateDir);
+  // "Relocate, don't narrow" — see buildPolicy. Adopts an existing symlink;
+  // never moves an operator's files.
+  const { skillStore, scratchDir } = resolveRelocations(stateDir, root, { exists });
+  try { (deps0.mkdirSync ?? mkdirSync)(scratchDir, { recursive: true }); }
+  catch { /* lint-allow-silent: an unwritable root fails louder at the first write */ }
+
   // Derived, not declared: the install tree is wherever the resolved executable
   // actually lives, which a manifest field would only restate and then rot.
   // `~/.local/bin/claude` is a shim, so follow it to the real binary and grant
@@ -503,10 +555,12 @@ function resolveSandbox(requested, target, root, { run, exists }) {
     confineBin,
     workdirs,
     installDir,
+    skillStore,
+    scratchDir,
     // `<stateDir>.json` — the sibling config file. Same derivation the harness
     // itself uses, so a target that renames its state dir keeps them paired.
     configFile: `${requested.stateDir ?? join(home, target.stateDir)}.json`,
-    stateDir: requested.stateDir ?? join(home, target.stateDir),
+    stateDir,
     harnessBin,
     harnessArgs: requested.harnessArgs ?? [],
   };
@@ -607,7 +661,37 @@ export function buildPolicy(plan, identity) {
   ];
   // /tmp is a symlink to /private/tmp on macOS; grant both so a harness that
   // writes to the literal /tmp path (claude's runtime dir) isn't denied.
-  const sysRw = ["/dev", "/tmp", "/private/tmp", "/private/var/folders"];
+  // ── relocate, don't narrow ────────────────────────────────────────────
+  //
+  // Two shared writable paths were reachable by anything the harness runs, and
+  // NEITHER is fixable by narrowing a grant: nono's grants are a UNION, so a
+  // read-only grant does not constrain a writable parent, and `deny` is a full
+  // deny rather than a write-deny. Measured, both times.
+  //
+  // What DOES work is changing where the bytes live:
+  //
+  //   SKILLS   ~/.claude/skills is inside a state dir that must stay writable
+  //            (sessions, history, settings — 23 top-level files, and the set
+  //            grows). Symlinking it to a store granted READ makes the subtree
+  //            immutable while the state dir stays writable, because the
+  //            symlink resolves to the target's grant. So a skill can no longer
+  //            write a peer skill mid-run — the gap ADR-0061 explicitly did not
+  //            close.
+  //
+  //   SCRATCH  /tmp was granted readwrite, so two confined runs shared it: a
+  //            channel between runs that neither declared. A per-run directory
+  //            with TMPDIR redirected gives each run private scratch, and /tmp
+  //            stops being granted at all.
+  //
+  // Note the second only works through THIS path. The `nono` CLI seeds /tmp in
+  // its own defaults, so the same policy under `nono run` still leaks — the
+  // library does not seed them, which is why buildPolicy lists them by hand and
+  // can decline to.
+  //
+  // `sysRw` no longer carries /tmp. /private/var/folders stays: macOS puts the
+  // per-user temp there and confstr-based mktemp reaches it regardless of
+  // TMPDIR, so denying it breaks tools rather than isolating them.
+  const sysRw = ["/dev", "/private/var/folders"];
   return {
     capabilities: {
       version: "0.1.0",
@@ -620,6 +704,16 @@ export function buildPolicy(plan, identity) {
           // Same list, so the two cannot disagree.
           ...sandbox.workdirs.map((/** @type {string} */ path) => ({ path, access: "readwrite", type: "directory" })),
           { path: sandbox.stateDir, access: "readwrite", type: "directory" },
+          // The relocated skills store, granted READ. The state dir above stays
+          // writable; this subtree does not, because `<stateDir>/skills` is a
+          // symlink resolving here.
+          ...(sandbox.skillStore
+            ? [{ path: sandbox.skillStore, access: "read", type: "directory" }]
+            : []),
+          // Per-run scratch, replacing the shared /tmp grant.
+          ...(sandbox.scratchDir
+            ? [{ path: sandbox.scratchDir, access: "readwrite", type: "directory" }]
+            : []),
           // The harness's config FILE, a sibling of its state dir rather than
           // inside it — `~/.claude` and `~/.claude.json` are two paths, and
           // granting the directory does not reach the file.
@@ -662,7 +756,15 @@ export function buildPolicy(plan, identity) {
     },
     // Credentials never enter the confined env — cloister injects at the proxy.
     env_strip: target.stripEnv,
-    env_set: { [target.baseUrlEnv]: plan.baseUrl },
+    env_set: {
+      [target.baseUrlEnv]: plan.baseUrl,
+      // Redirect scratch into the per-run directory. All three spellings,
+      // because which one a tool honours is not something to guess: POSIX tools
+      // read TMPDIR, some Node/Python paths read TMP or TEMP.
+      ...(sandbox.scratchDir
+        ? { TMPDIR: sandbox.scratchDir, TMP: sandbox.scratchDir, TEMP: sandbox.scratchDir }
+        : {}),
+    },
     harness_bin: sandbox.harnessBin,
     harness_args: sandbox.harnessArgs,
   };

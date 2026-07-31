@@ -97,6 +97,8 @@ __pycache__/
 .harness-confinement.json
 # Load-event receipt for skills (ADR-0061). Runtime-only, regenerated per run.
 .harness-skills.json
+# Per-run scratch (replaces the shared /tmp grant). Runtime-only.
+.harness-scratch/
 .cloister/
 # S1 confinement binary build dir (tools/harness-sandbox is a standalone crate)
 tools/harness-sandbox/target/

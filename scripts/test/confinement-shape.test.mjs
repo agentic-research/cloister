@@ -155,3 +155,63 @@ test("the shape is validated BEFORE the toolchain — the error names the real p
     /is inside/,
   );
 });
+
+// ── relocate, don't narrow ────────────────────────────────────────────────
+//
+// Two shared writable paths were reachable by anything the harness runs, and
+// NEITHER was fixable by narrowing a grant — nono's grants are a UNION, and
+// `deny` is a full deny rather than a write-deny. Measured both times.
+//
+// What works is changing where the bytes live. These assert the resulting
+// policy, since the mechanism is only correct if the emitted grants say so.
+
+test("scratch is per-run, and the shared /tmp grant is GONE", async () => {
+  const { resolvePlan, buildPolicy } = await import("../lib/harness/launch.mjs");
+  const plan = await resolvePlan({
+    root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
+    credentialEnv: {}, sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
+  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  const policy = buildPolicy(plan, {
+    certDerB64Url: "x", masterPubB64Std: "y", peerFp: "z",
+    epoch: 1, ephemeralPrivSeedB64Url: "a", ephemeralPubB64Url: "b",
+  });
+  const paths = policy.capabilities.filesystem.grants.map((g) => g.path);
+
+  // The regression this exists for: /tmp was readwrite, so two confined runs
+  // shared a path neither declared — a channel between runs.
+  assert.ok(!paths.includes("/tmp"), `/tmp must not be granted; got: ${paths.join(", ")}`);
+  assert.ok(!paths.includes("/private/tmp"), "/private/tmp must not be granted either");
+
+  // …and the replacement must actually exist, or tools lose scratch entirely.
+  assert.ok(paths.includes(plan.sandbox.scratchDir), "per-run scratch must be granted");
+  assert.equal(policy.env_set.TMPDIR, plan.sandbox.scratchDir);
+  assert.equal(policy.env_set.TMP, plan.sandbox.scratchDir, "TMP too — tools disagree on which they read");
+  assert.equal(policy.env_set.TEMP, plan.sandbox.scratchDir);
+});
+
+test("a relocated skills store is granted READ, never readwrite", async () => {
+  const { buildPolicy } = await import("../lib/harness/launch.mjs");
+  const plan = {
+    root: ROOT, shimPort: "8799", baseUrl: "http://127.0.0.1:8799/x",
+    auth: { mode: "audit" },
+    target: { stripEnv: [], baseUrlEnv: "X", name: "t", service: "s" },
+    confinementManifest: {},
+    sandbox: {
+      provider: "nono", confineBin: "/bin/true", workdirs: [ROOT],
+      stateDir: "/tmp/state", configFile: "/tmp/state.json", installDir: null,
+      skillStore: "/tmp/skillstore", scratchDir: "/tmp/scratch",
+      harnessBin: "/bin/true", harnessArgs: [],
+    },
+  };
+  const grants = buildPolicy(plan, {
+    certDerB64Url: "x", masterPubB64Std: "y", peerFp: "z",
+    epoch: 1, ephemeralPrivSeedB64Url: "a", ephemeralPubB64Url: "b",
+  }).capabilities.filesystem.grants;
+
+  const store = grants.find((g) => g.path === "/tmp/skillstore");
+  assert.ok(store, "the relocated store must be granted");
+  assert.equal(store.access, "read", "READ — a writable skills tree is the vector this closes");
+  // The state dir stays writable; that is the whole point of relocating rather
+  // than narrowing. Sessions, history and settings still need it.
+  assert.equal(grants.find((g) => g.path === "/tmp/state")?.access, "readwrite");
+});

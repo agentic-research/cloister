@@ -34,6 +34,8 @@ declare module "node:fs" {
   export function readdirSync(path: string): string[];
   export function statSync(path: string): { isDirectory(): boolean };
   export function realpathSync(path: string): string;
+  export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
+  export function lstatSync(path: string): { isSymbolicLink(): boolean };
 }
 
 declare module "node:crypto" {
