@@ -39,7 +39,7 @@ import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import chalk from "chalk";
 import { ociImageRef } from "./lib/oci-artifact.mjs";
 import {

@@ -19,7 +19,7 @@
  *       ▼
  *   canonical JS object (TOML-flat: kind = "external", external: {…})
  *       │
- *       │  @iarna/toml.stringify
+ *       │  smol-toml stringify
  *       ▼
  *   canonical cluster.toml
  *
@@ -31,7 +31,7 @@
  * Per docs/plans/bidi-toml-pipeline.md Phase 4.
  */
 
-import { stringify as stringifyToml } from "@iarna/toml";
+import { stringify as stringifyToml } from "smol-toml";
 import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,7 +142,7 @@ function canonicalizeEdge(e) {
  *     section-free).
  *
  * Keys inside each subtable are alphabetized to match the rest of
- * the canonicalization rules (sortKeys + @iarna/toml's stable-emit
+ * the canonicalization rules (sortKeys + smol-toml's stable-emit
  * shape).
  */
 function canonicalizeGateway(g) {
@@ -573,7 +573,7 @@ function pickUnionTag(union, label) {
 
 /**
  * Return a copy of `obj` with keys inserted in alphabetical order.
- * JS preserves insertion order; @iarna/toml emits scalars in object-
+ * JS preserves insertion order; smol-toml emits scalars in object-
  * key order; combining the two gives us deterministic alphabetical
  * output within each table.
  *

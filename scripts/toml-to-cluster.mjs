@@ -34,7 +34,7 @@
  * Per docs/plans/bidi-toml-pipeline.md Phase 3.
  */
 
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,7 +160,7 @@ export async function parseTomlToCluster(tomlString) {
   });
 
   //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
-  //        tables are the blind spot: @iarna/toml rejects a duplicate KEY inside
+  //        tables are the blind spot: smol-toml rejects a duplicate KEY inside
   //        a table because the TOML spec requires it, but two `[[bundles]]` or
   //        two `[[gateway.harnessTargets]]` with the same `name` are perfectly
   //        legal TOML and silently wrong — every consumer does `.find()`, which

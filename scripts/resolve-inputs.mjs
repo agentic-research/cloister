@@ -66,7 +66,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { parse as parseToml, stringify as stringifyToml } from "@iarna/toml";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "..");

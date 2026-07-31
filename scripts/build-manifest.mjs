@@ -34,7 +34,7 @@ import { writeGeneratedFile } from "./write-generated.mjs";
 import { dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 
 import { schemaRoot } from "./schema-root.mjs";
 

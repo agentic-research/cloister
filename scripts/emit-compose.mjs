@@ -35,7 +35,7 @@
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { writeGeneratedFile } from "./write-generated.mjs";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveBundleImage } from "./lib/oci-artifact.mjs";

@@ -45,7 +45,7 @@ import {
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve, join, dirname } from "node:path";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 
 import {
   loadHarnessConfig,

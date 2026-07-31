@@ -119,7 +119,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
