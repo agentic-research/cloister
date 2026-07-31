@@ -380,6 +380,7 @@ export function verifySkills(plan, log, deps = {}) {
 export async function resolvePlan(request, deps = {}) {
   const run = deps.execFileSync ?? execFileSync;
   const exists = deps.exists ?? existsSync;
+  const readHarnessConfig = deps.loadHarnessConfig ?? loadHarnessConfig;
   const { root, setupOnly } = request;
 
   // --setup-only never starts the local router, so it does not need .env.local.
@@ -398,7 +399,7 @@ export async function resolvePlan(request, deps = {}) {
   // disagreement is a named error here rather than a provider 401 later.
   let target, service, skills = [];
   try {
-    const cfg = await loadHarnessConfig(resolve(root, "cluster.toml"));
+    const cfg = await readHarnessConfig(resolve(root, "cluster.toml"));
     target = resolveTargetByName(cfg.targets, request.targetName);
     service = serviceFor(target, cfg.services);
     skills = cfg.skills ?? [];

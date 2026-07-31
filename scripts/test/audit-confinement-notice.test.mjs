@@ -21,6 +21,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { launch } from "../../cli/lib/harness/launch.mjs";
+import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -32,6 +33,12 @@ async function noticeFor({ credentialFileExists, sandbox = true }) {
     // Only the credential-file probe consults `exists` in a way that matters
     // here; everything else must resolve so the plan is built.
     exists: (p) => (p.endsWith(".credentials.json") ? credentialFileExists : true),
+    // Skill verification has its own tests. Keep these warning-order tests
+    // independent of whichever personal skills happen to exist under $HOME.
+    loadHarnessConfig: async (path) => ({
+      ...(await loadHarnessConfig(path)),
+      skills: [],
+    }),
     resolveNativeHelper: () => "/usr/bin/true",
     execFileSync: (file, args) => {
       if (file === "which") return "/usr/bin/true\n";

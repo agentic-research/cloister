@@ -259,6 +259,7 @@ export class PreconditionError extends Error {
  * @property {(child: unknown) => void} [killProcessGroup]
  * @property {(ports: number[]) => void} [assertPortsFree]
  * @property {Record<string,string|undefined>} [env]
+ * @property {Function} [loadHarnessConfig]
  * @property {Function} [resolveNativeHelper]
  * @property {Function} [startLocalRouter]
  * @property {(wranglerToml: string, env?: Record<string,string|undefined>) => {binding:string, service:string, dir:string|null, envVar:string, port:number}[]} [resolveCompanionWorkers]

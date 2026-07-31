@@ -65,6 +65,14 @@ test("launchSession starts the local router directly through pnpm", async () => 
 
   const session = await launchSession(plan, artifacts, {
     spawn,
+    // Exercise the real first-party router function with test-owned config
+    // seams; a unit test must not require the developer's ignored .env.local.
+    startLocalRouter: (options) => startLocalRouter({
+      ...options,
+      existsSync: () => true,
+      assertConfigSourcesSafe: () => {},
+      loadLocalEnv: (_root, env) => env,
+    }),
     resolveCompanionWorkers: () => [],
     assertPortsFree: () => {},
     waitForHealth: async () => {},
