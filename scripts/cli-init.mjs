@@ -78,6 +78,18 @@ export const RECIPE_FILES = Object.freeze([
 ]);
 
 /**
+ * Files copied into every scaffold from `recipes/_shared/`, regardless of
+ * recipe.
+ *
+ * The Taskfile is here rather than per-recipe because it contains no
+ * recipe-specific content — it is a door onto `cloister <verb>`, and four
+ * copies of it would be four things to keep in step. It ships because a
+ * scaffold WITHOUT one told operators to run `task cluster:up` in a directory
+ * where `task` finds no Taskfile at all.
+ */
+export const SHARED_FILES = Object.freeze(["Taskfile.yml"]);
+
+/**
  * Return the list of recipe names available under <recipesRoot>.
  *
  * @param {string} recipesRoot
@@ -262,6 +274,24 @@ export function runInit(opts, runOpts = {}) {
     written.push(dst);
   }
 
+  // Shared files — recipe-independent, so they live once under recipes/_shared/
+  // rather than being copied into each recipe. Mandatory: a scaffold without the
+  // Taskfile is the state that shipped, where the README and the CLI both told
+  // you to run `task cluster:up` in a directory `task` could not read.
+  const sharedDir = join(recipesRoot, "_shared");
+  for (const filename of SHARED_FILES) {
+    const src = join(sharedDir, filename);
+    if (!existsSync(src)) {
+      throw new UsageError(
+        `recipes/_shared is missing required file: ${filename} — every scaffold ships it, ` +
+        `so a scaffolded cluster is runnable with the same verbs as this repo's`,
+      );
+    }
+    const dst = join(outDir, filename);
+    writeFileSync(dst, readFileSync(src, "utf8"));
+    written.push(dst);
+  }
+
   // Print next-steps banner.
   log("");
   log(`Scaffolded recipe ${JSON.stringify(opts.recipe)} into ${outDir}`);
@@ -270,12 +300,11 @@ export function runInit(opts, runOpts = {}) {
   log("");
   log("Next steps:");
   log(`  cd ${outDir}`);
-  log("  task dev:bootstrap   # one-time vault KEK + .env.local");
-  log(
-    opts.port !== null
-      ? `  task dev             # wrangler dev on :${opts.port}`
-      : "  task dev             # wrangler dev on :8787",
-  );
+  log("  task up              # bring the cluster up (compose)");
+  log("  task down            # stop it; volumes are preserved");
+  log("");
+  log("  # …or without go-task:");
+  log("  cloister cluster up --dir .");
 
   return written;
 }

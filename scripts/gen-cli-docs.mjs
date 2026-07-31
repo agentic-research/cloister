@@ -62,7 +62,14 @@ function render() {
       out.push("");
     }
     if (c.seeAlso) {
-      const rel = c.seeAlso.replace(/^docs\/reference\//, "");
+      // The page lives at docs/reference/cli.md, so a repo-root path has to be
+      // made relative to THAT directory. Stripping only `docs/reference/`
+      // silently produced a link resolving to docs/reference/docs/adr/… for any
+      // target outside this directory — which lint:doc-links caught the first
+      // time a command pointed at an ADR.
+      const rel = c.seeAlso.startsWith("docs/reference/")
+        ? c.seeAlso.slice("docs/reference/".length)
+        : c.seeAlso.replace(/^docs\//, "../");
       out.push(`See also: [\`${c.seeAlso}\`](${rel})`);
       out.push("");
     }

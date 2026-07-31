@@ -99,7 +99,13 @@ function discoverRecipes() {
     throw new ToolchainError(`recipes dir not found at ${RECIPES_DIR}`);
   }
   return readdirSync(RECIPES_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+    // `_`-prefixed directories are NOT recipes. `recipes/_shared/` holds files
+    // every scaffold ships regardless of recipe (the Taskfile that makes a
+    // scaffolded cluster runnable), so it has no cluster.toml and would fail
+    // every recipe rule. Same convention as the leading dot, one character
+    // apart, and chosen so the exclusion is visible in the directory listing
+    // rather than living only in a filter.
+    .filter((d) => d.isDirectory() && !d.name.startsWith(".") && !d.name.startsWith("_"))
     .map((d) => ({ name: d.name, path: join(RECIPES_DIR, d.name) }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

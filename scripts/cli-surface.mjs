@@ -139,6 +139,73 @@ export const COMMANDS = [
       { flag: "--version", value: "<ver>", summary: "expected version" },
     ],
   },
+  {
+    name: "skills list",
+    usage: "cloister skills list [--dir <cluster>] [--state-dir <path>]",
+    summary: "Show which skills are pinned, unpinned, undeclared, or CHANGED",
+    detail:
+      "Surveys the harness skills directory against a cluster's " +
+      "`[[gateway.skills]]` declarations. Exits non-zero when a PINNED skill's " +
+      "bytes no longer match — that is the state worth acting on, and an exit " +
+      "code makes it usable from a script.",
+    flags: [
+      { flag: "--dir", value: "<cluster>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--state-dir", value: "<path>", summary: "harness state dir; skills are read from <path>/skills (default: ~/.claude)" },
+    ],
+    seeAlso: "docs/adr/0061-skills-declared-and-verified.md",
+  },
+  {
+    name: "skills pin",
+    usage: "cloister skills pin [--dir <cluster>] [--write] [--force]",
+    summary: "Emit [[gateway.skills]] declarations with current digests",
+    detail:
+      "Prints the declarations to paste into cluster.toml. Pinning is an act of " +
+      "TRUST — it says you have looked at these bytes — so it does NOT edit your " +
+      "manifest by default: a command that rewrote it silently would turn " +
+      "vouching into a keystroke, and the reflex after a failed verification is " +
+      "to re-run it.\n\n" +
+      "`--write` appends for the first-run case. Skills already pinned are left " +
+      "alone; re-pinning one whose bytes CHANGED needs `--force`, because " +
+      "adopting an unpinned skill is bookkeeping while changing an existing pin " +
+      "is a decision.",
+    flags: [
+      { flag: "--dir", value: "<cluster>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--state-dir", value: "<path>", summary: "harness state dir; skills are read from <path>/skills (default: ~/.claude)" },
+      { flag: "--write", summary: "append to cluster.toml instead of printing" },
+      { flag: "--force", summary: "also re-pin skills whose bytes changed under an existing pin" },
+    ],
+    seeAlso: "docs/adr/0061-skills-declared-and-verified.md",
+  },
+  {
+    name: "cluster up",
+    usage: "cloister cluster up [--dir <path>] [--detach]",
+    summary: "Bring a declared cluster up via compose",
+    detail:
+      "Runs the cluster declared by `cluster.compose.yaml` in --dir (default: " +
+      "the current directory), using nerdctl, podman or docker — whichever is " +
+      "present, or COMPOSE_CMD if set.\n\n" +
+      "This is a CLI verb rather than only a Taskfile task because a SCAFFOLDED " +
+      "cluster ships no Taskfile: `cloister init` emits cluster.toml, " +
+      "cloister.capnp and cluster.compose.yaml, so `task cluster:up` cannot work " +
+      "there. One implementation, reachable from any cluster directory you own.",
+    flags: [
+      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
+      { flag: "--detach", summary: "run in the background (compose -d)" },
+    ],
+  },
+  {
+    name: "cluster down",
+    usage: "cloister cluster down [--dir <path>] [--destroy]",
+    summary: "Tear a cluster down, preserving volumes",
+    detail:
+      "Stops the cluster and KEEPS its volumes. Durable-Object SQLite state " +
+      "lives in those volumes, so removing them is unrecoverable and is never " +
+      "the default for a routine-looking verb — pass --destroy to opt in.",
+    flags: [
+      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+      { flag: "--destroy", summary: "ALSO remove volumes — unrecoverable; DO state lives there" },
+    ],
+  },
   { name: "artifacts pull", usage: "cloister artifacts pull [options]",
     summary: "Acquire lockfile-pinned OCI artifacts" },
   { name: "runtime plan", usage: "cloister runtime plan <bundle> --workspace <absolute-path> [options]",
