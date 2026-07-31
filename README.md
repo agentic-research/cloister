@@ -16,15 +16,32 @@ Point your harness at that one URL and the whole bundle is available —
 and you can see exactly what ran. MCP tools today; skill and agent
 definitions next.
 
-## Running a harness
+## Run a coding tool inside cloister
 
 ```sh
 task install                 # puts `cloister` on your PATH (~/.local/bin)
 cloister run --harness claude-code --repo /abs/path/to/repo
 ```
 
-Confined to the repos you name — every other path, and the network, kernel-denied.
-Prerequisites, caveats and known gaps: [`docs/RUNNING.md`](docs/RUNNING.md).
+The tool can read and write the repos you name. Your other repos, your SSH keys,
+your cloud credentials and the network are refused by the operating system — not
+by asking the tool to behave. Anything it starts inherits the same limits, so a
+script that runs Python that runs `curl` still cannot reach the network.
+
+**Before you try it, two things that will bite you:**
+
+- **You need an API key, not a Claude subscription.** A subscription signs in
+  through the macOS keychain, and the sandbox blocks keychain access on purpose,
+  so the tool would just report "not logged in". Set `ANTHROPIC_API_KEY`.
+- **The list of what a tool is allowed to reach was built by hitting errors.**
+  It covers `git` and Claude Code. A tool that needs something else will fail,
+  and on macOS that can show up as a developer-tools install prompt rather than
+  a clear "permission denied".
+
+Neither is a bug we forgot about — the first is a deliberate consequence of
+blocking the keychain, the second is honest about how far this has been
+exercised. Full walkthrough and the rest of the rough edges:
+[`docs/RUNNING.md`](docs/RUNNING.md).
 
 ## Why you'd care
 
@@ -40,12 +57,6 @@ Prerequisites, caveats and known gaps: [`docs/RUNNING.md`](docs/RUNNING.md).
   lowered to local `workerd`, native-process, OCI, and Cloudflare paths.
   Those paths are not identical security boundaries; the documentation
   calls out the differences.
-
-## Where to go next
-
-- **Run it** → [GETTING-STARTED.md](GETTING-STARTED.md)
-- **How it works (the tech)** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **Verify the security claims** → [docs/security/load-bearing-claims.md](docs/security/load-bearing-claims.md)
 
 ## How it works
 
@@ -113,7 +124,7 @@ graph TB
     style EXT fill:#f5f5f5,color:#000
 ```
 
-## Quickstart
+## Quickstart — start the server and point a tool at it
 
 Five-minute three-terminal smoke. For the full walkthrough (toolchain,
 ports, auth setup, plugin install), see
@@ -290,7 +301,7 @@ chain via the `bead_id` column on TrustStore's `peer_attestations`.
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the runtime
 model + component map + sequence diagrams.
 
-## Run it
+## Three ways to start the server
 
 Three local paths, same code:
 

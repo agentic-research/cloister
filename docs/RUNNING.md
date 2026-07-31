@@ -266,6 +266,15 @@ takes `task → wrangler → workerd` with it instead of only the leader.
 
 **No subscription auth**, as above. Custody lane only.
 
+**A run receipt was public for a while.** `.harness-skills.json` records which
+skills a run saw. It is gitignored, but it was committed before the ignore
+existed — and .gitignore does nothing to a file git already tracks — so one
+copy, carrying a home path and 56 skill names, reached this public repo. It is
+untracked now and a gate rail (`no-ignored-tracked.test.mjs`) cross-checks the
+ignore list against the index so the next one fails CI instead of shipping.
+History was deliberately left alone: skill names are not credentials, and
+rewriting a public repo breaks every clone.
+
 ---
 
 ## See also

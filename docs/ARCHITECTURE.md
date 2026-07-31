@@ -494,6 +494,123 @@ scope, TrustStore upsert) is end-to-end tested in
 as of cloister-b89fdb — the gate is active when `INTERLACE_ROOT_PUBKEY`
 is set (deployment-binding granularity, NOT per-request bypass).
 
+## Running a tool under confinement
+
+Everything above describes cloister as a **server**: routes in, backends out.
+There is a second execution model, and it is what `cloister run` uses — cloister
+as the **only thing a coding tool can reach**.
+
+```
+cloister run --harness claude-code --repo /abs/path/to/repo
+```
+
+The tool runs on your machine, not in a container. What changes is what the
+kernel will let it touch.
+
+### The boundary is the kernel, not a wrapper
+
+Confinement is applied by the `nono` crate, consumed as a **library** (pinned at
+`nono = "0.70"` in `tools/harness-sandbox/Cargo.toml`), which maps one declared
+policy onto Seatbelt on macOS and Landlock on Linux. Consuming it as a library
+rather than shelling out to its CLI matters: the CLI seeds some grants of its
+own, so the two do not enforce the same thing. The
+launcher builds the policy; `cloister-harness` applies it and then `exec`s the
+tool.
+
+Two properties follow, and both are load-bearing:
+
+- **It is not advisory.** There is no shim to bypass and no environment variable
+  to unset. A denied read returns `EPERM` from the operating system.
+- **It is inherited.** Descendants cannot escape it, so a skill's shell script
+  that runs Python that runs `curl` is bounded by the same policy. Verified
+  three levels deep across a language boundary in
+  `tools/harness-sandbox/test/`.
+
+Grants are a **union, not an intersection** — this is the part that surprises
+people. Adding a read grant for a subdirectory does **not** narrow a writable
+parent, and `deny` is a full deny rather than a write-deny. So the way to make
+something read-only is to **move the bytes**, not to add a narrower grant.
+
+### What the policy actually says
+
+| | |
+|---|---|
+| the repos passed with `--repo` | read + write |
+| a per-run scratch directory | read + write |
+| system paths needed to execute anything | read only |
+| everything else — other repos, `~/.ssh`, `~/.aws`, shell history | denied |
+| the network | denied before a packet leaves |
+| `127.0.0.1` → cloister | the single reachable destination |
+
+That last row is the point of the whole design. Cloister is not *a* way for the
+tool to reach the outside — it is the **only** way, which is what makes the
+tools it serves auditable rather than merely available.
+
+The allow-list of system paths was **discovered by hitting errors**, not derived
+from a specification. Making `git` work took `/var`, `/etc`, `~/.config/git`,
+`~/.gitconfig` and `~/.gitignore_global` — each found when something failed. It
+is complete only up to what has been exercised (`cloister-cd30a6`).
+
+### The policy is committed to before it is applied
+
+The policy is not merely built and used. A run mints an ephemeral identity whose
+certificate carries a digest of the confinement **shape**, and `cloister-harness`
+recomputes that digest over the manifest it is about to enforce and compares —
+**before** the irreversible `apply`. A mismatch stops the run.
+
+```
+cloister-harness: §7 confinement commitment verified —
+  the manifest to be enforced matches the identity-committed digest
+```
+
+The digest covers symbolic paths rather than absolute ones, so it is identical
+whichever repos you pass and different for how *many*. This is what makes "the
+tool ran confined" a checkable claim rather than a launcher's assertion. Per
+ADR-0053 and the threat model's §7.
+
+### Credentials never enter the tool's environment
+
+Two lanes, chosen by whether `ANTHROPIC_API_KEY` is set:
+
+- **Custody** — the key is vaulted and injected at the proxy. The tool's
+  environment never holds it, so a compromised tool cannot exfiltrate what it
+  cannot read. This is `cloister/credential-isolation/v1` (ADR-0024), and every
+  call emits a signed receipt.
+- **Audit** — no key vaulted; whatever authentication the tool already had is
+  forwarded, and calls are still receipted. Under confinement this is often
+  *unauthenticated*, because a Claude subscription authenticates through the
+  macOS keychain and the sandbox denies keychain access by design. The launcher
+  says so before minting anything rather than letting it surface as a confusing
+  "not logged in".
+
+### A run owns its processes
+
+`cloister run` starts cloister itself, a lease shim, optionally companion
+Workers, and the tool. Each is spawned into **its own process group**, and
+teardown signals the group.
+
+This is not tidiness. `task dev` starts wrangler which starts workerd — those
+are grandchildren, and killing only the leader left them holding ports. Because
+wrangler silently moves to the next free port when one is taken, a later run
+would bind 8788 while its health check polled 8787 and got a healthy response
+**from the stale server**: every signal said fine while the tool talked to an
+old build. A fail-closed port preflight now refuses to start on a held port.
+Per `cloister-de4c78`.
+
+### Where the code lives
+
+| | |
+|---|---|
+| `scripts/lib/harness/launch.mjs` | the orchestration — plan, setup, launch |
+| `scripts/cli-run.mjs` | `cloister run`, calls `launch()` in-process |
+| `tools/harness-sandbox/` | the Rust binary that applies the policy and execs |
+| `tools/harness-shim/` | the localhost endpoint the tool is allowed to reach |
+| `docs/RUNNING.md` | the operator walkthrough, including known gaps |
+
+Design decisions: ADR-0042 (turnkey local run), ADR-0044 and ADR-0050
+(compute isolation), ADR-0049 (host runtime), ADR-0060 (a tool's selector is not
+its executable), ADR-0061 (skills declared and digest-verified).
+
 ## Security surface
 
 | Layer            | Risk                                | Mitigation                                                |

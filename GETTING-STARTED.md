@@ -66,7 +66,40 @@ pnpm exec vitest run                    # workerd integration tests
 node --test hooks/test/*.test.mjs       # CC plugin tests
 ```
 
-## 3. Run cloister locally
+## 3. Run a coding tool inside cloister
+
+This is probably why you are here, so it comes before the server details.
+
+```sh
+task install     # puts `cloister` on your PATH (~/.local/bin)
+cloister run --harness claude-code --repo /abs/path/to/your/repo
+```
+
+The tool can read and write the repos you name. Everything else — your other
+repos, your SSH keys, your cloud credentials, the network — is refused by the
+operating system, not by asking the tool nicely. Anything the tool starts is
+covered by the same rules, so a script that shells out to Python that shells out
+to `curl` still cannot reach the network.
+
+Look before you leap:
+
+```sh
+cloister run --harness claude-code --repo /abs/path/to/repo --dry-run
+```
+
+That prints exactly what will be reachable and starts nothing.
+
+One thing to know up front: **this needs an API key, not a Claude subscription.**
+A subscription signs in through the macOS keychain, and the sandbox blocks
+keychain access on purpose — so the tool would just report "not logged in".
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-…
+```
+
+Full walkthrough, including what is still rough: [docs/RUNNING.md](docs/RUNNING.md).
+
+## 4. Run cloister locally
 
 Three equivalent paths — same code, different launcher.
 
@@ -226,7 +259,7 @@ schema authority. `src/generated/cluster.ts` is a derived artifact
 cluster.toml changes). The TOML reader fail-fasts on schema or
 semantic violations — garbage in, error out.
 
-## 4. Smoke tests
+## 5. Smoke tests
 
 Always works (no upstreams required):
 
@@ -256,7 +289,7 @@ its sibling binary to be reachable at `MACHE_MCP_URL` (default
 `http://localhost:7532/mcp`); without it the `mache_*` family is
 absent from the list and other tools still work.
 
-## 5. Wire upstreams (only what you need)
+## 6. Wire upstreams (only what you need)
 
 ### a) `ley-line-open` — for `lsp_*` and `reparse` / `enrich` / `status`
 
@@ -324,7 +357,7 @@ read a green smoke as evidence the trust surface works.
 
 See [ADR-0002](docs/adr/0002-edge-router-protocol-agnostic-backends.md#capability-boundary).
 
-## 6. Install the CC plugin (optional but recommended)
+## 7. Install the CC plugin (optional but recommended)
 
 Keeping `lsp_*` fresh during long Claude Code sessions is handled by
 **ley-line-open's** `leyline-stale-sync`, not by cloister. It auto-fires
@@ -345,7 +378,7 @@ for the plugin contract and configuration.
 > ley-line-open owns the parse / LSP surface per ADR-0035, and installing
 > both plugins double-fires `reparse` on every edit.
 
-## 7. Verify the full chain
+## 8. Verify the full chain
 
 The fast path: `task smoke` spins up leyline + cloister on private ports,
 exercises the full chain, and tears everything down. Use this in CI or
@@ -383,7 +416,7 @@ curl -s -X POST http://localhost:8787/mcp \
 If the second call returns `fn main()` info, the chain
 `CC → cloister → LLO` is wired correctly.
 
-## 8. Ship it as a container
+## 9. Ship it as a container
 
 ```sh
 task apk:keygen   # one-time — generate the melange signing key
@@ -398,7 +431,7 @@ running a real build — handy in CI. The output image is distroless: workerd
 [docs/ARCHITECTURE.md#packaging-melange--apko](docs/ARCHITECTURE.md#packaging-melange--apko)
 for the layout.
 
-## 9. Hardening for prod
+## 10. Hardening for prod
 
 When you move past local dev, set:
 
@@ -605,7 +638,7 @@ for the full deployment pattern, including a commented `cloudflared`
 sidecar slot in `apko.yaml` for self-hosted deployments that want
 CF Tunnel egress baked into the image.
 
-## 10. What just happened — anatomy of an authenticated `bead_create`
+## 11. What just happened — anatomy of an authenticated `bead_create`
 
 You've installed it, run it, hit `/health`, and the smoke test
 `bead_create` round-tripped. Worth a minute to look at what the
@@ -680,7 +713,7 @@ path, that's a bug. The threat model
 the contract; the disclosure endpoint is how a peer or auditor
 verifies cloister kept it.
 
-## 11. Reference — adding a new MCP-fronted service
+## 12. Reference — adding a new MCP-fronted service
 
 This and §12 are reference material, not part of the setup walkthrough
 above. Skip until you actually want to extend the route table.
@@ -769,14 +802,14 @@ Empty `handlesPrefix` is allowed and means "exact-match against the
 advertised tool names" — used today for `reparse | enrich | status` which
 have no shared prefix on the upstream LLO daemon.
 
-## 12. Reference — adding a new HTTP route (not MCP)
+## 13. Reference — adding a new HTTP route (not MCP)
 
 Implement `EdgeRoute` in `src/routes/`, register it in
 `src/manifest/runtime.ts` if you want it manifest-driven, or for a
 one-off path tweak just declare it in `cloister.capnp` under one of the
 existing route kinds (`health`, `httpProxy`, `serviceBindingProxy`).
 
-## 13. Where to go from here
+## 14. Where to go from here
 
 Three directions, depending on what you came for.
 
