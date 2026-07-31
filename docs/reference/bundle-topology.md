@@ -40,6 +40,13 @@ tool prefix, storage, and tenant-isolation posture. Until then the
 secure operator runbook covers the two current cluster-tier tools:
 `mache` and `rosary`.
 
+`agents/work-board` is intentionally not something Cloister starts or confines.
+It is a local web page: `serve.py` serves the page, and `POST /refresh` runs a
+script that reads GitHub data with `gh`. It does not expose tools over MCP and
+has no `server.json` describing how Cloister should start it. You can run the
+board beside Cloister, but it remains a separate user interface unless it later
+adds an explicit Cloister server contract.
+
 ## Tier classification ([ADR-0011](../adr/0011-hypervisor-bundle-boundary.md))
 
 The three-criterion test:

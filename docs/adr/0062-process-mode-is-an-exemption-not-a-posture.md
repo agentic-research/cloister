@@ -79,10 +79,18 @@ Three of today's four exemptions are, or may be, legitimate:
 
 - `cloister-router` is the host. This is structural and permanent — you cannot
   put the hypervisor inside its own guest.
-- `rosary` dispatches host subprocesses. This one is **contingent, not
-  structural**: `rosary-56b557` proposes cloister as a `ComputeProvider`, which
-  removes the requirement entirely. When that lands the exemption should be
-  withdrawn, not re-justified.
+- `rosary` dispatches host subprocesses. This ADR first called that exemption
+  **contingent** on `rosary-56b557` making cloister a `ComputeProvider`, on the
+  reasoning that it would remove the requirement. **That was wrong.** The work
+  shipped (rosary #464) and the requirement remains: `CloisterProvider` confines
+  the *dispatched agent* — each now runs under `cloister run` instead of as a
+  bare host subprocess, a real gain — but rosary itself is what spawns them.
+  **Confining what a process spawns is not the same as confining the process.**
+
+  Worth keeping visible rather than quietly amending: an exemption carrying the
+  *wrong* expiry condition is more dangerous than one carrying none, because it
+  reads as handled. The mechanism still did its job — writing the condition
+  down is precisely what let someone else check it and find it false.
 - `notme-identity` and `notme-proxy` are **unknown**. Nobody wrote a reason, so
   nobody can say whether one exists. That is the gap this ADR closes: today
   their posture is indistinguishable from an oversight, because it may be one.
@@ -119,7 +127,8 @@ Revisit once every exemption carries a rationale.
   monotonically numbered, never renumbered.
 - `notme-identity` and `notme-proxy` must either justify their exemption or move
   to `microvm`. **Nobody currently knows which**, and that is the finding.
-- `rosary`'s exemption gains an expiry condition rather than reading as settled.
+- `rosary`'s exemption was given an expiry condition, which turned out to be the
+  wrong one — see above. That is the mechanism working, not failing.
 - The lint gains one rail and one always-on report. Per this repo's rule, the
   rail ships in the same change as the rule, with a test asserting the shipped
   tree satisfies it.

@@ -51,7 +51,7 @@ nothing is the expected starting state, not a broken install.
 
 ```sh
 cd /path/to/cloister
-task install                 # symlinks into ~/.local/bin
+task install                 # installs deps, then symlinks into ~/.local/bin
 cloister --help
 ```
 
