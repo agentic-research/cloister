@@ -459,10 +459,11 @@ tasks:
   inputs:pull:
     desc: "ADR-0026 Phase 1c — preview and explicitly acquire the OCI images pinned by cluster.lock.toml. Interactive runs ask confirmation; automation passes --yes. Mutable refs are rejected unless --allow-unpinned is separately acknowledged. `task inputs:pull -- --print` previews without pulling."
     cmds:
-      - "{{.NODE_TSX}} scripts/pull-inputs.mjs {{.CLI_ARGS}}"
+      - node bin/cloister.mjs artifacts pull {{.CLI_ARGS}}
     sources:
       - cluster.lock.toml
-      - scripts/pull-inputs.mjs
+      - cli/commands/artifacts-pull.mjs
+      - cli/lib/oci-artifact.mjs
 
   cluster:dev:
     desc: "Mac dev launcher — spawns cluster bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
@@ -1142,11 +1143,14 @@ tasks:
     sources:
       - recipes/**/*
       - scripts/lint-recipes.mjs
+      - scripts/emit-cloister-capnp.mjs
+      - cli/lib/cluster/**/*.mjs
+      - src/generated/cluster.zod.ts
 
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/recipe-multi-tenant-bridge.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/lint-smell-rule-kinship.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/fetch-schema-bridge.test.mjs scripts/test/gate-integrity.test.mjs scripts/test/type-duplication.test.mjs scripts/test/oci-artifact.test.mjs scripts/test/upstream-pins.test.mjs scripts/test/write-generated.test.mjs scripts/test/required-checks.test.mjs scripts/test/tsx-invocation.test.mjs scripts/test/cli-run.test.mjs scripts/test/cli-surface.test.mjs scripts/test/cli-cluster.test.mjs scripts/test/cli-dev.test.mjs scripts/test/cli-output.test.mjs scripts/test/cli-skills.test.mjs scripts/test/cli-runtime-boundary.test.mjs scripts/test/confinement-shape.test.mjs scripts/test/no-ignored-tracked.test.mjs scripts/test/one-toml-lib.test.mjs scripts/test/install.test.mjs scripts/test/runtime-provider.test.mjs scripts/test/dependency-security.test.mjs scripts/test/audit-confinement-notice.test.mjs scripts/test/skills-delivery.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
+      - node bin/cloister.mjs dev test --dir .
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
@@ -1170,17 +1174,17 @@ tasks:
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
     cmds:
-      - node scripts/cli-init.mjs {{.CLI_ARGS | default "--help"}}
+      - node bin/cloister.mjs init {{.CLI_ARGS | default "--help"}}
 
   add:
     desc: "Add an input to cluster.toml + resolve it into cluster.lock.toml (cloister-66b6a6 / ADR-0026 Phase 2). Usage: task add -- <ref> [--name N] [--version V] [--provides cap]... [--requires cap].... Supports file://, https://, github://owner/repo[/path]@<git-ref>."
     cmds:
-      - "{{.NODE_TSX}} scripts/cli-add.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs add {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:plan:
     desc: "Emit a digest-pinned cloister/host-runtime/v1 plan for one external bundle. Usage: task runtime:plan -- <bundle> --workspace /absolute/path [--output /absolute/plan.json]."
     cmds:
-      - "node scripts/emit-host-launch-plan.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs runtime plan {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:build:
     desc: "Compatibility alias: install the named, digest-checked experimental execution runtime."
@@ -1188,33 +1192,29 @@ tasks:
       - node bin/cloister.mjs runtime install
 
   runtime:doctor:
-    desc: "Report krunvm/Buildah availability and bounded storage health."
-    deps: [runtime:build]
+    desc: "Report the selected runtime provider, its maturity, prerequisites, and storage health without installing or changing anything."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime doctor"
+      - "node bin/cloister.mjs runtime doctor {{.CLI_ARGS}}"
 
   runtime:run:
-    desc: "Run a digest-pinned host plan through krunvm. Usage: task runtime:run -- /absolute/plan.json. Depends on runtime:doctor (cloister-66f1ce) so a plan cannot launch against a host whose preconditions were never verified — doctor previously existed and was invoked by nothing."
-    deps: [runtime:build, runtime:doctor]
+    desc: "Run a digest-pinned host plan through the selected runtime provider. Usage: task runtime:run -- /absolute/plan.json."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime run {{.CLI_ARGS}}"
+      - "node bin/cloister.mjs runtime run {{.CLI_ARGS}}"
 
   runtime:storage:init:
     desc: "Create/attach one grow-on-demand case-sensitive sparsebundle for krunvm. Preview: task runtime:storage:init -- --print"
     cmds:
-      - "node scripts/init-krun-storage.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs runtime storage init {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:storage:status:
-    desc: "Report bounded krunvm storage use and tracked VM counts."
-    deps: [runtime:build]
+    desc: "Read the selected provider's storage readiness, capacity, and tracked run counts without changing storage."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime storage status"
+      - "node bin/cloister.mjs runtime storage status {{.CLI_ARGS}}"
 
   runtime:storage:gc:
     desc: "Preview bounded krunvm reclamation; pass --yes to execute. Usage: task runtime:storage:gc -- --print"
-    deps: [runtime:build]
     cmds:
-      - "node scripts/cloister-cli.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
+      - "node bin/cloister.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + upstream-pin coherence (lint:upstream-pins) + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

@@ -73,7 +73,8 @@ fn status_reports_versioned_storage_json() {
         String::from_utf8_lossy(&out.stderr)
     );
     let status: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(status["schema"], "cloister/krunvm-status/v1");
+    assert_eq!(status["schema"], "cloister/runtime-storage-status/v1");
+    assert_eq!(status["state"], "prepared");
     assert_eq!(
         status["storageVolume"],
         storage.path().display().to_string()

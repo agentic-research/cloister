@@ -35,12 +35,29 @@ test("dev serve starts the first-party router and waits for its exit", async () 
   assert.equal(code, 7);
 });
 
-test("dev help has no bootstrap or router side effects", async () => {
+test("dev test invokes one deterministic first-party runner", async () => {
+  const calls = [];
+  const code = await main(["test", "--dir", "/tmp/cloister"], {
+    runNodeTests: (options) => {
+      calls.push(options);
+      return 9;
+    },
+    log: () => {},
+    errLog: () => {},
+    env: { FIXTURE: "1" },
+  });
+  assert.equal(code, 9);
+  assert.equal(calls[0].root, "/tmp/cloister");
+  assert.deepEqual(calls[0].env, { FIXTURE: "1" });
+});
+
+test("dev help has no bootstrap, router, or test side effects", async () => {
   let sideEffects = 0;
   const output = [];
   const code = await main(["--help"], {
     bootstrapLocalDev: async () => { sideEffects++; },
     startLocalRouter: () => { sideEffects++; },
+    runNodeTests: () => { sideEffects++; },
     log: (line) => output.push(line),
     errLog: () => {},
   });
@@ -48,4 +65,5 @@ test("dev help has no bootstrap or router side effects", async () => {
   assert.equal(sideEffects, 0);
   assert.match(output.join("\n"), /cloister dev bootstrap/);
   assert.match(output.join("\n"), /cloister dev serve/);
+  assert.match(output.join("\n"), /cloister dev test/);
 });

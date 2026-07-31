@@ -154,18 +154,35 @@ pub struct KrunvmBackend<R> {
     settings: KrunvmSettings,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageState {
+    NotPrepared,
+    Prepared,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeStatus {
-    pub schema: &'static str,
-    pub storage_volume: String,
+pub struct StorageCapacity {
     pub total_bytes: u64,
     pub used_bytes: u64,
     pub available_bytes: u64,
     pub reserve_bytes: u64,
     pub can_acquire: bool,
-    pub tracked_vms: usize,
-    pub running_vms: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStorageStatus {
+    pub schema: &'static str,
+    pub provider: &'static str,
+    pub maturity: &'static str,
+    pub state: StorageState,
+    pub backend: &'static str,
+    pub storage_volume: String,
+    pub capacity: Option<StorageCapacity>,
+    pub tracked_runs: usize,
+    pub running_runs: usize,
 }
 
 impl<R> KrunvmBackend<R> {
@@ -423,20 +440,49 @@ impl<R: CommandRunner> KrunvmBackend<R> {
         })
     }
 
-    pub fn status(&self) -> Result<RuntimeStatus, RuntimeError> {
-        let _lock = StateLock::acquire(&self.settings.storage_volume)?;
+    pub fn status(&self) -> Result<RuntimeStorageStatus, RuntimeError> {
+        let storage_volume = self.settings.storage_volume.display().to_string();
+        match std::fs::metadata(&self.settings.storage_volume) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(RuntimeStorageStatus {
+                    schema: "cloister/runtime-storage-status/v1",
+                    provider: "compatibility",
+                    maturity: "experimental",
+                    state: StorageState::NotPrepared,
+                    backend: "krunvmCompatibility",
+                    storage_volume,
+                    capacity: None,
+                    tracked_runs: 0,
+                    running_runs: 0,
+                });
+            }
+            Err(error) => {
+                return Err(RuntimeError::Backend(format!(
+                    "reading storage metadata for {}: {error}",
+                    self.settings.storage_volume.display()
+                )));
+            }
+            Ok(_) => {}
+        }
+
         let state = self.load_state()?;
         let usage = self.storage_usage()?;
-        Ok(RuntimeStatus {
-            schema: "cloister/krunvm-status/v1",
-            storage_volume: self.settings.storage_volume.display().to_string(),
-            total_bytes: usage.total_bytes,
-            used_bytes: usage.used_bytes,
-            available_bytes: usage.available_bytes(),
-            reserve_bytes: usage.reserve_bytes,
-            can_acquire: usage.can_acquire(),
-            tracked_vms: state.vms.len(),
-            running_vms: state.vms.values().filter(|record| record.running).count(),
+        Ok(RuntimeStorageStatus {
+            schema: "cloister/runtime-storage-status/v1",
+            provider: "compatibility",
+            maturity: "experimental",
+            state: StorageState::Prepared,
+            backend: "krunvmCompatibility",
+            storage_volume,
+            capacity: Some(StorageCapacity {
+                total_bytes: usage.total_bytes,
+                used_bytes: usage.used_bytes,
+                available_bytes: usage.available_bytes(),
+                reserve_bytes: usage.reserve_bytes,
+                can_acquire: usage.can_acquire(),
+            }),
+            tracked_runs: state.vms.len(),
+            running_runs: state.vms.values().filter(|record| record.running).count(),
         })
     }
 }

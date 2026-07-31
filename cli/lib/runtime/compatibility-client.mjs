@@ -42,6 +42,69 @@ export function resolveHostRuntime({ env = process.env } = {}) {
   return { command, source: "compatibility provider", record };
 }
 
+export class CompatibilityRuntimeError extends Error {
+  constructor(message, evidence) {
+    super(message);
+    this.name = "CompatibilityRuntimeError";
+    Object.assign(this, evidence);
+  }
+}
+
+export function runCompatibilityJson(args, deps = {}) {
+  const env = deps.env ?? process.env;
+  const spawn = deps.spawnSync ?? spawnSync;
+  const binary = resolveHostRuntime({ env });
+  const result = spawn(binary.command, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
+  const evidence = {
+    command: binary.command,
+    provider: binary.source,
+    status: result.status ?? null,
+    signal: result.signal ?? null,
+    stderr: result.stderr ?? "",
+    spawnError: result.error,
+  };
+
+  if (result.error) {
+    throw new CompatibilityRuntimeError(
+      `unable to execute ${binary.command}: ${result.error.message}`,
+      evidence,
+    );
+  }
+  if (result.signal) {
+    throw new CompatibilityRuntimeError(
+      `compatibility runtime terminated by ${result.signal}`,
+      evidence,
+    );
+  }
+  if (result.status !== 0) {
+    const detail = evidence.stderr.trim();
+    throw new CompatibilityRuntimeError(
+      `compatibility runtime exited with status ${result.status}${detail ? `: ${detail}` : ""}`,
+      evidence,
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(result.stdout);
+  } catch (cause) {
+    throw new CompatibilityRuntimeError(
+      `compatibility runtime returned invalid JSON: ${cause.message}`,
+      { ...evidence, cause },
+    );
+  }
+  return {
+    data,
+    command: binary.command,
+    provider: binary.source,
+    record: binary.record,
+  };
+}
+
 export function runHostRuntime(args, deps = {}) {
   const env = deps.env ?? process.env;
   const errLog = deps.errLog ?? console.error;

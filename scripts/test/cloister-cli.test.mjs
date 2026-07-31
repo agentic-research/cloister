@@ -30,6 +30,32 @@ function run(args, env = {}) {
   });
 }
 
+function fakeRuntimeSource() {
+  return `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(argv));
+const storage = {
+  schema: "cloister/runtime-storage-status/v1",
+  provider: "compatibility",
+  maturity: "experimental",
+  state: "notPrepared",
+  backend: "krunvmCompatibility",
+  storageVolume: "/Volumes/krunvm",
+  capacity: null,
+  trackedRuns: 0,
+  runningRuns: 0,
+};
+if (argv[0] === "status") console.log(JSON.stringify(storage));
+if (argv[0] === "doctor") console.log(JSON.stringify({
+  schema: "cloister/host-runtime/doctor/v1",
+  process: { available: false },
+  microvm: { available: false, krunvm: false, buildah: false },
+  storage,
+}));
+`;
+}
+
 test("top-level help names the real command surface", () => {
   const r = run(["--help"]);
   assert.equal(r.status, 0, r.stderr);
@@ -62,14 +88,7 @@ test("runtime operator commands delegate exact arguments to one Rust seam", () =
   const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-cli-"));
   const record = resolve(temp, "argv.json");
   const fake = resolve(temp, "fake-runtime.mjs");
-  writeFileSync(
-    fake,
-    `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
-writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(process.argv.slice(2)));
-process.exit(0);
-`,
-  );
+  writeFileSync(fake, fakeRuntimeSource());
   chmodSync(fake, 0o755);
   const env = {
     CLOISTER_HOST_RUNTIME_BIN: fake,
@@ -123,13 +142,7 @@ test("runtime command executes the digest-verified provider artifact", () => {
   const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-provider-"));
   const record = resolve(temp, "argv.json");
   const fake = resolve(temp, "cloister-host-runtime");
-  writeFileSync(
-    fake,
-    `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
-writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(process.argv.slice(2)));
-`,
-  );
+  writeFileSync(fake, fakeRuntimeSource());
   chmodSync(fake, 0o755);
   const digest = createHash("sha256").update(readFileSync(fake)).digest("hex");
   mkdirSync(temp, { recursive: true });

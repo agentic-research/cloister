@@ -23,6 +23,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister run`](#cloister-run) | Run a harness confined to the repos you name |
 | [`cloister dev bootstrap`](#cloister-dev-bootstrap) | Prepare a checkout for local development |
 | [`cloister dev serve`](#cloister-dev-serve) | Run Cloister locally on port 8787 |
+| [`cloister dev test`](#cloister-dev-test) | Run every repository Node test discovered by convention |
 | [`cloister init`](#cloister-init) | Scaffold a cluster recipe |
 | [`cloister add`](#cloister-add) | Add and resolve a tool input |
 | [`cloister skills list`](#cloister-skills-list) | Show which skills are pinned, unpinned, undeclared, or CHANGED |
@@ -37,7 +38,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister runtime run`](#cloister-runtime-run) | Run a plan through the krunvm backend |
 | [`cloister runtime doctor`](#cloister-runtime-doctor) | Check runtime prerequisites and storage |
 | [`cloister runtime storage init`](#cloister-runtime-storage-init) | Create/attach bounded krunvm storage |
-| [`cloister runtime storage status`](#cloister-runtime-storage-status) | Show bounded storage state |
+| [`cloister runtime storage status`](#cloister-runtime-storage-status) | Show bounded storage state without changing it |
 | [`cloister runtime storage gc`](#cloister-runtime-storage-gc) | Preview or execute safe reclamation |
 
 ## cloister install
@@ -99,6 +100,18 @@ cloister dev serve [--dir <checkout>]
 ```
 
 Loads .env.local without a shell, checks for conflicting configuration sources, and runs the local Worker directly. Run `cloister dev bootstrap` first.
+
+| Flag | | |
+|---|---|---|
+| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
+
+## cloister dev test
+
+```
+cloister dev test [--dir <checkout>]
+```
+
+Finds every scripts/test/*.test.mjs file plus the nono harness checks, sorts them, and runs them once. Adding a test does not require editing the Taskfile or another filename list.
 
 | Flag | | |
 |---|---|---|
@@ -259,10 +272,14 @@ Run a plan through the krunvm backend
 ## cloister runtime doctor
 
 ```
-cloister runtime doctor
+cloister runtime doctor [--json]
 ```
 
 Check runtime prerequisites and storage
+
+| Flag | | |
+|---|---|---|
+| `--json` |  | print one machine-readable report |
 
 ## cloister runtime storage init
 
@@ -275,10 +292,14 @@ Create/attach bounded krunvm storage
 ## cloister runtime storage status
 
 ```
-cloister runtime storage status
+cloister runtime storage status [--json]
 ```
 
-Show bounded storage state
+Show bounded storage state without changing it
+
+| Flag | | |
+|---|---|---|
+| `--json` |  | print one machine-readable status object |
 
 ## cloister runtime storage gc
 

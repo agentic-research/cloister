@@ -2,17 +2,6 @@
 name = "cloister-multi-tenant-smoke"
 version = "0.1.0"
 
-# ── Per ADR-0030 §A2: two cluster-tier tenants behind the substrate's
-#    SNI + path-prefix dispatch. The router (hypervisor-tier) does NOT
-#    serve `/mcp`; instead, it dispatches every request to the matching
-#    tenant's workerd via a service binding. Each tenant runs its OWN
-#    workerd image and serves its OWN routes.
-#
-#    This recipe is the smallest demonstration of multi-tenancy as an
-#    operator-facing surface. Stand up two trivial tenant bundles that
-#    echo their identity; route the request via `tenantDispatch`. Real
-#    deployments swap the echo bundles for actual tenant workerds.
-
 [[bundles]]
 description = "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
 holdsCredential = [ "VAULT_KEK_SOURCE", "VAULT_STORE" ]
@@ -22,10 +11,10 @@ name = "cloister-router"
 tier = "hypervisor"
 workerdServiceName = "cloister"
 
-  [bundles.external]
-  httpPort = 8_787
-  image = "cloister:0.1.0"
-  ipcSocket = "/run/cloister-uds/router.sock"
+[bundles.external]
+httpPort = 8787
+image = "cloister:0.1.0"
+ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Tenant alice — echoes inbound request URLs as proof of routing"
@@ -33,9 +22,9 @@ kind = "external"
 name = "alice-tenant"
 tier = "cluster"
 
-  [bundles.external]
-  image = "cloister:0.1.0"
-  ipcSocket = "/run/cloister-uds/alice.sock"
+[bundles.external]
+image = "cloister:0.1.0"
+ipcSocket = "/run/cloister-uds/alice.sock"
 
 [[bundles]]
 description = "Tenant bob — echoes inbound request URLs as proof of routing"
@@ -43,9 +32,9 @@ kind = "external"
 name = "bob-tenant"
 tier = "cluster"
 
-  [bundles.external]
-  image = "cloister:0.1.0"
-  ipcSocket = "/run/cloister-uds/bob.sock"
+[bundles.external]
+image = "cloister:0.1.0"
+ipcSocket = "/run/cloister-uds/bob.sock"
 
 [[wires]]
 binding = "T_ALICE"
@@ -63,17 +52,6 @@ transport = "uds"
 kind = "health"
 path = "/health"
 
-# ── The multi-tenant dispatch route — ADR-0030 §A2.
-#
-#    `path = "/"` is the catch-all match target. The TenantDispatchRoute
-#    runtime (`src/routes/tenant-dispatch.ts`) inspects the request's
-#    host or path against the tenants table:
-#      - SNI mode: exact host-header match → O(1) Map lookup.
-#      - Path-prefix mode: full-walk first-match (no early break per
-#        threat-model §13.7.6(b), cloister-92e846).
-#    Match wins → request forwards to the named binding. No match → 256-
-#    byte constant-time 404 byte-equivalent with disclosure's 404
-#    (threat-model §13.7.1).
 [[routes]]
 kind = "tenantDispatch"
 path = "/"

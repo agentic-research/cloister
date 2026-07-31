@@ -174,6 +174,18 @@ export const COMMANDS = [
     ],
   },
   {
+    name: "dev test",
+    usage: "cloister dev test [--dir <checkout>]",
+    summary: "Run every repository Node test discovered by convention",
+    detail:
+      "Finds every scripts/test/*.test.mjs file plus the nono harness checks, " +
+      "sorts them, and runs them once. Adding a test does not require editing " +
+      "the Taskfile or another filename list.",
+    flags: [
+      { flag: "--dir", value: "<checkout>", summary: "Cloister checkout (default: the current directory)" },
+    ],
+  },
+  {
     name: "init",
     usage: "cloister init --recipe <name> --out <dir> [--port N]",
     summary: "Scaffold a cluster recipe",
@@ -310,12 +322,14 @@ export const COMMANDS = [
   },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a plan through the krunvm backend" },
-  { name: "runtime doctor", usage: "cloister runtime doctor",
-    summary: "Check runtime prerequisites and storage" },
+  { name: "runtime doctor", usage: "cloister runtime doctor [--json]",
+    summary: "Check runtime prerequisites and storage",
+    flags: [{ flag: "--json", summary: "print one machine-readable report" }] },
   { name: "runtime storage init", usage: "cloister runtime storage init",
     summary: "Create/attach bounded krunvm storage" },
-  { name: "runtime storage status", usage: "cloister runtime storage status",
-    summary: "Show bounded storage state" },
+  { name: "runtime storage status", usage: "cloister runtime storage status [--json]",
+    summary: "Show bounded storage state without changing it",
+    flags: [{ flag: "--json", summary: "print one machine-readable status object" }] },
   { name: "runtime storage gc", usage: "cloister runtime storage gc",
     summary: "Preview or execute safe reclamation" },
 ];

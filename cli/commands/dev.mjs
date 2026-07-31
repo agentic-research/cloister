@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import { bootstrapLocalDev as defaultBootstrapLocalDev } from "../lib/dev/bootstrap.mjs";
 import { startLocalRouter as defaultStartLocalRouter } from "../lib/dev/router.mjs";
+import { runNodeTests as defaultRunNodeTests } from "../lib/dev/test-runner.mjs";
 import { renderCommandHelp } from "../surface.mjs";
 
 export class DevUsageError extends Error {}
@@ -14,7 +15,7 @@ function parse(argv) {
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
     return { help: true, subcommand: null, root: process.cwd() };
   }
-  if (subcommand !== "bootstrap" && subcommand !== "serve") {
+  if (subcommand !== "bootstrap" && subcommand !== "serve" && subcommand !== "test") {
     throw new DevUsageError(`unknown dev command ${JSON.stringify(subcommand)}`);
   }
   let root = process.cwd();
@@ -68,7 +69,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 
   if (args.help) {
     if (args.subcommand) log(renderCommandHelp(`dev ${args.subcommand}`));
-    else log(`${renderCommandHelp("dev bootstrap")}\n\n${renderCommandHelp("dev serve")}`);
+    else {
+      log(
+        `${renderCommandHelp("dev bootstrap")}\n\n` +
+        `${renderCommandHelp("dev serve")}\n\n` +
+        renderCommandHelp("dev test"),
+      );
+    }
     return 0;
   }
 
@@ -80,6 +87,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         log,
       });
       return 0;
+    }
+    if (args.subcommand === "test") {
+      return (deps.runNodeTests ?? defaultRunNodeTests)({
+        root: args.root,
+        env: deps.env ?? process.env,
+      });
     }
     const child = (deps.startLocalRouter ?? defaultStartLocalRouter)({
       root: args.root,

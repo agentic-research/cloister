@@ -39,7 +39,9 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     stderr,
     env,
     colorMode: global.colorMode,
-    json: global.argv[0] === "runtime" && global.argv[1] === "plan",
+    json: global.argv[0] === "runtime" && (
+      global.argv[1] === "plan" || global.argv.includes("--json")
+    ),
   });
   const { log, warn, error } = output;
   const [command, ...rest] = global.argv;
@@ -58,7 +60,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   if (command === "run") return runMain(rest, { log, errLog: error, env });
   if (command === "dev") {
     const sub = rest[0];
-    if (sub === "bootstrap" || sub === "serve" || sub === undefined || sub === "--help" || sub === "-h") {
+    if (sub === "bootstrap" || sub === "serve" || sub === "test" || sub === undefined || sub === "--help" || sub === "-h") {
       const { main: devMain } = await import("./commands/dev.mjs");
       return devMain(rest, {
         log,
@@ -104,7 +106,13 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   if (command === "runtime" && rest[0] === "plan") {
     return planMain(rest.slice(1), { log, error });
   }
-  if (command === "runtime" && rest[0] === "install") {
+  if (
+    command === "runtime" && (
+      rest[0] === "install" ||
+      rest[0] === "doctor" ||
+      (rest[0] === "storage" && rest[1] === "status")
+    )
+  ) {
     const { main: runtimeMain } = await import("./commands/runtime.mjs");
     return runtimeMain(rest, {
       log,
@@ -133,12 +141,6 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       env,
     });
   }
-  if (command === "runtime" && rest[0] === "doctor") {
-    return runHostRuntime(["doctor", ...rest.slice(1)], {
-      errLog: error,
-      env,
-    });
-  }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "init") {
     return storageMain(rest.slice(2), {
       log,
@@ -146,12 +148,6 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       style: output.style,
       input: context.stdin ?? process.stdin,
       output: stdout,
-    });
-  }
-  if (command === "runtime" && rest[0] === "storage" && rest[1] === "status") {
-    return runHostRuntime(["status", ...rest.slice(2)], {
-      errLog: error,
-      env,
     });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "gc") {
