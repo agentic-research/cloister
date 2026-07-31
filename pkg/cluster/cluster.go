@@ -245,13 +245,14 @@ type WorkerdBundle struct {
 }
 
 type ExternalBundle struct {
-	Image         string   `json:"image"`
-	IpcSocket     string   `json:"ipcSocket"`
-	HttpPort      uint16   `json:"httpPort"`
-	Args          []string `json:"args"`
-	Env           []EnvVar `json:"env"`
-	EntryPoint    string   `json:"entryPoint"`
-	ExecutionMode string   `json:"executionMode"`
+	Image                  string   `json:"image"`
+	IpcSocket              string   `json:"ipcSocket"`
+	HttpPort               uint16   `json:"httpPort"`
+	Args                   []string `json:"args"`
+	Env                    []EnvVar `json:"env"`
+	EntryPoint             string   `json:"entryPoint"`
+	ExecutionMode          string   `json:"executionMode"`
+	ExecutionModeRationale string   `json:"executionModeRationale"`
 }
 
 type Confinement struct {

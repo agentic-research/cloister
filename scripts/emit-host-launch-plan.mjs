@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
 import { isSha256Digest } from "./lib/oci-artifact.mjs";
 

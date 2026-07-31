@@ -36,7 +36,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parse as parseToml, stringify as stringifyToml } from "@iarna/toml";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { resolveInput, buildLockfile } from "./resolve-inputs.mjs";
 

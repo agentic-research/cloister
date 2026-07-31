@@ -94,7 +94,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 | 10 | External bundle image derivable (operator `ext.image` OR a linked input's `packages[].oci`); WARN-level | ADR-0038 |
 | 11 | Confinement facet (fs.allow / allowHosts / port.bind) is valid + fail-closed | cloister-a34edc |
 | 12 | Every `durableObjectNamespace` binding on a bundle's Worker resolves to a declared `durableObjectNamespaces` entry (same-Worker or named cross-worker `serviceName`) | cloister-f9d473 |
-| 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`) | ADR-0048 / cloister-54b834 |
+| 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`), and `process` — an EXEMPTION from isolation, not a peer of it — states why | ADR-0048 / ADR-0062 / cloister-54b834 |
 | 14 | Bundle tier / kind / wire fact agrees with what the producing input declares; WARN-level, operator stays authoritative | cloister-d8e8fb |
 
 Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments (see [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md)); Inv 12 enforces the parallel chain `bundle DO binding → durableObjectNamespaces entry` — config.capnp's `durableObjectNamespaces` list (line ~235) is a hardcoded host-side declaration on behalf of every bundle that binds a Durable Object, and until Inv 12 nothing checked that a binding's named class was actually declared there.

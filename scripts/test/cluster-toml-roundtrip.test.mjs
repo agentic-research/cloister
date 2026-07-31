@@ -8,7 +8,7 @@
 // Lives under scripts/test/ (not test/) for the same reason
 // cli-init.test.mjs and lint-bundle-isolation.test.mjs do: vitest-
 // pool-workers runs inside workerd which has no `node:fs`,
-// `node:child_process`, or `@iarna/toml`. Node-native test runner +
+// `node:child_process`, or a TOML parser. Node-native test runner +
 // tsx loader (so the .ts zod schema can be imported).
 //
 // Phase 2 baseline: the stub scripts throw `not implemented`; every
@@ -18,6 +18,7 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { parse as parseToml } from "smol-toml";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -421,7 +422,11 @@ test("cluster-to-toml: omits empty confinement leaves inside a non-empty policy"
 
   const t = clusterToToml(c);
   assert.match(t, /path = "\/workspace"/);
-  assert.match(t, /bind = 7_532/);
+  // Value, not rendering — this test is about which confinement LEAVES survive
+  // canonicalization, not how the serializer renders an integer. Asserting
+  // `bind = 7_532` coupled it to smol-toml's thousand-separator, so a library
+  // swap failed a test that has nothing to do with libraries.
+  assert.equal(parseToml(t).bundles[0].confinement.port.bind, 7532);
   assert.ok(!t.includes("credentialSource"), "empty credentialSource must stay implicit");
   assert.ok(!t.includes("allowHosts"), "empty network allow-list must stay implicit");
   assert.ok(!t.includes('address = ""'), "empty bind address must stay implicit");
@@ -579,9 +584,11 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
 // Spec: `task cluster:toml` MUST chain `toml-to-cluster.mjs` (forward)
 // then `cluster-to-toml.mjs --write cluster.toml` (re-canonicalize) so
 // operator-edited TOML lands in canonical form in one verb. Without
-// the chain, an operator who types `httpPort = 9999` (which @iarna/toml
-// normalizes to `9_999`) sees the drift gate fail after `task cluster:toml`
-// even though the data is correct.
+// the chain, an operator whose edit differs from the serializer's canonical
+// rendering in any way sees the drift gate fail after `task cluster:toml`
+// even though the data is correct. (The original example was `httpPort = 9999`
+// normalizing to `9_999` under @iarna/toml; the repo now uses smol-toml, which
+// does not add separators — the CHAIN is the point, not any one rendering.)
 //
 // Test exercises the chain at the script level (matches what Taskfile
 // will invoke). If the scripts change such that the chain no longer
@@ -661,12 +668,27 @@ test("cloister-fe891f: chained workflow canonicalizes non-canonical operator-edi
       "chain must rewrite operator-edited TOML to canonical form",
     );
 
-    // 2. The canonical form normalizes the integer (httpPort 9999 → 9_999
-    //    per @iarna/toml thousand-separator behavior).
-    assert.match(
-      afterChain,
-      /httpPort = 9_999/,
-      "canonical form should use TOML's thousand-separator for integers ≥1000",
+    // 2. The integer survives canonicalization with its VALUE intact.
+    //
+    // This used to assert `httpPort = 9_999` — the thousand-separator
+    // smol-toml happened to render. That pinned a LIBRARY ARTIFACT as if it
+    // were the contract, and its own comment gave the library as the reason
+    // ("per smol-toml thousand-separator behavior"), which is a
+    // characterization test wearing a specification's clothes. Swapping to
+    // smol-toml (maintained; @iarna's last release was 2023) failed it, and
+    // the failure said nothing about correctness — 8787 and 8_787 are the same
+    // number, and a port rendered as "8,787" is the WORSE of the two to put in
+    // front of an operator.
+    //
+    // What this test is actually for is named in its title: the chain
+    // canonicalizes operator-edited TOML in one pass. So assert the property —
+    // the value round-trips — not the rendering. Assertion 3 below already
+    // pins the stronger, format-independent half (canonical is a fixed point),
+    // which is what makes the old assertion redundant as well as brittle.
+    assert.equal(
+      parseToml(afterChain).bundles[0].external.httpPort,
+      9999,
+      "the port's VALUE must survive canonicalization, however it is rendered",
     );
 
     // 3. Second chain pass is a no-op (canonical is the fixed point).

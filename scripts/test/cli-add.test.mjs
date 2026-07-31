@@ -20,7 +20,7 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 
 import { parseArgs, deriveName, addInputToClusterToml, main } from "../cli-add.mjs";
 

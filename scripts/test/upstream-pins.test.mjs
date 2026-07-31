@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { collectLloPins } from "../lint-upstream-pins.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -125,7 +125,7 @@ test("the rail actually fails on a divergent rev (not just on nothing)", (t) => 
 test("an inline-table pin and a [dependencies.x] table pin are both seen", (t) => {
   // Cargo accepts both forms. A line-anchored regex reads whichever the author
   // used and misses the other — the failure mode that produced four phantom
-  // binding-parity violations before @iarna/toml replaced that regex.
+  // binding-parity violations before smol-toml replaced that regex.
   const dir = mkdtempSync(join(tmpdir(), "upstream-pins-forms-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const U = "https://github.com/agentic-research/ley-line-open";

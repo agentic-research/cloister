@@ -119,7 +119,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
-import { parse as parseToml } from "@iarna/toml";
+import { parse as parseToml } from "smol-toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
@@ -1106,15 +1106,43 @@ function checkInvariant11(cluster, violations) {
  * microVM or as a process; "unstated" is not a third option, it is just the
  * answer being kept out of the manifest.
  */
-function checkInvariant13(cluster, violations) {
+function checkInvariant13(cluster, violations, warnings) {
   // Kept in step with emit-host-launch-plan.mjs, which is the consumer that
   // actually enforces these two values at launch. A third mode added there
   // must be added here, or this rail starts rejecting a mode the runtime
   // accepts.
   const MODES = ["microvm", "process"];
+  const exempt = [];
   for (const b of cluster.bundles ?? []) {
     if (!("external" in b.kind)) continue;
     const mode = b.kind.external.executionMode;
+    if (mode === "process") {
+      exempt.push(b.name);
+      // ADR-0062: "process" is an EXEMPTION from the microvm posture, not a
+      // peer of it, so it must carry a reason.
+      //
+      // Inv 13 already forced every bundle to DECLARE a mode, and that worked
+      // — before it, four of five left the facet ambient. What they declared
+      // is what this catches: the rail accepted "process" exactly as readily
+      // as "microvm", so a rail meant to surface the answer instead ratified
+      // the wrong one. Two bundles holding the cluster's highest-value secrets
+      // (the Signet master CA; the bridge cert) were unisolated with no reason
+      // recorded, and nobody had decided that — writing the field is what
+      // revealed it.
+      //
+      // Presence, not prose: a rail cannot judge whether an argument is good,
+      // only that someone was made to write one. That is enough here.
+      if (!b.kind.external.executionModeRationale?.trim()) {
+        violations.push(
+          `bundle "${b.name}" (external) declares executionMode "process" with no ` +
+          `executionModeRationale. "process" means NO ISOLATION — per ADR-0062 it is an ` +
+          `exemption from the microvm posture, not a peer of it, so it must say why ` +
+          `isolation is impossible for this bundle. Same shape as hypervisorRationale ` +
+          `(ADR-0011). If the honest answer is "nobody has decided yet", write that — ` +
+          `an undecided posture recorded beats an undecided posture that reads as chosen.`,
+        );
+      }
+    }
     if (!mode) {
       violations.push(
         `bundle "${b.name}" (external) declares no executionMode. ADR-0048 makes the ` +
@@ -1130,6 +1158,21 @@ function checkInvariant13(cluster, violations) {
         `backend. Expected one of: ${MODES.join(", ")} (Inv 13).`,
       );
     }
+  }
+
+  // Always report the exemption count, even when every one is justified. A
+  // cluster where four of five bundles opt out of isolation should say so out
+  // loud rather than pass silently — the rail's job is not only to reject bad
+  // declarations but to keep the aggregate visible. Silence here read as
+  // health for as long as it took someone to look at the manifest by hand.
+  const total = (cluster.bundles ?? []).filter((b) => "external" in b.kind).length;
+  if (exempt.length) {
+    warnings?.push(
+      `isolation exemptions: ${exempt.length}/${total} external bundle(s) run as ` +
+      `"process" (no isolation) — ${exempt.join(", ")}. Each carries a rationale ` +
+      `(ADR-0062). Withdraw an exemption when its cause is removed rather than ` +
+      `re-justifying it.`,
+    );
   }
 }
 
@@ -1246,7 +1289,7 @@ function checkInvariant14(cluster, ociByBundle, warnings) {
 
 checkInvariant11(cluster, violations);
 checkInvariant14(cluster, oci.byBundle, warnings);
-checkInvariant13(cluster, violations);
+checkInvariant13(cluster, violations, warnings);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {

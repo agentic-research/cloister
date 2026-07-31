@@ -3,7 +3,7 @@ name = "art-default"
 version = "0.1.0"
 
 [[bundles]]
-description = 'Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = "process": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834).'
+description = "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
 holdsCredential = [ "VAULT_KEK_SOURCE", "VAULT_STORE" ]
 hypervisorRationale = "Mediates trust (lease verification, attestation rows, cross-DO handoff per ADR-0012). Compromise blast radius is multi-bundle (holds VAULT_STORE + every DO namespace). Singleton: the only TCP listener for external traffic (/mcp, /interlace/peers/{fp}). Three-criterion test per ADR-0011."
 kind = "external"
@@ -11,11 +11,12 @@ name = "cloister-router"
 tier = "hypervisor"
 workerdServiceName = "cloister"
 
-  [bundles.external]
-  executionMode = "process"
-  httpPort = 8_787
-  image = "cloister:0.1.0"
-  ipcSocket = "/run/cloister-uds/router.sock"
+[bundles.external]
+executionMode = "process"
+executionModeRationale = "STRUCTURAL and permanent. This IS the workerd host, and the hypervisor cannot be placed inside its own guest. No future work removes this exemption."
+httpPort = 8787
+image = "cloister:0.1.0"
+ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Identity authority — Signet master CA, lease cert mint"
@@ -24,9 +25,10 @@ kind = "external"
 name = "notme-identity"
 tier = "hypervisor"
 
-  [bundles.external]
-  executionMode = "process"
-  httpPort = 8_788
+[bundles.external]
+executionMode = "process"
+executionModeRationale = "UNDECIDED, and the only exemption with no known blocker. This bundle holds the Signet master CA and mints lease certs, so it carries the highest-value secret in the cluster and the strongest case for isolation. Unlike notme-proxy and rosary it binds a TCP port rather than a UDS, so the krunvm UDS gap (cloister-66badb) does NOT apply to it. What stops it is only the missing entryPoint, so task runtime:plan cannot emit a plan in either mode (cloister-701b33). That makes it the cheapest exemption to withdraw and the most valuable one to withdraw. Nobody chose no-isolation here; nobody chose anything. Tracked in cloister-5fe44f."
+httpPort = 8788
 
 [[bundles]]
 description = "cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
@@ -35,9 +37,10 @@ kind = "external"
 name = "notme-proxy"
 tier = "hypervisor"
 
-  [bundles.external]
-  executionMode = "process"
-  ipcSocket = "/run/cloister-uds/companion.sock"
+[bundles.external]
+executionMode = "process"
+executionModeRationale = "STRUCTURAL today, for a reason I initially got wrong. Holds the bridge cert and private key and mediates every attested egress, so the hypervisorRationale in this same entry says its compromise blast radius is every upstream the cluster reaches. This field first read: same shape as mache, which IS microvm, so no evident structural blocker, only unfinished packaging. That was WRONG. mache binds a TCP port; this bundle is UDS-only, and the krunvm host runtime cannot express that at all: krunvm.rs:769 hard-errors when confinement.port.bind == 0 and the crate has zero UDS support (cloister-66badb). So microvm is not available to it yet, independent of the missing entryPoint (cloister-701b33). Both are prerequisites."
+ipcSocket = "/run/cloister-uds/companion.sock"
 
 [[bundles]]
 description = "Code intelligence — symbol search, definitions, callgraph"
@@ -51,24 +54,25 @@ mode = "rw"
 
 [bundles.confinement.port]
 address = "127.0.0.1"
-bind = 7_532
+bind = 7532
 
-  [bundles.external]
-  args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
-  entryPoint = "/usr/local/bin/mache"
-  executionMode = "microvm"
-  httpPort = 7_532
+[bundles.external]
+args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
+entryPoint = "/usr/local/bin/mache"
+executionMode = "microvm"
+httpPort = 7532
 
 [[bundles]]
-description = 'Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately "process", not "microvm": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c).'
+description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."
 kind = "external"
 name = "rosary"
 tier = "cluster"
 
-  [bundles.external]
-  args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
-  executionMode = "process"
-  ipcSocket = "/run/cloister-uds/rosary.sock"
+[bundles.external]
+args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
+executionMode = "process"
+executionModeRationale = "CONTINGENT, not structural, but blocked twice over. (1) rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees plus Keychain, none of which survive VM isolation; rosary-56b557 proposes cloister as a ComputeProvider, rosary own pluggable backend seam, which removes that requirement. (2) Even with (1) done, the krunvm host runtime cannot express this bundle: it is UDS-only, and rs/crates/host-runtime/src/krunvm.rs:769 hard-errors when confinement.port.bind == 0, with zero UDS support in the crate (cloister-66badb). Both must land before the exemption can be WITHDRAWN, which is what should happen rather than re-justifying it."
+ipcSocket = "/run/cloister-uds/rosary.sock"
 
 [[wires]]
 binding = "MACHE_BUNDLE"
@@ -153,17 +157,17 @@ path = "/interlace/ca-bundle"
 kind = "vaultProxy"
 path = "/vault/proxy"
 
-  [routes.vaultProxy]
-  bundleIdName = "cloister-router"
+[routes.vaultProxy]
+bundleIdName = "cloister-router"
 
 [[routes]]
 kind = "serviceBindingProxy"
 path = "/identity"
 
-  [routes.serviceBindingProxy]
-  binding = "NOTME"
-  stripPrefix = "/identity"
-  upstreamHost = "notme-bot"
+[routes.serviceBindingProxy]
+binding = "NOTME"
+stripPrefix = "/identity"
+upstreamHost = "notme-bot"
 
 [[routes]]
 kind = "mcp"
@@ -174,39 +178,39 @@ handlesPrefix = "bead_"
 kind = "durableObject"
 name = "bead"
 
-  [routes.mcp.backends.durableObject]
-  binding = "BEAD_STORE"
-  keyArg = "repo"
+[routes.mcp.backends.durableObject]
+binding = "BEAD_STORE"
+keyArg = "repo"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Create a new bead (work item) in the store for the given repo."
-    inputSchemaJson = ""
-    name = "bead_create"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Create a new bead (work item) in the store for the given repo."
+inputSchemaJson = ""
+name = "bead_create"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Update fields on an existing bead."
-    inputSchemaJson = ""
-    name = "bead_update"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Update fields on an existing bead."
+inputSchemaJson = ""
+name = "bead_update"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Full-text search beads by title/description."
-    inputSchemaJson = ""
-    name = "bead_search"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Full-text search beads by title/description."
+inputSchemaJson = ""
+name = "bead_search"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "List beads, optionally filtered by state."
-    inputSchemaJson = ""
-    name = "bead_list"
+[[routes.mcp.backends.durableObject.tools]]
+description = "List beads, optionally filtered by state."
+inputSchemaJson = ""
+name = "bead_list"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Mark a bead as done."
-    inputSchemaJson = ""
-    name = "bead_close"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Mark a bead as done."
+inputSchemaJson = ""
+name = "bead_close"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Add a comment to a bead."
-    inputSchemaJson = ""
-    name = "bead_comment"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Add a comment to a bead."
+inputSchemaJson = ""
+name = "bead_comment"
 
 [gateway.actor]
 algorithm = "ed25519"
@@ -246,17 +250,17 @@ minAlgorithm = "ed25519"
 requireInterlock = true
 
 [[gateway.vaultProxyServices]]
-defaultAllowedSubs = [ ]
+defaultAllowedSubs = []
 injection = "headerNamed"
 name = "anthropic"
 rateLimitPerMinute = 120
 upstreamBaseUrl = "https://api.anthropic.com"
 
-  [gateway.vaultProxyServices.headerNamed]
-  name = "x-api-key"
+[gateway.vaultProxyServices.headerNamed]
+name = "x-api-key"
 
 [[gateway.vaultProxyServices]]
-defaultAllowedSubs = [ ]
+defaultAllowedSubs = []
 injection = "authorizationBearer"
 name = "openai"
 rateLimitPerMinute = 120

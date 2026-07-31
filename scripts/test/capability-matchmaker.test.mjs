@@ -185,7 +185,7 @@ test("the real cluster.toml inputs resolve (currently no declared lattice)", asy
   // must be a clean no-op rather than throwing. When a lattice IS declared,
   // this test starts proving the shipped cluster actually resolves.
   const { readFileSync } = await import("node:fs");
-  const { parse } = await import("@iarna/toml");
+  const { parse } = await import("smol-toml");
   const raw = parse(readFileSync("cluster.toml", "utf8"));
   const inputs = Object.entries(raw.inputs ?? {}).map(([name, v]) => ({
     name,

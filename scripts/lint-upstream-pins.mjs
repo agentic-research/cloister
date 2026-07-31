@@ -50,7 +50,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import TOML from "@iarna/toml";
+import TOML from "smol-toml";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RS = join(ROOT, "rs");

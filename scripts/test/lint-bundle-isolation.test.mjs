@@ -137,6 +137,11 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       // deliberately malforming one. Tests exercising Inv 13 pass "" or a bogus
       // value explicitly.
       executionMode = "process",
+      // ADR-0062: "process" now requires a rationale, and the helper's default
+      // mode IS "process" — so ~30 fixtures that predate the rule would all
+      // start failing on a field none of them is about. Defaulted for the same
+      // reason executionMode is. Tests exercising the rule pass "" explicitly.
+      executionModeRationale = "test exemption rationale",
     }) => ({
       name,
       description: `${name} test bundle`,
@@ -156,6 +161,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
         external: {
           image,
           executionMode,
+          executionModeRationale,
           ipcSocket: `/run/cloister-uds/${name}.sock`,
           httpPort: 0,
           args: [],
@@ -2144,5 +2150,97 @@ test("Inv 14 treats an ABSENT fact as not-stated, never as disagreement", async 
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /Inv 14/, "absent ≠ disagrees");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── ADR-0062: `process` is an exemption, not a posture ─────────────────────
+//
+// Inv 13 already forced every external bundle to DECLARE a mode, and that
+// worked — before it, four of five left the facet ambient. What they declared
+// is what these cover: the rail accepted "process" exactly as readily as
+// "microvm", so a rail meant to surface the answer instead ratified the wrong
+// one. Two bundles holding the cluster's highest-value secrets (the Signet
+// master CA; the bridge cert) ran unisolated with NO reason recorded — and
+// nobody had decided that. Being made to write the field is what revealed it.
+
+test("ADR-0062 — `process` with no rationale is a violation", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale: "" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.notEqual(r.status, 0, "an unjustified exemption must FAIL");
+    assert.match(r.stderr, /with no executionModeRationale/);
+    // The message has to carry the WHY, or the next reader re-derives it.
+    assert.match(r.stderr, /NO ISOLATION/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("ADR-0062 — whitespace is not a rationale", () => {
+  // The cheapest way to defeat a presence check is a space. Presence is all a
+  // rail can check — it cannot judge an argument — so it must at least not be
+  // satisfiable by nothing.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale: "   " },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    assert.notEqual(runLint(scenario.workDir, scenario.clusterTsPath).status, 0);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("ADR-0062 — `microvm` needs no rationale, because it IS the posture", () => {
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "microvm", executionModeRationale: "" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.doesNotMatch(r.stderr, /executionModeRationale/,
+      "requiring a reason to be SAFE would invert the rule");
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("ADR-0062 — the exemption COUNT is reported, not just individual failures", () => {
+  // A cluster where most bundles opt out of isolation should say so out loud.
+  // Silence read as health for as long as it took someone to read the manifest
+  // by hand — which is how four-of-five went unnoticed.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale: "stated" },
+      ],
+    }),
+    configCapnp: configCapnp(INV13_CONFIG),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.match(r.stderr, /isolation exemptions:/,
+      "a justified exemption is still an exemption and must stay visible");
+  } finally {
+    scenario.cleanup();
   }
 });
