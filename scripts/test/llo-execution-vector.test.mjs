@@ -42,16 +42,47 @@ import {
 } from "../../cli/lib/runtime/llo-execution-contract.mjs";
 
 const VECTOR_URL = new URL(
-  "../../test/fixtures/llo-execution-v1/canonical-run.json",
+  "../../test/fixtures/llo-execution-v1/test-vectors/canonical-run.json",
   import.meta.url,
 );
 
-// From ley-line-open `rs/ll-core/schema-spec/execution/v1/VECTORS.sha256`, which
-// LLO verifies with `cargo test -p leyline-schema-spec`. The vendored copy is
-// byte-for-byte upstream's; this is what makes "vendored" safe rather than a
-// second source of truth.
-const LLO_VECTORS_SHA256 =
-  "b27808e8762da2893d83c3fccf3d9de8fef229be315fc8a131d8344d13408343";
+// The manifest is the test list — same shape as the credential-isolation
+// harness. This file previously pinned ONE digest inline, which meant LLO
+// adding `run-id.json` in PR #312 landed a vector cloister silently did not
+// check. Deriving the list from the vendored VECTORS.sha256 makes that a
+// failure instead of a gap.
+const MANIFEST_URL = new URL(
+  "../../test/fixtures/llo-execution-v1/VECTORS.sha256",
+  import.meta.url,
+);
+
+/** `<64 hex>  <relative path>` per line; `#` comments and blanks skipped. */
+function parseManifest(text) {
+  const rows = [];
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (t.length === 0 || t.startsWith("#")) continue;
+    const m = /^([0-9a-f]{64})\s+(\S.*)$/.exec(t);
+    if (!m) throw new Error(`unparseable VECTORS.sha256 line: ${line}`);
+    rows.push({ sha256: m[1], path: m[2] });
+  }
+  return rows;
+}
+
+const MANIFEST = parseManifest(readFileSync(MANIFEST_URL, "utf8"));
+
+test("the vendored manifest lists the vectors LLO published", () => {
+  assert.ok(MANIFEST.length >= 2, `expected >= 2 vectors, got ${MANIFEST.length}`);
+});
+
+for (const { sha256, path } of MANIFEST) {
+  test(`${path} matches LLO's published digest`, () => {
+    const bytes = readFileSync(new URL(
+      `../../test/fixtures/llo-execution-v1/${path}`, import.meta.url));
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), sha256,
+      `${path} drifted from ley-line-open's published vector`);
+  });
+}
 
 const vectorBytes = readFileSync(VECTOR_URL);
 const vector = JSON.parse(vectorBytes.toString("utf8"));
@@ -106,15 +137,6 @@ function structForVectorKey(key) {
   }
   throw new Error(`no generated struct binds the vector's "${key}" document`);
 }
-
-test("the vendored execution/v1 vector matches LLO's VECTORS.sha256 pin", () => {
-  const digest = createHash("sha256").update(vectorBytes).digest("hex");
-  assert.equal(
-    digest,
-    LLO_VECTORS_SHA256,
-    "vendored canonical-run.json drifted from ley-line-open's published vector",
-  );
-});
 
 test("LLO's canonical run validates through Cloister's own request validator", () => {
   // The production path, not a reimplementation of it: `start` is the operation

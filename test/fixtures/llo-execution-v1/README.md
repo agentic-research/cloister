@@ -4,7 +4,9 @@ Vendored, byte-for-byte, from ley-line-open. **Do not edit these files.**
 
 | File | Upstream path | Pinned by |
 |---|---|---|
-| `canonical-run.json` | `rs/ll-core/schema-spec/execution/v1/test-vectors/canonical-run.json` | upstream `VECTORS.sha256`, asserted in `scripts/test/llo-execution-vector.test.mjs` |
+| `test-vectors/canonical-run.json` | `rs/ll-core/schema-spec/execution/v1/test-vectors/canonical-run.json` | `VECTORS.sha256` (vendored alongside) |
+| `test-vectors/run-id.json` | same dir | `VECTORS.sha256` — run-identity derivation, added by LLO PR #312 |
+| `VECTORS.sha256` | same dir | it IS the manifest; `scripts/test/llo-execution-vector.test.mjs` derives its case list from it |
 
 ## Why a copy rather than a checkout
 
@@ -33,7 +35,7 @@ kept `task lint` green. Per ADR-0063.
 When LLO republishes `execution/v1`, both pins move together:
 
 1. Re-copy the vector verbatim from the upstream path above.
-2. Update `LLO_VECTORS_SHA256` in the test to upstream's new `VECTORS.sha256`.
+2. Re-copy `VECTORS.sha256` — the test derives its case list from it, so a new upstream vector becomes a failing test until vendored.
 3. Regenerate / re-pin `src/generated/llo-execution-tools.json` and its lock.
 
 Moving one without the other is exactly the failure the test exists to catch,
