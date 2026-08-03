@@ -1,6 +1,6 @@
 // Minimal ambient declarations for the Node built-ins the launch pipeline uses.
 //
-// Same approach and same reason as tools/harness-shim/node-shims.d.ts: rather
+// Same approach and same reason as src/harness-shim/node-shims.d.ts: rather
 // than add @types/node — which fights this repo's pinned-pnpm store — declare
 // exactly the surface these files touch. Web APIs (fetch) come from
 // `lib: ["DOM"]` in this directory's tsconfig.
@@ -28,6 +28,7 @@ declare module "node:child_process" {
 
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
+  export function readFileSync(path: string): Uint8Array;
   export function writeFileSync(path: string, data: string): void;
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void;
   export function existsSync(path: string): boolean;
@@ -36,6 +37,8 @@ declare module "node:fs" {
   export function realpathSync(path: string): string;
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   export function lstatSync(path: string): { isSymbolicLink(): boolean };
+  export function accessSync(path: string, mode?: number): void;
+  export const constants: { X_OK: number };
 }
 
 declare module "node:crypto" {
@@ -48,6 +51,7 @@ declare module "node:crypto" {
 
 declare module "node:os" {
   export function homedir(): string;
+  export function platform(): string;
 }
 
 declare module "node:path" {
@@ -55,6 +59,7 @@ declare module "node:path" {
   export function join(...paths: string[]): string;
   export function dirname(path: string): string;
   export function isAbsolute(path: string): boolean;
+  export function basename(path: string): string;
 }
 
 declare module "node:url" {

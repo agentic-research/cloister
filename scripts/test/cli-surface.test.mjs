@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { COMMANDS, renderHelp, HARNESS_ENV } from "../cli-surface.mjs";
+import { COMMANDS, GLOBAL_OPTIONS, renderHelp, HARNESS_ENV } from "../../cli/surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -24,7 +24,7 @@ test("every declared command is actually dispatched by the CLI", () => {
   // promise the tool does not keep.
   // lint-allow-rawparse: matches the literal dispatch conditions, which is what
   // "does this string reach a handler" actually means.
-  const src = readFileSync(resolve(ROOT, "scripts/cloister-cli.mjs"), "utf8");
+  const src = readFileSync(resolve(ROOT, "cli/index.mjs"), "utf8");
   const undispatched = COMMANDS.filter((c) => {
     const [head, ...rest] = c.name.split(" ");
     if (!src.includes(`command === "${head}"`)) return true;
@@ -57,11 +57,20 @@ test("the committed docs page matches the declaration", () => {
   assert.deepEqual(missing, [], `declared but absent from docs/reference/cli.md: ${missing}`);
 });
 
+test("global color controls appear in both terminal help and generated docs", () => {
+  const help = renderHelp();
+  const page = readFileSync(resolve(ROOT, "docs/reference/cli.md"), "utf8");
+  for (const option of GLOBAL_OPTIONS) {
+    assert.match(help, new RegExp(option.flag.replaceAll("-", "\\-")));
+    assert.ok(page.includes(`\`${option.flag}\``), `${option.flag} is absent from the CLI docs`);
+  }
+});
+
 test("the declaration carries no ANSI colour — colour belongs to the renderer", () => {
   // Chalk in the help renderer is fine. Chalk in the DECLARATION would leak
   // escape codes into the generated markdown, which is the one place they must
   // never appear.
-  const raw = readFileSync(resolve(ROOT, "scripts/cli-surface.mjs"), "utf8");
+  const raw = readFileSync(resolve(ROOT, "cli/surface.mjs"), "utf8");
   const ESC = String.fromCharCode(27);
   assert.ok(!raw.includes(ESC), "escape sequences must not appear in the declaration");
   assert.doesNotMatch(raw, /from ["']chalk["']/, "the declaration must not import chalk");
@@ -122,7 +131,7 @@ test("cloister run does NOT re-launch the harness bin — one orchestration, two
   // Comment lines are stripped first. The header of cli-run.mjs NAMES
   // harness-dev.mjs while explaining why it no longer spawns it — a rail that
   // failed on the explanation would be pressure to delete the explanation.
-  const cliRun = readFileSync(resolve(ROOT, "scripts/cli-run.mjs"), "utf8");
+  const cliRun = readFileSync(resolve(ROOT, "cli/commands/run.mjs"), "utf8");
   const code = cliRun.split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
   assert.doesNotMatch(code, /harness-dev\.mjs/, "cloister run must not re-launch the bin");
   assert.doesNotMatch(
@@ -130,7 +139,7 @@ test("cloister run does NOT re-launch the harness bin — one orchestration, two
     "cloister run has no reason to spawn anything — the pipeline is called directly",
   );
   assert.match(
-    cliRun, /from "\.\/lib\/harness\/launch\.mjs"/,
+    cliRun, /from "\.\.\/lib\/harness\/launch\.mjs"/,
     "cloister run must call the shared pipeline directly",
   );
 });

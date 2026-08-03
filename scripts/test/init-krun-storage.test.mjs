@@ -7,7 +7,7 @@ import {
   buildStoragePlan,
   main,
   parseStorageArgs,
-} from "../init-krun-storage.mjs";
+} from "../../cli/commands/runtime-storage-init.mjs";
 
 // Sparsebundles are an APFS/hdiutil concept, so this command is macOS-only.
 // The host platform is injected rather than read from process.platform so BOTH

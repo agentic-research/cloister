@@ -7,7 +7,7 @@ import {
   isSha256Digest,
   ociImageRef,
   resolveBundleImage,
-} from "../lib/oci-artifact.mjs";
+} from "../../cli/lib/oci-artifact.mjs";
 
 test("ociImageRef applies the one digest-version-bare precedence", () => {
   assert.equal(

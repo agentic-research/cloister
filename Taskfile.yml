@@ -60,12 +60,10 @@ tasks:
       # `scripts/build-manifest.mjs` dynamically `import()`s
       # `src/generated/tool-schemas.ts` — a `.ts` file directly. Node 23+
       # strips types natively (works locally), but the CI runner uses
-      # Node 20 LTS (matches workerd's runtime line) which can't load .ts
-      # without a loader. `tsx` (in devDeps) provides the loader on any
-      # Node version. Don't switch back to `node` until CI moves off
-      # Node 20 OR build-tool-schemas emits .mjs (the latter would
-      # break tsc on src/generated/tool-schemas.ts; pick the right path
-      # then, not now).
+      # Cloister supports Node 22+, but generated TypeScript is still loaded
+      # through `tsx` so behavior does not depend on a particular Node minor's
+      # type-stripping support. If build-tool-schemas emits .mjs later, this
+      # loader can be removed deliberately.
       - "{{.NODE_TSX}} scripts/build-manifest.mjs"
     sources:
       - cloister.capnp
@@ -362,56 +360,39 @@ tasks:
       - pkg/identity/identity.go
 
   cluster:emit:
-    desc: "Emit deployment artifacts (compose YAML) from cluster.toml via the canonical TOML → cluster.ts pipeline"
-    deps: [cluster:toml]
+    desc: "Generate every committed cluster artifact from cluster.toml through the Cloister CLI."
     cmds:
-      # NODE_TSX, not bare node: emit-compose dynamically imports
-      # src/generated/cluster.ts, and Node 20 (what CI runs) has no TS loader —
-      # `Unknown file extension ".ts"`. Node 25 strips types natively, which is
-      # why this passed locally for as long as nothing in CI invoked it
-      # (cloister-cb735c).
-      - "{{.NODE_TSX}} scripts/emit-compose.mjs"
-    sources:
-      - src/generated/cluster.ts
-      - scripts/emit-compose.mjs
-    generates:
-      - cluster.compose.yaml
-
-  # ── Bidi TOML ↔ cluster.ts pipeline (ADR-0025, cloister-ae06f3) ─────────
-  #
-  # Forward leg (`cluster:toml`):     cluster.toml → cluster.ts via
-  #                                   @iarna/toml.parse → ClusterSchema →
-  #                                   semantic check → render.
-  # Reverse leg (`cluster:toml:export`): cluster.ts → canonical TOML
-  #                                      (stdout; pass `-- --write <path>`
-  #                                      to land at a file).
-  # Drift gate (`cluster:toml:roundtrip`): re-export current cluster.ts to
-  #                                        a tmp TOML and diff against the
-  #                                        committed cluster.toml — fails
-  #                                        on drift. Same shape as
-  #                                        `cluster:zod:check-drift`.
-  #
-  # The tasks require the tsx loader because the scripts dynamically
-  # import the .ts ClusterSchema from src/generated/cluster.zod.ts.
-  cluster:toml:
-    desc: "Operator workflow — parse cluster.toml, validate via ClusterSchema, render src/generated/cluster.ts, then re-canonicalize cluster.toml (cloister-ae06f3 + cloister-fe891f, ADR-0025)."
-    # Two cmds chained: forward leg (cluster.toml → cluster.ts) then
-    # reverse leg (cluster.ts → canonical cluster.toml). Operators edit
-    # cluster.toml in whatever shape (`httpPort = 9999`, bundle inserted
-    # anywhere); after `task cluster:toml`, both files are in canonical
-    # sync. Same idempotency profile as `task cluster:zod` regenerating
-    # cluster.zod.ts. The chain is the SPEC of the workflow; the
-    # cluster-toml contract test pins it.
-    cmds:
-      - "{{.NODE_TSX}} scripts/toml-to-cluster.mjs"
-      - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs --write cluster.toml"
+      - node bin/cloister.mjs cluster generate --dir .
     sources:
       - cluster.toml
-      - scripts/toml-to-cluster.mjs
-      - scripts/cluster-to-toml.mjs
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
+    generates:
+      - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
+
+  # ── cluster.toml source of truth (ADR-0025, cloister-ae06f3) ──────────────
+  #
+  # `cloister cluster generate` owns the forward transaction: it reads and
+  # validates cluster.toml once, then atomically updates every committed
+  # projection. Task targets are aliases, not an independent pipeline.
+  #
+  # `cluster:toml:export` is a repository-only reverse export for migration
+  # and diagnosis. It is not part of ordinary generation.
+  cluster:toml:
+    desc: "Operator workflow alias — generate canonical cluster.toml and every projection through the Cloister CLI."
+    cmds:
+      - node bin/cloister.mjs cluster generate --dir .
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
       - src/generated/cluster.zod.ts
     generates:
       - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
 
   cluster:toml:export:
     desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
@@ -419,115 +400,68 @@ tasks:
       - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs {{.CLI_ARGS}}"
     sources:
       - src/generated/cluster.ts
+      - cli/lib/cluster/cluster-to-toml.mjs
       - scripts/cluster-to-toml.mjs
 
   cluster:toml:roundtrip:
-    desc: "Drift gate — re-export src/generated/cluster.ts to a temp TOML and diff against the committed cluster.toml. Fails if the two diverge (operator edited cluster.toml without running `task cluster:toml`, or vice-versa). Mirrors `cluster:zod:check-drift`."
-    # Intentionally no `sources:` block — gates must always run; the
-    # task-runner's mtime cache would otherwise skip the gate when
-    # nothing visibly changed, which is exactly the case where drift
-    # silently lands (someone hand-edited cluster.ts after a stale
-    # cluster.toml). Same shape as cluster:zod:check-drift.
+    desc: "Compatibility name for the first-party no-write generation check. Verifies every committed projection matches cluster.toml."
     cmds:
-      - |
-        set -eu
-        if [ ! -f cluster.toml ]; then
-          echo "FAIL — cluster.toml does not exist at repo root; run \`task cluster:toml:export -- --write cluster.toml\` to seed it" >&2
-          exit 1
-        fi
-        TMPDIR=$(mktemp -d)
-        trap 'rm -rf "$TMPDIR"' EXIT
-        # Use `--write` so any successful write commits atomically to the
-        # tmpdir before diff; `set -eu` surfaces script failures.
-        {{.NODE_TSX}} scripts/cluster-to-toml.mjs --write "$TMPDIR/cluster.toml" >/dev/null
-        if [ ! -f "$TMPDIR/cluster.toml" ]; then
-          echo "FAIL — cluster-to-toml produced no output; check tsx stderr above" >&2
-          exit 1
-        fi
-        if ! diff -u cluster.toml "$TMPDIR/cluster.toml"; then
-          echo "" >&2
-          echo "DRIFT — committed cluster.toml differs from what cluster-to-toml.mjs" >&2
-          echo "would generate from the current src/generated/cluster.ts. Either:" >&2
-          echo "  - operator edited cluster.toml: run \`task cluster:toml\` to regenerate cluster.ts, then commit both" >&2
-          echo "  - operator edited cluster.ts: run \`task cluster:toml:export -- --write cluster.toml\` to refresh cluster.toml, then commit both" >&2
-          exit 1
-        fi
-        echo "OK — cluster.toml matches the cluster-to-toml.mjs canonical output for the current cluster.ts"
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   test:cluster-toml:
-    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the scripts can dynamically import src/generated/cluster.zod.ts."
+    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the product cluster library can import src/generated/cluster.zod.ts."
     cmds:
       - "{{.NODE_TSX}} --test scripts/test/cluster-toml-roundtrip.test.mjs"
     sources:
       - scripts/test/cluster-toml-roundtrip.test.mjs
-      - scripts/toml-to-cluster.mjs
-      - scripts/cluster-to-toml.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
+      - cli/lib/cluster/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
 
   emit:cloister-capnp:
-    desc: "Phase 2 of \"cloister.capnp as build artifact\" arc (cloister-345ad1, ADR-0031) — generate cloister.capnp from cluster.toml ([[routes]] + [metadata]) + cluster.lock.toml ([[generated_backends]]). Byte-stable; safe to commit the output."
+    desc: "Compatibility alias — generate cloister.capnp and the other cluster.toml projections through the Cloister CLI."
     cmds:
-      - "{{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write cloister.capnp"
+      - node bin/cloister.mjs cluster generate --dir .
     sources:
       - cluster.toml
       - cluster.lock.toml
-      - scripts/emit-cloister-capnp.mjs
-      - scripts/toml-to-cluster.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
     generates:
       - cloister.capnp
 
   emit:cloister-capnp:drift:
-    desc: "Drift gate — re-emit cloister.capnp to a tmp file + diff against the committed copy. Same shape as cluster:toml:roundtrip + cluster:zod:check-drift. Per cloister-345ad1 / ADR-0031."
+    desc: "Compatibility name for the first-party no-write generation check. Verifies cloister.capnp and the other cluster.toml projections."
     cmds:
-      - |
-        set -eu
-        if [ ! -f cloister.capnp ]; then
-          echo "FAIL — cloister.capnp does not exist at repo root; run \`task emit:cloister-capnp\` to seed it" >&2
-          exit 1
-        fi
-        TMPDIR=$(mktemp -d)
-        trap 'rm -rf "$TMPDIR"' EXIT
-        {{.NODE_TSX}} scripts/emit-cloister-capnp.mjs --write "$TMPDIR/cloister.capnp" >/dev/null
-        if [ ! -f "$TMPDIR/cloister.capnp" ]; then
-          echo "FAIL — emit-cloister-capnp produced no output; check tsx stderr above" >&2
-          exit 1
-        fi
-        if ! diff -u cloister.capnp "$TMPDIR/cloister.capnp"; then
-          echo "" >&2
-          echo "DRIFT — committed cloister.capnp differs from what" >&2
-          echo "emit-cloister-capnp.mjs would generate from the current" >&2
-          echo "cluster.toml + cluster.lock.toml. Run \`task emit:cloister-capnp\`" >&2
-          echo "to regenerate, then commit. Per cloister-345ad1 / ADR-0031." >&2
-          exit 1
-        fi
-        echo "OK — cloister.capnp matches the emit-cloister-capnp.mjs canonical output"
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   test:emit-cloister-capnp:
-    desc: "Phase 2 of cloister-345ad1 — contract tests for scripts/emit-cloister-capnp.mjs."
+    desc: "Phase 2 of cloister-345ad1 — contract tests for the product-owned capnp renderer."
     cmds:
       - "{{.NODE_TSX}} --test scripts/test/emit-cloister-capnp.test.mjs"
     sources:
       - scripts/test/emit-cloister-capnp.test.mjs
-      - scripts/emit-cloister-capnp.mjs
-      - scripts/toml-to-cluster.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
 
   cluster:resolve:
     desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
     cmds:
-      - "{{.NODE_TSX}} scripts/resolve-inputs.mjs"
+      - node bin/cloister.mjs cluster resolve --dir .
     sources:
       - cluster.toml
-      - scripts/resolve-inputs.mjs
+      - cli/lib/cluster/resolve-inputs.mjs
     generates:
       - cluster.lock.toml
 
   inputs:pull:
     desc: "ADR-0026 Phase 1c — preview and explicitly acquire the OCI images pinned by cluster.lock.toml. Interactive runs ask confirmation; automation passes --yes. Mutable refs are rejected unless --allow-unpinned is separately acknowledged. `task inputs:pull -- --print` previews without pulling."
     cmds:
-      - "{{.NODE_TSX}} scripts/pull-inputs.mjs {{.CLI_ARGS}}"
+      - node bin/cloister.mjs artifacts pull {{.CLI_ARGS}}
     sources:
       - cluster.lock.toml
-      - scripts/pull-inputs.mjs
+      - cli/commands/artifacts-pull.mjs
+      - cli/lib/oci-artifact.mjs
 
   cluster:dev:
     desc: "Mac dev launcher — spawns cluster bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
@@ -545,7 +479,7 @@ tasks:
     desc: "Run the cluster locally via nerdctl/podman/docker compose. Delegates to `cloister cluster up` — the SAME verb a scaffolded cluster uses, so this repo's cluster and one you own behave identically. Runtime detection and COMPOSE_CMD live in the CLI, not here."
     deps: [cluster:emit]
     cmds:
-      - node scripts/cloister-cli.mjs cluster up --dir . {{.CLI_ARGS}}
+      - node bin/cloister.mjs cluster up --dir . {{.CLI_ARGS}}
 
   cluster:down:
     desc: "Tear down the local cluster (preserves volumes — pass `-- --destroy` to also remove them). Delegates to `cloister cluster down`; DESTROY=1 still works via the shim below for muscle memory."
@@ -556,7 +490,7 @@ tasks:
         # an operator who learned it should not discover the change by having a
         # teardown silently NOT destroy what they expected.
         if [ "${DESTROY:-0}" = "1" ]; then ARGS="$ARGS --destroy"; fi
-        exec node scripts/cloister-cli.mjs cluster down --dir . $ARGS
+        exec node bin/cloister.mjs cluster down --dir . $ARGS
 
   cluster:test:
     desc: "Tier 1 integration matrix (cloister-1b1124) — builds + smokes all 5 sibling OCI images then boots cluster.capnp via task cluster:up. Opt-in, not part of `task lint`. ~5-10 min cold; SKIP_BUILDS=1 reuses loaded images. See scripts/integration-test.sh."
@@ -762,65 +696,29 @@ tasks:
       - pnpm-workspace.yaml
 
   install:
-    desc: "Install locked Node dependencies and put `cloister` on your PATH — symlinks the CLI into CLOISTER_BIN_DIR (default ~/.local/bin). First-party on purpose: the alternative is telling people to run `pnpm link --global`, which is a package-manager incantation that mutates the machine and that cloister does not own. Idempotent; re-run after moving the checkout. Uninstall with `task uninstall`."
-    deps: [deps:node]
+    desc: "Install Cloister, its locked Node dependencies, and the experimental compatibility runtime through the first-party CLI."
     cmds:
-      - |
-        set -eu
-        BIN_DIR="${CLOISTER_BIN_DIR:-$HOME/.local/bin}"
-        SRC="$(pwd)/scripts/cloister-cli.mjs"
-        if [ ! -x "$SRC" ]; then
-          echo "FAIL — $SRC is not executable. Run: chmod +x scripts/cloister-cli.mjs" >&2
-          exit 1
-        fi
-        mkdir -p "$BIN_DIR"
-        ln -sf "$SRC" "$BIN_DIR/cloister"
-        echo "installed: $BIN_DIR/cloister -> $SRC"
-        case ":$PATH:" in
-          *":$BIN_DIR:"*) echo "  $BIN_DIR is on PATH — try: cloister --help" ;;
-          *) echo "  WARNING: $BIN_DIR is NOT on your PATH. Add it, or set CLOISTER_BIN_DIR to a directory that is." >&2 ;;
-        esac
+      - node bin/cloister.mjs install
+
+  test:install:image:
+    desc: "Prove the documented first install and Linux confinement boundary in a cache-free image."
+    cmds:
+      - docker build --file test/install-image/Dockerfile --tag cloister-install-test:local .
 
   uninstall:
-    desc: "Remove the `cloister` symlink installed by `task install`. Removes ONLY a symlink pointing into this checkout, never a real file."
+    desc: "Remove only this checkout's installed Cloister command. Keeps runtime files for safety."
     cmds:
-      - |
-        set -eu
-        BIN_DIR="${CLOISTER_BIN_DIR:-$HOME/.local/bin}"
-        LINK="$BIN_DIR/cloister"
-        if [ -L "$LINK" ]; then
-          rm "$LINK"; echo "removed: $LINK"
-        elif [ -e "$LINK" ]; then
-          echo "refusing: $LINK exists but is NOT a symlink — not ours to delete" >&2; exit 1
-        else
-          echo "nothing to remove at $LINK"
-        fi
+      - node bin/cloister.mjs uninstall
 
   dev:bootstrap:
-    desc: "One-time dev setup — generates DEV_VAULT_KEK + writes .env.local (gitignored). Required after ADR-0014 v2 (cloister-125199). Idempotent. (Git hooks — incl. the post-merge bead auto-close — are owned by rsry: `rsry hooks install`, not cloister's Taskfile.)"
+    desc: "Alias for `cloister dev bootstrap`. Generates the gitignored local development environment."
     cmds:
-      - node scripts/dev-bootstrap.mjs
+      - node bin/cloister.mjs dev bootstrap
 
   dev:
-    desc: Start local dev server on :8787 (sources .env.local for VAULT_KEK_SOURCE)
-    deps: [manifest]
+    desc: "Alias for `cloister dev serve`. Starts the local Worker on :8787."
     cmds:
-      # Source .env.local so VAULT_KEK_SOURCE + DEV_VAULT_KEK flow into
-      # wrangler's env. ADR-0014 v2 (cloister-125199) requires non-empty
-      # VAULT_KEK_SOURCE; the vault DO throws otherwise. Run
-      # `task dev:bootstrap` once to generate .env.local.
-      - |
-        if [ ! -f .env.local ]; then
-          echo "✗ .env.local missing — run \`task dev:bootstrap\` first" >&2
-          exit 1
-        fi
-        # cloister-21f273: fail loudly if .dev.vars would shadow a .env.local
-        # value under `wrangler dev` (the cloister-d2db6d silent gate-off).
-        node scripts/config-source-check.mjs || exit 1
-        set -a
-        . ./.env.local
-        set +a
-        pnpm exec wrangler dev
+      - node bin/cloister.mjs dev serve
 
   config:check:
     desc: "cloister-21f273 — preflight the config-source resolution: fail if a .env.local value would be SHADOWED under `wrangler dev` (because .dev.vars exists and wrangler ignores process env) or CONFLICTs with .dev.vars. No-op in CI (gitignored dev files absent). Values never printed."
@@ -1016,14 +914,14 @@ tasks:
       - scripts/lint-smell-rule-kinship.mjs
 
   harness:dev:
-    desc: "ADR-0042 — turnkey local harness run. Mints a fresh ephemeral dev master + cert, writes .dev.vars (CLOISTER_MODE=dev + DEV_* seams), launches cloister (:8787) + the lease shim (:8799), and prints the base-URL export. Pick the harness with `-- --target claude-code|codex` (default claude-code); each target declares its own key env var, upstream, injection and auth modes in scripts/harness-targets.mjs (cloister-742e19). Set that target's key env var first — it is vaulted, never seen by the harness. Prereq: `task dev:bootstrap` once. Dev-only; lint:no-dev-mode keeps it out of committed config. This task and `cloister run --harness <name> --repo <abs> [--repo <abs> …]` are two DOORS onto one orchestration (scripts/lib/harness/launch.mjs) — this one reads the environment because an operator types it; the CLI passes typed arguments. Neither re-implements the other."
+    desc: "Compatibility alias for `cloister run --repo $PWD`. Prefer `--harness`; `--target` remains accepted with a warning."
     cmds:
-      - node scripts/harness-dev.mjs {{.CLI_ARGS}}
+      - node bin/cloister.mjs run --repo "$PWD" {{.CLI_ARGS}}
 
   harness:dev:setup:
-    desc: "ADR-0042 — mint + write .dev.vars only, no launch (for verifying the dev-identity + seed wiring). `task harness:dev` runs this then launches."
+    desc: "Compatibility alias for setup-only `cloister run`."
     cmds:
-      - node scripts/harness-dev.mjs --setup-only {{.CLI_ARGS}}
+      - node bin/cloister.mjs run --repo "$PWD" --setup-only {{.CLI_ARGS}}
 
   lint:no-dev-mode:
     desc: "ADR-0042 safety rail — fail if any committed config enables a dev-mode harness seam (CLOISTER_MODE=dev or a DEV_* binding with a value). Dev mode is runtime-only via `task harness:dev`; it must never ship in config.capnp / wrangler.toml / cluster.toml / generated runtime."
@@ -1071,31 +969,16 @@ tasks:
       - scripts/lint-trust-env-locality.mjs
 
   cluster:emit:check-drift:
-    desc: "Drift gate for cluster.compose.yaml — re-emit to a temp file and diff against the committed copy. It is a GENERATED artifact that is committed, and it had no gate: the committed copy was found stale by an entire bundle (4 bundles/3 wires/3 inputs vs the manifest's 5/4/4), predating notme-proxy and the canonical-hours input. `lint:tenant-docs` READS this file, so it was checking tenant coverage against stale input and passing vacuously (cloister-cb735c)."
+    desc: "First-party no-write generation check for cluster.compose.yaml and every other committed cluster.toml projection."
     cmds:
-      - |
-        set -eu
-        TMP=$(mktemp -d)
-        trap 'rm -rf "$TMP"' EXIT
-        COMPOSE_OUTPUT="$TMP/cluster.compose.yaml" {{.NODE_TSX}} scripts/emit-compose.mjs >/dev/null
-        if ! diff -u cluster.compose.yaml "$TMP/cluster.compose.yaml"; then
-          echo "DRIFT — cluster.compose.yaml differs from what the emitter produces." >&2
-          echo "Regenerate + commit:  task cluster:emit && git add cluster.compose.yaml" >&2
-          exit 1
-        fi
-        echo "OK — cluster.compose.yaml matches the emitter output"
-    sources:
-      - scripts/emit-compose.mjs
-      - src/generated/cluster.ts
-      - cluster.lock.toml
-      - cluster.compose.yaml
+      - node bin/cloister.mjs cluster generate --check --dir .
 
   cli:docs:
-    desc: "Regenerate docs/reference/cli.md from scripts/cli-surface.mjs — the single CLI surface declaration that also produces `cloister --help`."
+    desc: "Regenerate docs/reference/cli.md from cli/surface.mjs — the single CLI surface declaration that also produces `cloister --help`."
     cmds:
       - node scripts/gen-cli-docs.mjs
     sources:
-      - scripts/cli-surface.mjs
+      - cli/surface.mjs
       - scripts/gen-cli-docs.mjs
 
   cli:docs:check:
@@ -1103,7 +986,7 @@ tasks:
     cmds:
       - node scripts/gen-cli-docs.mjs --check
     sources:
-      - scripts/cli-surface.mjs
+      - cli/surface.mjs
       - scripts/gen-cli-docs.mjs
       - docs/reference/cli.md
 
@@ -1144,14 +1027,15 @@ tasks:
       - CLAUDE.md
 
   lint:harness-target-literals:
-    desc: "cloister-742e19 / ADR-0057 rail — provider literals (anthropic/openai, key + base-URL env vars, injection headers, harness binaries) live ONLY in scripts/harness-targets.mjs. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
+    desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
     cmds:
       - node scripts/lint-harness-target-literals.mjs
     sources:
       - scripts/harness-dev.mjs
-      - scripts/harness-targets.mjs
+      - cli/commands/run.mjs
+      - cli/lib/harness/targets.mjs
       - scripts/lint-harness-target-literals.mjs
-      - tools/harness-shim/index.ts
+      - src/harness-shim/index.ts
 
   lint:dev-escape:
     desc: "ADR-0026 rail — a committed cluster.toml must not carry an [inputs.*] `from` dev-escape. `from` wins over `ref`, so committing it silently overrides the durable content-addressed ref for every checkout (and an absolute file:/// path resolves on exactly one machine). manifest/cluster.capnp documented this rule; nothing enforced it until recipes/rosary-dev shipped one. Scoped to [inputs.*] — [[wires]] `from` is a bundle name and is legitimate."
@@ -1167,21 +1051,21 @@ tasks:
       - node scripts/mutation-probe.mjs {{.CLI_ARGS}}
 
   lint:harness-types:
-    desc: "Type-check the harness launch pipeline (scripts/lib/harness). scripts/ is NOT in the root tsconfig and has no checkJs, so JSDoc there is unchecked convention — this makes the pipeline's types enforced rather than decorative. Same shape as lint:shim, and the reason the type-driven refactor of harness-dev.mjs is not itself a comment."
+    desc: "Type-check the product-owned harness launch pipeline under cli/lib/harness. The root worker tsconfig does not include Node CLI modules, so this keeps their JSDoc contracts enforced rather than decorative."
     cmds:
-      - pnpm exec tsc -p scripts/lib/harness/tsconfig.json
+      - pnpm exec tsc -p cli/lib/harness/tsconfig.json
     sources:
-      - scripts/lib/harness/*.mjs
-      - scripts/lib/harness/tsconfig.json
+      - cli/lib/harness/*.mjs
+      - cli/lib/harness/tsconfig.json
 
   lint:shim:
     desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
     cmds:
-      - pnpm exec tsc -p tools/harness-shim/tsconfig.json
+      - pnpm exec tsc -p src/harness-shim/tsconfig.json
     sources:
-      - tools/harness-shim/*.ts
-      - tools/harness-shim/node-shims.d.ts
-      - tools/harness-shim/tsconfig.json
+      - src/harness-shim/*.ts
+      - src/harness-shim/node-shims.d.ts
+      - src/harness-shim/tsconfig.json
 
   lint:bundle-isolation:
     desc: "Validate ADR-0013 substrate invariants on src/generated/cluster.ts + config.capnp (cloister-ac30e7 + cloister-cf519b) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings. Reads cluster.ts via tsx (the canonical derived artifact per ADR-0025)."
@@ -1262,11 +1146,14 @@ tasks:
     sources:
       - recipes/**/*
       - scripts/lint-recipes.mjs
+      - scripts/emit-cloister-capnp.mjs
+      - cli/lib/cluster/**/*.mjs
+      - src/generated/cluster.zod.ts
 
   test:lint-scripts:
     desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Lives under scripts/test/ — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
     cmds:
-      - "{{.NODE_TSX}} --test scripts/test/lint-bundle-isolation.test.mjs scripts/test/cli-init.test.mjs scripts/test/cloister-cli.test.mjs scripts/test/emit-host-launch-plan.test.mjs scripts/test/init-krun-storage.test.mjs scripts/test/pull-inputs.test.mjs scripts/test/emit-workerd-config.test.mjs scripts/test/emit-compose.test.mjs scripts/test/done-runner.test.mjs scripts/test/gen-adr-index.test.mjs scripts/test/lint-recipes.test.mjs scripts/test/e2e-manifest-pipeline.test.mjs scripts/test/resolve-inputs.test.mjs scripts/test/lint-capability-scheme.test.mjs scripts/test/lint-app-protocol.test.mjs scripts/test/cli-add.test.mjs scripts/test/lint-vault-id-source.test.mjs scripts/test/lint-lockfile-drift.test.mjs scripts/test/lint-doc-links.test.mjs scripts/test/lint-lease-gate-source.test.mjs scripts/test/lint-silent-swallow.test.mjs scripts/test/lint-log-shape.test.mjs scripts/test/config-source-check.test.mjs scripts/test/lint-trust-env-locality.test.mjs scripts/test/lint-dev-escape.test.mjs scripts/test/capability-matchmaker.test.mjs scripts/test/git-hooks.test.mjs scripts/test/harness-targets.test.mjs scripts/test/lint-spec-citation.test.mjs scripts/test/lint-smell-rule-kinship.test.mjs scripts/test/build-manifest-row-shape.test.mjs scripts/test/lint-binding-parity.test.mjs scripts/test/lint-structured-parse.test.mjs scripts/test/fetch-schema-bridge.test.mjs scripts/test/gate-integrity.test.mjs scripts/test/type-duplication.test.mjs scripts/test/oci-artifact.test.mjs scripts/test/upstream-pins.test.mjs scripts/test/write-generated.test.mjs scripts/test/required-checks.test.mjs scripts/test/tsx-invocation.test.mjs scripts/test/cli-run.test.mjs scripts/test/cli-surface.test.mjs scripts/test/cli-cluster.test.mjs scripts/test/confinement-shape.test.mjs scripts/test/no-ignored-tracked.test.mjs scripts/test/one-toml-lib.test.mjs scripts/test/install.test.mjs scripts/test/dependency-security.test.mjs scripts/test/audit-confinement-notice.test.mjs scripts/test/skills-delivery.test.mjs tools/harness-sandbox/test/nono-isolation.test.mjs tools/harness-sandbox/test/nono-isolation-outer-sandbox.test.mjs"
+      - node bin/cloister.mjs dev test --dir .
     # Content-hash cache. This suite tests the scripts + their fixtures + several
     # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
     # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
@@ -1274,6 +1161,7 @@ tasks:
     # Over-inclusive on purpose — a src/-only change skips this whole suite; any
     # change under a listed path re-runs it. CI cold-checkout always runs it.
     sources:
+      - cli/**/*.mjs
       - scripts/**/*.mjs
       - test/fixtures/**
       - tools/harness-sandbox/test/**/*.mjs
@@ -1289,51 +1177,47 @@ tasks:
   init:
     desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
     cmds:
-      - node scripts/cli-init.mjs {{.CLI_ARGS | default "--help"}}
+      - node bin/cloister.mjs init {{.CLI_ARGS | default "--help"}}
 
   add:
     desc: "Add an input to cluster.toml + resolve it into cluster.lock.toml (cloister-66b6a6 / ADR-0026 Phase 2). Usage: task add -- <ref> [--name N] [--version V] [--provides cap]... [--requires cap].... Supports file://, https://, github://owner/repo[/path]@<git-ref>."
     cmds:
-      - "{{.NODE_TSX}} scripts/cli-add.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs add {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:plan:
     desc: "Emit a digest-pinned cloister/host-runtime/v1 plan for one external bundle. Usage: task runtime:plan -- <bundle> --workspace /absolute/path [--output /absolute/plan.json]."
     cmds:
-      - "node scripts/emit-host-launch-plan.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs runtime plan {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:build:
-    desc: "Build the native krunvm host-runtime binary."
+    desc: "Compatibility alias: install the named, digest-checked experimental execution runtime."
     cmds:
-      - task: rs:host-runtime:build
+      - node bin/cloister.mjs runtime install
 
   runtime:doctor:
-    desc: "Report krunvm/Buildah availability and bounded storage health."
-    deps: [runtime:build]
+    desc: "Report the selected runtime provider, its maturity, prerequisites, and storage health without installing or changing anything."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime doctor"
+      - "node bin/cloister.mjs runtime doctor {{.CLI_ARGS}}"
 
   runtime:run:
-    desc: "Run a digest-pinned host plan through krunvm. Usage: task runtime:run -- /absolute/plan.json. Depends on runtime:doctor (cloister-66f1ce) so a plan cannot launch against a host whose preconditions were never verified — doctor previously existed and was invoked by nothing."
-    deps: [runtime:build, runtime:doctor]
+    desc: "Run a digest-pinned host plan through the selected runtime provider. Usage: task runtime:run -- /absolute/plan.json."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime run {{.CLI_ARGS}}"
+      - "node bin/cloister.mjs runtime run {{.CLI_ARGS}}"
 
   runtime:storage:init:
     desc: "Create/attach one grow-on-demand case-sensitive sparsebundle for krunvm. Preview: task runtime:storage:init -- --print"
     cmds:
-      - "node scripts/init-krun-storage.mjs {{.CLI_ARGS | default \"--help\"}}"
+      - "node bin/cloister.mjs runtime storage init {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:storage:status:
-    desc: "Report bounded krunvm storage use and tracked VM counts."
-    deps: [runtime:build]
+    desc: "Read the selected provider's storage readiness, capacity, and tracked run counts without changing storage."
     cmds:
-      - "node scripts/cloister-cli.mjs runtime storage status"
+      - "node bin/cloister.mjs runtime storage status {{.CLI_ARGS}}"
 
   runtime:storage:gc:
     desc: "Preview bounded krunvm reclamation; pass --yes to execute. Usage: task runtime:storage:gc -- --print"
-    deps: [runtime:build]
     cmds:
-      - "node scripts/cloister-cli.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
+      - "node bin/cloister.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + upstream-pin coherence (lint:upstream-pins) + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

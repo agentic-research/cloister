@@ -1,0 +1,14 @@
+.git
+node_modules
+.pnpm-store
+.task
+.wrangler
+.env.local
+.dev.vars
+.fastembed_cache
+.cloister
+.beads
+dist
+rs/target
+tools/*/target
+cloister*.tar

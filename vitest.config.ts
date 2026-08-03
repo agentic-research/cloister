@@ -16,7 +16,11 @@ import { cloudflarePool, cloudflareTest } from "@cloudflare/vitest-pool-workers"
 const VITEST_KEK_BYTES = "vitest-deterministic-kek-32b-not-a-secret";
 
 const workerConfig = {
-  wrangler: { configPath: "./wrangler.toml" },
+  // The symlink points at the real Wrangler config from a test-only directory.
+  // Wrangler resolves .dev.vars beside the configured path, so this keeps an
+  // operator's live harness credentials out of the test Worker without a
+  // second copy of deployment configuration.
+  wrangler: { configPath: "./test/wrangler.vitest.toml" },
   main: "./src/index.ts",
   miniflare: {
     serviceBindings: {

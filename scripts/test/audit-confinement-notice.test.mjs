@@ -20,7 +20,8 @@ import assert from "node:assert/strict";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { launch } from "../lib/harness/launch.mjs";
+import { launch } from "../../cli/lib/harness/launch.mjs";
+import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -32,6 +33,13 @@ async function noticeFor({ credentialFileExists, sandbox = true }) {
     // Only the credential-file probe consults `exists` in a way that matters
     // here; everything else must resolve so the plan is built.
     exists: (p) => (p.endsWith(".credentials.json") ? credentialFileExists : true),
+    // Skill verification has its own tests. Keep these warning-order tests
+    // independent of whichever personal skills happen to exist under $HOME.
+    loadHarnessConfig: async (path) => ({
+      ...(await loadHarnessConfig(path)),
+      skills: [],
+    }),
+    resolveNativeHelper: () => "/usr/bin/true",
     execFileSync: (file, args) => {
       if (file === "which") return "/usr/bin/true\n";
       // The mint step. Throwing here stops before any credential exists, which
@@ -99,7 +107,7 @@ test("the state dir the notice names is the one actually granted rw", async () =
   // the granted stateDir, the advice would point at a directory the harness
   // does not use — a plausible, wrong instruction.
   const out = await noticeFor({ credentialFileExists: false });
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   const t = targets.find((x) => x.name === "claude-code");
   assert.ok(out.includes(join(process.env.HOME ?? "", t.stateDir)), "must name the granted state dir");
@@ -118,12 +126,16 @@ test("the state dir the notice names is the one actually granted rw", async () =
 // cloister can infer.
 
 test("the plan grants the config FILE, not just the state directory", async () => {
-  const { resolvePlan } = await import("../lib/harness/launch.mjs");
+  const { resolvePlan } = await import("../../cli/lib/harness/launch.mjs");
   const plan = await resolvePlan({
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {},
     sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
 
   assert.equal(
     plan.sandbox.configFile, `${plan.sandbox.stateDir}.json`,
@@ -138,12 +150,16 @@ test("the plan grants the config FILE, not just the state directory", async () =
 test("buildPolicy actually EMITS grants for the config file and install tree", async () => {
   // The plan carrying the fields proves nothing if the policy drops them —
   // which is the shape of the original defect one layer down.
-  const { resolvePlan, buildPolicy } = await import("../lib/harness/launch.mjs");
+  const { resolvePlan, buildPolicy } = await import("../../cli/lib/harness/launch.mjs");
   const plan = await resolvePlan({
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {},
     sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
 
   const policy = buildPolicy(plan, {
     certDerB64Url: "x", masterPubB64Std: "y",

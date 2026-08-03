@@ -24,7 +24,7 @@ import { devCaBundle } from "../../src/storage/ca-bundle-source.js";
 import { InMemoryCredentialStore } from "../../src/routes/vault-proxy-credential-store.js";
 import type { UpstreamFetcher, VaultProxyService } from "../../src/routes/vault-proxy.js";
 import type { Env } from "../../src/types.js";
-import { signLeaseHeaders, type EphemeralIdentity } from "../../tools/harness-shim/lease-signer.js";
+import { signLeaseHeaders, type EphemeralIdentity } from "../../src/harness-shim/lease-signer.js";
 import {
   CERT_ADMIN_B64,
   EPHEMERAL_PRIV_SEED_B64,
@@ -50,6 +50,9 @@ function devEnv(overrides: Partial<Env> = {}): Env {
     DEV_CA_MASTER:    MASTER_PUBKEY_B64_STD,
     DEV_CA_EPOCH:     "7",
     DEV_ALLOWED_SUBS: JSON.stringify([DEV_PEER_FP]),
+    // A real local `cloister run --audit` writes this to .dev.vars. Tests must
+    // choose custody/passthrough explicitly instead of inheriting operator state.
+    DEV_PASSTHROUGH_SERVICES: "",
     INTERLACE_ROOT_PUBKEY: "",
     ...overrides,
   };

@@ -10,7 +10,7 @@
 // is covered separately in ca-bundle tests); the crypto that gates the proxy
 // is not stubbed.
 //
-// Critically, the request is signed by `tools/harness-shim/lease-signer.ts` —
+// Critically, the request is signed by `src/harness-shim/lease-signer.ts` —
 // the SAME signer the harness shim uses in production. So this test proves the
 // signer↔gate contract end-to-end: a shim-signed request passes the live gate
 // and the vaulted credential is injected upstream; a tampered signature is
@@ -24,7 +24,7 @@ import { InMemoryCredentialStore } from "../../src/routes/vault-proxy-credential
 import type { UpstreamFetcher, VaultProxyService } from "../../src/routes/vault-proxy.js";
 import type { CABundle } from "../../src/storage/ca-bundle-cache.js";
 import type { Env } from "../../src/types.js";
-import { signLeaseHeaders, type EphemeralIdentity } from "../../tools/harness-shim/lease-signer.js";
+import { signLeaseHeaders, type EphemeralIdentity } from "../../src/harness-shim/lease-signer.js";
 import {
   CERT_ADMIN_B64,
   EPHEMERAL_PRIV_SEED_B64,

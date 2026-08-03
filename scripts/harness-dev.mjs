@@ -39,9 +39,9 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadHarnessConfig, targetNames } from "./harness-targets.mjs";
-import { launch, LaunchUsageError, PreconditionError } from "./lib/harness/launch.mjs";
-import { HARNESS_ENV } from "./cli-surface.mjs";
+import { loadHarnessConfig, targetNames } from "../cli/lib/harness/targets.mjs";
+import { launch, LaunchUsageError, PreconditionError } from "../cli/lib/harness/launch.mjs";
+import { HARNESS_ENV } from "../cli/surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 

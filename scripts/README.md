@@ -1,9 +1,11 @@
 # `scripts/` — build, codegen, smoke + lint scripts
 
-Helper scripts invoked by [`Taskfile.yml`](../Taskfile.yml) targets.
-Most run as `node scripts/<name>.mjs`; a handful are `bash` (`*.sh`).
-Almost all of them are invoked by a Task target rather than directly by
-a human — Taskfile is the entry point.
+These files are repository plumbing for builds, generated files, smoke tests,
+and lint checks. They are not the installed product interface and normal
+`cloister` commands must not depend on them at runtime. The first-party command
+lives under [`cli/`](../cli/) with its entry point at
+[`bin/cloister.mjs`](../bin/cloister.mjs). [`Taskfile.yml`](../Taskfile.yml)
+provides contributor shortcuts and delegates operator flows to that command.
 
 ## Codegen — manifest → typed TS, schema → JSON
 

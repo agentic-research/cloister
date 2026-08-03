@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { parseArgs, deriveName, addInputToClusterToml, main } from "../cli-add.mjs";
+import { parseArgs, deriveName, addInputToClusterToml, main } from "../../cli/commands/add.mjs";
 
 // ── parseArgs: well-formed ──────────────────────────────────────────────
 

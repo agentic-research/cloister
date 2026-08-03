@@ -11,10 +11,10 @@ name = "cloister-router"
 tier = "hypervisor"
 workerdServiceName = "cloister"
 
-  [bundles.external]
-  httpPort = 8_787
-  image = "cloister:0.1.0"
-  ipcSocket = "/run/cloister-uds/router.sock"
+[bundles.external]
+httpPort = 8787
+image = "cloister:0.1.0"
+ipcSocket = "/run/cloister-uds/router.sock"
 
 [[bundles]]
 description = "Identity authority — Signet master CA, lease cert mint"
@@ -23,9 +23,9 @@ kind = "external"
 name = "notme-identity"
 tier = "hypervisor"
 
-  [bundles.external]
-  httpPort = 8_788
-  image = "notme:0.1.0"
+[bundles.external]
+httpPort = 8788
+image = "notme:0.1.0"
 
 [[bundles]]
 description = "Code intelligence — symbol search, definitions, callgraph"
@@ -33,10 +33,10 @@ kind = "external"
 name = "mache"
 tier = "cluster"
 
-  [bundles.external]
-  args = [ "serve", "--http", "localhost:7532" ]
-  httpPort = 7_532
-  image = "mache:0.8.0"
+[bundles.external]
+args = [ "serve", "--http", "localhost:7532" ]
+httpPort = 7532
+image = "mache:0.8.0"
 
 [[bundles]]
 description = "leyline-net upstream router (ADR-0005) — routes rsry_* tools to rosary"
@@ -44,9 +44,9 @@ kind = "external"
 name = "companion"
 tier = "cluster"
 
-  [bundles.external]
-  httpPort = 9_091
-  image = "cloister-companion:0.1.0"
+[bundles.external]
+httpPort = 9091
+image = "cloister-companion:0.1.0"
 
 [[wires]]
 binding = "MACHE_BUNDLE"
@@ -90,10 +90,10 @@ path = "/.well-known/mcp-registry"
 kind = "serviceBindingProxy"
 path = "/identity"
 
-  [routes.serviceBindingProxy]
-  binding = "NOTME"
-  stripPrefix = "/identity"
-  upstreamHost = "notme-bot"
+[routes.serviceBindingProxy]
+binding = "NOTME"
+stripPrefix = "/identity"
+upstreamHost = "notme-bot"
 
 [[routes]]
 kind = "mcp"
@@ -104,68 +104,67 @@ handlesPrefix = "bead_"
 kind = "durableObject"
 name = "bead"
 
-  [routes.mcp.backends.durableObject]
-  binding = "BEAD_STORE"
-  keyArg = "repo"
+[routes.mcp.backends.durableObject]
+binding = "BEAD_STORE"
+keyArg = "repo"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Create a new bead (work item) in the store for the given repo."
-    inputSchemaJson = ""
-    name = "bead_create"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Create a new bead (work item) in the store for the given repo."
+inputSchemaJson = ""
+name = "bead_create"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Update fields on an existing bead."
-    inputSchemaJson = ""
-    name = "bead_update"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Update fields on an existing bead."
+inputSchemaJson = ""
+name = "bead_update"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Full-text search beads by title/description."
-    inputSchemaJson = ""
-    name = "bead_search"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Full-text search beads by title/description."
+inputSchemaJson = ""
+name = "bead_search"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "List beads, optionally filtered by state."
-    inputSchemaJson = ""
-    name = "bead_list"
+[[routes.mcp.backends.durableObject.tools]]
+description = "List beads, optionally filtered by state."
+inputSchemaJson = ""
+name = "bead_list"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Mark a bead as done."
-    inputSchemaJson = ""
-    name = "bead_close"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Mark a bead as done."
+inputSchemaJson = ""
+name = "bead_close"
 
-    [[routes.mcp.backends.durableObject.tools]]
-    description = "Add a comment to a bead."
-    inputSchemaJson = ""
-    name = "bead_comment"
+[[routes.mcp.backends.durableObject.tools]]
+description = "Add a comment to a bead."
+inputSchemaJson = ""
+name = "bead_comment"
 
 [[routes.mcp.backends]]
 handlesPrefix = "mache_"
 kind = "mcpProxy"
 name = "mache"
 
-  [routes.mcp.backends.mcpProxy]
-  claims = [ ]
-  dynamicTools = true
-  protocolMode = ""
-  requiresSession = true
-  serviceBinding = "MACHE_MCP"
-  stripPrefix = "mache_"
-  tools = [ ]
-  urlBinding = "MACHE_MCP_URL"
+[routes.mcp.backends.mcpProxy]
+claims = []
+dynamicTools = true
+protocolMode = ""
+requiresSession = true
+serviceBinding = "MACHE_MCP"
+stripPrefix = "mache_"
+tools = []
+urlBinding = "MACHE_MCP_URL"
 
 [[routes.mcp.backends]]
 handlesPrefix = "rsry_"
 kind = "leylineNet"
 name = "rsry"
 
-  [routes.mcp.backends.leylineNet]
-  companionUrlBinding = "COMPANION_URL"
-  tools = [ ]
-  upstreamId = "rosary"
+[routes.mcp.backends.leylineNet]
+companionUrlBinding = "COMPANION_URL"
+tools = []
+upstreamId = "rosary"
 
 [gateway.actor]
 algorithm = "ed25519"
-fingerprint = ""
 pubkeyBinding = "INTERLACE_MASTER_PUBKEY"
 
 [gateway.metadata]

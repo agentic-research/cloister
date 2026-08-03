@@ -25,8 +25,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 import {
   confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup,
-} from "../lib/harness/launch.mjs";
-import { loadHarnessConfig } from "../harness-targets.mjs";
+} from "../../cli/lib/harness/launch.mjs";
+import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 
 // NOT a provider name. The confinement shape is provider-independent — that is
 // the property, and hardcoding one harness's service here would both assert
@@ -120,22 +120,22 @@ test("the shape is identical for EVERY declared target — no harness is a speci
 
 test("every door's roots go through ONE validator — no per-door copy", async () => {
   // The gap this closes: the duplicate/nested refusal was written in
-  // cli-run.mjs, so `cloister run --repo /a --repo /a/b` was refused while
+  // cli/commands/run.mjs, so `cloister run --repo /a --repo /a/b` was refused while
   // HARNESS_WORKDIRS='["/a","/a/b"]' sailed through — same defect, other door,
   // and every CLI test still green. A rule about the attested shape cannot live
   // at one entry point.
   //
   // lint-allow-rawparse: "is this logic written twice" is a textual property.
   const { readFileSync } = await import("node:fs");
-  const cliRun = readFileSync(resolve(ROOT, "scripts/cli-run.mjs"), "utf8");
+  const cliRun = readFileSync(resolve(ROOT, "cli/commands/run.mjs"), "utf8");
   const bin = readFileSync(resolve(ROOT, "scripts/harness-dev.mjs"), "utf8");
-  for (const [name, src] of [["cli-run.mjs", cliRun], ["harness-dev.mjs", bin]]) {
+  for (const [name, src] of [["cli/commands/run.mjs", cliRun], ["harness-dev.mjs", bin]]) {
     assert.doesNotMatch(
       src, /given twice|is inside/,
       `${name} restates a set rule that validateWorkdirSet owns`,
     );
   }
-  assert.match(cliRun, /validateWorkdirSet/, "cli-run must delegate to the shared validator");
+  assert.match(cliRun, /validateWorkdirSet/, "cloister run must delegate to the shared validator");
 });
 
 test("the shape is validated BEFORE the toolchain — the error names the real problem", async () => {
@@ -144,7 +144,7 @@ test("the shape is validated BEFORE the toolchain — the error names the real p
   // "could not resolve claude-code on $PATH" — the wrong problem, behind a
   // 45-second cargo build. A confinement error must not be shadowed by a
   // toolchain one.
-  const { resolvePlan } = await import("../lib/harness/launch.mjs");
+  const { resolvePlan } = await import("../../cli/lib/harness/launch.mjs");
   await assert.rejects(
     resolvePlan({
       root: ROOT, targetName: null, setupOnly: true, wantsAudit: false, credentialEnv: {},
@@ -169,11 +169,15 @@ test("the shape is validated BEFORE the toolchain — the error names the real p
 // policy, since the mechanism is only correct if the emitted grants say so.
 
 test("scratch is per-run, and the shared /tmp grant is GONE", async () => {
-  const { resolvePlan, buildPolicy } = await import("../lib/harness/launch.mjs");
+  const { resolvePlan, buildPolicy } = await import("../../cli/lib/harness/launch.mjs");
   const plan = await resolvePlan({
     root: ROOT, targetName: "claude-code", setupOnly: true, wantsAudit: true,
     credentialEnv: {}, sandbox: { provider: "nono", workdirs: [ROOT], label: "--repo" },
-  }, { exists: () => true, execFileSync: () => "/usr/bin/true\n" });
+  }, {
+    exists: () => true,
+    execFileSync: () => "/usr/bin/true\n",
+    resolveNativeHelper: () => "/usr/bin/true",
+  });
   const policy = buildPolicy(plan, {
     certDerB64Url: "x", masterPubB64Std: "y", peerFp: "z",
     epoch: 1, ephemeralPrivSeedB64Url: "a", ephemeralPubB64Url: "b",
@@ -204,7 +208,7 @@ test("scratch is per-run, and the shared /tmp grant is GONE", async () => {
 });
 
 test("a relocated skills store is granted READ, never readwrite", async () => {
-  const { buildPolicy } = await import("../lib/harness/launch.mjs");
+  const { buildPolicy } = await import("../../cli/lib/harness/launch.mjs");
   const plan = {
     root: ROOT, shimPort: "8799", baseUrl: "http://127.0.0.1:8799/x",
     auth: { mode: "audit" },

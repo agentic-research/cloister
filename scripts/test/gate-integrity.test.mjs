@@ -28,9 +28,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { resolve, dirname, basename } from "node:path";
+import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
+import { discoverNodeTests } from "../../cli/lib/dev/test-runner.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -61,37 +62,40 @@ function testFilesOnDisk(dir) {
   return readdirSync(abs).filter((f) => f.endsWith(".test.mjs"));
 }
 
-/** Test files the Taskfile actually invokes. */
-function testFilesInvoked() {
-  // lint-allow-rawparse: reads Taskfile TEXT to learn which files the gate
-  // NAMES. A YAML parse yields the same command string, but the invocation may
-  // live in a cmds: entry, a var, or an included Taskfile — the literal text is
-  // what "does the gate name this file" actually means.
-  const taskfile = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
-  return new Set([...taskfile.matchAll(/([\w/.-]+\.test\.mjs)/g)].map((m) => basename(m[1])));
-}
-
-test("PROPERTY: every scripts/test file on disk is invoked by the gate", () => {
-  const invoked = testFilesInvoked();
-  const onDisk = testFilesOnDisk("scripts/test");
+test("PROPERTY: every scripts/test file on disk is discovered by the runner", () => {
+  const discovered = new Set(discoverNodeTests(ROOT));
+  const onDisk = testFilesOnDisk("scripts/test").map((file) => `scripts/test/${file}`);
   assert.ok(onDisk.length > 20, `sanity: expected many test files, found ${onDisk.length}`);
 
-  // A file on disk the gate never names is a test that CANNOT fail — strictly
+  // A file on disk the runner never discovers is a test that CANNOT fail — strictly
   // worse than no test, because it reports coverage it does not provide.
   // oci-artifact.test.mjs sat dark this way since #189.
-  forAll(onDisk, (f) => `${f} is on disk but the gate never names it`, (f) => invoked.has(f));
+  forAll(
+    onDisk,
+    (file) => `${file} is on disk but the runner never discovers it`,
+    (file) => discovered.has(file),
+  );
 });
 
-test("PROPERTY: the gate names no test file that does not exist", () => {
-  // The other direction. A named-but-absent file is either a silent skip or a
-  // hard error depending on the runner — neither should be discovered later.
-  const onDisk = new Set([
-    ...testFilesOnDisk("scripts/test"),
-    ...testFilesOnDisk("tools/harness-sandbox/test"),
-  ]);
-  const named = [...testFilesInvoked()];
-  assert.ok(named.length > 20, `sanity: expected many named files, found ${named.length}`);
-  forAll(named, (f) => `${f} is named by the gate but absent from disk`, (f) => onDisk.has(f));
+test("PROPERTY: discovered tests are sorted, unique, and present", () => {
+  const discovered = discoverNodeTests(ROOT);
+  assert.ok(discovered.length > 20, `sanity: expected many discovered files, found ${discovered.length}`);
+  assert.deepEqual(discovered, [...discovered].sort());
+  assert.equal(new Set(discovered).size, discovered.length);
+  forAll(
+    discovered,
+    (file) => `${file} was discovered but does not exist`,
+    (file) => existsSync(resolve(ROOT, file)),
+  );
+});
+
+test("PROPERTY: Taskfile delegates the script suite to one first-party command", () => {
+  // lint-allow-rawparse: this assertion is deliberately about the command a
+  // contributor sees and Task executes, not Task's parsed data model.
+  const taskfile = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const block = taskfile.match(/\n  test:lint-scripts:\n([\s\S]*?)(?=\n  [\w:-]+:\n)/)?.[1] ?? "";
+  assert.match(block, /node bin\/cloister\.mjs dev test/);
+  assert.doesNotMatch(block, /\.test\.mjs/);
 });
 
 // ── 61c638: declared surface never contradicts resolved surface ───────────
@@ -197,7 +201,7 @@ test("PROPERTY: no derived field is declarable on the operator surface at all", 
 // diverge either.
 
 test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () => {
-  const { listRecipes } = await import("../cli-init.mjs");
+  const { listRecipes } = await import("../../cli/commands/init.mjs");
   const recipesRoot = resolve(ROOT, "recipes");
   const onDisk = readdirSync(recipesRoot).filter((n) =>
     existsSync(resolve(recipesRoot, n, "README.md")),
@@ -398,4 +402,3 @@ test("PROPERTY: an opt-in that cites a gate is cited correctly", () => {
     ([, e]) => e.gatedBy === null || typeof e.gatedBy === "string",
   );
 });
-

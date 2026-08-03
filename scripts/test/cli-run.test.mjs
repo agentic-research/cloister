@@ -28,7 +28,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgs, validateRepo, validateRepos, main, RunUsageError } from "../cli-run.mjs";
+import { parseArgs, validateRepo, validateRepos, main, RunUsageError } from "../../cli/commands/run.mjs";
 
 function scratchDir(t) {
   const d = mkdtempSync(join(tmpdir(), "cli-run-"));
@@ -79,6 +79,20 @@ test("parseArgs: an unknown option is rejected rather than ignored", () => {
 test("parseArgs: --setup-only and --audit pass through untouched", () => {
   const a = parseArgs(["--setup-only", "--audit"]);
   assert.deepEqual(a.passthrough, ["--setup-only", "--audit"]);
+});
+
+test("--target remains a deprecated spelling of --harness during migration", async (t) => {
+  const d = scratchDir(t);
+  let request;
+  const warnings = [];
+  const code = await main(["--repo", d, "--target", "codex"], {
+    launch: async (value) => { request = value; return { session: null }; },
+    log: () => {},
+    errLog: (line) => warnings.push(line),
+  });
+  assert.equal(code, 0);
+  assert.equal(request.targetName, "codex");
+  assert.equal(warnings.filter((line) => line.includes("deprecated")).length, 1);
 });
 
 // ── delegation: the point of the verb ─────────────────────────────────────

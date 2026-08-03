@@ -24,12 +24,13 @@ import {
   serviceFor,
   credentialHeaders,
   UsageError,
-} from "../harness-targets.mjs";
+} from "../../cli/lib/harness/targets.mjs";
 import {
   findViolations,
   SCANNED,
   PROVIDER_PATTERNS,
 } from "../lint-harness-target-literals.mjs";
+import { resolvePlan, PreconditionError } from "../../cli/lib/harness/launch.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const { targets: TARGETS, services: SERVICES } =
@@ -223,21 +224,27 @@ test("--help exits 0 and writes nothing", () => {
   }
 });
 
-test("a missing .env.local fails BEFORE minting, not after", () => {
+test("a missing .env.local fails BEFORE minting, not after", async () => {
   // Ordering is the property. Minting is the security-relevant step, so every
   // precondition it depends on has to be checked ahead of it — otherwise each
   // failed attempt leaves a key behind.
-  const r = spawnSync(process.execPath, [resolve(ROOT, "scripts/harness-dev.mjs")], {
-    cwd: ROOT, encoding: "utf8",
-  });
-  const out = `${r.stdout}${r.stderr}`;
-  if (/\.env\.local is missing/.test(out)) {
-    assert.equal(r.status, 1, "a missing prerequisite must be a hard failure");
-    assert.doesNotMatch(out, /minting a fresh ephemeral/, "must not mint before failing");
-  } else {
-    // .env.local exists in this environment, so the branch is unreachable here.
-    // Asserted rather than silently skipped so the test cannot rot into a no-op.
-    assert.ok(existsSync(resolve(ROOT, ".env.local")), "either the guard fires or the file exists");
+  // Exercise the shared first-party preflight with an isolated empty root.
+  // Spawning the launcher from ROOT is unsafe: a developer's real `.env.local`
+  // would take this test past the guard and start Wrangler indefinitely.
+  const dir = mkdtempSync(join(tmpdir(), "harness-missing-env-"));
+  try {
+    await assert.rejects(
+      resolvePlan({ root: dir, setupOnly: false }, { exists: existsSync }),
+      (err) => {
+        assert.ok(err instanceof PreconditionError);
+        assert.equal(err.exitCode, 1);
+        assert.match(err.message, /\.env\.local is missing/);
+        assert.doesNotMatch(err.message, /minting a fresh ephemeral/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -268,7 +275,7 @@ test("a target whose stateDir stem differs from its name MUST declare an executa
   //
   // codex: stateDir ".codex", stem "codex" == name → nothing required.
   // claude-code: stem "claude" != name "claude-code" → executable required.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
 
@@ -295,7 +302,7 @@ test("every declared target's executable resolves on THIS machine", async (t) =>
   // self-consistent, this one proves the named binary is actually findable.
   // Only meaningful where a harness is installed, so it stands down explicitly
   // rather than passing on an empty check.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
 
   const checked = [], missing = [];
@@ -334,7 +341,7 @@ test("claude-code declares an executable distinct from its selector", async () =
   // current spelling would report CLEAN on a rewrite that still declared it.
   // That is the failure lint:structured-parse exists to prevent, and it caught
   // an earlier draft of this test doing exactly that.
-  const { loadHarnessConfig } = await import("../harness-targets.mjs");
+  const { loadHarnessConfig } = await import("../../cli/lib/harness/targets.mjs");
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   const claude = targets.find((t) => t.name === "claude-code");
   assert.ok(claude, "the claude-code target must stay declared");

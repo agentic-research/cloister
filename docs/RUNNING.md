@@ -49,23 +49,27 @@ cloister run --harness claude-code --repo /abs/api --repo /abs/shared
 `cloister` is not on your PATH until you put it there. `which cloister` returning
 nothing is the expected starting state, not a broken install.
 
+Before the first source install, provide Node.js 22 or newer, Rust, and Task.
+You do not need to install pnpm separately; Cloister uses the version pinned by
+the repository.
+
 ```sh
 cd /path/to/cloister
-task install                 # installs deps, then symlinks into ~/.local/bin
+task install                 # dependencies, CLI symlink, compatibility runtime
 cloister --help
 ```
 
 Override the destination with `CLOISTER_BIN_DIR` if `~/.local/bin` is not on your
-PATH. `task uninstall` removes it, and refuses if the target is not a symlink
-into this checkout.
+PATH. `task uninstall` delegates to the CLI, removes the link, and refuses if
+the target is not a symlink into this checkout.
 
-Deliberately a task rather than `pnpm link --global`: that is a package-manager
-incantation that mutates the machine, and installing cloister is cloister's to
-own. The symlink points INTO the checkout, so it follows the branch you are on —
-re-run `task install` if you move the checkout.
+Task is the one bootstrap command because a new user does not have `cloister`
+yet. It delegates to `node bin/cloister.mjs install`; the CLI owns the actual
+install. The symlink points into the checkout, so it follows the branch you are
+on. Re-run `task install` if you move the checkout.
 
-Without installing, every command below works as `node scripts/cloister-cli.mjs …`
-from the repo root.
+Without installing, every command below works as `node bin/cloister.mjs …` from
+the repo root.
 
 **You run `cloister` from anywhere** — it is `--repo` that says which tree the
 harness is confined to, not your working directory. That is the whole point:
@@ -106,7 +110,7 @@ about this before minting anything.
 **2. One-time bootstrap.**
 
 ```sh
-task dev:bootstrap      # writes .env.local (gitignored) with the vault KEK
+cloister dev bootstrap      # writes .env.local (gitignored) with the vault key
 ```
 
 `cloister run` checks for `.env.local` **before minting**, so a missing
@@ -118,8 +122,8 @@ This is a prerequisite for **`cloister run` only**. `task lint`, `task test` and
 `task verify` do not need it and must never need it — a gate that required a
 local credential to run would be a gate contributors could not run.
 
-**3. Ports 8787 and 8799 free.** A run starts cloister on `:8787` and the lease
-shim on `:8799`. Nothing checks these are free first — see *Known gaps*.
+**3. Ports 8787 and 8799 free.** A run checks both ports before it starts and
+names the process holding either one.
 
 **4. Companion Workers (optional).** A run may declare service bindings to other
 Workers — cloister's own `wrangler.toml` binds `env.NOTME` to `notme-bot`. A
@@ -148,11 +152,11 @@ Unset is not fatal — it costs only the routes that binding serves. For
 `cloister run` that is `/identity/*` and the notme-sourced CA bundle; a dev run
 uses `DEV_CA_MASTER` as its authority and touches neither.
 
-**5. The confinement binary.** Built automatically on first run
-(`tools/harness-sandbox`, ~4 min cold). Or ahead of time:
+**5. The confinement binary.** `task install` builds and packages the current
+compatibility provider, including the confinement helper. To rebuild it later:
 
 ```sh
-task harness:sandbox:build
+cloister runtime install
 ```
 
 ---
@@ -192,7 +196,9 @@ how a real warning becomes scrollback.
 ```sh
 cloister skills list                 # pinned / unpinned / undeclared / CHANGED
 cloister skills pin                  # prints declarations to paste
-cloister skills pin --write          # appends them to cluster.toml
+cloister skills pin pr-board         # prints only pr-board's declaration
+cloister skills pin pr-board --write # appends only that skill to cluster.toml
+cloister cluster generate            # refreshes outputs from cluster.toml
 ```
 
 `pin` prints by default and does not edit your manifest. Pinning says *"I have
@@ -200,9 +206,39 @@ looked at these bytes and I vouch for them"*, and a command that rewrote the
 manifest silently would turn vouching into a keystroke — the reflex after a
 failed verification is to re-run it.
 
+Name one or more skills after `pin` when you do not want to approve everything
+in a large skills folder. `skills list` keeps the text labels when color is off;
+use global `--no-color`, `--color never`, or `NO_COLOR=1` when a log should be
+plain.
+
 **What verification does and does not give you.** It is checked at **load**: you
 know what was present when the run started, and a substituted skill fails the
 run. It is not continuous — see *Known gaps*.
+
+### Work Board
+
+`pr-board` is the agent skill. It describes how an agent answers “what needs
+me?” using Lectio first and GitHub as a fallback. The reference `cluster.toml`
+pins its current fingerprint. `readlink ~/.claude/skills/pr-board` shows where
+your installed copy comes from.
+
+Work Board is a local visual app in the agents repository's `work-board/`
+folder. It is not a skill and does not need a fake skill manifest. Its live
+refresh runs authenticated `gh` and uses the network, so run that refresh on
+the host. To let a confined agent inspect the result, refresh `data/board.json`
+first and pass the Work Board folder as a second `--repo`. The current boundary
+intentionally blocks live refresh unless you provide a GitHub-facing tool
+through Cloister.
+
+### What the current records mean
+
+The dry run describes the boundary Cloister intends to apply. A real run also
+writes `.harness-skills.json`, which records the skills loaded at launch and
+their fingerprints. Cloister does not yet record every attempted file,
+environment-variable, process, or network access. Denials are still enforced
+by the operating system and normally appear in the coding tool's own error
+output. A fuller recorder is tracked as `cloister-879a5a`; until it exists,
+these launch records should not be read as a complete access log.
 
 ---
 
@@ -262,7 +298,7 @@ server**: the run reported success while the shim talked to an old build. Five
 leaks accumulated that way during testing (8787–8791).
 
 The leak itself is fixed too — each run owns its process group, so teardown
-takes `task → wrangler → workerd` with it instead of only the leader.
+takes `cloister → wrangler → workerd` with it instead of only the leader.
 
 **No subscription auth**, as above. Custody lane only.
 

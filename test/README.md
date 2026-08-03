@@ -66,7 +66,7 @@ resolver + createBeadViaRsry MCP wire + deprecation-warning seam per
 | File | What it asserts |
 |------|----------------|
 | `multi-tenant-dispatch.test.ts` | Multi-tenant reality smoke through `instantiate()` → TenantDispatchRoute → real fetch probes across 3 tenants (mixed SNI + path-prefix), byte-equivalent 404 across every "did not dispatch" path, concurrent probe stress on the WeakMap cache + unwired-binding throttle. Per `cloister-92e846` + `cloister-9339c0`. |
-| `recipe-multi-tenant-instantiate.test.ts` | `recipes/multi-tenant-smoke/cluster.toml` → `parseTomlToCluster` → Gateway construction → `instantiate()` → `TenantDispatchRoute.match()` semantics. Closes the gap between emitter contract tests + runtime instantiation. Per `cloister-c2bd47`. |
+| `recipe-multi-tenant-instantiate.test.ts` | Portable Gateway fixture → `instantiate()` → `TenantDispatchRoute.match()` semantics. `scripts/test/recipe-multi-tenant-bridge.test.mjs` proves the fixture still equals the validated `recipes/multi-tenant-smoke/cluster.toml`, without importing Node-only CLI code into workerd. Per `cloister-c2bd47` + `cloister-6a19bc`. |
 | `rsry-backend-e2e.test.ts` | rsry_* mcpProxy backend tools/list passthrough (no double-prefixing per `cloister-8ede3f`), claim-routing logic, instantiate() integration, ADR-0033 Open Q #2 (prefix collision with bd_/bead_/mache_/lsp_). Per `cloister-c2bd47`. |
 
 ### `manifest/` — runtime + backends

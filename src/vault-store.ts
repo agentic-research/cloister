@@ -761,7 +761,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
    * `VAULT_KEK_SOURCE` MUST be a non-empty URL spec. The legacy
    * `VAULT_KEK_SECRET` plaintext fallback has been removed — there is
    * no path that reads a key value directly from a `text` binding
-   * anymore. Dev contributors run `task dev:bootstrap` to produce a
+   * anymore. Dev contributors run `cloister dev bootstrap` to produce a
    * `keychain://` (macOS) / `secret-tool://` (Linux) / `file://` (CI)
    * source URL; production sets `VAULT_KEK_SOURCE` via
    * `wrangler secret put` pointing at a `kms://` or `http(s)://`
@@ -807,7 +807,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
         "vault: VAULT_KEK_SOURCE is unset — per ADR-0014 v2, the vault DO " +
           "requires an explicit URL spec (env:// with age carrier, file://, " +
           "keychain://, secret-tool://, or http(s)://helper). " +
-          "Dev setup: run `task dev:bootstrap`. " +
+          "Dev setup: run `cloister dev bootstrap`. " +
           "Production: `wrangler secret put VAULT_KEK_SOURCE` pointing at " +
           "your keystore / KMS / helper endpoint.",
       );
