@@ -55,6 +55,38 @@ test("unverified evidence is available only through an explicit fixture downgrad
   const accepted = await verifyExecutionReceipt(receipt, {
     allowUnverifiedEvidence: true,
     localFixture: true,
+    env: { CLOISTER_MODE: "dev" },
   });
   assert.equal(accepted, receipt);
+});
+
+// The downgrade covers "no verifier was available", never "the verifier said
+// no". Falling through a rejection into the downgrade would accept a receipt
+// that was verified AS BAD — strictly worse than one never checked.
+test("a verifier's rejection is terminal and the fixture downgrade cannot override it", async () => {
+  await assert.rejects(
+    verifyExecutionReceipt(
+      { outcome: "tampered", signature: "bad" },
+      {
+        verify: async () => false,
+        allowUnverifiedEvidence: true,
+        localFixture: true,
+        env: { CLOISTER_MODE: "dev" },
+      },
+    ),
+    /rejected by the execution receipt verifier/i,
+  );
+});
+
+// ADR-0042 / lint:no-dev-mode: `CLOISTER_MODE=dev` is the one place a relaxation
+// can be anchored, because committed config can never set it. Without that
+// anchor the two option flags are a per-call auth bypass, which ADR-0007 removed.
+test("the fixture downgrade is inert outside CLOISTER_MODE=dev", async () => {
+  await assert.rejects(
+    verifyExecutionReceipt(
+      { outcome: "fixture", signature: null },
+      { allowUnverifiedEvidence: true, localFixture: true, env: {} },
+    ),
+    /execution receipt could not be verified/i,
+  );
 });
