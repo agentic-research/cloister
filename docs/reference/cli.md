@@ -35,7 +35,11 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
 | [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
-| [`cloister runtime run`](#cloister-runtime-run) | Run a plan through the krunvm backend |
+| [`cloister runtime run`](#cloister-runtime-run) | Run a compatibility plan or LLO execution envelope |
+| [`cloister runtime inspect`](#cloister-runtime-inspect) | Inspect LLO execution events |
+| [`cloister runtime collect`](#cloister-runtime-collect) | Collect an LLO terminal receipt |
+| [`cloister runtime cancel`](#cloister-runtime-cancel) | Cancel an LLO execution |
+| [`cloister runtime cleanup`](#cloister-runtime-cleanup) | Release LLO execution resources |
 | [`cloister runtime doctor`](#cloister-runtime-doctor) | Check runtime prerequisites and storage |
 | [`cloister runtime storage init`](#cloister-runtime-storage-init) | Create/attach bounded krunvm storage |
 | [`cloister runtime storage status`](#cloister-runtime-storage-status) | Show bounded storage state without changing it |
@@ -267,7 +271,39 @@ Builds the native confinement helper and host runtime, copies them into ~/.local
 cloister runtime run <plan>
 ```
 
-Run a plan through the krunvm backend
+Run a compatibility plan or LLO execution envelope
+
+## cloister runtime inspect
+
+```
+cloister runtime inspect <run-id>
+```
+
+Inspect LLO execution events
+
+## cloister runtime collect
+
+```
+cloister runtime collect <run-id>
+```
+
+Collect an LLO terminal receipt
+
+## cloister runtime cancel
+
+```
+cloister runtime cancel <run-id> --idempotency-key <key>
+```
+
+Cancel an LLO execution
+
+## cloister runtime cleanup
+
+```
+cloister runtime cleanup <run-id> --idempotency-key <key>
+```
+
+Release LLO execution resources
 
 ## cloister runtime doctor
 
