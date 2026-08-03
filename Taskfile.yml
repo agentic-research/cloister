@@ -1168,6 +1168,8 @@ tasks:
       - docs/adr/**/*.md
       - recipes/**
       - scripts/git-hooks/**
+      - src/generated/llo-execution-tools.json
+      - llo-execution-contract.lock.json
       - Taskfile.yml
       - cluster.toml
       - cluster.lock.toml

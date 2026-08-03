@@ -3,6 +3,8 @@
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
 
+import { lloExecutionRequest } from "./llo-execution-contract.mjs";
+
 export class LloClientError extends Error {
   constructor(message, evidence = {}) {
     super(message);
@@ -65,33 +67,27 @@ export function callLloJson(socketPath, request, deps = {}) {
 }
 
 export function lloCapabilities(socketPath, deps) {
-  return callLloJson(socketPath, { op: "llo_execution_capabilities" }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.capabilities(), deps);
 }
 
 export function lloStatus(socketPath, deps) {
-  return callLloJson(socketPath, { op: "llo_execution_status", runId: "" }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.status(), deps);
 }
 
 export function lloInspect(socketPath, runId, afterSequence = 0, deps) {
-  return callLloJson(socketPath, {
-    op: "llo_execution_inspect", runId, afterSequence,
-  }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.inspect(runId, afterSequence), deps);
 }
 
 export function lloCollect(socketPath, runId, deps) {
-  return callLloJson(socketPath, { op: "llo_execution_collect", runId }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.collect(runId), deps);
 }
 
 export function lloCancel(socketPath, runId, idempotencyKey = "", deps) {
-  return callLloJson(socketPath, {
-    op: "llo_execution_cancel", runId, idempotencyKey,
-  }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.cancel(runId, idempotencyKey), deps);
 }
 
 export function lloCleanup(socketPath, runId, idempotencyKey = "", deps) {
-  return callLloJson(socketPath, {
-    op: "llo_execution_cleanup", runId, idempotencyKey,
-  }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.cleanup(runId, idempotencyKey), deps);
 }
 
 export async function runLloEnvelope(socketPath, envelopePath, deps) {
@@ -110,9 +106,5 @@ export async function runLloEnvelope(socketPath, envelopePath, deps) {
       { socketPath, envelopePath },
     );
   }
-  return callLloJson(socketPath, {
-    op: "llo_execution_start",
-    spec: envelope.spec,
-    grant: envelope.grant,
-  }, deps);
+  return callLloJson(socketPath, lloExecutionRequest.start(envelope.spec, envelope.grant), deps);
 }

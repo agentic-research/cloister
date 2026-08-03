@@ -1,0 +1,7 @@
+{
+  "_comment": "Content pin for the generated LLO execution/v1 MCP contract artifact. Update the source commit and digest together when LLO publishes a new contract.",
+  "source": "agentic-research/ley-line-open",
+  "sourceCommit": "2835bdce8ff9a1ba853284e9d4a6127f57a32f97",
+  "artifact": "src/generated/llo-execution-tools.json",
+  "sha256": "34377c44209156e7999bf9a2fd59106b0f776eb5c1517fad3a9f7a880ea0fe4d"
+}
