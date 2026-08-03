@@ -12,7 +12,7 @@ import {
   buildRunSpec,
   verifyExecutionReceipt,
 } from "../../cli/lib/runtime/llo-execution-adapter.mjs";
-import { runLloEnvelope } from "../../cli/lib/runtime/llo-client.mjs";
+import { lloProvision, runLloEnvelope } from "../../cli/lib/runtime/llo-client.mjs";
 import {
   LLO_EXECUTION_OPERATIONS,
   lloExecutionRequest,
@@ -184,4 +184,26 @@ test("LLO envelope client rejects an envelope without both generated objects", a
     runLloEnvelope("/run/llo.sock", envelopePath),
     /schema-generated spec and grant/i,
   );
+});
+
+test("LLO provision uses the generated backend and idempotency contract", async () => {
+  let sent;
+  const result = await lloProvision("/run/llo.sock", "microVm", "provision-1", {
+    connect: () => {
+      const socket = new EventEmitter();
+      socket.setEncoding = () => {};
+      socket.write = (line) => {
+        sent = JSON.parse(line);
+        queueMicrotask(() => socket.emit("data", '{"provisioned":true}\n'));
+      };
+      socket.destroy = () => {};
+      return socket;
+    },
+  });
+  assert.deepEqual(sent, {
+    op: "llo_execution_provision",
+    backendClass: "microVm",
+    idempotencyKey: "provision-1",
+  });
+  assert.deepEqual(result, { provisioned: true });
 });

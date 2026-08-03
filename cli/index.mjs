@@ -10,7 +10,7 @@ import { main as pullMain } from "./commands/artifacts-pull.mjs";
 import { main as planMain } from "./commands/runtime-plan.mjs";
 import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
-import { runLloEnvelope } from "./lib/runtime/llo-client.mjs";
+import { lloProvision, runLloEnvelope } from "./lib/runtime/llo-client.mjs";
 import { main as runMain } from "./commands/run.mjs";
 import { renderCommandHelp, renderHelp } from "./surface.mjs";
 import { GlobalOptionsError, parseGlobalOptions } from "./lib/global-options.mjs";
@@ -161,6 +161,39 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     });
   }
   if (command === "runtime" && rest[0] === "storage" && rest[1] === "init") {
+    if (env.CLOISTER_LLO_CONTROL_SOCKET) {
+      const args = rest.slice(2);
+      const backendFlag = args.indexOf("--backend");
+      const backendClass = backendFlag >= 0 ? args[backendFlag + 1] : "microVm";
+      const keyFlag = args.indexOf("--idempotency-key");
+      const idempotencyKey = keyFlag >= 0 ? args[keyFlag + 1] : undefined;
+      if (args.includes("--help") || args.includes("-h")) {
+        log("Usage: cloister runtime storage init --idempotency-key <key> [--backend native|microVm]");
+        return 0;
+      }
+      if (!idempotencyKey || keyFlag + 1 >= args.length || idempotencyKey.startsWith("--")) {
+        error("cloister runtime storage init: --idempotency-key is required for the LLO provider");
+        return 2;
+      }
+      if (backendFlag >= 0 && (!backendClass || backendClass.startsWith("--"))) {
+        error("cloister runtime storage init: --backend requires native or microVm");
+        return 2;
+      }
+      try {
+        const provision = context.lloProvision ?? lloProvision;
+        const response = await provision(
+          env.CLOISTER_LLO_CONTROL_SOCKET,
+          backendClass,
+          idempotencyKey,
+          context,
+        );
+        log(JSON.stringify(response));
+        return 0;
+      } catch (cause) {
+        error(`cloister runtime storage init: ${cause.message}`);
+        return 1;
+      }
+    }
     return storageMain(rest.slice(2), {
       log,
       error,

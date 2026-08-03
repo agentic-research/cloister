@@ -74,6 +74,14 @@ export function lloStatus(socketPath, deps) {
   return callLloJson(socketPath, lloExecutionRequest.status(), deps);
 }
 
+export function lloProvision(socketPath, backendClass = "microVm", idempotencyKey, deps) {
+  return callLloJson(
+    socketPath,
+    lloExecutionRequest.provision(backendClass, idempotencyKey),
+    deps,
+  );
+}
+
 export function lloInspect(socketPath, runId, afterSequence = 0, deps) {
   return callLloJson(socketPath, lloExecutionRequest.inspect(runId, afterSequence), deps);
 }
