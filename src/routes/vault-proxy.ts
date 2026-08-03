@@ -12,6 +12,8 @@
 
 import { checkAccess } from "../../vault/src/vault.js";
 import type { VerifiedLease } from "../routes/lease-middleware.js";
+import { findForbiddenReceiptField } from "./receipt-guard.js";
+import { logEvent } from "../obs/log.js";
 
 /**
  * Discriminated union of injection strategies per
@@ -315,22 +317,59 @@ function emitProxyCallTelemetry(
       tsMs:             args.startMs,
       nonceHex:         generateNonceHex(),
     };
+    // `{ ...receipt }` because `ProxyCallReceipt` is a closed interface with no
+    // index signature — spreading gives the guard a plain record without
+    // widening the receipt type itself, which is the structural guarantee worth
+    // keeping.
+    if (refuseIfForbidden({ ...receipt }, "receipt")) return;
     receipts.emit(receipt);
   }
   if (metrics) {
     // Phase 7 — bounded-cardinality labels only. NEVER include
     // the credential value, request body, query string, or
-    // upstream URL fragments.
-    metrics.emit({
-      name: "vault_proxy_call",
-      labels: {
-        service:        args.cfg.name,
-        peer_fp:        args.peerFp,
-        status:         args.status,
-        injection_kind: args.cfg.injection.kind,
-      },
-    });
+    // upstream URL fragments. That sentence used to be the only
+    // thing enforcing it here — labels are assembled from `args`
+    // and `ProxyCallReceipt`'s type does not constrain them, so
+    // this arm was the weaker of the two. `refuseIfForbidden` is
+    // now the rail (cloister-d7216a).
+    const labels = {
+      service:        args.cfg.name,
+      peer_fp:        args.peerFp,
+      status:         args.status,
+      injection_kind: args.cfg.injection.kind,
+    };
+    if (refuseIfForbidden(labels, "metric")) return;
+    metrics.emit({ name: "vault_proxy_call", labels });
   }
+}
+
+/**
+ * Gate one telemetry row before it leaves the process. Returns `true` when the
+ * row was REFUSED and the caller must not emit it.
+ *
+ * Refuses rather than throws: `emitProxyCallTelemetry` runs in a `finally`
+ * after the upstream response is already in hand, so throwing would convert a
+ * successful proxied call into a 500 for what can only be a code change to the
+ * receipt shape. Per credential-isolation/v1's vector, the requirement is that
+ * a leaky receipt "never reaches the signing key" — dropping it satisfies that;
+ * failing the caller's request does not follow from it.
+ *
+ * Dropping is not silent. A missing receipt is itself meaningful under
+ * Interlace §13.2 ("silence is evidence"), so the refusal is logged at error
+ * level with the offending field NAME — never its value, which is the material
+ * we are refusing to commit in the first place.
+ */
+function refuseIfForbidden(row: Record<string, unknown>, kind: "receipt" | "metric"): boolean {
+  const field = findForbiddenReceiptField(row);
+  if (field === null) return false;
+  logEvent("error", {
+    target:  "vault-proxy",
+    op:      `emit-${kind}`,
+    outcome: "refused",
+    reason:  "forbidden field in telemetry row (credential-isolation/v1)",
+    field,
+  });
+  return true;
 }
 
 // ── Default emitters (cloister-6e888b / X-1 production-readiness) ────────
