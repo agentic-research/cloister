@@ -90,3 +90,13 @@ test("LLO envelope client sends only schema-bound spec and grant over UDS", asyn
   });
   assert.deepEqual(result, response);
 });
+
+test("LLO envelope client rejects an envelope without both generated objects", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cloister-llo-"));
+  const envelopePath = join(root, "invalid.json");
+  writeFileSync(envelopePath, JSON.stringify({ spec: {} }));
+  await assert.rejects(
+    runLloEnvelope("/run/llo.sock", envelopePath),
+    /schema-generated spec and grant/i,
+  );
+});

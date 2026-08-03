@@ -53,7 +53,14 @@ export function callLloJson(socketPath, request, deps = {}) {
         { socketPath, request },
       ));
     });
-    socket.write(`${JSON.stringify(request)}\n`);
+    try {
+      socket.write(`${JSON.stringify(request)}\n`);
+    } catch (error) {
+      finish(reject, new LloClientError(
+        `unable to send request to LLO execution socket ${socketPath}: ${error.message}`,
+        { socketPath, request, cause: error },
+      ));
+    }
   });
 }
 
