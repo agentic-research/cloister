@@ -665,16 +665,40 @@ export function parseVaultProxyPath(
   const tail = pathname.slice(PREFIX.length);
   const firstSlash = tail.indexOf("/");
   if (firstSlash === -1) {
-    // /vault/proxy/<service> with no upstream path — valid; upstream
-    // path is "/" (the upstream's root resource).
-    return tail.length === 0
-      ? null
-      : { service: tail, upstreamPath: "/" };
+    // /vault/proxy/<service> with no upstream path. The canonical service-root
+    // upstream path is the EMPTY STRING, not "/", per
+    // leyline-schema-spec/credential-isolation/v1 path-parsing vectors
+    // (happy_service_root_no_trailing_slash). cloister returned "/" here and
+    // pinned it in a test; the change is unobservable upstream because the
+    // value is concatenated as `baseUrl.replace(/\/+$/,"") + upstreamPath` and
+    // both forms normalize to the same URL — but it makes `/vault/proxy/svc`
+    // and `/vault/proxy/svc/` distinguishable, which the receipt records.
+    return isValidServiceName(tail) ? { service: tail, upstreamPath: "" } : null;
   }
   const service = tail.slice(0, firstSlash);
   const upstreamPath = tail.slice(firstSlash); // includes leading slash
-  if (service.length === 0) return null;
+  if (!isValidServiceName(service)) return null;
   return { service, upstreamPath };
+}
+
+/**
+ * `[a-z0-9][a-z0-9._-]{0,62}` — the service-name grammar from
+ * credential-isolation/v1's path-parsing vectors.
+ *
+ * Case-sensitive by requirement, not by accident. The vector's rationale:
+ * "case-sensitivity in service names would create lookup hazards (manifest
+ * entries are lowercase by convention; accepting OpenAI would either silently
+ * miss the openai entry or silently equate them, both bad)." Rejecting is the
+ * only option that is neither silent miss nor silent equate.
+ *
+ * Rejection is uniform `null` at the call sites, indistinguishable from a
+ * malformed prefix. That is deliberate: every rejection on this surface
+ * collapses into one constant-time 404 so the proxy cannot be used to
+ * enumerate which services exist, so a discriminated reject kind would be a
+ * channel that has to be kept closed rather than a feature.
+ */
+function isValidServiceName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,62}$/.test(name);
 }
 
 /**
