@@ -752,9 +752,33 @@ export const SHAPE_U_ERROR_BODY = JSON.stringify({
  * Retry-After + other forward-relevant headers from the source
  * Response are preserved.
  */
+/**
+ * Response headers the proxy CONTROLS on every response it emits — never
+ * copied from upstream. Per credential-isolation/v1
+ * `wire/proxy-envelope.md` §"Response" and its reserved-response-headers
+ * vector. Compared case-insensitively on the wire (HTTP §3.2).
+ *
+ * `Interlace-Receipt` is listed because the contract reserves it, NOT because
+ * cloister emits it yet — that needs the master Ed25519 signing key the
+ * vault-proxy handler does not have (see the known-gap test in
+ * test/routes/vault-proxy-reserved-headers.test.ts).
+ */
+export const RESERVED_RESPONSE_HEADERS: readonly string[] = Object.freeze([
+  "Interlace-Receipt",
+  "Server",
+]);
+
+/**
+ * The fixed `Server` value. Overwrites whatever the upstream sent, so a
+ * response never advertises which origin actually answered — passing
+ * `Server: nginx/1.23` through would make the proxy a fingerprinting oracle
+ * for the upstream fleet.
+ */
+export const PROXY_SERVER_HEADER_VALUE = "cloister/credential-isolation/v1";
+
 export async function collapseWireShape(res: Response): Promise<Response> {
   const status = res.status;
-  if (status >= 200 && status < 400) return res;
+  if (status >= 200 && status < 400) return stampReservedHeaders(res);
 
   const isAccessFailure   = status === 401 || status === 403 || status === 404 || status === 429;
   const isUpstreamFailure = status === 502 || status === 503;
@@ -768,7 +792,24 @@ export async function collapseWireShape(res: Response): Promise<Response> {
   const extra: Record<string, string> = {};
   const retryAfter = res.headers.get("retry-after");
   if (retryAfter) extra["retry-after"] = retryAfter;
-  return errorResponse(status, canonicalBody, extra);
+  return stampReservedHeaders(errorResponse(status, canonicalBody, extra));
+}
+
+/**
+ * Set the proxy-controlled response headers, overwriting anything upstream
+ * sent under the same names. Every other header passes through untouched —
+ * the vector calls out Content-Type / Content-Length / Transfer-Encoding /
+ * Set-Cookie specifically, because body framing breaks if any are mutated.
+ *
+ * Applied to error responses too. The vector's cases are success-shaped, but
+ * `Server` identifies the proxy on every response it emits; a FIXED value
+ * cannot leak anything through the constant-time error path, while omitting it
+ * there would turn the header into a success-only signal.
+ */
+function stampReservedHeaders(res: Response): Response {
+  const headers = new Headers(res.headers);
+  headers.set("Server", PROXY_SERVER_HEADER_VALUE);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /**
