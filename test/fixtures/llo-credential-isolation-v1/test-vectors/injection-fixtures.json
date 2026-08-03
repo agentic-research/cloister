@@ -1,0 +1,131 @@
+{
+  "$comment": "Five injection strategies × happy-path. Each case fixes the (skill request, credential, upstream base, strategy params) and pins the byte-exact upstream request the proxy MUST produce. A conformant impl reaches the same headers / url / body for every case. All credential values here are fake (FAKE / FAKEDEMO patterns) — secret scanners flagging this corpus are over-fitting.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "openai_chat_completion",
+      "description": "authorizationBearer: OpenAI chat-completion call. Adds Authorization: Bearer <secret> alongside the skill's Content-Type. Existing skill headers preserved.",
+      "strategy": "authorizationBearer",
+      "inputs": {
+        "credential": "sk-test-FAKEDEMO0123456789abcdef",
+        "upstream_base": "https://api.openai.com",
+        "strategy_params": {},
+        "skill_request": {
+          "method": "POST",
+          "upstream_path": "v1/chat/completions",
+          "query": "",
+          "headers": {"Content-Type": "application/json"},
+          "body": "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+        }
+      },
+      "expected_upstream_request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer sk-test-FAKEDEMO0123456789abcdef",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+      }
+    },
+    {
+      "name": "legacy_basic_oauth1ish",
+      "description": "authorizationBasic: older OAuth1-style service that wants Basic auth. Credential is the password half; user comes from strategy_params.basic_user. Empty body (GET) is preserved.",
+      "strategy": "authorizationBasic",
+      "inputs": {
+        "credential": "s3cr3t-pass-FAKE",
+        "upstream_base": "https://legacy.example.com",
+        "strategy_params": {"basic_user": "svc-account-42"},
+        "skill_request": {
+          "method": "GET",
+          "upstream_path": "api/v2/account",
+          "query": "",
+          "headers": {"Accept": "application/json"},
+          "body": ""
+        }
+      },
+      "expected_upstream_request": {
+        "method": "GET",
+        "url": "https://legacy.example.com/api/v2/account",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Basic c3ZjLWFjY291bnQtNDI6czNjcjN0LXBhc3MtRkFLRQ=="
+        },
+        "body": ""
+      }
+    },
+    {
+      "name": "anthropic_messages",
+      "description": "headerNamed: Anthropic's x-api-key. The proxy adds the named header verbatim — case preserved, not URL-encoded. Existing skill-supplied headers of the same name would be overwritten (vault-injected value wins); this case shows two distinct headers staying side-by-side.",
+      "strategy": "headerNamed",
+      "inputs": {
+        "credential": "sk-ant-FAKEDEMO-abcdef0123",
+        "upstream_base": "https://api.anthropic.com",
+        "strategy_params": {"header_name": "x-api-key"},
+        "skill_request": {
+          "method": "POST",
+          "upstream_path": "v1/messages",
+          "query": "",
+          "headers": {"Content-Type": "application/json", "anthropic-version": "2023-06-01"},
+          "body": "{\"model\":\"claude-3-5-sonnet-latest\",\"max_tokens\":4}"
+        }
+      },
+      "expected_upstream_request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "sk-ant-FAKEDEMO-abcdef0123"
+        },
+        "body": "{\"model\":\"claude-3-5-sonnet-latest\",\"max_tokens\":4}"
+      }
+    },
+    {
+      "name": "legacy_google_apikey",
+      "description": "queryParam: legacy Google-API-style ?key=<secret>. The skill's existing query string (address=...) is preserved; the credential param is appended with '&'. Credential is URL-encoded per RFC 3986 — special chars (&, =) MUST be percent-encoded so they don't break parsing.",
+      "strategy": "queryParam",
+      "inputs": {
+        "credential": "AIzaFAKE-1234567890&special=chars",
+        "upstream_base": "https://maps.googleapis.com",
+        "strategy_params": {"param_name": "key"},
+        "skill_request": {
+          "method": "GET",
+          "upstream_path": "maps/api/geocode/json",
+          "query": "address=1600+Amphitheatre+Parkway",
+          "headers": {},
+          "body": ""
+        }
+      },
+      "expected_upstream_request": {
+        "method": "GET",
+        "url": "https://maps.googleapis.com/maps/api/geocode/json?address=1600+Amphitheatre+Parkway&key=AIzaFAKE-1234567890%26special%3Dchars",
+        "headers": {},
+        "body": ""
+      }
+    },
+    {
+      "name": "oauth2_client_credentials",
+      "description": "bodyField: OAuth2 client_credentials grant. The proxy parses the JSON body, sets the credential at the named JSONPath ('client_secret'), and re-serializes with sort_keys=True + separators=(',', ':') for byte stability. Existing skill body fields are preserved; the credential field is added (or overwritten if present).",
+      "strategy": "bodyField",
+      "inputs": {
+        "credential": "client-secret-FAKEDEMO-9999",
+        "upstream_base": "https://oauth.example.com",
+        "strategy_params": {"json_path": "client_secret"},
+        "skill_request": {
+          "method": "POST",
+          "upstream_path": "token",
+          "query": "",
+          "headers": {"Content-Type": "application/json"},
+          "body": "{\"grant_type\":\"client_credentials\",\"client_id\":\"app-id-1\"}"
+        }
+      },
+      "expected_upstream_request": {
+        "method": "POST",
+        "url": "https://oauth.example.com/token",
+        "headers": {"Content-Type": "application/json"},
+        "body": "{\"client_id\":\"app-id-1\",\"client_secret\":\"client-secret-FAKEDEMO-9999\",\"grant_type\":\"client_credentials\"}"
+      }
+    }
+  ]
+}
