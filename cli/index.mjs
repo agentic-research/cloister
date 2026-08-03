@@ -179,6 +179,12 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         error("cloister runtime storage init: --backend requires native or microVm");
         return 2;
       }
+      const known = new Set(["--backend", backendClass, "--idempotency-key", idempotencyKey]);
+      const unknown = args.find((arg) => !known.has(arg));
+      if (unknown) {
+        error(`cloister runtime storage init: unknown argument ${unknown}`);
+        return 2;
+      }
       try {
         const provision = context.lloProvision ?? lloProvision;
         const response = await provision(
