@@ -29,6 +29,16 @@ export const LLO_EXECUTION_OPERATIONS = Object.freeze(
   GENERATED_TOOLS.map((tool) => tool.name),
 );
 
+const OPERATION_BY_SUFFIX = new Map(
+  LLO_EXECUTION_OPERATIONS.map((name) => [name.slice("llo_execution_".length), name]),
+);
+
+function operation(suffix) {
+  const name = OPERATION_BY_SUFFIX.get(suffix);
+  if (!name) throw new Error(`generated LLO execution operation is missing: ${suffix}`);
+  return name;
+}
+
 export function lloExecutionTools() {
   return GENERATED_TOOLS.map((tool) => structuredClone(tool));
 }
@@ -67,6 +77,9 @@ function validateValue(value, schema, root, path) {
   }
   if (Array.isArray(resolved.enum) && !resolved.enum.includes(value)) {
     throw new TypeError(`${path} has an invalid enum value`);
+  }
+  if (typeof resolved.minimum === "number" && typeof value === "number" && value < resolved.minimum) {
+    throw new TypeError(`${path} must be >= ${resolved.minimum}`);
   }
   switch (resolved.type) {
     case "object": {
@@ -132,30 +145,30 @@ export function validateLloExecutionRequest(value) {
 }
 
 export const lloExecutionRequest = Object.freeze({
-  capabilities: () => request(LLO_EXECUTION_OPERATIONS[0]),
-  status: (runId = "") => request("llo_execution_status", { runId }),
+  capabilities: () => request(operation("capabilities")),
+  status: (runId = "") => request(operation("status"), { runId }),
   provision: (backendClass, idempotencyKey) => request(
-    "llo_execution_provision",
+    operation("provision"),
     { backendClass, idempotencyKey },
   ),
   start: (spec, grant) => request(
-    "llo_execution_start",
+    operation("start"),
     {
       spec: requireObject(spec, "LLO execution spec"),
       grant: requireObject(grant, "LLO execution grant"),
     },
   ),
   inspect: (runId, afterSequence = 0) => request(
-    "llo_execution_inspect",
+    operation("inspect"),
     { runId, afterSequence },
   ),
   cancel: (runId, idempotencyKey = "") => request(
-    "llo_execution_cancel",
+    operation("cancel"),
     { runId, idempotencyKey },
   ),
-  collect: (runId) => request("llo_execution_collect", { runId }),
+  collect: (runId) => request(operation("collect"), { runId }),
   cleanup: (runId, idempotencyKey = "") => request(
-    "llo_execution_cleanup",
+    operation("cleanup"),
     { runId, idempotencyKey },
   ),
 });

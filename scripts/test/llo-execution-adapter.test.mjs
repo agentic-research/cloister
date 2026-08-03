@@ -55,6 +55,10 @@ test("Cloister derives LLO operation names from the generated artifact", () => {
     () => lloExecutionRequest.start({}, null),
     /grant must be an object/i,
   );
+  assert.throws(
+    () => lloExecutionRequest.inspect("run-1", -1),
+    /afterSequence must be >= 0/i,
+  );
 });
 
 const REQUEST = {
