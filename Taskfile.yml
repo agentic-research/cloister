@@ -119,15 +119,14 @@ tasks:
     generates:
       - target/release/cloister-harness
 
-  spike:libkrun:
-    desc: "cloister-b28416 — libkrun VMM-embed proof (ADR-0044/0046). Boots an Alpine microVM on HVF, proves guest fs reads+writes forward to a host dir (mediate-below-stock-libkrun). macOS+libkrun only; SKIPs elsewhere. NOT a CI gate (runners lack HVF/KVM). Prereq: brew tap slp/krun && brew install krunvm."
-    cmds:
-      - bash tools/libkrun-spike/run-spike.sh
-
-  spike:libkrun:mediated:
-    desc: "cloister-e87760 — the ADR-0044/0046 KEYSTONE proof. Boots the microVM with its virtio-fs backed by the ConfinementGraph MEDIATOR's NFS (not a passthrough) and proves the guest fs traverses the mediator: allowed skill served + recorded, policy-denied path blocked in-guest. macOS+libkrun+sudo only; SKIPs elsewhere. NOT a CI gate. Prereq: run spike:libkrun once (fetches rootfs)."
-    cmds:
-      - bash tools/libkrun-spike/run-mediated.sh
+  # `spike:libkrun` + `spike:libkrun:mediated` lived here and are DELETED with
+  # tools/libkrun-spike (cloister-5624e8). They proved ADR-0044/0046's
+  # mediate-below-stock-libkrun thesis on demand, and that proof has moved: LLO
+  # embeds libkrun via FFI (ley-line-open-f839c1) rather than booting it from a
+  # shell script, and ley-line-open-984acf ships the entitled macOS worker.
+  # ADR-0049's 2026-07-31 amendment is the decision — cloister keeps policy,
+  # authorization, audit and the CLI; LLO owns the execution runtime. Do not
+  # re-add a spike here; extend LLO's backend and consume it over execution/v1.
 
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. Run after cluster.capnp schema edits; `cluster:zod:check-drift` (in `task lint`) fails if you forget."
