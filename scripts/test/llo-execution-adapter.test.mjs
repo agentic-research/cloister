@@ -20,8 +20,13 @@ import {
 } from "../../cli/lib/runtime/llo-execution-contract.mjs";
 
 test("the checked-in LLO execution artifact matches its content pin", () => {
-  const lock = JSON.parse(readFileSync(new URL("../../llo-execution-contract.lock.json", import.meta.url), "utf8"));
-  const artifact = readFileSync(new URL("../../src/generated/llo-execution-tools.json", import.meta.url));
+  const lock = JSON.parse(readFileSync(
+    new URL("../../llo-execution-contract.lock.json", import.meta.url),
+    "utf8",
+  ));
+  const artifact = readFileSync(
+    new URL("../../src/generated/llo-execution-tools.json", import.meta.url),
+  );
   const digest = createHash("sha256").update(artifact).digest("hex");
   assert.equal(digest, lock.sha256);
   assert.equal(lock.artifact, "src/generated/llo-execution-tools.json");
