@@ -10,6 +10,7 @@ import { main as pullMain } from "./commands/artifacts-pull.mjs";
 import { main as planMain } from "./commands/runtime-plan.mjs";
 import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
+import { runLloEnvelope } from "./lib/runtime/llo-client.mjs";
 import { main as runMain } from "./commands/run.mjs";
 import { renderCommandHelp, renderHelp } from "./surface.mjs";
 import { GlobalOptionsError, parseGlobalOptions } from "./lib/global-options.mjs";
@@ -136,6 +137,19 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     }
   }
   if (command === "runtime" && rest[0] === "run") {
+    if (env.CLOISTER_LLO_CONTROL_SOCKET) {
+      try {
+        const response = await runLloEnvelope(
+          env.CLOISTER_LLO_CONTROL_SOCKET,
+          rest[1],
+        );
+        log(JSON.stringify(response));
+        return 0;
+      } catch (cause) {
+        error(`cloister runtime run: ${cause.message}`);
+        return 1;
+      }
+    }
     return runHostRuntime(["run", ...rest.slice(1)], {
       errLog: error,
       env,

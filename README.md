@@ -265,6 +265,24 @@ still requires explicit operator consent, and the current microVM path
 is coarse process/tool isolation—not the proposed per-operation
 LLO/FUSE capability escalation.
 
+### LLO execution provider (opt-in)
+
+When an LLO execution daemon is available, point Cloister at its owner-only
+UDS instead of installing the compatibility provider:
+
+```sh
+export CLOISTER_LLO_CONTROL_SOCKET=/run/leyline/execution.sock
+cloister runtime doctor
+cloister runtime storage status --json
+cloister runtime run /path/to/execution-envelope.json
+```
+
+The envelope must contain the schema-bridge-generated `spec` and `grant`
+objects for `cloister/execution/v1`. In this mode doctor, status, and run use
+the LLO UDS directly; Cloister does not spawn `krunvm` or Taskfile. LLO owns
+rootfs resolution, nono/libkrun, lifecycle, and receipts. The compatibility
+provider remains the fallback when this variable is unset.
+
 ## What cloister is NOT
 
 So you can decide whether to keep reading, here's what cloister

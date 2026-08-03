@@ -7,6 +7,7 @@ import { resolveInstallLayout } from "../lib/install-layout.mjs";
 import {
   runCompatibilityJson as invokeCompatibilityJson,
 } from "../lib/runtime/compatibility-client.mjs";
+import { lloCapabilities, lloStatus } from "../lib/runtime/llo-client.mjs";
 import { RuntimeProviderError } from "../lib/runtime/provider-record.mjs";
 import { renderCommandHelp } from "../surface.mjs";
 
@@ -40,7 +41,9 @@ function renderStorageStatus(status, log) {
     log(`Provider: ${status.provider} (${status.maturity})`);
     log(`Backend: ${backendLabel(status.backend)}`);
     log(`Storage: ${status.storageVolume}`);
-    log("Run: cloister runtime storage init");
+    log(status.provider === "llo"
+      ? "Provision through the LLO execution/v1 provider"
+      : "Run: cloister runtime storage init");
     return;
   }
 
@@ -70,6 +73,24 @@ function doctorReport(invocation) {
       hostRuntimeDigest: record?.artifacts?.hostRuntime?.sha256 ?? null,
     },
     checks: invocation.data,
+  };
+}
+
+function lloDoctorReport(capabilities) {
+  const names = Array.isArray(capabilities?.capabilities)
+    ? capabilities.capabilities.map((entry) => entry.name)
+    : [];
+  return {
+    schema: "cloister/runtime-doctor/v1",
+    provider: {
+      name: "llo",
+      maturity: "native",
+      transport: "uds",
+      apiVersion: "cloister/execution/v1",
+      backends: names.filter((name) => name?.startsWith("backend/")),
+      hostRuntimeDigest: null,
+    },
+    checks: { llo: capabilities },
   };
 }
 
@@ -103,6 +124,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   const errLog = deps.errLog ?? console.error;
   const env = deps.env ?? process.env;
   const runCompatibilityJson = deps.runCompatibilityJson ?? invokeCompatibilityJson;
+  const lloSocket = env.CLOISTER_LLO_CONTROL_SOCKET;
+  const runLloCapabilities = deps.lloCapabilities ?? lloCapabilities;
+  const runLloStatus = deps.lloStatus ?? lloStatus;
   const [sub, ...rest] = argv;
 
   if (sub === "--help" || sub === "-h") {
@@ -117,10 +141,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     let json;
     try {
       json = parseJsonOnly(rest, "cloister runtime doctor");
-      const report = doctorReport(runCompatibilityJson(["doctor"], {
-        env,
-        spawnSync: deps.spawnSync,
-      }));
+      const report = lloSocket
+        ? lloDoctorReport(await runLloCapabilities(lloSocket, deps))
+        : doctorReport(runCompatibilityJson(["doctor"], {
+          env,
+          spawnSync: deps.spawnSync,
+        }));
       if (json) log(JSON.stringify(report, null, 2));
       else renderDoctor(report, log);
       return 0;
@@ -136,10 +162,24 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     }
     try {
       const json = parseJsonOnly(rest.slice(1), "cloister runtime storage status");
-      const { data } = runCompatibilityJson(["status"], {
-        env,
-        spawnSync: deps.spawnSync,
-      });
+      let data;
+      if (lloSocket) {
+        const value = await runLloStatus(lloSocket, deps);
+        data = {
+          state: value.provisioned ? "prepared" : "notPrepared",
+          provider: "llo",
+          maturity: "native",
+          backend: value.backend || "unavailable",
+          storageVolume: "managed by LLO",
+          trackedRuns: null,
+          runningRuns: null,
+        };
+      } else {
+        data = runCompatibilityJson(["status"], {
+          env,
+          spawnSync: deps.spawnSync,
+        }).data;
+      }
       if (json) log(JSON.stringify(data, null, 2));
       else renderStorageStatus(data, log);
       return 0;

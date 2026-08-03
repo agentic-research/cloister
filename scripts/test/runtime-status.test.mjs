@@ -122,3 +122,51 @@ test("runtime doctor names the provider boundary and verified artifact", async (
   assert.match(text, new RegExp(`Host runtime digest: ${"a".repeat(64)}`));
   assert.match(text, /Storage: notPrepared/);
 });
+
+test("LLO doctor uses the UDS capability provider without spawning a runtime", async () => {
+  const lines = [];
+  const status = await runtimeMain(["doctor", "--json"], {
+    env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(`ERR:${line}`),
+    lloCapabilities: async (socket) => {
+      assert.equal(socket, "/run/llo.sock");
+      return { capabilities: [
+        { name: "cloister/execution/v1", version: "v1" },
+        { name: "backend/microvm", version: "libkrun/1" },
+      ] };
+    },
+    runCompatibilityJson: () => { throw new Error("compatibility provider must not be called"); },
+  });
+
+  assert.equal(status, 0);
+  const report = JSON.parse(lines[0]);
+  assert.equal(report.provider.name, "llo");
+  assert.equal(report.provider.transport, "uds");
+  assert.deepEqual(report.provider.backends, ["backend/microvm"]);
+});
+
+test("LLO storage status is a read-only UDS observation", async () => {
+  const lines = [];
+  const status = await runtimeMain(["storage", "status", "--json"], {
+    env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(`ERR:${line}`),
+    lloStatus: async (socket) => {
+      assert.equal(socket, "/run/llo.sock");
+      return { provisioned: false, backend: "libkrun/1" };
+    },
+    runCompatibilityJson: () => { throw new Error("compatibility provider must not be called"); },
+  });
+
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    state: "notPrepared",
+    provider: "llo",
+    maturity: "native",
+    backend: "libkrun/1",
+    storageVolume: "managed by LLO",
+    trackedRuns: null,
+    runningRuns: null,
+  });
+});

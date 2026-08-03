@@ -2,11 +2,16 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   buildRunSpec,
   verifyExecutionReceipt,
 } from "../../cli/lib/runtime/llo-execution-adapter.mjs";
+import { runLloEnvelope } from "../../cli/lib/runtime/llo-client.mjs";
 
 const REQUEST = {
   artifactRef: "sha256:artifact",
@@ -57,4 +62,31 @@ test("unverified evidence is available only through an explicit fixture downgrad
     localFixture: true,
   });
   assert.equal(accepted, receipt);
+});
+
+test("LLO envelope client sends only schema-bound spec and grant over UDS", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cloister-llo-"));
+  const envelopePath = join(root, "execution.json");
+  const request = { spec: { schemaVersion: "cloister/execution/v1" }, grant: { grantId: "g-1" } };
+  writeFileSync(envelopePath, JSON.stringify(request));
+  let sent;
+  const response = { runId: "run-1", state: "running" };
+  const result = await runLloEnvelope("/run/llo.sock", envelopePath, {
+    connect: () => {
+      const socket = new EventEmitter();
+      socket.setEncoding = () => {};
+      socket.write = (line) => {
+        sent = JSON.parse(line);
+        queueMicrotask(() => socket.emit("data", `${JSON.stringify(response)}\n`));
+      };
+      socket.destroy = () => {};
+      return socket;
+    },
+  });
+  assert.deepEqual(sent, {
+    op: "llo_execution_start",
+    spec: request.spec,
+    grant: request.grant,
+  });
+  assert.deepEqual(result, response);
 });
