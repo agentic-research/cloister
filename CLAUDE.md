@@ -121,6 +121,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
+| `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a

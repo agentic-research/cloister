@@ -1034,6 +1034,13 @@ tasks:
       - "docs/**/*.md"
       - CLAUDE.md
 
+  lint:sibling-bead-refs:
+    desc: "cloister-4c057a rail — a sibling repo's ADR must not decide work we hold OPEN without us noticing. ley-line-open ADR-0035's Related block reads `cloister-043eb8 (multi-root — resolved by §4 below)`; the bead was open here, a cloister ADR arguing the WRONG answer got drafted, and nothing surfaced that LLO had already settled it with a third option neither side proposed. Second instance of the class — the first designed ADR-0045 work that had shipped in LLO a month earlier. A rule stated twice and violated twice is not a rule anyone is enforcing. Scans the sibling's ADRs (main tree + `.worktrees/*`, because a decision reaches us before it reaches their default branch) for `cloister-<hex>` and FAILS when one names an open bead. A referenced bead we never had is REPORTED, not fatal — that is the sibling's rot, and failing our gate on their typo trains people to bypass the gate. Skips with exit 0 when no LLO checkout, like lint:spec-citation."
+    cmds:
+      - node scripts/lint-sibling-bead-refs.mjs
+    sources:
+      - scripts/lint-sibling-bead-refs.mjs
+
   lint:harness-target-literals:
     desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
     cmds:
@@ -1235,7 +1242,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
