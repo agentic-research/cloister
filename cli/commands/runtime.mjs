@@ -7,7 +7,14 @@ import { resolveInstallLayout } from "../lib/install-layout.mjs";
 import {
   runCompatibilityJson as invokeCompatibilityJson,
 } from "../lib/runtime/compatibility-client.mjs";
-import { lloCapabilities, lloStatus } from "../lib/runtime/llo-client.mjs";
+import {
+  lloCapabilities,
+  lloStatus,
+  lloInspect,
+  lloCollect,
+  lloCancel,
+  lloCleanup,
+} from "../lib/runtime/llo-client.mjs";
 import { RuntimeProviderError } from "../lib/runtime/provider-record.mjs";
 import { renderCommandHelp } from "../surface.mjs";
 
@@ -127,6 +134,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   const lloSocket = env.CLOISTER_LLO_CONTROL_SOCKET;
   const runLloCapabilities = deps.lloCapabilities ?? lloCapabilities;
   const runLloStatus = deps.lloStatus ?? lloStatus;
+  const runLloInspect = deps.lloInspect ?? lloInspect;
+  const runLloCollect = deps.lloCollect ?? lloCollect;
+  const runLloCancel = deps.lloCancel ?? lloCancel;
+  const runLloCleanup = deps.lloCleanup ?? lloCleanup;
   const [sub, ...rest] = argv;
 
   if (sub === "--help" || sub === "-h") {
@@ -182,6 +193,46 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       }
       if (json) log(JSON.stringify(data, null, 2));
       else renderStorageStatus(data, log);
+      return 0;
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      return reportRuntimeError(error, errLog);
+    }
+  }
+  if (["inspect", "collect", "cancel", "cleanup"].includes(sub)) {
+    if (!lloSocket) {
+      errLog(`cloister runtime ${sub}: set CLOISTER_LLO_CONTROL_SOCKET to use the LLO provider`);
+      return 2;
+    }
+    const runId = rest[0];
+    if (!runId || rest.includes("--help") || rest.includes("-h")) {
+      errLog(`cloister runtime ${sub}: expected <run-id>`);
+      return 2;
+    }
+    const cursor = sub === "inspect" ? Number(rest[1] ?? 0) : 0;
+    if (sub === "inspect" && (!Number.isInteger(cursor) || cursor < 0)) {
+      errLog("cloister runtime inspect: expected a non-negative integer after-sequence");
+      return 2;
+    }
+    const keyFlag = rest.indexOf("--idempotency-key");
+    const idempotencyKey = keyFlag >= 0 ? rest[keyFlag + 1] : undefined;
+    if (keyFlag >= 0 && (!idempotencyKey || keyFlag + 1 >= rest.length)) {
+      errLog(`cloister runtime ${sub}: --idempotency-key requires a value`);
+      return 2;
+    }
+    if ((sub === "cancel" || sub === "cleanup") && !idempotencyKey) {
+      errLog(`cloister runtime ${sub}: --idempotency-key is required`);
+      return 2;
+    }
+    try {
+      const value = sub === "inspect"
+        ? await runLloInspect(lloSocket, runId, cursor, deps)
+        : sub === "collect"
+          ? await runLloCollect(lloSocket, runId, deps)
+            : sub === "cancel"
+            ? await runLloCancel(lloSocket, runId, idempotencyKey ?? "", deps)
+            : await runLloCleanup(lloSocket, runId, idempotencyKey ?? "", deps);
+      log(JSON.stringify(value));
       return 0;
     } catch (error) {
       if (!(error instanceof Error)) throw error;

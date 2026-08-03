@@ -72,6 +72,28 @@ export function lloStatus(socketPath, deps) {
   return callLloJson(socketPath, { op: "llo_execution_status", runId: "" }, deps);
 }
 
+export function lloInspect(socketPath, runId, afterSequence = 0, deps) {
+  return callLloJson(socketPath, {
+    op: "llo_execution_inspect", runId, afterSequence,
+  }, deps);
+}
+
+export function lloCollect(socketPath, runId, deps) {
+  return callLloJson(socketPath, { op: "llo_execution_collect", runId }, deps);
+}
+
+export function lloCancel(socketPath, runId, idempotencyKey = "", deps) {
+  return callLloJson(socketPath, {
+    op: "llo_execution_cancel", runId, idempotencyKey,
+  }, deps);
+}
+
+export function lloCleanup(socketPath, runId, idempotencyKey = "", deps) {
+  return callLloJson(socketPath, {
+    op: "llo_execution_cleanup", runId, idempotencyKey,
+  }, deps);
+}
+
 export async function runLloEnvelope(socketPath, envelopePath, deps) {
   let envelope;
   try {

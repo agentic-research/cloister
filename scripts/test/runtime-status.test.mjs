@@ -170,3 +170,45 @@ test("LLO storage status is a read-only UDS observation", async () => {
     runningRuns: null,
   });
 });
+
+test("LLO lifecycle commands use the UDS provider and explicit cancellation keys", async () => {
+  const calls = [];
+  const run = async (argv, method) => {
+    const lines = [];
+    const status = await runtimeMain(argv, {
+      env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+      log: (line) => lines.push(line),
+      errLog: (line) => lines.push(`ERR:${line}`),
+      [method]: async (...args) => {
+        calls.push(args);
+        return { ok: true, op: method };
+      },
+    });
+    assert.equal(status, 0);
+    assert.deepEqual(JSON.parse(lines[0]), { ok: true, op: method });
+  };
+
+  await run(["inspect", "run-1", "7"], "lloInspect");
+  await run(["collect", "run-1"], "lloCollect");
+  await run(["cancel", "run-1", "--idempotency-key", "cancel-1"], "lloCancel");
+  await run(["cleanup", "run-1", "--idempotency-key", "cleanup-1"], "lloCleanup");
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls.map((args) => args.slice(0, -1)), [
+    ["/run/llo.sock", "run-1", 7],
+    ["/run/llo.sock", "run-1"],
+    ["/run/llo.sock", "run-1", "cancel-1"],
+    ["/run/llo.sock", "run-1", "cleanup-1"],
+  ]);
+});
+
+test("LLO cancellation fails closed without an idempotency key", async () => {
+  const lines = [];
+  const status = await runtimeMain(["cancel", "run-1"], {
+    env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(line),
+    lloCancel: () => { throw new Error("must not call LLO"); },
+  });
+  assert.equal(status, 2);
+  assert.match(lines[0], /idempotency-key is required/);
+});

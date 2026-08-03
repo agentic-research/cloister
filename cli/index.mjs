@@ -111,6 +111,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     command === "runtime" && (
       rest[0] === "install" ||
       rest[0] === "doctor" ||
+      ["inspect", "collect", "cancel", "cleanup"].includes(rest[0]) ||
       (rest[0] === "storage" && rest[1] === "status")
     )
   ) {
@@ -130,6 +131,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       "runtime doctor",
       "runtime storage status",
       "runtime storage gc",
+      "runtime inspect",
+      "runtime collect",
+      "runtime cancel",
+      "runtime cleanup",
     ];
     if (declared.includes(helpName)) {
       log(renderCommandHelp(helpName));
