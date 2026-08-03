@@ -1,45 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Cloister-owned policy adapter for LLO execution/v1.
+ * Cloister-side receipt gate for LLO-executed runs.
  *
- * This module deliberately knows the neutral request shape, but not LLO's
- * transport or Rust types. The generated client will be injected at the next
- * seam; keeping this mapping pure makes the policy boundary testable now.
+ * WHAT IS DELIBERATELY NOT HERE: a RunSpec builder.
+ *
+ * The run request is `cloister/execution/v1`, whose canonical schema is owned by
+ * ley-line-open (`schema-spec/execution/v1/execution.capnp`). Cloister consumes
+ * it through schema-bridge — the path that produces `src/generated/cluster.zod.ts`
+ * — and does not enumerate its fields by hand. Per ADR-0063.
+ *
+ * This module previously carried a hand-written ten-field RunSpec. The canonical
+ * struct has eleven fields and shares NONE of those ten names, so the mapping
+ * emitted an object the contract rejects outright — and cloister's full gate
+ * passed green the whole time. That is the cost of mirroring a schema you do not
+ * own. It is not reconstructable from memory or inference; it is generated or it
+ * is wrong.
+ *
+ * The builder returns when LLO publishes `execution/v1` to a tagged release and
+ * schema-bridge emits TypeScript for it (`ley-line-open-6d811a`, tracked here as
+ * `cloister-3e86e8`). It will model THREE structs, not one — RunSpec is intent
+ * and explicitly "is not authority", RunGrant is the resolved authority bound to
+ * a RunSpec digest, RunReceipt is terminal evidence. See ADR-0063 §2.
+ *
+ * What remains below is the half that does not depend on the wire shape: nothing
+ * is accepted as evidence of a run without something that verifies it.
  */
-
-// execution/v1's field set. Every field is required and no field is optional,
-// so this ONE list answers both questions the mapping asks — "is anything
-// missing" and "is anything undeclared". Two lists would imply they can
-// diverge; they cannot.
-const FIELDS = [
-  "artifactRef",
-  "entrypoint",
-  "argv",
-  "workspaceGrant",
-  "isolation",
-  "filesystem",
-  "network",
-  "resources",
-  "secrets",
-  "receiptDestination",
-];
-const FIELD_SET = new Set(FIELDS);
-
-export function buildRunSpec(policy) {
-  if (!policy || typeof policy !== "object") {
-    throw new TypeError("execution policy must be an object");
-  }
-  for (const field of FIELDS) {
-    if (!(field in policy)) throw new TypeError(`execution policy is missing ${field}`);
-  }
-  for (const field of Object.keys(policy)) {
-    if (!FIELD_SET.has(field)) {
-      throw new TypeError(`unknown execution policy field ${JSON.stringify(field)}`);
-    }
-  }
-  return { schema: "execution/v1", ...structuredClone(policy) };
-}
 
 /**
  * Accept an execution receipt only on evidence. Pure over `options.env`.
@@ -57,6 +43,16 @@ export function buildRunSpec(policy) {
  *     config can never set `CLOISTER_MODE=dev` (lint:no-dev-mode enforces
  *     that), so in any deployed configuration the two flags are inert and
  *     this function fails closed.
+ *
+ * `options.verify` is the INJECTION SEAM for LLO's real verifier
+ * (`ley-line-open-20f7e5`). Cloister must never grow a parallel implementation
+ * of that trust decision — per ADR-0035, and because two implementations of one
+ * trust decision disagree exactly once, in production, in the accepting
+ * direction. Note that the real verifier resolves TWO content-addressed
+ * `EvidenceRef`s rather than answering one boolean: workload-identity evidence
+ * (Interlace/WIMSE — *what is running*) and actor-provenance evidence (a Signet
+ * bridge cert — *on whose behalf*). The boolean shape here is the seam, not the
+ * contract; see ADR-0063 §3.
  */
 export async function verifyExecutionReceipt(receipt, options = {}) {
   const verify = options.verify;

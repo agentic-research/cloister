@@ -3,37 +3,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  buildRunSpec,
-  verifyExecutionReceipt,
-} from "../../cli/lib/runtime/llo-execution-adapter.mjs";
+import { verifyExecutionReceipt } from "../../cli/lib/runtime/llo-execution-adapter.mjs";
 
-const REQUEST = {
-  artifactRef: "sha256:artifact",
-  entrypoint: "/bin/worker",
-  argv: ["--once"],
-  workspaceGrant: { head: "blake3:workspace", operations: ["read", "write"] },
-  isolation: "nativeNono",
-  filesystem: { read: ["/etc/ssl"], write: ["/workspace"] },
-  network: { allow: ["api.example.test"] },
-  resources: { cpuMillis: 1000, memoryBytes: 64 * 1024 * 1024 },
-  secrets: [{ reference: "secret://provider/api-key" }],
-  receiptDestination: "cas://receipts/run-1",
-};
-
-test("Cloister maps policy into a capability-bound neutral RunSpec", () => {
-  const spec = buildRunSpec(REQUEST);
-  assert.deepEqual(spec, { schema: "execution/v1", ...REQUEST });
-  assert.equal(Object.hasOwn(spec, "executable"), false);
-  assert.equal(Object.hasOwn(spec, "hostDirectory"), false);
-});
-
-test("Cloister rejects undeclared execution fields instead of forwarding them", () => {
-  assert.throws(
-    () => buildRunSpec({ ...REQUEST, cwd: "/host/project" }),
-    /unknown execution policy field.*cwd/i,
-  );
-});
+// The RunSpec-builder tests that used to live here were removed with the builder
+// (ADR-0063). They pinned a hand-written ten-field contract that shares no field
+// name with the canonical eleven-field RunSpec, so they asserted the wrong thing
+// green — including one that pinned `executable` as a host-shaped escape to be
+// excluded, when `executable` is RunSpec @1, a required content-addressed
+// ArtifactRef. Their instincts (fail closed, forward no undeclared field, admit
+// no host path) belong on the GENERATED mapping when it lands: cloister-3e86e8.
 
 test("Cloister refuses an unverifiable execution receipt by default", async () => {
   await assert.rejects(

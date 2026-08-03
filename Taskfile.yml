@@ -936,6 +936,15 @@ tasks:
       - src/generated/manifest.ts
       - scripts/lint-no-dev-mode.mjs
 
+  lint:schema-claim:
+    desc: "ADR-0063 rail (cloister-3e86e8) — a leyline contract identifier written as a STRING LITERAL is a wire claim, and its field names are owned by ley-line-open. A file that makes the claim must import generated types rather than restate the shape. PR #260 shipped `{ schema: \"execution/v1\", ... }` over a hand-written ten-field list against an eleven-field canonical RunSpec sharing NONE of those names, and the full gate passed green — lint:spec-citation polices prose citations, type-duplication polices cluster.capnp only, and nothing looked at code-level claims. Prose in a comment DISCUSSES a contract; a literal SPEAKS it, so the rail strips comments before scanning."
+    cmds:
+      - node scripts/lint-schema-claim.mjs
+    sources:
+      - cli/**/*.mjs
+      - src/**/*.ts
+      - scripts/lint-schema-claim.mjs
+
   lint:lease-gate-source:
     desc: "ADR-0053 / cloister-220c9d single-source guard (cloister-bd7210 Phase 1) — the lease-gate trust anchor `env.INTERLACE_ROOT_PUBKEY` may only be read where the gate is resolved (src/routes/lease-gate.ts) or the CA bundle is (src/storage/ca-bundle-source.ts). Any other src/ file reading it is a re-scattered gate check; routes must go through resolveLeaseGate / leaseEnforced / gateAndVerify."
     cmds:
@@ -1225,7 +1234,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
