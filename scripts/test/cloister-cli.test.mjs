@@ -8,6 +8,9 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PassThrough } from "node:stream";
+
+import { main as cliMain } from "../../cli/index.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -66,6 +69,27 @@ test("top-level help names the real command surface", () => {
   assert.match(r.stdout, /cloister runtime storage init/);
   assert.match(r.stdout, /--color <auto\|always\|never>/);
   assert.match(r.stdout, /--no-color/);
+});
+
+test("LLO storage init provisions over UDS without invoking the krunvm helper", async () => {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const output = [];
+  stdout.on("data", (chunk) => output.push(chunk.toString()));
+  const status = await cliMain(
+    ["runtime", "storage", "init", "--backend", "microVm", "--idempotency-key", "p-1"],
+    {
+      env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+      stdout,
+      stderr,
+      lloProvision: async (...args) => {
+        assert.deepEqual(args.slice(0, 3), ["/run/llo.sock", "microVm", "p-1"]);
+        return { provisioned: true };
+      },
+    },
+  );
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(output.join("")), { provisioned: true });
 });
 
 test("invalid global color values fail with usage before command dispatch", () => {
