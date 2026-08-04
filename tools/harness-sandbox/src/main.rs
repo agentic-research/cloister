@@ -161,6 +161,36 @@ fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
 }
 
 /// macOS: Seatbelt is applied inline and returns nothing to service.
+///
+/// ⚠ "NOTHING TO SERVICE" IS NOT "FULLY ENFORCED", and the difference is a real
+/// gap this arm currently accepts silently — `cloister-2d420c`.
+///
+/// Seatbelt cannot filter bind or inbound by port. nono says so at the emission
+/// site and emits both rules UNQUALIFIED whenever localhost TCP is permitted at
+/// all, which is exactly what cloister's `--open-port <shim>` policy asks for
+/// (locked nono 0.70.0, `src/sandbox/macos.rs:812`):
+///
+///     // Seatbelt cannot filter bind/inbound by port
+///     profile.push_str("(allow network-bind)\n");
+///     profile.push_str("(allow network-inbound)\n");
+///
+/// Outbound IS port-filtered, so "external connects fail EPERM" holds. Bind and
+/// inbound are not, and inbound is not even limited to localhost — a confined
+/// harness can open a listener on any interface and serve whatever it can read.
+/// That path does not traverse the vault proxy and emits no receipt.
+///
+/// THE ASYMMETRY IS THE BUG. The Linux arm above REFUSES `ProxyOnly` for
+/// precisely this reason — "a confinement that is weaker than the manifest says
+/// is worse than one that fails loudly". The same condition holds here and is
+/// accepted, because the Linux backend REPORTS its shortfall in a return value
+/// and the macOS backend does not. The check was shaped around what the API
+/// surfaced rather than around the property it wants.
+///
+/// Not refused here yet only because doing so would break the entire ADR-0042
+/// turnkey run, whose model is localhost TCP to the shim. The likely real fix is
+/// moving that shim to a UNIX SOCKET on macOS: nono grants UDS per-path with
+/// Connect vs ConnectBind modes, so a connect-only UDS grant IS enforceable
+/// where a port is not.
 #[cfg(not(target_os = "linux"))]
 fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
     Sandbox::apply_auto(caps)?;

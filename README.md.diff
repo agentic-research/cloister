@@ -1,0 +1,122 @@
+--- README.md	2026-08-04 01:54:28
++++ README.md.proposed	2026-08-04 01:56:55
+@@ -20,6 +20,37 @@
+ 
+ Point your coding tool at that URL and every declared tool is available there.
+ 
++## Why you'd care
++
++- **Your tools never see your secrets.** Give a tool access to an API
++  key or token without handing it the secret — cloister keeps it in a
++  locked box, makes the call for the tool, and hands back only the
++  result. A leaky or compromised tool has nothing to leak.
++- **State-changing work can leave verifiable evidence.** Authenticated
++  requests advance a hash chain, and the shipped phase-one
++  state-boundary path emits signed Interlace receipts. Fail-closed peer
++  enforcement is still an operator cutover.
++- **One declared shape, multiple runtimes.** `cluster.toml` can be
++  lowered to local `workerd`, native-process, OCI, and Cloudflare paths.
++  Those paths are not identical security boundaries; the documentation
++  calls out the differences.
++
++**Before you try it, two things that will bite you:**
++
++- **You need an API key, not a Claude subscription.** A subscription signs in
++  through the macOS keychain, and the sandbox blocks keychain access on purpose,
++  so the tool would just report "not logged in". Set `ANTHROPIC_API_KEY`.
++- **The list of what a tool is allowed to reach was built by hitting errors.**
++  It covers `git` and Claude Code. A tool that needs something else will fail,
++  and on macOS that can show up as a developer-tools install prompt rather than
++  a clear "permission denied".
++
++Neither is a bug we forgot about — the first is a deliberate consequence of
++blocking the keychain, the second is honest about how far this has been
++exercised. Full walkthrough and the rest of the rough edges:
++[`docs/RUNNING.md`](docs/RUNNING.md).
++
++
+ ## Run a coding tool inside cloister
+ 
+ ```sh
+@@ -63,21 +94,6 @@
+ `cloister cluster generate` regenerates every committed deployment file from
+ `cluster.toml`. Edit `cluster.toml`; do not hand-edit its generated outputs.
+ 
+-### Work Board
+-
+-`pr-board` is the agent skill for answering “what needs me?” Its current
+-fingerprint is declared in this reference cluster. If you install skills from
+-the agents repository, verify the link with `readlink ~/.claude/skills/pr-board`
+-before pinning it in a different cluster.
+-
+-The agents repository's `work-board/` folder is different: it is a local visual
+-app, not a skill or an MCP server. Run its refresh and web server on the host, where
+-your authenticated `gh` command and network are available. If a confined agent
+-needs to read the resulting board, refresh `data/board.json` first, then name
+-the Work Board folder as an additional `--repo`. Live GitHub refresh is blocked
+-inside the current confined run unless you deliberately provide a GitHub-facing
+-tool through Cloister.
+-
+ ## What a run records
+ 
+ `cloister run --dry-run` shows which folders would be writable, which local
+@@ -95,36 +111,6 @@
+ will not claim that coverage before the runtime can prove it. See
+ [Running a coding tool](docs/RUNNING.md) for the other records a run creates.
+ 
+-**Before you try it, two things that will bite you:**
+-
+-- **You need an API key, not a Claude subscription.** A subscription signs in
+-  through the macOS keychain, and the sandbox blocks keychain access on purpose,
+-  so the tool would just report "not logged in". Set `ANTHROPIC_API_KEY`.
+-- **The list of what a tool is allowed to reach was built by hitting errors.**
+-  It covers `git` and Claude Code. A tool that needs something else will fail,
+-  and on macOS that can show up as a developer-tools install prompt rather than
+-  a clear "permission denied".
+-
+-Neither is a bug we forgot about — the first is a deliberate consequence of
+-blocking the keychain, the second is honest about how far this has been
+-exercised. Full walkthrough and the rest of the rough edges:
+-[`docs/RUNNING.md`](docs/RUNNING.md).
+-
+-## Why you'd care
+-
+-- **Your tools never see your secrets.** Give a tool access to an API
+-  key or token without handing it the secret — cloister keeps it in a
+-  locked box, makes the call for the tool, and hands back only the
+-  result. A leaky or compromised tool has nothing to leak.
+-- **State-changing work can leave verifiable evidence.** Authenticated
+-  requests advance a hash chain, and the shipped phase-one
+-  state-boundary path emits signed Interlace receipts. Fail-closed peer
+-  enforcement is still an operator cutover.
+-- **One declared shape, multiple runtimes.** `cluster.toml` can be
+-  lowered to local `workerd`, native-process, OCI, and Cloudflare paths.
+-  Those paths are not identical security boundaries; the documentation
+-  calls out the differences.
+-
+ ## How it works
+ 
+ Under the hood, Cloister runs its router and built-in tenants on
+@@ -524,7 +510,22 @@
+ For the secure operator path that serves ART tools through cloister's
+ single `/mcp` face, see
+ [`docs/deployment/secure-art-tools.md`](docs/deployment/secure-art-tools.md).
++
++### Work Board
++
++`pr-board` is the agent skill for answering “what needs me?” Its current
++fingerprint is declared in this reference cluster. If you install skills from
++the agents repository, verify the link with `readlink ~/.claude/skills/pr-board`
++before pinning it in a different cluster.
+ 
++The agents repository's `work-board/` folder is different: it is a local visual
++app, not a skill or an MCP server. Run its refresh and web server on the host, where
++your authenticated `gh` command and network are available. If a confined agent
++needs to read the resulting board, refresh `data/board.json` first, then name
++the Work Board folder as an additional `--repo`. Live GitHub refresh is blocked
++inside the current confined run unless you deliberately provide a GitHub-facing
++tool through Cloister.
++
+ ## Where to go next
+ 
+ - **Operator setup** — [GETTING-STARTED.md](GETTING-STARTED.md) (install, run, wire upstreams, plugin)
