@@ -1,7 +1,29 @@
 {
-  "_comment": "Content pin for the generated LLO execution/v1 MCP contract artifact. Update the source commit and digest together when LLO publishes a new contract.",
+  "_comment": [
+    "Content pin for the generated LLO execution/v1 MCP contract artifact.",
+    "Update the source commit and digest together when LLO publishes a new contract.",
+    "",
+    "sourceCommit MUST be a commit reachable from a published tag, not a branch tip.",
+    "This pin previously named 2835bdce — a commit on LLO's integration branch, which",
+    "PR #317 squash-merged into main. It is NOT an ancestor of v0.15.0, so the bytes",
+    "this artifact claimed to come from were already unreachable from any released",
+    "history and would vanish entirely when the branch was deleted. A content pin",
+    "whose source cannot be fetched is a digest with no provenance: it still detects",
+    "cloister-side corruption, but it can no longer answer `where did this come from`,",
+    "which is the question the pin exists to answer.",
+    "",
+    "REGENERATING (needs an LLO checkout; cloister CI deliberately has none):",
+    "  1. node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-tooldefs",
+    "  2. from <llo>/rs/ll-core/schema-spec at the tag named by sourceCommit:",
+    "     capnp compile -o<path-from-step-1>:<outdir> --src-prefix=. execution/v1/execution.capnp",
+    "  3. copy <outdir>/execution.tools.json over `artifact`, update sha256.",
+    "Step 1 matters: the generator must itself come from the digest-verified path.",
+    "The v0.15.0 re-vendor was first done with a hand-downloaded binary, which is the",
+    "same unverified-input shape the schema-bridge lock exists to prevent."
+  ],
   "source": "agentic-research/ley-line-open",
-  "sourceCommit": "2835bdce8ff9a1ba853284e9d4a6127f57a32f97",
+  "sourceCommit": "df1a919a5249cfd2293fdc45cfdd7e716a83fe30",
+  "sourceTag": "v0.15.0",
   "artifact": "src/generated/llo-execution-tools.json",
-  "sha256": "4810bf0c99de28657546b0e271d3208302c6b6749fd9f6692ab539a01a9a8ac4"
+  "sha256": "125aa1e2c17071e08bc8233b1464c5f028937b246e1d7bb11bd7d13315bc54a9"
 }

@@ -34,6 +34,7 @@
     "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
     "DigestRef": {
       "type": "object",
       "description": "Algorithm-tagged content digest.",
@@ -157,24 +158,36 @@
       "required": ["schemaVersion", "executable", "arguments", "workspaceInputs", "publicEnvironment", "secretHandles", "requestedInterfaces", "requestedLimits", "outputs", "cancellationMode"],
       "additionalProperties": false
     },
+    "GrantSignature": {
+      "type": "object",
+      "description": "Detached issuer signature over a RunGrant. See wire/run-grant.md for the covered bytes.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Signature algorithm; ed25519 is the only value this contract defines." },
+        "keyId": { "type": "string", "description": "Unauthenticated issuer key hint. A verifier checks every trusted key regardless and never selects one by this." },
+        "value": { "type": "string", "contentEncoding": "base64", "description": "Raw signature bytes; 64 for ed25519." }
+      },
+      "required": ["algorithm", "keyId", "value"],
+      "additionalProperties": false
+    },
     "RunGrant": {
       "type": "object",
       "description": "Authenticated, resolved execution authority bound to one RunSpec digest.",
       "properties": {
         "grantId": { "type": "string", "description": "Issuer-unique grant identifier." },
-        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence." },
+        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
         "expiresAtUnixMs": { "type": "integer", "minimum": 0, "description": "Absolute expiry in Unix milliseconds." },
         "replayKey": { "type": "string", "description": "Idempotency and replay-protection key." },
         "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the authorized RunSpec." },
-        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence." },
-        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate. Must be bound to this run — see the evidence-binding rule in README.md." },
         "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
         "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
         "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
-        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." }
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false
@@ -226,13 +239,25 @@
       "required": ["wallTimeMs", "cpuMillis", "peakMemory", "outputBytes"],
       "additionalProperties": false
     },
+    "EnforcedCeilings": {
+      "type": "object",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "properties": {
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
+        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+      },
+      "required": ["wallTime", "vcpus", "memory"],
+      "additionalProperties": false
+    },
     "BackendEvidence": {
       "type": "object",
       "description": "Implementation and enforcement evidence for the selected backend class.",
       "properties": {
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class actually used." },
         "backendId": { "type": "string", "description": "Versioned implementation identifier." },
-        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." }
+        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." },
+        "enforced": { "$ref": "#/$defs/EnforcedCeilings", "description": "Per-ceiling enforcement mechanism actually applied by this backend. Absent on receipts from producers that predate it; a consumer treats absence as unknown, never as unenforced." }
       },
       "required": ["backendClass", "backendId", "evidence"],
       "additionalProperties": false
@@ -458,6 +483,7 @@
     "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
     "DigestRef": {
       "type": "object",
       "description": "Algorithm-tagged content digest.",
@@ -581,24 +607,36 @@
       "required": ["schemaVersion", "executable", "arguments", "workspaceInputs", "publicEnvironment", "secretHandles", "requestedInterfaces", "requestedLimits", "outputs", "cancellationMode"],
       "additionalProperties": false
     },
+    "GrantSignature": {
+      "type": "object",
+      "description": "Detached issuer signature over a RunGrant. See wire/run-grant.md for the covered bytes.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Signature algorithm; ed25519 is the only value this contract defines." },
+        "keyId": { "type": "string", "description": "Unauthenticated issuer key hint. A verifier checks every trusted key regardless and never selects one by this." },
+        "value": { "type": "string", "contentEncoding": "base64", "description": "Raw signature bytes; 64 for ed25519." }
+      },
+      "required": ["algorithm", "keyId", "value"],
+      "additionalProperties": false
+    },
     "RunGrant": {
       "type": "object",
       "description": "Authenticated, resolved execution authority bound to one RunSpec digest.",
       "properties": {
         "grantId": { "type": "string", "description": "Issuer-unique grant identifier." },
-        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence." },
+        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
         "expiresAtUnixMs": { "type": "integer", "minimum": 0, "description": "Absolute expiry in Unix milliseconds." },
         "replayKey": { "type": "string", "description": "Idempotency and replay-protection key." },
         "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the authorized RunSpec." },
-        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence." },
-        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate. Must be bound to this run — see the evidence-binding rule in README.md." },
         "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
         "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
         "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
-        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." }
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false
@@ -650,13 +688,25 @@
       "required": ["wallTimeMs", "cpuMillis", "peakMemory", "outputBytes"],
       "additionalProperties": false
     },
+    "EnforcedCeilings": {
+      "type": "object",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "properties": {
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
+        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+      },
+      "required": ["wallTime", "vcpus", "memory"],
+      "additionalProperties": false
+    },
     "BackendEvidence": {
       "type": "object",
       "description": "Implementation and enforcement evidence for the selected backend class.",
       "properties": {
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class actually used." },
         "backendId": { "type": "string", "description": "Versioned implementation identifier." },
-        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." }
+        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." },
+        "enforced": { "$ref": "#/$defs/EnforcedCeilings", "description": "Per-ceiling enforcement mechanism actually applied by this backend. Absent on receipts from producers that predate it; a consumer treats absence as unknown, never as unenforced." }
       },
       "required": ["backendClass", "backendId", "evidence"],
       "additionalProperties": false

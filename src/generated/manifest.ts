@@ -261,6 +261,29 @@ export const manifest: Gateway = {
               }
             },
             {
+              "name": "execution",
+              "handlesPrefix": "llo_execution_",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
+                  "claims": [
+                    "llo_execution_capabilities",
+                    "llo_execution_provision",
+                    "llo_execution_status",
+                    "llo_execution_start",
+                    "llo_execution_inspect",
+                    "llo_execution_cancel",
+                    "llo_execution_collect",
+                    "llo_execution_cleanup"
+                  ]
+                }
+              }
+            },
+            {
               "name": "navigation",
               "handlesPrefix": "mache_",
               "kind": {
