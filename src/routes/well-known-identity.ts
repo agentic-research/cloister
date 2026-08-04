@@ -84,6 +84,7 @@ import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import type { Backend, Gateway, McpToolSpec, Route } from "../manifest/types.js";
 import { resolveActorFingerprint } from "./actor-fingerprint.js";
+import { logEvent } from "../obs/log.js";
 
 // ── Path constants ────────────────────────────────────────────────────────
 
@@ -450,14 +451,35 @@ export async function fetchJwtSignature(
   params: { issuer: string; headerB64: string; payloadB64: string },
 ): Promise<string | null> {
   const signer = env.NOTME_JWT;
-  // Absent binding is the local-dev/workerd case, not an error: notme-bot is a
-  // NETWORK service there and an RPC entrypoint cannot bind to one. Returning
-  // null yields the same 503 the caller already produced.
-  if (!signer || typeof signer.signJwt !== "function") return null;
+  // Absent binding is the `task serve:local` case, not an error: notme-bot is a
+  // NETWORK service under raw workerd and an RPC entrypoint cannot bind to one.
+  // Returning null yields the same 503 the caller already produced.
+  if (!signer || typeof signer.signJwt !== "function") {
+    logEvent("warn", {
+      target: "oauth_token", op: "sign_jwt",
+      outcome: "no_signer_binding",
+    });
+    return null;
+  }
 
   try {
     const result = await signer.signJwt(params);
-    if (!result?.ok) return null;
+    if (!result?.ok) {
+      // The RESPONSE stays a constant 503 — telling a caller apart "notme is
+      // down" from "your issuer is not delegated" would leak operator
+      // configuration. The OPERATOR is a different audience, and withholding
+      // the reason from them buys nothing: without this line, the single most
+      // likely local-dev failure (notme's DELEGATED_JWT_ISSUERS not listing
+      // cloister's issuer, which is unset by default) presents as a bare 503
+      // with no way to tell it from an unreachable notme.
+      logEvent("warn", {
+        target: "oauth_token", op: "sign_jwt",
+        outcome: "signer_refused",
+        code: result?.code ?? "unknown",
+        issuer: params.issuer,
+      });
+      return null;
+    }
 
     const sig = result.signature;
     // Ed25519 is 64 bytes (RFC 8032 §5.1.6). Checking the length rather than
@@ -469,11 +491,13 @@ export async function fetchJwtSignature(
     let bin = "";
     for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]!);
     return base64StdToBase64Url(btoa(bin));
-  } catch {
-    // lint-allow-silent: RPC unreachable / threw — null = no signature, and the
-    // caller's 503 is the correct fail-closed answer. Distinguishing "notme is
-    // down" from "notme refused this issuer" to the CALLER would leak whether
-    // an issuer is in DELEGATED_JWT_ISSUERS, which is operator configuration.
+  } catch (error) {
+    // Surfaced to the operator, constant to the caller — see the note above.
+    logEvent("warn", {
+      target: "oauth_token", op: "sign_jwt",
+      outcome: "signer_unreachable",
+      detail: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
