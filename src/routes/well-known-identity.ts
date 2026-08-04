@@ -176,11 +176,55 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
 
   // ── /.well-known/jwks.json ─────────────────────────────────────────────
 
-  private handleJwks(_request: Request, env: Env): Response {
+  private async handleJwks(request: Request, env: Env): Promise<Response> {
     // Resolved, not raw: when the fallback supplied the fingerprint the raw
     // manifest value is "", and a JWK published under an empty `kid` matches
     // nothing a verifier looks up.
     const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
+
+    // ── Ask the signer for its own key ───────────────────────────────────
+    //
+    // The key published here MUST be the key /oauth/token is signed with, or
+    // every token this IdP issues fails verification. Those are two different
+    // values in two different repos, and the previous arrangement kept them
+    // aligned by asking an operator to copy one into the other by hand —
+    // notme's migration note says "point pubkeyBinding at the delegated key".
+    //
+    // A hand-copied derived value is the drift class this whole surface exists
+    // to remove. It is also unnecessary: notme SERVES the key, and its own
+    // design doc observes that cloister "is already indifferent to which key it
+    // publishes" because `kid` comes from the manifest rather than the key. The
+    // indifference that made copying safe is exactly what makes asking safe.
+    //
+    // FAIL CLOSED rather than falling back. If the binding exists but the call
+    // fails, publishing `pubkeyBinding` would publish the MASTER while notme
+    // signs with the delegated key — the precise mismatch this removes, and it
+    // would look healthy. A 503 says "not operational", which is true.
+    const signer = env.NOTME_JWT;
+    if (signer && typeof signer.issuerPublicKey === "function") {
+      const issuer = baseUrl(request);
+      let delegated;
+      try {
+        delegated = await signer.issuerPublicKey(issuer);
+      } catch (error) {
+        logEvent("warn", {
+          target: "jwks", op: "issuer_public_key", outcome: "signer_unreachable",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        return new Response("jwks: signer unreachable", { status: 503 });
+      }
+      if (!delegated?.ok) {
+        logEvent("warn", {
+          target: "jwks", op: "issuer_public_key", outcome: "signer_refused",
+          code: delegated?.code ?? "unknown", issuer,
+        });
+        return new Response("jwks: issuer not delegated", { status: 503 });
+      }
+      return jsonResponse({ keys: [jwkFor(delegated.publicRawB64, fingerprint)] });
+    }
+
+    // No delegated signer bound — the pre-delegation path, where cloister
+    // publishes whatever key the manifest names.
     const masterB64 = readEnvString(env, this.manifest.actor.pubkeyBinding);
     if (!masterB64) {
       // The pubkey binding is unset — without it we can't publish a
@@ -188,24 +232,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       // ca-bundle-cache `CaUnavailableError` convention.
       return new Response("jwks: master pubkey binding unset", { status: 503 });
     }
-    // RFC 8037 §2: EdDSA key in JWK form. `x` is the base64url-no-pad
-    // encoding of the raw public key bytes. The stored binding may use
-    // base64-standard (mirroring CABundle.keys per cloister-c614ae);
-    // convert to base64url for spec compliance.
-    const x = base64StdToBase64Url(masterB64);
-    const jwk = {
-      kty: "OKP",
-      crv: "Ed25519",
-      x,
-      // `kid` derives from the cluster's actor fingerprint so external
-      // verifiers can pin a stable identifier; the fingerprint is
-      // already a sha256:<hex> string. RFC 7517 §4.5 permits any
-      // case-sensitive string as `kid`.
-      kid: fingerprint,
-      alg: "EdDSA",
-      use: "sig",
-    };
-    return jsonResponse({ keys: [jwk] });
+    return jsonResponse({ keys: [jwkFor(masterB64, fingerprint)] });
   }
 
   // ── /.well-known/webfinger ─────────────────────────────────────────────
@@ -542,6 +569,26 @@ function oauthError(code: string, description: string, status: number): Response
       },
     },
   );
+}
+
+/**
+ * RFC 8037 §2 EdDSA JWK. `x` is base64url-no-pad over the raw public key; the
+ * stored/served value may be base64-standard (mirroring CABundle.keys per
+ * cloister-c614ae), so it is converted here.
+ *
+ * `kid` is the cluster's actor fingerprint, NOT derived from the key — which is
+ * what lets the published key change (master → delegated) without every
+ * verifier's pinned identifier moving.
+ */
+function jwkFor(pubkeyB64: string, kid: string) {
+  return {
+    kty: "OKP",
+    crv: "Ed25519",
+    x: base64StdToBase64Url(pubkeyB64),
+    kid,
+    alg: "EdDSA",
+    use: "sig",
+  };
 }
 
 /** Convert base64-standard (with `+`, `/`, `=`) to base64url (no pad). */
