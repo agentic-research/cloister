@@ -34,3 +34,33 @@ The portions in this directory that are derivative of the notme
 originals retain Apache 2.0's attribution requirement; the AGPL-3.0
 license additionally applies to the combined work as distributed
 with cloister.
+
+
+Inbound contributions to this directory
+---------------------------------------
+
+Contributions to `cloister/vault/` are offered under BOTH the
+Apache License 2.0 and the AGPL-3.0-or-later that governs cloister as
+a whole. Cloister distributes them under the AGPL; the additional
+Apache 2.0 grant exists so that improvements made here can flow back
+to the notme original, or into a shared permissively-licensed package,
+without a per-contribution relicensing negotiation.
+
+WHY THIS IS RECORDED NOW RATHER THAN WHEN IT IS NEEDED. The lift
+described above, and any return of work to notme, have so far been
+legitimate for one reason: a single author holds copyright in every
+line of this directory (verified 2026-08-04 — `git log` over `vault/`
+shows one person under two committer names). A copyright holder may
+license their own work however they choose, so nothing had to be
+agreed in advance.
+
+That stops at the FIRST contribution from anyone else. Their work
+would be AGPL-only, cloister could not offer it back under Apache 2.0,
+and the two copies would be permanently unable to converge — the
+licence direction only runs one way, since AGPL can consume permissive
+but permissive cannot consume AGPL. Stating the inbound terms while
+sole authorship still holds is what keeps that door open; stating them
+afterwards requires going back and asking.
+
+Related: cloister-6ea153 (extract the envelope primitive to a
+permissively-licensed package) and notme-41d0d3.
