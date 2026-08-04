@@ -196,6 +196,56 @@ tasks:
       - schema-bridge.lock.json
       - src/generated/cluster.zod.ts
 
+  cloister:zod:
+    desc: "Regenerate src/generated/cloister.zod.ts via schema-bridge. Run after manifest/cloister.capnp edits; `cloister:zod:check-drift` (in `task lint`) fails if you forget. This file is a DIFF TARGET, not a replacement for src/manifest/types.ts — see cloister-bfd981. types.ts stays hand-written until schema-bridge projects capnp doc comments (ley-line-open-d554a0), because the generated file carries none and deleting the hand copy would trade duplication for lost documentation."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same shape as cluster:zod — `capnp compile` exits 0 even when the
+        # plugin errors and writes nothing, so generate into a tmpdir and
+        # existence-check before the atomic move. An in-place check would
+        # falsely pass by leaving the previously-committed file in tree.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/cloister.zod.ts" src/generated/cloister.zod.ts
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/cloister.zod.ts
+
+  cloister:zod:check-drift:
+    desc: "Drift check for src/generated/cloister.zod.ts. IN `task lint`. Closes the gap that manifest/cloister.capnp was the only schema in the tree with NO generated projection and therefore no way to notice src/manifest/types.ts disagreeing with it (cloister-bfd981). Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/cloister.zod.ts "$TMPDIR/cloister.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cloister.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cloister:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cloister.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+      - src/generated/cloister.zod.ts
+
   cluster:go:
     desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). Run after cluster.capnp schema edits; `cluster:go:check-drift` (in the cloister-schema-go workflow) fails if you forget. Requires `capnp` CLI + `gofmt`."
     deps: [schema-bridge:build]
@@ -1242,7 +1292,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.
