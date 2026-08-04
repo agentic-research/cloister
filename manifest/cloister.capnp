@@ -159,7 +159,7 @@ struct Actor {
   # against self-hosted deployments — so most verifiers never notice an
   # impersonated issuer. Point this at a SEPARATE delegated-issuer key
   # (notme's `JwtSigner.issuerPublicKey()`), never at the master.
-  # Per notme PR #62 / cloister-e4a90d.
+  # Per notme PR #62 / cloister-5f7e5c.
   #
   # Key separation is the load-bearing control, not the claim checks: the
   # delegated signature must not verify under the master public key, and
