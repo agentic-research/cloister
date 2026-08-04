@@ -129,10 +129,14 @@ exercised. Full walkthrough and the rest of the rough edges:
 
 Under the hood, Cloister runs its router and built-in tenants on
 `workerd`. External tools can currently be reached as native processes,
-OCI services, UDS peers, or HTTP services. On macOS, the experimental
-host runtime can instead start a digest-pinned external tool in a
-separate krunvm microVM; that path is explicit and does not silently
-fall back to a host process. Identity, the "tools never see secrets"
+OCI services, UDS peers, or HTTP services. For isolated execution,
+Cloister hands a signed request to a ley-line-open execution daemon,
+which owns rootfs resolution, libkrun/nono confinement, lifecycle, and
+receipts — Cloister does not spawn a microVM itself. A legacy
+compatibility provider that shells out to `krunvm` remains for
+workloads needing a listening port, which LLO's backend cannot yet
+express; that path is explicit and never silently falls back to a host
+process. Identity, the "tools never see secrets"
 credential isolation, and the signed audit trail live in the *substrate*
 — not bolted onto each tool. Anything HTTP-shaped plugs into the same
 route table without touching the substrate; MCP servers are just the
@@ -146,7 +150,7 @@ The shape, for the curious:
 graph TB
     Client["external client<br/>(MCP / curl / browser /<br/>another cluster's bundle)"]
 
-    subgraph host ["Host runtime — workerd router and tenants;<br/>optional krunvm boundary for external tools on macOS"]
+    subgraph host ["Host runtime — workerd router and tenants;<br/>isolated execution delegated to a ley-line-open daemon"]
         subgraph hyp ["Hypervisor layer — cloister-router bundle"]
             ROUTER["Router<br/>declarative EdgeRoute table<br/>(from cloister.capnp)"]
             MCP["MCP face<br/>/mcp (JSON-RPC / Streamable HTTP)"]
@@ -231,11 +235,53 @@ Wire Claude Code:
 Client-specific wiring (Cursor, raw curl, auth, common failure modes)
 is in [docs/integration/mcp-client.md](docs/integration/mcp-client.md).
 
-### Experimental: run an external tool in krunvm
+### Running an external tool under isolation
 
-The current compatibility provider shells out to `krunvm` and Buildah. It is a
-useful bridge, but it is experimental and is not the future LLO execution API.
-On macOS it can run a lockfile-pinned external OCI artifact behind a microVM
+Point Cloister at a ley-line-open execution daemon's owner-only UDS:
+
+```sh
+export CLOISTER_LLO_CONTROL_SOCKET=/run/leyline/execution.sock
+cloister runtime doctor
+cloister runtime storage status --json
+cloister runtime run /path/to/execution-envelope.json
+cloister runtime inspect <run-id> [after-sequence]
+cloister runtime collect <run-id>
+cloister runtime cancel <run-id> --idempotency-key <key>
+cloister runtime cleanup <run-id> --idempotency-key <key>
+```
+
+The envelope must contain the schema-bridge-generated `spec` and `grant`
+objects for `cloister/execution/v1`. In this mode doctor, status, and run use
+the LLO UDS directly; Cloister does not spawn `krunvm` or Taskfile. LLO owns
+rootfs resolution, nono/libkrun, lifecycle, and receipts.
+
+Lifecycle commands are transport projections only: cancellation and cleanup
+require caller-stable idempotency keys, and Cloister never supplies host paths
+or executable strings to LLO. The generated execution schema remains the
+contract authority; this CLI surface is an adoption adapter while the pinned
+generated consumer client is being published.
+
+When `CLOISTER_LLO_CONTROL_SOCKET` is unset, Cloister falls back to the
+compatibility provider below.
+
+**Known gap.** LLO's libkrun backend binds compute, filesystem, and exec —
+`krun_create_ctx`, `krun_set_vm_config`, `krun_add_virtiofs`,
+`krun_set_workdir`, `krun_set_exec`, `krun_start_enter` — and explicitly
+disables implicit vsock. It has no port or UDS binding yet, so a workload that
+must listen on a socket (mache binds TCP 7532) still needs the compatibility
+provider. Port support is in progress upstream; until it lands, this is the
+one thing that keeps the section below alive.
+
+
+### Compatibility provider (legacy — shells out)
+
+**Prefer the LLO path above.** This one shells out to `krunvm` and Buildah,
+which is the thing the execution API exists to replace: Cloister spawning host
+processes to get isolation is the opposite of Cloister providing it. It stays
+only because LLO's backend cannot yet express a listening port, and it is not
+the future execution API.
+
+On macOS it runs a lockfile-pinned external OCI artifact behind a microVM
 boundary:
 
 ```sh
@@ -264,33 +310,6 @@ storage roots; it does not delete layer directories. Binary acquisition
 still requires explicit operator consent, and the current microVM path
 is coarse process/tool isolation—not the proposed per-operation
 LLO/FUSE capability escalation.
-
-### LLO execution provider (opt-in)
-
-When an LLO execution daemon is available, point Cloister at its owner-only
-UDS instead of installing the compatibility provider:
-
-```sh
-export CLOISTER_LLO_CONTROL_SOCKET=/run/leyline/execution.sock
-cloister runtime doctor
-cloister runtime storage status --json
-cloister runtime run /path/to/execution-envelope.json
-cloister runtime inspect <run-id> [after-sequence]
-cloister runtime collect <run-id>
-cloister runtime cancel <run-id> --idempotency-key <key>
-cloister runtime cleanup <run-id> --idempotency-key <key>
-```
-
-The envelope must contain the schema-bridge-generated `spec` and `grant`
-objects for `cloister/execution/v1`. In this mode doctor, status, and run use
-the LLO UDS directly; Cloister does not spawn `krunvm` or Taskfile. LLO owns
-rootfs resolution, nono/libkrun, lifecycle, and receipts. The compatibility
-provider remains the fallback when this variable is unset.
-Lifecycle commands are transport projections only: cancellation and cleanup
-require caller-stable idempotency keys, and Cloister never supplies host paths
-or executable strings to LLO. The generated execution schema remains the
-contract authority; this CLI surface is an adoption adapter while the pinned
-generated consumer client is being published.
 
 ## What cloister is NOT
 
