@@ -50,6 +50,8 @@ export const DECLARED_ASYMMETRY = {
   ROSARY_MCP:    "workerd service binding; the CF path reaches rosary via ROSARY_MCP_URL over HTTP",
   COMPANION_MCP: "workerd service binding; the CF path reaches the companion via COMPANION_URL over HTTP",
   KEK_HELPER:    "workerd-only: the local sign-only KEK helper (ADR-0014 / ADR-0019) has no CF analogue; CF uses vault slices",
+  // Inverse direction from the five above: CF-only, not workerd-only.
+  NOTME_JWT:     "CF-only: an RPC entrypoint binding (notme's JwtSigner, ADR-015). config.capnp declares notme-bot as a NETWORK service (allow = [\"public\"]), and a network service is reached by fetch — an RPC entrypoint cannot bind to one. Local dev gets no delegated JWT signing and /oauth/token returns 503, which is what it already did against the 404 that replaced /internal/sign-jwt",
 };
 
 const SKIP_DIR = new Set(["node_modules", "generated", ".git"]);

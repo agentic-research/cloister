@@ -73,6 +73,27 @@ tag = "v5"
 binding = "NOTME"
 service = "notme-bot"
 
+# Delegated OAuth JWT signing (notme ADR-015, notme PR #62 / cloister-5f7e5c).
+#
+# An RPC entrypoint, NOT a fetch binding, and NOT the same key as `NOTME` above.
+# notme replaced `POST /internal/sign-jwt` with a 404 whose body names this
+# binding shape, for the reason it had already given when it declined
+# `/internal/sign-receipt`: an `/internal/` path prefix is publicly routable and
+# is therefore not an access control. That refusal is recorded in
+# src/types.ts:155; this is the second instance of the same pattern, and the one
+# cloister never migrated.
+#
+# The key behind it is DELEGATED, deliberately not the Interlace/CA master —
+# notme's own access tokens (typ "at+jwt", iss "https://auth.notme.bot") are
+# signed with the master, so signing arbitrary header.payload bytes with it is
+# an authentication bypass rather than a forgery oracle. Key separation is the
+# control; no amount of claim validation substitutes for it, because a JWT
+# payload has no schema to canonicalize against.
+[[services]]
+binding = "NOTME_JWT"
+service = "notme-bot"
+entrypoint = "JwtSigner"
+
 # ── Non-workerd services (HTTP proxy, local dev only) ─────────────────────
 # signet         (Go)   — key exchange / identity layer, port TBD
 # ley-line-open  (Rust) — daemon serves MCP on `--mcp-port`, default 8384

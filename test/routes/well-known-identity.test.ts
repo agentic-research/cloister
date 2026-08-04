@@ -17,7 +17,6 @@ import {
   PATH_WEBFINGER,
   PATH_NOSTR_NIP05,
   PATH_OAUTH_TOKEN,
-  NOTME_SIGN_JWT_PATH,
   WellKnownIdentityBridgeRoute,
 } from "../../src/routes/well-known-identity.js";
 import type { Env } from "../../src/types.js";
@@ -61,11 +60,13 @@ const RAW_PUBKEY_B64_32 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 function envWith(
   extras: Record<string, string> = {},
   notme?: FetchResponder,
+  jwtSigner?: Env["NOTME_JWT"],
 ): Env {
   return Object.assign({}, env, {
     INTERLACE_MASTER_PUBKEY: RAW_PUBKEY_B64_32,
     ...extras,
     ...(notme ? { NOTME: { fetch: notme } as unknown as Env["NOTME"] } : {}),
+    ...(jwtSigner ? { NOTME_JWT: jwtSigner } : {}),
   }) as Env;
 }
 
@@ -348,18 +349,27 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
     const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
     const pubB64Std = b64Encode(rawPub);
 
-    const notme: FetchResponder = async (req) => {
-      // Contract: POST /internal/sign-jwt, body {signing_input}, resp {signature}.
-      const u = new URL(req.url);
-      expect(u.pathname).toBe(NOTME_SIGN_JWT_PATH);
-      expect(req.method).toBe("POST");
-      const { signing_input } = await req.json() as { signing_input: string };
-      const sig = await crypto.subtle.sign(
-        "Ed25519",
-        kp.privateKey,
-        new TextEncoder().encode(signing_input),
-      );
-      return Response.json({ signature: b64UrlEncode(new Uint8Array(sig)) });
+    // Contract: the NOTME_JWT RPC entrypoint (notme ADR-015 / PR #62), NOT
+    // `POST /internal/sign-jwt` — notme replaced that path with a 404 because
+    // an `/internal/` prefix is publicly routable and so is not an access
+    // control. The stub asserts the RPC shape, including that cloister passes
+    // the two segments SEPARATELY rather than the joined signing input, and
+    // returns raw signature BYTES rather than a base64url string.
+    const jwtSigner: Env["NOTME_JWT"] = {
+      async signJwt({ issuer, headerB64, payloadB64 }) {
+        expect(issuer).toBe(BASE_URL);
+        expect(headerB64).not.toContain(".");
+        expect(payloadB64).not.toContain(".");
+        const sig = await crypto.subtle.sign(
+          "Ed25519",
+          kp.privateKey,
+          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+        );
+        return { ok: true, signature: new Uint8Array(sig), kid: "delegated-test" };
+      },
+      async issuerPublicKey() {
+        return { ok: true, publicRawB64: pubB64Std, kid: "delegated-test" };
+      },
     };
 
     const route = new WellKnownIdentityBridgeRoute(makeManifest());
@@ -369,7 +379,7 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body:    "grant_type=client_credentials&scope=read%3A%2A&audience=https%3A%2F%2Frp.example",
       }),
-      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, notme),
+      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, undefined, jwtSigner),
     );
     expect(tokenRes.status).toBe(200);
     expect(tokenRes.headers.get("cache-control")).toBe("no-store");

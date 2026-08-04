@@ -150,7 +150,21 @@ struct Actor {
   # discovery doc resolves this at runtime to publish the pubkey;
   # the key bytes themselves never appear in the manifest.
   #
-  # ⚠ A DELEGATED JWT SIGNER MUST NOT SHARE THE MASTER KEY. If this ever
+  # ⚠ THIS BINDING IS CURRENTLY WRONG FOR /oauth/token, ON PURPOSE, AND THE
+  # OPERATOR MUST FIX IT. notme PR #62 merged: JWT signing now uses a
+  # DELEGATED key via the `NOTME_JWT` RPC entrypoint, and cloister's side of
+  # that migration landed. But this binding still names the MASTER pubkey,
+  # so `/.well-known/jwks.json` publishes a key nothing signs with and every
+  # token issued fails verification. That is the correct failure direction —
+  # loud, immediate, and fail-closed — which is why the migration was safe to
+  # land ahead of the key swap. It is not a resting state.
+  #
+  # To finish: point this at notme's `JwtSigner.issuerPublicKey(issuer)` for
+  # the issuer cloister publishes as `iss`, where `issuer` must also appear
+  # in notme's operator-set `DELEGATED_JWT_ISSUERS` allowlist. Ordering
+  # matters only in that both wrong orders fail closed rather than silently.
+  #
+  # ⚠ AND A DELEGATED JWT SIGNER MUST NOT SHARE THE MASTER KEY. If this ever
   # points at a key some other party can be asked to sign arbitrary bytes
   # with, that is an authentication bypass rather than a forgery oracle:
   # notme's own access tokens (typ "at+jwt", iss "https://auth.notme.bot")

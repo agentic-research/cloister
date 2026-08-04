@@ -41,14 +41,36 @@
 //
 // ## Token signing
 //
-// Cloister has only the master *public* key (verifies leases against it
-// per src/routes/lease-middleware.ts). The matching private key lives
-// in notme's SigningAuthority DO; cloister cannot directly sign with
-// it. The token endpoint forwards JWT signing to notme via the existing
-// NOTME service binding (`POST /internal/sign-jwt` — a contract notme
-// will implement; until then the endpoint surfaces 503). This matches
-// the same delegation pattern src/storage/notme-bundle-fetcher.ts uses
-// for `/internal/ca-bundle`.
+// Cloister holds no signing private key. Signing is delegated to notme
+// over the `NOTME_JWT` RPC entrypoint (notme ADR-015 / PR #62), on a
+// key that is DELEGATED rather than the Interlace/CA master.
+//
+// Both halves of that sentence are corrections to what this file used to
+// say, and both came from notme refusing what cloister asked for:
+//
+//   TRANSPORT. This forwarded to `POST /internal/sign-jwt`. notme replaced
+//   that with a 404, for the reason it had already given when declining
+//   `/internal/sign-receipt`: an `/internal/` prefix is publicly routable,
+//   so it is not an access control. Second instance, same refusal — see
+//   src/types.ts on RECEIPT_SIGNING_KEY for the first.
+//
+//   KEY. This asked notme to sign with the cluster master. notme's own
+//   access tokens are signed with that key and its issuer check is optional
+//   by default, so a general-purpose "sign these bytes" oracle over it is an
+//   AUTHENTICATION BYPASS — it emits a credential that already verifies.
+//   ADR-014's receipt fix does not transfer: receipts are safe on a shared
+//   key because the Interlace spec pins their eight fields, so validate →
+//   re-encode → compare closes the signable set. A JWT payload has no
+//   schema; arbitrary claims ARE the useful surface. Key separation is the
+//   only control that holds, and it holds even if every claim check is
+//   deleted.
+//
+// CONSEQUENCE STILL OUTSTANDING: `manifest.actor.pubkeyBinding` must be
+// repointed at the DELEGATED public key (notme's
+// `JwtSigner.issuerPublicKey(issuer)`) before tokens verify. While it names
+// the master, /.well-known/jwks.json publishes a key nothing signs with and
+// every issued token fails verification — the correct failure direction, and
+// why this migration is safe to land ahead of the operator's key swap.
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
@@ -63,13 +85,17 @@ export const PATH_NOSTR_NIP05    = "/.well-known/nostr.json";
 export const PATH_OAUTH_TOKEN    = "/oauth/token";
 
 /**
- * Notme-side endpoint for JWT signing. The OIDC token endpoint forwards
- * a canonical JSON payload to this endpoint; notme signs with the
- * cluster master Ed25519 key and returns the compact JWS. Same
- * delegation pattern as `notme-bundle-fetcher.ts`. Cross-repo
- * coordination bead tracks the notme-side endpoint.
+ * RETIRED. notme replaced `POST /internal/sign-jwt` with a 404 whose body
+ * names the replacement, for the reason it had already given when declining
+ * `/internal/sign-receipt`: an `/internal/` prefix is publicly routable and is
+ * therefore not an access control (notme ADR-015 / PR #62). Signing is now the
+ * `NOTME_JWT` RPC entrypoint, on a DELEGATED key rather than the CA master.
+ *
+ * Kept as a name so the retired path stays greppable — this was the second
+ * `/internal/` signing path notme refused, and the one cloister had not
+ * migrated. Nothing may fetch it.
  */
-export const NOTME_SIGN_JWT_PATH = "/internal/sign-jwt";
+export const RETIRED_NOTME_SIGN_JWT_PATH = "/internal/sign-jwt";
 
 const ALL_PATHS = new Set<string>([
   PATH_OIDC_DISCOVERY,
@@ -304,16 +330,28 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     const payloadB64u  = base64UrlEncodeUtf8(JSON.stringify(payload));
     const signingInput = `${headerB64u}.${payloadB64u}`;
 
-    // Delegate the actual Ed25519 sign to notme. The contract is:
-    //   POST /internal/sign-jwt
-    //   body: { signing_input: "<header>.<payload>" }
-    //   resp: { signature: "<base64url>" }
-    // Notme's SigningAuthority DO owns the master private key — that
-    // key is born in CF and never leaves notme. cloister forwards the
-    // signing-input bytes, gets back the signature, and assembles the
-    // JWS compact form locally. Same delegation pattern as
-    // src/storage/notme-bundle-fetcher.ts.
-    const signature = await fetchJwtSignature(env, signingInput);
+    // Delegate the Ed25519 sign to notme over the `NOTME_JWT` RPC entrypoint
+    // (notme ADR-015 / PR #62). cloister assembles the JWS compact form
+    // locally; the private key is born in CF and never leaves notme.
+    //
+    // The key is DELEGATED, NOT the CA master. notme refused the master-key
+    // version of this because its own access tokens (typ "at+jwt", iss
+    // "https://auth.notme.bot") are signed with the master and
+    // `verifyAccessToken`'s issuer check is optional by default — so signing
+    // arbitrary `header.payload` bytes with it is an AUTHENTICATION BYPASS,
+    // not merely a forgery oracle. It hands back a credential that already
+    // verifies, rather than one someone still has to get accepted.
+    //
+    // `issuer` is the `iss` claim, and is what notme's DELEGATED_JWT_ISSUERS
+    // allowlist is keyed on. Passing the two segments separately rather than
+    // the joined `signingInput` is notme's contract: the signer re-derives
+    // what it signs from the parts it was given, so cloister cannot hand it a
+    // joined string whose halves differ from what cloister built.
+    const signature = await fetchJwtSignature(env, {
+      issuer:     base,
+      headerB64:  headerB64u,
+      payloadB64: payloadB64u,
+    });
     if (signature === null) {
       // Notme unreachable, returned non-200, or returned a malformed
       // response. 503 with `temporarily_unavailable` per RFC 6749 §5.2.
@@ -389,27 +427,33 @@ function pickTools(backend: Backend): readonly McpToolSpec[] {
  */
 export async function fetchJwtSignature(
   env: Env,
-  signingInput: string,
+  params: { issuer: string; headerB64: string; payloadB64: string },
 ): Promise<string | null> {
+  const signer = env.NOTME_JWT;
+  // Absent binding is the local-dev/workerd case, not an error: notme-bot is a
+  // NETWORK service there and an RPC entrypoint cannot bind to one. Returning
+  // null yields the same 503 the caller already produced.
+  if (!signer || typeof signer.signJwt !== "function") return null;
+
   try {
-    const upstream = `https://notme-bot${NOTME_SIGN_JWT_PATH}`;
-    const res = await env.NOTME.fetch(new Request(upstream, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ signing_input: signingInput }),
-    }));
-    if (!res.ok) return null;
-    const body = (await res.json()) as unknown;
-    if (typeof body !== "object" || body === null) return null;
-    const sig = (body as Record<string, unknown>).signature;
-    if (typeof sig !== "string" || sig.length === 0) return null;
-    // Defensive: signature MUST be base64url (no padding) per RFC 7515.
-    // Reject anything containing `+`, `/`, or `=` — that'd produce an
-    // invalid JWS compact form.
-    if (/[+/=]/.test(sig)) return null;
-    return sig;
+    const result = await signer.signJwt(params);
+    if (!result?.ok) return null;
+
+    const sig = result.signature;
+    // Ed25519 is 64 bytes (RFC 8032 §5.1.6). Checking the length rather than
+    // trusting the shape keeps a truncated or wrong-curve signature from being
+    // assembled into a JWS that then fails verification somewhere less
+    // diagnosable than here.
+    if (!(sig instanceof Uint8Array) || sig.length !== 64) return null;
+
+    let bin = "";
+    for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]!);
+    return base64StdToBase64Url(btoa(bin));
   } catch {
-    // lint-allow-silent: validate predicate — null = invalid signature format
+    // lint-allow-silent: RPC unreachable / threw — null = no signature, and the
+    // caller's 503 is the correct fail-closed answer. Distinguishing "notme is
+    // down" from "notme refused this issuer" to the CALLER would leak whether
+    // an issuer is in DELEGATED_JWT_ISSUERS, which is operator configuration.
     return null;
   }
 }
