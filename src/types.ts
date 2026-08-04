@@ -231,6 +231,25 @@ export interface Env {
   /// receipts are NOT emitted (dev/test mode; the 0.2.0 spec Phase 1
   /// migration allows this — see RECEIPTS.md §8.2).
   RECEIPT_SIGNING_KEY?: string;
+  /// Interlace ACTOR fingerprint — "sha256:<64 lowercase hex>" over the master
+  /// public key. Read ONLY by src/routes/actor-fingerprint.ts
+  /// (`lint:trust-env-locality`).
+  ///
+  /// Fallback for `manifest.actor.fingerprint` when that is empty, which gates
+  /// BOTH published identity surfaces: the Interlace discovery doc and the
+  /// five-path identity bridge. The manifest value wins when set — an env var
+  /// must not silently repoint a committed identity.
+  ///
+  /// Exists because the fingerprint is DERIVABLE from the pubkey, so an empty
+  /// manifest value beside a present key is underspecified rather than
+  /// switched off — and "disabled" and "not filled in yet" were previously the
+  /// same 404. Same shape as `RECEIPT_ACTOR_FP` below, which already resolved
+  /// the receipt half of one actor's identity this way.
+  ///
+  /// Neither set still means disabled. `cloister dev bootstrap` derives and
+  /// writes this so a local scaffold publishes a live surface instead of a
+  /// declared-but-dead one.
+  INTERLACE_ACTOR_FP?: string;
   /// Current key epoch for this actor (decimal uint). Defaults to 1
   /// when unset. Increments when the master signing key rotates; old
   /// epochs remain resolvable via TrustStore's actor_ca_bundle table.

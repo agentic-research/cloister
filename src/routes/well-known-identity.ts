@@ -83,6 +83,7 @@
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import type { Backend, Gateway, McpToolSpec, Route } from "../manifest/types.js";
+import { resolveActorFingerprint } from "./actor-fingerprint.js";
 
 // ── Path constants ────────────────────────────────────────────────────────
 
@@ -130,8 +131,12 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
 
   async handle(request: Request, env: Env): Promise<Response> {
     // Identity bridge is opt-in via the same lever as the native
-    // Interlace discovery doc: empty actor.fingerprint disables it.
-    if (!this.manifest.actor.fingerprint) {
+    // One resolver, shared with the discovery doc: manifest value, else the
+    // INTERLACE_ACTOR_FP binding, else genuinely disabled. Before this, an
+    // operator with a live identity who had not restated its digest in the
+    // manifest got the same bare 404 as one who had opted out.
+    const fingerprint = resolveActorFingerprint(this.manifest, env);
+    if (!fingerprint) {
       return new Response("identity bridge disabled", { status: 404 });
     }
 
@@ -171,6 +176,10 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
   // ── /.well-known/jwks.json ─────────────────────────────────────────────
 
   private handleJwks(_request: Request, env: Env): Response {
+    // Resolved, not raw: when the fallback supplied the fingerprint the raw
+    // manifest value is "", and a JWK published under an empty `kid` matches
+    // nothing a verifier looks up.
+    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
     const masterB64 = readEnvString(env, this.manifest.actor.pubkeyBinding);
     if (!masterB64) {
       // The pubkey binding is unset — without it we can't publish a
@@ -191,7 +200,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       // verifiers can pin a stable identifier; the fingerprint is
       // already a sha256:<hex> string. RFC 7517 §4.5 permits any
       // case-sensitive string as `kid`.
-      kid: this.manifest.actor.fingerprint,
+      kid: fingerprint,
       alg: "EdDSA",
       use: "sig",
     };
@@ -320,15 +329,18 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     // `b64url(header).b64url(payload).b64url(sig)`.
     const nowSec = Math.floor(Date.now() / 1000);
     const ttlSec = 300;  // matches manifest.policy.maxCertLifetimeSeconds default
+    // Same resolver as the gate above; `handle()` already refused the request
+    // if this is null, so the ?? "" is unreachable rather than a default.
+    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
     const header = {
       alg: "EdDSA",
       typ: "JWT",
-      kid: this.manifest.actor.fingerprint,
+      kid: fingerprint,
     };
     const payload: Record<string, unknown> = {
       iss:   base,
       aud:   audience,
-      sub:   this.manifest.actor.fingerprint,
+      sub:   fingerprint,
       iat:   nowSec,
       exp:   nowSec + ttlSec,
     };

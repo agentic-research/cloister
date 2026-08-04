@@ -165,6 +165,11 @@ VAULT_KEK_SOURCE = ""
 INTERLACE_ROOT_PUBKEY            = ""    # base64 Ed25519 master pubkey; non-empty turns lease gate ON
 INTERLACE_MASTER_PUBKEY          = ""    # alias used by some code paths; keep in sync with ROOT
 INTERLACE_DISCLOSURE_HMAC_KEY    = ""    # HMAC for disclosure-endpoint cursor signing
+# Fallback for [gateway.actor].fingerprint — "sha256:<64 hex>" over the master
+# pubkey, derived by `cloister dev bootstrap`. Without it the declared identity
+# routes (wellKnownInterlace / wellKnownIdentityBridge / disclosure) 404 on
+# every path, which is what they did until gate-integrity started checking.
+INTERLACE_ACTOR_FP               = ""    # sha256:<hex>; empty = identity surfaces off
 
 # ── Interlace 0.2.0 receipts (cloister-ae713f) ─────────────────────────────
 # Empty default = no emission (Phase 1 dev/test posture). Production

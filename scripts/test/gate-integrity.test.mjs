@@ -217,6 +217,130 @@ test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () 
   );
 });
 
+// ── a declared identity route must be answerable ─────────────────────────
+//
+// Same shape as the recipe property above, one layer down. Two things state
+// whether cloister publishes an identity: the ROUTE LIST says "serve
+// /.well-known/identity-bridge", and `[gateway.actor].fingerprint` decides
+// whether that route answers at all — empty means every path 404s.
+//
+// Nothing reconciled them, so both the root cluster.toml AND
+// `recipes/agent-cluster` — whose README calls it "the full identity-on
+// cloister deployment ... with the well-known discovery surface enabled" —
+// declared the routes and left the fingerprint empty. Measured against a live
+// local pair with notme running and the bindings connected:
+//
+//     POST /oauth/token  ->  404  identity bridge disabled
+//
+// A recipe that ships a guaranteed-dead route is exactly the multi-tenant-smoke
+// failure again: the docs, the declaration, and the runtime each believed
+// something different, and the gate agreed with all three.
+//
+// A recipe cannot carry a literal fingerprint — it is SHA-256 over a specific
+// deployment's master key, and a scaffolded placeholder would publish a `kid`
+// no verifier resolves, which is worse than the 404 it replaces. What a recipe
+// CAN do is say how the value arrives: `cloister dev bootstrap` derives it into
+// INTERLACE_ACTOR_FP, which src/routes/actor-fingerprint.ts accepts as the
+// fallback.
+//
+// So the property is on the DOCS, which is where the lie actually was.
+// agent-cluster's README promised "the well-known discovery surface enabled"
+// and never mentioned that a fingerprint is required for any of it to answer.
+// A reader who followed it reached five 404s and no stated reason.
+
+const IDENTITY_ROUTES = new Set(["wellKnownIdentityBridge", "wellKnownInterlace", "disclosure"]);
+
+/** Routes declared by a cluster.toml that only answer with a fingerprint. */
+function identityRoutesIn(cluster) {
+  const routes = Array.isArray(cluster.routes) ? cluster.routes : [];
+  return routes.map((r) => r?.kind).filter((k) => IDENTITY_ROUTES.has(k));
+}
+
+test("PROPERTY: no recipe declares an identity route it cannot answer", () => {
+  const recipesRoot = resolve(ROOT, "recipes");
+  const recipes = readdirSync(recipesRoot).filter((n) =>
+    existsSync(resolve(recipesRoot, n, "cluster.toml")),
+  );
+  assert.ok(recipes.length > 2, `sanity: expected several recipes, found ${recipes.length}`);
+
+  const offenders = [];
+  for (const name of recipes) {
+    const cluster = parseToml(
+      readFileSync(resolve(recipesRoot, name, "cluster.toml"), "utf8"));
+    const declared = identityRoutesIn(cluster);
+    if (declared.length === 0) continue;
+    const fp = cluster.gateway?.actor?.fingerprint;
+    if (typeof fp === "string" && fp.length > 0) continue;
+
+    // No literal, so the README must say where the fingerprint comes from.
+    const readmePath = resolve(recipesRoot, name, "README.md");
+    const readme = existsSync(readmePath) ? readFileSync(readmePath, "utf8") : "";
+    if (readme.includes("INTERLACE_ACTOR_FP") || readme.includes("dev bootstrap")) continue;
+
+    offenders.push(
+      `recipes/${name} declares ${declared.join(", ")} with no ` +
+      `[gateway.actor].fingerprint, and its README never says how one arrives — ` +
+      `every one of those paths 404s for anyone who follows it`);
+  }
+  assert.deepEqual(offenders, [], `${offenders.length} recipe(s) ship a dead identity route`);
+});
+
+test("PROPERTY: the root cluster.toml can answer the identity routes it declares", () => {
+  // The root tree is allowed to satisfy this from the environment, because a
+  // real deployment's fingerprint is deployment-specific and must not be
+  // committed. What it may NOT do is declare the routes with no way at all to
+  // answer them — so the fallback binding has to be DECLARED on both deployment
+  // paths, which is the same standard lint:binding-parity applies.
+  const cluster = parseToml(readFileSync(resolve(ROOT, "cluster.toml"), "utf8"));
+  const declared = identityRoutesIn(cluster);
+  if (declared.length === 0) return;
+
+  const fp = cluster.gateway?.actor?.fingerprint;
+  if (typeof fp === "string" && fp.length > 0) return;
+
+  const wrangler = readFileSync(resolve(ROOT, "wrangler.toml"), "utf8");
+  const capnp = readFileSync(resolve(ROOT, "config.capnp"), "utf8");
+  assert.ok(
+    wrangler.includes("INTERLACE_ACTOR_FP") && capnp.includes("INTERLACE_ACTOR_FP"),
+    `cluster.toml declares ${declared.join(", ")} with no fingerprint, so the ` +
+    `INTERLACE_ACTOR_FP fallback must be declared on BOTH deployment paths ` +
+    `(wrangler.toml + config.capnp) or those routes can never answer`,
+  );
+});
+
+test("PROPERTY: bootstrap and the runtime derive the same fingerprint", async () => {
+  // Two derivations of one digest, in two languages of one repo: the Worker
+  // module (src/routes/actor-fingerprint.ts) and plain Node
+  // (cli/lib/dev/bootstrap.mjs, which cannot import a Worker module). Nothing
+  // structurally ties them, so this asserts the only thing that matters — that
+  // they agree — rather than trusting that two copies of `sha256:` + hex stay
+  // aligned.
+  const { createHash } = await import("node:crypto");
+  const { bootstrapLocalDev } = await import("../../cli/lib/dev/bootstrap.mjs");
+
+  const pubkey = Buffer.alloc(32, 7);
+  const written = {};
+  const result = await bootstrapLocalDev({
+    root: "/nonexistent-bootstrap-property",
+    env: { NOTME_DEV_URL: "" },
+    fetchImpl: async () => { throw new Error("offline"); },
+    spawn: () => ({ status: 1, stdout: "", stderr: "" }),
+    exists: () => true,
+    read: () => `INTERLACE_ROOT_PUBKEY=${pubkey.toString("base64")}\n`,
+    write: (path, contents) => { written[path] = contents; },
+    random: () => Buffer.alloc(32, 1),
+    log: () => {},
+  });
+
+  const expected = `sha256:${createHash("sha256").update(pubkey).digest("hex")}`;
+  assert.equal(result.actorFpOutcome.value, expected,
+    "bootstrap's derivation drifted from SHA-256(raw pubkey)");
+  // And the format the runtime's validator accepts.
+  assert.match(result.actorFpOutcome.value, /^sha256:[0-9a-f]{64}$/);
+  assert.ok(Object.values(written)[0].includes(`INTERLACE_ACTOR_FP=${expected}`),
+    "the derived fingerprint is not written to .env.local");
+});
+
 // ── every check-shaped task is invoked by some gate ───────────────────────
 //
 // The pattern this exists for, seven instances in one session:

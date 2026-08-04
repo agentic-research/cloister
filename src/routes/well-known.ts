@@ -18,6 +18,7 @@
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
+import { resolveActorFingerprint } from "./actor-fingerprint.js";
 import type {
   Backend,
   Gateway,
@@ -43,7 +44,7 @@ export class WellKnownInterlaceRoute implements EdgeRoute {
   }
 
   async handle(_request: Request, env: Env): Promise<Response> {
-    if (!this.manifest.actor.fingerprint) {
+    if (!resolveActorFingerprint(this.manifest, env)) {
       return new Response("interlace discovery disabled", { status: 404 });
     }
 
