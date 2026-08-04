@@ -153,10 +153,13 @@ export interface Env {
   /// RECEIPTS.md §2.1, §2.4). The matching 32-byte raw pubkey MUST
   /// match what `.well-known/interlace/index.json` advertises as the
   /// signing key for the current epoch. Production deployments
-  /// delegate signing to notme — when this binding is unset and
-  /// `env.NOTME` is configured, the receipt emitter forwards to
-  /// notme's `/internal/sign-receipt` endpoint (followup bead to
-  /// land the notme-side handler). Empty AND no NOTME binding means
+  /// delegate signing to notme — but NOT via `/internal/sign-receipt`,
+  /// which notme declined to build because a `/internal/` path prefix
+  /// is publicly routable and is therefore not an access control. The
+  /// shape is an RPC entrypoint; see `src/wire/receipts.ts` §"Key
+  /// surface" for the call and the binding it needs (which is NOT this
+  /// `NOTME` one — that is the `/identity/*` fetch binding). Empty AND
+  /// no signer binding means
   /// receipts are NOT emitted (dev/test mode; the 0.2.0 spec Phase 1
   /// migration allows this — see RECEIPTS.md §8.2).
   RECEIPT_SIGNING_KEY?: string;

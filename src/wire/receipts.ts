@@ -28,14 +28,37 @@
 //
 //   1. `RECEIPT_SIGNING_KEY` env binding — base64-standard 64-byte
 //      Ed25519 keypair (seed || pub). When set, Cloister signs locally
-//      via Web Crypto. Default deployment path until notme grows a
-//      `/internal/sign-receipt` endpoint.
+//      via Web Crypto. Interim only — it binds a master PRIVATE key
+//      into cloister's env, which ADR-0010 rules out (vault slices are
+//      the binding substrate) and which makes a second copy of a trust
+//      root whose whole property is that it never leaves notme.
 //
-//   2. Notme service-binding delegation — when (1) is unset and the
-//      env.NOTME service binding is configured, sign forwards to notme
-//      as POST /internal/sign-receipt with the canonical commitment
-//      bytes. Returns the Ed25519 signature. (Followup bead to add the
-//      notme-side endpoint.)
+//   2. Notme RPC delegation — the target shape. NOT a fetch to
+//      `/internal/sign-receipt`: notme declined to build that, because
+//      a `/internal/` path prefix is publicly routable and a prefix is
+//      not an access control. The call is an RPC entrypoint instead.
+//      Unimplemented here; cloister-35ccf7 tracks it.
+//
+//      Shape, per notme (2026-08-03):
+//        - the binding declares `entrypoint = "ReceiptSigner"` — a plain
+//          service binding reaches only the default fetch handler
+//        - `signReceipt(bytes)`, not `.fetch(...)`
+//        - returns a result object; branch on `{ ok: false, code }`
+//          rather than catching a throw. `EPOCH_MISMATCH` means re-read
+//          the facts and retry rather than fail the call
+//        - take `actor_fp` / `epoch` from `receiptFacts()`, not from
+//          local config: notme REJECTS commitments whose facts disagree
+//          with its own, so they must come from the enforcing side
+//
+//      ⚠ The entrypoint does NOT go on the existing `NOTME` binding.
+//      `env.NOTME` is live for the `/identity/*` proxy (typed `Fetcher`,
+//      wired in runtime.ts's NotmeIdentityRoute) and pinning it to an
+//      entrypoint would redirect that traffic away from notme's default
+//      handler. This needs a SECOND binding to the same service.
+//      Cloister has no entrypoint-bearing binding today, and
+//      `lint:binding-parity` does not compare `entrypoint` — so the
+//      first one added can silently differ between config.capnp and
+//      wrangler.toml. Extend the rail in the same change.
 //
 // Verification (always cloister-local) uses the master pubkey from the
 // CA bundle's epoch index. See §2.2 of RECEIPTS.md.
