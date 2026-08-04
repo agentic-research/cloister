@@ -65,6 +65,14 @@
 //   only control that holds, and it holds even if every claim check is
 //   deleted.
 //
+// LOCAL DEV REACHES THIS. `task dev` + `wrangler dev` in ../notme/worker/ is
+// enough — the dev registry wires `notme-bot#JwtSigner`. Only `task
+// serve:local` (raw workerd) cannot, since config.capnp declares notme-bot as
+// a network service. Two further things gate a working local token, and both
+// are config rather than code: `actor.fingerprint` must be non-empty (an empty
+// one disables the whole identity bridge, so all five paths 404 before signing
+// is reached), and notme's `DELEGATED_JWT_ISSUERS` must list cloister's issuer.
+//
 // CONSEQUENCE STILL OUTSTANDING: `manifest.actor.pubkeyBinding` must be
 // repointed at the DELEGATED public key (notme's
 // `JwtSigner.issuerPublicKey(issuer)`) before tokens verify. While it names

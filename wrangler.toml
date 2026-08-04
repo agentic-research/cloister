@@ -76,6 +76,12 @@ service = "notme-bot"
 # Delegated OAuth JWT signing (notme ADR-015, notme PR #62 / cloister-5f7e5c).
 #
 # An RPC entrypoint, NOT a fetch binding, and NOT the same key as `NOTME` above.
+# Reachable from `task dev` as well as production: wrangler's dev registry
+# wires named entrypoints between separately-running `wrangler dev` sessions,
+# so `wrangler dev` in ../notme/worker/ is all local delegated signing needs.
+# Only `task serve:local` (raw workerd) lacks it, because config.capnp declares
+# notme-bot as a network service.
+#
 # notme replaced `POST /internal/sign-jwt` with a 404 whose body names this
 # binding shape, for the reason it had already given when it declined
 # `/internal/sign-receipt`: an `/internal/` path prefix is publicly routable and

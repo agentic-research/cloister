@@ -115,11 +115,15 @@ export interface Env {
   /// cloister-5f7e5c). An RPC entrypoint on notme-bot, NOT a Fetcher, and
   /// NOT the `NOTME` binding above — that is the `/identity/*` fetch path.
   ///
-  /// Optional because it is CF-only: config.capnp declares notme-bot as a
-  /// network service, and an RPC entrypoint cannot bind to one (see
-  /// DECLARED_ASYMMETRY in scripts/lint-binding-parity.mjs). Absent binding
-  /// means `/oauth/token` returns 503, which is the correct fail-closed
-  /// answer for "no signer is reachable".
+  /// Optional because it is declared on the wrangler path only. `task
+  /// serve:local` (raw workerd) cannot have it — config.capnp declares
+  /// notme-bot as a network service and an RPC entrypoint cannot bind to one.
+  /// `task dev` CAN: wrangler's dev registry wires named entrypoints between
+  /// separately-running `wrangler dev` sessions, so with notme's worker up the
+  /// binding resolves locally (verified: `env.NOTME_JWT (notme-bot#JwtSigner)
+  /// Worker local [connected]`). See DECLARED_ASYMMETRY in
+  /// scripts/lint-binding-parity.mjs. Absent binding means `/oauth/token`
+  /// returns 503 — the correct fail-closed answer for "no signer reachable".
   ///
   /// The key is DELEGATED, deliberately not the Interlace/CA master. notme
   /// refused the master-key version because its own access tokens are signed
