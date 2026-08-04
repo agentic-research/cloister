@@ -41,6 +41,11 @@ import {
   type ReceiptCommitment,
   b64stdDecode,
 } from "../wire/receipts.js";
+import {
+  type DelegatedReceiptSigner,
+  delegatedReceiptSignerFrom,
+  signDelegatedCommitmentToHeader,
+} from "../wire/receipt-delegated-signer.js";
 import { canonicalRequestBytes } from "./lease-middleware.js";
 import { logEvent } from "../obs/log.js";
 
@@ -68,6 +73,16 @@ export interface ReceiptEmissionContext {
   nonce: Uint8Array;
   /** Pre-built receipt signer, OR null if Phase 1 (no emission). */
   signer: ReceiptSigner | null;
+  /**
+   * Delegated signer (notme's ReceiptSigner RPC entrypoint), when the
+   * `NOTME_RECEIPTS` binding is present. Takes precedence over `signer`.
+   *
+   * Separate field rather than a variant of `signer` because the two have
+   * genuinely different seams: the local signer signs canonical BYTES, while
+   * this one must own the encode so it can rebuild the commitment on an
+   * EPOCH_MISMATCH retry — the epoch is a field inside the bytes being signed.
+   */
+  delegated?: DelegatedReceiptSigner | null;
   /** Actor fingerprint (32 bytes, raw). */
   actorFp: Uint8Array;
   /** Actor epoch. */
@@ -91,6 +106,44 @@ export async function buildEmissionContext(args: {
   requestCanon: Uint8Array;
   nonce:        Uint8Array;
 }): Promise<ReceiptEmissionContext | null> {
+  // Delegation first: RECEIPT_SIGNING_KEY puts a master PRIVATE key in
+  // cloister's env, which ADR-0010 rules out and which makes a second copy of
+  // a trust root whose whole property is that it never leaves notme. When both
+  // are configured the binding wins — an operator who wired the binding did
+  // not mean to keep signing locally.
+  const delegated = delegatedReceiptSignerFrom(args.env.NOTME_RECEIPTS);
+  // probe(), not a shape check: workerd RPC stubs are Proxies that synthesize a
+  // callable for any property name, so `typeof x.signReceipt === "function"` is
+  // true for a fetch-only binding too. The only way to learn whether the far
+  // side implements the entrypoint is to call it.
+  //
+  // actor_fp and epoch come from the AUTHORITY, not from local config: notme
+  // rejects any commitment whose facts disagree with its own, so deriving them
+  // here would reintroduce exactly the drift receiptFacts() exists to remove.
+  // `actorFp` arrives already hashed for the same reason.
+  const facts = delegated === null ? null : await delegated.probe();
+  if (delegated !== null && facts !== null) {
+    return {
+      nowMs: args.nowMs,
+      requestCanon: args.requestCanon,
+      nonce: args.nonce,
+      signer: null,
+      delegated,
+      actorFp: facts.actorFp,
+      epoch: facts.epoch,
+    };
+  }
+  if (delegated !== null) {
+    // Bound but unusable — the operator wired NOTME_RECEIPTS and it does not
+    // answer. Falling through to the env path silently would hide a
+    // misconfigured trust root behind a working-looking deployment, which is
+    // the §13.2 "silence is evidence" failure in miniature.
+    logEvent("warn", {
+      target: "receipt_emitter", op: "load_signer",
+      outcome: "delegation_unavailable_falling_back",
+    });
+  }
+
   const signer = await loadReceiptSigner(args.env);
   if (signer === null) return null;
   const actorFp = await resolveActorFingerprint(args.env, signer.pubkey);
@@ -100,6 +153,7 @@ export async function buildEmissionContext(args: {
     requestCanon: args.requestCanon,
     nonce: args.nonce,
     signer,
+    delegated: null,
     actorFp,
     epoch,
   };
@@ -110,8 +164,12 @@ export async function buildEmissionContext(args: {
  * signing material is configured — Phase 1 deployments (§8.2) run
  * without receipt emission.
  *
- * Production deployments will extend this to delegate to notme via
- * `env.NOTME.fetch("/internal/sign-receipt", ...)` — follow-up bead.
+ * This is the LOCAL/Phase-1 path only. Production delegates to notme's
+ * `ReceiptSigner` RPC entrypoint via `NOTME_RECEIPTS` — see
+ * `buildEmissionContext`, which prefers it. Not a fetch to
+ * `/internal/sign-receipt`: notme declined to build that, because an
+ * `/internal/` prefix is publicly routable and a prefix is not an access
+ * control. Per cloister-35ccf7.
  */
 export async function loadReceiptSigner(env: Env): Promise<ReceiptSigner | null> {
   const raw = env.RECEIPT_SIGNING_KEY;
@@ -192,7 +250,7 @@ export async function attachReceipt(
   response: Response,
   ctx: ReceiptEmissionContext,
 ): Promise<Response> {
-  if (ctx.signer === null) return response;
+  if (!ctx.signer && !ctx.delegated) return response;
   if (response.status < 200 || response.status >= 300) return response;
 
   // SSE / streaming detection: if the content-type is event-stream OR
@@ -232,7 +290,13 @@ export async function attachReceipt(
     epoch:       ctx.epoch,
   };
 
-  const { headerValue } = await signCommitmentToHeader(commitment, ctx.signer);
+  // Delegated path owns its own encode so it can rebuild on EPOCH_MISMATCH;
+  // it returns the commitment ACTUALLY signed, which differs from the one
+  // built above when a retry happened. Building the envelope from the
+  // original would emit a receipt whose commitment and signature disagree.
+  const { headerValue } = ctx.delegated
+    ? await signDelegatedCommitmentToHeader(commitment, ctx.delegated)
+    : await signCommitmentToHeader(commitment, ctx.signer!);
 
   // Now stamp the receipt header on. Not in HEADER_ALLOWLIST so this
   // does NOT affect the headers_hash we just computed.

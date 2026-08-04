@@ -94,6 +94,23 @@ binding = "NOTME_JWT"
 service = "notme-bot"
 entrypoint = "JwtSigner"
 
+# Interlace receipt signing (notme ADR-014, cloister-35ccf7).
+#
+# Its OWN binding, deliberately not an `entrypoint` pinned onto `NOTME` above.
+# That binding is live for the `/identity/*` fetch proxy; pinning an entrypoint
+# on it redirects that traffic to a class with no `fetch` handler and breaks
+# identity. notme's source records that an earlier draft of its own integration
+# note said to do exactly that, and that it would have broken the first
+# integrator who followed it.
+#
+# A separate entrypoint also keeps least privilege: a binding to ReceiptSigner
+# grants receipt signing and nothing else — not proxy(), sign(), or
+# authenticate().
+[[services]]
+binding = "NOTME_RECEIPTS"
+service = "notme-bot"
+entrypoint = "ReceiptSigner"
+
 # ── Non-workerd services (HTTP proxy, local dev only) ─────────────────────
 # signet         (Go)   — key exchange / identity layer, port TBD
 # ley-line-open  (Rust) — daemon serves MCP on `--mcp-port`, default 8384

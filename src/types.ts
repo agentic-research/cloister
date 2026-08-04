@@ -150,6 +150,31 @@ export interface Env {
       | { ok: false; code: string; message: string }
     >;
   };
+  /// Interlace receipt signing delegated to notme's `ReceiptSigner` RPC
+  /// entrypoint (notme ADR-014 / cloister-35ccf7). Its OWN binding, NOT an
+  /// `entrypoint` pinned on `NOTME` above — that binding is live for the
+  /// `/identity/*` fetch proxy, and pinning an entrypoint on it would redirect
+  /// that traffic to a class with no `fetch` handler and break identity.
+  /// notme's own comment records that an earlier draft said to do exactly
+  /// that, and that it would have broken the first integrator to follow it.
+  ///
+  /// Preferred over `RECEIPT_SIGNING_KEY` when present: that binding puts a
+  /// master PRIVATE key in cloister's env, which ADR-0010 rules out and which
+  /// makes a second copy of a trust root whose whole property is that it never
+  /// leaves notme.
+  NOTME_RECEIPTS?: {
+    /// `actor_fp` (ALREADY SHA-256 hashed) + `epoch` a commitment must carry.
+    /// Hashed on notme's side on purpose: if cloister hashed it, cloister
+    /// would own a derivation notme then validates against.
+    receiptFacts(): Promise<{ actorFp: Uint8Array; epoch: number }>;
+    /// Sign canonical CBOR commitment bytes. Branch on `{ok: false, code}`
+    /// rather than catching a throw; `EPOCH_MISMATCH` is the only retryable
+    /// code and MUST be bounded to one retry.
+    signReceipt(commitment: Uint8Array): Promise<
+      | { ok: true; signature: Uint8Array; epoch: number }
+      | { ok: false; code: string; message: string }
+    >;
+  };
 
   // Vars (local dev: process addresses for non-workerd backends)
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint

@@ -38,6 +38,12 @@ const workerConfig = {
       // working signer here: a default that silently signs would let a test
       // pass without ever declaring it wanted a signer.
       NOTME_JWT: async () => new Response("notme JwtSigner is RPC-only", { status: 503 }),
+      // Same reasoning as NOTME_JWT: resolves the wrangler-declared name so
+      // workerd starts, without presenting `signReceipt`/`receiptFacts`. The
+      // shape check in delegatedReceiptSignerFrom() therefore treats it as
+      // absent and the emitter falls back to the env path — which is what an
+      // unbound deployment does, so tests exercise the real fallback.
+      NOTME_RECEIPTS: async () => new Response("notme ReceiptSigner is RPC-only", { status: 503 }),
       // KEK_HELPER stub — same wire shape as leyline-sign-helper
       // (LLO `rs/ll-open/sign/`, ADR-0019).
       // Responds to GET /resolve?url=keychain://vitest-kek with the

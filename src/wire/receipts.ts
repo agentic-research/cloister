@@ -112,6 +112,26 @@ export const HEADER_ALLOWLIST: readonly string[] = Object.freeze([
  */
 export const RECEIPT_CLOCK_SKEW_MS = 300_000;
 
+/**
+ * Maximum age of a commitment cloister BUILDS, as opposed to one it accepts.
+ *
+ * Deliberately tighter than `RECEIPT_CLOCK_SKEW_MS`, and the asymmetry is the
+ * point. That constant is the VERIFY tolerance — the spec's ±300s, applied to
+ * receipts cloister receives — and narrowing it would start rejecting valid
+ * receipts from conformant peers.
+ *
+ * This one governs emission. When cloister delegates signing to notme, both
+ * sides enforce ±300s independently, so a commitment stamped at the very edge
+ * of cloister's window can be outside notme's by the time the RPC lands. The
+ * result is a remote TIMESTAMP_OUT_OF_RANGE — a non-retryable rejection caused
+ * by round-trip latency rather than by anything wrong with the receipt.
+ *
+ * 240s leaves ~60s of headroom for that trip. Raised by notme during the
+ * ADR-014 integration review (cloister-35ccf7); an equal window on both sides
+ * looks symmetric and is the one arrangement guaranteed to fail at the edge.
+ */
+export const RECEIPT_EMIT_MAX_AGE_MS = 240_000;
+
 // ── Schema types ──────────────────────────────────────────────────────────
 
 /**
