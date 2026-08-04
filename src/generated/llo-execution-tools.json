@@ -187,7 +187,8 @@
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
         "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
-        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." }
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false
@@ -636,7 +637,8 @@
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
         "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
-        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." }
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false

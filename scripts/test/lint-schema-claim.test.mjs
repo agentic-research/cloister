@@ -76,12 +76,27 @@ test("MENTIONING the contract is not RESTATING it", () => {
 // The threshold is a judgement call, so it is pinned from both sides. Canonical
 // field names include ordinary words (`arguments`, `outputs`, `limits`); two of
 // them together is coincidence, three is a field list.
-test("two canonical fields is coincidence; three is enumeration", () => {
-  withFile(PROBE, "export const a = { arguments: [], outputs: [] };\n", () => {
-    assert.equal(runRail().code, 0, "two fields should be below the threshold");
-  });
+test("coincidence vs enumeration is counted in DISTINCTIVE names", () => {
+  // TIGHTENED at LLO v0.15.1, and the threshold is derived from the contract
+  // rather than chosen. The guarded structs mix distinctive names
+  // (`workspaceInputs`, `runSpecDigest`, `schemaVersion`) with ordinary words
+  // (`arguments`, `outputs`, `limits`, `executable`, `capabilities`). Three
+  // ORDINARY words together is still coincidence — any harness or CLI file has
+  // them — and treating it as enumeration is what flagged
+  // cli/lib/harness/launch.mjs, a file that never touches execution/v1, the
+  // moment `RunGrant.confinementManifest` collided with cloister's own
+  // `cloister/confinement/v1` vocabulary.
+  //
+  // This cannot under-catch, and that is checkable rather than asserted: RunSpec
+  // REQUIRES 7 distinctive fields, RunGrant 11, RunReceipt 12. Any genuine
+  // restatement of a payload carries far more than the two demanded here.
   withFile(PROBE, "export const a = { arguments: [], outputs: [], limits: {} };\n", () => {
-    assert.equal(runRail().code, 1, "three fields should trip the threshold");
+    assert.equal(runRail().code, 0,
+      "three ORDINARY canonical words is coincidence, not a restatement");
+  });
+  withFile(PROBE, "export const a = { schemaVersion: '', workspaceInputs: [], limits: {} };\n", () => {
+    assert.equal(runRail().code, 1,
+      "two distinctive canonical names is enumeration");
   });
 });
 
@@ -115,4 +130,54 @@ test("the rail refuses to run vacuously without the generated artifact", () => {
   } finally {
     spawnSync("mv", [bak, src]);
   }
+});
+
+// ── the EXECUTION_MARKER scope, added at LLO v0.15.1 ──────────────────────
+//
+// v0.15.1 added `RunGrant.confinementManifest @15`. `confinementManifest` was
+// ALREADY cloister's own term — cli/lib/harness/launch.mjs exports a builder for
+// `cloister/confinement/v1` §6 manifests, a spec cloister owns; the name is in
+// the spec's own title. The canonical match retroactively made cloister's own
+// vocabulary a "restatement", in a file that builds nono capability sets and
+// never constructs a RunSpec, RunGrant or RunReceipt.
+//
+// Renaming cloister's function would let an upstream field name dictate
+// cloister's internal vocabulary for a concept cloister defined first, so the
+// rail now requires a file to NAME the contract before it can be accused of
+// restating it.
+//
+// These two are a PAIR and only mean something together: the exemption must
+// cover the collision AND must not cover the defect the rail was built for.
+
+test("colliding names without naming execution/v1 are not a restatement", () => {
+  // The launch.mjs shape: cloister's own confinement vocabulary, nono
+  // capabilities, a resolved executable — and no reference to the contract.
+  const body = [
+    "export function confinementManifest(rootCount, service) {",
+    "  return { version: 'cloister/confinement/v1', fs: { allow: [] } };",
+    "}",
+    "export const plan = {",
+    "  confinementManifest: confinementManifest(1, 'anthropic'),",
+    "  capabilities: {}, executable: '/usr/bin/claude',",
+    "};",
+  ].join("\n");
+  const { code, out } = withFile(PROBE, body, runRail);
+  assert.equal(code, 0, `a file that never mentions execution/v1 was flagged:\n${out}`);
+});
+
+test("the #260 shape is STILL refused — the exemption did not swallow it", () => {
+  // A hand-written RunSpec builder. It names the struct, so the marker matches
+  // and the enumeration is a genuine restatement. If this ever passes, the
+  // exemption has widened to cover the defect the rail exists for.
+  const body = [
+    "/** Build a RunSpec for llo_execution_start. */",
+    "export function buildRunSpec(args) {",
+    "  return {",
+    "    confinementManifest: args.cm, capabilities: args.caps,",
+    "    executable: args.bin,",
+    "  };",
+    "}",
+  ].join("\n");
+  const { code } = withFile(PROBE, body, runRail);
+  assert.equal(code, 1, "a hand-written RunSpec builder must still be refused");
 });

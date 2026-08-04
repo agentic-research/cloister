@@ -20,10 +20,20 @@ test("the README leads a new user through the installed CLI", () => {
 test("operator docs name the product command and label the compatibility runtime", () => {
   const running = read("docs/RUNNING.md");
   const readme = read("README.md");
-  const runtimeSection = readme.slice(
-    readme.indexOf("### Experimental: run an external tool"),
-    readme.indexOf("## What cloister is NOT"),
-  );
+  // Anchored on the FIRST runtime heading, which is now the LLO path — the
+  // section was reordered so the page stops leading with the shell-out
+  // (cloister-17e502). Both headings live between this anchor and the next `##`,
+  // so the slice still covers the whole runtime surface.
+  //
+  // The old anchor was the literal "### Experimental: run an external tool".
+  // When that heading was renamed, indexOf returned -1 and slice(-1, n) produced
+  // an EMPTY string — so every assertion below passed vacuously except the one
+  // that happened to be a positive match. A heading-text anchor fails open,
+  // which is worth knowing about the shape rather than just fixing.
+  const runtimeStart = readme.indexOf("### Running an external tool under isolation");
+  assert.notEqual(runtimeStart, -1, "runtime section heading not found — anchor is stale");
+  const runtimeSection = readme.slice(runtimeStart, readme.indexOf("## What cloister is NOT"));
+  assert.ok(runtimeSection.length > 0, "runtime slice is empty — anchors crossed");
 
   assert.match(running, /node bin\/cloister\.mjs/);
   assert.doesNotMatch(running, /node scripts\/cloister-cli\.mjs/);

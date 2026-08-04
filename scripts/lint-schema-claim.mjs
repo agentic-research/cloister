@@ -95,11 +95,70 @@ const files = globSync("{cli,src,scripts}/**/*.{mjs,ts}", { cwd: ROOT })
 const CONTRACT_IMPORT = /from\s+["'][^"']*llo-execution-contract\.mjs["']/;
 const isTest = (rel) => rel.includes("/test/") || rel.endsWith(".test.mjs");
 
+/**
+ * Does this file participate in execution/v1 at all?
+ *
+ * The rail's claim is "cloister must not restate a contract it does not own".
+ * A file that never mentions that contract cannot be restating it — it is using
+ * colliding names for its own purposes, and flagging it asserts something false.
+ *
+ * This is not hypothetical tightening. LLO v0.15.1 added
+ * `RunGrant.confinementManifest @15`, and `confinementManifest` was ALREADY
+ * cloister's own vocabulary: cli/lib/harness/launch.mjs:103 exports a builder
+ * for `cloister/confinement/v1` §6 manifests, a spec cloister owns — the name
+ * is in the spec's own title. LLO adopting the name is correct and good; the
+ * consequence was that a canonical-field match retroactively made every prior
+ * use of cloister's own term a "restatement", in a file that builds nono
+ * capability sets and never constructs a RunSpec, RunGrant or RunReceipt.
+ *
+ * Renaming cloister's function would let an upstream field name dictate
+ * cloister's internal vocabulary for a concept cloister defined first. So the
+ * discriminator moves instead.
+ *
+ * It does NOT weaken the #260 case. That defect was a hand-written ten-field
+ * RunSpec inside the execution adapter — a file whose entire subject is this
+ * contract, and which matches on several of these markers. A file can not build
+ * an execution/v1 payload while mentioning execution/v1 nowhere.
+ */
+const EXECUTION_MARKER =
+  /\bexecution\/v1\b|\bllo_execution\w*|\bRun(?:Spec|Grant|Receipt)\b|llo-execution-/;
+
+/**
+ * Is this canonical field name DISTINCTIVE to the contract, or an ordinary word
+ * that anything might use as a key?
+ *
+ * The guarded structs contain both. Distinctive: `workspaceInputs`,
+ * `confinementDigest`, `runSpecDigest`, `schemaVersion`, `backendClass`.
+ * Ordinary: `executable`, `capabilities`, `arguments`, `outputs`, `limits`,
+ * `signature`, `usage`, `backend`, `workspaces`.
+ *
+ * That second list is the problem. Any harness, sandbox or runtime file in
+ * cloister will naturally use three of those as object keys, so MIN_FIELDS
+ * alone produces a false positive that GROWS every time LLO adds a
+ * generically-named field. It is the same coincidence-vs-enumeration question
+ * MIN_FIELDS already answers, one level down: three ordinary words together is
+ * still coincidence; two compound domain names together is not.
+ *
+ * Compound camelCase is the proxy, because it is a property of the NAME rather
+ * than a list someone must maintain — a hand-kept set of "generic" words would
+ * rot the first time upstream added one nobody thought of.
+ */
+const isDistinctive = (field) => /[a-z][A-Z]/.test(field);
+
 const violations = [];
 for (const rel of files) {
   const text = readFileSync(resolve(ROOT, rel), "utf8");
   const found = enumeratedFields(text);
   if (found.size < MIN_FIELDS) continue;
+  // A file may be accused of restating the contract only if it NAMES the
+  // contract, or enumerates at least two distinctive field names. Without this,
+  // `executable` + `capabilities` + any third ordinary word flags every harness
+  // file in the tree — which is exactly what LLO v0.15.1 caused by adding
+  // `RunGrant.confinementManifest`, a name cloister already owned via its own
+  // `cloister/confinement/v1` spec. Checked BEFORE the test exemption so the
+  // recorded reason for skipping is the accurate one.
+  const distinctive = [...found].filter(isDistinctive);
+  if (!EXECUTION_MARKER.test(text) && distinctive.length < 2) continue;
   if (isTest(rel) && CONTRACT_IMPORT.test(text)) continue;
   const why = isTest(rel)
     ? "enumerates the wire shape without importing the generated contract"

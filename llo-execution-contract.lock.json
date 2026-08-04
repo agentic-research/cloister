@@ -4,7 +4,7 @@
     "Update the source commit and digest together when LLO publishes a new contract.",
     "",
     "sourceCommit MUST be a commit reachable from a published tag, not a branch tip.",
-    "This pin previously named 2835bdce — a commit on LLO's integration branch, which",
+    "This pin previously named 2835bdce \u2014 a commit on LLO's integration branch, which",
     "PR #317 squash-merged into main. It is NOT an ancestor of v0.15.0, so the bytes",
     "this artifact claimed to come from were already unreachable from any released",
     "history and would vanish entirely when the branch was deleted. A content pin",
@@ -22,8 +22,8 @@
     "same unverified-input shape the schema-bridge lock exists to prevent."
   ],
   "source": "agentic-research/ley-line-open",
-  "sourceCommit": "df1a919a5249cfd2293fdc45cfdd7e716a83fe30",
-  "sourceTag": "v0.15.0",
+  "sourceCommit": "a3ca7e7469e1b1fdd9e256a820ed7f7daab8d200",
+  "sourceTag": "v0.15.1",
   "artifact": "src/generated/llo-execution-tools.json",
-  "sha256": "125aa1e2c17071e08bc8233b1464c5f028937b246e1d7bb11bd7d13315bc54a9"
+  "sha256": "37136028e8459b78029b2497291560649bf8735abf3b70e1eea7c9e8eaec1cd8"
 }
