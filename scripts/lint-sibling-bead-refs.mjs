@@ -117,11 +117,53 @@ function defaultRun(id) {
   });
 }
 
+function defaultRunComments(id) {
+  return execFileSync("rsry", ["bead", "comment", "list", id], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/**
+ * Has this bead been ACKNOWLEDGED against the sibling ADR citing it?
+ *
+ * The second clearance path, and until now it existed only in the error
+ * message: the rail told you to "comment on the bead saying why it does not
+ * [resolve the question]" and then ignored comments entirely, so the only way
+ * to go green was to CLOSE the bead. That is the worst possible incentive — it
+ * pushes you to close work that is not done in order to clear a lint, which is
+ * exactly the record-destroying move the rail exists to prevent.
+ *
+ * Found when ley-line-open ADR-0037 cited `cloister-d303b2` in passing (an
+ * accurate aside about our mirror lag) without deciding it. Correct outcome:
+ * stay open, say why. The rail refused that outcome.
+ *
+ * An acknowledgement is a comment naming the ADR — by filename stem or by
+ * `ADR-NNNN`. Deliberately not a bare marker word: the point is that somebody
+ * READ the sibling's decision, and naming which one is the cheapest evidence
+ * that they did.
+ */
+export function acknowledges(id, files, runComments = defaultRunComments) {
+  let out;
+  try {
+    out = runComments(id);
+  } catch {
+    return false;
+  }
+  return [...files].every((file) => {
+    const stem = file.replace(/\.md$/, "");
+    if (out.includes(stem)) return true;
+    const num = /^(\d{4})/.exec(file)?.[1];
+    return num ? new RegExp(`ADR[-\\s]?${num}`, "i").test(out) : false;
+  });
+}
+
 export function main({
   env = process.env,
   log = console.log,
   err = console.error,
   run = defaultRun,
+  runComments = defaultRunComments,
 } = {}) {
   const root = lloRoot(env);
   if (!existsSync(root)) {
@@ -142,7 +184,12 @@ export function main({
   for (const [id, files] of [...refs].sort()) {
     const where = [...files].sort().join(", ");
     const status = beadStatus(id, run);
-    if (status === "open") open.push([id, where]);
+    if (status === "open") {
+      // Closed OR acknowledged clears. See `acknowledges` for why the second
+      // path has to exist.
+      if (!acknowledges(id, files, runComments)) open.push([id, where]);
+      else log(`lint-sibling-bead-refs: OK — ${id} stays open, acknowledged against ${where}`);
+    }
     else if (status === "missing") missing.push([id, where]);
   }
 

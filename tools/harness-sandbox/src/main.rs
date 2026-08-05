@@ -38,7 +38,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use nono::manifest::{CapabilityManifest, NetworkMode};
-use nono::capability::CapabilitySet;
+use nono::capability::{CapabilitySet, NetworkMode as CapNetworkMode};
 use nono::Sandbox;
 use serde::Deserialize;
 
@@ -179,18 +179,28 @@ fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
 /// harness can open a listener on any interface and serve whatever it can read.
 /// That path does not traverse the vault proxy and emits no receipt.
 ///
-/// THE ASYMMETRY IS THE BUG. The Linux arm above REFUSES `ProxyOnly` for
-/// precisely this reason — "a confinement that is weaker than the manifest says
-/// is worse than one that fails loudly". The same condition holds here and is
-/// accepted, because the Linux backend REPORTS its shortfall in a return value
-/// and the macOS backend does not. The check was shaped around what the API
-/// surfaced rather than around the property it wants.
+/// CLOSED as of cloister-2d420c. The asymmetry below is real and is no longer
+/// load-bearing, because cloister stopped asking for the dimension that trips it.
 ///
-/// Not refused here yet only because doing so would break the entire ADR-0042
-/// turnkey run, whose model is localhost TCP to the shim. The likely real fix is
-/// moving that shim to a UNIX SOCKET on macOS: nono grants UDS per-path with
-/// Connect vs ConnectBind modes, so a connect-only UDS grant IS enforceable
-/// where a port is not.
+/// Seatbelt DOES filter outbound per port. What it cannot filter per port is
+/// bind/inbound — and nono's `localhost_ports` list, being a BIDIRECTIONAL IPC
+/// grant, emits `(allow network-bind)` + `(allow network-inbound)` unqualified
+/// whenever it is non-empty. The harness only ever dials the shim, so asking for
+/// a two-way channel was the defect. `main()` now derives a one-way
+/// `ProxyOnly { port, bind_ports: [] }` instead, whose macOS emission is a single
+/// `(allow network-outbound (remote tcp "localhost:PORT"))`.
+///
+/// Measured on macOS 26.6 against that profile shape, with a passing control:
+/// connect to the granted port succeeds, `bind()` is EPERM, connect to any other
+/// port is EPERM, and bind succeeds when `network-bind` + `network-inbound` are
+/// granted (which is what makes the denial meaningful rather than a broken probe).
+///
+/// Two earlier hypotheses recorded here are WRONG and kept only so nobody
+/// re-derives them: that the fix was moving the shim to a UNIX socket (stock
+/// harnesses cannot dial AF_UNIX — Claude Code's proxy parser requires a URL
+/// host, Codex proxies over loopback TCP), and that nono emits bind/inbound
+/// "whenever localhost TCP is permitted at all" (it emits neither for
+/// `ProxyOnly` with empty lists).
 #[cfg(not(target_os = "linux"))]
 fn apply_confinement(caps: &CapabilitySet) -> Result<()> {
     Sandbox::apply_auto(caps)?;
@@ -294,88 +304,6 @@ fn main() -> Result<()> {
     // the manifest explicitly declares a deny-by-default network mode. Without
     // this, an omitted/loose network stanza would let the harness reach the whole
     // internet and bypass the vault proxy.
-    // macOS: A DECLARED LOCALHOST PORT IS NOT AN ENFORCED ONE — refuse unless
-    // the operator says, per run, that they accept the weaker boundary.
-    //
-    // `cloister-2d420c`, and confinement/v1 §9 condition 6: "It REFUSES any
-    // declaration its mechanism cannot express at the declared granularity,
-    // rather than committing to a policy that never took effect."
-    //
-    // Seatbelt filters OUTBOUND per port and cannot filter bind or inbound at
-    // all. nono says so at the emission site and emits both rules unqualified
-    // whenever localhost TCP is permitted (verified in the locked nono 0.70.0,
-    // src/sandbox/macos.rs:812):
-    //
-    //     // Seatbelt cannot filter bind/inbound by port
-    //     profile.push_str("(allow network-bind)\n");
-    //     profile.push_str("(allow network-inbound)\n");
-    //
-    // So a confined harness may open a listener on ANY port and accept from ANY
-    // source — a channel out of the sandbox that does not traverse the vault
-    // proxy and emits no receipt. Outbound is genuinely restricted; this is
-    // strictly the bind/inbound direction.
-    //
-    // The Linux arm below already refuses the analogous case (SeccompNetFallback
-    // ::ProxyOnly, where the port allowance would not be enforced) on the stated
-    // ground that "a confinement that is weaker than the manifest says is worse
-    // than one that fails loudly". This makes the two platforms agree. They
-    // previously disagreed for a reason that was never a judgement about macOS:
-    // the Linux backend REPORTS its shortfall in a return value and the macOS
-    // backend does not, so the check was shaped around what the API surfaced
-    // rather than around the property it wanted.
-    //
-    // WHY AN ACKNOWLEDGEMENT RATHER THAN A HARD REFUSAL. A hard refusal breaks
-    // `task harness:dev` outright — the ADR-0042 turnkey run's whole model is
-    // localhost TCP to the vault-proxy shim, and there is no enforceable
-    // substitute on macOS today (§6 unixSocket is enforceable here but
-    // unavailable on Linux, so it swaps which platform has the gap rather than
-    // closing it). What is wrong is not the weaker tier; it is the weaker tier
-    // being SILENT. This makes it a per-run declaration.
-    //
-    // Deliberately an env var and not a policy field: a policy is written by
-    // cloister and could carry the acknowledgement invisibly on every run. An
-    // env var is set by whoever starts the run, cannot be committed, and is
-    // refused in committed config by `lint:no-dev-mode` — the same discipline
-    // CLOISTER_MODE=dev already gets.
-    #[cfg(not(target_os = "linux"))]
-    {
-        let declares_port = policy
-            .capabilities
-            .network
-            .as_ref()
-            .and_then(|n| n.ports.as_ref())
-            .is_some_and(|p| !p.localhost.is_empty());
-        let acknowledged = std::env::var("CLOISTER_ACCEPT_UNENFORCED_BIND")
-            .map(|v| !v.trim().is_empty())
-            .unwrap_or(false);
-        if declares_port && !acknowledged {
-            bail!(
-                "confinement/v1 §9 condition 6: this manifest declares a localhost port, \
-                 and Seatbelt cannot enforce it.\n\
-                 \n\
-                 macOS filters network-outbound per port but grants network-bind and \
-                 network-inbound UNQUALIFIED whenever localhost TCP is allowed, so the \
-                 confined process could listen on any port and accept from any source — \
-                 a channel that bypasses the vault proxy and emits no receipt.\n\
-                 \n\
-                 Outbound IS enforced. Only bind/inbound is not.\n\
-                 \n\
-                 Refusing rather than applying a confinement weaker than the manifest \
-                 declares — the same posture the Linux arm takes for ProxyOnly.\n\
-                 \n\
-                 To accept the weaker boundary for this run, set \
-                 CLOISTER_ACCEPT_UNENFORCED_BIND=1. It must never appear in committed \
-                 config; `lint:no-dev-mode` enforces that."
-            );
-        }
-        if declares_port {
-            eprintln!(
-                "cloister-harness — WARNING: bind/inbound is NOT confined on macOS \
-                 (CLOISTER_ACCEPT_UNENFORCED_BIND set). Outbound is. See cloister-2d420c."
-            );
-        }
-    }
-
     match policy.capabilities.network.as_ref().map(|n| &n.mode) {
         Some(NetworkMode::Blocked) | Some(NetworkMode::Proxy) => {}
         other => bail!(
@@ -407,9 +335,55 @@ fn main() -> Result<()> {
         .transpose()
         .context("resolving credential from the nono keystore")?;
 
-    // The derive: nono's manifest → CapabilitySet (nono's own converter).
-    let caps = CapabilitySet::try_from(&policy.capabilities)
+    // The derive: nono's manifest → CapabilitySet (nono's own converter), then
+    // ONE override that closes cloister-2d420c.
+    //
+    // `ports.localhost` is nono's BIDIRECTIONAL IPC list, and its macOS emitter
+    // adds `(allow network-bind)` + `(allow network-inbound)` UNQUALIFIED
+    // whenever it is non-empty. That is nono's contract working, not a nono bug:
+    // we asked for a two-way channel and were given one. The harness only ever
+    // DIALS the shim, so the request was wrong.
+    //
+    // `NetworkMode::ProxyOnly { port, bind_ports: [] }` is the one-way form. Its
+    // macOS emission is exactly `(allow network-outbound (remote tcp
+    // "localhost:PORT"))` with no bind and no inbound, and on Landlock V4+ it is
+    // a `NetPort` ConnectTcp rule with no BindTcp. Measured on macOS 26.6 with a
+    // passing control: connect to the granted port succeeds, `bind()` is EPERM,
+    // connect to any other port is EPERM.
+    //
+    // Why the port is stripped from the manifest rather than only overriding the
+    // mode: the emitter checks `localhost_ports` NON-EMPTY as its trigger, so
+    // leaving the list populated re-adds bind/inbound underneath the override.
+    // Both halves are required, which is the kind of pairing a comment has to
+    // state because the code cannot.
+    //
+    // Not reachable through the manifest surface alone: `manifest_convert.rs`
+    // hardcodes `ProxyOnly { port: 0 }` ("the CLI fills in the actual proxy
+    // port"), so a library embedder cannot name it. Filed upstream; the override
+    // below is not a workaround for a defect so much as use of the API nono's
+    // own CLI uses.
+    let proxy_port: Option<u16> = policy
+        .capabilities
+        .network
+        .as_ref()
+        .and_then(|n| n.ports.as_ref())
+        .and_then(|p| p.localhost.first())
+        .and_then(|p| u16::try_from(p.get()).ok());
+
+    let mut manifest = policy.capabilities.clone();
+    if let Some(net) = manifest.network.as_mut() {
+        if let Some(ports) = net.ports.as_mut() {
+            ports.localhost.clear();
+        }
+    }
+    let mut caps = CapabilitySet::try_from(&manifest)
         .context("converting capability manifest to a CapabilitySet")?;
+    if let Some(port) = proxy_port {
+        caps.set_network_mode_mut(CapNetworkMode::ProxyOnly {
+            port,
+            bind_ports: Vec::new(),
+        });
+    }
 
     // Apply — IRREVERSIBLE. After this, this process and everything it execs can
     // only touch what the manifest granted (Seatbelt on macOS, Landlock on Linux).
@@ -558,6 +532,84 @@ mod tests {
         assert!(
             format!("{err:#}").contains("cert chain verify failed"),
             "expected chain-verify rejection, got: {err:#}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod connect_only_tests {
+    use super::*;
+
+    /// cloister-2d420c: the derived CapabilitySet must ask nono for a ONE-WAY
+    /// channel to the shim.
+    ///
+    /// Asserted against the two inputs nono's macOS emitter actually keys on:
+    ///
+    ///   - `network_mode == ProxyOnly { bind_ports: [] }` → emits
+    ///     `(allow network-outbound (remote tcp "localhost:PORT"))`
+    ///   - `localhost_ports` EMPTY → suppresses `(allow network-bind)` and
+    ///     `(allow network-inbound)`, which that emitter adds unqualified
+    ///     whenever the list is non-empty
+    ///
+    /// Either alone is insufficient — leaving the list populated re-adds bind
+    /// underneath the mode override — so both are pinned. nono does not export
+    /// its profile generator, so this asserts the preconditions rather than the
+    /// emitted text; the emitted behaviour was measured on macOS 26.6 (connect
+    /// granted → OK, bind → EPERM, connect ungranted → EPERM, with a
+    /// bind-succeeds-when-granted control).
+    fn derive(port: u16) -> CapabilitySet {
+        let json = format!(
+            r#"{{"harness_bin":"/bin/true","harness_args":[],"env_set":{{}},"env_strip":[],
+                "capabilities":{{"version":"1.0.0","filesystem":{{"read_write":["/tmp"]}},
+                "network":{{"mode":"proxy","ports":{{"localhost":[{port}]}}}}}}}}"#
+        );
+        let policy: HarnessPolicy = serde_json::from_str(&json).expect("policy parses");
+        let proxy_port: Option<u16> = policy
+            .capabilities
+            .network
+            .as_ref()
+            .and_then(|n| n.ports.as_ref())
+            .and_then(|p| p.localhost.first())
+            .and_then(|p| u16::try_from(p.get()).ok());
+        let mut manifest = policy.capabilities.clone();
+        if let Some(net) = manifest.network.as_mut() {
+            if let Some(ports) = net.ports.as_mut() {
+                ports.localhost.clear();
+            }
+        }
+        let mut caps = CapabilitySet::try_from(&manifest).expect("converts");
+        if let Some(p) = proxy_port {
+            caps.set_network_mode_mut(CapNetworkMode::ProxyOnly {
+                port: p,
+                bind_ports: Vec::new(),
+            });
+        }
+        caps
+    }
+
+    #[test]
+    fn the_shim_port_becomes_a_connect_only_proxy_grant() {
+        match derive(8799).network_mode() {
+            CapNetworkMode::ProxyOnly { port, bind_ports } => {
+                assert_eq!(*port, 8799, "the declared shim port must reach nono");
+                assert!(
+                    bind_ports.is_empty(),
+                    "a non-empty bind_ports re-adds network-bind + network-inbound"
+                );
+            }
+            other => panic!("expected ProxyOnly, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn localhost_ports_is_emptied_or_bind_comes_back() {
+        // The half that is easy to forget: the emitter's trigger is the LIST,
+        // not the mode. This is the regression that would silently restore an
+        // unenforced listener while the mode still read ProxyOnly.
+        assert!(
+            derive(8799).localhost_ports().is_empty(),
+            "localhost_ports must be empty — it is nono's bidirectional-IPC list \
+             and its presence emits (allow network-bind) + (allow network-inbound)"
         );
     }
 }

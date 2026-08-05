@@ -37,12 +37,14 @@ const FILES = [
   "src/generated/manifest.ts",
 ];
 
-const DEV_KEYS = ["DEV_CA_MASTER", "DEV_CA_EPOCH", "DEV_VAULT_SEED", "DEV_ALLOWED_SUBS",
-  // A per-run acknowledgement that macOS leaves bind/inbound unenforced
-  // (cloister-2d420c). Committed config must never carry it: the whole point is
-  // that the weaker boundary is re-declared by whoever starts the run, not
-  // inherited silently by a deployment.
-  "CLOISTER_ACCEPT_UNENFORCED_BIND"];
+// CLOISTER_ACCEPT_UNENFORCED_BIND was here, guarding a per-run acknowledgement
+// that macOS left bind/inbound unenforced. The acknowledgement is gone
+// (cloister-2d420c): the harness now asks nono for a connect-only ProxyOnly
+// grant, so there is no weaker boundary left to acknowledge. Removed rather than
+// kept "just in case" — a dev-key guard for a variable nothing sets is a rail
+// with no operation, and it would read to the next person as though the hole
+// were still open.
+const DEV_KEYS = ["DEV_CA_MASTER", "DEV_CA_EPOCH", "DEV_VAULT_SEED", "DEV_ALLOWED_SUBS"];
 
 // Match `CLOISTER_MODE` assigned a dev-ish value across TOML (`= "dev"`),
 // capnp (`text = "dev"` near the name), and TS (`"CLOISTER_MODE": "dev"`).

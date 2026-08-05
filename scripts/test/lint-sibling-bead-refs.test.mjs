@@ -20,6 +20,7 @@ import {
   collectRefs,
   lloRoot,
   main,
+  acknowledges,
 } from "../lint-sibling-bead-refs.mjs";
 
 const ROOT = lloRoot();
@@ -108,4 +109,49 @@ test("a missing sibling checkout skips cleanly instead of failing CI", () => {
 
   assert.equal(code, 0);
   assert.match(out.join("\n"), /SKIPPED/);
+});
+
+// ── the acknowledgement path (found while clearing LLO ADR-0037) ──────────
+//
+// The rail's own error message offered two clearances — close it, or comment
+// saying why it does not resolve the question — and implemented only the first.
+// So the only way to green was to CLOSE a bead that was not done, which is the
+// record-destroying move the rail exists to prevent. These pin both directions.
+
+test("a comment NAMING the sibling ADR clears an open bead", () => {
+  const files = new Set(["0037-naming-the-proxy-channel.md"]);
+  assert.equal(
+    acknowledges("cloister-x", files, () => "read ADR-0037; it cites us but does not decide this"),
+    true,
+  );
+  // …and the filename stem works as well as the ADR-NNNN form.
+  assert.equal(
+    acknowledges("cloister-x", files, () => "see 0037-naming-the-proxy-channel for context"),
+    true,
+  );
+});
+
+test("a comment that does NOT name the ADR is not an acknowledgement", () => {
+  // Otherwise any comment at all would clear the rail, and "somebody read the
+  // sibling's decision" — the whole property — would go unchecked.
+  const files = new Set(["0037-naming-the-proxy-channel.md"]);
+  assert.equal(acknowledges("cloister-x", files, () => "still working on this"), false);
+  assert.equal(acknowledges("cloister-x", files, () => "acknowledged"), false);
+});
+
+test("EVERY citing ADR must be named, not just one", () => {
+  // A bead cited by two sibling ADRs is two unread decisions. Naming one and
+  // staying silent on the other would clear the rail while half the point of
+  // it went unmet.
+  const files = new Set(["0037-naming-the-proxy-channel.md", "0035-confinement.md"]);
+  assert.equal(acknowledges("cloister-x", files, () => "read ADR-0037"), false);
+  assert.equal(acknowledges("cloister-x", files, () => "read ADR-0037 and ADR-0035"), true);
+});
+
+test("an unreadable comment store is NOT an acknowledgement", () => {
+  // Fail closed: if we cannot show somebody read it, we have not shown it.
+  assert.equal(
+    acknowledges("cloister-x", new Set(["0037-x.md"]), () => { throw new Error("no store"); }),
+    false,
+  );
 });
