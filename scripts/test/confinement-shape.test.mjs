@@ -6,9 +6,16 @@
 //   1. WHICH directories you confine does not change the digest. That is why
 //      `cloister run --repo <anything>` works against one attested shape.
 //   2. HOW MANY directories you confine DOES change it. Without this, a cert
-//      minted against a one-root shape would satisfy the §7 commitment check
+//      minted against a one-root shape would satisfy the §8 commitment check
 //      for a run confined to five — the manifest would be attesting a boundary
 //      it no longer describes, and nothing would say so.
+//
+// And since cloister-d2ba07, the third thing a reader would otherwise take on
+// faith: the document cloister emits actually CONFORMS to confinement/v1. It did
+// not — `credentialSource: "vault://<service>"` used a scheme §5 does not close
+// over, so a conforming runner refused it at parse. Asserting the digest matches
+// LLO's canonical vector never noticed, because that vector is LLO's document,
+// not one this builder produced.
 //
 // Property 2 is the one that only became falsifiable when --repo learned to
 // repeat. Property 1 is older and is asserted here because the multi-root change
@@ -37,23 +44,49 @@ import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 const SVC = "svc";
 
 // Not BLAKE3 — the point here is DISTINGUISHABILITY of the manifest bytes, and
-// any collision-resistant digest answers that. The real §6 digest is computed by
+// any collision-resistant digest answers that. The real §7 digest is computed by
 // the Rust minter over the same canonical bytes; asserting equality against a
 // hardcoded BLAKE3 value here would test this file's constant, not the shape.
 const digest = (m) => createHash("sha256").update(JSON.stringify(m)).digest("hex");
 
-test("the one-root manifest is byte-identical to the pre-multi-root shape", () => {
-  // The literal below is what the manifest was before `workspace.N` existed. If
-  // this fails, every previously-minted single-repo cert stopped verifying — a
-  // breaking change that would otherwise show up as a §7 mismatch at exec time
-  // with nothing pointing at the cause.
-  assert.deepEqual(confinementManifest(1, SVC), {
+test("the one-root manifest is exactly the three dimensions the harness declares", () => {
+  // A pinned literal, so a change to the emitted shape has to be deliberate: the
+  // digest is committed into every minted cert, and a silent change shows up as
+  // an §8 mismatch at exec time with nothing pointing at the cause.
+  //
+  // `credentialSource` is ABSENT, which is the §5-conforming way to say what is
+  // true — the harness authenticates against no keystore, because the vault
+  // proxy injects the credential as a header and the process never holds it. It
+  // previously read `vault://<service>`; see the header note.
+  assert.deepEqual(confinementManifest(1), {
     version: "cloister/confinement/v1",
     fs: { allow: [{ path: "workspace", mode: "rw" }, { path: "state", mode: "rw" }] },
     network: { allowHosts: ["127.0.0.1"] },
     port: { bind: 0 },
-    credentialSource: `vault://${SVC}`,
   });
+});
+
+test("the emitted document conforms to §5 — no invented credential scheme", () => {
+  // The rail that would have caught cloister-d2ba07 at the builder. Inv 11 now
+  // checks the operator-declared facet in cluster.capnp; this checks the one
+  // cloister generates, which no operator declares and Inv 11 therefore never
+  // sees. Both are needed — the bug lived in the half Inv 11 does not read.
+  //
+  // Written as "absent, or a §5 scheme" rather than "absent", so re-introducing
+  // the field for a real keystore binding stays possible and stays checked.
+  const SCHEMES = [
+    "keychain://", "secret-tool://", "keyring://", "file://", "op://", "apple-password://",
+  ];
+  for (const n of [1, 3]) {
+    const source = confinementManifest(n).credentialSource;
+    if (source === undefined) continue;
+    const scheme = SCHEMES.find((s) => source.startsWith(s));
+    assert.ok(
+      scheme && source.length > scheme.length,
+      `credentialSource ${JSON.stringify(source)} is not a §5 scheme with a non-empty ` +
+        `remainder — a conforming runner refuses the document at parse`,
+    );
+  }
 });
 
 test("WHICH repo you confine is absent from the manifest entirely", () => {
@@ -61,10 +94,18 @@ test("WHICH repo you confine is absent from the manifest entirely", () => {
   // absolute path appears anywhere in the serialized manifest. Asserting two
   // calls agree would prove nothing, since the function takes no path at all —
   // this asserts the reason that is true.
-  // Scoped to fs.allow: `credentialSource` is a vault:// URI and legitimately
-  // contains separators, so checking the whole document would fail for a reason
-  // that has nothing to do with the property.
-  const allow = confinementManifest(3, SVC).fs.allow;
+  //
+  // Scoped to fs.allow, because two fields legitimately contain separators and
+  // only one of them used to. The comment here used to name `credentialSource`
+  // as the reason, and removing it (cloister-d2ba07) looked like it should let
+  // the check widen to the whole document — it does not: `version` is the spec
+  // URI `cloister/confinement/v1`. Widening it fails on the version string, which
+  // is why this note now names the field that will still be there next time.
+  //
+  // fs.allow is also the only place a real path COULD leak: it is the one
+  // dimension built from caller input (the workdir count), and the other two are
+  // constants.
+  const allow = confinementManifest(3).fs.allow;
   for (const entry of allow) {
     assert.doesNotMatch(entry.path, /[/\\]/, `${entry.path} — a separator means a real path leaked`);
   }
@@ -72,9 +113,9 @@ test("WHICH repo you confine is absent from the manifest entirely", () => {
 });
 
 test("HOW MANY roots changes the digest — one root does not attest three", () => {
-  const one = digest(confinementManifest(1, SVC));
-  const two = digest(confinementManifest(2, SVC));
-  const three = digest(confinementManifest(3, SVC));
+  const one = digest(confinementManifest(1));
+  const two = digest(confinementManifest(2));
+  const three = digest(confinementManifest(3));
   assert.notEqual(one, two, "a 1-root cert must not satisfy a 2-root confinement");
   assert.notEqual(two, three);
   assert.notEqual(one, three);
@@ -82,7 +123,7 @@ test("HOW MANY roots changes the digest — one root does not attest three", () 
 
 test("the root count is the entry count — the shape says how wide it is", () => {
   for (const n of [1, 2, 5]) {
-    const rw = confinementManifest(n, SVC).fs.allow;
+    const rw = confinementManifest(n).fs.allow;
     // n workspaces + state. If these ever diverge, the manifest claims a
     // different width than the kernel grants it is built alongside.
     assert.equal(rw.length, n + 1, `${n} roots ⇒ ${n} workspace entries + state`);
@@ -95,25 +136,37 @@ test("zero roots is refused, not silently rendered as an empty allow-list", () =
   // An empty fs.allow is a VALID-looking confinement/v1 document that grants
   // nothing — the harness would launch and fail on its first read, which reads
   // as a broken harness rather than a malformed request.
-  assert.throws(() => confinementManifest(0, SVC), /at least one writable root/);
-  assert.throws(() => confinementManifest(-1, SVC), /at least one writable root/);
+  assert.throws(() => confinementManifest(0), /at least one writable root/);
+  assert.throws(() => confinementManifest(-1), /at least one writable root/);
 });
 
-test("the shape is identical for EVERY declared target — no harness is a special case", async () => {
+test("no declared target's service name appears in the manifest at all", async () => {
+  // "Every target is confined identically" is now true BY CONSTRUCTION —
+  // `confinementManifest` takes no service, so it cannot vary by one. Asserting
+  // two calls agree would test nothing, which is exactly the vacuity this file
+  // avoids elsewhere. So assert the stronger fact that makes it true: no service
+  // name reaches the document.
+  //
   // Derived from cluster.toml rather than a list here, so adding a third harness
-  // is covered without editing this file. The service name reaches exactly one
-  // field (credentialSource); if it ever reached the fs/network/port shape, one
-  // provider would be confined differently from another with nothing saying so.
+  // is covered without editing this file. `lint:harness-target-literals` is why
+  // no provider name is written down in this test.
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
 
-  const shapeOf = (m) => ({ fs: m.fs, network: m.network, port: m.port, version: m.version });
-  const reference = shapeOf(confinementManifest(2, SVC));
+  const document = JSON.stringify(confinementManifest(2));
   for (const t of targets) {
-    const m = confinementManifest(2, t.service);
-    assert.deepEqual(shapeOf(m), reference, `${t.name} is confined differently`);
-    assert.equal(m.credentialSource, `vault://${t.service}`, `${t.name} vaults its own service`);
+    assert.doesNotMatch(
+      document,
+      new RegExp(t.service.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${t.name}: service "${t.service}" reached the confinement document — the boundary ` +
+        `is provider-independent, and a per-provider digest would attest a difference ` +
+        `the sandbox does not enforce`,
+    );
   }
+  // Non-vacuity: the guard above only means something if a service name COULD
+  // have appeared. SVC stands in for one that is not declared, proving the
+  // matcher fires on a name the document does contain.
+  assert.match(JSON.stringify({ credentialSource: `vault://${SVC}` }), new RegExp(SVC));
 });
 
 // ── the set rules belong to the CONFINEMENT, not to one door's flag syntax ──

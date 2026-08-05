@@ -77,7 +77,7 @@ const DEFAULT_SHIM_PORT = "8799";
 const COMPANION_PORT_BASE = 8810;
 
 /**
- * The confinement/v1 manifest a harness identity commits to (§7, cloister-c80953).
+ * The confinement/v1 manifest a harness identity commits to (§8, cloister-c80953).
  *
  * A STABLE profile declaration — never per-run paths — so the digest the minter
  * commits into the cert matches the one the runner recomputes over the SAME
@@ -85,6 +85,21 @@ const COMPANION_PORT_BASE = 8810;
  * enforcement; this is its confinement/v1 shadow (the documented impedance: the
  * localhost vault-proxy egress maps to allowHosts ["127.0.0.1"], no listener →
  * port.bind 0). Both halves are one declaration.
+ *
+ * NO `credentialSource`, and its absence is the accurate statement (cloister-d2ba07).
+ * §5 is "the URL of the vault backend the bundle authenticates against", over a
+ * closed set of `nono::keystore` schemes — and a harness authenticates against no
+ * keystore. Custody mode vaults the key and the shim injects it as a header
+ * (`credentialHeaders` below); the harness never holds it. That is the whole point
+ * of ADR-0010/0013, so declaring a credentialSource would claim a binding the
+ * process does not have. §5: "A bundle needing no credentials omits the field."
+ *
+ * This used to emit `vault://<service>`, which is not one of the six schemes §5
+ * closes over — so every document cloister issued was refused at parse by a
+ * conforming runner, verified against LLO b9b800c. The digest conformance test
+ * could not see it: it agrees with LLO on LLO's canonical vector and never reads
+ * a manifest this builder produced. Inv 11 now checks §5 for the operator-declared
+ * facet; this docstring is the check for the one field that is absent.
  *
  * WHICH directories are confined is deliberately absent — that is why the digest
  * is identical whichever repo you pass, and why the absolute path can travel on
@@ -97,10 +112,17 @@ const COMPANION_PORT_BASE = 8810;
  * scripts/test/confinement-shape.test.mjs, because "unchanged" is the kind of
  * claim that stops being true without anyone noticing.
  *
+ * Takes no `service`, and that is the point: the boundary is identical for every
+ * harness target, so "all targets are confined identically" is now true by
+ * construction rather than asserted by a test. The old signature took one only
+ * to interpolate it into the credentialSource above, which made per-target
+ * digests differ for a reason nothing read — the shim routes to a vault slice by
+ * URL path and the vault authorizes by `allowedSubs`, neither of which consults
+ * the confinement digest. Dropping it removes a distinction, not an enforcement.
+ *
  * @param {number} rootCount
- * @param {string} service
  */
-export function confinementManifest(rootCount, service) {
+export function confinementManifest(rootCount) {
   if (!Number.isInteger(rootCount) || rootCount < 1) {
     throw new LaunchUsageError(`confinement needs at least one writable root, got ${rootCount}`);
   }
@@ -117,7 +139,6 @@ export function confinementManifest(rootCount, service) {
     },
     network: { allowHosts: ["127.0.0.1"] },
     port: { bind: 0 },
-    credentialSource: `vault://${service}`,
   };
 }
 
@@ -437,7 +458,7 @@ export async function resolvePlan(request, deps = {}) {
     // SAME sandbox object the kernel grants are built from below, so a root
     // cannot be attested without being granted, or granted without being
     // attested — they are two projections of one list, not two lists.
-    confinementManifest: confinementManifest(sandbox ? sandbox.workdirs.length : 1, target.service),
+    confinementManifest: confinementManifest(sandbox ? sandbox.workdirs.length : 1),
   };
 }
 
