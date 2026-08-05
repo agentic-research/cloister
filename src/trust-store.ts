@@ -303,6 +303,23 @@ export class TrustStore extends DurableObject {
         "ON peer_attestations(bead_id) WHERE bead_id IS NOT NULL",
       );
     }
+
+    // ── ADR-0065 phase 1 (cloister-16f81c): origins column. Same additive
+    //    PRAGMA-detect + ALTER shape as bead_id above, and additive for the
+    //    same reason — NULL is a meaningful value here, not a gap to backfill.
+    //    A row written before this column made no provenance claim, which is
+    //    exactly what `deriveConfidence` reads NULL as ("unknown"). Backfilling
+    //    it with anything would manufacture a claim nobody made.
+    //
+    //    Re-reads table_info rather than reusing `cols`: the ALTER above may
+    //    have just changed it, and a stale snapshot would skip this migration
+    //    on precisely the databases that needed both.
+    const colsNow = this.db
+      .exec("PRAGMA table_info(peer_attestations)")
+      .toArray() as unknown as Array<{ name: string }>;
+    if (colsNow.length > 0 && !colsNow.some((c) => c.name === "origins")) {
+      this.db.exec("ALTER TABLE peer_attestations ADD COLUMN origins TEXT");
+    }
   }
 
   // The DO has no inbound HTTP handler today — it's accessed by other

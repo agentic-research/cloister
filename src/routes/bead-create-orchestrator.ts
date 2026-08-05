@@ -68,6 +68,7 @@ import { beadCanonicalBytesV1 } from "../storage/bead-canonical.js";
 import type { ApplyAttestationResult, PeerAttestation } from "../storage/peer-attestations.js";
 import type { Digest } from "../storage/types.js";
 import { BLOB_PUT_FAULT_DIGEST } from "../blob-store.js";
+import { declaredOrigin, peerOrigin, serializeOrigins, unionOrigins } from "../wire/origin.js";
 
 /**
  * Lease + cert material passed from the verified lease envelope to the
@@ -117,6 +118,19 @@ interface TrustStoreRpc {
      * state may leave it undefined.
      */
     beadId?:         string;
+    /**
+     * Serialized origin set for the attested content (ADR-0065 phase 1).
+     *
+     * On the ATTESTATION, deliberately not in the bead's canonical bytes. Two
+     * consequences, both wanted: `content_hash` is unchanged, so every bead
+     * written before this field still digests identically; and two peers may
+     * claim different provenance for byte-identical content, which produces two
+     * attestations rather than one — the correct outcome, since the §13.4 audit
+     * should record both claims and who made each.
+     *
+     * Undefined means the row makes no provenance claim and derives origin-unknown.
+     */
+    origins?:        string;
   }): Promise<ApplyAttestationResult>;
   enqueuePendingAttestation(args: {
     peerFp:      string;
@@ -224,6 +238,19 @@ export async function runBeadCreateOrchestrator(args: {
 }): Promise<{ id: string; title: string; state: BeadState; content_hash: string }> {
   const a = args.toolArgs;
   const repo = String(a.repo ?? "");
+  // ADR-0065 phase 1. cloister mints ONE origin it can stand behind — the peer
+  // the lease gate authenticated — and attributes every caller-declared source
+  // to that peer rather than to itself, because a declared origin is untrusted
+  // input and recording it as checked would be the received-not-derived defect
+  // this vocabulary exists to prevent. A caller therefore cannot reach
+  // "attested" by declaring sources; it can only describe them accountably.
+  const declared = Array.isArray(a.origins)
+    ? (a.origins as unknown[]).filter((u): u is string => typeof u === "string" && u !== "")
+    : [];
+  const origins = unionOrigins(
+    [peerOrigin(args.context.peerFp)],
+    declared.map((uri) => declaredOrigin(uri, args.context.peerFp)),
+  );
   if (!repo) {
     throw new JsonRpcInvocationError(
       -32602,
@@ -298,6 +325,7 @@ export async function runBeadCreateOrchestrator(args: {
       scope:           args.context.scope,
       cert:            args.context.certDer,
       sig:             args.context.sig,
+      origins:         serializeOrigins(origins),
       // bead_id link per cloister-c8b907 sub-bead 1. The §13.4 audit
       // chain reconstitutes via this column after BeadStore-DO is
       // deprecated; the bead row in rsry/bd lacks content_hash but the
