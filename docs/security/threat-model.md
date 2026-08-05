@@ -1933,3 +1933,66 @@ gated (off until a bundle presents a token), never a per-request fallback.
 `worker/src/auth/token.ts` (`verifyAccessToken` — cloister reimplements the
 `at+jwt` EdDSA verify with its existing Ed25519 / base64url primitives; factoring
 notme's verify into a shared package is a future DRY step); `cloister-2b98c0`.
+
+## 21. Content-origin ingress (ADR-0065 phase 2)
+
+ADR-0065 gave cloister a vocabulary for the trust of **data**, having previously
+had one only for the trust of **executors**. Phase 1 recorded caller-declared
+origins on `peer_attestations`. Phase 2 is the ingress seam: cloister minting an
+origin for content **it fetched itself**, which is the only content fact it can
+stand behind. Per CLAUDE.md, the model is extended before the seam ships.
+
+### What cloister may vouch for, exactly
+
+`fetchedOrigin(url)` asserts one thing: *cloister dialled this endpoint, and the
+endpoint was named by an operator-declared binding rather than by the caller.*
+The URL comes from `env[urlBinding]` / `serviceBinding`, declared on both
+deployment paths and already enforced by `lint:binding-parity`. A caller cannot
+steer it.
+
+It asserts nothing about the bytes that came back.
+
+### 21.0 The category error this seam invites (and phase 1 already made once)
+
+Phase 1 shipped with the SUBMITTER in the content-origin set, which made
+`declares nothing → origin-attested` while `declares an untrusted source →
+origin-asserted`. Silence outranked honesty (`cloister-16f81c`, fixed in
+`f1ea09d`). The identical error is available here, one level up:
+
+> "cloister dialled endpoint E" is a fact about the **channel**. If E is itself
+> a proxy — mache serving a file it read, an MCP server relaying a web fetch —
+> then E's content has origins of its own, and cloister vouching for the channel
+> does not vouch for them.
+
+So `origin-attested` means **cloister observed every source in the set**, not
+"the content is trustworthy." Where an upstream does not propagate its own
+origins, cloister's set is *incomplete*, not *wrong* — and incompleteness must
+present as `origin-asserted`/`origin-unknown`, never as attestation of the
+missing part.
+
+| # | Attack | Defense | Test |
+|---|---|---|---|
+| 21.1 | **Channel-as-content laundering** — attacker gets content in through a declared upstream, and the `fetchedOrigin` reads as provenance for bytes cloister never saw the source of | `fetchedOrigin` names the ENDPOINT, never a source the endpoint relayed. An upstream that relays must propagate its own origin set; absent that, the set is incomplete and derives no better than `origin-asserted` | upstream-relayed content must not derive `origin-attested` from the channel alone |
+| 21.2 | **Caller-steered ingress** — caller induces cloister to dial an attacker host so the fetch is cloister-vouched | URL comes from an operator-declared binding, never from tool args. `lint:binding-parity` already enforces the declaration on both paths | a tool arg that looks like a URL must not reach the dial |
+| 21.3 | **Origin-set as a read-oracle** — source URIs in an attestation reveal what an agent read, on the surface where peer existence was already an oracle (§9) | Origin rows follow the §9 disclosure rules: constant-time 404 on the disclosure endpoint, HMAC-signed cursors, no per-URI existence check. A disclosure response must not distinguish "no such origin" from "not yours" | disclosure of an origin set is scope-gated and shape-constant |
+| 21.4 | **Volume/pattern side channel** — origin-set SIZE leaks how many sources a run consulted even when URIs are withheld | Size is metadata about the run, not about a peer. Treated as in-scope for the same lease gate that governs the attestation row; not separately padded — recorded here so the decision is deliberate rather than absent | — |
+| 21.5 | **Unbounded origin growth** — a caller declares thousands of origins to bloat the attestation row / DO storage | Declared origins are caller input and MUST be bounded (count + per-URI length) before `unionOrigins`. Phase 1 filters non-strings but does **not** bound cardinality — OPEN, see below | a declaration of N origins beyond the cap is refused, not truncated silently |
+| 21.6 | **Origin-label denotation drift** — cloister and a federated peer disagree on what `origin-attested` means, so a peer over-trusts | Denotation is fixed by published vectors + pinned digests (ADR-0065 P3), NOT by a governing authority. Trust of the *authority* stays separate from denotation of the *label* | cross-impl vectors reach identical digests |
+
+### Open, and deliberately named
+
+- **21.5 is not implemented.** Phase 1's `buildContentOrigins` filters malformed
+  entries but applies no cardinality or length bound. That is a resource issue
+  on a caller-controlled field, and it should land with phase 2 rather than
+  after it. Tracked on `cloister-16f81c`.
+- **Attribution through the model stays unsolved.** cloister observes what
+  enters and leaves an isolate, never what the model did with it in between. An
+  origin set bounds what *could* have informed an output; it cannot say what
+  did.
+- **Corroboration stays Sybil-able.** `allowHosts` governs hosts, not
+  identities. N cooperating peers vouching for each other is not defended
+  against by anything in this section.
+
+**Related:** ADR-0065; ADR-0013 (slice grants — what a compromised tool may
+reach, the mirror of this section's "what a correct tool was told"); §9
+(disclosure oracles); `cloister-16f81c`.

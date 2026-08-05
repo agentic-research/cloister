@@ -9,7 +9,11 @@ import { describe, expect, it } from "vitest";
 import {
   CLOISTER_AUTHORITY,
   declaredOrigin,
+  MAX_DECLARED_ORIGINS,
+  MAX_ORIGIN_URI_LENGTH,
+  OriginBoundsError,
   deriveConfidence,
+  fetchedOrigin,
   mayAttestFully,
   parseOrigins,
   serializeOrigins,
@@ -192,5 +196,51 @@ describe("buildContentOrigins — the bead_create path", () => {
     const origins = buildContentOrigins({ origins: ["", 42, null, "https://ok.example/"] }, PEER);
     expect(origins).toHaveLength(1);
     expect(origins[0]?.uri).toBe("https://ok.example/");
+  });
+});
+
+// ── phase 2: ingress (ADR-0065, threat model §21) ────────────────────────
+
+describe("fetchedOrigin — what cloister may vouch for at ingress", () => {
+  it("is cloister-vouched, so a fetched endpoint CAN reach origin-attested", () => {
+    // The first thing on any path that legitimately can. Phase 1 topped out at
+    // origin-asserted precisely because nothing cloister observed was in play.
+    expect(deriveConfidence([fetchedOrigin("http://localhost:8384/mcp")], TRUSTED))
+      .toBe("origin-attested");
+  });
+
+  it("does NOT launder a caller declaration sitting beside it", () => {
+    // §21.1, the channel-vs-content error one level up from phase 1's. A
+    // cloister-observed channel must not attest sources cloister never saw.
+    const mixed = unionOrigins(
+      [fetchedOrigin("http://localhost:8384/mcp")],
+      [declaredOrigin("https://evil.example/x", PEER)],
+    );
+    expect(deriveConfidence(mixed, TRUSTED)).toBe("origin-asserted");
+  });
+});
+
+describe("§21.5 — declared origins are bounded, and REFUSED not truncated", () => {
+  it("refuses an over-long declaration rather than keeping the first N", () => {
+    // Truncating would record a claim NARROWER than the one made — a set that
+    // reads complete while missing sources, which is the failure mode the whole
+    // vocabulary exists to prevent.
+    const many = Array.from({ length: MAX_DECLARED_ORIGINS + 1 }, (_, i) => `https://e.example/${i}`);
+    expect(() => buildContentOrigins({ origins: many }, PEER)).toThrow(OriginBoundsError);
+  });
+
+  it("counts BEFORE filtering, so malformed padding cannot hide the size", () => {
+    const padded = Array.from({ length: MAX_DECLARED_ORIGINS + 1 }, () => null);
+    expect(() => buildContentOrigins({ origins: padded }, PEER)).toThrow(OriginBoundsError);
+  });
+
+  it("refuses an over-long single URI", () => {
+    const long = "https://e.example/" + "a".repeat(MAX_ORIGIN_URI_LENGTH);
+    expect(() => buildContentOrigins({ origins: [long] }, PEER)).toThrow(OriginBoundsError);
+  });
+
+  it("accepts a declaration at exactly the cap — the bound is not off by one", () => {
+    const atCap = Array.from({ length: MAX_DECLARED_ORIGINS }, (_, i) => `https://e.example/${i}`);
+    expect(buildContentOrigins({ origins: atCap }, PEER)).toHaveLength(MAX_DECLARED_ORIGINS);
   });
 });

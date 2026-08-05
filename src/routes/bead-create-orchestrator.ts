@@ -68,7 +68,10 @@ import { beadCanonicalBytesV1 } from "../storage/bead-canonical.js";
 import type { ApplyAttestationResult, PeerAttestation } from "../storage/peer-attestations.js";
 import type { Digest } from "../storage/types.js";
 import { BLOB_PUT_FAULT_DIGEST } from "../blob-store.js";
-import { declaredOrigin, serializeOrigins, unionOrigins } from "../wire/origin.js";
+import {
+  MAX_DECLARED_ORIGINS, MAX_ORIGIN_URI_LENGTH, OriginBoundsError,
+  declaredOrigin, serializeOrigins, unionOrigins,
+} from "../wire/origin.js";
 
 /**
  * Lease + cert material passed from the verified lease envelope to the
@@ -257,11 +260,25 @@ export function buildContentOrigins(
   toolArgs: Record<string, unknown>,
   peerFp: string,
 ): ReturnType<typeof unionOrigins> {
-  const declared = Array.isArray(toolArgs["origins"])
-    ? (toolArgs["origins"] as unknown[]).filter(
-        (u): u is string => typeof u === "string" && u !== "",
-      )
-    : [];
+  const raw = Array.isArray(toolArgs["origins"]) ? (toolArgs["origins"] as unknown[]) : [];
+  // Bound BEFORE filtering, so a caller cannot hide a huge declaration behind
+  // mostly-malformed entries and land under the cap after the filter.
+  if (raw.length > MAX_DECLARED_ORIGINS) {
+    throw new OriginBoundsError(
+      `bead_create: ${raw.length} declared origins exceeds the ${MAX_DECLARED_ORIGINS} cap ` +
+      `(threat model §21.5). Refused rather than truncated — keeping the first ` +
+      `${MAX_DECLARED_ORIGINS} would record a provenance claim narrower than the one made.`,
+    );
+  }
+  const declared = raw.filter((u): u is string => typeof u === "string" && u !== "");
+  for (const uri of declared) {
+    if (uri.length > MAX_ORIGIN_URI_LENGTH) {
+      throw new OriginBoundsError(
+        `bead_create: a declared origin is ${uri.length} chars, over the ` +
+        `${MAX_ORIGIN_URI_LENGTH} cap (threat model §21.5).`,
+      );
+    }
+  }
   return unionOrigins(declared.map((uri) => declaredOrigin(uri, peerFp)));
 }
 
