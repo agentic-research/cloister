@@ -21,7 +21,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # allow-git for this URL is set in rs/deny.toml. The `version` field
 # alongside the git+rev is required for cargo-deny's wildcards rule
 # (per cloister-eefd45 — git-only deps are treated as wildcards).
-leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "a3ca7e7469e1b1fdd9e256a820ed7f7daab8d200", version = "0.15.1", package = "leyline-cas-ffi" }
+leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", rev = "b6844d8a44e8802480cc23c1d329c9442c38e90a", version = "0.16.0", package = "leyline-cas-ffi" }
 
 # leyline-core supplies PartitionSpec (ADR-0032's tagged fold). cloister
 # BRIDGES it per ADR-0035 rather than reimplementing — the scheme must be
@@ -39,7 +39,7 @@ leyline-cas-ffi = { git = "https://github.com/agentic-research/ley-line-open", r
 # partition-fold dependency (cloister-bc5640). Kept in the plain
 # [dependencies] table (not the wasm32-excluded host-only target section
 # below) so the wasm32 build graph resolves it too.
-leyline-core = { git = "https://github.com/agentic-research/ley-line-open", rev = "a3ca7e7469e1b1fdd9e256a820ed7f7daab8d200", version = "0.15.1", package = "leyline-core" }
+leyline-core = { git = "https://github.com/agentic-research/ley-line-open", rev = "b6844d8a44e8802480cc23c1d329c9442c38e90a", version = "0.16.0", package = "leyline-core" }
 
 # Pinned to LLO v0.7.6 (release commit a6eba83, bead ley-line-open-c79ea8 /
 # PR #196 + #197) — the release that adds the confinementDigest Interlace
@@ -61,7 +61,7 @@ leyline-core = { git = "https://github.com/agentic-research/ley-line-open", rev 
 # drop host code even if it were enabled here, but leaving the base dep
 # host-less keeps the wasm dep graph free of tokio/mio/keyring transitives
 # that fail to compile on wasm32).
-leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "a3ca7e7469e1b1fdd9e256a820ed7f7daab8d200", version = "0.15.1", package = "leyline-sign" }
+leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "b6844d8a44e8802480cc23c1d329c9442c38e90a", version = "0.16.0", package = "leyline-sign" }
 
 # Native-only: enable `host` so `cargo build --bin leyline-sign-helper
 # -p leyline-sign` + `cargo test -p leyline-sign --features host`
@@ -72,7 +72,7 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 # `cfg(not(target_arch = "wasm32"))` gate keeps the tokio/mio/keyring
 # transitive closure out of the wasm dep graph.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "a3ca7e7469e1b1fdd9e256a820ed7f7daab8d200", version = "0.15.1", package = "leyline-sign", features = ["host"] }
+leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "b6844d8a44e8802480cc23c1d329c9442c38e90a", version = "0.16.0", package = "leyline-sign", features = ["host"] }
 
 # NOTE: leyline-schema-bridge is deliberately NOT a dependency.
 #

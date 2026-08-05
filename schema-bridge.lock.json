@@ -25,25 +25,25 @@
     "fails the build closed."
   ],
   "repo": "agentic-research/ley-line-open",
-  "version": "v0.15.1",
+  "version": "v0.16.0",
   "binaries": {
     "capnpc-schema-bridge-zod": {
-      "darwin-amd64": "fc563a85472c5207232d93a0db44a6fbfcccc34a2f8c7850a23ea955a84a215f",
-      "darwin-arm64": "60bfb5dc57142c5ca544d068de3f236bab1ee4a7cf60c8a5961c2c9fda0fbfca",
-      "linux-amd64": "102b302d6e027c7a3434c3486c5e2af7ae39583618f1006ebed1ce4d994acdd7",
-      "linux-arm64": "a06860d3f77d698e32ba0340617ee1650f11745f9916879844abf5df6582527b"
+      "darwin-amd64": "2e0884e61c2c9f15a8fbd1c517362757f8581d6910228e6a72e9022c5fe78d97",
+      "darwin-arm64": "118e5c8d17e774eb9155172a6d7c217637009d4c1aaa410b63fef2d0a1b1f9a7",
+      "linux-amd64": "5fe8e8471e8c526321920ad7b30430ddcc3ec7e18c919d35e64dd04616ab5cea",
+      "linux-arm64": "f1e40d4fdb0da9a1c632d8de2891831d306a0fb36220e2c365db5bbbc9a45b2d"
     },
     "capnpc-schema-bridge-go": {
-      "darwin-amd64": "57e139c4c8e2b3d4613f17f8fdf9106ed8a852940da95b2debba403c919fe822",
-      "darwin-arm64": "84d3941d69ffcb8e676e2723b38826275077f1785708bc7e4307dfc5053fe7db",
-      "linux-amd64": "c6d5b12bc7a4363ef511d7b5455fae02c6eb568fce6fa318c6b90994247d8247",
-      "linux-arm64": "4b5cb12db41ac21be11924e58ea8ba0da65acc28f6a3a55e5a0d62d6fcc44450"
+      "darwin-amd64": "3d2e50ae4beed77effdbe412b6bf6fd68a4bc8a149ff71f5d5d90e48b5aea885",
+      "darwin-arm64": "254d89fcc45c552bf6fbc4fa553dec9a1497e9b328f340c4c7124c3917176882",
+      "linux-amd64": "56edc5bbb04a49087603b61967f5d00b91cab13aa876e003efd080e8c9cc6b3d",
+      "linux-arm64": "d7d33e8e06d152a03e87b03a56cafd976afecf4e35e068c8d3f70e6578c86687"
     },
     "capnpc-schema-bridge-tooldefs": {
-      "darwin-amd64": "a74de1632dccdb2558861979c93aa2bb6e534bdf8e340cb75f9447f670c71ea4",
-      "darwin-arm64": "c0876600c4bd18fe7e6731cab6d6a7b42e627cd037426b8152f85a6384fda105",
-      "linux-amd64": "b1ac8c72c484ad8d449d34cd679cc5d822d7bd6b3474b0e499f0ad6f703cceb1",
-      "linux-arm64": "77c633253808022ebab4bd9fcfa52b2d7a0fdcf4354f076a4a5aca983071245a"
+      "darwin-amd64": "75e5f5b584cfcabc129143bd0fd4ec58d86e08a8a54d598bc3d941ad734493ec",
+      "darwin-arm64": "cf9d13847b795576befffc515739aa9a40a9ba60e26e8ef0f3cdd318ec1108dc",
+      "linux-amd64": "25c81640e7581c4b5173c34585c6879f823af3cc84722458d4ebf2fb31047432",
+      "linux-arm64": "9653193d52f68076f9d0d4cde6bdcffc58578c1df12f2fd36a38d7fbb0ed5fdf"
     }
   }
 }
