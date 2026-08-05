@@ -116,6 +116,32 @@ export function collectLloPins(rsDir = RS) {
   return pins;
 }
 
+/**
+ * THE canonical list of channels that hand-state an ley-line-open version.
+ *
+ * Exported so `scripts/llo-bump.mjs` writes exactly the set this rail reads.
+ * A bump script with its own list is the failure this tree names elsewhere —
+ * "a field list that mirrors the schema is a bug waiting to happen" — except
+ * worse, because the two lists would be a CHECKER and a WRITER: adding a fifth
+ * channel would leave the writer silently skipping it and the checker correctly
+ * failing every bump afterwards, with the fix looking like "the rail is broken".
+ *
+ * Returns descriptors, not values. Each names a file and the shape of the edit;
+ * the rail reads them to compare, the bump reads them to write. Neither owns
+ * the other's format knowledge.
+ *
+ * @returns {{kind: "cargo"|"input"|"generator", file: string, detail?: string}[]}
+ */
+export function upstreamChannels() {
+  const out = [];
+  for (const pin of collectLloPins()) {
+    out.push({ kind: "cargo", file: pin.file, detail: pin.name });
+  }
+  for (const c of readInputVersion()) out.push({ kind: "input", file: "cluster.toml", detail: c.name });
+  for (const c of readGeneratorVersion()) out.push({ kind: "generator", file: "schema-bridge.lock.json", detail: c.name });
+  return out;
+}
+
 function fail(msg) {
   process.stderr.write(`lint:upstream-pins: ${msg}\n`);
   process.exit(1);
@@ -223,7 +249,7 @@ function main() {
  * cluster.toml still exercises the Cargo half. The non-vacuity floor above is
  * what stops that leniency from becoming a silent pass on the real tree.
  */
-function readInputVersion() {
+export function readInputVersion() {
   const p = process.env.CLOISTER_CLUSTER_TOML ?? resolve(ROOT, "cluster.toml");
   if (!existsSync(p)) return [];
   try {
@@ -239,7 +265,7 @@ function readInputVersion() {
 }
 
 /** Channel 3 — the digest-pinned schema-bridge generator binaries. */
-function readGeneratorVersion() {
+export function readGeneratorVersion() {
   const p = resolve(ROOT, "schema-bridge.lock.json");
   if (!existsSync(p)) return [];
   try {
