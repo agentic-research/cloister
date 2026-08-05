@@ -728,7 +728,7 @@ function unflattenBundleKind(b) {
   return normalizeBundleDefaults(result);
 }
 
-// cloister-a34edc: normalize the §5 confinement facet (cloister/confinement/v1).
+// cloister-a34edc: normalize the §1 confinement facet (cloister/confinement/v1).
 // Missing → the empty deny-all manifest (fail-closed). fs.allow entries may be a
 // bare string (read-only) or `{path, mode:"rw"}`; both normalize to the typed
 // {path, mode} shape the capnp schema uses. Empty every dimension = DENY.
@@ -767,7 +767,7 @@ function normalizeBundleDefaults(bundle) {
     workerdServiceName:  typeof bundle.workerdServiceName === "string" ? bundle.workerdServiceName : "",
     hypervisorRationale: typeof bundle.hypervisorRationale === "string" ? bundle.hypervisorRationale : "",
     perTenant:           typeof bundle.perTenant === "boolean" ? bundle.perTenant : false,
-    // cloister-a34edc: the §5 confinement facet. Defaults to the empty
+    // cloister-a34edc: the §1 confinement facet. Defaults to the empty
     // (deny-all) manifest for bundles that don't declare one — which is the
     // fail-closed baseline (Inv 10). Operators opt in by declaring `[bundles.X.confinement]`.
     confinement:         normalizeConfinement(bundle.confinement),

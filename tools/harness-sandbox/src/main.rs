@@ -65,7 +65,7 @@ struct HarnessPolicy {
     /// without granting the confined harness blanket Keychain access.
     #[serde(default)]
     credential: Option<Credential>,
-    /// Optional §7 confinement commitment (cloister-c80953). When present, the
+    /// Optional §8 confinement commitment (cloister-c80953). When present, the
     /// runner verifies — BEFORE the irreversible `Sandbox::apply` — that the
     /// confinement it is about to enforce matches the digest committed in the
     /// workload's Interlace identity cert, and fail-closes on drift. Absent means
@@ -88,7 +88,7 @@ struct Credential {
     dest_env: String,
 }
 
-/// The §7 confinement commitment: the confinement/v1 manifest this workload is
+/// The §8 confinement commitment: the confinement/v1 manifest this workload is
 /// bound to, plus the Interlace identity cert that commits its digest and the CA
 /// master pubkey that anchors the chain. The runner recomputes the manifest's
 /// digest and checks it against the cert-committed one — the manifest and the
@@ -97,7 +97,7 @@ struct Credential {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConfinementCommitment {
-    /// The confinement/v1 ConfinementManifest, verbatim. Canonicalized (§6) and
+    /// The confinement/v1 ConfinementManifest, verbatim. Canonicalized (§7) and
     /// BLAKE3-hashed here; the result must equal the cert-committed digest.
     manifest: serde_json::Value,
     /// The workload's Interlace identity cert (DER), base64url no-pad — the
@@ -108,9 +108,9 @@ struct ConfinementCommitment {
     master_pub_b64std: String,
 }
 
-/// Verify the §7 confinement commitment, fail-closed. Authenticates the identity
+/// Verify the §8 confinement commitment, fail-closed. Authenticates the identity
 /// cert against the master pubkey, extracts the committed `confinementDigest`, and
-/// checks it byte-for-byte against the BLAKE3-256 of the §6-canonical manifest the
+/// checks it byte-for-byte against the BLAKE3-256 of the §7-canonical manifest the
 /// runner is about to enforce. Any failure — bad encoding, invalid cert chain, no
 /// committed digest, or a digest mismatch — is an error; the caller bails before
 /// `Sandbox::apply`.
@@ -242,7 +242,7 @@ fn verify_confinement_commitment(c: &ConfinementCommitment) -> Result<()> {
     Ok(())
 }
 
-/// BLAKE3-256 of the §6-canonical bytes of a confinement/v1 manifest. §6: object
+/// BLAKE3-256 of the §7-canonical bytes of a confinement/v1 manifest. §7: object
 /// keys ASCII-sorted at every level, 2-space indent, no trailing newline (last
 /// byte `}`). Byte-identical to `mint-dev-cert`'s digest and the TS/`confinement-
 /// digest.rs` reference impls, so the runner and the minter agree.
@@ -312,16 +312,16 @@ fn main() -> Result<()> {
         ),
     }
 
-    // §7 identity-digest verify (cloister-c80953). BEFORE we confine, prove the
+    // §8 identity-digest verify (cloister-c80953). BEFORE we confine, prove the
     // manifest we are about to enforce is the one the workload's Interlace
     // identity commits to. Fail-closed — drift here means the confinement was
     // tampered relative to the signed commitment, so we refuse to apply it. No-op
     // when the policy carries no commitment (deployment-binding granularity).
     if let Some(commitment) = policy.confinement.as_ref() {
         verify_confinement_commitment(commitment)
-            .context("§7 confinement commitment verification failed")?;
+            .context("§8 confinement commitment verification failed")?;
         eprintln!(
-            "cloister-harness: §7 confinement commitment verified — the manifest to be enforced \
+            "cloister-harness: §8 confinement commitment verified — the manifest to be enforced \
              matches the identity-committed digest"
         );
     }

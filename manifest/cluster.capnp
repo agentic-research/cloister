@@ -203,10 +203,10 @@ struct Bundle {
   # ── confinement (cloister-a34edc / cloister/confinement/v1) ─────────────
   #
   # This bundle's kernel-confinement declaration, conformant to LLO's
-  # cloister/confinement/v1 §5 ConfinementManifest (leyline-schema-spec @
-  # v0.7.3, SHA 2491ccd). All four dimensions are fail-closed default-DENY —
-  # enforced at build time by lint:bundle-isolation Inv 11. The BLAKE3-256 of
-  # the §6-canonical form is the `confinementDigest` committed to the bundle's
+  # cloister/confinement/v1 §1 ConfinementManifest (leyline-schema-spec @
+  # v0.17.0). All four dimensions cloister mirrors are fail-closed default-DENY
+  # — enforced at build time by lint:bundle-isolation Inv 11. The BLAKE3-256 of
+  # the §7-canonical form is the `confinementDigest` committed to the bundle's
   # Interlace identity (lane-2) as cert extension OID 1.3.6.1.4.1.99999.1.7
   # (LLO v0.7.6). cloister parses + length-checks that claim at lease-verify
   # time (cloister-c80953); enforce-time drift-rejection against the enforced
@@ -294,14 +294,27 @@ struct EnvVar {
   value @1 :Text;
 }
 
-# ── Confinement: cloister/confinement/v1 §5 ConfinementManifest ────────────
+# ── Confinement: cloister/confinement/v1 §1 ConfinementManifest ────────────
 #
 # The vendor-neutral kernel-confinement contract (LLO leyline-schema-spec
-# confinement/v1 @ v0.7.3, SHA 2491ccd). Four orthogonal capability boundaries,
-# every one fail-closed default-DENY: anything not explicitly allowed is denied
-# at the kernel boundary; there is no "unrestricted" mode. Cloister emits the
-# §6-canonical JSON + the BLAKE3-256 `confinementDigest` via cloister-cas — the
-# conformance gate is rs/crates/cas/tests/confinement_digest.rs.
+# confinement/v1 @ v0.17.0). Every dimension is fail-closed default-DENY:
+# anything not explicitly allowed is denied at the kernel boundary; there is no
+# "unrestricted" mode. Cloister emits the §7-canonical JSON + the BLAKE3-256
+# `confinementDigest` via cloister-cas — the conformance gate is
+# rs/crates/cas/tests/confinement_digest.rs.
+#
+# FOUR OF THE SPEC'S FIVE. §6 `unixSocket.allow` is deliberately absent from
+# this struct, and the absence is a statement rather than an oversight: LLO
+# delivers §6 on both tiers as of PR #333, but that is unreleased at the pinned
+# v0.17.0, so a §6 grant declared here would be refused by name at the fold.
+# The field lands when cloister pins a release that folds it — appended at a new
+# ordinal, per ADR-0004's append-only rule. Tracked on cloister-d303b2.
+#
+# The version above is checked, not asserted: `lint:spec-citation` compares it
+# against the ley-line-open version `lint:upstream-pins` resolves, so this
+# declaration cannot drift from the tree again. It sat at v0.7.3 through nine
+# minor releases, during which the spec gained §6 and renumbered §6→§7→§8→§9
+# underneath ~20 citations that all silently became wrong.
 struct Confinement {
   fs               @0 :ConfinementFs;
   network          @1 :ConfinementNetwork;

@@ -21,6 +21,8 @@ import {
   SPEC_ALIAS,
   SPEC_REAL_SUBPATH,
   ALLOW_MARKER,
+  collectMirrorVersions,
+  mirrorVersionDrift,
 } from "../lint-spec-citation.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -108,4 +110,54 @@ test("every non-allowed citation in the shipped tree resolves", (t) => {
     [],
     "citations must resolve — a pointer to nothing reads as 'the spec is local' (ADR-0035)",
   );
+});
+
+// ── mirror-version agreement (cloister-d303b2) ───────────────────────────
+//
+// The portable half of the rail. It compares two strings inside cloister and
+// needs no sibling checkout — which is the point: a CI runner with no LLO is
+// exactly where a stale mirror would otherwise sit unnoticed, and that is how
+// `confinement/v1 @ v0.7.3` survived to a v0.17.0 tree.
+
+test("the SHIPPED tree declares mirror versions the tree actually pins", () => {
+  assert.deepEqual(
+    mirrorVersionDrift(ROOT),
+    [],
+    "a hand-mirrored operator surface names a spec version the tree does not pin",
+  );
+});
+
+test("the rail FIRES on a mirror that lags the pin", () => {
+  // Non-vacuity. The shipped-tree assertion above passes trivially if the
+  // detector never matches anything, and it matched nothing for the first
+  // draft of this check because `manifest/` was outside SCAN_DIRS — the rail
+  // was not looking at the only file that had the declaration.
+  const drift = mirrorVersionDrift(ROOT, "99.0.0");
+  assert.ok(drift.length > 0, "with an impossible pin, every declaration must be drift");
+  assert.ok(
+    drift.some((d) => d.file === "manifest/cluster.capnp"),
+    "the confinement mirror carries a declaration and must be seen",
+  );
+});
+
+test("a matching declaration is not drift", () => {
+  // Named explicitly rather than by `.find(spec)`: `collectMirrorVersions`
+  // deliberately does NOT apply the rail's own-file exemption (that lives in
+  // `mirrorVersionDrift`), so a bare find picks up this file's own fixture.
+  const declared = collectMirrorVersions(ROOT)
+    .find((m) => m.file === "manifest/cluster.capnp" && m.spec === "confinement/v1");
+  assert.ok(declared, "the confinement mirror must declare a version at all");
+  assert.deepEqual(
+    mirrorVersionDrift(ROOT, declared.declared),
+    [],
+    "pinning exactly what the mirror declares must be clean",
+  );
+});
+
+test("an unreadable pin disables the comparison rather than inventing drift", () => {
+  // Fail-OPEN here, deliberately and narrowly: we cannot claim a mirror
+  // disagrees with a version we could not read. `lint:upstream-pins` owns
+  // reporting an unreadable cluster.toml, and reporting it twice in different
+  // words sends a reader to the wrong file.
+  assert.deepEqual(mirrorVersionDrift(ROOT, null), []);
 });

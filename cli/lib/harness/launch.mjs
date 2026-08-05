@@ -105,7 +105,7 @@ const COMPANION_PORT_BASE = 8810;
  * is identical whichever repo you pass, and why the absolute path can travel on
  * the nono plane only. HOW MANY is present, because two writable roots is a
  * materially wider boundary than one: a cert that did not distinguish them would
- * satisfy the §7 commitment check for a confinement it no longer describes.
+ * satisfy the §8 commitment check for a confinement it no longer describes.
  *
  * The one-root case emits exactly `workspace`, byte-identical to the manifest
  * that predates multi-root — so its digest is unchanged. Asserted in
@@ -832,7 +832,7 @@ export function buildPolicy(plan, identity) {
       // port as the only egress. cloister-harness refuses any non-blocked mode.
       network: { mode: "blocked", ports: { localhost: [Number(plan.shimPort)] } },
     },
-    // §7 confinement commitment (cloister-c80953): the runner verifies, BEFORE
+    // §8 confinement commitment (cloister-c80953): the runner verifies, BEFORE
     // Sandbox::apply, that this manifest matches the digest committed in dev's
     // identity cert — fail-closed on drift. Same manifest the minter digested.
     confinement: {

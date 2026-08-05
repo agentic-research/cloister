@@ -304,7 +304,7 @@ export interface VerifiedLease {
   sig:    Uint8Array;
   /**
    * The 32-byte confinementDigest committed in the cert's Interlace
-   * identity (cloister/confinement/v1 §7, OID …1.7), when present. Undefined
+   * identity (cloister/confinement/v1 §8, OID …1.7), when present. Undefined
    * for certs minted before LLO v0.7.6 or without a confinement commitment.
    * Surfaced here so a future runner (ADR-0044) can cross-check it against
    * the bundle's enforced ConfinementManifest, and so attestation rows can

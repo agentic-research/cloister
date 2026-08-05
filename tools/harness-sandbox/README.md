@@ -63,7 +63,7 @@ strictly for filesystem + process confinement. Whether cloister should
 some day *delegate* credential injection to nono's proxy (or keep its
 own) is an open design question — a future ADR, not this wiring.
 
-## §7 confinement commitment (cloister-c80953)
+## §8 confinement commitment (cloister-c80953)
 
 The policy may carry an optional `confinement` block — the confinement/v1
 manifest this workload is bound to, plus its Interlace identity cert and the CA
@@ -80,7 +80,7 @@ master pubkey:
 When present, the runner — **before** the irreversible `Sandbox::apply` —
 `verify_cert_chain`s the cert against the master, extracts the committed
 `confinementDigest` (Interlace extension OID `.1.7`), recomputes the BLAKE3-256
-of the §6-canonical manifest it is about to enforce, and **refuses to confine on
+of the §7-canonical manifest it is about to enforce, and **refuses to confine on
 any mismatch**. This is fail-closed: a cert that commits *no* digest, a cert that
 doesn't verify, or a manifest that digests differently all `bail!` before the
 harness ever execs.

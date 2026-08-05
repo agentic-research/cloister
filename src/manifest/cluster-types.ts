@@ -295,15 +295,15 @@ export interface Bundle {
   perTenant: boolean;
 
   /**
-   * cloister-a34edc: the §5 confinement facet (cloister/confinement/v1). Four
-   * fail-closed default-DENY dimensions; BLAKE3-256 of its §6-canonical form is
+   * cloister-a34edc: the §1 confinement facet (cloister/confinement/v1). Four fail-closed default-DENY dimensions (of the spec's five —
+   * §6 unixSocket is not yet expressible here; see manifest/cluster.capnp); BLAKE3-256 of its §7-canonical form is
    * the `confinementDigest` committed to the bundle's Interlace identity.
    * (Hand-mirrors `src/generated/cluster.zod.ts`; the dedup is bead cloister-204ac9.)
    */
   confinement: Confinement;
 }
 
-/** cloister/confinement/v1 §5 ConfinementManifest — see manifest/cluster.capnp. */
+/** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */
 export interface Confinement {
   fs: { allow: Array<{ path: string; mode: string }> };
   network: { allowHosts: string[] };

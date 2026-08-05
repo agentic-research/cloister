@@ -105,7 +105,7 @@ const isTest = (rel) => rel.includes("/test/") || rel.endsWith(".test.mjs");
  * This is not hypothetical tightening. LLO v0.15.1 added
  * `RunGrant.confinementManifest @15`, and `confinementManifest` was ALREADY
  * cloister's own vocabulary: cli/lib/harness/launch.mjs:103 exports a builder
- * for `cloister/confinement/v1` §6 manifests, a spec cloister owns — the name
+ * for `cloister/confinement/v1` §1 manifests, a spec cloister owns — the name
  * is in the spec's own title. LLO adopting the name is correct and good; the
  * consequence was that a canonical-field match retroactively made every prior
  * use of cloister's own term a "restatement", in a file that builds nono

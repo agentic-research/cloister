@@ -136,7 +136,7 @@ test("the rail refuses to run vacuously without the generated artifact", () => {
 //
 // v0.15.1 added `RunGrant.confinementManifest @15`. `confinementManifest` was
 // ALREADY cloister's own term — cli/lib/harness/launch.mjs exports a builder for
-// `cloister/confinement/v1` §6 manifests, a spec cloister owns; the name is in
+// `cloister/confinement/v1` §1 manifests, a spec cloister owns; the name is in
 // the spec's own title. The canonical match retroactively made cloister's own
 // vocabulary a "restatement", in a file that builds nono capability sets and
 // never constructs a RunSpec, RunGrant or RunReceipt.

@@ -357,7 +357,7 @@ function pruneBundleScalarDefaults(scalars) {
   if (flat.workerdServiceName === "") delete flat.workerdServiceName;
   if (flat.hypervisorRationale === "") delete flat.hypervisorRationale;
   if (flat.perTenant === false) delete flat.perTenant;
-  // cloister-a34edc: the §5 confinement facet is omitted from TOML when it's
+  // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
   // default applied in toml-to-cluster's normalizeConfinement.
   if (isEmptyConfinement(flat.confinement)) {
