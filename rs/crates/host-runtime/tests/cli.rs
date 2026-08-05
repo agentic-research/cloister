@@ -45,38 +45,40 @@ fn validate_accepts_a_well_formed_plan() {
 
 #[test]
 fn run_uses_microvm_backend_without_host_process_fallback() {
+    // Still the same property — a microvm plan must NOT silently fall back to
+    // running on the host — but the failure now comes from LLO's backend being
+    // unavailable rather than from `krunvm` missing on PATH (cloister-17e502).
+    // The empty PATH stays: it is what makes "nothing was spawned" observable.
     let plan = write_plan(ExecutionMode::Microvm);
-    let storage = tempfile::tempdir().unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_cloister-host-runtime"))
         .args(["run", plan.path().to_str().unwrap()])
-        .env("CLOISTER_KRUNVM_VOLUME", storage.path())
         .env("PATH", "")
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("running krunvm"), "{stderr}");
+    assert!(stderr.contains("launch refused"), "{stderr}");
+    // The load-bearing half: no fallback to host process execution, and no
+    // trace of the retired shell-out.
     assert!(!stderr.contains("process execution"), "{stderr}");
+    assert!(!stderr.to_lowercase().contains("krunvm"), "{stderr}");
 }
 
 #[test]
-fn status_reports_versioned_storage_json() {
-    let storage = tempfile::tempdir().unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_cloister-host-runtime"))
-        .arg("status")
-        .env("CLOISTER_KRUNVM_VOLUME", storage.path())
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let status: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(status["schema"], "cloister/runtime-storage-status/v1");
-    assert_eq!(status["state"], "prepared");
-    assert_eq!(
-        status["storageVolume"],
-        storage.path().display().to_string()
-    );
+fn status_and_gc_are_retired_with_a_reason_rather_than_an_unknown_command() {
+    // Their subject — krunvm's buildah storage volume — no longer exists
+    // (cloister-17e502). They fail, but they say WHY, so an operator with the
+    // old command in a script learns what replaced it instead of reading
+    // "unknown command" and guessing at a typo.
+    for command in ["status", "gc"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_cloister-host-runtime"))
+            .arg(command)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{command} must fail");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("cloister-17e502"), "{command}: {stderr}");
+        assert!(stderr.contains("ley-line-open"), "{command}: {stderr}");
+    }
 }
+

@@ -80,7 +80,7 @@ tasks:
       - Cargo.lock
 
   host-runtime:build:
-    desc: "Build the krunvm-backed Cloister host-runtime operator binary."
+    desc: "Build the Cloister host-runtime operator binary. Backed by ley-line-open execution/v1 in-process (cloister-17e502) — no krunvm/buildah subprocess."
     cmds:
       - cargo build --release -p cloister-host-runtime
     sources:
