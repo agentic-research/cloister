@@ -68,7 +68,7 @@ import { beadCanonicalBytesV1 } from "../storage/bead-canonical.js";
 import type { ApplyAttestationResult, PeerAttestation } from "../storage/peer-attestations.js";
 import type { Digest } from "../storage/types.js";
 import { BLOB_PUT_FAULT_DIGEST } from "../blob-store.js";
-import { declaredOrigin, peerOrigin, serializeOrigins, unionOrigins } from "../wire/origin.js";
+import { declaredOrigin, serializeOrigins, unionOrigins } from "../wire/origin.js";
 
 /**
  * Lease + cert material passed from the verified lease envelope to the
@@ -230,6 +230,41 @@ function buildBead(args: {
  * A TrustStore failure does NOT throw — the attestation is enqueued for
  * retry and the bead row stays committed; eventual consistency.
  */
+/**
+ * The CONTENT origin set for a bead_create (ADR-0065 phase 1).
+ *
+ * Exported and standalone because the first cut was inline, and being inline is
+ * why the defect shipped: the unit tests exercised `deriveConfidence` directly
+ * and asserted that an EMPTY origin set derives origin-unknown — true, and
+ * irrelevant, because this path never produced an empty set. The function was
+ * tested; the path was not. Making the path a function is the structural half of
+ * the fix, and `scripts/test/…`/`test/wire/origin.test.ts` now drive THIS.
+ *
+ * Content origins only. The submitter is NOT included — it is a fact about an
+ * actor, it lives in `peer_fingerprint` + `cert` on the same row, and unioning
+ * it here inverted the incentive the design exists to create:
+ *
+ *   declared nothing            -> origin-attested   (silence rewarded)
+ *   declared an untrusted source -> origin-asserted  (honesty punished)
+ *
+ * Every declared source is attributed to the DECLARING PEER, never to cloister:
+ * cloister cannot check the claim, so the peer is accountable for it and cloister
+ * only for having identified the peer. A caller therefore cannot reach
+ * origin-attested by declaring anything at all — that requires an origin cloister
+ * minted because it performed the fetch, which is phase 2.
+ */
+export function buildContentOrigins(
+  toolArgs: Record<string, unknown>,
+  peerFp: string,
+): ReturnType<typeof unionOrigins> {
+  const declared = Array.isArray(toolArgs["origins"])
+    ? (toolArgs["origins"] as unknown[]).filter(
+        (u): u is string => typeof u === "string" && u !== "",
+      )
+    : [];
+  return unionOrigins(declared.map((uri) => declaredOrigin(uri, peerFp)));
+}
+
 export async function runBeadCreateOrchestrator(args: {
   toolArgs:   Record<string, unknown>;
   env:        Env;
@@ -238,19 +273,7 @@ export async function runBeadCreateOrchestrator(args: {
 }): Promise<{ id: string; title: string; state: BeadState; content_hash: string }> {
   const a = args.toolArgs;
   const repo = String(a.repo ?? "");
-  // ADR-0065 phase 1. cloister mints ONE origin it can stand behind — the peer
-  // the lease gate authenticated — and attributes every caller-declared source
-  // to that peer rather than to itself, because a declared origin is untrusted
-  // input and recording it as checked would be the received-not-derived defect
-  // this vocabulary exists to prevent. A caller therefore cannot reach
-  // "attested" by declaring sources; it can only describe them accountably.
-  const declared = Array.isArray(a.origins)
-    ? (a.origins as unknown[]).filter((u): u is string => typeof u === "string" && u !== "")
-    : [];
-  const origins = unionOrigins(
-    [peerOrigin(args.context.peerFp)],
-    declared.map((uri) => declaredOrigin(uri, args.context.peerFp)),
-  );
+  const origins = buildContentOrigins(a, args.context.peerFp);
   if (!repo) {
     throw new JsonRpcInvocationError(
       -32602,

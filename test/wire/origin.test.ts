@@ -12,14 +12,26 @@ import {
   deriveConfidence,
   mayAttestFully,
   parseOrigins,
-  peerOrigin,
   serializeOrigins,
   unionOrigins,
   unvouchedOrigin,
 } from "../../src/wire/origin.js";
+import { buildContentOrigins } from "../../src/routes/bead-create-orchestrator.js";
 
 const PEER = "sha256:" + "a".repeat(64);
 const TRUSTED = new Set([CLOISTER_AUTHORITY]);
+
+/**
+ * An origin cloister itself minted. There is no constructor for this yet — it
+ * arrives with phase 2, when the proxy labels what IT fetched, which is the only
+ * content fact cloister can actually stand behind. Written inline as a fixture
+ * rather than exported from the module, so nothing in `src/` can reach for it
+ * before there is a real fetch behind it.
+ */
+/** Confidence ordering, weakest first — the ranking the incentive depends on. */
+const RANK = { "origin-unknown": 0, "origin-asserted": 1, "origin-attested": 2 } as const; // lint-allow-confidence-literal: the ordering itself is the assertion
+
+const cloisterMinted = (uri: string) => ({ uri, vouchedBy: CLOISTER_AUTHORITY });
 
 describe("deriveConfidence", () => {
   it("an absent origin set is origin-unknown, never something stronger", () => {
@@ -31,7 +43,7 @@ describe("deriveConfidence", () => {
   });
 
   it("cloister's own peer origin is attested — it is the one thing cloister verified", () => {
-    expect(deriveConfidence([peerOrigin(PEER)], TRUSTED)).toBe("origin-attested");
+    expect(deriveConfidence([cloisterMinted("https://declared.example/")], TRUSTED)).toBe("origin-attested");
   });
 
   it("a caller-declared upstream source is origin-asserted, not origin-attested", () => {
@@ -48,7 +60,7 @@ describe("deriveConfidence", () => {
     // Content derives from all of its sources, so "some of this is trustworthy"
     // is not a property a consumer can act on. Mixing a verified peer origin
     // with an unvouched fetch must not launder the fetch.
-    const mixed = unionOrigins([peerOrigin(PEER)], [unvouchedOrigin("https://evil.example/x")]);
+    const mixed = unionOrigins([cloisterMinted("https://declared.example/")], [unvouchedOrigin("https://evil.example/x")]);
     expect(mixed).toHaveLength(2);
     expect(deriveConfidence(mixed, TRUSTED)).toBe("origin-asserted");
   });
@@ -75,14 +87,14 @@ describe("deriveConfidence", () => {
   });
 
   it("an empty trust set attests nothing — fail-closed like an empty authority", () => {
-    expect(deriveConfidence([peerOrigin(PEER)], new Set())).toBe("origin-asserted");
+    expect(deriveConfidence([cloisterMinted("https://declared.example/")], new Set())).toBe("origin-asserted");
   });
 });
 
 describe("unionOrigins", () => {
   it("is canonical — equal sets serialize to equal bytes regardless of order", () => {
-    const a = unionOrigins([peerOrigin(PEER)], [unvouchedOrigin("https://b.example/")]);
-    const b = unionOrigins([unvouchedOrigin("https://b.example/")], [peerOrigin(PEER)]);
+    const a = unionOrigins([cloisterMinted("https://declared.example/")], [unvouchedOrigin("https://b.example/")]);
+    const b = unionOrigins([unvouchedOrigin("https://b.example/")], [cloisterMinted("https://declared.example/")]);
     expect(serializeOrigins(a)).toBe(serializeOrigins(b));
   });
 
@@ -93,18 +105,18 @@ describe("unionOrigins", () => {
     );
     expect(merged).toHaveLength(2);
     // …while the identical pair collapses.
-    expect(unionOrigins([peerOrigin(PEER)], [peerOrigin(PEER)])).toHaveLength(1);
+    expect(unionOrigins([cloisterMinted("https://declared.example/")], [cloisterMinted("https://declared.example/")])).toHaveLength(1);
   });
 
   it("unioning with an empty set is the identity — a stage with no new sources adds none", () => {
-    const base = unionOrigins([peerOrigin(PEER)]);
+    const base = unionOrigins([cloisterMinted("https://declared.example/")]);
     expect(serializeOrigins(unionOrigins(base, []))).toBe(serializeOrigins(base));
   });
 });
 
 describe("parseOrigins", () => {
   it("round-trips", () => {
-    const origins = unionOrigins([peerOrigin(PEER)], [declaredOrigin("https://x.example/", PEER)]);
+    const origins = unionOrigins([cloisterMinted("https://declared.example/")], [declaredOrigin("https://x.example/", PEER)]);
     expect(parseOrigins(serializeOrigins(origins))).toEqual(origins);
   });
 
@@ -130,5 +142,55 @@ describe("parseOrigins", () => {
     expect(parseOrigins(raw)).toEqual([
       { uri: "https://good.example/", vouchedBy: CLOISTER_AUTHORITY },
     ]);
+  });
+});
+
+// ── the PATH, not just the function ──────────────────────────────────────
+//
+// The defect these guard against: `deriveConfidence([], TRUSTED)` was asserted
+// to be origin-unknown, correctly, while the orchestrator unioned the submitter
+// into every set and so never produced an empty one. The function was tested and
+// the path was not, so silence derived origin-attested in production while the
+// suite stayed green. These drive the real composition.
+
+describe("buildContentOrigins — the bead_create path", () => {
+  it("silence derives origin-unknown, NOT attested — the inverted incentive", () => {
+    const origins = buildContentOrigins({ title: "t" }, PEER);
+    expect(origins).toEqual([]);
+    expect(deriveConfidence(origins, TRUSTED)).toBe("origin-unknown");
+  });
+
+  it("honesty ranks ABOVE silence — declaring an untrusted source is rewarded", () => {
+    const silent = deriveConfidence(buildContentOrigins({}, PEER), TRUSTED);
+    const honest = deriveConfidence(
+      buildContentOrigins({ origins: ["https://evil.example/x"] }, PEER),
+      TRUSTED,
+    );
+    expect(silent).toBe("origin-unknown");
+    expect(honest).toBe("origin-asserted");
+    // The ordering IS the property. If these are ever equal, or inverted, a
+    // caller is better off saying nothing and the vocabulary is decorative.
+    expect(RANK[honest]).toBeGreaterThan(RANK[silent]);
+  });
+
+  it("no declaration can reach origin-attested on this path", () => {
+    // A caller cannot vouch itself into full confidence, however much it
+    // declares. Reaching attested requires an origin cloister minted from its
+    // own fetch — phase 2 — and until then this path tops out at asserted.
+    for (const args of [
+      { origins: ["https://a.example/"] },
+      { origins: ["https://a.example/", "https://b.example/"] },
+      { origins: [`interlace:peer/${PEER}`] },
+    ]) {
+      const c = deriveConfidence(buildContentOrigins(args, PEER), TRUSTED);
+      expect(c).not.toBe("origin-attested");
+      expect(mayAttestFully(c)).toBe(false);
+    }
+  });
+
+  it("ignores malformed declarations rather than trusting them", () => {
+    const origins = buildContentOrigins({ origins: ["", 42, null, "https://ok.example/"] }, PEER);
+    expect(origins).toHaveLength(1);
+    expect(origins[0]?.uri).toBe("https://ok.example/");
   });
 });
