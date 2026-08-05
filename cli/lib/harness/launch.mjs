@@ -1133,7 +1133,22 @@ export async function launchSession(plan, artifacts, deps = {}) {
     // Wait for the shim to bind before launching the confined harness —
     // otherwise the harness's first request races startup (connect-refused).
     await waitPort(plan.baseUrl, 15_000);
+    // macOS only: acknowledge that bind/inbound is unenforced, per
+    // cloister-2d420c. cloister-harness REFUSES a manifest declaring a
+    // localhost port unless this is set, because Seatbelt filters outbound per
+    // port and grants bind/inbound unqualified — so the declared port is not
+    // the boundary it reads as.
+    //
+    // Set HERE, at the one place that knows the run is the ADR-0042 turnkey
+    // harness and has already decided the localhost shim IS the seam. It is
+    // never in committed config (lint:no-dev-mode refuses that), so a
+    // deployment cannot inherit the exemption — it is re-declared per run by
+    // the thing that chose the shape.
+    //
+    // Harmless on Linux, where Landlock filters bind(2) per port and the
+    // binary's check is cfg'd out entirely.
     confined = spawn(plan.sandbox.confineBin, [policyPath], {
+      env: { ...(deps.env ?? process.env), CLOISTER_ACCEPT_UNENFORCED_BIND: "1" },
       // The FIRST declared root is the primary: it is what a relative path
       // inside the harness resolves against.
       cwd: plan.sandbox.workdirs[0], stdio: "inherit",

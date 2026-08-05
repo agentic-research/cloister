@@ -294,6 +294,88 @@ fn main() -> Result<()> {
     // the manifest explicitly declares a deny-by-default network mode. Without
     // this, an omitted/loose network stanza would let the harness reach the whole
     // internet and bypass the vault proxy.
+    // macOS: A DECLARED LOCALHOST PORT IS NOT AN ENFORCED ONE — refuse unless
+    // the operator says, per run, that they accept the weaker boundary.
+    //
+    // `cloister-2d420c`, and confinement/v1 §9 condition 6: "It REFUSES any
+    // declaration its mechanism cannot express at the declared granularity,
+    // rather than committing to a policy that never took effect."
+    //
+    // Seatbelt filters OUTBOUND per port and cannot filter bind or inbound at
+    // all. nono says so at the emission site and emits both rules unqualified
+    // whenever localhost TCP is permitted (verified in the locked nono 0.70.0,
+    // src/sandbox/macos.rs:812):
+    //
+    //     // Seatbelt cannot filter bind/inbound by port
+    //     profile.push_str("(allow network-bind)\n");
+    //     profile.push_str("(allow network-inbound)\n");
+    //
+    // So a confined harness may open a listener on ANY port and accept from ANY
+    // source — a channel out of the sandbox that does not traverse the vault
+    // proxy and emits no receipt. Outbound is genuinely restricted; this is
+    // strictly the bind/inbound direction.
+    //
+    // The Linux arm below already refuses the analogous case (SeccompNetFallback
+    // ::ProxyOnly, where the port allowance would not be enforced) on the stated
+    // ground that "a confinement that is weaker than the manifest says is worse
+    // than one that fails loudly". This makes the two platforms agree. They
+    // previously disagreed for a reason that was never a judgement about macOS:
+    // the Linux backend REPORTS its shortfall in a return value and the macOS
+    // backend does not, so the check was shaped around what the API surfaced
+    // rather than around the property it wanted.
+    //
+    // WHY AN ACKNOWLEDGEMENT RATHER THAN A HARD REFUSAL. A hard refusal breaks
+    // `task harness:dev` outright — the ADR-0042 turnkey run's whole model is
+    // localhost TCP to the vault-proxy shim, and there is no enforceable
+    // substitute on macOS today (§6 unixSocket is enforceable here but
+    // unavailable on Linux, so it swaps which platform has the gap rather than
+    // closing it). What is wrong is not the weaker tier; it is the weaker tier
+    // being SILENT. This makes it a per-run declaration.
+    //
+    // Deliberately an env var and not a policy field: a policy is written by
+    // cloister and could carry the acknowledgement invisibly on every run. An
+    // env var is set by whoever starts the run, cannot be committed, and is
+    // refused in committed config by `lint:no-dev-mode` — the same discipline
+    // CLOISTER_MODE=dev already gets.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let declares_port = policy
+            .capabilities
+            .network
+            .as_ref()
+            .and_then(|n| n.ports.as_ref())
+            .is_some_and(|p| !p.localhost.is_empty());
+        let acknowledged = std::env::var("CLOISTER_ACCEPT_UNENFORCED_BIND")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if declares_port && !acknowledged {
+            bail!(
+                "confinement/v1 §9 condition 6: this manifest declares a localhost port, \
+                 and Seatbelt cannot enforce it.\n\
+                 \n\
+                 macOS filters network-outbound per port but grants network-bind and \
+                 network-inbound UNQUALIFIED whenever localhost TCP is allowed, so the \
+                 confined process could listen on any port and accept from any source — \
+                 a channel that bypasses the vault proxy and emits no receipt.\n\
+                 \n\
+                 Outbound IS enforced. Only bind/inbound is not.\n\
+                 \n\
+                 Refusing rather than applying a confinement weaker than the manifest \
+                 declares — the same posture the Linux arm takes for ProxyOnly.\n\
+                 \n\
+                 To accept the weaker boundary for this run, set \
+                 CLOISTER_ACCEPT_UNENFORCED_BIND=1. It must never appear in committed \
+                 config; `lint:no-dev-mode` enforces that."
+            );
+        }
+        if declares_port {
+            eprintln!(
+                "cloister-harness — WARNING: bind/inbound is NOT confined on macOS \
+                 (CLOISTER_ACCEPT_UNENFORCED_BIND set). Outbound is. See cloister-2d420c."
+            );
+        }
+    }
+
     match policy.capabilities.network.as_ref().map(|n| &n.mode) {
         Some(NetworkMode::Blocked) | Some(NetworkMode::Proxy) => {}
         other => bail!(
