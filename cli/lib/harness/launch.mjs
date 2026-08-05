@@ -77,6 +77,32 @@ const DEFAULT_SHIM_PORT = "8799";
 const COMPANION_PORT_BASE = 8810;
 
 /**
+ * Prefix for the SYMBOLIC roots in the confinement document (cloister-bd6399).
+ *
+ * confinement/v1 §2 requires absolute paths — a relative one has no fixed
+ * meaning at the point it is enforced — and the document previously emitted bare
+ * `workspace` / `state`, which a conforming runner refuses at parse:
+ *
+ *     §2 fs.allow path "workspace" must be absolute
+ *
+ * The bare names were not sloppiness. They are why `cloister run --repo
+ * <anything>` works against one attested shape: no real path appears in the
+ * document, so the digest does not vary per repository.
+ *
+ * LLO already solved the same tension and cloister copies the answer:
+ * `ATTESTED_RUN_ROOTFS = "/run/rootfs/"` is a path that is SYMBOLIC and
+ * ABSOLUTE at once — it goes into the attested bytes, and the real location is
+ * substituted at compile time. Both properties survive: repo-independence,
+ * because these strings are constants and no workdir reaches them; and §2
+ * validity, because they are absolute.
+ *
+ * These are NOT mount points and nothing resolves them on this plane. The real
+ * directories travel on the nono `CapabilityManifest`, which is where an
+ * absolute host path belongs and where it is already checked.
+ */
+const SYMBOLIC_ROOT = "/run/cloister/";
+
+/**
  * The confinement/v1 manifest a harness identity commits to (§8, cloister-c80953).
  *
  * A STABLE profile declaration — never per-run paths — so the digest the minter
@@ -122,6 +148,7 @@ const COMPANION_PORT_BASE = 8810;
  *
  * @param {number} rootCount
  */
+
 export function confinementManifest(rootCount) {
   if (!Number.isInteger(rootCount) || rootCount < 1) {
     throw new LaunchUsageError(`confinement needs at least one writable root, got ${rootCount}`);
@@ -131,10 +158,10 @@ export function confinementManifest(rootCount) {
     fs: {
       allow: [
         ...Array.from({ length: rootCount }, (_, i) => ({
-          path: i === 0 ? "workspace" : `workspace.${i}`,
+          path: i === 0 ? `${SYMBOLIC_ROOT}workspace/` : `${SYMBOLIC_ROOT}workspace.${i}/`,
           mode: "rw",
         })),
-        { path: "state", mode: "rw" },
+        { path: `${SYMBOLIC_ROOT}state/`, mode: "rw" },
       ],
     },
     network: { allowHosts: ["127.0.0.1"] },

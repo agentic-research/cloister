@@ -24,7 +24,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,7 +60,12 @@ test("the one-root manifest is exactly the three dimensions the harness declares
   // previously read `vault://<service>`; see the header note.
   assert.deepEqual(confinementManifest(1), {
     version: "cloister/confinement/v1",
-    fs: { allow: [{ path: "workspace", mode: "rw" }, { path: "state", mode: "rw" }] },
+    fs: {
+      allow: [
+        { path: "/run/cloister/workspace/", mode: "rw" },
+        { path: "/run/cloister/state/", mode: "rw" },
+      ],
+    },
     network: { allowHosts: ["127.0.0.1"] },
     port: { bind: 0 },
   });
@@ -95,21 +100,30 @@ test("WHICH repo you confine is absent from the manifest entirely", () => {
   // calls agree would prove nothing, since the function takes no path at all —
   // this asserts the reason that is true.
   //
-  // Scoped to fs.allow, because two fields legitimately contain separators and
-  // only one of them used to. The comment here used to name `credentialSource`
-  // as the reason, and removing it (cloister-d2ba07) looked like it should let
-  // the check widen to the whole document — it does not: `version` is the spec
-  // URI `cloister/confinement/v1`. Widening it fails on the version string, which
-  // is why this note now names the field that will still be there next time.
+  // RESTATED for cloister-bd6399. The old form asserted no path separator
+  // appeared in an fs.allow entry, which worked only while the roots were bare
+  // names (`workspace`). §2 requires absolute paths, so separators are now
+  // expected and "contains a slash" no longer distinguishes a symbolic root
+  // from a leaked host path.
   //
-  // fs.allow is also the only place a real path COULD leak: it is the one
-  // dimension built from caller input (the workdir count), and the other two are
-  // constants.
+  // The property was never really "no separators" — it is "no CALLER INPUT
+  // reaches the document", and that is what is asserted directly now: the
+  // emitted paths are exactly the symbolic constants, and they are the same
+  // whatever the caller passed. A leaked workdir would have to appear here to
+  // do any harm, and it cannot, because these strings are built from a fixed
+  // prefix and an index.
   const allow = confinementManifest(3).fs.allow;
-  for (const entry of allow) {
-    assert.doesNotMatch(entry.path, /[/\\]/, `${entry.path} — a separator means a real path leaked`);
-  }
-  assert.deepEqual(allow.map((e) => e.path), ["workspace", "workspace.1", "workspace.2", "state"]);
+  assert.deepEqual(allow.map((e) => e.path), [
+    "/run/cloister/workspace/",
+    "/run/cloister/workspace.1/",
+    "/run/cloister/workspace.2/",
+    "/run/cloister/state/",
+  ]);
+  // Non-vacuity: the constants above are only meaningful if a real host path
+  // would be visibly different. `process.cwd()` stands in for the workdir a
+  // caller actually passes — no entry may contain it, or any part of $HOME.
+  const serialized = JSON.stringify(confinementManifest(3));
+  assert.doesNotMatch(serialized, new RegExp(process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("HOW MANY roots changes the digest — one root does not attest three", () => {
@@ -127,7 +141,7 @@ test("the root count is the entry count — the shape says how wide it is", () =
     // n workspaces + state. If these ever diverge, the manifest claims a
     // different width than the kernel grants it is built alongside.
     assert.equal(rw.length, n + 1, `${n} roots ⇒ ${n} workspace entries + state`);
-    assert.equal(rw.filter((e) => e.path.startsWith("workspace")).length, n);
+    assert.equal(rw.filter((e) => e.path.startsWith("/run/cloister/workspace")).length, n);
     assert.ok(rw.every((e) => e.mode === "rw"));
   }
 });
@@ -423,4 +437,66 @@ test("the real wrangler.toml resolves one process per distinct service", () => {
     readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8"), {});
   assert.equal(new Set(workers.map((w) => w.service)).size, workers.length,
     "one entry per distinct service");
+});
+
+// ── the emitted document, checked against LLO's SCHEMA (cloister-bd6399) ──
+//
+// Two refusals have now been found by running cloister's document through a
+// conforming runner rather than by any check here: `credentialSource:
+// "vault://…"` (§5, cloister-d2ba07) and bare `workspace` paths (§2, this bead).
+// The second was hiding behind the first — fixing §5 let the parse get far
+// enough to reach §2.
+//
+// That is what per-dimension checks buy: one refusal at a time, in the order a
+// parser happens to hit them. So this drives the constraints FROM
+// `confinement.schema.json` instead of restating them. `AbsolutePath.pattern`
+// is read, not copied — if LLO tightens it, this tightens with it, and a
+// dimension cloister has not thought about is still covered.
+//
+// Local-only, matching `lint:spec-citation`'s existence half: a CI runner has
+// cloister and no sibling checkout. The portable checks above (pinned literal,
+// §5 schemes) stay unconditional.
+
+const SCHEMA_PATH = resolve(
+  process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open"),
+  "rs/ll-core/schema-spec/confinement/v1/confinement.schema.json",
+);
+const schemaMissing = !existsSync(SCHEMA_PATH);
+
+test("the emitted document satisfies the constraints LLO's schema declares", { skip: schemaMissing }, () => {
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const manifest = confinementManifest(3);
+
+  // version — read the `const`, do not spell it here.
+  assert.equal(manifest.version, schema.properties.version.const);
+
+  // fs.allow paths — apply the schema's own AbsolutePath regex. This is the
+  // check that would have caught bare `workspace`, and it catches `..` and
+  // relative prefixes cloister has never emitted but could.
+  const absolute = new RegExp(schema.$defs.AbsolutePath.pattern);
+  const modes = schema.$defs.FsEntry.oneOf
+    .find((b) => b.type === "object")?.properties.mode.enum;
+  for (const entry of manifest.fs.allow) {
+    const path = typeof entry === "string" ? entry : entry.path;
+    assert.match(path, absolute, `fs.allow ${JSON.stringify(path)} violates §2 AbsolutePath`);
+    if (typeof entry !== "string") {
+      assert.ok(modes.includes(entry.mode), `mode ${JSON.stringify(entry.mode)} is not in the schema enum`);
+    }
+  }
+
+  // No key cloister emits may be outside the schema's declared properties —
+  // the additionalProperties:false half, which is how an invented dimension
+  // (rather than an invented value) would show up.
+  for (const key of Object.keys(manifest)) {
+    assert.ok(key in schema.properties, `emitted key ${JSON.stringify(key)} is not in confinement/v1`);
+  }
+});
+
+test("the schema-driven check is not vacuous — it rejects what it should", { skip: schemaMissing }, () => {
+  // The check is only worth having if the old document would have failed it.
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const absolute = new RegExp(schema.$defs.AbsolutePath.pattern);
+  assert.doesNotMatch("workspace", absolute, "the pre-bd6399 path must be refused by §2");
+  assert.doesNotMatch("/run/../etc", absolute, "a traversing path must be refused");
+  assert.match("/run/cloister/workspace/", absolute, "the shipped symbolic root must pass");
 });
