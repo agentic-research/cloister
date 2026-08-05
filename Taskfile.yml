@@ -472,6 +472,15 @@ tasks:
       - cli/lib/cluster/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
 
+  test:harness-shim:
+    desc: "harness-shim CertSource contract (cloister-f2338f) — node:test under tsx, NOT vitest: the shim is a host-side Node program and the vitest suite runs inside workerd, where node:http.createServer is not implemented."
+    cmds:
+      - "{{.NODE_TSX}} --test scripts/test/harness-shim-cert-source.test.mjs"
+    sources:
+      - scripts/test/harness-shim-cert-source.test.mjs
+      - src/harness-shim/index.ts
+      - src/harness-shim/lease-signer.ts
+
   emit:cloister-capnp:
     desc: "Compatibility alias — generate cloister.capnp and the other cluster.toml projections through the Cloister CLI."
     cmds:
@@ -1297,7 +1306,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:harness-shim, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

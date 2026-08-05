@@ -16,10 +16,10 @@
 // deliberately outside the workers tsconfig. Run with Node 20+ (global fetch +
 // Web Crypto Ed25519). Config comes from env; see README.md.
 //
-// v1 cert source is a loaded dev cert (env). Live notme minting is a drop-in
-// `CertSource` (see `envCertSource` / the mint TODO). v1 holds the ephemeral
-// key in-process; the ADR-0019 sign-only-helper hardening (never hold the raw
-// key) is the documented next step.
+// v1 cert source is a loaded dev cert (env); live notme minting is a `CertSource`
+// that may now be async (cloister-f2338f). v1 holds the ephemeral key in-process;
+// the ADR-0019 sign-only-helper hardening (never hold the raw key) is the
+// documented next step.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
@@ -44,11 +44,18 @@ interface ShimConfig {
 
 /**
  * A `CertSource` yields the current ephemeral identity. v1 ships `envCertSource`
- * (a dev cert loaded from env). The deployable follow-up is a notme-minting
- * source that refreshes a short-lived cert before it expires — same interface,
- * so `index.ts` doesn't change.
+ * (a dev cert loaded from env); the deployable follow-up is a notme-minting
+ * source that refreshes a short-lived cert before it expires.
+ *
+ * MAY return a promise, and that is the whole reason this type changed
+ * (cloister-f2338f). It used to be `() => EphemeralIdentity`, under a comment
+ * promising the notme source was a drop-in at the "same interface" — which was
+ * false in the one way that mattered: notme mints over the network, so any real
+ * source is async, and the signature made the documented next step
+ * unimplementable. A sync source still satisfies this, so `envCertSource` is
+ * unchanged.
  */
-export type CertSource = () => EphemeralIdentity;
+export type CertSource = () => EphemeralIdentity | Promise<EphemeralIdentity>;
 
 /** Load a dev cert + ephemeral keypair from env (base64url, as on the wire). */
 export function envCertSource(getEnv: (k: string) => string | undefined): EphemeralIdentity {
@@ -141,9 +148,14 @@ function readBody(req: IncomingMessage): Promise<string> {
 /** Build (but don't listen on) the shim server — handy for tests. */
 export function createShimServer(cfg: ShimConfig, source: CertSource) {
   return createServer((req, res) => {
-    handleRequest(cfg, source(), req, res).catch((err) => {
-      // Shim-side failure (signing, config, upstream dial): 502, never leak
-      // internals to the harness.
+    // `source()` is now INSIDE the promise chain. It used to be evaluated as an
+    // argument, so a source that threw synchronously escaped this `.catch` and
+    // took down the request with no 502 and no diagnostic — latent while the only
+    // source read three env vars at startup, load-bearing the moment one mints
+    // over the network and can fail per call.
+    (async () => handleRequest(cfg, await source(), req, res))().catch((err) => {
+      // Shim-side failure (cert mint, signing, config, upstream dial): 502,
+      // never leak internals to the harness.
       res.statusCode = 502;
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ error: "shim_failure" }));
