@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { env, runInDurableObject } from "cloudflare:test";
+import { originsDigest } from "../../src/wire/origin.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpEdgeRoute } from "../../src/routes/mcp.js";
 import type { Env, McpTool } from "../../src/types.js";
@@ -307,3 +308,86 @@ describe("integration: receipt emission on POST /mcp", () => {
 
 // Silence unused imports
 void encodeReceiptEnvelope;
+
+// ── ADR-0065 phase 2b: the PATH, not the pieces ──────────────────────────
+//
+// origin.test.ts covers the vocabulary and receipts.test.ts covers the CBOR
+// round-trip, and neither drives `tools/call → backend.contentOrigin() →
+// originsForRequest → receipt`. That gap is exactly the phase-1 defect one
+// level up: there, `deriveConfidence([])` was asserted while the orchestrator
+// never produced an empty set, so the function was tested and the path was not.
+// These drive the whole route.
+
+/** A backend that declares an ingress origin, as an mcpProxy does. */
+const ORIGIN_BACKEND: ToolBackend = {
+  // `bead_create` because the only cert fixture scopes to it. The orchestrator
+  // still intercepts the CALL — which is the point: `originsForRequest`
+  // resolves the backend independently of who serves the invocation, so a
+  // proxy-backed tool's ingress is committed even on a path that never reaches
+  // `invoke()`.
+  handles: (n: string) => n === "bead_create",
+  handlesPrefix: "bead_",
+  tools(): readonly McpTool[] { return []; },
+  async invoke() { return { ok: true }; },
+  contentOrigin() { return [{ uri: "http://localhost:8384/mcp", vouchedBy: "cloister/lease-gate" }]; },
+};
+
+async function receiptFor(backend: ToolBackend) {
+  const { privateKey: rootKey, publicKeyB64 } = await makeRootKey();
+  const bundle = await makeBundleResponder(rootKey);
+  const testEnv = envWith({
+    INTERLACE_ROOT_PUBKEY: publicKeyB64,
+    RECEIPT_SIGNING_KEY:   KEYPAIR_B64STD,
+    RECEIPT_EPOCH:         "1",
+  }, async (req: Request) =>
+    new URL(req.url).pathname === "/internal/ca-bundle"
+      ? new Response(JSON.stringify(bundle), { status: 200 })
+      : new Response("not found", { status: 404 }));
+
+  const route = new McpEdgeRoute([backend]);
+  const { request } = await signedMcpRequest({
+    method: "tools/call",
+    params: { name: "bead_create", arguments: { repo: "/repos/foo" } },
+    url: "https://example.com/mcp",
+    tsMs: Date.now(),
+  });
+  const resp = await route.handle(request, testEnv);
+  const header = resp.headers.get(INTERLACE_RECEIPT_HEADER);
+  const decoded = header ? decodeReceiptHeader(header) : null;
+  return { resp, decoded };
+}
+
+describe("ADR-0065 2b: a backend's ingress origin reaches the signed receipt", () => {
+  it("commits originsHash when the serving backend declares an origin", async () => {
+    const { resp, decoded } = await receiptFor(ORIGIN_BACKEND);
+    expect(resp.status).toBe(200);
+    expect(decoded?.ok).toBe(true);
+    if (!decoded?.ok) return;
+
+    const hash = decoded.value.commitment.originsHash;
+    expect(hash, "the backend's contentOrigin must reach the commitment").toBeDefined();
+    expect(hash).toHaveLength(32);
+
+    // It must be the digest of THAT origin set, not merely some 32 bytes —
+    // otherwise a wrong-but-present hash would pass.
+    const expected = await originsDigest([
+      { uri: "http://localhost:8384/mcp", vouchedBy: "cloister/lease-gate" },
+    ]);
+    expect(Array.from(hash!)).toEqual(Array.from(expected!));
+
+    // And the whole commitment still verifies — adding the field must not
+    // break the signature over the canonical bytes.
+    const canon = encodeCommitment(decoded.value.commitment);
+    expect(await verifyEd25519(PUB, decoded.value.signature, canon)).toBe(true);
+  });
+
+  it("omits originsHash entirely when no backend declares an origin", async () => {
+    // The compatibility half: a receipt with nothing to claim must look exactly
+    // like a pre-ADR-0065 one, so absence can never read as vouched.
+    const { resp, decoded } = await receiptFor(NOOP_BACKEND);
+    expect(resp.status).toBe(200);
+    expect(decoded?.ok).toBe(true);
+    if (!decoded?.ok) return;
+    expect("originsHash" in decoded.value.commitment).toBe(false);
+  });
+});
