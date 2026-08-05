@@ -1572,6 +1572,37 @@ via `--features host,host-extras`. Full cycle artifact:
 | **Closing playbook** | Done. Run `task rs:audit` in CI on every PR; quarterly `cargo-vet`-style attestation via `cloister-8df072`. Future schemes that need a fat dep should land under a similar opt-in feature, never under default `host`. |
 | **Tracking** | `cloister-2a0faa` (this commit) + `cloister-8df072` (long-tail attestation). |
 
+#### Row 17.1 amendment — REOPENED and re-closed (2026-08-05, cloister-17e502)
+
+The closing playbook above predicted the recurrence in as many words: *"Future
+schemes that need a fat dep should land under a similar opt-in feature, never
+under default `host`."* It then happened.
+
+`cloister-17e502` replaced the krunvm shell-out with `leyline-runtime`, LLO's
+first-party execution API. That crate uses `nono` as its enforcement
+mechanism — unconditionally and correctly, since nono is what applies the
+confinement — so adding it as a plain dependency pulled the sigstore /
+aws-lc-rs / rustls closure back into the **default** dep graph of
+`cloister-host-runtime`, undoing exactly what this row closed.
+
+**Detection worked, by the mechanism this row installed.** `task rs:audit` failed
+in `task verify` — not on an advisory but on a *license*: `webpki-root-certs`
+(CDLA-Permissive-2.0), reached via `reqwest → rustls-platform-verifier`. Neither
+`task lint` nor the crate's own tests noticed, because both were green: the code
+was correct, and the closure was the problem.
+
+**Re-closed the same way.** `leyline-runtime` is now `optional = true` behind a
+`llo-execution` feature; `default = []`. A default build links no execution
+backend at all, and `HostRuntime::launch` answers `BackendUnavailable` —
+"refusing an unconstrained fallback". That is the correct posture rather than a
+degradation: an operator who has not opted into the closure has not opted into
+executing tenants either. The refusal names the feature, so a default build reads
+as deliberate rather than broken.
+
+**What this row now also asserts:** the gate is on the DEFAULT feature set. A
+check that only ever runs with every feature enabled cannot see this class of
+regression, because the closure is present by construction there.
+
 ### Row 17.2 — POST /sign has no per-caller URL allow-list (CLOSED this cycle)
 
 | | |

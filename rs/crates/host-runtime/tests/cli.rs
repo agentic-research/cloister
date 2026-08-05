@@ -57,9 +57,24 @@ fn run_uses_microvm_backend_without_host_process_fallback() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("launch refused"), "{stderr}");
-    // The load-bearing half: no fallback to host process execution, and no
-    // trace of the retired shell-out.
+
+    // The PROPERTY is that a microvm plan never silently runs on the host. Both
+    // builds satisfy it and they say so differently, so assert the property and
+    // accept either wording rather than pinning one build's phrasing:
+    //
+    //   with `llo-execution`    — the backend exists and refuses ("launch refused")
+    //   without it (default)    — no backend is compiled in at all (§17.1)
+    //
+    // Pinning "launch refused" made this fail on the default build for the one
+    // reason that is not a defect: the feature gate working.
+    let refused_by_backend = stderr.contains("launch refused");
+    let no_backend_compiled = stderr.contains("no execution backend");
+    assert!(
+        refused_by_backend || no_backend_compiled,
+        "a microvm plan must be refused, by one of the two honest routes: {stderr}"
+    );
+    // The load-bearing half, true of both: no fallback to host process
+    // execution, and no trace of the retired shell-out.
     assert!(!stderr.contains("process execution"), "{stderr}");
     assert!(!stderr.to_lowercase().contains("krunvm"), "{stderr}");
 }

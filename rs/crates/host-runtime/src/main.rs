@@ -1,13 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "llo-execution")]
+use std::path::PathBuf;
+#[cfg(feature = "llo-execution")]
 use std::sync::Arc;
+#[cfg(feature = "llo-execution")]
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use cloister_host_runtime::LaunchPlan;
+#[cfg(feature = "llo-execution")]
+use cloister_host_runtime::HostRuntime;
+#[cfg(feature = "llo-execution")]
 use cloister_host_runtime::execution::LeylineExecutionBackend;
-use cloister_host_runtime::{HostRuntime, LaunchPlan};
+#[cfg(feature = "llo-execution")]
 use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerConfig};
+
+/// Whether this build can confine a workload at all.
+///
+/// `false` without `llo-execution` is the honest answer, not a probe failure:
+/// there is no backend compiled in to ask.
+#[cfg(feature = "llo-execution")]
+fn microvm_available() -> bool { backend().available() }
+#[cfg(not(feature = "llo-execution"))]
+fn microvm_available() -> bool { false }
 
 fn read_plan(path: &Path) -> Result<LaunchPlan> {
     let bytes =
@@ -19,6 +36,11 @@ fn read_plan(path: &Path) -> Result<LaunchPlan> {
 }
 
 /// Deployment configuration for LLO's microVM backend (cloister-17e502).
+///
+/// Behind `llo-execution` per threat model §17.1 — see Cargo.toml. Without the
+/// feature there is no backend, and `HostRuntime` refuses rather than falling
+/// back to running on the host.
+#[cfg(feature = "llo-execution")]
 ///
 /// Every path is an env var with a documented default, because these are
 /// DEPLOYMENT facts — LLO ADR-0036 turns on exactly this: an issuer that knows
@@ -46,6 +68,7 @@ fn krun_config() -> KrunWorkerConfig {
     }
 }
 
+#[cfg(feature = "llo-execution")]
 fn backend() -> LeylineExecutionBackend<KrunWorkerBackend> {
     LeylineExecutionBackend::new(Arc::new(KrunWorkerBackend::new(krun_config())))
 }
@@ -82,9 +105,25 @@ fn run() -> Result<()> {
             }
             let plan = read_plan(Path::new(&path))?;
 
-            HostRuntime::new(None, Some(Arc::new(backend())))
-                .launch(&plan)
-                .context("launch refused")
+            #[cfg(feature = "llo-execution")]
+            {
+                HostRuntime::new(None, Some(Arc::new(backend())))
+                    .launch(&plan)
+                    .context("launch refused")
+            }
+            // Fails closed, and says which build it is. `BackendUnavailable`
+            // alone would read as a broken deployment rather than a deliberate
+            // one.
+            #[cfg(not(feature = "llo-execution"))]
+            {
+                let _ = plan;
+                bail!(
+                    "no execution backend: this binary was built without the \
+                     `llo-execution` feature, which carries ley-line-open's runtime \
+                     and the nono/sigstore closure threat model §17.1 keeps opt-in. \
+                     Rebuild with --features llo-execution to execute tenants."
+                )
+            }
         }
         "doctor" => {
             if args.next().is_some() {
@@ -99,7 +138,7 @@ fn run() -> Result<()> {
                 serde_json::to_string_pretty(&serde_json::json!({
                     "schema": "cloister/host-runtime/doctor/v1",
                     "process": {"available": false},
-                    "microvm": {"available": backend().available()},
+                    "microvm": {"available": microvm_available()},
                 }))?
             );
             Ok(())

@@ -25,7 +25,30 @@ leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = 
 # ADR-0049 / cloister-17e502 — the first-party execution API that replaces the
 # krunvm shell-out. Same rev AND version as every other LLO pin: cargo resolves
 # on the pair, and `lint:upstream-pins` enforces ONE of each across all of them.
-leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "32e9dab2c3c39b949112ae7fc4dd0619e711f7d9", version = "0.17.0", package = "leyline-runtime" }
+leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "32e9dab2c3c39b949112ae7fc4dd0619e711f7d9", version = "0.17.0", package = "leyline-runtime", optional = true }
+
+[features]
+# Default is DELIBERATELY empty: no execution backend at all.
+#
+# `leyline-runtime` uses nono as its enforcement mechanism, unconditionally and
+# correctly — nono is what applies the confinement. But that drags the whole
+# sigstore / aws-lc-rs / rustls closure into whatever depends on it, and threat
+# model §17.1 CLOSED exactly that expansion by feature-gating nono behind
+# `host-extras`, with a closing playbook that says: "Future schemes that need a
+# fat dep should land under a similar opt-in feature, never under default."
+#
+# Adding leyline-runtime unconditionally re-opened that row. `cargo deny` caught
+# it as a license rejection (webpki-root-certs, CDLA-Permissive-2.0, reached via
+# reqwest → rustls-platform-verifier), which is the §17.1 detection mechanism
+# firing on the case it was written for.
+#
+# So the backend is opt-in. A default build has no microVM backend, and
+# `HostRuntime::launch` answers `BackendUnavailable` — "refusing an unconstrained
+# fallback". Failing closed without the feature is the correct posture, not a
+# degradation: an operator who has not opted into the closure has not opted into
+# executing tenants either.
+default = []
+llo-execution = ["dep:leyline-runtime"]
 
 [dev-dependencies]
 tempfile = "3"

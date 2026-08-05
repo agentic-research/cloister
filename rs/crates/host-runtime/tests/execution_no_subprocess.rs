@@ -1,3 +1,9 @@
+#![cfg(feature = "llo-execution")]
+//
+// Gated with the backend it exercises (threat model §17.1): without
+// `llo-execution` there is no LLO runtime linked, so there is nothing here to
+// test rather than something failing.
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // cloister-17e502 acceptance: a launch reaches LLO's first-party execution API
