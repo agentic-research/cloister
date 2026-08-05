@@ -275,8 +275,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "notme",
-      "ref": "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c",
-      "version": "0.1.0",
+      "ref": "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a",
+      "version": "0.2.0",
       "digest": "",
       "from": "",
       "provides": [],

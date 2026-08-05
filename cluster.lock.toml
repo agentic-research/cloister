@@ -17,23 +17,23 @@ version = "v0.16.0"
 digest = "sha256:ccea96b861745d943ef52b4a21b066c15b2e4bfcd451956431542994f1578e6d"
 
 [inputs.notme]
-ref = "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c"
-resolved = "0.1.0"
-sha256 = "sha256:de9a8bcd86b8bfff49f2502c52efeb970694edbef054be4bece979500c0f375a"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/notme/d01db044b969832dc3aae958e7000afee2e03c4c/server.json"
+ref = "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a"
+resolved = "0.2.0"
+sha256 = "sha256:28c3b7c2336e61c8d6848809418857d52119d39d83554f0a1a0de201db28bd21"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/notme/4bae2defb4eaf61046eac99ed23894ff51bf8d9a/server.json"
 signer = ""
 bytes = 5300
 
 [inputs.notme.oci]
 identifier = "ghcr.io/agentic-research/notme"
-version = "0.1.0"
-digest = "sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a"
+version = "0.2.0"
+digest = "sha256:56fd69dd51e5f4269f11cd541245e061ca54acd3f6f8ea52b12155b7f421b95b"
 
 [[inputs.notme.ociBundles]]
 bundle = "notme-identity"
 identifier = "ghcr.io/agentic-research/notme"
-version = "0.1.0"
-digest = "sha256:2752c1749bc1255d0e566f5922bbbe1c3880521d699dc622a3a7fa37766d6a2a"
+version = "0.2.0"
+digest = "sha256:56fd69dd51e5f4269f11cd541245e061ca54acd3f6f8ea52b12155b7f421b95b"
 declaredTier = "hypervisor"
 declaredKind = "external"
 declaredHttpPort = 8788
@@ -41,8 +41,8 @@ declaredHttpPort = 8788
 [[inputs.notme.ociBundles]]
 bundle = "notme-proxy"
 identifier = "ghcr.io/agentic-research/notme-proxy"
-version = "0.1.0"
-digest = "sha256:4f55809ba44bdadb63db338e5c33a5b733b2aaa62c9d5de6600d8370be5c1b96"
+version = "0.2.0"
+digest = "sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64"
 declaredTier = "hypervisor"
 declaredKind = "external"
 declaredIpcSocket = "/run/cloister-uds/companion.sock"
