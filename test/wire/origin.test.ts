@@ -14,6 +14,7 @@ import {
   OriginBoundsError,
   deriveConfidence,
   fetchedOrigin,
+  originsDigest,
   mayAttestFully,
   parseOrigins,
   serializeOrigins,
@@ -242,5 +243,44 @@ describe("§21.5 — declared origins are bounded, and REFUSED not truncated", (
   it("accepts a declaration at exactly the cap — the bound is not off by one", () => {
     const atCap = Array.from({ length: MAX_DECLARED_ORIGINS }, (_, i) => `https://e.example/${i}`);
     expect(buildContentOrigins({ origins: atCap }, PEER)).toHaveLength(MAX_DECLARED_ORIGINS);
+  });
+});
+
+// ── phase 2b: consumption ─────────────────────────────────────────────────
+
+describe("originsDigest — commit publicly, disclose under scope (§21.3)", () => {
+  it("returns null for an empty set, so the receipt omits the field entirely", async () => {
+    // This is what keeps a no-origins receipt byte-identical to a pre-ADR-0065
+    // one, and therefore what stops absent from reading as vouched: there is
+    // nothing on the wire to misread.
+    expect(await originsDigest([])).toBeNull();
+  });
+
+  it("is 32 bytes and stable across equal sets built in different orders", async () => {
+    const a = unionOrigins([fetchedOrigin("https://a.example/")], [unvouchedOrigin("https://b.example/")]);
+    const b = unionOrigins([unvouchedOrigin("https://b.example/")], [fetchedOrigin("https://a.example/")]);
+    const da = await originsDigest(a);
+    const db = await originsDigest(b);
+    expect(da).toHaveLength(32);
+    expect(Array.from(da!)).toEqual(Array.from(db!));
+  });
+
+  it("distinguishes sets that differ only by vouching authority", async () => {
+    // The digest must bind WHO vouched, not just which URIs appeared —
+    // otherwise a caller-declared source and a cloister-fetched one commit to
+    // the same value and the receipt cannot tell them apart.
+    const declared = await originsDigest([declaredOrigin("https://x.example/", PEER)]);
+    const fetched  = await originsDigest([fetchedOrigin("https://x.example/")]);
+    expect(Array.from(declared!)).not.toEqual(Array.from(fetched!));
+  });
+
+  it("does not leak the URIs — the digest is the commitment", async () => {
+    // §21.3 in one assertion: a receipt rides a response header, so the source
+    // URI must not be recoverable from what it carries.
+    const secret = "https://internal.example/very-specific-path";
+    const digest = await originsDigest([fetchedOrigin(secret)]);
+    const asText = new TextDecoder().decode(digest!);
+    expect(asText).not.toContain("internal.example");
+    expect(asText).not.toContain("very-specific-path");
   });
 });

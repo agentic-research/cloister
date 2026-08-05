@@ -48,6 +48,7 @@ import {
 } from "../wire/receipt-delegated-signer.js";
 import { canonicalRequestBytes } from "./lease-middleware.js";
 import { logEvent } from "../obs/log.js";
+import { originsDigest, type OriginSet } from "../wire/origin.js";
 
 // One-shot guard so the "receipt emission disabled" signal (cloister-21e42e)
 // logs once per isolate, not on every emission attempt.
@@ -87,6 +88,17 @@ export interface ReceiptEmissionContext {
   actorFp: Uint8Array;
   /** Actor epoch. */
   epoch: number;
+  /**
+   * Content-origin set for the response this receipt covers (ADR-0065 phase
+   * 2b). Unioned by the caller from the `contentOrigin()` of whichever backends
+   * served the call; empty when none declared one.
+   *
+   * The receipt commits to its DIGEST, computed here rather than passed in, so
+   * no call site can supply a hash that does not match a set it also supplies —
+   * the same received-not-derived shape the whole ADR exists to close, one layer
+   * out.
+   */
+  origins?: OriginSet;
 }
 
 // ── Env-side context builder ──────────────────────────────────────────────
@@ -279,6 +291,11 @@ export async function attachReceipt(
 
   const requestHash = await sha256(ctx.requestCanon);
 
+  // Digest computed HERE from the set, never accepted as a hash. See the field
+  // doc: a call site that could pass a precomputed digest could pass one that
+  // does not match its set.
+  const originsHash = ctx.origins ? await originsDigest(ctx.origins) : null;
+
   const commitment: ReceiptCommitment = {
     nonce:       ctx.nonce,
     requestHash,
@@ -288,6 +305,9 @@ export async function attachReceipt(
     timestampMs: ctx.nowMs,
     actorFp:     ctx.actorFp,
     epoch:       ctx.epoch,
+    // Omitted, not null, when there is nothing to claim — keeps the encoding
+    // byte-identical to a pre-ADR-0065 receipt.
+    ...(originsHash ? { originsHash } : {}),
   };
 
   // Delegated path owns its own encode so it can rebuild on EPOCH_MISMATCH;

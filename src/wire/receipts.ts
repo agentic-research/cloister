@@ -152,6 +152,20 @@ export interface ReceiptCommitment {
   timestampMs:  number;
   /** SHA-256(A.master_pubkey). */
   actorFp:      Uint8Array;
+  /**
+   * SHA-256 of the canonical origin set for this response's content
+   * (ADR-0065 phase 2b), or undefined when the response makes no provenance
+   * claim.
+   *
+   * The DIGEST, not the set — §21.3: a receipt rides a response header, and
+   * source URIs there would publish an agent's read history to anyone who sees
+   * the response. The set is disclosed under scope from the attestation row.
+   *
+   * OPTIONAL on the wire. Omitted when absent, so a receipt with no origins
+   * encodes byte-identically to a pre-ADR-0065 one and existing verifiers are
+   * unaffected — which is also what stops absent reading as vouched.
+   */
+  originsHash?: Uint8Array;
   /** A's current key epoch. */
   epoch:        number;
 }
@@ -224,6 +238,11 @@ export function commitmentCborMap(c: ReceiptCommitment): ReceiptCborMap {
     request_hash: c.requestHash,
     status:       c.status,
     timestamp_ms: c.timestampMs,
+    // Conditional, and safe to place here because `canonicalCbor` sorts keys
+    // bytewise-lex itself (RFC 8949 §4.2) rather than trusting literal order.
+    // Omitting rather than emitting null keeps the no-origins encoding
+    // byte-identical to the pre-ADR-0065 receipt.
+    ...(c.originsHash ? { origins_hash: c.originsHash } : {}),
   };
 }
 
@@ -412,9 +431,20 @@ function parseCommitmentMap(m: ReceiptCborMap): DecodeResult<ReceiptCommitment> 
   for (const r of required) {
     if (!(r in m)) return { ok: false, reason: `commitment missing required key '${r}'` };
   }
-  const extraKeys = Object.keys(m).filter((k) => !required.includes(k));
+  // Known-but-optional. The strict unexpected-key check is deliberate — an
+  // unrecognised clause in a signed commitment must not be silently ignored —
+  // so a new field has to be admitted here explicitly rather than by loosening
+  // the check. `origins_hash` is ADR-0065 phase 2b; absent means the response
+  // makes no provenance claim, which is what every pre-0065 receipt is.
+  const optional = ["origins_hash"];
+  const extraKeys = Object.keys(m).filter((k) => !required.includes(k) && !optional.includes(k));
   if (extraKeys.length > 0) {
     return { ok: false, reason: `commitment has unexpected keys: ${JSON.stringify(extraKeys)}` };
+  }
+  const originsHash = m["origins_hash"];
+  if (originsHash !== undefined
+      && (!(originsHash instanceof Uint8Array) || originsHash.length !== 32)) {
+    return { ok: false, reason: "origins_hash" };
   }
   if (!(m["actor_fp"]     instanceof Uint8Array) || m["actor_fp"].length !== 32)     return { ok: false, reason: "actor_fp" };
   if (!(m["body_hash"]    instanceof Uint8Array) || m["body_hash"].length !== 32)    return { ok: false, reason: "body_hash" };
@@ -437,6 +467,13 @@ function parseCommitmentMap(m: ReceiptCborMap): DecodeResult<ReceiptCommitment> 
       requestHash: m["request_hash"] as Uint8Array,
       status:      m["status"]       as number,
       timestampMs: typeof ts === "bigint" ? Number(ts) : ts,
+      // Spread rather than `originsHash: … as Uint8Array | undefined`, so an
+      // absent field stays ABSENT on the struct instead of becoming an explicit
+      // `undefined`. Re-encoding a decoded commitment must reproduce the same
+      // bytes, and `{originsHash: undefined}` would still be omitted by
+      // `commitmentCborMap`'s truthiness check — but the struct would no longer
+      // deep-equal one built without the key, which round-trip tests compare.
+      ...(originsHash !== undefined ? { originsHash: originsHash as Uint8Array } : {}),
     },
   };
 }

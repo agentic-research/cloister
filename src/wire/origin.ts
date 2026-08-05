@@ -298,3 +298,29 @@ export function parseOrigins(raw: string | null | undefined): OriginSet {
   }
   return unionOrigins(entries);
 }
+
+/**
+ * SHA-256 over the canonical serialization of an origin set (ADR-0065 phase 2b).
+ *
+ * A receipt commits to this DIGEST, never to the set itself, and threat model
+ * §21.3 is why: a receipt travels to the caller in a response header, so putting
+ * source URIs there would publish what an agent read to everyone who sees the
+ * response — on the surface where peer existence was already an oracle. The set
+ * lives on the attestation row, disclosed under scope; the receipt binds to it
+ * without leaking it. Commit publicly, disclose under scope.
+ *
+ * SHA-256 rather than BLAKE3 because this is an application-layer digest over an
+ * application-layer structure, matching `content_hash` and the attestation
+ * references — the substrate-digest half (BLAKE3 via leyline-cas-ffi) is for
+ * blob identity. Both algorithms are deliberate; see CLAUDE.md.
+ *
+ * Returns null for an empty set, so a receipt with no provenance claim omits the
+ * field entirely and encodes byte-identically to a pre-ADR-0065 receipt. That is
+ * what keeps existing verifiers working, and what keeps absent from reading as
+ * vouched: there is nothing to misread.
+ */
+export async function originsDigest(origins: OriginSet): Promise<Uint8Array | null> {
+  if (origins.length === 0) return null;
+  const bytes = new TextEncoder().encode(serializeOrigins(origins));
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+}
