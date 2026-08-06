@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,7 +29,22 @@ test("the bump imports the rail's channel list rather than restating it", () => 
     `llo-bump hardcodes channel files the rail already enumerates: ${restated.join(", ")}`);
 });
 
-test("PRECONDITION: an unpublished tag is refused, not bumped", () => {
+// The tag check needs a ley-line-open checkout to reach — without one the
+// script refuses earlier, for a different and equally correct reason ("no
+// ley-line-open checkout … Set LLO_ROOT"), so the property below is not
+// observable and the test has nothing to assert.
+//
+// This was NOT skipped originally, and CI is where that showed: the test passed
+// on every developer machine (which has the sibling checkout) and failed on the
+// runner (which does not). A local-only test that does not declare itself
+// local-only is a test that only ever runs where it cannot fail.
+//
+// Same portable/local split `lint:spec-citation` already makes, and the same
+// reason: a check whose precondition is a sibling repo has to say so.
+const lloRoot = process.env.LLO_ROOT ?? resolve(ROOT, "../ley-line-open");
+const noLloCheckout = !existsSync(lloRoot);
+
+test("PRECONDITION: an unpublished tag is refused, not bumped", { skip: noLloCheckout }, () => {
   // The v0.16.0 case, where the tag was on the remote and the release did not
   // exist yet. Uses a tag that will never have a release.
   const r = spawnSync("node", [resolve(ROOT, "scripts/llo-bump.mjs"), "v0.0.0-never", "--dry-run"],
@@ -38,6 +53,16 @@ test("PRECONDITION: an unpublished tag is refused, not bumped", () => {
   const out = `${r.stdout}${r.stderr}`;
   assert.match(out, /not found|no published release/i,
     `expected a refusal naming the cause, got:\n${out}`);
+});
+
+test("PRECONDITION: a missing checkout is refused too, and says which", { skip: !noLloCheckout }, () => {
+  // The other half, so the runner is not merely skipping. Where the checkout is
+  // absent, the refusal must name THAT — a bump that failed silently, or failed
+  // blaming the tag, would send someone hunting a release that exists.
+  const r = spawnSync("node", [resolve(ROOT, "scripts/llo-bump.mjs"), "v0.0.0-never", "--dry-run"],
+    { encoding: "utf8", cwd: ROOT, env: { ...process.env, LLO_ROOT: "/nonexistent/llo" } });
+  assert.notEqual(r.status, 0);
+  assert.match(`${r.stdout}${r.stderr}`, /no ley-line-open checkout/i);
 });
 
 // NO END-TO-END DRY RUN IN THE GATE, deliberately.
