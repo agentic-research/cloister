@@ -88,6 +88,28 @@ export const RAIL_OWN_FILES = new Set([
 export const MIRROR_VERSION_RE = /([a-z][\w-]*\/v\d+)\s*@\s*v?(\d+\.\d+\.\d+)/g;
 
 /**
+ * How far apart the spec name and its version may sit and still be one
+ * declaration.
+ *
+ * The single-line form was the first draft and it under-caught IN THE FILE IT
+ * WAS WRITTEN FOR: `manifest/cluster.capnp` states the mirrored version twice,
+ * and the copy at line 206 wraps —
+ *
+ *     # cloister/confinement/v1 §1 ConfinementManifest (leyline-schema-spec @
+ *     # v0.17.0). All four dimensions ...
+ *
+ * — so only the line-300 copy was seen. Update one and forget the other and the
+ * rail passes, which is precisely the two-hand-copies drift it exists to catch.
+ * A rail with a blind spot shaped like its own subject is worse than none: it
+ * reports clean.
+ *
+ * Three lines, not unbounded: far enough for prose wrapping, near enough that
+ * an unrelated version number elsewhere in a comment block does not get bound
+ * to a spec name it has nothing to do with.
+ */
+export const MIRROR_WINDOW_LINES = 3;
+
+/**
  * Every mirror-version declaration in the tree, with where it was found.
  * @returns {{file: string, line: number, spec: string, declared: string}[]}
  */
@@ -97,10 +119,37 @@ export function collectMirrorVersions(root = ROOT) {
     ...SCAN_FILES.map((f) => resolve(root, f)).filter(existsSync),
   ];
   const out = [];
+  const specRe = /([a-z][\w-]*\/v\d+)/g;
+  // `[\s#*/>-]` between the `@` and the version, not just `\s`: the declaration
+  // is inside a comment, so wrapping puts the next line's comment prefix
+  // (`#`, `*`, `//`, `>`) in between. The line-by-line cut missed this; so did
+  // the joined-window cut until the prefix was allowed for. Third attempt at
+  // one regex to see two forms in one file — which is the honest measure of
+  // what this kind of rail is: a tripwire for the obvious case, not a proof.
+  const verRe = /@[\s#*/>-]*v?(\d+\.\d+\.\d+)/;
   for (const abs of files) {
-    readFileSync(abs, "utf8").split("\n").forEach((text, i) => {
-      for (const m of text.matchAll(new RegExp(MIRROR_VERSION_RE.source, "g"))) {
-        out.push({ file: relative(root, abs), line: i + 1, spec: m[1], declared: m[2] });
+    const lines = readFileSync(abs, "utf8").split("\n");
+    const seen = new Set();
+    lines.forEach((text, i) => {
+      for (const m of text.matchAll(new RegExp(specRe.source, "g"))) {
+        // The version may wrap onto a following line. Look ahead a bounded
+        // window from the spec name, and take the FIRST version found — a
+        // second one further down belongs to whatever mentions it next.
+        // JOIN the window before matching. The first cut scanned line by
+        // line, which still missed the wrapped copy: `@` ends one line and the
+        // version begins the next, so neither half matched on its own. The
+        // separator is a space so a comment prefix (`#`, `*`) between them does
+        // not glue tokens together.
+        const window = [
+          lines[i].slice(m.index + m[0].length),
+          ...lines.slice(i + 1, Math.min(lines.length, i + MIRROR_WINDOW_LINES)),
+        ].join(" ");
+        const v = verRe.exec(window);
+        if (!v) continue;
+        const key = `${abs}:${i}:${m[1]}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ file: relative(root, abs), line: i + 1, spec: m[1], declared: v[1] });
       }
     });
   }

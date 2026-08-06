@@ -140,6 +140,28 @@ test("the rail FIRES on a mirror that lags the pin", () => {
   );
 });
 
+test("BOTH copies in cluster.capnp are seen, not just the tidy one", () => {
+  // The rail shipped seeing one of the two declarations in the file it was
+  // written for. `cluster.capnp` states the mirrored version twice and the copy
+  // at line 206 wraps mid-declaration, with a comment prefix landing between the
+  // `@` and the version. Update one copy and forget the other and the rail
+  // reported clean — the exact two-hand-copies drift it exists to catch.
+  //
+  // Three regex attempts to see two forms in one file is the honest measure of
+  // what this kind of check is: a tripwire for the obvious case, not a proof.
+  // This test is the part that keeps it honest.
+  const inCapnp = collectMirrorVersions(ROOT)
+    .filter((m) => m.file === "manifest/cluster.capnp");
+  assert.ok(
+    inCapnp.length >= 2,
+    `expected both mirror declarations in cluster.capnp, saw ${inCapnp.length}: ` +
+      inCapnp.map((m) => `${m.line}@${m.declared}`).join(", "),
+  );
+  // …and they must AGREE, which is the property the count is protecting.
+  assert.equal(new Set(inCapnp.map((m) => m.declared)).size, 1,
+    "the two declarations state different versions");
+});
+
 test("a matching declaration is not drift", () => {
   // Named explicitly rather than by `.find(spec)`: `collectMirrorVersions`
   // deliberately does NOT apply the rail's own-file exemption (that lives in
