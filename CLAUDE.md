@@ -190,6 +190,19 @@ hook has no `bead:` trailer escape hatch, so session work still needs
 a real bead to reference. File one, or reference the bead the work
 was discovered under.
 
+**Name what you did, not what you were looking for.** This repo is public.
+A message like "swept for <specific thing>, found none" is a sign reading
+"no secrets here" — it advertises the concern to every reader while adding
+nothing a maintainer needs. "OSS PII sweep" says everything useful and names
+nothing. The same applies to bead titles and comments, which ship in
+`.beads/beads.jsonl`.
+
+This is a going-forward habit, not a reason to rewrite history: `main` is
+public with forks, and re-SHAing published commits breaks cross-repo pins,
+the `llo-execution-contract.lock.json` reachable-from-a-tag rule, and every
+bead that cites a commit — a far louder signal than the message would have
+been. Decided once already on `cloister-aa6a71`.
+
 ## Architecture conventions
 
 - **Routes are declarative** — defined in `cloister.capnp`, instantiated
