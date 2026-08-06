@@ -17,6 +17,8 @@
 // inside its declared boundary and states plainly what it does not prove: that
 // the inputs were not poisoned.
 
+import { sha256 } from "./receipts.js";
+
 /**
  * One source the content derives from, and WHO says so.
  *
@@ -321,6 +323,5 @@ export function parseOrigins(raw: string | null | undefined): OriginSet {
  */
 export async function originsDigest(origins: OriginSet): Promise<Uint8Array | null> {
   if (origins.length === 0) return null;
-  const bytes = new TextEncoder().encode(serializeOrigins(origins));
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return sha256(new TextEncoder().encode(serializeOrigins(origins)));
 }

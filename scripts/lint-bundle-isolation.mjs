@@ -1012,7 +1012,7 @@ function checkInvariant10(cluster, ociByInput, warnings, ociByBundle = new Map()
  * (the version manifest/cluster.capnp still claims to mirror) and at v0.16.0, so
  * this list is not the drift cloister-d303b2 tracks.
  */
-const CREDENTIAL_SOURCE_SCHEMES = [
+export const CREDENTIAL_SOURCE_SCHEMES = [
   "keychain://",
   "secret-tool://",
   "keyring://",

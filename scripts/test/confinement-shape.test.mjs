@@ -34,6 +34,7 @@ import {
   confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup,
 } from "../../cli/lib/harness/launch.mjs";
 import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
+import { CREDENTIAL_SOURCE_SCHEMES } from "../lint-bundle-isolation.mjs";
 
 // NOT a provider name. The confinement shape is provider-independent — that is
 // the property, and hardcoding one harness's service here would both assert
@@ -79,13 +80,16 @@ test("the emitted document conforms to §5 — no invented credential scheme", (
   //
   // Written as "absent, or a §5 scheme" rather than "absent", so re-introducing
   // the field for a real keystore binding stays possible and stays checked.
-  const SCHEMES = [
-    "keychain://", "secret-tool://", "keyring://", "file://", "op://", "apple-password://",
-  ];
+  //
+  // The scheme set is IMPORTED, not spelled again. It was written out here in a
+  // first draft while Inv 11 already exported the same six strings — two hand
+  // copies of a closed enumeration, in the same session, hours apart. That is
+  // the failure mode CLAUDE.md names ("a field list that mirrors the schema is a
+  // bug waiting to happen") reproduced by the person quoting it.
   for (const n of [1, 3]) {
     const source = confinementManifest(n).credentialSource;
     if (source === undefined) continue;
-    const scheme = SCHEMES.find((s) => source.startsWith(s));
+    const scheme = CREDENTIAL_SOURCE_SCHEMES.find((s) => source.startsWith(s));
     assert.ok(
       scheme && source.length > scheme.length,
       `credentialSource ${JSON.stringify(source)} is not a §5 scheme with a non-empty ` +
@@ -489,6 +493,30 @@ test("the emitted document satisfies the constraints LLO's schema declares", { s
   // (rather than an invented value) would show up.
   for (const key of Object.keys(manifest)) {
     assert.ok(key in schema.properties, `emitted key ${JSON.stringify(key)} is not in confinement/v1`);
+  }
+});
+
+test("Inv 11's hand-held §5 scheme list has not diverged from the schema", { skip: schemaMissing }, () => {
+  // Inv 11 must run WITHOUT a sibling checkout, so it cannot read the schema and
+  // the six strings are hand-held there of necessity. That is the same shape as
+  // `cluster-types.ts` vs the generated zod: one justified hand copy, plus a
+  // check that it does not silently disagree. The risk was never the duplication
+  // — it is divergence.
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const pattern = new RegExp(schema.$defs.CredentialSource.pattern);
+  for (const scheme of CREDENTIAL_SOURCE_SCHEMES) {
+    assert.match(`${scheme}x`, pattern, `Inv 11 allows ${scheme} but the schema does not`);
+  }
+  // …and the other direction: a scheme the schema names must be in Inv 11's
+  // list, or the rail under-catches. Derived from the pattern's alternation
+  // rather than restated, so a scheme added upstream shows up here.
+  const fromSchema = /\(([^)]+)\)/.exec(schema.$defs.CredentialSource.pattern)?.[1].split("|") ?? [];
+  assert.ok(fromSchema.length > 0, "the schema pattern must name its schemes");
+  for (const name of fromSchema) {
+    assert.ok(
+      CREDENTIAL_SOURCE_SCHEMES.includes(`${name}://`),
+      `the schema names ${name}:// and Inv 11 does not — the rail would under-catch`,
+    );
   }
 });
 
