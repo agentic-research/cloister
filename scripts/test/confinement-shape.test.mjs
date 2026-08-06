@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 import {
-  confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup,
+  confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup, envStripFor,
 } from "../../cli/lib/harness/launch.mjs";
 import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 import { CREDENTIAL_SOURCE_SCHEMES } from "../lint-bundle-isolation.mjs";
@@ -531,4 +531,60 @@ test("the schema-driven check is not vacuous — it rejects what it should", { s
   assert.doesNotMatch("workspace", absolute, "the pre-bd6399 path must be refused by §2");
   assert.doesNotMatch("/run/../etc", absolute, "a traversing path must be refused");
   assert.match("/run/cloister/workspace/", absolute, "the shipped symbolic root must pass");
+});
+
+// ── ADR-0064 / cloister-67f767: env_strip is a function of the MODE ───────
+
+test("the subscription token is stripped in custody and kept in audit", () => {
+  // The invariant `stripEnv` could not express. A flat list asks "which
+  // target"; the question is "which mode" — so CLAUDE_CODE_OAUTH_TOKEN
+  // appeared in no list at all and was handed to every confined custody run.
+  const target = {
+    stripEnv: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+    subscriptionTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+  };
+  assert.ok(
+    envStripFor(target, { mode: "custody" }).includes("CLAUDE_CODE_OAUTH_TOKEN"),
+    "custody must strip it — the harness has a vaulted key and this is a second, unreceipted path",
+  );
+  assert.ok(
+    !envStripFor(target, { mode: "audit" }).includes("CLAUDE_CODE_OAUTH_TOKEN"),
+    "audit must keep it — it is the only credential the run has",
+  );
+  // The unconditional half is unchanged in both modes.
+  for (const mode of ["custody", "audit"]) {
+    for (const v of target.stripEnv) {
+      assert.ok(envStripFor(target, { mode }).includes(v), `${v} is stripped in ${mode}`);
+    }
+  }
+});
+
+test("a target with no subscription lane is unaffected", () => {
+  // codex is custody-only and declares no token. The computed list must equal
+  // the declared one exactly — no undefined, no empty string smuggled in.
+  const codex = { stripEnv: ["OPENAI_API_KEY"], subscriptionTokenEnv: "" };
+  for (const mode of ["custody", "audit"]) {
+    assert.deepEqual(envStripFor(codex, { mode }), ["OPENAI_API_KEY"]);
+  }
+});
+
+test("declaring the token in BOTH places does not duplicate it", () => {
+  const both = {
+    stripEnv: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+    subscriptionTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+  };
+  const out = envStripFor(both, { mode: "custody" });
+  assert.equal(out.filter((v) => v === "CLAUDE_CODE_OAUTH_TOKEN").length, 1);
+});
+
+test("the SHIPPED claude-code target declares the token it must strip", async () => {
+  // Non-vacuity against the real declaration: the tests above would pass on a
+  // fixture while cluster.toml said nothing. This is the half that proves the
+  // field survived the capnp → zod → cluster.ts projection, which silently
+  // dropped it until the field list was derived from the schema.
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  const claude = targets.find((t) => t.authModes?.includes("audit"));
+  assert.ok(claude, "no audit-capable target declared");
+  assert.equal(claude.subscriptionTokenEnv, "CLAUDE_CODE_OAUTH_TOKEN");
+  assert.ok(envStripFor(claude, { mode: "custody" }).includes("CLAUDE_CODE_OAUTH_TOKEN"));
 });

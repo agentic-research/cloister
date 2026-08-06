@@ -651,8 +651,17 @@ export interface HarnessTargetConfig {
   apiKeyEnv:   string;
   /** Env var the harness reads to find the vault proxy. */
   baseUrlEnv:  string;
-  /** Credential env vars scrubbed before exec. Should include `apiKeyEnv`. */
+  /**
+   * Credential env vars scrubbed before exec, UNCONDITIONALLY. Should include
+   * `apiKeyEnv`.
+   */
   stripEnv:    readonly string[];
+  /**
+   * Env var carrying a SUBSCRIPTION credential (ADR-0064). Stripped in custody,
+   * RETAINED in audit — which is why it cannot live in `stripEnv`, whose
+   * entries apply to every mode. Empty when the target has no subscription lane.
+   */
+  subscriptionTokenEnv: string;
   /** Env var overriding the harness state directory. */
   stateDirEnv: string;
   /** State dir relative to `$HOME`; granted rw under confinement. */

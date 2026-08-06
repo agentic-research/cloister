@@ -508,6 +508,33 @@ function resolveTargetByName(targets, name) {
 }
 
 /**
+ * The env vars scrubbed before exec, COMPUTED FROM THE RESOLVED AUTH MODE.
+ * ADR-0064 / cloister-67f767.
+ *
+ * `stripEnv` alone could not express this. It asks "which target", and the
+ * question is "which mode": the subscription token must be STRIPPED in custody
+ * — where the harness already has a vaulted key, and holding a second
+ * credential would let it reach the provider on an unreceipted path — and
+ * RETAINED in audit, where it is the only credential the run has and
+ * `vaultProxy`'s passthrough injection exists to forward it.
+ *
+ * A flat list has no way to say that, so `CLAUDE_CODE_OAUTH_TOKEN` appeared in
+ * neither list and was handed to every confined custody run for a year.
+ *
+ * @param {any} target
+ * @param {{mode: "custody" | "audit"}} auth
+ * @returns {string[]}
+ */
+export function envStripFor(target, auth) {
+  const base = [...(target.stripEnv ?? [])];
+  const token = target.subscriptionTokenEnv ?? "";
+  // Union, not push: a target that lists the token in BOTH places is declaring
+  // the same thing twice, not asking for it twice.
+  if (token && auth?.mode !== "audit" && !base.includes(token)) base.push(token);
+  return base;
+}
+
+/**
  * AUDIT: no key to vault — forward the harness's OWN auth + receipt (ADR-0040
  * amendment). CUSTODY: vault the key + inject it.
  *
@@ -878,7 +905,7 @@ export function buildPolicy(plan, identity) {
       master_pub_b64std: identity.masterPubB64Std,
     },
     // Credentials never enter the confined env — cloister injects at the proxy.
-    env_strip: target.stripEnv,
+    env_strip: envStripFor(target, plan.auth),
     env_set: {
       [target.baseUrlEnv]: plan.baseUrl,
       // Redirect scratch into the per-run directory. All three spellings,

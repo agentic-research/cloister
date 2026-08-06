@@ -549,7 +549,8 @@ export const cluster: Cluster = {
           "audit"
         ],
         "provenance": "https://github.com/anthropics/claude-code",
-        "executable": "claude"
+        "executable": "claude",
+        "subscriptionTokenEnv": "CLAUDE_CODE_OAUTH_TOKEN"
       },
       {
         "name": "codex",
@@ -567,7 +568,8 @@ export const cluster: Cluster = {
           "custody"
         ],
         "provenance": "https://github.com/openai/codex",
-        "executable": ""
+        "executable": "",
+        "subscriptionTokenEnv": ""
       }
     ],
     "skills": [

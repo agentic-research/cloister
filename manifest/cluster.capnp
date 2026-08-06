@@ -994,7 +994,32 @@ struct HarnessTarget {
   # a key even if the operator exported one — which would otherwise let it
   # bypass the proxy by calling the provider directly. Should include
   # `apiKeyEnv`.
+  #
+  # UNCONDITIONAL. Everything here is stripped in every mode, which is why the
+  # subscription token below could not live in this list: audit mode REQUIRES
+  # that variable in the harness env. See `subscriptionTokenEnv`.
   stripEnv @5 :List(Text);
+
+  # Env var carrying a SUBSCRIPTION credential — one the harness authenticates
+  # with directly, rather than one cloister vaults on its behalf. Per ADR-0064.
+  #
+  # Distinct from `apiKeyEnv`, and the distinction is the whole field. A key in
+  # `apiKeyEnv` is vaulted and injected at the proxy, so the harness never holds
+  # it. A subscription token CANNOT be vaulted — there is nothing for cloister to
+  # inject, because the credential IS the caller's own identity. Audit mode
+  # exists for exactly that case.
+  #
+  # STRIPPED in custody: the harness already has a vaulted key, and this would
+  # let it reach the provider on a second, unreceipted path.
+  # RETAINED in audit: it is the only credential the run has.
+  #
+  # That conditionality is why this is a field rather than another `stripEnv`
+  # entry — a flat list asks "which target", and the question is "which mode".
+  # `CLAUDE_CODE_OAUTH_TOKEN` shipped in neither list for a year as a result.
+  #
+  # Empty means the target has no subscription lane, which is the honest state
+  # for a custody-only target like codex.
+  subscriptionTokenEnv @11 :Text;
 
   # Env var overriding the harness state directory.
   stateDirEnv @6 :Text;

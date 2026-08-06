@@ -227,6 +227,7 @@ service = "anthropic"
 stateDir = ".claude"
 stateDirEnv = "CLAUDE_CONFIG_DIR"
 stripEnv = [ "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN" ]
+subscriptionTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 
 [[gateway.harnessTargets]]
 apiKeyEnv = "OPENAI_API_KEY"

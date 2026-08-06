@@ -567,6 +567,7 @@ export const HarnessTargetSchema: z.ZodType<HarnessTarget> = z.lazy(() =>
     authModes: z.array(z.string()).readonly().default([]),
     provenance: z.string().default(""),
     executable: z.string().default(""),
+    subscriptionTokenEnv: z.string().default(""),
   }).strict());
 
 export interface HarnessTarget {
@@ -581,6 +582,7 @@ export interface HarnessTarget {
   authModes: readonly string[];
   provenance: string;
   executable: string;
+  subscriptionTokenEnv: string;
 }
 
 export const SkillDeclarationSchema: z.ZodType<SkillDeclaration> = z.lazy(() =>
