@@ -54,6 +54,18 @@
         }
       }
     },
+    "unixSocket": {
+      "description": "UNIX domain socket dimension (README §6). Compiled to a per-path socket grant on macOS; not available at the Landlock ABI this implementation targets, where a runner MUST refuse a §6 declaration rather than drop it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "description": "Socket paths the bundle may reach or serve. An empty array, or an omitted `unixSocket` block, means no UNIX socket access at all.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/UnixSocketEntry" }
+        }
+      }
+    },
     "credentialSource": {
       "description": "The one vault backend this bundle authenticates against for credential vending (README §5). Multi-vault fan-out is v2+. A bundle needing no credentials omits the field entirely.",
       "$ref": "#/$defs/CredentialSource"
@@ -73,6 +85,24 @@
             "mode": {
               "description": "Only `rw` is expressible. Read-only has no spelling here because it is the bare-string form; an explicit `\"mode\": \"ro\"` is rejected rather than silently accepted, so there is exactly one way to write each grant.",
               "enum": ["rw"]
+            }
+          }
+        }
+      ]
+    },
+    "UnixSocketEntry": {
+      "description": "One socket grant: a bare string is connect-only, an object carries an explicit mode. Connect-only is the shorter form on purpose — as in FsEntry, the cheaper spelling is the safer one. `connect` requires the socket to already exist and grants only connect(2). `bind` grants bind(2), which CREATES the socket file, and withholds connect(2) — the serving half alone. `connect-bind` is both. A capability that dials a shim wants connect; the shim itself wants bind; only a process that must own an endpoint and dial through it wants connect-bind. A runner that cannot withhold connect(2) MUST refuse `bind` rather than widen it to connect-bind (§9 condition 5).",
+      "oneOf": [
+        { "$ref": "#/$defs/AbsolutePath" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "mode"],
+          "properties": {
+            "path": { "$ref": "#/$defs/AbsolutePath" },
+            "mode": {
+              "description": "Connect-only has no spelling here because it is the bare-string form; one grant, one spelling.",
+              "enum": ["bind", "connect-bind"]
             }
           }
         }

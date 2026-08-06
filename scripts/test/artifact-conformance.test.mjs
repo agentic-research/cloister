@@ -22,6 +22,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 import { ARTIFACTS, goldenBytes } from "../artifact-registry.mjs";
 import { validate, UnsupportedSchemaError } from "../lib/json-schema-subset.mjs";
@@ -109,22 +110,38 @@ test("the vendored schema matches its pinned digest", () => {
   assert.equal(actual, pin, "vendored schema does not match VECTORS.sha256");
 });
 
-test("the vendored schema has not drifted from ley-line-open", { skip: !lloSchema() }, () => {
-  // Local-only, matching lint:spec-citation's portable/local split. The pin
-  // above proves the copy is intact; only a sibling checkout can say whether it
-  // is CURRENT. Both halves are needed — an intact copy of a stale schema
-  // validates happily against rules upstream has since changed.
+test("the vendored schema is the PINNED version's, not a working tree's", { skip: !lloRepo() }, () => {
+  // Resolved by `git show v<pinned>:<path>`, NOT by reading the sibling's
+  // checkout. The first cut read the working tree, and the working tree was on
+  // an in-progress branch — so the vendored copy came from nowhere in
+  // particular, the test compared against that same nowhere, and the two agreed
+  // with each other. A self-consistent loop with no anchor is worse than no
+  // check: it reports clean by construction.
+  //
+  // Anchoring on the pinned version also makes the coupling correct — the
+  // vendored schema and the pin move together, so a bump that forgets to
+  // re-vendor fails here rather than validating tomorrow's documents against
+  // yesterday's rules.
+  const pinned = pinnedLloVersion();
+  assert.ok(pinned, "could not read the pinned ley-line-open version");
+  const fromTag = execFileSync(
+    "git",
+    ["show", `v${pinned}:rs/ll-core/schema-spec/confinement/v1/confinement.schema.json`],
+    { cwd: lloRepo(), encoding: "utf8" },
+  );
   assert.equal(
-    readFileSync(lloSchema(), "utf8"),
+    fromTag,
     read("test/fixtures/llo-confinement-v1/confinement.schema.json"),
-    "vendored confinement schema is behind ley-line-open — re-vendor and re-pin",
+    `vendored confinement schema is not v${pinned}'s — re-vendor from the tag and re-pin`,
   );
 });
 
-function lloSchema() {
-  const p = resolve(
-    process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open"),
-    "rs/ll-core/schema-spec/confinement/v1/confinement.schema.json",
-  );
-  return existsSync(p) ? p : null;
+function lloRepo() {
+  const p = process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open");
+  return existsSync(resolve(p, ".git")) ? p : null;
+}
+
+function pinnedLloVersion() {
+  const toml = read("cluster.toml");
+  return /\[inputs\.llo\][\s\S]*?version\s*=\s*"([^"]+)"/.exec(toml)?.[1] ?? null;
 }
