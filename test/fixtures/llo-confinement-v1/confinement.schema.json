@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.cloister.dev/confinement/v1/confinement.schema.json",
+  "title": "ConfinementManifest",
+  "description": "cloister/confinement/v1 — the single declaration a runner compiles into kernel capabilities, digests as `confinementDigest`, and commits to a workload identity. Every dimension defaults to DENY; the manifest names only what is allowed, so an omitted block is a refusal and never an escape hatch.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "description": "Contract identifier. A runner that does not recognise this value refuses the manifest rather than interpreting it under a different version's rules.",
+      "const": "cloister/confinement/v1"
+    },
+    "fs": {
+      "description": "Filesystem dimension (README §2). Compiled to landlock_ruleset_add_rule on Linux and sandbox_init path allow-lists on macOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "description": "Path prefixes the bundle may traverse. An empty array means every filesystem operation is refused — it is a valid, meaningful value, not a missing one.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/FsEntry" }
+        }
+      }
+    },
+    "network": {
+      "description": "Egress dimension (README §3). Ports are deliberately NOT here; listener control is the `port` block.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowHosts": {
+          "description": "Hostnames reachable for egress. An empty array, or an omitted `network` block, means no egress at all.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/HostPattern" }
+        }
+      }
+    },
+    "port": {
+      "description": "Listener dimension (README §4). v1 is deliberately single-port; a multi-port bundle needs v2. An omitted block means the bundle MUST NOT bind any listener.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bind"],
+      "properties": {
+        "bind": {
+          "description": "The one port the bundle may bind. Privileged ports are out of scope in v1.",
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "address": {
+          "description": "Bind address. Defaults to 127.0.0.1 when omitted, so exposing a listener beyond loopback is always an explicit declaration.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "credentialSource": {
+      "description": "The one vault backend this bundle authenticates against for credential vending (README §5). Multi-vault fan-out is v2+. A bundle needing no credentials omits the field entirely.",
+      "$ref": "#/$defs/CredentialSource"
+    }
+  },
+  "$defs": {
+    "FsEntry": {
+      "description": "One path grant: a bare string is read-only, an object carries an explicit mode. Read-only is the shorter form on purpose — the cheaper spelling is the safer one.",
+      "oneOf": [
+        { "$ref": "#/$defs/AbsolutePath" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "mode"],
+          "properties": {
+            "path": { "$ref": "#/$defs/AbsolutePath" },
+            "mode": {
+              "description": "Only `rw` is expressible. Read-only has no spelling here because it is the bare-string form; an explicit `\"mode\": \"ro\"` is rejected rather than silently accepted, so there is exactly one way to write each grant.",
+              "enum": ["rw"]
+            }
+          }
+        }
+      ]
+    },
+    "AbsolutePath": {
+      "description": "An absolute, canonical path prefix. Canonicalization (symlinks resolved, `.` and `..` collapsed) happens at manifest-compile time; a manifest containing a non-canonical prefix is rejected. The `..` exclusion is expressible here and enforced; symlink resolution is not expressible in JSON Schema and remains the runner's obligation.",
+      "type": "string",
+      "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$)).*$",
+      "minLength": 1
+    },
+    "HostPattern": {
+      "description": "A hostname, optionally prefixed with `*.` for a single leading wildcard. A wildcard anywhere else is rejected — `api.*.example.com` and `*api.example.com` are both refusals, because a pattern whose match set is hard to read is a pattern whose grant is hard to audit.",
+      "type": "string",
+      "pattern": "^(\\*\\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$",
+      "minLength": 1
+    },
+    "CredentialSource": {
+      "description": "A vault URI in one of the schemes `nono::keystore` validates. The enumeration is closed: a scheme this spec does not name is a scheme the reference validator will refuse, and accepting it here would move the refusal to a less obvious place.",
+      "type": "string",
+      "pattern": "^(keychain|secret-tool|keyring|file|op|apple-password)://.+$"
+    }
+  }
+}

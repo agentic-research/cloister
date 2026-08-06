@@ -480,6 +480,23 @@ tasks:
       - scripts/lint-origin-derivation.mjs
       - src/**/*.ts
 
+  artifacts:golden:
+    desc: "Regenerate ADR-0067 golden files from the artifact registry. Run this when an emitted artifact changes DELIBERATELY, then commit the diff — that diff is the review. A confinement change also moves the confinementDigest in every minted cert."
+    cmds:
+      - "{{.NODE_TSX}} -e 'import(\"./scripts/artifact-registry.mjs\").then(async m => { const fs = await import(\"node:fs\"); for (const a of m.ARTIFACTS) fs.writeFileSync(a.golden, m.goldenBytes(a.produce())), console.log(\"wrote\", a.golden); })'"
+
+  test:artifacts:
+    desc: "ADR-0067 L1 — every registered artifact validates against its VENDORED schema and matches its committed golden. Portable: no sibling checkout needed, which is the point — the strongest confinement check before this was local-only and therefore absent from the machine where drift would go unnoticed."
+    cmds:
+      - "{{.NODE_TSX}} --test scripts/test/artifact-conformance.test.mjs"
+    sources:
+      - scripts/artifact-registry.mjs
+      - scripts/lib/json-schema-subset.mjs
+      - scripts/test/artifact-conformance.test.mjs
+      - cli/lib/harness/launch.mjs
+      - test/fixtures/llo-confinement-v1/*
+      - test/fixtures/golden/*
+
   test:harness-shim:
     desc: "harness-shim CertSource contract (cloister-f2338f) — node:test under tsx, NOT vitest: the shim is a host-side Node program and the vitest suite runs inside workerd, where node:http.createServer is not implemented."
     cmds:
@@ -1314,7 +1331,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:harness-shim, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, lint:origin-derivation, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:harness-shim, test:artifacts, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, lint:origin-derivation, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

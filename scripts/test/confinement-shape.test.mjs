@@ -50,7 +50,7 @@ const SVC = "svc";
 // hardcoded BLAKE3 value here would test this file's constant, not the shape.
 const digest = (m) => createHash("sha256").update(JSON.stringify(m)).digest("hex");
 
-test("the one-root manifest is exactly the three dimensions the harness declares", () => {
+test("the one-root manifest is exactly the two dimensions the harness declares", () => {
   // A pinned literal, so a change to the emitted shape has to be deliberate: the
   // digest is committed into every minted cert, and a silent change shows up as
   // an §8 mismatch at exec time with nothing pointing at the cause.
@@ -68,7 +68,11 @@ test("the one-root manifest is exactly the three dimensions the harness declares
       ],
     },
     network: { allowHosts: ["127.0.0.1"] },
-    port: { bind: 0 },
+    // NO `port` key. §4 spells "no listener" as omission, and the schema bounds
+    // `bind` at 1024-65535 — `port: {bind: 0}` was refused by LLO's parser and
+    // was the THIRD §-refusal in this document, invisible until §5 and §2 were
+    // fixed ahead of it. ADR-0067's L1 found it by validating the whole emitted
+    // document rather than one dimension at a time.
   });
 });
 

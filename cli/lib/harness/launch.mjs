@@ -165,7 +165,17 @@ export function confinementManifest(rootCount) {
       ],
     },
     network: { allowHosts: ["127.0.0.1"] },
-    port: { bind: 0 },
+    // NO `port` BLOCK. §4 spells "no listener" as OMISSION, not as zero:
+    // "Omitting `port`, the bundle MUST NOT bind any listener", and the schema
+    // bounds `bind` at `minimum: 1024`. LLO's parser refuses outright —
+    // `if bind < 1024 { return Err(…) }`.
+    //
+    // `port: {bind: 0}` was the third §-refusal in this one document, and it was
+    // invisible until the two before it were fixed: §5 (`vault://`,
+    // cloister-d2ba07) masked §2 (relative paths, cloister-bd6399), which masked
+    // this. A parser stops at its first complaint. That is the whole argument
+    // for validating the emitted document against the schema rather than
+    // inspecting the builder one dimension at a time (ADR-0067).
   };
 }
 

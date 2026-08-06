@@ -1073,10 +1073,27 @@ function checkInvariant11(cluster, violations) {
         );
       }
     }
+    // 0 IS VALID HERE and invalid in an emitted document, and the difference is
+    // not sloppiness — it is where each layer lives.
+    //
+    // §4 spells "no listener" as OMITTING the `port` block, and bounds `bind` at
+    // 1024-65535. But this facet is the capnp projection, and capnp has no
+    // optional scalars: `bind @0 :UInt16` always carries a value, so 0 is the
+    // only way the operator surface can say "absent". Refusing it here would
+    // make "no listener" unrepresentable in cluster.capnp.
+    //
+    // The omission rule therefore belongs to whatever EMITS a confinement/v1
+    // document, and is enforced there — ADR-0067's L1 validates the emitted
+    // artifact against the schema, which is what caught `port: {bind: 0}` in
+    // the harness builder after two other §-refusals had masked it.
+    //
+    // If a projector from this facet to a confinement/v1 document is ever
+    // written, `bind === 0` must become an omitted block rather than a zero.
     const bind = c.port?.bind ?? 0;
     if (bind !== 0 && (bind < 1024 || bind > 65535)) {
       violations.push(
-        `${where}: port.bind ${bind} out of range — 0 (none) or 1024-65535 (Inv 11, §4).`,
+        `${where}: port.bind ${bind} out of range — 1024-65535, or 0 for no ` +
+          `listener (which an emitter must render as an OMITTED port block, §4).`,
       );
     }
     // Empty is ABSENT, matching §5's "a bundle needing no credentials omits the
