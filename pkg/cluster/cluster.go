@@ -498,17 +498,18 @@ type VaultProxyService struct {
 }
 
 type HarnessTarget struct {
-	Name        string   `json:"name"`
-	Service     string   `json:"service"`
-	EntryPoint  string   `json:"entryPoint"`
-	ApiKeyEnv   string   `json:"apiKeyEnv"`
-	BaseUrlEnv  string   `json:"baseUrlEnv"`
-	StripEnv    []string `json:"stripEnv"`
-	StateDirEnv string   `json:"stateDirEnv"`
-	StateDir    string   `json:"stateDir"`
-	AuthModes   []string `json:"authModes"`
-	Provenance  string   `json:"provenance"`
-	Executable  string   `json:"executable"`
+	Name                 string   `json:"name"`
+	Service              string   `json:"service"`
+	EntryPoint           string   `json:"entryPoint"`
+	ApiKeyEnv            string   `json:"apiKeyEnv"`
+	BaseUrlEnv           string   `json:"baseUrlEnv"`
+	StripEnv             []string `json:"stripEnv"`
+	StateDirEnv          string   `json:"stateDirEnv"`
+	StateDir             string   `json:"stateDir"`
+	AuthModes            []string `json:"authModes"`
+	Provenance           string   `json:"provenance"`
+	Executable           string   `json:"executable"`
+	SubscriptionTokenEnv string   `json:"subscriptionTokenEnv"`
 }
 
 type SkillDeclaration struct {
