@@ -85,13 +85,56 @@ impl<B: LeylineBackendTrait> LeylineExecutionBackend<B> {
 /// the right thing. It would be a run that fails closed at compile time, with a
 /// diagnostic naming a dimension mismatch nobody intended to create.
 fn to_execution_request(plan: &LaunchPlan) -> Result<ExecutionRequest, RuntimeError> {
-    let (algorithm, value) = plan
-        .artifact
-        .digest
-        .split_once(':')
-        .ok_or_else(|| RuntimeError::InvalidPlan(format!(
-            "artifact digest {:?} is not <algorithm>:<hex>", plan.artifact.digest
-        )))?;
+    if !plan.confinement.network.allow_hosts.is_empty() {
+        return Err(RuntimeError::InvalidPlan(
+            "LLO execution/v1 does not yet support egress grants; refusing to discard confinement.network.allowHosts".into(),
+        ));
+    }
+    if !plan.confinement.fs.allow.is_empty()
+        || !plan.confinement.credential_source.is_empty()
+        || plan.confinement.port.bind != 0
+        || !plan.confinement.port.address.is_empty()
+    {
+        return Err(RuntimeError::InvalidPlan(
+            "LLO execution/v1 authority mapping for filesystem, credentials, and ports is not implemented; refusing to discard launch-plan grants".into(),
+        ));
+    }
+    if plan.artifact.args.iter().any(|arg| arg.contains('\0')) {
+        return Err(RuntimeError::InvalidPlan(
+            "artifact arguments must not contain NUL bytes".into(),
+        ));
+    }
+    let (algorithm, value) = plan.artifact.digest.split_once(':').ok_or_else(|| {
+        RuntimeError::InvalidPlan(format!(
+            "artifact digest {:?} is not <algorithm>:<hex>",
+            plan.artifact.digest
+        ))
+    })?;
+    if algorithm != "blake3-256"
+        || value.len() != 64
+        || !value.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(RuntimeError::InvalidPlan(
+            "LLO execution requires a blake3-256 artifact digest; refusing to submit a sha256 or mutable image reference".into(),
+        ));
+    }
+    let executable = plan.artifact.entrypoint.strip_prefix('/').ok_or_else(|| {
+        RuntimeError::InvalidPlan("artifact.entrypoint must be absolute in the host plan so it can be converted to a guest-relative LLO path".into())
+    })?;
+    if executable.is_empty()
+        || executable
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(RuntimeError::InvalidPlan(
+            "artifact.entrypoint cannot be converted to a safe guest-relative LLO path".into(),
+        ));
+    }
+    if plan.workspace.as_os_str().is_empty() || plan.control_socket.as_os_str().is_empty() {
+        return Err(RuntimeError::InvalidPlan(
+            "workspace and control socket are required".into(),
+        ));
+    }
 
     Ok(ExecutionRequest {
         // Derived from the bundle, so a replayed plan is the same run rather
@@ -102,13 +145,10 @@ fn to_execution_request(plan: &LaunchPlan) -> Result<ExecutionRequest, RuntimeEr
             algorithm: algorithm.to_string(),
             value: value.to_string(),
         },
-        executable: plan.artifact.image.clone(),
-        arguments: Vec::new(),
+        executable: executable.to_string(),
+        arguments: plan.artifact.args.clone(),
         public_environment: BTreeMap::new(),
-        // §3 egress. cloister's allowHosts is the operator's declaration and
-        // travels as-is; an empty list means no egress, which is what both
-        // specs already mean by omission.
-        allowed_egress: plan.confinement.network.allow_hosts.clone(),
+        allowed_egress: Vec::new(),
         limits: ResourceLimits {
             vcpus: DEFAULT_VCPUS,
             memory_mib: DEFAULT_MEMORY_MIB,

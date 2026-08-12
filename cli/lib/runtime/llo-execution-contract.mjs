@@ -25,6 +25,8 @@ for (const tool of GENERATED_TOOLS) {
   TOOL_BY_NAME.set(tool.name, tool);
 }
 
+const SCHEMA_ROOT = GENERATED_TOOLS.find((tool) => tool.inputSchema?.$defs)?.inputSchema;
+
 export const LLO_EXECUTION_OPERATIONS = Object.freeze(
   GENERATED_TOOLS.map((tool) => tool.name),
 );
@@ -129,6 +131,28 @@ function validateValue(value, schema, root, path) {
     default:
       throw new Error(`unsupported generated LLO schema type at ${path}`);
   }
+}
+
+const OUTPUT_SCHEMA_BY_OPERATION = Object.freeze({
+  llo_execution_capabilities: "CapabilitiesOutput",
+  llo_execution_status: "StatusOutput",
+  llo_execution_provision: "ProvisionOutput",
+  llo_execution_start: "StartOutput",
+  llo_execution_inspect: "InspectOutput",
+  llo_execution_cancel: "CancelOutput",
+  llo_execution_collect: "CollectOutput",
+  llo_execution_cleanup: "CleanupOutput",
+});
+
+/** Validate one complete UDS response against the same pinned artifact. */
+export function validateLloExecutionResponse(operationName, value) {
+  const tool = TOOL_BY_NAME.get(operationName);
+  if (!tool) throw new TypeError(`unknown generated LLO execution operation: ${operationName}`);
+  const schemaName = OUTPUT_SCHEMA_BY_OPERATION[operationName];
+  const schema = SCHEMA_ROOT?.$defs?.[schemaName];
+  if (!schema) throw new Error(`generated LLO response schema is missing: ${schemaName}`);
+  validateValue(value, schema, SCHEMA_ROOT, "response");
+  return value;
 }
 
 /** Validate one complete UDS request against the pinned generated artifact. */

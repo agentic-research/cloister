@@ -158,10 +158,11 @@ fn is_canonical_absolute_path(path: &Path) -> bool {
 }
 
 fn is_sha256_digest(value: &str) -> bool {
-    let Some(hex) = value.strip_prefix("sha256:") else {
-        return false;
-    };
-    hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    ["sha256:", "blake3-256:"].iter().any(|prefix| {
+        value
+            .strip_prefix(prefix)
+            .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+    })
 }
 
 pub trait Backend: Send + Sync {

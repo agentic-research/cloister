@@ -3,7 +3,13 @@
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
 
-import { lloExecutionRequest } from "./llo-execution-contract.mjs";
+import {
+  lloExecutionRequest,
+  validateLloExecutionResponse,
+} from "./llo-execution-contract.mjs";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 
 export class LloClientError extends Error {
   constructor(message, evidence = {}) {
@@ -20,26 +26,48 @@ export class LloClientError extends Error {
  */
 export function callLloJson(socketPath, request, deps = {}) {
   const connect = deps.connect ?? createConnection;
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxResponseBytes = deps.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const operationName = request?.op;
   return new Promise((resolve, reject) => {
     let settled = false;
     let buffer = "";
+    let socket;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      socket?.destroy();
+      finish(reject, new LloClientError(
+        `LLO execution socket timed out after ${timeoutMs}ms`,
+        { socketPath, request, timeoutMs },
+      ));
+    }, timeoutMs);
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       fn(value);
     };
-    const socket = connect(socketPath);
+    socket = connect(socketPath);
     socket.setEncoding("utf8");
     socket.on("data", (chunk) => {
       buffer += chunk;
+      if (Buffer.byteLength(buffer, "utf8") > maxResponseBytes) {
+        socket.destroy();
+        finish(reject, new LloClientError(
+          `LLO response exceeded the ${maxResponseBytes}-byte limit`,
+          { socketPath, request, maxResponseBytes },
+        ));
+        return;
+      }
       const newline = buffer.indexOf("\n");
       if (newline < 0) return;
       const line = buffer.slice(0, newline);
       try {
-        finish(resolve, JSON.parse(line));
+        const response = JSON.parse(line);
+        finish(resolve, validateLloExecutionResponse(operationName, response));
       } catch (error) {
         finish(reject, new LloClientError(
-          `LLO returned invalid JSON: ${error.message}`,
+          `LLO returned an invalid ${operationName ?? "execution"} response: ${error.message}`,
           { socketPath, request, cause: error },
         ));
       }

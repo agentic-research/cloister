@@ -29,8 +29,8 @@ use cloister_host_runtime::{
     Artifact, Backend, Confinement, ConfinementNetwork, ExecutionMode, HostRuntime, LaunchPlan,
 };
 use leyline_runtime::{
-    Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun, EnforcedCeilings,
-    ExecutionError, ExecutionRequest,
+    Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
+    EnforcedCeilings, ExecutionError, ExecutionRequest,
 };
 
 /// Records what cloister asked LLO to do, and nothing else happens.
@@ -70,14 +70,12 @@ fn plan() -> LaunchPlan {
         mode: ExecutionMode::Microvm,
         artifact: Artifact {
             image: "ghcr.io/example/alpha".into(),
-            digest: format!("sha256:{}", "a".repeat(64)),
+            digest: format!("blake3-256:{}", "a".repeat(64)),
             entrypoint: "/bin/agent".into(),
-            args: Vec::new(),
+            args: vec!["--once".into()],
         },
         confinement: Confinement {
-            network: ConfinementNetwork {
-                allow_hosts: vec!["api.example.com".into()],
-            },
+            network: ConfinementNetwork::default(),
             ..Default::default()
         },
         workspace: "/tmp/workspace".into(),
@@ -104,26 +102,33 @@ fn launch_reaches_the_llo_api_without_spawning_anything() {
     }
 
     result.expect("launch must succeed with no PATH — nothing may be spawned");
-    assert_eq!(recorder.starts.load(Ordering::SeqCst), 1, "LLO's start() is the one call");
+    assert_eq!(
+        recorder.starts.load(Ordering::SeqCst),
+        1,
+        "LLO's start() is the one call"
+    );
 }
 
 #[test]
 fn the_plan_is_translated_rather_than_passed_through() {
     let recorder = Arc::new(RecordingBackend::default());
     let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder)));
-    HostRuntime::new(None, Some(backend)).launch(&plan()).expect("launch");
+    HostRuntime::new(None, Some(backend))
+        .launch(&plan())
+        .expect("launch");
 
     let seen = recorder.seen.lock().unwrap();
     let request = seen.first().expect("one request");
 
     // The digest is SPLIT into DigestRef, not copied whole. A pass-through
-    // would leave `algorithm` empty and `value` carrying the "sha256:" prefix,
+    // would leave `algorithm` empty and `value` carrying the "blake3-256:" prefix,
     // which LLO would then compare against a bare hex digest and never match.
-    assert_eq!(request.rootfs.algorithm, "sha256");
+    assert_eq!(request.rootfs.algorithm, "blake3-256");
     assert_eq!(request.rootfs.value, "a".repeat(64));
 
-    // §3 egress travels; the operator's declaration is not silently dropped.
-    assert_eq!(request.allowed_egress, vec!["api.example.com".to_string()]);
+    assert_eq!(request.executable, "bin/agent");
+    assert_eq!(request.arguments, vec!["--once".to_string()]);
+    assert!(request.allowed_egress.is_empty());
 
     // And the confinement document is deliberately ABSENT — cloister's
     // confinement describes a different tier than LLO's compiled policy, and
@@ -135,6 +140,19 @@ fn the_plan_is_translated_rather_than_passed_through() {
 }
 
 #[test]
+fn unsupported_launch_grants_are_refused_before_the_backend_is_called() {
+    let recorder = Arc::new(RecordingBackend::default());
+    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder)));
+    let mut unsupported = plan();
+    unsupported.confinement.network.allow_hosts = vec!["api.example.com".into()];
+    let err = HostRuntime::new(None, Some(backend))
+        .launch(&unsupported)
+        .expect_err("unsupported authority must fail closed");
+    assert!(format!("{err}").contains("egress grants"));
+    assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn a_malformed_artifact_digest_is_refused_before_the_backend_is_called() {
     let recorder = Arc::new(RecordingBackend::default());
     let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder)));
@@ -143,7 +161,16 @@ fn a_malformed_artifact_digest_is_refused_before_the_backend_is_called() {
 
     // Fails in translation, not inside LLO — so the error names cloister's plan
     // rather than surfacing as an opaque backend error one layer down.
-    let err = backend.launch(&bad).expect_err("a digest with no algorithm must be refused");
-    assert!(format!("{err}").contains("not-a-digest"), "the error names the offending value");
-    assert_eq!(recorder.starts.load(Ordering::SeqCst), 0, "the backend is never reached");
+    let err = backend
+        .launch(&bad)
+        .expect_err("a digest with no algorithm must be refused");
+    assert!(
+        format!("{err}").contains("not-a-digest"),
+        "the error names the offending value"
+    );
+    assert_eq!(
+        recorder.starts.load(Ordering::SeqCst),
+        0,
+        "the backend is never reached"
+    );
 }

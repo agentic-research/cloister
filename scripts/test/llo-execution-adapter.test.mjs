@@ -204,7 +204,7 @@ test("LLO provision uses the generated backend and idempotency contract", async 
       socket.setEncoding = () => {};
       socket.write = (line) => {
         sent = JSON.parse(line);
-        queueMicrotask(() => socket.emit("data", '{"provisioned":true}\n'));
+        queueMicrotask(() => socket.emit("data", '{"provisioned":true,"backendId":"backend-1"}\n'));
       };
       socket.destroy = () => {};
       return socket;
@@ -215,5 +215,37 @@ test("LLO provision uses the generated backend and idempotency contract", async 
     backendClass: "microVm",
     idempotencyKey: "provision-1",
   });
-  assert.deepEqual(result, { provisioned: true });
+  assert.deepEqual(result, { provisioned: true, backendId: "backend-1" });
+});
+
+test("LLO UDS client rejects an unbounded response", async () => {
+  await assert.rejects(
+    lloProvision("/run/llo.sock", "microVm", "bounded-1", {
+      maxResponseBytes: 32,
+      connect: () => {
+        const socket = new EventEmitter();
+        socket.setEncoding = () => {};
+        socket.write = () => queueMicrotask(() => socket.emit("data", "x".repeat(33)));
+        socket.destroy = () => {};
+        return socket;
+      },
+    }),
+    /exceeded the 32-byte limit/i,
+  );
+});
+
+test("LLO UDS client times out a socket that never responds", async () => {
+  await assert.rejects(
+    lloProvision("/run/llo.sock", "microVm", "timeout-1", {
+      timeoutMs: 5,
+      connect: () => {
+        const socket = new EventEmitter();
+        socket.setEncoding = () => {};
+        socket.write = () => {};
+        socket.destroy = () => {};
+        return socket;
+      },
+    }),
+    /timed out after 5ms/i,
+  );
 });

@@ -10,7 +10,13 @@ import { main as pullMain } from "./commands/artifacts-pull.mjs";
 import { main as planMain } from "./commands/runtime-plan.mjs";
 import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
-import { lloProvision, runLloEnvelope } from "./lib/runtime/llo-client.mjs";
+import {
+  lloCollect,
+  lloInspect,
+  lloProvision,
+  runLloEnvelope,
+} from "./lib/runtime/llo-client.mjs";
+import { verifyExecutionReceipt } from "./lib/runtime/llo-execution-adapter.mjs";
 import { main as runMain } from "./commands/run.mjs";
 import { renderCommandHelp, renderHelp } from "./surface.mjs";
 import { GlobalOptionsError, parseGlobalOptions } from "./lib/global-options.mjs";
@@ -144,11 +150,35 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   if (command === "runtime" && rest[0] === "run") {
     if (env.CLOISTER_LLO_CONTROL_SOCKET) {
       try {
-        const response = await runLloEnvelope(
-          env.CLOISTER_LLO_CONTROL_SOCKET,
+        const socketPath = env.CLOISTER_LLO_CONTROL_SOCKET;
+        const started = await (context.runLloEnvelope ?? runLloEnvelope)(
+          socketPath,
           rest[1],
+          context,
         );
-        log(JSON.stringify(response));
+        const inspect = context.lloInspect ?? lloInspect;
+        const collect = context.lloCollect ?? lloCollect;
+        const sleep = context.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+        const runtimeWaitMs = context.runtimeWaitMs ?? 30_000;
+        const deadline = Date.now() + runtimeWaitMs;
+        let state = started.state;
+        while (!["succeeded", "failed", "cancelled"].includes(state)) {
+          if (Date.now() >= deadline) {
+            throw new Error(`LLO execution did not reach a terminal state before the ${runtimeWaitMs}ms wait limit`);
+          }
+          await sleep(context.runtimePollMs ?? 100);
+          const inspection = await inspect(socketPath, started.runId, 0, context);
+          state = inspection.state;
+        }
+        const collected = await collect(socketPath, started.runId, context);
+        const verify = context.verifyExecutionReceipt ?? verifyExecutionReceipt;
+        await verify(collected.receipt, {
+          verify: context.verify,
+          allowUnverifiedEvidence: context.allowUnverifiedEvidence,
+          localFixture: context.localFixture,
+          env,
+        });
+        log(JSON.stringify(collected));
         return 0;
       } catch (cause) {
         error(`cloister runtime run: ${cause.message}`);

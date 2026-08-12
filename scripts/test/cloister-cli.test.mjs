@@ -92,6 +92,29 @@ test("LLO storage init provisions over UDS without invoking the krunvm helper", 
   assert.deepEqual(JSON.parse(output.join("")), { provisioned: true });
 });
 
+test("LLO runtime run waits for and verifies terminal receipt", async () => {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const output = [];
+  stdout.on("data", (chunk) => output.push(chunk.toString()));
+  const receipt = { marker: "verified-by-test" };
+  const status = await cliMain(["runtime", "run", "/tmp/envelope.json"], {
+    env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+    stdout,
+    stderr,
+    runLloEnvelope: async () => ({ runId: "run-1", state: "running" }),
+    lloInspect: async () => ({ runId: "run-1", state: "succeeded", events: [] }),
+    lloCollect: async () => ({ outputs: [], receipt }),
+    verifyExecutionReceipt: async (value) => {
+      assert.equal(value, receipt);
+      return value;
+    },
+    runtimePollMs: 0,
+  });
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(output.join("")), { outputs: [], receipt });
+});
+
 test("invalid global color values fail with usage before command dispatch", () => {
   const r = run(["skills", "--color", "sometimes", "list"]);
   assert.equal(r.status, 2);
