@@ -28,7 +28,7 @@ const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "$comment
 /** Keywords this validator implements. Anything else throws. */
 const IMPLEMENTED = new Set([
   "type", "const", "enum", "pattern", "minLength", "minimum", "maximum",
-  "required", "properties", "additionalProperties", "items", "oneOf", "$ref", "$defs",
+  "required", "properties", "additionalProperties", "minProperties", "items", "oneOf", "$ref", "$defs",
 ]);
 
 export class UnsupportedSchemaError extends Error {
@@ -121,6 +121,9 @@ export function validate(value, schema, { root = schema, path = "$" } = {}) {
   }
 
   if (typeOf(value) === "object") {
+    if (schema.minProperties !== undefined && Object.keys(value).length < schema.minProperties) {
+      errors.push(`${path}: fewer than minProperties ${schema.minProperties}`);
+    }
     for (const req of schema.required ?? []) {
       if (!(req in value)) errors.push(`${path}: missing required property ${JSON.stringify(req)}`);
     }

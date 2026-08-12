@@ -204,7 +204,7 @@ struct Bundle {
   #
   # This bundle's kernel-confinement declaration, conformant to LLO's
   # cloister/confinement/v1 §1 ConfinementManifest (leyline-schema-spec @
-  # v0.17.0). All four dimensions cloister mirrors are fail-closed default-DENY
+  # v0.18.2). All four dimensions cloister mirrors are fail-closed default-DENY
   # — enforced at build time by lint:bundle-isolation Inv 11. The BLAKE3-256 of
   # the §7-canonical form is the `confinementDigest` committed to the bundle's
   # Interlace identity (lane-2) as cert extension OID 1.3.6.1.4.1.99999.1.7
@@ -297,7 +297,7 @@ struct EnvVar {
 # ── Confinement: cloister/confinement/v1 §1 ConfinementManifest ────────────
 #
 # The vendor-neutral kernel-confinement contract (LLO leyline-schema-spec
-# confinement/v1 @ v0.17.0). Every dimension is fail-closed default-DENY:
+# confinement/v1 @ v0.18.2). Every dimension is fail-closed default-DENY:
 # anything not explicitly allowed is denied at the kernel boundary; there is no
 # "unrestricted" mode. Cloister emits the §7-canonical JSON + the BLAKE3-256
 # `confinementDigest` via cloister-cas — the conformance gate is
@@ -306,7 +306,7 @@ struct EnvVar {
 # FOUR OF THE SPEC'S FIVE. §6 `unixSocket.allow` is deliberately absent from
 # this struct, and the absence is a statement rather than an oversight: LLO
 # delivers §6 on both tiers as of PR #333, but that is unreleased at the pinned
-# v0.17.0, so a §6 grant declared here would be refused by name at the fold.
+# v0.18.2, so a §6 grant declared here would be refused by name at the fold.
 # The field lands when cloister pins a release that folds it — appended at a new
 # ordinal, per ADR-0004's append-only rule. Tracked on cloister-d303b2.
 #

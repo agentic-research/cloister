@@ -24,14 +24,21 @@
       }
     },
     "network": {
-      "description": "Egress dimension (README §3). Ports are deliberately NOT here; listener control is the `port` block.",
+      "description": "Egress dimension (README §3), in two clauses: `allowHosts` names hosts reachable through the proxy, `connectLocal` names the single loopback port the workload may dial — typically that proxy. LISTENER control is deliberately NOT here; that is the `port` block, and the two are opposite directions.",
       "type": "object",
       "additionalProperties": false,
+      "minProperties": 1,
       "properties": {
         "allowHosts": {
           "description": "Hostnames reachable for egress. An empty array, or an omitted `network` block, means no egress at all.",
           "type": "array",
           "items": { "$ref": "#/$defs/HostPattern" }
+        },
+        "connectLocal": {
+          "description": "The single loopback TCP port this workload may connect(2) to, and may NOT bind. Single-valued for the same reason `port.bind` is: multi-port bundles publish v2. No 1024 floor, unlike `port.bind` — binding a privileged port is a privileged act, connecting to one is not. THIS DOES NOT AUTHENTICATE THE PEER: a loopback port is a shared host namespace, so the grant names which port may be dialled, not who is listening on it. A channel named this way needs its own authentication; `unixSocket.allow` gets peer identity from the filesystem, this gets it from the protocol or not at all.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
         }
       }
     },
