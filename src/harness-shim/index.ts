@@ -40,6 +40,9 @@ interface ShimConfig {
    * cloister injects the vaulted key instead.
    */
   preserveAuth: boolean;
+  /** One-shot host-side credential handoff, absent for ordinary runs. */
+  credentialIngressToken?: string;
+  credentialService?: string;
 }
 
 /**
@@ -147,13 +150,44 @@ function readBody(req: IncomingMessage): Promise<string> {
 
 /** Build (but don't listen on) the shim server — handy for tests. */
 export function createShimServer(cfg: ShimConfig, source: CertSource) {
+  let credentialIngressConsumed = false;
   return createServer((req, res) => {
     // `source()` is now INSIDE the promise chain. It used to be evaluated as an
     // argument, so a source that threw synchronously escaped this `.catch` and
     // took down the request with no 502 and no diagnostic — latent while the only
     // source read three env vars at startup, load-bearing the moment one mints
     // over the network and can fail per call.
-    (async () => handleRequest(cfg, await source(), req, res))().catch((err) => {
+    (async () => {
+      if (req.method === "POST" && req.url === "/__credential_ingress") {
+        if (!cfg.credentialIngressToken || credentialIngressConsumed
+            || req.headers.authorization !== `Handoff ${cfg.credentialIngressToken}`
+            || !cfg.credentialService) {
+          res.statusCode = 401;
+          res.end(JSON.stringify({ error: "unauthorized" }));
+          return;
+        }
+        const body = await readBody(req);
+        const parsed = JSON.parse(body) as { credential?: unknown };
+        if (typeof parsed.credential !== "string" || parsed.credential.length === 0) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: "invalid_credential" }));
+          return;
+        }
+        credentialIngressConsumed = true;
+        const identity = await source();
+        const url = `${cfg.cloisterBaseUrl}/vault/proxy/${encodeURIComponent(cfg.credentialService)}/__credential`;
+        const signet = await signLeaseHeaders({ method: "POST", url, body, identity });
+        const headers = new Headers({ "content-type": "application/json" });
+        for (const [k, v] of Object.entries(signet)) headers.set(k, v);
+        const upstream = await fetch(url, { method: "POST", headers, body });
+        res.statusCode = upstream.status;
+        res.end(upstream.status >= 200 && upstream.status < 300
+          ? ""
+          : JSON.stringify({ error: "credential_ingress_failed" }));
+        return;
+      }
+      await handleRequest(cfg, await source(), req, res);
+    })().catch((err) => {
       // Shim-side failure (cert mint, signing, config, upstream dial): 502,
       // never leak internals to the harness.
       res.statusCode = 502;
@@ -169,7 +203,11 @@ function loadConfig(getEnv: (k: string) => string | undefined): ShimConfig {
   const port = Number.parseInt(getEnv("HARNESS_SHIM_PORT") ?? "8799", 10);
   const cloisterBaseUrl = required(getEnv, "CLOISTER_BASE_URL").replace(/\/+$/, "");
   const preserveAuth = (getEnv("HARNESS_SHIM_PRESERVE_AUTH") ?? "") !== "";
-  return { port, cloisterBaseUrl, identity: envCertSource(getEnv), preserveAuth };
+  return {
+    port, cloisterBaseUrl, identity: envCertSource(getEnv), preserveAuth,
+    credentialIngressToken: getEnv("HARNESS_SHIM_CREDENTIAL_INGRESS_TOKEN"),
+    credentialService: getEnv("HARNESS_SHIM_CREDENTIAL_SERVICE"),
+  };
 }
 
 // Entrypoint — only runs when invoked directly (`node index.js` or via tsx as

@@ -61,6 +61,14 @@ export interface CredentialLookup {
  */
 export interface CredentialStore {
   resolve(peerFp: string, service: string): Promise<CredentialLookup | null>;
+  /** Host-side broker ingress. Plaintext is accepted only at this boundary
+   * and must be sealed by the production store before returning. */
+  putCredential?(
+    peerFp: string,
+    service: string,
+    credential: string,
+    options?: { upstream?: string; headers?: Record<string, string>; allowedSubs?: string[] },
+  ): Promise<void>;
   /**
    * Production seam — delegate the full Request to vault DO. Returns
    * the proxied upstream Response. When implemented, the composition
@@ -98,6 +106,10 @@ export class InMemoryCredentialStore implements CredentialStore {
 
   async resolve(peerFp: string, service: string): Promise<CredentialLookup | null> {
     return this.map.get(InMemoryCredentialStore.key(peerFp, service)) ?? null;
+  }
+
+  async putCredential(peerFp: string, service: string, credential: string): Promise<void> {
+    this.set(peerFp, service, { credential });
   }
 
   set(peerFp: string, service: string, lookup: CredentialLookup): void {

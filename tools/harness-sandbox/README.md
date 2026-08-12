@@ -53,6 +53,20 @@ nono run -a <workdir> --allow-cwd \
   -- <harness cmd>
 ```
 
+For a brokered host credential, the policy may additionally declare a generic
+`credential` object. The runner resolves `uri` before confinement and POSTs it
+once to the loopback-only `handoff_url` using `handoff_token`; it never sets an
+environment variable in the child:
+
+```json
+"credential": {
+  "service": "provider",
+  "uri": "keychain://approved-item",
+  "handoff_url": "http://127.0.0.1:8799/__credential_ingress",
+  "handoff_token": "one-shot-random-value"
+}
+```
+
 ## Deliberate non-overlap: nono's credential proxy is NOT used
 
 nono ships its own credential-injection reverse proxy (`--credential`,

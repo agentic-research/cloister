@@ -85,6 +85,35 @@ describe("VaultProxyRoute.match — URLPattern wiring", () => {
 });
 
 describe("VaultProxyRoute.handle — composition wiring (cloister-8f57f0 route mount)", () => {
+  it("ingests a brokered credential into the store without exposing it in the response", async () => {
+    const credentials = new InMemoryCredentialStore();
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLease()),
+      credentials,
+      services: () => ({
+        name: "openai",
+        upstreamBaseUrl: "https://api.openai.test",
+        injection: { kind: "authorizationBearer" },
+        defaultAllowedSubs: [TEST_PEER_FP],
+        rateLimitPerMinute: 60,
+      }),
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/__credential", {
+        method: "POST",
+        body: JSON.stringify({ credential: "brokered-secret" }),
+        headers: { "content-type": "application/json" },
+      }),
+      {} as Env,
+    );
+
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe("");
+    const lookup = await credentials.resolve(TEST_PEER_FP, "openai");
+    expect(lookup?.credential).toBe("brokered-secret");
+  });
+
   it("returns 401 with constant-shape body when no lease (safe-closed default)", async () => {
     const route = new VaultProxyRoute({
       leaseVerifier: fakeVerifier(null),

@@ -34,6 +34,11 @@ import { errorResponse } from "./vault-proxy.js";
 
 /** Minimal RPC surface this impl consumes — narrower than the full `VaultStoreRpc`. */
 interface VaultProxyRpc {
+  putCredential(
+    subjectFp: string,
+    service: string,
+    cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
+  ): Promise<void>;
   proxyRequest(
     subjectFp: string,
     service: string,
@@ -119,6 +124,23 @@ export class VaultDoCredentialStore implements CredentialStore {
     return null;
   }
 
+  async putCredential(
+    peerFp: string,
+    service: string,
+    credential: string,
+    options: { upstream?: string; headers?: Record<string, string>; allowedSubs?: string[] } = {},
+  ): Promise<void> {
+    const ns = this.env.VAULT_STORE;
+    if (!ns) throw new Error("vault unavailable");
+    if (!options.upstream) throw new Error("vault credential ingress missing upstream");
+    const stub = ns.get(ns.idFromName(this.bundleIdName)) as DurableObjectStub & VaultProxyRpc;
+    await stub.putCredential(peerFp, service, {
+      upstream: options.upstream ?? "",
+      headers: options.headers ?? { authorization: credential },
+      allowedSubs: options.allowedSubs ?? [peerFp],
+    });
+  }
+
   async forward(
     peerFp:    string,
     service:   string,
@@ -171,4 +193,3 @@ export class VaultDoCredentialStore implements CredentialStore {
     }
   }
 }
-

@@ -43,6 +43,8 @@ Config comes from env:
 | `HARNESS_SHIM_CERT_B64` | base64url DER of a notme-minted lease cert |
 | `HARNESS_SHIM_PRIV_SEED_B64` | base64url 32-byte Ed25519 private seed (the cert's ephemeral key) |
 | `HARNESS_SHIM_PUBKEY_B64` | base64url 32-byte Ed25519 public key (matches the cert) |
+| `HARNESS_SHIM_CREDENTIAL_INGRESS_TOKEN` | one-shot token for a host-keystore handoff (optional) |
+| `HARNESS_SHIM_CREDENTIAL_SERVICE` | declared vault service for that handoff (optional) |
 
 ```sh
 export CLOISTER_BASE_URL="https://cloister.example"
@@ -81,9 +83,12 @@ Per ADR-0040 "Scope of the credential claim":
 
 - **API-key providers:** the key is vaulted; the harness never holds it. Custody
   claim holds.
-- **OAuth Max/Pro subscriptions:** the OAuth token is minted into the client's
-  keychain by design — cloister can't hold what the client mints. That shape
-  gets **audit** (receipts), not **custody**.
+- **Host-keystore brokered credentials:** a confined client may resolve an
+  approved host-keystore reference before confinement and POST it once to the
+  shim's loopback ingress. The shim signs that request to
+  `/vault/proxy/<service>/__credential`; the vault stores it, and the client
+  never receives the credential or its header. This is generic and provider-
+  agnostic; OAuth subscriptions are one motivating example.
 
 The shim doesn't change that boundary; it only carries the lease.
 

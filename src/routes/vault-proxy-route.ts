@@ -54,6 +54,7 @@ import {
 import { VaultDoCredentialStore } from "./vault-do-credential-store.js";
 
 const PATH_PREFIX = "/vault/proxy/";
+const CREDENTIAL_INGRESS_PATH = "/__credential";
 
 /**
  * Resolve a service name (`openai`, `anthropic`, ...) to its
@@ -288,6 +289,47 @@ export class VaultProxyRoute implements EdgeRoute {
         service,
       })));
       return errorResponse(404, CONSTANT_TIME_ERROR_BODY);
+    }
+
+    // Host-side broker ingress. The confined client posts a one-shot,
+    // lease-authenticated credential here; the store seals it before this
+    // request returns. It is deliberately a sub-path of the existing route so
+    // the same lease and manifest gates apply. The credential never appears in
+    // a response or receipt.
+    if (parsed?.upstreamPath === CREDENTIAL_INGRESS_PATH && request.method === "POST") {
+      if (serviceConfig === null || credentialStore === null || !credentialStore.putCredential) {
+        return errorResponse(503, SHAPE_U_ERROR_BODY);
+      }
+      if (serviceConfig.injection.kind !== "authorizationBearer"
+          && serviceConfig.injection.kind !== "authorizationBasic"
+          && serviceConfig.injection.kind !== "headerNamed") {
+        return errorResponse(400, CONSTANT_TIME_ERROR_BODY);
+      }
+      let payload: unknown;
+      try { payload = await request.json(); } catch { return errorResponse(400, CONSTANT_TIME_ERROR_BODY); }
+      const credential = payload && typeof payload === "object"
+        ? (payload as { credential?: unknown }).credential : undefined;
+      if (typeof credential !== "string" || credential.length === 0 || credential.length > 16_384) {
+        return errorResponse(400, CONSTANT_TIME_ERROR_BODY);
+      }
+      const headerName = serviceConfig.injection.kind === "headerNamed"
+        ? serviceConfig.injection.name
+        : "authorization";
+      const headerValue = serviceConfig.injection.kind === "authorizationBearer"
+        ? `Bearer ${credential}`
+        : serviceConfig.injection.kind === "authorizationBasic"
+          ? `Basic ${credential}`
+          : credential;
+      try {
+        await credentialStore.putCredential(verifiedLease.peerFp, service, credential, {
+          upstream: serviceConfig.upstreamBaseUrl,
+          headers: { [headerName]: headerValue },
+          allowedSubs: [verifiedLease.peerFp],
+        });
+      } catch {
+        return errorResponse(503, SHAPE_U_ERROR_BODY);
+      }
+      return new Response(null, { status: 204 });
     }
 
     // Audit passthrough (ADR-0040 amendment) — for OAuth-subscription

@@ -12,7 +12,7 @@
 //     profiles down to). We embed it verbatim and let nono's
 //     `CapabilitySet::try_from` do the derive. cloister only adds the launch
 //     concerns nono's manifest does not model: which binary to exec, the env to
-//     set/strip, and an optional keystore-resolved credential.
+//     set/strip, and an optional host-side keystore handoff.
 //   - DEFAULT DENY, FAIL CLOSED: a fresh `CapabilitySet` defaults network to
 //     `AllowAll` and nono's manifest makes the network section optional — so a
 //     missing/loose network stanza would silently grant the whole internet and
@@ -26,19 +26,21 @@
 //
 // Credentials are cloister's vault-proxy job (do NOT use nono's own credential
 // proxy — no double-proxy). The optional keystore field exists only to resolve a
-// secret that would otherwise live in the macOS Keychain (audit mode) BEFORE the
-// sandbox seals Keychain access off, and hand it to the harness narrowly.
+// secret that would otherwise live in the host keystore BEFORE the sandbox
+// seals keystore access off, and hand it to the host-side shim narrowly.
 //
 // Usage: cloister-harness <policy.json>
 
 use std::collections::BTreeMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use nono::manifest::{CapabilityManifest, NetworkMode};
 use nono::capability::{CapabilitySet, NetworkMode as CapNetworkMode};
+use nono::manifest::{CapabilityManifest, NetworkMode};
 use nono::Sandbox;
 use serde::Deserialize;
 
@@ -58,11 +60,9 @@ struct HarnessPolicy {
     /// harness's environment (cloister injects them at the proxy).
     #[serde(default)]
     env_strip: Vec<String>,
-    /// Optional: resolve a secret from a nono keystore URI (`keychain://`,
-    /// `op://`, `apple-password://`, `env://`, `file://`) BEFORE confining — the
-    /// keystore is reachable here, deliberately not after `Sandbox::apply` — and
-    /// inject it under `dest_env`. Solves the audit-mode Keychain credential
-    /// without granting the confined harness blanket Keychain access.
+    /// Optional: resolve a secret from a nono keystore URI before confinement
+    /// and deliver it to the host-side shim's one-shot loopback ingress. The
+    /// secret is never placed in the confined process environment.
     #[serde(default)]
     credential: Option<Credential>,
     /// Optional §8 confinement commitment (cloister-c80953). When present, the
@@ -85,7 +85,40 @@ struct HarnessPolicy {
 struct Credential {
     service: String,
     uri: String,
-    dest_env: String,
+    handoff_url: String,
+    handoff_token: String,
+}
+
+fn post_handoff(url: &str, token: &str, secret: &str) -> Result<()> {
+    let rest = url
+        .strip_prefix("http://")
+        .context("credential handoff must use http://")?;
+    let (authority, path) = rest
+        .split_once('/')
+        .context("credential handoff URL missing path")?;
+    let host = authority.split(':').next().unwrap_or_default();
+    if host != "127.0.0.1" && host != "localhost" {
+        bail!("credential handoff must target loopback");
+    }
+    let mut stream = TcpStream::connect(authority).context("connecting to credential handoff")?;
+    let body = serde_json::to_string(&serde_json::json!({"credential": secret}))?;
+    let request = format!(
+        "POST /{} HTTP/1.1\r\nHost: {}\r\nAuthorization: Handoff {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        path, authority, token, body.len(), body
+    );
+    stream
+        .write_all(request.as_bytes())
+        .context("writing credential handoff")?;
+    let mut response = Vec::new();
+    stream
+        .take(8192)
+        .read_to_end(&mut response)
+        .context("reading credential handoff")?;
+    let status = response.split(|b| *b == b'\n').next().unwrap_or_default();
+    if !status.windows(4).any(|w| w == b" 204") && !status.windows(4).any(|w| w == b" 200") {
+        bail!("credential handoff rejected");
+    }
+    Ok(())
 }
 
 /// The §8 confinement commitment: the confinement/v1 manifest this workload is
@@ -334,6 +367,10 @@ fn main() -> Result<()> {
         .map(|c| nono::keystore::load_secret_by_ref(&c.service, &c.uri))
         .transpose()
         .context("resolving credential from the nono keystore")?;
+    if let (Some(cred), Some(value)) = (&policy.credential, secret.as_deref()) {
+        post_handoff(&cred.handoff_url, &cred.handoff_token, value)
+            .context("delivering credential to the host-side shim")?;
+    }
 
     // The derive: nono's manifest → CapabilitySet (nono's own converter), then
     // ONE override that closes cloister-2d420c.
@@ -394,8 +431,8 @@ fn main() -> Result<()> {
     apply_confinement(&caps).context("applying the nono sandbox")?;
 
     // Exec the harness, confined. env_strip removes inherited credentials;
-    // env_set points it at the vault-proxy seam; the optional resolved secret is
-    // injected narrowly under its dest env var.
+    // env_set points it at the vault-proxy seam. No resolved credential is
+    // copied into the confined environment.
     let mut cmd = Command::new(&policy.harness_bin);
     cmd.args(&policy.harness_args);
     for k in &policy.env_strip {
@@ -403,9 +440,6 @@ fn main() -> Result<()> {
     }
     for (k, v) in &policy.env_set {
         cmd.env(k, v);
-    }
-    if let (Some(cred), Some(secret)) = (&policy.credential, &secret) {
-        cmd.env(&cred.dest_env, secret.as_str());
     }
 
     // On success, exec() replaces this process and never returns; it only returns
@@ -422,8 +456,8 @@ mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
     use leyline_sign::cert_chain::tests_helpers::mint_test_cert;
-    use rand::RngCore;
     use rand::rngs::OsRng;
+    use rand::RngCore;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn key() -> SigningKey {
