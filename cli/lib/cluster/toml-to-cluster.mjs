@@ -76,12 +76,15 @@ export async function parseTomlToCluster(tomlString) {
   // Loaded BEFORE the transform: assertDeclaredInputKeys runs inside the
   // synchronous unflatten pass and cannot await, and a shape that arrives
   // afterwards would leave that guard silently inert.
-  const { ClusterSchema, InputSpecSchema } = await tsImport(
+  const { ClusterSchema, InputSpecSchema, HarnessTargetSchema } = await tsImport(
     new URL("../../../src/generated/cluster.zod.ts", import.meta.url).href,
     { parentURL: import.meta.url },
   );
   inputShape = InputSpecSchema?._def?.getter?.()?.shape
     ?? InputSpecSchema?.def?.getter?.()?.shape
+    ?? null;
+  harnessTargetShape = HarnessTargetSchema?._def?.getter?.()?.shape
+    ?? HarnessTargetSchema?.def?.getter?.()?.shape
     ?? null;
 
   const transformed = unflattenForSchema(raw);
@@ -472,6 +475,7 @@ function unflattenBackend(b) {
 
 /** InputSpec's declared shape, cached from the generated schema. */
 let inputShape = null;
+let harnessTargetShape = null;
 
 function unflattenInputs(raw) {
   if (raw === undefined || raw === null) return [];
@@ -545,22 +549,52 @@ function normalizeGateway(raw) {
 // entry, so the two declarations cannot drift apart.
 function normalizeHarnessTargets(raw) {
   if (!Array.isArray(raw)) return [];
+  // FIELD LIST DERIVED FROM THE SCHEMA, not restated here. This function used
+  // to enumerate eleven keys by hand, and adding a twelfth to cluster.capnp
+  // (`subscriptionTokenEnv`, ADR-0064) left it declarable and INVISIBLE: the
+  // operator could write it in cluster.toml, `task cluster:emit` would drop it,
+  // and nothing said so. CLAUDE.md names this exact shape — it is how
+  // ADR-0051's `connection` shipped, and how a typo'd `[inputs.*]` key was
+  // silently erased by the round-trip.
+  //
+  // Falls back to the hand list ONLY if the shape is unavailable, and says so
+  // loudly rather than silently narrowing the projection.
+  const keys = harnessTargetShape ? Object.keys(harnessTargetShape) : null;
+  if (!keys) {
+    throw new Error(
+      "cannot derive harness-target fields: HarnessTargetSchema shape unavailable. " +
+      "Refusing to project from a hand-written key list — that is how a declared " +
+      "field becomes invisible.",
+    );
+  }
   return raw.map((t) => {
     const h = t && typeof t === "object" && !Array.isArray(t) ? t : {};
-    return {
-      name: typeof h.name === "string" ? h.name : "",
-      service: typeof h.service === "string" ? h.service : "",
-      entryPoint: typeof h.entryPoint === "string" ? h.entryPoint : "",
-      executable: typeof h.executable === "string" ? h.executable : "",
-      apiKeyEnv: typeof h.apiKeyEnv === "string" ? h.apiKeyEnv : "",
-      baseUrlEnv: typeof h.baseUrlEnv === "string" ? h.baseUrlEnv : "",
-      stripEnv: Array.isArray(h.stripEnv) ? h.stripEnv : [],
-      stateDirEnv: typeof h.stateDirEnv === "string" ? h.stateDirEnv : "",
-      stateDir: typeof h.stateDir === "string" ? h.stateDir : "",
-      authModes: Array.isArray(h.authModes) ? h.authModes : [],
-      provenance: typeof h.provenance === "string" ? h.provenance : "",
-    };
+    const out = {};
+    for (const key of keys) {
+      const v = h[key];
+      // Arrays and strings are the only two shapes HarnessTarget carries. The
+      // default mirrors the field's kind so an absent value normalizes the way
+      // capnp would, rather than becoming undefined and vanishing downstream.
+      out[key] = Array.isArray(v) ? v
+        : typeof v === "string" ? v
+        : Array.isArray(h[key]) ? [] : (typeof v === "boolean" ? v : (v ?? defaultFor(key)));
+    }
+    return out;
   });
+}
+
+/**
+ * Zero value for a harness-target field whose declaration is absent.
+ *
+ * Derived from the zod shape's own type rather than a per-field table: a list
+ * defaults to `[]`, everything else to `""`. Getting this from the schema is
+ * what keeps a newly added field from defaulting to `undefined` and disappearing
+ * between the projection and the consumer.
+ */
+function defaultFor(key) {
+  const def = harnessTargetShape?.[key];
+  const typeName = def?._def?.typeName ?? def?.def?.type ?? "";
+  return /array/i.test(String(typeName)) ? [] : "";
 }
 
 // ADR-0061. Skills admitted to the trust boundary. An absent [[gateway.skills]]
@@ -728,7 +762,7 @@ function unflattenBundleKind(b) {
   return normalizeBundleDefaults(result);
 }
 
-// cloister-a34edc: normalize the §5 confinement facet (cloister/confinement/v1).
+// cloister-a34edc: normalize the §1 confinement facet (cloister/confinement/v1).
 // Missing → the empty deny-all manifest (fail-closed). fs.allow entries may be a
 // bare string (read-only) or `{path, mode:"rw"}`; both normalize to the typed
 // {path, mode} shape the capnp schema uses. Empty every dimension = DENY.
@@ -767,7 +801,7 @@ function normalizeBundleDefaults(bundle) {
     workerdServiceName:  typeof bundle.workerdServiceName === "string" ? bundle.workerdServiceName : "",
     hypervisorRationale: typeof bundle.hypervisorRationale === "string" ? bundle.hypervisorRationale : "",
     perTenant:           typeof bundle.perTenant === "boolean" ? bundle.perTenant : false,
-    // cloister-a34edc: the §5 confinement facet. Defaults to the empty
+    // cloister-a34edc: the §1 confinement facet. Defaults to the empty
     // (deny-all) manifest for bundles that don't declare one — which is the
     // fail-closed baseline (Inv 10). Operators opt in by declaring `[bundles.X.confinement]`.
     confinement:         normalizeConfinement(bundle.confinement),

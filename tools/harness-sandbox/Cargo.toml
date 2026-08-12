@@ -38,7 +38,7 @@ anyhow = "1"
 # semantics and cert format match end-to-end.
 leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "a6eba83a5672dd75a0ea64f34abd9dde1030250f", version = "0.7.6", package = "leyline-sign" }
 
-# BLAKE3-256 of the §6-canonical confinement/v1 manifest — the substrate digest
+# BLAKE3-256 of the §7-canonical confinement/v1 manifest — the substrate digest
 # the runner recomputes and compares against the cert commitment. `blake3::hash`
 # is proven byte-equal to cloister's leyline-cas-ffi hash (cloister-cas test
 # `hash_via_re_export_matches_blake3`), so this stays a light dep rather than
@@ -46,7 +46,7 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 blake3 = "1"
 
 # Decode the base64 cert DER (url-safe) + master pubkey (standard) the policy
-# carries for the §7 commitment check.
+# carries for the §8 commitment check.
 base64 = "0.22"
 
 [dev-dependencies]

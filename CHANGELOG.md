@@ -8,6 +8,76 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### Shipped 2026-08-05
+
+**BREAKING — the confinement digest changed twice. Re-mint dev certs.**
+
+`cli/lib/harness/launch.mjs`'s confinement/v1 document changed shape, so the
+`confinementDigest` committed into every previously-minted cert no longer
+matches what the runner recomputes. The failure surfaces at exec time as an §8
+commitment mismatch, far from the cause — hence the shout. Re-run
+`task harness:dev` (or `cloister run`) to mint against the new shape; nothing
+else is needed, and no production credential is affected (these are dev certs).
+
+Two independent fixes, both found by running cloister's document through a
+conforming runner rather than by any check in cloister:
+
+- **`credentialSource: "vault://<service>"` removed** (`cloister-d2ba07`).
+  `vault://` is not one of the six schemes §5 closes over — at any spec version
+  — so every document cloister issued was refused at parse. The field is
+  removed rather than corrected: a harness authenticates against no keystore,
+  because the vault proxy injects the credential as a header and the process
+  never holds it. §5: "A bundle needing no credentials omits the field."
+- **`fs.allow` roots are now absolute** (`cloister-bd6399`):
+  `workspace` → `/run/cloister/workspace/`. §2 requires absolute paths. The
+  symbolic names stay symbolic — nothing resolves them on this plane, real
+  directories travel on the nono manifest — following LLO's own
+  `ATTESTED_RUN_ROOTFS` pattern, so per-repo digest stability survives.
+
+**BREAKING — `cloister-host-runtime` needs `--features llo-execution` to
+execute anything.**
+
+The default build links no execution backend and refuses with a message naming
+the feature. ley-line-open's runtime uses nono as its enforcement mechanism, so
+depending on it unconditionally pulled the sigstore / aws-lc-rs / rustls closure
+into the default dep graph — reopening threat model §17.1, which had closed
+exactly that expansion. Detected by `cargo deny` (a license rejection on
+`webpki-root-certs`), not by tests, because the code was correct and the closure
+was the problem.
+
+**BREAKING — `cloister-host-runtime status` and `gc` are retired.**
+
+Both managed krunvm's buildah storage volume, which no longer exists. They fail
+with a reason naming the replacement rather than "unknown command", so a script
+calling them learns what happened.
+
+### Also shipped
+
+- **ley-line-open v0.15.1 → v0.17.0** across every channel, plus
+  `task llo:bump` (`cloister-464216`) — the bump was 11 manual steps behind a
+  rail that already enumerated all of them.
+- **krunvm shell-out deleted** (`cloister-17e502`); cloister calls LLO's
+  first-party execution API in-process. No PATH dependency on `krunvm` /
+  `buildah`, and no "command not found" standing in for "this workload is not
+  confined".
+- **Content origin on receipts** (ADR-0065, `cloister-16f81c`). A receipt now
+  commits to *what content was used*, not only *which bytes moved* — as a
+  digest, so the set is disclosed under scope rather than published in a
+  response header. Threat model §21.
+- **The macOS unenforced-bind hole is closed** (`cloister-2d420c`). The harness
+  was asking nono for `ports.localhost` — a bidirectional IPC grant — when it
+  only ever dials the shim. It now asks for connect-only, and
+  `CLOISTER_ACCEPT_UNENFORCED_BIND` is gone.
+- **The confinement mirror is current and railed** (`cloister-d303b2`).
+  `manifest/cluster.capnp` declared `confinement/v1 @ v0.7.3` against a v0.17.0
+  tree; ~20 section citations had silently gone stale. `lint:spec-citation` now
+  compares a mirror's declared version against the pinned one.
+- New ADRs: 0064 (harness credential env by auth mode), 0065 (receipts carry an
+  origin set), 0066 (what a notme WIMSE URI names).
+- New rails: `lint:origin-derivation`, mirror-version agreement, Inv 11 §5, and
+  a fix to `lint:sibling-bead-refs` whose error message documented a clearance
+  path the code never implemented.
+
 ### Shipped 2026-07-15
 
 - **`tools/schema-bridge/` deleted; the capnp→zod/go codegen plugin is

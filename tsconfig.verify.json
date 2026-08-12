@@ -39,6 +39,16 @@
     // FFI export), same NodeNext-vs-Bundler resolution mismatch as
     // cas-hash.ts above. Not part of the wire codec the substrate-
     // equivalence smoke exercises. Excluded per cloister-bc5640.
-    "src/wire/partition.ts"
+    "src/wire/partition.ts",
+    // run-id.ts imports cas-hash for the execution/v1 BLAKE3 run-identity
+    // derivation — third file in this list for the one reason, after
+    // confinement-digest.ts and partition.ts. Excluded per cloister-c1bd9e.
+    //
+    // The shape worth noticing: this list grows once per NEW consumer of the
+    // substrate hash, and each addition is discovered by the pre-push gate
+    // rather than by the author, because `task lint` compiles under the root
+    // tsconfig's Bundler resolution where the .wasm import is fine. Anything
+    // reaching for blake3Hex lands here next.
+    "src/wire/run-id.ts"
   ]
 }

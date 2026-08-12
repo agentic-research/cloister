@@ -9,6 +9,17 @@
 #   pip install pre-commit  (or: brew install pre-commit)
 
 repos:
+  # >>> rsry-managed (do not edit between these markers; `rsry hooks install` regenerates) >>>
+  - repo: local
+    hooks:
+      - id: rsry-bead-sync
+        name: rsry bead export sync (rosary-00f2b5)
+        entry: rsry hooks run pre-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+  # <<< rsry-managed <<<
   # ── Markdown formatting ───────────────────────────────────────────────
   # Same version + extras as mache/signet/rosary so the constellation's
   # markdown formats consistently.

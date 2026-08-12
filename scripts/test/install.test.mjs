@@ -90,6 +90,9 @@ let output;
 if (manifest === "tools/harness-sandbox/Cargo.toml") {
   output = "tools/harness-sandbox/target/release/cloister-harness";
 } else if (manifest === "rs/Cargo.toml" && args.includes("cloister-host-runtime")) {
+  if (!args.includes("--features") || !args.includes("llo-execution")) {
+    throw new Error("host runtime must be built with the llo-execution feature");
+  }
   output = "rs/target/release/cloister-host-runtime";
 } else {
   throw new Error("unexpected cargo arguments: " + args.join(" "));
@@ -200,7 +203,7 @@ test("task install bootstraps dependencies before exposing a usable CLI", () => 
     assert.equal(readFileSync(toolLog, "utf8"), [
       "pnpm install --frozen-lockfile",
       "cargo build --release --manifest-path tools/harness-sandbox/Cargo.toml",
-      "cargo build --release --manifest-path rs/Cargo.toml -p cloister-host-runtime",
+      "cargo build --release --manifest-path rs/Cargo.toml -p cloister-host-runtime --features llo-execution",
       "",
     ].join("\n"));
 

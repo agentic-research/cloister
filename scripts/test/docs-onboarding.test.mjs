@@ -8,27 +8,62 @@ const read = (path) => readFileSync(resolve(root, path), "utf8");
 
 test("the README leads a new user through the installed CLI", () => {
   const readme = read("README.md");
-  const opening = readme.slice(0, readme.indexOf("## Why you'd care"));
 
-  assert.match(opening, /task install/);
-  assert.match(opening, /cloister dev bootstrap/);
-  assert.match(opening, /cloister skills pin repo-summary[^\n]*--write/);
-  assert.match(opening, /cloister cluster generate/);
-  assert.doesNotMatch(opening, /task dev:bootstrap|task cluster:toml/);
+  // ANCHORED ON A GUARD, not on prose. The previous version sliced to
+  // `indexOf("## Why you'd care")`; when that heading was removed in the
+  // orientation rewrite, indexOf returned -1 and `slice(0, -1)` silently
+  // widened to the whole file. Same fail-open shape the runtime test below
+  // documents having been bitten by — twice now, in one file.
+  //
+  // So the anchor is the first `##` after the intro, found positionally, and
+  // its absence is an explicit failure rather than a silent widening.
+  const firstSection = readme.indexOf("\n## ");
+  assert.notEqual(firstSection, -1, "README has no sections — anchor is stale");
+  const opening = readme.slice(0, firstSection);
+  assert.ok(opening.length > 0, "opening slice is empty — anchors crossed");
+
+  // What a new user must meet before anything else: the product command, not
+  // the repo plumbing.
+  assert.match(readme, /task install/);
+  assert.match(readme, /cloister dev bootstrap/);
+  assert.match(readme, /cloister run --harness/);
+  assert.doesNotMatch(readme, /task dev:bootstrap|task cluster:toml/);
+
+  // `skills pin` and `cluster generate` deliberately are NOT asserted here any
+  // more. They are second-step operations and the README is now an orientation
+  // page (cloister-0cc05e); they belong to the docs that own them. Asserting
+  // them at the front door is what kept four quickstarts alive.
 });
 
 test("operator docs name the product command and label the compatibility runtime", () => {
   const running = read("docs/RUNNING.md");
   const readme = read("README.md");
-  const runtimeSection = readme.slice(
-    readme.indexOf("### Experimental: run an external tool"),
-    readme.indexOf("## What cloister is NOT"),
-  );
+  // Anchored on the FIRST runtime heading, which is now the LLO path — the
+  // section was reordered so the page stops leading with the shell-out
+  // (cloister-17e502). Both headings live between this anchor and the next `##`,
+  // so the slice still covers the whole runtime surface.
+  //
+  // The old anchor was the literal "### Experimental: run an external tool".
+  // When that heading was renamed, indexOf returned -1 and slice(-1, n) produced
+  // an EMPTY string — so every assertion below passed vacuously except the one
+  // that happened to be a positive match. A heading-text anchor fails open,
+  // which is worth knowing about the shape rather than just fixing.
+  // Re-anchored after the orientation rewrite (cloister-0cc05e). The README no
+  // longer carries a runtime walkthrough — that moved to RUNNING.md — so the
+  // section this once sliced does not exist. What the README must still say is
+  // that it does not execute, and the guard stays explicit.
+  const runtimeStart = readme.indexOf("## How it fits together");
+  assert.notEqual(runtimeStart, -1, "runtime section heading not found — anchor is stale");
+  const runtimeSection = readme.slice(runtimeStart, readme.indexOf("## What it is not"));
+  assert.ok(runtimeSection.length > 0, "runtime slice is empty — anchors crossed");
+  assert.match(runtimeSection, /ley-line-open/, "the README must name who owns execution");
+
+  // `compatibility provider` is gone rather than renamed: the krunvm shell-out
+  // it described was deleted in 681a58f. A rail asserting a deleted subject is
+  // how docs get resurrected to satisfy a test.
 
   assert.match(running, /node bin\/cloister\.mjs/);
   assert.doesNotMatch(running, /node scripts\/cloister-cli\.mjs/);
-  assert.match(runtimeSection, /compatibility provider/i);
-  assert.match(runtimeSection, /cloister runtime storage init/);
   assert.doesNotMatch(runtimeSection, /task runtime:/);
 });
 

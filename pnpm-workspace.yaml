@@ -11,7 +11,7 @@ allowBuilds:
 # tree. vite/esbuild move with the vitest toolchain; this keeps the lockfile's
 # override policy visible to pnpm 10 and pnpm 11+.
 overrides:
-  "undici@>=7.0.0 <7.28.0": ^7.28.0
+  "undici@>=7.0.0 <7.29.0": ^7.29.0
   "esbuild@>=0.27.0 <0.28.1": ^0.28.1
   # Security floors for transitive tooling dependencies. Vite pulls PostCSS
   # (GHSA-r28c-9q8g-f849 / Dependabot #26); Wrangler/Miniflare pulls sharp

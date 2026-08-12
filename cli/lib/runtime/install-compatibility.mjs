@@ -72,6 +72,7 @@ export async function installCompatibilityProvider({
   const hostArgs = [
     "build", "--release", "--manifest-path", "rs/Cargo.toml",
     "-p", "cloister-host-runtime",
+    "--features", "llo-execution",
   ];
 
   await runBuild(spawn, root, nativeArgs);

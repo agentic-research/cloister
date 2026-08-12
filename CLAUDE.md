@@ -121,6 +121,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
+| `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
@@ -188,6 +189,19 @@ repo root. Otherwise the `[bead-id]` prefix is **required** — the
 hook has no `bead:` trailer escape hatch, so session work still needs
 a real bead to reference. File one, or reference the bead the work
 was discovered under.
+
+**Name what you did, not what you were looking for.** This repo is public.
+A message like "swept for <specific thing>, found none" is a sign reading
+"no secrets here" — it advertises the concern to every reader while adding
+nothing a maintainer needs. "OSS PII sweep" says everything useful and names
+nothing. The same applies to bead titles and comments, which ship in
+`.beads/beads.jsonl`.
+
+This is a going-forward habit, not a reason to rewrite history: `main` is
+public with forks, and re-SHAing published commits breaks cross-repo pins,
+the `llo-execution-contract.lock.json` reachable-from-a-tag rule, and every
+bead that cites a commit — a far louder signal than the message would have
+been. Decided once already on `cloister-aa6a71`.
 
 ## Architecture conventions
 

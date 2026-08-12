@@ -98,6 +98,11 @@ tasks:
   # capnp-eval pipeline (src/generated/cluster.ts) and the legacy file
   # imports it as a side-effect to keep it in the dependency graph for
   # `task lint`'s tsc pass.
+  llo:bump:
+    desc: "Move EVERY ley-line-open channel from one input — a release tag (cloister-464216). Usage: task llo:bump -- v0.16.0 [--dry-run] [--skip-revendor]. Derives the channel list from lint:upstream-pins rather than a second copy, so adding a channel updates checker and writer together. Refuses to write unless the tag resolves to a commit (`^{}` — a tag-object sha is a valid git object and an invalid cargo rev) AND a published release carries every generator binary (a tag can exist while the release does not; bumping there points schema-bridge.lock.json at 404s while git-resolved channels succeed — half-bumped and green). Re-vendors the generated execution/v1 artifact too, since a stale one silently relaxes lint:schema-claim."
+    cmds:
+      - node scripts/llo-bump.mjs {{.CLI_ARGS | default "--help"}}
+
   schema-bridge:build:
     desc: "Fetch LLO's schema-bridge capnp plugins (zod + go) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."
     cmds:
@@ -119,15 +124,14 @@ tasks:
     generates:
       - target/release/cloister-harness
 
-  spike:libkrun:
-    desc: "cloister-b28416 — libkrun VMM-embed proof (ADR-0044/0046). Boots an Alpine microVM on HVF, proves guest fs reads+writes forward to a host dir (mediate-below-stock-libkrun). macOS+libkrun only; SKIPs elsewhere. NOT a CI gate (runners lack HVF/KVM). Prereq: brew tap slp/krun && brew install krunvm."
-    cmds:
-      - bash tools/libkrun-spike/run-spike.sh
-
-  spike:libkrun:mediated:
-    desc: "cloister-e87760 — the ADR-0044/0046 KEYSTONE proof. Boots the microVM with its virtio-fs backed by the ConfinementGraph MEDIATOR's NFS (not a passthrough) and proves the guest fs traverses the mediator: allowed skill served + recorded, policy-denied path blocked in-guest. macOS+libkrun+sudo only; SKIPs elsewhere. NOT a CI gate. Prereq: run spike:libkrun once (fetches rootfs)."
-    cmds:
-      - bash tools/libkrun-spike/run-mediated.sh
+  # `spike:libkrun` + `spike:libkrun:mediated` lived here and are DELETED with
+  # tools/libkrun-spike (cloister-5624e8). They proved ADR-0044/0046's
+  # mediate-below-stock-libkrun thesis on demand, and that proof has moved: LLO
+  # embeds libkrun via FFI (ley-line-open-f839c1) rather than booting it from a
+  # shell script, and ley-line-open-984acf ships the entitled macOS worker.
+  # ADR-0049's 2026-07-31 amendment is the decision — cloister keeps policy,
+  # authorization, audit and the CLI; LLO owns the execution runtime. Do not
+  # re-add a spike here; extend LLO's backend and consume it over execution/v1.
 
   cluster:zod:
     desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. Run after cluster.capnp schema edits; `cluster:zod:check-drift` (in `task lint`) fails if you forget."
@@ -196,6 +200,56 @@ tasks:
       - manifest/cluster.capnp
       - schema-bridge.lock.json
       - src/generated/cluster.zod.ts
+
+  cloister:zod:
+    desc: "Regenerate src/generated/cloister.zod.ts via schema-bridge. Run after manifest/cloister.capnp edits; `cloister:zod:check-drift` (in `task lint`) fails if you forget. This file is a DIFF TARGET, not a replacement for src/manifest/types.ts — see cloister-bfd981. types.ts stays hand-written until schema-bridge projects capnp doc comments (ley-line-open-d554a0), because the generated file carries none and deleting the hand copy would trade duplication for lost documentation."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same shape as cluster:zod — `capnp compile` exits 0 even when the
+        # plugin errors and writes nothing, so generate into a tmpdir and
+        # existence-check before the atomic move. An in-place check would
+        # falsely pass by leaving the previously-committed file in tree.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/cloister.zod.ts" src/generated/cloister.zod.ts
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/cloister.zod.ts
+
+  cloister:zod:check-drift:
+    desc: "Drift check for src/generated/cloister.zod.ts. IN `task lint`. Closes the gap that manifest/cloister.capnp was the only schema in the tree with NO generated projection and therefore no way to notice src/manifest/types.ts disagreeing with it (cloister-bfd981). Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/cloister.zod.ts "$TMPDIR/cloister.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cloister.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cloister:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cloister.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+      - src/generated/cloister.zod.ts
 
   cluster:go:
     desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). Run after cluster.capnp schema edits; `cluster:go:check-drift` (in the cloister-schema-go workflow) fails if you forget. Requires `capnp` CLI + `gofmt`."
@@ -417,6 +471,40 @@ tasks:
       - cli/lib/cluster/toml-to-cluster.mjs
       - cli/lib/cluster/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
+
+  lint:origin-derivation:
+    desc: "ADR-0065 decision 3 — a Confidence is DERIVED, never declared (cloister-16f81c). The vocabulary lives only in src/wire/origin.ts; everywhere else calls deriveConfidence(). Same locality shape as lint:lease-gate-source."
+    cmds:
+      - node scripts/lint-origin-derivation.mjs
+    sources:
+      - scripts/lint-origin-derivation.mjs
+      - src/**/*.ts
+
+  artifacts:golden:
+    desc: "Regenerate ADR-0067 golden files from the artifact registry. Run this when an emitted artifact changes DELIBERATELY, then commit the diff — that diff is the review. A confinement change also moves the confinementDigest in every minted cert."
+    cmds:
+      - "{{.NODE_TSX}} -e 'import(\"./scripts/artifact-registry.mjs\").then(async m => { const fs = await import(\"node:fs\"); for (const a of m.ARTIFACTS) fs.writeFileSync(a.golden, m.goldenBytes(a.produce())), console.log(\"wrote\", a.golden); })'"
+
+  test:artifacts:
+    desc: "ADR-0067 L1 — every registered artifact validates against its VENDORED schema and matches its committed golden. Portable: no sibling checkout needed, which is the point — the strongest confinement check before this was local-only and therefore absent from the machine where drift would go unnoticed."
+    cmds:
+      - "{{.NODE_TSX}} --test scripts/test/artifact-conformance.test.mjs"
+    sources:
+      - scripts/artifact-registry.mjs
+      - scripts/lib/json-schema-subset.mjs
+      - scripts/test/artifact-conformance.test.mjs
+      - cli/lib/harness/launch.mjs
+      - test/fixtures/llo-confinement-v1/*
+      - test/fixtures/golden/*
+
+  test:harness-shim:
+    desc: "harness-shim CertSource contract (cloister-f2338f) — node:test under tsx, NOT vitest: the shim is a host-side Node program and the vitest suite runs inside workerd, where node:http.createServer is not implemented."
+    cmds:
+      - "{{.NODE_TSX}} --test scripts/test/harness-shim-cert-source.test.mjs"
+    sources:
+      - scripts/test/harness-shim-cert-source.test.mjs
+      - src/harness-shim/index.ts
+      - src/harness-shim/lease-signer.ts
 
   emit:cloister-capnp:
     desc: "Compatibility alias — generate cloister.capnp and the other cluster.toml projections through the Cloister CLI."
@@ -936,6 +1024,15 @@ tasks:
       - src/generated/manifest.ts
       - scripts/lint-no-dev-mode.mjs
 
+  lint:schema-claim:
+    desc: "ADR-0063 rail (cloister-3e86e8) — a leyline contract identifier written as a STRING LITERAL is a wire claim, and its field names are owned by ley-line-open. A file that makes the claim must import generated types rather than restate the shape. PR #260 shipped `{ schema: \"execution/v1\", ... }` over a hand-written ten-field list against an eleven-field canonical RunSpec sharing NONE of those names, and the full gate passed green — lint:spec-citation polices prose citations, type-duplication polices cluster.capnp only, and nothing looked at code-level claims. Prose in a comment DISCUSSES a contract; a literal SPEAKS it, so the rail strips comments before scanning."
+    cmds:
+      - node scripts/lint-schema-claim.mjs
+    sources:
+      - cli/**/*.mjs
+      - src/**/*.ts
+      - scripts/lint-schema-claim.mjs
+
   lint:lease-gate-source:
     desc: "ADR-0053 / cloister-220c9d single-source guard (cloister-bd7210 Phase 1) — the lease-gate trust anchor `env.INTERLACE_ROOT_PUBKEY` may only be read where the gate is resolved (src/routes/lease-gate.ts) or the CA bundle is (src/storage/ca-bundle-source.ts). Any other src/ file reading it is a re-scattered gate check; routes must go through resolveLeaseGate / leaseEnforced / gateAndVerify."
     cmds:
@@ -1025,6 +1122,13 @@ tasks:
       - "src/**/*.ts"
       - "docs/**/*.md"
       - CLAUDE.md
+
+  lint:sibling-bead-refs:
+    desc: "cloister-4c057a rail — a sibling repo's ADR must not decide work we hold OPEN without us noticing. ley-line-open ADR-0035's Related block reads `cloister-043eb8 (multi-root — resolved by §4 below)`; the bead was open here, a cloister ADR arguing the WRONG answer got drafted, and nothing surfaced that LLO had already settled it with a third option neither side proposed. Second instance of the class — the first designed ADR-0045 work that had shipped in LLO a month earlier. A rule stated twice and violated twice is not a rule anyone is enforcing. Scans the sibling's ADRs (main tree + `.worktrees/*`, because a decision reaches us before it reaches their default branch) for `cloister-<hex>` and FAILS when one names an open bead. A referenced bead we never had is REPORTED, not fatal — that is the sibling's rot, and failing our gate on their typo trains people to bypass the gate. Skips with exit 0 when no LLO checkout, like lint:spec-citation."
+    cmds:
+      - node scripts/lint-sibling-bead-refs.mjs
+    sources:
+      - scripts/lint-sibling-bead-refs.mjs
 
   lint:harness-target-literals:
     desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
@@ -1168,6 +1272,8 @@ tasks:
       - docs/adr/**/*.md
       - recipes/**
       - scripts/git-hooks/**
+      - src/generated/llo-execution-tools.json
+      - llo-execution-contract.lock.json
       - Taskfile.yml
       - cluster.toml
       - cluster.lock.toml
@@ -1225,7 +1331,7 @@ tasks:
     # Previously only in `task verify`; promoted to `task lint` after a
     # cedcf3 Phase 1 schema-change drifted past lint and only surfaced
     # under `task verify`. Inner-loop catches schema-vs-runtime drift now.
-    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
+    deps: [type-check, test, mermaid:lint, lint:paths, lint:timing, lint:bundle-isolation, lint:capability-scheme, lint:app-protocol, lint:tenant-docs, lint:lockfile-drift, lint:doc-links, adr:index:check, lint:recipes, test:lint-scripts, test:cluster-toml, test:harness-shim, test:artifacts, test:emit-cloister-capnp, lint:vault-id-source, lint:shim, lint:no-dev-mode, lint:schema-claim, lint:lease-gate-source, lint:silent-swallow, lint:log-shape, lint:trust-env-locality, lint:dev-escape, lint:harness-target-literals, lint:spec-citation, lint:sibling-bead-refs, lint:smell-rule-kinship, lint:binding-parity, lint:structured-parse, lint:origin-derivation, config:check, cluster:zod:verify, identity:zod:check-drift, cluster:zod:check-drift, cloister:zod:check-drift, lint:upstream-pins, cluster:emit:check-drift, cluster:toml:roundtrip, cli:docs:check, lint:harness-types]
 
   verify:
     desc: Strict gate — `lint` + every external-process equivalence harness + Rust supply-chain audit + host-extras feature build + cluster.toml drift gate + cloister.capnp drift gate (cloister-345ad1). Slower (spawns capnp CLI + Node servers; runs cargo audit/deny + builds the nono closure); use in CI / pre-push.

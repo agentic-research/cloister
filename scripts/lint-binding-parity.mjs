@@ -50,6 +50,9 @@ export const DECLARED_ASYMMETRY = {
   ROSARY_MCP:    "workerd service binding; the CF path reaches rosary via ROSARY_MCP_URL over HTTP",
   COMPANION_MCP: "workerd service binding; the CF path reaches the companion via COMPANION_URL over HTTP",
   KEK_HELPER:    "workerd-only: the local sign-only KEK helper (ADR-0014 / ADR-0019) has no CF analogue; CF uses vault slices",
+  // Inverse direction from the five above: CF-only, not workerd-only.
+  NOTME_RECEIPTS: "wrangler-path-only: an RPC entrypoint binding (notme's ReceiptSigner, ADR-014). Same mechanism as NOTME_JWT below. `task dev` reaches it; `task serve:local` (raw workerd) falls back to RECEIPT_SIGNING_KEY, the Phase-1 env path",
+  NOTME_JWT:     "wrangler-path-only: an RPC entrypoint binding (notme's JwtSigner, ADR-015). config.capnp declares notme-bot as a NETWORK service (allow = [\"public\"]) and an RPC entrypoint cannot bind to one, so `task serve:local` has no delegated signing. `task dev` DOES — wrangler's dev registry wires named entrypoints between separately-running `wrangler dev` sessions. VERIFIED, after this comment first claimed CF-only and was wrong: with notme's worker running, cloister's dev session prints `env.NOTME_JWT (notme-bot#JwtSigner) Worker local [connected]`",
 };
 
 const SKIP_DIR = new Set(["node_modules", "generated", ".git"]);

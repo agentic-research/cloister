@@ -99,14 +99,14 @@ to = "notme-proxy"
 transport = "uds"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354fafb14ff685e867e31ba4a"
-version = "0.13.0"
+ref = "github://agentic-research/ley-line-open/server.json@75e3af6aecf3287eb7adc0610399ff923256ee7e"
+version = "0.18.2"
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
 
 [inputs.notme]
-ref = "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c"
-version = "0.1.0"
+ref = "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a"
+version = "0.2.0"
 
 [inputs.mache]
 ref = "github://agentic-research/mache/server.json@a585418c2eb11d32e2b166091716645c731bbcdc"
@@ -227,6 +227,7 @@ service = "anthropic"
 stateDir = ".claude"
 stateDirEnv = "CLAUDE_CONFIG_DIR"
 stripEnv = [ "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN" ]
+subscriptionTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 
 [[gateway.harnessTargets]]
 apiKeyEnv = "OPENAI_API_KEY"

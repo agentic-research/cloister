@@ -29,6 +29,7 @@
  */
 
 import type { EdgeRoute } from "../router.js";
+import type { OriginSet } from "../wire/origin.js";
 import type { Env, JsonRpcRequest, JsonRpcResponse, McpTool } from "../types.js";
 import { okResponse, errResponse } from "../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../backends.js";
@@ -325,7 +326,12 @@ export class McpEdgeRoute implements EdgeRoute {
     if (lease !== undefined) {
       try {
         const ctx = await buildReceiptContext(env, nowMs, request, bodyText, lease);
-        if (ctx !== null) return await attachReceipt(baseResponse, ctx);
+        if (ctx !== null) {
+          return await attachReceipt(baseResponse, {
+            ...ctx,
+            origins: this.originsForRequest(bodyText, env),
+          });
+        }
       } catch {
         // Receipt emission failure is logged-but-not-fatal in Phase 1.
         // When the migration hits Phase 2 (peers enforce), this should
@@ -574,6 +580,37 @@ export class McpEdgeRoute implements EdgeRoute {
     // backend registration order or upstream response order.
     out.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     return out;
+  }
+
+  /**
+   * Content origins for the response to this request (ADR-0065 phase 2b).
+   *
+   * Recomputed from the request body rather than stashed during `callTool`,
+   * deliberately: the route instance is shared across concurrent requests, so a
+   * field set by one call and read by the receipt path of another would attach
+   * the wrong provenance to a signed commitment. Re-resolving the backend is a
+   * cheap `handles()` scan and cannot race.
+   *
+   * Only `tools/call` has content ingress — `tools/list`, `initialize` and the
+   * rest are cloister answering about itself, and an empty set is the true
+   * statement for them rather than an omission.
+   */
+  private originsForRequest(bodyText: string, env: Env): OriginSet {
+    try {
+      const parsed = JSON.parse(bodyText) as { method?: unknown; params?: unknown };
+      if (parsed.method !== "tools/call") return [];
+      const params = (parsed.params ?? {}) as { name?: unknown };
+      const name = typeof params.name === "string" ? params.name : "";
+      if (name === "") return [];
+      const backend = this.backends.find((b) => b.handles(name));
+      return backend?.contentOrigin?.(env) ?? [];
+    } catch {
+      // lint-allow-silent: a body that does not parse here already failed the
+      // JSON-RPC parse upstream and produced an error response; the receipt for
+      // it correctly claims no origins. Surfacing would turn a well-handled
+      // client error into a receipt-emission failure.
+      return [];
+    }
   }
 
   private async callTool(

@@ -41,18 +41,50 @@
 //
 // ## Token signing
 //
-// Cloister has only the master *public* key (verifies leases against it
-// per src/routes/lease-middleware.ts). The matching private key lives
-// in notme's SigningAuthority DO; cloister cannot directly sign with
-// it. The token endpoint forwards JWT signing to notme via the existing
-// NOTME service binding (`POST /internal/sign-jwt` — a contract notme
-// will implement; until then the endpoint surfaces 503). This matches
-// the same delegation pattern src/storage/notme-bundle-fetcher.ts uses
-// for `/internal/ca-bundle`.
+// Cloister holds no signing private key. Signing is delegated to notme
+// over the `NOTME_JWT` RPC entrypoint (notme ADR-015 / PR #62), on a
+// key that is DELEGATED rather than the Interlace/CA master.
+//
+// Both halves of that sentence are corrections to what this file used to
+// say, and both came from notme refusing what cloister asked for:
+//
+//   TRANSPORT. This forwarded to `POST /internal/sign-jwt`. notme replaced
+//   that with a 404, for the reason it had already given when declining
+//   `/internal/sign-receipt`: an `/internal/` prefix is publicly routable,
+//   so it is not an access control. Second instance, same refusal — see
+//   src/types.ts on RECEIPT_SIGNING_KEY for the first.
+//
+//   KEY. This asked notme to sign with the cluster master. notme's own
+//   access tokens are signed with that key and its issuer check is optional
+//   by default, so a general-purpose "sign these bytes" oracle over it is an
+//   AUTHENTICATION BYPASS — it emits a credential that already verifies.
+//   ADR-014's receipt fix does not transfer: receipts are safe on a shared
+//   key because the Interlace spec pins their eight fields, so validate →
+//   re-encode → compare closes the signable set. A JWT payload has no
+//   schema; arbitrary claims ARE the useful surface. Key separation is the
+//   only control that holds, and it holds even if every claim check is
+//   deleted.
+//
+// LOCAL DEV REACHES THIS. `task dev` + `wrangler dev` in ../notme/worker/ is
+// enough — the dev registry wires `notme-bot#JwtSigner`. Only `task
+// serve:local` (raw workerd) cannot, since config.capnp declares notme-bot as
+// a network service. Two further things gate a working local token, and both
+// are config rather than code: `actor.fingerprint` must be non-empty (an empty
+// one disables the whole identity bridge, so all five paths 404 before signing
+// is reached), and notme's `DELEGATED_JWT_ISSUERS` must list cloister's issuer.
+//
+// CONSEQUENCE STILL OUTSTANDING: `manifest.actor.pubkeyBinding` must be
+// repointed at the DELEGATED public key (notme's
+// `JwtSigner.issuerPublicKey(issuer)`) before tokens verify. While it names
+// the master, /.well-known/jwks.json publishes a key nothing signs with and
+// every issued token fails verification — the correct failure direction, and
+// why this migration is safe to land ahead of the operator's key swap.
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import type { Backend, Gateway, McpToolSpec, Route } from "../manifest/types.js";
+import { resolveActorFingerprint } from "./actor-fingerprint.js";
+import { logEvent } from "../obs/log.js";
 
 // ── Path constants ────────────────────────────────────────────────────────
 
@@ -63,13 +95,17 @@ export const PATH_NOSTR_NIP05    = "/.well-known/nostr.json";
 export const PATH_OAUTH_TOKEN    = "/oauth/token";
 
 /**
- * Notme-side endpoint for JWT signing. The OIDC token endpoint forwards
- * a canonical JSON payload to this endpoint; notme signs with the
- * cluster master Ed25519 key and returns the compact JWS. Same
- * delegation pattern as `notme-bundle-fetcher.ts`. Cross-repo
- * coordination bead tracks the notme-side endpoint.
+ * RETIRED. notme replaced `POST /internal/sign-jwt` with a 404 whose body
+ * names the replacement, for the reason it had already given when declining
+ * `/internal/sign-receipt`: an `/internal/` prefix is publicly routable and is
+ * therefore not an access control (notme ADR-015 / PR #62). Signing is now the
+ * `NOTME_JWT` RPC entrypoint, on a DELEGATED key rather than the CA master.
+ *
+ * Kept as a name so the retired path stays greppable — this was the second
+ * `/internal/` signing path notme refused, and the one cloister had not
+ * migrated. Nothing may fetch it.
  */
-export const NOTME_SIGN_JWT_PATH = "/internal/sign-jwt";
+export const RETIRED_NOTME_SIGN_JWT_PATH = "/internal/sign-jwt";
 
 const ALL_PATHS = new Set<string>([
   PATH_OIDC_DISCOVERY,
@@ -96,8 +132,12 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
 
   async handle(request: Request, env: Env): Promise<Response> {
     // Identity bridge is opt-in via the same lever as the native
-    // Interlace discovery doc: empty actor.fingerprint disables it.
-    if (!this.manifest.actor.fingerprint) {
+    // One resolver, shared with the discovery doc: manifest value, else the
+    // INTERLACE_ACTOR_FP binding, else genuinely disabled. Before this, an
+    // operator with a live identity who had not restated its digest in the
+    // manifest got the same bare 404 as one who had opted out.
+    const fingerprint = resolveActorFingerprint(this.manifest, env);
+    if (!fingerprint) {
       return new Response("identity bridge disabled", { status: 404 });
     }
 
@@ -136,7 +176,55 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
 
   // ── /.well-known/jwks.json ─────────────────────────────────────────────
 
-  private handleJwks(_request: Request, env: Env): Response {
+  private async handleJwks(request: Request, env: Env): Promise<Response> {
+    // Resolved, not raw: when the fallback supplied the fingerprint the raw
+    // manifest value is "", and a JWK published under an empty `kid` matches
+    // nothing a verifier looks up.
+    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
+
+    // ── Ask the signer for its own key ───────────────────────────────────
+    //
+    // The key published here MUST be the key /oauth/token is signed with, or
+    // every token this IdP issues fails verification. Those are two different
+    // values in two different repos, and the previous arrangement kept them
+    // aligned by asking an operator to copy one into the other by hand —
+    // notme's migration note says "point pubkeyBinding at the delegated key".
+    //
+    // A hand-copied derived value is the drift class this whole surface exists
+    // to remove. It is also unnecessary: notme SERVES the key, and its own
+    // design doc observes that cloister "is already indifferent to which key it
+    // publishes" because `kid` comes from the manifest rather than the key. The
+    // indifference that made copying safe is exactly what makes asking safe.
+    //
+    // FAIL CLOSED rather than falling back. If the binding exists but the call
+    // fails, publishing `pubkeyBinding` would publish the MASTER while notme
+    // signs with the delegated key — the precise mismatch this removes, and it
+    // would look healthy. A 503 says "not operational", which is true.
+    const signer = env.NOTME_JWT;
+    if (signer && typeof signer.issuerPublicKey === "function") {
+      const issuer = baseUrl(request);
+      let delegated;
+      try {
+        delegated = await signer.issuerPublicKey(issuer);
+      } catch (error) {
+        logEvent("warn", {
+          target: "jwks", op: "issuer_public_key", outcome: "signer_unreachable",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        return new Response("jwks: signer unreachable", { status: 503 });
+      }
+      if (!delegated?.ok) {
+        logEvent("warn", {
+          target: "jwks", op: "issuer_public_key", outcome: "signer_refused",
+          code: delegated?.code ?? "unknown", issuer,
+        });
+        return new Response("jwks: issuer not delegated", { status: 503 });
+      }
+      return jsonResponse({ keys: [jwkFor(delegated.publicRawB64, fingerprint)] });
+    }
+
+    // No delegated signer bound — the pre-delegation path, where cloister
+    // publishes whatever key the manifest names.
     const masterB64 = readEnvString(env, this.manifest.actor.pubkeyBinding);
     if (!masterB64) {
       // The pubkey binding is unset — without it we can't publish a
@@ -144,24 +232,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       // ca-bundle-cache `CaUnavailableError` convention.
       return new Response("jwks: master pubkey binding unset", { status: 503 });
     }
-    // RFC 8037 §2: EdDSA key in JWK form. `x` is the base64url-no-pad
-    // encoding of the raw public key bytes. The stored binding may use
-    // base64-standard (mirroring CABundle.keys per cloister-c614ae);
-    // convert to base64url for spec compliance.
-    const x = base64StdToBase64Url(masterB64);
-    const jwk = {
-      kty: "OKP",
-      crv: "Ed25519",
-      x,
-      // `kid` derives from the cluster's actor fingerprint so external
-      // verifiers can pin a stable identifier; the fingerprint is
-      // already a sha256:<hex> string. RFC 7517 §4.5 permits any
-      // case-sensitive string as `kid`.
-      kid: this.manifest.actor.fingerprint,
-      alg: "EdDSA",
-      use: "sig",
-    };
-    return jsonResponse({ keys: [jwk] });
+    return jsonResponse({ keys: [jwkFor(masterB64, fingerprint)] });
   }
 
   // ── /.well-known/webfinger ─────────────────────────────────────────────
@@ -286,15 +357,18 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     // `b64url(header).b64url(payload).b64url(sig)`.
     const nowSec = Math.floor(Date.now() / 1000);
     const ttlSec = 300;  // matches manifest.policy.maxCertLifetimeSeconds default
+    // Same resolver as the gate above; `handle()` already refused the request
+    // if this is null, so the ?? "" is unreachable rather than a default.
+    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
     const header = {
       alg: "EdDSA",
       typ: "JWT",
-      kid: this.manifest.actor.fingerprint,
+      kid: fingerprint,
     };
     const payload: Record<string, unknown> = {
       iss:   base,
       aud:   audience,
-      sub:   this.manifest.actor.fingerprint,
+      sub:   fingerprint,
       iat:   nowSec,
       exp:   nowSec + ttlSec,
     };
@@ -304,16 +378,28 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     const payloadB64u  = base64UrlEncodeUtf8(JSON.stringify(payload));
     const signingInput = `${headerB64u}.${payloadB64u}`;
 
-    // Delegate the actual Ed25519 sign to notme. The contract is:
-    //   POST /internal/sign-jwt
-    //   body: { signing_input: "<header>.<payload>" }
-    //   resp: { signature: "<base64url>" }
-    // Notme's SigningAuthority DO owns the master private key — that
-    // key is born in CF and never leaves notme. cloister forwards the
-    // signing-input bytes, gets back the signature, and assembles the
-    // JWS compact form locally. Same delegation pattern as
-    // src/storage/notme-bundle-fetcher.ts.
-    const signature = await fetchJwtSignature(env, signingInput);
+    // Delegate the Ed25519 sign to notme over the `NOTME_JWT` RPC entrypoint
+    // (notme ADR-015 / PR #62). cloister assembles the JWS compact form
+    // locally; the private key is born in CF and never leaves notme.
+    //
+    // The key is DELEGATED, NOT the CA master. notme refused the master-key
+    // version of this because its own access tokens (typ "at+jwt", iss
+    // "https://auth.notme.bot") are signed with the master and
+    // `verifyAccessToken`'s issuer check is optional by default — so signing
+    // arbitrary `header.payload` bytes with it is an AUTHENTICATION BYPASS,
+    // not merely a forgery oracle. It hands back a credential that already
+    // verifies, rather than one someone still has to get accepted.
+    //
+    // `issuer` is the `iss` claim, and is what notme's DELEGATED_JWT_ISSUERS
+    // allowlist is keyed on. Passing the two segments separately rather than
+    // the joined `signingInput` is notme's contract: the signer re-derives
+    // what it signs from the parts it was given, so cloister cannot hand it a
+    // joined string whose halves differ from what cloister built.
+    const signature = await fetchJwtSignature(env, {
+      issuer:     base,
+      headerB64:  headerB64u,
+      payloadB64: payloadB64u,
+    });
     if (signature === null) {
       // Notme unreachable, returned non-200, or returned a malformed
       // response. 503 with `temporarily_unavailable` per RFC 6749 §5.2.
@@ -389,27 +475,56 @@ function pickTools(backend: Backend): readonly McpToolSpec[] {
  */
 export async function fetchJwtSignature(
   env: Env,
-  signingInput: string,
+  params: { issuer: string; headerB64: string; payloadB64: string },
 ): Promise<string | null> {
+  const signer = env.NOTME_JWT;
+  // Absent binding is the `task serve:local` case, not an error: notme-bot is a
+  // NETWORK service under raw workerd and an RPC entrypoint cannot bind to one.
+  // Returning null yields the same 503 the caller already produced.
+  if (!signer || typeof signer.signJwt !== "function") {
+    logEvent("warn", {
+      target: "oauth_token", op: "sign_jwt",
+      outcome: "no_signer_binding",
+    });
+    return null;
+  }
+
   try {
-    const upstream = `https://notme-bot${NOTME_SIGN_JWT_PATH}`;
-    const res = await env.NOTME.fetch(new Request(upstream, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ signing_input: signingInput }),
-    }));
-    if (!res.ok) return null;
-    const body = (await res.json()) as unknown;
-    if (typeof body !== "object" || body === null) return null;
-    const sig = (body as Record<string, unknown>).signature;
-    if (typeof sig !== "string" || sig.length === 0) return null;
-    // Defensive: signature MUST be base64url (no padding) per RFC 7515.
-    // Reject anything containing `+`, `/`, or `=` — that'd produce an
-    // invalid JWS compact form.
-    if (/[+/=]/.test(sig)) return null;
-    return sig;
-  } catch {
-    // lint-allow-silent: validate predicate — null = invalid signature format
+    const result = await signer.signJwt(params);
+    if (!result?.ok) {
+      // The RESPONSE stays a constant 503 — telling a caller apart "notme is
+      // down" from "your issuer is not delegated" would leak operator
+      // configuration. The OPERATOR is a different audience, and withholding
+      // the reason from them buys nothing: without this line, the single most
+      // likely local-dev failure (notme's DELEGATED_JWT_ISSUERS not listing
+      // cloister's issuer, which is unset by default) presents as a bare 503
+      // with no way to tell it from an unreachable notme.
+      logEvent("warn", {
+        target: "oauth_token", op: "sign_jwt",
+        outcome: "signer_refused",
+        code: result?.code ?? "unknown",
+        issuer: params.issuer,
+      });
+      return null;
+    }
+
+    const sig = result.signature;
+    // Ed25519 is 64 bytes (RFC 8032 §5.1.6). Checking the length rather than
+    // trusting the shape keeps a truncated or wrong-curve signature from being
+    // assembled into a JWS that then fails verification somewhere less
+    // diagnosable than here.
+    if (!(sig instanceof Uint8Array) || sig.length !== 64) return null;
+
+    let bin = "";
+    for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]!);
+    return base64StdToBase64Url(btoa(bin));
+  } catch (error) {
+    // Surfaced to the operator, constant to the caller — see the note above.
+    logEvent("warn", {
+      target: "oauth_token", op: "sign_jwt",
+      outcome: "signer_unreachable",
+      detail: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -454,6 +569,26 @@ function oauthError(code: string, description: string, status: number): Response
       },
     },
   );
+}
+
+/**
+ * RFC 8037 §2 EdDSA JWK. `x` is base64url-no-pad over the raw public key; the
+ * stored/served value may be base64-standard (mirroring CABundle.keys per
+ * cloister-c614ae), so it is converted here.
+ *
+ * `kid` is the cluster's actor fingerprint, NOT derived from the key — which is
+ * what lets the published key change (master → delegated) without every
+ * verifier's pinned identifier moving.
+ */
+function jwkFor(pubkeyB64: string, kid: string) {
+  return {
+    kty: "OKP",
+    crv: "Ed25519",
+    x: base64StdToBase64Url(pubkeyB64),
+    kid,
+    alg: "EdDSA",
+    use: "sig",
+  };
 }
 
 /** Convert base64-standard (with `+`, `/`, `=`) to base64url (no pad). */

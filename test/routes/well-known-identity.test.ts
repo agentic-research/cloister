@@ -17,7 +17,6 @@ import {
   PATH_WEBFINGER,
   PATH_NOSTR_NIP05,
   PATH_OAUTH_TOKEN,
-  NOTME_SIGN_JWT_PATH,
   WellKnownIdentityBridgeRoute,
 } from "../../src/routes/well-known-identity.js";
 import type { Env } from "../../src/types.js";
@@ -61,11 +60,19 @@ const RAW_PUBKEY_B64_32 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 function envWith(
   extras: Record<string, string> = {},
   notme?: FetchResponder,
+  jwtSigner?: Env["NOTME_JWT"],
 ): Env {
   return Object.assign({}, env, {
     INTERLACE_MASTER_PUBKEY: RAW_PUBKEY_B64_32,
     ...extras,
     ...(notme ? { NOTME: { fetch: notme } as unknown as Env["NOTME"] } : {}),
+    // NOTME_JWT is UNBOUND unless a test asks for it. miniflare binds the name
+    // globally from wrangler.toml (a fetch stub, so workerd starts), and an RPC
+    // stub is a Proxy — `typeof x.issuerPublicKey === "function"` is true for
+    // it. So inheriting the ambient binding would silently put every test on
+    // the delegated path, where JWKS correctly 503s because the stub cannot
+    // answer. Tests of the pre-delegation path must be able to say "no signer".
+    NOTME_JWT: jwtSigner,
   }) as Env;
 }
 
@@ -348,18 +355,27 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
     const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
     const pubB64Std = b64Encode(rawPub);
 
-    const notme: FetchResponder = async (req) => {
-      // Contract: POST /internal/sign-jwt, body {signing_input}, resp {signature}.
-      const u = new URL(req.url);
-      expect(u.pathname).toBe(NOTME_SIGN_JWT_PATH);
-      expect(req.method).toBe("POST");
-      const { signing_input } = await req.json() as { signing_input: string };
-      const sig = await crypto.subtle.sign(
-        "Ed25519",
-        kp.privateKey,
-        new TextEncoder().encode(signing_input),
-      );
-      return Response.json({ signature: b64UrlEncode(new Uint8Array(sig)) });
+    // Contract: the NOTME_JWT RPC entrypoint (notme ADR-015 / PR #62), NOT
+    // `POST /internal/sign-jwt` — notme replaced that path with a 404 because
+    // an `/internal/` prefix is publicly routable and so is not an access
+    // control. The stub asserts the RPC shape, including that cloister passes
+    // the two segments SEPARATELY rather than the joined signing input, and
+    // returns raw signature BYTES rather than a base64url string.
+    const jwtSigner: Env["NOTME_JWT"] = {
+      async signJwt({ issuer, headerB64, payloadB64 }) {
+        expect(issuer).toBe(BASE_URL);
+        expect(headerB64).not.toContain(".");
+        expect(payloadB64).not.toContain(".");
+        const sig = await crypto.subtle.sign(
+          "Ed25519",
+          kp.privateKey,
+          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+        );
+        return { ok: true, signature: new Uint8Array(sig), kid: "delegated-test" };
+      },
+      async issuerPublicKey() {
+        return { ok: true, publicRawB64: pubB64Std, kid: "delegated-test" };
+      },
     };
 
     const route = new WellKnownIdentityBridgeRoute(makeManifest());
@@ -369,7 +385,7 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body:    "grant_type=client_credentials&scope=read%3A%2A&audience=https%3A%2F%2Frp.example",
       }),
-      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, notme),
+      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, undefined, jwtSigner),
     );
     expect(tokenRes.status).toBe(200);
     expect(tokenRes.headers.get("cache-control")).toBe("no-store");
@@ -494,3 +510,67 @@ function b64UrlDecode(s: string): Uint8Array {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+
+describe("JWKS publishes the key that SIGNS, not a copy of it", () => {
+  // The property the delegated path exists for. Before it, `pubkeyBinding`
+  // held a hand-copied value and nothing checked it against the signer — so
+  // "operator forgot to update it after notme moved to a delegated key" and
+  // "everything is fine" looked identical until a verifier rejected a token.
+  const MASTER = b64Encode(new Uint8Array(32).fill(0x11));
+  const DELEGATED = b64Encode(new Uint8Array(32).fill(0x22));
+
+  function signerServing(publicRawB64: string): Env["NOTME_JWT"] {
+    return {
+      async signJwt() {
+        return { ok: true as const, signature: new Uint8Array(64), kid: "d" };
+      },
+      async issuerPublicKey() {
+        return { ok: true as const, publicRawB64, kid: "d" };
+      },
+    };
+  }
+
+  it("serves the signer's key even when pubkeyBinding names a different one", async () => {
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS),
+      // The env still names the MASTER, exactly as a tree mid-migration would.
+      envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, signerServing(DELEGATED)),
+    );
+    expect(res.status).toBe(200);
+    const { keys } = await res.json() as { keys: { x: string }[] };
+    expect(keys[0]!.x).toBe(b64UrlEncode(new Uint8Array(32).fill(0x22)));
+    expect(keys[0]!.x).not.toBe(b64UrlEncode(new Uint8Array(32).fill(0x11)));
+  });
+
+  it("503s rather than publishing the master when the signer refuses", async () => {
+    // Falling back to pubkeyBinding here would publish the MASTER while notme
+    // signs delegated — the exact mismatch this path removes, wearing a 200.
+    const refusing: Env["NOTME_JWT"] = {
+      async signJwt() { return { ok: false as const, code: "ISSUER_NOT_DELEGATED", message: "no" }; },
+      async issuerPublicKey() { return { ok: false as const, code: "ISSUER_NOT_DELEGATED", message: "no" }; },
+    };
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, refusing));
+    expect(res.status).toBe(503);
+    expect(await res.text()).not.toContain(MASTER);
+  });
+
+  it("503s rather than publishing the master when the signer throws", async () => {
+    const broken: Env["NOTME_JWT"] = {
+      async signJwt(): Promise<never> { throw new Error("down"); },
+      async issuerPublicKey(): Promise<never> { throw new Error("down"); },
+    };
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, broken));
+    expect(res.status).toBe(503);
+  });
+
+  it("falls back to pubkeyBinding only when NO signer is bound", async () => {
+    // The pre-delegation deployment shape, still supported.
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }));
+    expect(res.status).toBe(200);
+    const { keys } = await res.json() as { keys: { x: string }[] };
+    expect(keys[0]!.x).toBe(b64UrlEncode(new Uint8Array(32).fill(0x11)));
+  });
+});

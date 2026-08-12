@@ -1,0 +1,48 @@
+{
+  "$comment": "Canonical-bytes worked examples for `Interlace-Sig`. Per wire/proxy-envelope.md §'Request canonicalization', the URL field is the cloister-router path observed at the proxy boundary (`/vault/proxy/<service>/...`), NOT the upstream URL. URL rewriting to upstream happens AFTER signature verification. Format: METHOD\\nURL\\nTS_MS\\nNONCE_B64URL_NO_PAD\\nBODY — single LF (0x0A) between fields; body may contain LF since it's the final field.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "happy_bearer_chat_completion",
+      "description": "POST /vault/proxy/openai/v1/chat/completions with a small JSON body. Same nonce as interlace-spec/0.1.0/test-vectors/lease-envelope.json:sample_envelope so cross-spec consumers see the structural symmetry. Body is the OpenAI chat-completion shape from injection-fixtures.json:openai_chat_completion.",
+      "inputs": {
+        "method": "POST",
+        "url": "/vault/proxy/openai/v1/chat/completions",
+        "ts_ms": 1700000100000,
+        "nonce_b64url_no_pad": "oaKjpKWmp6ipqqusra6vsA",
+        "body": "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+      },
+      "expected_canonical_bytes_len": 149,
+      "expected_canonical_bytes_hex": "504f53540a2f7661756c742f70726f78792f6f70656e61692f76312f636861742f636f6d706c6574696f6e730a313730303030303130303030300a6f614b6a704b576d70366970717175737261367673410a7b226d6f64656c223a226770742d346f2d6d696e69222c226d65737361676573223a5b7b22726f6c65223a2275736572222c22636f6e74656e74223a226869227d5d7d",
+      "expected_canonical_bytes_sha256_hex": "94817601cd2dfd982fb498761954399243e77734a6fe655882b12d6075555fe9"
+    },
+    {
+      "name": "happy_header_named_query_with_qs",
+      "description": "GET /vault/proxy/github/repos/agentic-research/cloister?ref=main with an empty body. The query string IS part of the URL field, and IS part of the signed canonical bytes — a caller cannot strip ?ref=main between signing and the proxy. Headers don't appear in the canonical bytes (signature is over the request-line + URL + ts + nonce + body, not the header set).",
+      "inputs": {
+        "method": "GET",
+        "url": "/vault/proxy/github/repos/agentic-research/cloister?ref=main",
+        "ts_ms": 1700000200000,
+        "nonce_b64url_no_pad": "sbKztLW2t7i5uru8vb6_wA",
+        "body": ""
+      },
+      "expected_canonical_bytes_len": 102,
+      "expected_canonical_bytes_hex": "4745540a2f7661756c742f70726f78792f6769746875622f7265706f732f6167656e7469632d72657365617263682f636c6f69737465723f7265663d6d61696e0a313730303030303230303030300a73624b7a744c573274376935757275387662365f77410a",
+      "expected_canonical_bytes_sha256_hex": "5f2a9b18bcd307f703bb5fb0c1ff28eb76d556b92877ac4677ff2e70ecba3a0b"
+    },
+    {
+      "name": "happy_body_field_oauth_token",
+      "description": "POST /vault/proxy/oauth-x/token with a JSON body — what the SKILL signs BEFORE the proxy injects client_secret. The signed canonical bytes are over the skill's body (without client_secret); the upstream body (with client_secret) is what injection-fixtures.json:oauth2_client_credentials produces. This separation is load-bearing: the caller cannot sign a body containing a credential it hasn't seen.",
+      "inputs": {
+        "method": "POST",
+        "url": "/vault/proxy/oauth-x/token",
+        "ts_ms": 1700000300000,
+        "nonce_b64url_no_pad": "wcLDxMXGx8jJysvMzc7P0A",
+        "body": "{\"grant_type\":\"client_credentials\"}"
+      },
+      "expected_canonical_bytes_len": 104,
+      "expected_canonical_bytes_hex": "504f53540a2f7661756c742f70726f78792f6f617574682d782f746f6b656e0a313730303030303330303030300a77634c44784d584778386a4a7973764d7a63375030410a7b226772616e745f74797065223a22636c69656e745f63726564656e7469616c73227d",
+      "expected_canonical_bytes_sha256_hex": "7e156f81785e0072f5aca600a93360dd45b795b844d5c542cd4fcea66114bd64"
+    }
+  ]
+}

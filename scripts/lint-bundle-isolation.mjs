@@ -1003,14 +1003,46 @@ function checkInvariant10(cluster, ociByInput, warnings, ociByBundle = new Map()
 }
 
 /**
+ * The six schemes `cloister/confinement/v1` §5 closes over, each requiring a
+ * non-empty remainder. This is a CLOSED set in the spec — §5 enumerates the
+ * `nono::keystore` URIs and nothing else is a credentialSource — so mirroring it
+ * here is stating a closed enumeration, not duplicating an open schema.
+ *
+ * Source: leyline-schema-spec/confinement/v1/README.md §5. Identical at v0.7.3
+ * (the version manifest/cluster.capnp still claims to mirror) and at v0.16.0, so
+ * this list is not the drift cloister-d303b2 tracks.
+ */
+export const CREDENTIAL_SOURCE_SCHEMES = [
+  "keychain://",
+  "secret-tool://",
+  "keyring://",
+  "file://",
+  "op://",
+  "apple-password://",
+];
+
+/**
  * Inv 11 (cloister-a34edc, cloister/confinement/v1) — a declared confinement
- * facet must be valid + fail-closed. The four dimensions are allow-lists with no
+ * facet must be valid + fail-closed. The dimensions are allow-lists with no
  * "unrestricted" escape hatch (fail-closed by construction), so this enforces the
- * §2-4 validity constraints a malformed/over-broad declaration would break:
+ * §2-5 validity constraints a malformed/over-broad declaration would break:
  *   §2 fs.allow  — absolute canonical path prefixes; mode "" (ro) | "rw".
  *   §3 allowHosts — wildcard only as a leading "*.".
  *   §4 port.bind — 0 (no listener) or 1024-65535 (privileged ports out of scope).
+ *   §5 credentialSource — one of the closed set of keystore schemes, or absent.
  * The empty deny-all default (no entries) passes trivially.
+ *
+ * §5 was unchecked until cloister-d2ba07, and the docstring above used to say
+ * "the four dimensions" while validating three — the gap was visible in this
+ * comment. What it let through: `cli/lib/harness/launch.mjs` emitted
+ * `credentialSource: "vault://<service>"`, a scheme §5 does not close over, so
+ * every confinement document cloister issued was refused at parse by a conforming
+ * runner (verified against LLO b9b800c). The digest-conformance test could not
+ * catch it — it agrees with LLO on LLO's canonical vector and never reads a
+ * manifest cloister produced.
+ *
+ * §6 unixSocket.allow is deliberately NOT checked: `struct Confinement` cannot
+ * represent it (cloister-d303b2), so a check would have no field to read.
  */
 function checkInvariant11(cluster, violations) {
   for (const b of cluster.bundles ?? []) {
@@ -1041,11 +1073,44 @@ function checkInvariant11(cluster, violations) {
         );
       }
     }
+    // 0 IS VALID HERE and invalid in an emitted document, and the difference is
+    // not sloppiness — it is where each layer lives.
+    //
+    // §4 spells "no listener" as OMITTING the `port` block, and bounds `bind` at
+    // 1024-65535. But this facet is the capnp projection, and capnp has no
+    // optional scalars: `bind @0 :UInt16` always carries a value, so 0 is the
+    // only way the operator surface can say "absent". Refusing it here would
+    // make "no listener" unrepresentable in cluster.capnp.
+    //
+    // The omission rule therefore belongs to whatever EMITS a confinement/v1
+    // document, and is enforced there — ADR-0067's L1 validates the emitted
+    // artifact against the schema, which is what caught `port: {bind: 0}` in
+    // the harness builder after two other §-refusals had masked it.
+    //
+    // If a projector from this facet to a confinement/v1 document is ever
+    // written, `bind === 0` must become an omitted block rather than a zero.
     const bind = c.port?.bind ?? 0;
     if (bind !== 0 && (bind < 1024 || bind > 65535)) {
       violations.push(
-        `${where}: port.bind ${bind} out of range — 0 (none) or 1024-65535 (Inv 11, §4).`,
+        `${where}: port.bind ${bind} out of range — 1024-65535, or 0 for no ` +
+          `listener (which an emitter must render as an OMITTED port block, §4).`,
       );
+    }
+    // Empty is ABSENT, matching §5's "a bundle needing no credentials omits the
+    // field" and cluster-to-toml's existing prune of "". Only a non-empty value
+    // is a claim, and only a claim gets checked.
+    const source = c.credentialSource ?? "";
+    if (source !== "") {
+      const scheme = CREDENTIAL_SOURCE_SCHEMES.find((s) => source.startsWith(s));
+      if (!scheme || source.length === scheme.length) {
+        violations.push(
+          `${where}: credentialSource ${JSON.stringify(source)} is not one of the ` +
+            `schemes confinement/v1 §5 closes over with a non-empty remainder ` +
+            `(${CREDENTIAL_SOURCE_SCHEMES.join(", ")}) — a conforming runner refuses ` +
+            `the document at parse, so the confinementDigest committed to the ` +
+            `bundle's identity would be over bytes nothing can enforce (Inv 11, §5).`,
+        );
+      }
     }
   }
 }

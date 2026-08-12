@@ -111,6 +111,74 @@ export interface Env {
 
   // Service bindings (workerd-native)
   NOTME: Fetcher; // notme-bot — agent identity, JWT/Ed25519 certs
+  /// Delegated OAuth JWT signing (notme ADR-015 / notme PR #62,
+  /// cloister-5f7e5c). An RPC entrypoint on notme-bot, NOT a Fetcher, and
+  /// NOT the `NOTME` binding above — that is the `/identity/*` fetch path.
+  ///
+  /// Optional because it is declared on the wrangler path only. `task
+  /// serve:local` (raw workerd) cannot have it — config.capnp declares
+  /// notme-bot as a network service and an RPC entrypoint cannot bind to one.
+  /// `task dev` CAN: wrangler's dev registry wires named entrypoints between
+  /// separately-running `wrangler dev` sessions, so with notme's worker up the
+  /// binding resolves locally (verified: `env.NOTME_JWT (notme-bot#JwtSigner)
+  /// Worker local [connected]`). See DECLARED_ASYMMETRY in
+  /// scripts/lint-binding-parity.mjs. Absent binding means `/oauth/token`
+  /// returns 503 — the correct fail-closed answer for "no signer reachable".
+  ///
+  /// The key is DELEGATED, deliberately not the Interlace/CA master. notme
+  /// refused the master-key version because its own access tokens are signed
+  /// with that key, making arbitrary `header.payload` signing an
+  /// AUTHENTICATION BYPASS rather than a forgery oracle. Note the contrast
+  /// with `RECEIPT_SIGNING_KEY` below: receipts are safe on a shared key
+  /// because the Interlace spec pins their eight fields, so validate →
+  /// re-encode → compare closes the signable set. A JWT payload has no
+  /// schema; arbitrary claims ARE the useful surface, so there is nothing to
+  /// canonicalize and key separation is the only load-bearing control.
+  NOTME_JWT?: {
+    /// Sign `headerB64.payloadB64` with the delegated key for `issuer`.
+    /// `issuer` must appear in notme's operator-configured
+    /// `DELEGATED_JWT_ISSUERS` allowlist — an allowlist rather than
+    /// caller-supplied, because a caller who could register an issuer could
+    /// register notme's own.
+    signJwt(params: { issuer: string; headerB64: string; payloadB64: string }):
+      Promise<
+        | { ok: true; signature: Uint8Array; kid: string }
+        | { ok: false; code: string; message: string }
+      >;
+    /// The delegated public key + kid, for cloister to publish in its JWKS.
+    /// `manifest.actor.pubkeyBinding` must hold THIS key, not the master —
+    /// publishing the master while signing delegated makes every token fail
+    /// verification (the right failure direction, but worth ordering).
+    issuerPublicKey(issuer: string): Promise<
+      | { ok: true; publicRawB64: string; kid: string }
+      | { ok: false; code: string; message: string }
+    >;
+  };
+  /// Interlace receipt signing delegated to notme's `ReceiptSigner` RPC
+  /// entrypoint (notme ADR-014 / cloister-35ccf7). Its OWN binding, NOT an
+  /// `entrypoint` pinned on `NOTME` above — that binding is live for the
+  /// `/identity/*` fetch proxy, and pinning an entrypoint on it would redirect
+  /// that traffic to a class with no `fetch` handler and break identity.
+  /// notme's own comment records that an earlier draft said to do exactly
+  /// that, and that it would have broken the first integrator to follow it.
+  ///
+  /// Preferred over `RECEIPT_SIGNING_KEY` when present: that binding puts a
+  /// master PRIVATE key in cloister's env, which ADR-0010 rules out and which
+  /// makes a second copy of a trust root whose whole property is that it never
+  /// leaves notme.
+  NOTME_RECEIPTS?: {
+    /// `actor_fp` (ALREADY SHA-256 hashed) + `epoch` a commitment must carry.
+    /// Hashed on notme's side on purpose: if cloister hashed it, cloister
+    /// would own a derivation notme then validates against.
+    receiptFacts(): Promise<{ actorFp: Uint8Array; epoch: number }>;
+    /// Sign canonical CBOR commitment bytes. Branch on `{ok: false, code}`
+    /// rather than catching a throw; `EPOCH_MISMATCH` is the only retryable
+    /// code and MUST be bounded to one retry.
+    signReceipt(commitment: Uint8Array): Promise<
+      | { ok: true; signature: Uint8Array; epoch: number }
+      | { ok: false; code: string; message: string }
+    >;
+  };
 
   // Vars (local dev: process addresses for non-workerd backends)
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
@@ -153,13 +221,35 @@ export interface Env {
   /// RECEIPTS.md §2.1, §2.4). The matching 32-byte raw pubkey MUST
   /// match what `.well-known/interlace/index.json` advertises as the
   /// signing key for the current epoch. Production deployments
-  /// delegate signing to notme — when this binding is unset and
-  /// `env.NOTME` is configured, the receipt emitter forwards to
-  /// notme's `/internal/sign-receipt` endpoint (followup bead to
-  /// land the notme-side handler). Empty AND no NOTME binding means
+  /// delegate signing to notme — but NOT via `/internal/sign-receipt`,
+  /// which notme declined to build because a `/internal/` path prefix
+  /// is publicly routable and is therefore not an access control. The
+  /// shape is an RPC entrypoint; see `src/wire/receipts.ts` §"Key
+  /// surface" for the call and the binding it needs (which is NOT this
+  /// `NOTME` one — that is the `/identity/*` fetch binding). Empty AND
+  /// no signer binding means
   /// receipts are NOT emitted (dev/test mode; the 0.2.0 spec Phase 1
   /// migration allows this — see RECEIPTS.md §8.2).
   RECEIPT_SIGNING_KEY?: string;
+  /// Interlace ACTOR fingerprint — "sha256:<64 lowercase hex>" over the master
+  /// public key. Read ONLY by src/routes/actor-fingerprint.ts
+  /// (`lint:trust-env-locality`).
+  ///
+  /// Fallback for `manifest.actor.fingerprint` when that is empty, which gates
+  /// BOTH published identity surfaces: the Interlace discovery doc and the
+  /// five-path identity bridge. The manifest value wins when set — an env var
+  /// must not silently repoint a committed identity.
+  ///
+  /// Exists because the fingerprint is DERIVABLE from the pubkey, so an empty
+  /// manifest value beside a present key is underspecified rather than
+  /// switched off — and "disabled" and "not filled in yet" were previously the
+  /// same 404. Same shape as `RECEIPT_ACTOR_FP` below, which already resolved
+  /// the receipt half of one actor's identity this way.
+  ///
+  /// Neither set still means disabled. `cloister dev bootstrap` derives and
+  /// writes this so a local scaffold publishes a live surface instead of a
+  /// declared-but-dead one.
+  INTERLACE_ACTOR_FP?: string;
   /// Current key epoch for this actor (decimal uint). Defaults to 1
   /// when unset. Increments when the master signing key rotates; old
   /// epochs remain resolvable via TrustStore's actor_ca_bundle table.

@@ -295,15 +295,15 @@ export interface Bundle {
   perTenant: boolean;
 
   /**
-   * cloister-a34edc: the §5 confinement facet (cloister/confinement/v1). Four
-   * fail-closed default-DENY dimensions; BLAKE3-256 of its §6-canonical form is
+   * cloister-a34edc: the §1 confinement facet (cloister/confinement/v1). Four fail-closed default-DENY dimensions (of the spec's five —
+   * §6 unixSocket is not yet expressible here; see manifest/cluster.capnp); BLAKE3-256 of its §7-canonical form is
    * the `confinementDigest` committed to the bundle's Interlace identity.
    * (Hand-mirrors `src/generated/cluster.zod.ts`; the dedup is bead cloister-204ac9.)
    */
   confinement: Confinement;
 }
 
-/** cloister/confinement/v1 §5 ConfinementManifest — see manifest/cluster.capnp. */
+/** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */
 export interface Confinement {
   fs: { allow: Array<{ path: string; mode: string }> };
   network: { allowHosts: string[] };
@@ -651,8 +651,17 @@ export interface HarnessTargetConfig {
   apiKeyEnv:   string;
   /** Env var the harness reads to find the vault proxy. */
   baseUrlEnv:  string;
-  /** Credential env vars scrubbed before exec. Should include `apiKeyEnv`. */
+  /**
+   * Credential env vars scrubbed before exec, UNCONDITIONALLY. Should include
+   * `apiKeyEnv`.
+   */
   stripEnv:    readonly string[];
+  /**
+   * Env var carrying a SUBSCRIPTION credential (ADR-0064). Stripped in custody,
+   * RETAINED in audit — which is why it cannot live in `stripEnv`, whose
+   * entries apply to every mode. Empty when the target has no subscription lane.
+   */
+  subscriptionTokenEnv: string;
   /** Env var overriding the harness state directory. */
   stateDirEnv: string;
   /** State dir relative to `$HOME`; granted rw under confinement. */

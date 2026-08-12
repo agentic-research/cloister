@@ -748,8 +748,16 @@ latency, batched for high-throughput-with-consistency).
 ## 7. Test vectors
 
 The following test vectors are required in
-`interlace-spec/0.2.0/test-vectors/`. Each implementation **MUST**
+`interlace-spec/0.2.0-draft/test-vectors/`. Each implementation **MUST**
 reproduce them byte-equal.
+
+> **Path corrected 2026-08-03 (`cloister-9d0960`).** This clause previously
+> named `interlace-spec/0.2.0/`, a directory that does not exist — the draft
+> lives at `0.2.0-draft/`. A normative MUST pointing at a nonexistent path is
+> a requirement no implementation can satisfy or verify, and nothing caught it
+> because `lint:spec-citation` polices cloister's citations INTO
+> ley-line-open's specs, not citations into the spec cloister itself
+> publishes.
 
 1. `receipt-canonical-bytes.json` — given fixed inputs (nonce, request_hash,
    status, body_hash, headers_hash, timestamp_ms, actor_fp, epoch),

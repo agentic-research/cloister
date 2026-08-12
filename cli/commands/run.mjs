@@ -47,7 +47,7 @@
 // Two writable roots is a materially wider confinement than one, so it is part
 // of the SHAPE: the manifest gains a `workspace.1` entry per extra root and the
 // digest changes. If it did not, a cert minted against a one-repo shape would
-// satisfy the §7 commitment check for a run confined to five — the manifest
+// satisfy the §8 commitment check for a run confined to five — the manifest
 // would be attesting a boundary it no longer describes.
 //
 // The single-repo manifest is byte-identical to before, so its digest is

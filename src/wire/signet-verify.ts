@@ -111,7 +111,7 @@ interface SignetWasmExports {
    *    "sc":"...","cd":"<base64url>"}
    * `ep`, `pf`, `sc`, `cd` are optional (omitted when cert lacks the matching
    * Interlace extension). `cd` is the confinementDigest (32-byte BLAKE3-256
-   * of the §6-canonical ConfinementManifest) from OID 1.3.6.1.4.1.99999.1.7,
+   * of the §7-canonical ConfinementManifest) from OID 1.3.6.1.4.1.99999.1.7,
    * added in LLO v0.7.6 (ley-line-open-c79ea8).
    */
   leyline_verify_cert_chain: (
@@ -268,8 +268,8 @@ export function freeWasmBuffer(
  * optional — present only when the cert was minted with the matching
  * custom-OID extension.
  *
- * `confinementDigest` is the 32-byte BLAKE3-256 of the §6-canonical
- * `ConfinementManifest` (cloister/confinement/v1 §7), committed into the
+ * `confinementDigest` is the 32-byte BLAKE3-256 of the §7-canonical
+ * `ConfinementManifest` (cloister/confinement/v1 §8), committed into the
  * workload's lane-2 Interlace identity as OID 1.3.6.1.4.1.99999.1.7 and
  * carried inside the signed `tbs_certificate` span (a byte-flip breaks the
  * Ed25519 signature). Present only for certs minted by LLO v0.7.6+
@@ -395,7 +395,7 @@ export function _parseClaimsJson(json: string): CertChainResult {
   if (typeof parsed["pf"] === "string") claims.peerFp = parsed["pf"] as string;
   if (typeof parsed["sc"] === "string") claims.scope  = parsed["sc"] as string;
 
-  // Optional confinementDigest (cloister/confinement/v1 §7, OID …1.7). The wasm
+  // Optional confinementDigest (cloister/confinement/v1 §8, OID …1.7). The wasm
   // already length-checks the DER OctetString to exactly 32 bytes and rejects
   // otherwise; we re-assert here on the base64url form so a mis-sized digest is
   // a hard-reject at the parse boundary rather than a silently-truncated claim

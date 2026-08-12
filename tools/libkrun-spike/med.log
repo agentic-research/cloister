@@ -1,3 +1,0 @@
-cloister-mediator: confined NFS server on 127.0.0.1:56314
-  reads outside the policy allowlist are denied; loads emit receipts.
-  mount (macOS): sudo mount -t nfs -o vers=3,tcp,port=56314,mountport=56314,noac 127.0.0.1:/ /mnt

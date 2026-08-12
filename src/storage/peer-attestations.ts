@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS peer_attestations (
   -- for attestations that aren't bead-create (e.g. future state-boundary
   -- writes against other DO state).
   bead_id          TEXT,
+  -- origins: ADR-0065 phase 1 (cloister-16f81c). Serialized origin set for
+  -- the attested content — the sources it derives from, each naming the
+  -- authority that vouches for it. Lives HERE and not in the bead's canonical
+  -- bytes, so content_hash is unchanged for every bead written before this
+  -- column, and so two peers claiming different provenance for byte-identical
+  -- content produce two attestations rather than colliding into one.
+  -- NULL means the row makes no provenance claim and derives origin-unknown;
+  -- absence must never read as vouched.
+  origins          TEXT,
   PRIMARY KEY (peer_fingerprint, seq)
 );
 CREATE INDEX IF NOT EXISTS peer_attestations_content
@@ -88,6 +97,8 @@ export interface PeerAttestation {
    * amendment 2026-06-24.
    */
   bead_id:          string | null;
+  /** Serialized origin set, or null for a row making no provenance claim. */
+  origins:          string | null;
 }
 
 /**
@@ -131,7 +142,8 @@ export function lastAttestationForPeer(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at, bead_id
+              content_hash, content_type, scope, cert, sig, created_at, bead_id,
+              origins
          FROM peer_attestations
         WHERE peer_fingerprint = ?
      ORDER BY seq DESC
@@ -159,7 +171,8 @@ export function attestationsForBead(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at, bead_id
+              content_hash, content_type, scope, cert, sig, created_at, bead_id,
+              origins
          FROM peer_attestations
         WHERE bead_id = ?
      ORDER BY created_at ASC`,
@@ -213,6 +226,15 @@ export function applyAttestation(
      * against non-bead state leave this null. Per cloister-c8b907 sub-bead 1.
      */
     beadId?:         string | null;
+    /**
+     * Serialized origin set (ADR-0065 phase 1). Built by the bead-create
+     * orchestrator via `src/wire/origin.ts`; null/undefined for writes that
+     * make no provenance claim. Stored verbatim — this layer does not derive
+     * confidence from it, because `deriveConfidence` is the only thing that
+     * may, and it needs the EVALUATOR's trust set, which a storage write does
+     * not have.
+     */
+    origins?:        string | null;
   },
 ): ApplyAttestationResult {
   const last = lastAttestationForPeer(sql, args.peerFingerprint);
@@ -234,8 +256,9 @@ export function applyAttestation(
   sql.exec(
     `INSERT INTO peer_attestations
        (peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-        content_hash, content_type, scope, cert, sig, created_at, bead_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        content_hash, content_type, scope, cert, sig, created_at, bead_id,
+        origins)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args.peerFingerprint,
     seq,
     args.prevSelfRef,
@@ -247,6 +270,7 @@ export function applyAttestation(
     args.sig,
     args.nowMs,
     beadId,
+    args.origins ?? null,
   );
 
   return {
@@ -264,6 +288,7 @@ export function applyAttestation(
       sig:              args.sig,
       created_at:       args.nowMs,
       bead_id:          beadId,
+      origins:          args.origins ?? null,
     },
   };
 }
@@ -283,7 +308,8 @@ export function listAttestationsForPeer(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at, bead_id
+              content_hash, content_type, scope, cert, sig, created_at, bead_id,
+              origins
          FROM peer_attestations
         WHERE peer_fingerprint = ? AND seq >= ?
      ORDER BY seq ASC
@@ -310,7 +336,8 @@ export function findAttestationByContent(
   const rows = sql
     .exec(
       `SELECT peer_fingerprint, seq, prev_self_ref, prev_peer_ref,
-              content_hash, content_type, scope, cert, sig, created_at, bead_id
+              content_hash, content_type, scope, cert, sig, created_at, bead_id,
+              origins
          FROM peer_attestations
         WHERE peer_fingerprint = ? AND content_hash = ?
      ORDER BY seq DESC
@@ -330,6 +357,10 @@ function rowToAttestation(r: Record<string, unknown>): PeerAttestation {
     seq:              r["seq"]              as number,
     prev_self_ref:    (r["prev_self_ref"]   as string | null) ?? null,
     prev_peer_ref:    (r["prev_peer_ref"]   as string | null) ?? null,
+    // Absent column (a row read through a pre-migration path) and NULL both
+    // land as null, which `deriveConfidence` reads as "unknown". That is the
+    // fail-closed direction: absence must never read as vouched.
+    origins:          (r["origins"]         as string | null) ?? null,
     content_hash:     r["content_hash"]     as string,
     content_type:     r["content_type"]     as string,
     scope:            r["scope"]            as string,

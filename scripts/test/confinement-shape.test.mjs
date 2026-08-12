@@ -6,9 +6,16 @@
 //   1. WHICH directories you confine does not change the digest. That is why
 //      `cloister run --repo <anything>` works against one attested shape.
 //   2. HOW MANY directories you confine DOES change it. Without this, a cert
-//      minted against a one-root shape would satisfy the §7 commitment check
+//      minted against a one-root shape would satisfy the §8 commitment check
 //      for a run confined to five — the manifest would be attesting a boundary
 //      it no longer describes, and nothing would say so.
+//
+// And since cloister-d2ba07, the third thing a reader would otherwise take on
+// faith: the document cloister emits actually CONFORMS to confinement/v1. It did
+// not — `credentialSource: "vault://<service>"` used a scheme §5 does not close
+// over, so a conforming runner refused it at parse. Asserting the digest matches
+// LLO's canonical vector never noticed, because that vector is LLO's document,
+// not one this builder produced.
 //
 // Property 2 is the one that only became falsifiable when --repo learned to
 // repeat. Property 1 is older and is asserted here because the multi-root change
@@ -17,16 +24,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 import {
-  confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup,
+  confinementManifest, resolveCompanionWorkers, assertPortsFree, killProcessGroup, envStripFor,
 } from "../../cli/lib/harness/launch.mjs";
 import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
+import { CREDENTIAL_SOURCE_SCHEMES } from "../lint-bundle-isolation.mjs";
 
 // NOT a provider name. The confinement shape is provider-independent — that is
 // the property, and hardcoding one harness's service here would both assert
@@ -37,23 +45,61 @@ import { loadHarnessConfig } from "../../cli/lib/harness/targets.mjs";
 const SVC = "svc";
 
 // Not BLAKE3 — the point here is DISTINGUISHABILITY of the manifest bytes, and
-// any collision-resistant digest answers that. The real §6 digest is computed by
+// any collision-resistant digest answers that. The real §7 digest is computed by
 // the Rust minter over the same canonical bytes; asserting equality against a
 // hardcoded BLAKE3 value here would test this file's constant, not the shape.
 const digest = (m) => createHash("sha256").update(JSON.stringify(m)).digest("hex");
 
-test("the one-root manifest is byte-identical to the pre-multi-root shape", () => {
-  // The literal below is what the manifest was before `workspace.N` existed. If
-  // this fails, every previously-minted single-repo cert stopped verifying — a
-  // breaking change that would otherwise show up as a §7 mismatch at exec time
-  // with nothing pointing at the cause.
-  assert.deepEqual(confinementManifest(1, SVC), {
+test("the one-root manifest is exactly the two dimensions the harness declares", () => {
+  // A pinned literal, so a change to the emitted shape has to be deliberate: the
+  // digest is committed into every minted cert, and a silent change shows up as
+  // an §8 mismatch at exec time with nothing pointing at the cause.
+  //
+  // `credentialSource` is ABSENT, which is the §5-conforming way to say what is
+  // true — the harness authenticates against no keystore, because the vault
+  // proxy injects the credential as a header and the process never holds it. It
+  // previously read `vault://<service>`; see the header note.
+  assert.deepEqual(confinementManifest(1), {
     version: "cloister/confinement/v1",
-    fs: { allow: [{ path: "workspace", mode: "rw" }, { path: "state", mode: "rw" }] },
+    fs: {
+      allow: [
+        { path: "/run/cloister/workspace/", mode: "rw" },
+        { path: "/run/cloister/state/", mode: "rw" },
+      ],
+    },
     network: { allowHosts: ["127.0.0.1"] },
-    port: { bind: 0 },
-    credentialSource: `vault://${SVC}`,
+    // NO `port` key. §4 spells "no listener" as omission, and the schema bounds
+    // `bind` at 1024-65535 — `port: {bind: 0}` was refused by LLO's parser and
+    // was the THIRD §-refusal in this document, invisible until §5 and §2 were
+    // fixed ahead of it. ADR-0067's L1 found it by validating the whole emitted
+    // document rather than one dimension at a time.
   });
+});
+
+test("the emitted document conforms to §5 — no invented credential scheme", () => {
+  // The rail that would have caught cloister-d2ba07 at the builder. Inv 11 now
+  // checks the operator-declared facet in cluster.capnp; this checks the one
+  // cloister generates, which no operator declares and Inv 11 therefore never
+  // sees. Both are needed — the bug lived in the half Inv 11 does not read.
+  //
+  // Written as "absent, or a §5 scheme" rather than "absent", so re-introducing
+  // the field for a real keystore binding stays possible and stays checked.
+  //
+  // The scheme set is IMPORTED, not spelled again. It was written out here in a
+  // first draft while Inv 11 already exported the same six strings — two hand
+  // copies of a closed enumeration, in the same session, hours apart. That is
+  // the failure mode CLAUDE.md names ("a field list that mirrors the schema is a
+  // bug waiting to happen") reproduced by the person quoting it.
+  for (const n of [1, 3]) {
+    const source = confinementManifest(n).credentialSource;
+    if (source === undefined) continue;
+    const scheme = CREDENTIAL_SOURCE_SCHEMES.find((s) => source.startsWith(s));
+    assert.ok(
+      scheme && source.length > scheme.length,
+      `credentialSource ${JSON.stringify(source)} is not a §5 scheme with a non-empty ` +
+        `remainder — a conforming runner refuses the document at parse`,
+    );
+  }
 });
 
 test("WHICH repo you confine is absent from the manifest entirely", () => {
@@ -61,20 +107,37 @@ test("WHICH repo you confine is absent from the manifest entirely", () => {
   // absolute path appears anywhere in the serialized manifest. Asserting two
   // calls agree would prove nothing, since the function takes no path at all —
   // this asserts the reason that is true.
-  // Scoped to fs.allow: `credentialSource` is a vault:// URI and legitimately
-  // contains separators, so checking the whole document would fail for a reason
-  // that has nothing to do with the property.
-  const allow = confinementManifest(3, SVC).fs.allow;
-  for (const entry of allow) {
-    assert.doesNotMatch(entry.path, /[/\\]/, `${entry.path} — a separator means a real path leaked`);
-  }
-  assert.deepEqual(allow.map((e) => e.path), ["workspace", "workspace.1", "workspace.2", "state"]);
+  //
+  // RESTATED for cloister-bd6399. The old form asserted no path separator
+  // appeared in an fs.allow entry, which worked only while the roots were bare
+  // names (`workspace`). §2 requires absolute paths, so separators are now
+  // expected and "contains a slash" no longer distinguishes a symbolic root
+  // from a leaked host path.
+  //
+  // The property was never really "no separators" — it is "no CALLER INPUT
+  // reaches the document", and that is what is asserted directly now: the
+  // emitted paths are exactly the symbolic constants, and they are the same
+  // whatever the caller passed. A leaked workdir would have to appear here to
+  // do any harm, and it cannot, because these strings are built from a fixed
+  // prefix and an index.
+  const allow = confinementManifest(3).fs.allow;
+  assert.deepEqual(allow.map((e) => e.path), [
+    "/run/cloister/workspace/",
+    "/run/cloister/workspace.1/",
+    "/run/cloister/workspace.2/",
+    "/run/cloister/state/",
+  ]);
+  // Non-vacuity: the constants above are only meaningful if a real host path
+  // would be visibly different. `process.cwd()` stands in for the workdir a
+  // caller actually passes — no entry may contain it, or any part of $HOME.
+  const serialized = JSON.stringify(confinementManifest(3));
+  assert.doesNotMatch(serialized, new RegExp(process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("HOW MANY roots changes the digest — one root does not attest three", () => {
-  const one = digest(confinementManifest(1, SVC));
-  const two = digest(confinementManifest(2, SVC));
-  const three = digest(confinementManifest(3, SVC));
+  const one = digest(confinementManifest(1));
+  const two = digest(confinementManifest(2));
+  const three = digest(confinementManifest(3));
   assert.notEqual(one, two, "a 1-root cert must not satisfy a 2-root confinement");
   assert.notEqual(two, three);
   assert.notEqual(one, three);
@@ -82,11 +145,11 @@ test("HOW MANY roots changes the digest — one root does not attest three", () 
 
 test("the root count is the entry count — the shape says how wide it is", () => {
   for (const n of [1, 2, 5]) {
-    const rw = confinementManifest(n, SVC).fs.allow;
+    const rw = confinementManifest(n).fs.allow;
     // n workspaces + state. If these ever diverge, the manifest claims a
     // different width than the kernel grants it is built alongside.
     assert.equal(rw.length, n + 1, `${n} roots ⇒ ${n} workspace entries + state`);
-    assert.equal(rw.filter((e) => e.path.startsWith("workspace")).length, n);
+    assert.equal(rw.filter((e) => e.path.startsWith("/run/cloister/workspace")).length, n);
     assert.ok(rw.every((e) => e.mode === "rw"));
   }
 });
@@ -95,25 +158,37 @@ test("zero roots is refused, not silently rendered as an empty allow-list", () =
   // An empty fs.allow is a VALID-looking confinement/v1 document that grants
   // nothing — the harness would launch and fail on its first read, which reads
   // as a broken harness rather than a malformed request.
-  assert.throws(() => confinementManifest(0, SVC), /at least one writable root/);
-  assert.throws(() => confinementManifest(-1, SVC), /at least one writable root/);
+  assert.throws(() => confinementManifest(0), /at least one writable root/);
+  assert.throws(() => confinementManifest(-1), /at least one writable root/);
 });
 
-test("the shape is identical for EVERY declared target — no harness is a special case", async () => {
+test("no declared target's service name appears in the manifest at all", async () => {
+  // "Every target is confined identically" is now true BY CONSTRUCTION —
+  // `confinementManifest` takes no service, so it cannot vary by one. Asserting
+  // two calls agree would test nothing, which is exactly the vacuity this file
+  // avoids elsewhere. So assert the stronger fact that makes it true: no service
+  // name reaches the document.
+  //
   // Derived from cluster.toml rather than a list here, so adding a third harness
-  // is covered without editing this file. The service name reaches exactly one
-  // field (credentialSource); if it ever reached the fs/network/port shape, one
-  // provider would be confined differently from another with nothing saying so.
+  // is covered without editing this file. `lint:harness-target-literals` is why
+  // no provider name is written down in this test.
   const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
   assert.ok(targets.length >= 1, "cluster.toml must declare at least one harness target");
 
-  const shapeOf = (m) => ({ fs: m.fs, network: m.network, port: m.port, version: m.version });
-  const reference = shapeOf(confinementManifest(2, SVC));
+  const document = JSON.stringify(confinementManifest(2));
   for (const t of targets) {
-    const m = confinementManifest(2, t.service);
-    assert.deepEqual(shapeOf(m), reference, `${t.name} is confined differently`);
-    assert.equal(m.credentialSource, `vault://${t.service}`, `${t.name} vaults its own service`);
+    assert.doesNotMatch(
+      document,
+      new RegExp(t.service.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${t.name}: service "${t.service}" reached the confinement document — the boundary ` +
+        `is provider-independent, and a per-provider digest would attest a difference ` +
+        `the sandbox does not enforce`,
+    );
   }
+  // Non-vacuity: the guard above only means something if a service name COULD
+  // have appeared. SVC stands in for one that is not declared, proving the
+  // matcher fires on a name the document does contain.
+  assert.match(JSON.stringify({ credentialSource: `vault://${SVC}` }), new RegExp(SVC));
 });
 
 // ── the set rules belong to the CONFINEMENT, not to one door's flag syntax ──
@@ -333,4 +408,183 @@ test("killProcessGroup falls back to the leader when no group exists", () => {
   let direct = 0;
   killProcessGroup({ pid: undefined, kill: () => { direct++; } });
   assert.equal(direct, 1, "a platform without process groups must still stop the leader");
+});
+
+test("several bindings on ONE service launch ONE process", () => {
+  // Real shape, not hypothetical: cloister binds notme-bot three times — NOTME
+  // for the /identity/* fetch proxy, NOTME_JWT and NOTME_RECEIPTS for two
+  // distinct RPC entrypoints, each its own binding for least privilege
+  // (notme's ReceiptSigner comment is explicit that sharing one binding would
+  // redirect /identity/* to a class with no fetch handler).
+  //
+  // Mapping bindings 1:1 to processes started notme-bot THREE times on three
+  // ports. That is not merely wasteful: wrangler pairs service bindings
+  // through its dev registry by worker NAME, so three live registrations of
+  // one name is the single thing that mechanism cannot survive.
+  const workers = resolveCompanionWorkers(
+    ['[[services]]', 'binding = "NOTME"', 'service = "notme-bot"', '',
+     '[[services]]', 'binding = "NOTME_JWT"', 'service = "notme-bot"',
+     'entrypoint = "JwtSigner"', '',
+     '[[services]]', 'binding = "NOTME_RECEIPTS"', 'service = "notme-bot"',
+     'entrypoint = "ReceiptSigner"', '',
+     '[[services]]', 'binding = "OTHER"', 'service = "other-worker"'].join("\n"),
+    {},
+  );
+  assert.deepEqual(workers.map((w) => w.service), ["notme-bot", "other-worker"]);
+  // Ports stay distinct across the DEDUPED set — indexing after the dedupe, not
+  // before, or the second service would inherit a gap and the assertion above
+  // would pass while the ports told a different story.
+  assert.equal(new Set(workers.map((w) => w.port)).size, workers.length);
+});
+
+test("the real wrangler.toml resolves one process per distinct service", () => {
+  // Runs against the SHIPPED tree, so adding a fourth notme binding cannot
+  // reintroduce the fan-out without failing here. A fixture-only version of
+  // this test would have passed throughout the bug it exists to prevent.
+  const workers = resolveCompanionWorkers(
+    readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8"), {});
+  assert.equal(new Set(workers.map((w) => w.service)).size, workers.length,
+    "one entry per distinct service");
+});
+
+// ── the emitted document, checked against LLO's SCHEMA (cloister-bd6399) ──
+//
+// Two refusals have now been found by running cloister's document through a
+// conforming runner rather than by any check here: `credentialSource:
+// "vault://…"` (§5, cloister-d2ba07) and bare `workspace` paths (§2, this bead).
+// The second was hiding behind the first — fixing §5 let the parse get far
+// enough to reach §2.
+//
+// That is what per-dimension checks buy: one refusal at a time, in the order a
+// parser happens to hit them. So this drives the constraints FROM
+// `confinement.schema.json` instead of restating them. `AbsolutePath.pattern`
+// is read, not copied — if LLO tightens it, this tightens with it, and a
+// dimension cloister has not thought about is still covered.
+//
+// Local-only, matching `lint:spec-citation`'s existence half: a CI runner has
+// cloister and no sibling checkout. The portable checks above (pinned literal,
+// §5 schemes) stay unconditional.
+
+const SCHEMA_PATH = resolve(
+  process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open"),
+  "rs/ll-core/schema-spec/confinement/v1/confinement.schema.json",
+);
+const schemaMissing = !existsSync(SCHEMA_PATH);
+
+test("the emitted document satisfies the constraints LLO's schema declares", { skip: schemaMissing }, () => {
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const manifest = confinementManifest(3);
+
+  // version — read the `const`, do not spell it here.
+  assert.equal(manifest.version, schema.properties.version.const);
+
+  // fs.allow paths — apply the schema's own AbsolutePath regex. This is the
+  // check that would have caught bare `workspace`, and it catches `..` and
+  // relative prefixes cloister has never emitted but could.
+  const absolute = new RegExp(schema.$defs.AbsolutePath.pattern);
+  const modes = schema.$defs.FsEntry.oneOf
+    .find((b) => b.type === "object")?.properties.mode.enum;
+  for (const entry of manifest.fs.allow) {
+    const path = typeof entry === "string" ? entry : entry.path;
+    assert.match(path, absolute, `fs.allow ${JSON.stringify(path)} violates §2 AbsolutePath`);
+    if (typeof entry !== "string") {
+      assert.ok(modes.includes(entry.mode), `mode ${JSON.stringify(entry.mode)} is not in the schema enum`);
+    }
+  }
+
+  // No key cloister emits may be outside the schema's declared properties —
+  // the additionalProperties:false half, which is how an invented dimension
+  // (rather than an invented value) would show up.
+  for (const key of Object.keys(manifest)) {
+    assert.ok(key in schema.properties, `emitted key ${JSON.stringify(key)} is not in confinement/v1`);
+  }
+});
+
+test("Inv 11's hand-held §5 scheme list has not diverged from the schema", { skip: schemaMissing }, () => {
+  // Inv 11 must run WITHOUT a sibling checkout, so it cannot read the schema and
+  // the six strings are hand-held there of necessity. That is the same shape as
+  // `cluster-types.ts` vs the generated zod: one justified hand copy, plus a
+  // check that it does not silently disagree. The risk was never the duplication
+  // — it is divergence.
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const pattern = new RegExp(schema.$defs.CredentialSource.pattern);
+  for (const scheme of CREDENTIAL_SOURCE_SCHEMES) {
+    assert.match(`${scheme}x`, pattern, `Inv 11 allows ${scheme} but the schema does not`);
+  }
+  // …and the other direction: a scheme the schema names must be in Inv 11's
+  // list, or the rail under-catches. Derived from the pattern's alternation
+  // rather than restated, so a scheme added upstream shows up here.
+  const fromSchema = /\(([^)]+)\)/.exec(schema.$defs.CredentialSource.pattern)?.[1].split("|") ?? [];
+  assert.ok(fromSchema.length > 0, "the schema pattern must name its schemes");
+  for (const name of fromSchema) {
+    assert.ok(
+      CREDENTIAL_SOURCE_SCHEMES.includes(`${name}://`),
+      `the schema names ${name}:// and Inv 11 does not — the rail would under-catch`,
+    );
+  }
+});
+
+test("the schema-driven check is not vacuous — it rejects what it should", { skip: schemaMissing }, () => {
+  // The check is only worth having if the old document would have failed it.
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const absolute = new RegExp(schema.$defs.AbsolutePath.pattern);
+  assert.doesNotMatch("workspace", absolute, "the pre-bd6399 path must be refused by §2");
+  assert.doesNotMatch("/run/../etc", absolute, "a traversing path must be refused");
+  assert.match("/run/cloister/workspace/", absolute, "the shipped symbolic root must pass");
+});
+
+// ── ADR-0064 / cloister-67f767: env_strip is a function of the MODE ───────
+
+test("the subscription token is stripped in custody and kept in audit", () => {
+  // The invariant `stripEnv` could not express. A flat list asks "which
+  // target"; the question is "which mode" — so CLAUDE_CODE_OAUTH_TOKEN
+  // appeared in no list at all and was handed to every confined custody run.
+  const target = {
+    stripEnv: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+    subscriptionTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+  };
+  assert.ok(
+    envStripFor(target, { mode: "custody" }).includes("CLAUDE_CODE_OAUTH_TOKEN"),
+    "custody must strip it — the harness has a vaulted key and this is a second, unreceipted path",
+  );
+  assert.ok(
+    !envStripFor(target, { mode: "audit" }).includes("CLAUDE_CODE_OAUTH_TOKEN"),
+    "audit must keep it — it is the only credential the run has",
+  );
+  // The unconditional half is unchanged in both modes.
+  for (const mode of ["custody", "audit"]) {
+    for (const v of target.stripEnv) {
+      assert.ok(envStripFor(target, { mode }).includes(v), `${v} is stripped in ${mode}`);
+    }
+  }
+});
+
+test("a target with no subscription lane is unaffected", () => {
+  // codex is custody-only and declares no token. The computed list must equal
+  // the declared one exactly — no undefined, no empty string smuggled in.
+  const codex = { stripEnv: ["OPENAI_API_KEY"], subscriptionTokenEnv: "" };
+  for (const mode of ["custody", "audit"]) {
+    assert.deepEqual(envStripFor(codex, { mode }), ["OPENAI_API_KEY"]);
+  }
+});
+
+test("declaring the token in BOTH places does not duplicate it", () => {
+  const both = {
+    stripEnv: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"],
+    subscriptionTokenEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+  };
+  const out = envStripFor(both, { mode: "custody" });
+  assert.equal(out.filter((v) => v === "CLAUDE_CODE_OAUTH_TOKEN").length, 1);
+});
+
+test("the SHIPPED claude-code target declares the token it must strip", async () => {
+  // Non-vacuity against the real declaration: the tests above would pass on a
+  // fixture while cluster.toml said nothing. This is the half that proves the
+  // field survived the capnp → zod → cluster.ts projection, which silently
+  // dropped it until the field list was derived from the schema.
+  const { targets } = await loadHarnessConfig(resolve(ROOT, "cluster.toml"));
+  const claude = targets.find((t) => t.authModes?.includes("audit"));
+  assert.ok(claude, "no audit-capable target declared");
+  assert.equal(claude.subscriptionTokenEnv, "CLAUDE_CODE_OAUTH_TOKEN");
+  assert.ok(envStripFor(claude, { mode: "custody" }).includes("CLAUDE_CODE_OAUTH_TOKEN"));
 });

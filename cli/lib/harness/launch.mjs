@@ -77,7 +77,33 @@ const DEFAULT_SHIM_PORT = "8799";
 const COMPANION_PORT_BASE = 8810;
 
 /**
- * The confinement/v1 manifest a harness identity commits to (§7, cloister-c80953).
+ * Prefix for the SYMBOLIC roots in the confinement document (cloister-bd6399).
+ *
+ * confinement/v1 §2 requires absolute paths — a relative one has no fixed
+ * meaning at the point it is enforced — and the document previously emitted bare
+ * `workspace` / `state`, which a conforming runner refuses at parse:
+ *
+ *     §2 fs.allow path "workspace" must be absolute
+ *
+ * The bare names were not sloppiness. They are why `cloister run --repo
+ * <anything>` works against one attested shape: no real path appears in the
+ * document, so the digest does not vary per repository.
+ *
+ * LLO already solved the same tension and cloister copies the answer:
+ * `ATTESTED_RUN_ROOTFS = "/run/rootfs/"` is a path that is SYMBOLIC and
+ * ABSOLUTE at once — it goes into the attested bytes, and the real location is
+ * substituted at compile time. Both properties survive: repo-independence,
+ * because these strings are constants and no workdir reaches them; and §2
+ * validity, because they are absolute.
+ *
+ * These are NOT mount points and nothing resolves them on this plane. The real
+ * directories travel on the nono `CapabilityManifest`, which is where an
+ * absolute host path belongs and where it is already checked.
+ */
+const SYMBOLIC_ROOT = "/run/cloister/";
+
+/**
+ * The confinement/v1 manifest a harness identity commits to (§8, cloister-c80953).
  *
  * A STABLE profile declaration — never per-run paths — so the digest the minter
  * commits into the cert matches the one the runner recomputes over the SAME
@@ -86,21 +112,44 @@ const COMPANION_PORT_BASE = 8810;
  * localhost vault-proxy egress maps to allowHosts ["127.0.0.1"], no listener →
  * port.bind 0). Both halves are one declaration.
  *
+ * NO `credentialSource`, and its absence is the accurate statement (cloister-d2ba07).
+ * §5 is "the URL of the vault backend the bundle authenticates against", over a
+ * closed set of `nono::keystore` schemes — and a harness authenticates against no
+ * keystore. Custody mode vaults the key and the shim injects it as a header
+ * (`credentialHeaders` below); the harness never holds it. That is the whole point
+ * of ADR-0010/0013, so declaring a credentialSource would claim a binding the
+ * process does not have. §5: "A bundle needing no credentials omits the field."
+ *
+ * This used to emit `vault://<service>`, which is not one of the six schemes §5
+ * closes over — so every document cloister issued was refused at parse by a
+ * conforming runner, verified against LLO b9b800c. The digest conformance test
+ * could not see it: it agrees with LLO on LLO's canonical vector and never reads
+ * a manifest this builder produced. Inv 11 now checks §5 for the operator-declared
+ * facet; this docstring is the check for the one field that is absent.
+ *
  * WHICH directories are confined is deliberately absent — that is why the digest
  * is identical whichever repo you pass, and why the absolute path can travel on
  * the nono plane only. HOW MANY is present, because two writable roots is a
  * materially wider boundary than one: a cert that did not distinguish them would
- * satisfy the §7 commitment check for a confinement it no longer describes.
+ * satisfy the §8 commitment check for a confinement it no longer describes.
  *
  * The one-root case emits exactly `workspace`, byte-identical to the manifest
  * that predates multi-root — so its digest is unchanged. Asserted in
  * scripts/test/confinement-shape.test.mjs, because "unchanged" is the kind of
  * claim that stops being true without anyone noticing.
  *
+ * Takes no `service`, and that is the point: the boundary is identical for every
+ * harness target, so "all targets are confined identically" is now true by
+ * construction rather than asserted by a test. The old signature took one only
+ * to interpolate it into the credentialSource above, which made per-target
+ * digests differ for a reason nothing read — the shim routes to a vault slice by
+ * URL path and the vault authorizes by `allowedSubs`, neither of which consults
+ * the confinement digest. Dropping it removes a distinction, not an enforcement.
+ *
  * @param {number} rootCount
- * @param {string} service
  */
-export function confinementManifest(rootCount, service) {
+
+export function confinementManifest(rootCount) {
   if (!Number.isInteger(rootCount) || rootCount < 1) {
     throw new LaunchUsageError(`confinement needs at least one writable root, got ${rootCount}`);
   }
@@ -109,15 +158,24 @@ export function confinementManifest(rootCount, service) {
     fs: {
       allow: [
         ...Array.from({ length: rootCount }, (_, i) => ({
-          path: i === 0 ? "workspace" : `workspace.${i}`,
+          path: i === 0 ? `${SYMBOLIC_ROOT}workspace/` : `${SYMBOLIC_ROOT}workspace.${i}/`,
           mode: "rw",
         })),
-        { path: "state", mode: "rw" },
+        { path: `${SYMBOLIC_ROOT}state/`, mode: "rw" },
       ],
     },
     network: { allowHosts: ["127.0.0.1"] },
-    port: { bind: 0 },
-    credentialSource: `vault://${service}`,
+    // NO `port` BLOCK. §4 spells "no listener" as OMISSION, not as zero:
+    // "Omitting `port`, the bundle MUST NOT bind any listener", and the schema
+    // bounds `bind` at `minimum: 1024`. LLO's parser refuses outright —
+    // `if bind < 1024 { return Err(…) }`.
+    //
+    // `port: {bind: 0}` was the third §-refusal in this one document, and it was
+    // invisible until the two before it were fixed: §5 (`vault://`,
+    // cloister-d2ba07) masked §2 (relative paths, cloister-bd6399), which masked
+    // this. A parser stops at its first complaint. That is the whole argument
+    // for validating the emitted document against the schema rather than
+    // inspecting the builder one dimension at a time (ADR-0067).
   };
 }
 
@@ -437,7 +495,7 @@ export async function resolvePlan(request, deps = {}) {
     // SAME sandbox object the kernel grants are built from below, so a root
     // cannot be attested without being granted, or granted without being
     // attested — they are two projections of one list, not two lists.
-    confinementManifest: confinementManifest(sandbox ? sandbox.workdirs.length : 1, target.service),
+    confinementManifest: confinementManifest(sandbox ? sandbox.workdirs.length : 1),
   };
 }
 
@@ -447,6 +505,33 @@ export async function resolvePlan(request, deps = {}) {
  */
 function resolveTargetByName(targets, name) {
   return resolveTarget(targets, name ? ["--target", name] : []);
+}
+
+/**
+ * The env vars scrubbed before exec, COMPUTED FROM THE RESOLVED AUTH MODE.
+ * ADR-0064 / cloister-67f767.
+ *
+ * `stripEnv` alone could not express this. It asks "which target", and the
+ * question is "which mode": the subscription token must be STRIPPED in custody
+ * — where the harness already has a vaulted key, and holding a second
+ * credential would let it reach the provider on an unreceipted path — and
+ * RETAINED in audit, where it is the only credential the run has and
+ * `vaultProxy`'s passthrough injection exists to forward it.
+ *
+ * A flat list has no way to say that, so `CLAUDE_CODE_OAUTH_TOKEN` appeared in
+ * neither list and was handed to every confined custody run for a year.
+ *
+ * @param {any} target
+ * @param {{mode: "custody" | "audit"}} auth
+ * @returns {string[]}
+ */
+export function envStripFor(target, auth) {
+  const base = [...(target.stripEnv ?? [])];
+  const token = target.subscriptionTokenEnv ?? "";
+  // Union, not push: a target that lists the token in BOTH places is declaring
+  // the same thing twice, not asking for it twice.
+  if (token && auth?.mode !== "audit" && !base.includes(token)) base.push(token);
+  return base;
 }
 
 /**
@@ -811,7 +896,7 @@ export function buildPolicy(plan, identity) {
       // port as the only egress. cloister-harness refuses any non-blocked mode.
       network: { mode: "blocked", ports: { localhost: [Number(plan.shimPort)] } },
     },
-    // §7 confinement commitment (cloister-c80953): the runner verifies, BEFORE
+    // §8 confinement commitment (cloister-c80953): the runner verifies, BEFORE
     // Sandbox::apply, that this manifest matches the digest committed in dev's
     // identity cert — fail-closed on drift. Same manifest the minter digested.
     confinement: {
@@ -820,7 +905,7 @@ export function buildPolicy(plan, identity) {
       master_pub_b64std: identity.masterPubB64Std,
     },
     // Credentials never enter the confined env — cloister injects at the proxy.
-    env_strip: target.stripEnv,
+    env_strip: envStripFor(target, plan.auth),
     env_set: {
       [target.baseUrlEnv]: plan.baseUrl,
       // Redirect scratch into the per-run directory. All three spellings,
@@ -897,7 +982,30 @@ export function resolveCompanionWorkers(wranglerToml, env = process.env) {
       services.push({ service: row.service, binding: row.binding });
     }
   }
-  return services.map((sv, i) => {
+  // ONE PROCESS PER SERVICE, not per binding. Several bindings may name the
+  // same Worker — cloister binds notme-bot three times (NOTME for the
+  // /identity/* fetch proxy, NOTME_JWT and NOTME_RECEIPTS for two distinct RPC
+  // entrypoints, each its own binding for least privilege). Mapping bindings
+  // 1:1 to processes launched notme-bot THREE times on three ports.
+  //
+  // Not merely wasteful: the comment above this function says wrangler pairs
+  // service bindings through its dev registry by worker NAME, not by port. So
+  // three live registrations of one name is the one thing that reasoning
+  // cannot survive. Deduping here rather than at the call site keeps the
+  // invariant with the derivation — this function's contract is "the Workers a
+  // run needs", and a Worker needed twice is still one Worker.
+  //
+  // First binding wins for the reported `binding` field; it is only used in
+  // log lines naming which binding prompted the launch.
+  const byService = [];
+  const seen = new Set();
+  for (const sv of services) {
+    if (seen.has(sv.service)) continue;
+    seen.add(sv.service);
+    byService.push(sv);
+  }
+
+  return byService.map((sv, i) => {
     const envVar = `CLOISTER_WORKER_DIR_${sv.service.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
     const dir = env[envVar];
     return {
@@ -1103,14 +1211,8 @@ export async function launchSession(plan, artifacts, deps = {}) {
     // Appended where it is WRITTEN, so cleanup cannot fall behind what exists.
     ephemeral.push(policyPath);
 
-    log(`\n${bar}\ncloister — SANDBOX=nono: launching ${plan.sandbox.harnessBin} kernel-confined (cloister-harness).`);
-    log(`  policy: ${policyPath} (declared nono manifest, default-deny)`);
-    log(`  rw: ${[...plan.sandbox.workdirs, plan.sandbox.stateDir].join(", ")}`);
-    log(`  network: blocked, localhost :${plan.shimPort} only → ${plan.baseUrl}\n${bar}\n`);
-    // Wait for the shim to bind before launching the confined harness —
-    // otherwise the harness's first request races startup (connect-refused).
-    await waitPort(plan.baseUrl, 15_000);
     confined = spawn(plan.sandbox.confineBin, [policyPath], {
+      env: { ...(deps.env ?? process.env) },
       // The FIRST declared root is the primary: it is what a relative path
       // inside the harness resolves against.
       cwd: plan.sandbox.workdirs[0], stdio: "inherit",
