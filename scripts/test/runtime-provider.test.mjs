@@ -98,7 +98,7 @@ test("compatibility install copies both binaries and writes the provider record 
 
   assert.deepEqual(calls, [
     ["cargo", "build", "--release", "--manifest-path", "tools/harness-sandbox/Cargo.toml"],
-    ["cargo", "build", "--release", "--manifest-path", "rs/Cargo.toml", "-p", "cloister-host-runtime"],
+    ["cargo", "build", "--release", "--manifest-path", "rs/Cargo.toml", "-p", "cloister-host-runtime", "--features", "llo-execution"],
   ]);
   assert.equal(installed.schema, "cloister/runtime-provider/v1");
   assert.equal(installed.provider, "compatibility");
