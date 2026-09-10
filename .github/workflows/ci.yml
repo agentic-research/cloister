@@ -243,7 +243,12 @@ jobs:
         # See the lint job's matching step for the rationale. `task verify`
         # additionally runs `rs:sign:host-extras` (cargo test with the
         # nono closure) which also links against libdbus on Linux.
-        run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
+        #
+        # `libcapnp-dev` is only needed here: `task verify` runs
+        # `rs:host-runtime:llo`, whose `capnp-json` build script compiles a
+        # schema that imports `/capnp/c++.capnp`. The `capnproto` package is
+        # just the compiler; the standard includes ship in `libcapnp-dev`.
+        run: sudo apt-get update && sudo apt-get install -y capnproto libcapnp-dev libdbus-1-dev pkg-config
 
       - name: Install Rust toolchain (1.95.0 — pinned by rs/rust-toolchain.toml) + wasm32 target
         # See the lint job's matching step for the rustup-race rationale.

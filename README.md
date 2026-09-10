@@ -11,7 +11,11 @@ It works with Claude Code, Codex, and anything else that speaks MCP.
 
 ## Install
 
-You need Node.js 22 or newer, Rust, and [Task](https://taskfile.dev).
+You need Node.js 22 or newer, Rust, [Task](https://taskfile.dev), and the
+Cap'n Proto compiler with its standard schemas (`brew install capnp` on macOS;
+`apt-get install capnproto libcapnp-dev` on Debian/Ubuntu, where the compiler
+and the schemas are separate packages). On Linux the install also links
+libdbus (`libdbus-1-dev pkg-config`).
 
 ```sh
 task install             # dependencies + the `cloister` command

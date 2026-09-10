@@ -77,6 +77,14 @@ calling them learns what happened.
 - New rails: `lint:origin-derivation`, mirror-version agreement, Inv 11 §5, and
   a fix to `lint:sibling-bead-refs` whose error message documented a clearance
   path the code never implemented.
+- **`task install` now needs the Cap'n Proto compiler and its standard
+  schemas** (`cloister-28f440`). Building `cloister-host-runtime` with
+  `--features llo-execution` pulls `capnp-json`, whose build script runs
+  `capnp compile` on a schema importing `/capnp/c++.capnp`. On Debian/Ubuntu
+  that is two packages — `capnproto` (the compiler) and `libcapnp-dev` (the
+  schemas); `brew install capnp` carries both. The README names them, the
+  clean-image install test installs them, and the `verify` CI job — which had
+  the compiler but not the schemas — installs `libcapnp-dev`.
 
 ### Shipped 2026-07-15
 
