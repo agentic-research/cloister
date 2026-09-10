@@ -43,7 +43,7 @@
     "fast-check": "^4.9.0",
     "typescript": "^5.7.0",
     "vite": "^7.3.5",
-    "vitest": "^4.1.9",
+    "vitest": "^5.0.0",
     "workerd": "^1.20260511.1",
     "wrangler": "^4.87.0"
   },
