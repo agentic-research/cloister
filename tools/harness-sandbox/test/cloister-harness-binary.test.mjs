@@ -22,7 +22,7 @@
 //
 // ── What it deliberately does NOT cover ────────────────────────────────────
 //
-// The policy here carries no `confinement` block, so the §7 commitment check
+// The policy here carries no `confinement` block, so the §8 commitment check
 // (cert chain → committed digest → BLAKE3 of the canonical manifest, verified
 // BEFORE the irreversible apply) is skipped. That path needs a minted dev cert
 // and belongs with the harness-dev flow, not here. What this asserts is the

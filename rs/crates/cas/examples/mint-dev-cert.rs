@@ -74,13 +74,13 @@ fn jstr(s: &str) -> String {
     out
 }
 
-/// Compute the §7 `confinementDigest` this cert should commit to, if a
+/// Compute the §8 `confinementDigest` this cert should commit to, if a
 /// confinement/v1 manifest is declared via `CLOISTER_CONFINEMENT_MANIFEST`
 /// (a path to the manifest JSON). Returns `None` when unset — a dev cert
-/// with no confinement commitment (legacy shape; the runner's §7 check is a
+/// with no confinement commitment (legacy shape; the runner's §8 check is a
 /// no-op when the policy carries no commitment).
 ///
-/// The digest is BLAKE3-256 of the §6-CANONICAL manifest bytes (ASCII-sorted
+/// The digest is BLAKE3-256 of the §7-CANONICAL manifest bytes (ASCII-sorted
 /// keys at every level, 2-space indent, no trailing newline), computed via
 /// cloister's substrate hash — the SAME algorithm `examples/confinement-digest.rs`
 /// and `src/wire/confinement-digest.ts` use, so the runner (which recomputes
@@ -89,7 +89,7 @@ fn confinement_digest_from_env() -> Option<[u8; 32]> {
     let path = std::env::var("CLOISTER_CONFINEMENT_MANIFEST").ok()?;
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read confinement manifest {path}: {e}"));
-    // §6 canonicalization: parse → serde_json::Value (default Map is a sorted
+    // §7 canonicalization: parse → serde_json::Value (default Map is a sorted
     // BTreeMap → §6.2 ASCII-sorted keys) → to_string_pretty (2-space, §6.4) →
     // strip trailing newline so the last byte is `}` (§6.3).
     let value: serde_json::Value =
@@ -134,7 +134,7 @@ fn main() {
     // scope lands (cloister-c3d5ec).
     let scope = "*";
 
-    // §7 confinement commitment: the digest of the confinement/v1 manifest this
+    // §8 confinement commitment: the digest of the confinement/v1 manifest this
     // workload is bound to, committed into the cert (Interlace extension OID
     // .1.7). `None` when no manifest is declared — a legacy dev cert. The runner
     // recomputes over the manifest it enforces and fail-closes on mismatch.

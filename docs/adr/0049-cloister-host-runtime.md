@@ -26,6 +26,22 @@ relates_to:
 > human-facing CLI. The current `rs/crates/host-runtime` and related `tools/`
 > code are compatibility migration sources, not the target architecture.
 
+> **2026-08-03 retirement note (`cloister-5624e8`):** acting on the amendment
+> above, **`tools/libkrun-spike/` is deleted** — along with its `spike:libkrun`
+> and `spike:libkrun:mediated` Taskfile targets. The proof it carried moved to
+> LLO, which embeds libkrun via FFI (`ley-line-open-f839c1`) rather than booting
+> it from a shell script, and ships the entitled macOS worker
+> (`ley-line-open-984acf`). The Context section below is left as written: it
+> describes the tree as it stood on 2026-07-17 and is the reason this ADR
+> exists. Read it as history, not as an inventory.
+>
+> Still present, each for a stated reason: **`tools/harness-sandbox/`** holds the
+> only live kernel-level confinement assertions in either repo, and LLO is
+> porting them under `ley-line-open-704853`, whose own contract is that
+> "until it closes, deletion trades proof for convention." **`rs/crates/host-runtime`**
+> keeps `krunvm.rs` until `execution/v1` is consumable (`ley-line-open-6d811a`).
+> `tools/mediator` is untracked local scratch, not repo content.
+
 The host-side substrate that ADRs 0040/0043/0044/0046 describe currently exists
 as **four separate binaries under `tools/`**, each script/spike-shaped:
 

@@ -1,0 +1,28 @@
+{
+  "version": "cloister/confinement/v1",
+  "fs": {
+    "allow": [
+      {
+        "path": "/run/cloister/workspace/",
+        "mode": "rw"
+      },
+      {
+        "path": "/run/cloister/workspace.1/",
+        "mode": "rw"
+      },
+      {
+        "path": "/run/cloister/workspace.2/",
+        "mode": "rw"
+      },
+      {
+        "path": "/run/cloister/state/",
+        "mode": "rw"
+      }
+    ]
+  },
+  "network": {
+    "allowHosts": [
+      "127.0.0.1"
+    ]
+  }
+}

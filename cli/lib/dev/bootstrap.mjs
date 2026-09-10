@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Local development bootstrap per ADR-0014 v2.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,6 +10,22 @@ const DEV_KEK_VAR = "DEV_VAULT_KEK";
 const KEK_SOURCE_VAR = "VAULT_KEK_SOURCE";
 const KEK_SOURCE_VAL = `env://${DEV_KEK_VAR}`;
 const PUBKEY_VAR = "INTERLACE_ROOT_PUBKEY";
+const ACTOR_FP_VAR = "INTERLACE_ACTOR_FP";
+
+/**
+ * Derive `sha256:<hex>` over the raw master public key.
+ *
+ * Same derivation the runtime validates (src/routes/actor-fingerprint.ts), and
+ * imported from nowhere on purpose — this file is plain Node and that one is a
+ * Worker module. The SHAPE is pinned on both sides instead: a rail asserts the
+ * two agree, because two derivations of one digest is exactly how a published
+ * fingerprint and its real key drift apart.
+ */
+function fingerprintFromPubkeyB64(pubkeyB64) {
+  const raw = Buffer.from(pubkeyB64, "base64");
+  if (raw.length === 0) return null;
+  return `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+}
 
 export function parseEnv(content) {
   const entries = new Map();
@@ -119,6 +135,33 @@ export async function bootstrapLocalDev({
     if (fetched.ok) entries.set(PUBKEY_VAR, fetched.pubkey);
   }
 
+  // The identity surfaces gate on a fingerprint, not on the pubkey — and it is
+  // DERIVABLE from the pubkey, so leaving it unset produced a scaffold that
+  // declared `wellKnownIdentityBridge` and answered 404 on all five of its
+  // paths. Deriving it here is what makes `cloister dev bootstrap` produce a
+  // LIVE surface rather than a declared-but-dead one.
+  //
+  // Keyed off the pubkey actually in the file (not just a fresh fetch), so a
+  // tree bootstrapped before this existed gains the fingerprint on the next run
+  // without needing INTERLACE_PUBKEY_REFRESH.
+  let actorFpOutcome = { kind: "skipped", reason: "no-pubkey" };
+  const pubkeyNow = entries.get(PUBKEY_VAR);
+  if (pubkeyNow) {
+    const derived = fingerprintFromPubkeyB64(pubkeyNow);
+    if (!derived) {
+      actorFpOutcome = { kind: "skipped", reason: "pubkey-undecodable" };
+    } else if (entries.get(ACTOR_FP_VAR) === derived) {
+      actorFpOutcome = { kind: "kept", value: derived };
+    } else {
+      // Overwritten rather than preserved when it disagrees: a fingerprint that
+      // does not match the pubkey in the same file is worse than none, because
+      // it publishes a `kid` no verifier can resolve while looking configured.
+      const had = entries.get(ACTOR_FP_VAR);
+      entries.set(ACTOR_FP_VAR, derived);
+      actorFpOutcome = { kind: had ? "corrected" : "derived", value: derived };
+    }
+  }
+
   write(envLocal, serializeEnv(entries, header), { mode: 0o600 });
 
   log("cloister dev bootstrap:");
@@ -141,15 +184,26 @@ export async function bootstrapLocalDev({
       `(notme: ${pubkeyOutcome.notmeReason ?? "n/a"}, signet: ${pubkeyOutcome.reason}). ` +
       "Lease gate OFF (dev mode).",
     );
-    log("       start a local notme (`wrangler dev` in ../notme/worker --port 8788),");
-    log("       or install signet, or set INTERLACE_ROOT_PUBKEY=<base64> in .env.local.");
+    log(`       set CLOISTER_WORKER_DIR_NOTME_BOT=<path to notme/worker> and re-run —`);
+    log("       `cloister run` starts every Worker wrangler.toml binds, so notme no");
+    log("       longer needs starting by hand. Or install signet, or set");
+    log("       INTERLACE_ROOT_PUBKEY=<base64> in .env.local directly.");
     if (pubkeyOutcome.detail) log(`       signet detail: ${pubkeyOutcome.detail.split("\n")[0]}`);
+  }
+  if (actorFpOutcome.kind === "derived") {
+    log(`  ✓ Derived ${ACTOR_FP_VAR}=${actorFpOutcome.value} (identity surfaces ON)`);
+  } else if (actorFpOutcome.kind === "corrected") {
+    log(`  ✓ Corrected ${ACTOR_FP_VAR} — it disagreed with ${PUBKEY_VAR}`);
+  } else if (actorFpOutcome.kind === "kept") {
+    log(`  → ${ACTOR_FP_VAR} already matches ${PUBKEY_VAR}`);
+  } else {
+    log(`  → ${ACTOR_FP_VAR} unset (${actorFpOutcome.reason}) — identity surfaces 404.`);
   }
   log("");
   log("Next:");
   log("  cloister dev serve   # local Worker on :8787");
   log("  task lint             # full test gate");
-  return { envLocal, generated, pubkeyOutcome };
+  return { envLocal, generated, pubkeyOutcome, actorFpOutcome };
 }
 
 export async function main(_argv = [], deps = {}) {

@@ -249,8 +249,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@aac291a4fd2448b354fafb14ff685e867e31ba4a",
-      "version": "0.13.0",
+      "ref": "github://agentic-research/ley-line-open/server.json@75e3af6aecf3287eb7adc0610399ff923256ee7e",
+      "version": "0.18.2",
       "digest": "",
       "from": "",
       "provides": [],
@@ -275,8 +275,8 @@ export const cluster: Cluster = {
     },
     {
       "name": "notme",
-      "ref": "github://agentic-research/notme/server.json@d01db044b969832dc3aae958e7000afee2e03c4c",
-      "version": "0.1.0",
+      "ref": "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a",
+      "version": "0.2.0",
       "digest": "",
       "from": "",
       "provides": [],
@@ -549,7 +549,8 @@ export const cluster: Cluster = {
           "audit"
         ],
         "provenance": "https://github.com/anthropics/claude-code",
-        "executable": "claude"
+        "executable": "claude",
+        "subscriptionTokenEnv": "CLAUDE_CODE_OAUTH_TOKEN"
       },
       {
         "name": "codex",
@@ -567,7 +568,8 @@ export const cluster: Cluster = {
           "custody"
         ],
         "provenance": "https://github.com/openai/codex",
-        "executable": ""
+        "executable": "",
+        "subscriptionTokenEnv": ""
       }
     ],
     "skills": [

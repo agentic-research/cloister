@@ -223,13 +223,29 @@ function canonicalizeGateway(g) {
 // round-trip stays byte-stable: entryPoint is legitimately empty when the
 // operator wants $PATH resolution, and emitting `entryPoint = ""` would make
 // the drift gate flap between an absent key and an empty one.
+//
+// KEYS COME FROM THE VALUE, not from a list here. The list was
+// ["name", "service", "entryPoint", "executable", "apiKeyEnv", "baseUrlEnv",
+//  "stateDirEnv", "stateDir", "provenance"] plus two arrays by hand, and adding
+// `subscriptionTokenEnv` to the schema (ADR-0064) made this function DELETE it
+// from cluster.toml on the next `task cluster:emit` — a valid, schema-declared
+// field, silently erased by the round-trip. CLAUDE.md records that exact shape
+// happening to a typo'd `[inputs.*]` key; it turns out it happens to correct
+// keys too.
+//
+// Iterating the value cannot omit a field the projection produced, which makes
+// the writer structurally unable to be the narrower half of the round-trip.
 function canonicalizeHarnessTarget(t) {
   const body = {};
-  for (const key of ["name", "service", "entryPoint", "executable", "apiKeyEnv", "baseUrlEnv", "stateDirEnv", "stateDir", "provenance"]) {
-    if (typeof t[key] === "string" && t[key] !== "") body[key] = t[key];
+  for (const [key, value] of Object.entries(t)) {
+    // Empty strings are dropped so the round-trip stays byte-stable:
+    // `entryPoint` is legitimately empty when the operator wants $PATH
+    // resolution, and emitting `entryPoint = ""` would make the drift gate flap
+    // between an absent key and an empty one.
+    if (typeof value === "string" && value !== "") body[key] = value;
+    else if (Array.isArray(value)) body[key] = [...value];
+    else if (typeof value === "number" || typeof value === "boolean") body[key] = value;
   }
-  if (Array.isArray(t.stripEnv))  body.stripEnv  = [...t.stripEnv];
-  if (Array.isArray(t.authModes)) body.authModes = [...t.authModes];
   return sortKeys(body);
 }
 
@@ -357,7 +373,7 @@ function pruneBundleScalarDefaults(scalars) {
   if (flat.workerdServiceName === "") delete flat.workerdServiceName;
   if (flat.hypervisorRationale === "") delete flat.hypervisorRationale;
   if (flat.perTenant === false) delete flat.perTenant;
-  // cloister-a34edc: the §5 confinement facet is omitted from TOML when it's
+  // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
   // default applied in toml-to-cluster's normalizeConfinement.
   if (isEmptyConfinement(flat.confinement)) {

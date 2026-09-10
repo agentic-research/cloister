@@ -134,7 +134,7 @@ export class PreconditionError extends Error {
  *                                 part of the attested shape: the confinement
  *                                 manifest gains a `workspace.N` entry per extra
  *                                 root, so a cert minted against one root does not
- *                                 satisfy the §7 check for a run confined to five.
+ *                                 satisfy the §8 check for a run confined to five.
  * @property {string} stateDir     Absolute.
  * @property {string|null} skillStore  Where a RELOCATED skills tree lives, when
  *                                 `<stateDir>/skills` is a symlink. Granted

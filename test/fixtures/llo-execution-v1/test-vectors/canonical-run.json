@@ -1,0 +1,166 @@
+{
+  "version": "cloister/execution/v1",
+  "spec": {
+    "schemaVersion": "cloister/execution/v1",
+    "executable": {
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "mediaType": "application/vnd.art.executable"
+    },
+    "arguments": ["audit", "--format", "json"],
+    "workspaceInputs": [
+      {
+        "name": "workspace",
+        "graphRoot": {
+          "algorithm": "blake3-256",
+          "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    ],
+    "publicEnvironment": [{"key": "CI", "value": "true"}],
+    "secretHandles": [{"name": "ANTHROPIC_TOKEN", "brokerRef": "broker://claude/paid"}],
+    "requestedInterfaces": ["cloister/execution/v1"],
+    "requestedLimits": {
+      "wallTimeMs": 300000,
+      "memoryBytes": 4294967296,
+      "cpuMillis": 120000,
+      "outputBytes": 67108864
+    },
+    "outputs": [{"name": "audit-log", "mediaType": "application/json"}],
+    "cancellationMode": "explicitOnly"
+  },
+  "grant": {
+    "grantId": "grant-01",
+    "issuerEvidence": {
+      "mediaType": "application/vnd.signet.envelope+cbor",
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    "expiresAtUnixMs": 1785542400000,
+    "replayKey": "dispatch-01-attempt-01",
+    "runSpecDigest": {
+      "algorithm": "blake3-256",
+      "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "workloadIdentityEvidence": {
+      "mediaType": "application/vnd.interlace.identity+der",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "actorProvenanceEvidence": {
+      "mediaType": "application/vnd.signet.bridge-cert+der",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "capabilities": [
+      {
+        "grant": "urn:signet:cap:execute:run",
+        "interface": "cloister/execution/v1"
+      }
+    ],
+    "confinementDigest": {
+      "algorithm": "blake3-256",
+      "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "backendClass": "microVm",
+    "limits": {
+      "wallTimeMs": 300000,
+      "memoryBytes": 4294967296,
+      "cpuMillis": 120000,
+      "outputBytes": 67108864
+    },
+    "workspaces": [
+      {
+        "name": "workspace",
+        "graphRoot": {
+          "algorithm": "blake3-256",
+          "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "expectedGeneration": 7,
+        "operations": ["read", "list", "query", "mutate", "commit"]
+      }
+    ],
+    "allowedEgress": ["api.anthropic.com:443"],
+    "credentialBrokerRefs": ["broker://claude/paid"]
+  },
+  "receipt": {
+    "schemaVersion": "cloister/execution/v1",
+    "runId": "run-01",
+    "terminalState": "succeeded",
+    "eventLogRoot": {
+      "algorithm": "blake3-256",
+      "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "runSpecDigest": {
+      "algorithm": "blake3-256",
+      "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "runGrantDigest": {
+      "algorithm": "blake3-256",
+      "value": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "confinementDigest": {
+      "algorithm": "blake3-256",
+      "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "workloadIdentityEvidence": {
+      "mediaType": "application/vnd.interlace.identity+der",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "actorProvenanceEvidence": {
+      "mediaType": "application/vnd.signet.bridge-cert+der",
+      "digest": {
+        "algorithm": "sha256",
+        "value": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "backend": {
+      "backendClass": "microVm",
+      "backendId": "libkrun/1",
+      "evidence": {
+        "mediaType": "application/vnd.leyline.execution.backend-evidence+json",
+        "digest": {
+          "algorithm": "blake3-256",
+          "value": "5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      }
+    },
+    "inputRoots": [
+      {
+        "algorithm": "blake3-256",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "audit-log",
+        "artifact": {
+          "digest": {
+            "algorithm": "blake3-256",
+            "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "mediaType": "application/json"
+        }
+      }
+    ],
+    "usage": {
+      "wallTimeMs": 42100,
+      "cpuMillis": 20100,
+      "peakMemory": 1073741824,
+      "outputBytes": 4096
+    },
+    "startedAtUnixMs": 1785538800000,
+    "completedAtUnixMs": 1785538842100
+  }
+}

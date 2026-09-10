@@ -324,6 +324,82 @@ test("Inv 11 — a malformed confinement facet (non-canonical fs, bad wildcard, 
   }
 });
 
+test("Inv 11 — §5 credentialSource outside the closed scheme set is rejected", () => {
+  // The exact defect cloister-d2ba07 shipped: `vault://` reads like a scheme,
+  // is not one §5 closes over, and made the emitted document unparseable by a
+  // conforming runner. Everything else here is valid, so a pass would mean §5
+  // is unchecked rather than that the fixture is clean.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        {
+          name: "alpha",
+          tier: "cluster",
+          confinement: {
+            fs: { allow: [{ path: "/workspace", mode: "rw" }] },
+            network: { allowHosts: ["*.example.com"] },
+            port: { bind: 0, address: "" },
+            credentialSource: "vault://alpha",
+          },
+        },
+      ],
+    }),
+    configCapnp: configCapnp({
+      workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+      services: [{ name: "internet", network: { allow: ["public"] } }],
+    }),
+  });
+  try {
+    const r = runLint(scenario.workDir, scenario.clusterTsPath);
+    assert.equal(r.status, 1, `expected Inv 11 §5 violation, got status=${r.status}\n${r.stderr}`);
+    assert.match(r.stderr, /Inv 11, §5/);
+    assert.match(r.stderr, /credentialSource/);
+  } finally {
+    scenario.cleanup();
+  }
+});
+
+test("Inv 11 — a §5 scheme WITH a remainder passes, and a bare scheme does not", () => {
+  // Non-vacuity in the other direction: the check must accept what §5 permits,
+  // or it would just be banning the field. The bare-scheme half is the reason
+  // §5 says "non-empty remainder" — `keychain://` names no entry.
+  for (const [source, expectPass] of [["keychain://alpha-creds", true], ["keychain://", false]]) {
+    const scenario = makeScenario({
+      clusterTs: clusterTs({
+        bundles: [
+          { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+          {
+            name: "alpha",
+            tier: "cluster",
+            confinement: {
+              fs: { allow: [{ path: "/workspace", mode: "rw" }] },
+              network: { allowHosts: [] },
+              port: { bind: 0, address: "" },
+              credentialSource: source,
+            },
+          },
+        ],
+      }),
+      configCapnp: configCapnp({
+        workers: [{ name: "cloister", bindings: [], globalOutbound: "internet" }],
+        services: [{ name: "internet", network: { allow: ["public"] } }],
+      }),
+    });
+    try {
+      const r = runLint(scenario.workDir, scenario.clusterTsPath);
+      if (expectPass) {
+        assert.doesNotMatch(r.stderr, /Inv 11, §5/, `${source} is a valid §5 source and must pass`);
+      } else {
+        assert.equal(r.status, 1, `${source} has no remainder and must be refused\n${r.stderr}`);
+        assert.match(r.stderr, /Inv 11, §5/);
+      }
+    } finally {
+      scenario.cleanup();
+    }
+  }
+});
+
 test("Inv 1 — cluster-tier worker with internet-bound globalOutbound is rejected", () => {
   const scenario = makeScenario({
     clusterTs: clusterTs({

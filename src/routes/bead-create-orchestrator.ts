@@ -68,6 +68,10 @@ import { beadCanonicalBytesV1 } from "../storage/bead-canonical.js";
 import type { ApplyAttestationResult, PeerAttestation } from "../storage/peer-attestations.js";
 import type { Digest } from "../storage/types.js";
 import { BLOB_PUT_FAULT_DIGEST } from "../blob-store.js";
+import {
+  MAX_DECLARED_ORIGINS, MAX_ORIGIN_URI_LENGTH, OriginBoundsError,
+  declaredOrigin, serializeOrigins, unionOrigins,
+} from "../wire/origin.js";
 
 /**
  * Lease + cert material passed from the verified lease envelope to the
@@ -117,6 +121,19 @@ interface TrustStoreRpc {
      * state may leave it undefined.
      */
     beadId?:         string;
+    /**
+     * Serialized origin set for the attested content (ADR-0065 phase 1).
+     *
+     * On the ATTESTATION, deliberately not in the bead's canonical bytes. Two
+     * consequences, both wanted: `content_hash` is unchanged, so every bead
+     * written before this field still digests identically; and two peers may
+     * claim different provenance for byte-identical content, which produces two
+     * attestations rather than one — the correct outcome, since the §13.4 audit
+     * should record both claims and who made each.
+     *
+     * Undefined means the row makes no provenance claim and derives origin-unknown.
+     */
+    origins?:        string;
   }): Promise<ApplyAttestationResult>;
   enqueuePendingAttestation(args: {
     peerFp:      string;
@@ -216,6 +233,55 @@ function buildBead(args: {
  * A TrustStore failure does NOT throw — the attestation is enqueued for
  * retry and the bead row stays committed; eventual consistency.
  */
+/**
+ * The CONTENT origin set for a bead_create (ADR-0065 phase 1).
+ *
+ * Exported and standalone because the first cut was inline, and being inline is
+ * why the defect shipped: the unit tests exercised `deriveConfidence` directly
+ * and asserted that an EMPTY origin set derives origin-unknown — true, and
+ * irrelevant, because this path never produced an empty set. The function was
+ * tested; the path was not. Making the path a function is the structural half of
+ * the fix, and `scripts/test/…`/`test/wire/origin.test.ts` now drive THIS.
+ *
+ * Content origins only. The submitter is NOT included — it is a fact about an
+ * actor, it lives in `peer_fingerprint` + `cert` on the same row, and unioning
+ * it here inverted the incentive the design exists to create:
+ *
+ *   declared nothing            -> origin-attested   (silence rewarded)
+ *   declared an untrusted source -> origin-asserted  (honesty punished)
+ *
+ * Every declared source is attributed to the DECLARING PEER, never to cloister:
+ * cloister cannot check the claim, so the peer is accountable for it and cloister
+ * only for having identified the peer. A caller therefore cannot reach
+ * origin-attested by declaring anything at all — that requires an origin cloister
+ * minted because it performed the fetch, which is phase 2.
+ */
+export function buildContentOrigins(
+  toolArgs: Record<string, unknown>,
+  peerFp: string,
+): ReturnType<typeof unionOrigins> {
+  const raw = Array.isArray(toolArgs["origins"]) ? (toolArgs["origins"] as unknown[]) : [];
+  // Bound BEFORE filtering, so a caller cannot hide a huge declaration behind
+  // mostly-malformed entries and land under the cap after the filter.
+  if (raw.length > MAX_DECLARED_ORIGINS) {
+    throw new OriginBoundsError(
+      `bead_create: ${raw.length} declared origins exceeds the ${MAX_DECLARED_ORIGINS} cap ` +
+      `(threat model §21.5). Refused rather than truncated — keeping the first ` +
+      `${MAX_DECLARED_ORIGINS} would record a provenance claim narrower than the one made.`,
+    );
+  }
+  const declared = raw.filter((u): u is string => typeof u === "string" && u !== "");
+  for (const uri of declared) {
+    if (uri.length > MAX_ORIGIN_URI_LENGTH) {
+      throw new OriginBoundsError(
+        `bead_create: a declared origin is ${uri.length} chars, over the ` +
+        `${MAX_ORIGIN_URI_LENGTH} cap (threat model §21.5).`,
+      );
+    }
+  }
+  return unionOrigins(declared.map((uri) => declaredOrigin(uri, peerFp)));
+}
+
 export async function runBeadCreateOrchestrator(args: {
   toolArgs:   Record<string, unknown>;
   env:        Env;
@@ -224,6 +290,7 @@ export async function runBeadCreateOrchestrator(args: {
 }): Promise<{ id: string; title: string; state: BeadState; content_hash: string }> {
   const a = args.toolArgs;
   const repo = String(a.repo ?? "");
+  const origins = buildContentOrigins(a, args.context.peerFp);
   if (!repo) {
     throw new JsonRpcInvocationError(
       -32602,
@@ -298,6 +365,7 @@ export async function runBeadCreateOrchestrator(args: {
       scope:           args.context.scope,
       cert:            args.context.certDer,
       sig:             args.context.sig,
+      origins:         serializeOrigins(origins),
       // bead_id link per cloister-c8b907 sub-bead 1. The §13.4 audit
       // chain reconstitutes via this column after BeadStore-DO is
       // deprecated; the bead row in rsry/bd lacks content_hash but the

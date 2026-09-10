@@ -28,14 +28,37 @@
 //
 //   1. `RECEIPT_SIGNING_KEY` env binding — base64-standard 64-byte
 //      Ed25519 keypair (seed || pub). When set, Cloister signs locally
-//      via Web Crypto. Default deployment path until notme grows a
-//      `/internal/sign-receipt` endpoint.
+//      via Web Crypto. Interim only — it binds a master PRIVATE key
+//      into cloister's env, which ADR-0010 rules out (vault slices are
+//      the binding substrate) and which makes a second copy of a trust
+//      root whose whole property is that it never leaves notme.
 //
-//   2. Notme service-binding delegation — when (1) is unset and the
-//      env.NOTME service binding is configured, sign forwards to notme
-//      as POST /internal/sign-receipt with the canonical commitment
-//      bytes. Returns the Ed25519 signature. (Followup bead to add the
-//      notme-side endpoint.)
+//   2. Notme RPC delegation — the target shape. NOT a fetch to
+//      `/internal/sign-receipt`: notme declined to build that, because
+//      a `/internal/` path prefix is publicly routable and a prefix is
+//      not an access control. The call is an RPC entrypoint instead.
+//      Unimplemented here; cloister-35ccf7 tracks it.
+//
+//      Shape, per notme (2026-08-03):
+//        - the binding declares `entrypoint = "ReceiptSigner"` — a plain
+//          service binding reaches only the default fetch handler
+//        - `signReceipt(bytes)`, not `.fetch(...)`
+//        - returns a result object; branch on `{ ok: false, code }`
+//          rather than catching a throw. `EPOCH_MISMATCH` means re-read
+//          the facts and retry rather than fail the call
+//        - take `actor_fp` / `epoch` from `receiptFacts()`, not from
+//          local config: notme REJECTS commitments whose facts disagree
+//          with its own, so they must come from the enforcing side
+//
+//      ⚠ The entrypoint does NOT go on the existing `NOTME` binding.
+//      `env.NOTME` is live for the `/identity/*` proxy (typed `Fetcher`,
+//      wired in runtime.ts's NotmeIdentityRoute) and pinning it to an
+//      entrypoint would redirect that traffic away from notme's default
+//      handler. This needs a SECOND binding to the same service.
+//      Cloister has no entrypoint-bearing binding today, and
+//      `lint:binding-parity` does not compare `entrypoint` — so the
+//      first one added can silently differ between config.capnp and
+//      wrangler.toml. Extend the rail in the same change.
 //
 // Verification (always cloister-local) uses the master pubkey from the
 // CA bundle's epoch index. See §2.2 of RECEIPTS.md.
@@ -89,6 +112,26 @@ export const HEADER_ALLOWLIST: readonly string[] = Object.freeze([
  */
 export const RECEIPT_CLOCK_SKEW_MS = 300_000;
 
+/**
+ * Maximum age of a commitment cloister BUILDS, as opposed to one it accepts.
+ *
+ * Deliberately tighter than `RECEIPT_CLOCK_SKEW_MS`, and the asymmetry is the
+ * point. That constant is the VERIFY tolerance — the spec's ±300s, applied to
+ * receipts cloister receives — and narrowing it would start rejecting valid
+ * receipts from conformant peers.
+ *
+ * This one governs emission. When cloister delegates signing to notme, both
+ * sides enforce ±300s independently, so a commitment stamped at the very edge
+ * of cloister's window can be outside notme's by the time the RPC lands. The
+ * result is a remote TIMESTAMP_OUT_OF_RANGE — a non-retryable rejection caused
+ * by round-trip latency rather than by anything wrong with the receipt.
+ *
+ * 240s leaves ~60s of headroom for that trip. Raised by notme during the
+ * ADR-014 integration review (cloister-35ccf7); an equal window on both sides
+ * looks symmetric and is the one arrangement guaranteed to fail at the edge.
+ */
+export const RECEIPT_EMIT_MAX_AGE_MS = 240_000;
+
 // ── Schema types ──────────────────────────────────────────────────────────
 
 /**
@@ -109,6 +152,20 @@ export interface ReceiptCommitment {
   timestampMs:  number;
   /** SHA-256(A.master_pubkey). */
   actorFp:      Uint8Array;
+  /**
+   * SHA-256 of the canonical origin set for this response's content
+   * (ADR-0065 phase 2b), or undefined when the response makes no provenance
+   * claim.
+   *
+   * The DIGEST, not the set — §21.3: a receipt rides a response header, and
+   * source URIs there would publish an agent's read history to anyone who sees
+   * the response. The set is disclosed under scope from the attestation row.
+   *
+   * OPTIONAL on the wire. Omitted when absent, so a receipt with no origins
+   * encodes byte-identically to a pre-ADR-0065 one and existing verifiers are
+   * unaffected — which is also what stops absent reading as vouched.
+   */
+  originsHash?: Uint8Array;
   /** A's current key epoch. */
   epoch:        number;
 }
@@ -181,6 +238,11 @@ export function commitmentCborMap(c: ReceiptCommitment): ReceiptCborMap {
     request_hash: c.requestHash,
     status:       c.status,
     timestamp_ms: c.timestampMs,
+    // Conditional, and safe to place here because `canonicalCbor` sorts keys
+    // bytewise-lex itself (RFC 8949 §4.2) rather than trusting literal order.
+    // Omitting rather than emitting null keeps the no-origins encoding
+    // byte-identical to the pre-ADR-0065 receipt.
+    ...(c.originsHash ? { origins_hash: c.originsHash } : {}),
   };
 }
 
@@ -369,9 +431,20 @@ function parseCommitmentMap(m: ReceiptCborMap): DecodeResult<ReceiptCommitment> 
   for (const r of required) {
     if (!(r in m)) return { ok: false, reason: `commitment missing required key '${r}'` };
   }
-  const extraKeys = Object.keys(m).filter((k) => !required.includes(k));
+  // Known-but-optional. The strict unexpected-key check is deliberate — an
+  // unrecognised clause in a signed commitment must not be silently ignored —
+  // so a new field has to be admitted here explicitly rather than by loosening
+  // the check. `origins_hash` is ADR-0065 phase 2b; absent means the response
+  // makes no provenance claim, which is what every pre-0065 receipt is.
+  const optional = ["origins_hash"];
+  const extraKeys = Object.keys(m).filter((k) => !required.includes(k) && !optional.includes(k));
   if (extraKeys.length > 0) {
     return { ok: false, reason: `commitment has unexpected keys: ${JSON.stringify(extraKeys)}` };
+  }
+  const originsHash = m["origins_hash"];
+  if (originsHash !== undefined
+      && (!(originsHash instanceof Uint8Array) || originsHash.length !== 32)) {
+    return { ok: false, reason: "origins_hash" };
   }
   if (!(m["actor_fp"]     instanceof Uint8Array) || m["actor_fp"].length !== 32)     return { ok: false, reason: "actor_fp" };
   if (!(m["body_hash"]    instanceof Uint8Array) || m["body_hash"].length !== 32)    return { ok: false, reason: "body_hash" };
@@ -394,6 +467,13 @@ function parseCommitmentMap(m: ReceiptCborMap): DecodeResult<ReceiptCommitment> 
       requestHash: m["request_hash"] as Uint8Array,
       status:      m["status"]       as number,
       timestampMs: typeof ts === "bigint" ? Number(ts) : ts,
+      // Spread rather than `originsHash: … as Uint8Array | undefined`, so an
+      // absent field stays ABSENT on the struct instead of becoming an explicit
+      // `undefined`. Re-encoding a decoded commitment must reproduce the same
+      // bytes, and `{originsHash: undefined}` would still be omitted by
+      // `commitmentCborMap`'s truthiness check — but the struct would no longer
+      // deep-equal one built without the key, which round-trip tests compare.
+      ...(originsHash !== undefined ? { originsHash: originsHash as Uint8Array } : {}),
     },
   };
 }

@@ -1,0 +1,41 @@
+{
+  "version": "cloister/execution/v1",
+  "$comment": "Run-identity derivation for cloister/execution/v1. A run's name is derived from the authority that admitted it, never chosen by the caller, so a second implementation can compute the name locally and address a run without waiting for `start` to return. Each case pins the exact preimage bytes, so an implementation checks its field framing and its hash independently.",
+  "derivation": {
+    "domain": "cloister/execution/v1/run-id",
+    "prefix": "run-",
+    "hash": "blake3-256",
+    "encoding": "domain || 0x00 || for each field in (canonicalSpecDigest, grantId, replayKey): u64le(byteLength(field)) || utf8(field)",
+    "notes": [
+      "canonicalSpecDigest is the ASCII 'blake3-256:<hex>' digest of the RunSpec's Cap'n Proto CANONICAL form, not of the received wire bytes — segment layout and padding are an encoder's choice, not content.",
+      "Fields are length-prefixed because a bare concatenation is ambiguous at the boundaries: (grantId 'ab', replayKey 'c') and (grantId 'a', replayKey 'bc') would otherwise share one run identity. The two field-boundary cases below hold that apart.",
+      "The domain separator scopes the digest to this derivation so it can never collide with another BLAKE3 preimage in the substrate."
+    ]
+  },
+  "cases": [
+    {
+      "name": "canonical",
+      "canonicalSpecDigest": "blake3-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "grantId": "grant-01",
+      "replayKey": "replay-01",
+      "preimageHex": "636c6f69737465722f657865637574696f6e2f76312f72756e2d6964004b00000000000000626c616b65332d3235363a6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616108000000000000006772616e742d303109000000000000007265706c61792d3031",
+      "runId": "run-9fad55d52ddbeaf96be3e4e5ae4b800871aa8b71526d7a1ebdc8eb4350ee70ac"
+    },
+    {
+      "name": "field-boundary-ab-c",
+      "canonicalSpecDigest": "blake3-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "grantId": "ab",
+      "replayKey": "c",
+      "preimageHex": "636c6f69737465722f657865637574696f6e2f76312f72756e2d6964004b00000000000000626c616b65332d3235363a6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616102000000000000006162010000000000000063",
+      "runId": "run-18d9f8d7dd779f71b67aa0c809eb8f2f77f6a8b6686dd9af633795c62c33dbcb"
+    },
+    {
+      "name": "field-boundary-a-bc",
+      "canonicalSpecDigest": "blake3-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "grantId": "a",
+      "replayKey": "bc",
+      "preimageHex": "636c6f69737465722f657865637574696f6e2f76312f72756e2d6964004b00000000000000626c616b65332d3235363a6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616101000000000000006102000000000000006263",
+      "runId": "run-9dc24c4c6d5e9533a7d1d5b5bd74b871c1d58658a1e8029e90dcdb6db8fca883"
+    }
+  ]
+}

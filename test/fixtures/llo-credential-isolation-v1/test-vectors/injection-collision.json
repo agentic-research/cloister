@@ -1,0 +1,78 @@
+{
+  "$comment": "Collision behavior: what happens when the skill-supplied request ALREADY contains the field the strategy will inject. Two distinct outcomes the spec pins: HEADER and BODY injections OVERWRITE the skill-supplied value (vault-injected value wins, prevents skill from controlling the credential field); QUERY-PARAM injection APPENDS (HTTP allows duplicate query keys; last-write-wins on most servers, but two distinct ?key= entries are visibly anomalous in receipt-side audit). These are not adversarial vectors — a well-behaved skill should never set these fields — but they pin the behavior so impls don't silently disagree.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "header_overwrite_authorization_bearer",
+      "description": "Skill supplied its own Authorization header (a misconfigured skill, perhaps with a stale token). The vault MUST overwrite with the credential it injects — the skill never sees, and never controls, the credential field.",
+      "strategy": "authorizationBearer",
+      "inputs": {
+        "credential": "sk-real-vault-FAKE",
+        "upstream_base": "https://api.openai.com",
+        "strategy_params": {},
+        "skill_request": {
+          "method": "POST",
+          "upstream_path": "v1/chat/completions",
+          "query": "",
+          "headers": {"Content-Type": "application/json", "Authorization": "Bearer skill-supplied-WRONG-token"},
+          "body": "{}"
+        }
+      },
+      "expected_upstream_request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer sk-real-vault-FAKE",
+          "Content-Type": "application/json"
+        },
+        "body": "{}"
+      }
+    },
+    {
+      "name": "query_append_duplicate_key",
+      "description": "Skill already supplied ?key=skill-was-here; queryParam strategy APPENDS &key=<credential> rather than overwriting. The duplicate-key on the upstream URL is a visible audit anomaly — operators see the receipt's wall_clock_ms + upstream_status, and a savvy reviewer notices two ?key= entries in the upstream's access log. The behavior is INTENTIONAL — the proxy doesn't silently mutate the skill's query string. Operators MUST configure queryParam only for services where the skill itself does not set the same param.",
+      "strategy": "queryParam",
+      "inputs": {
+        "credential": "vault-FAKE-secret",
+        "upstream_base": "https://x",
+        "strategy_params": {"param_name": "key"},
+        "skill_request": {
+          "method": "GET",
+          "upstream_path": "v1/foo",
+          "query": "key=skill-was-here",
+          "headers": {},
+          "body": ""
+        }
+      },
+      "expected_upstream_request": {
+        "method": "GET",
+        "url": "https://x/v1/foo?key=skill-was-here&key=vault-FAKE-secret",
+        "headers": {},
+        "body": ""
+      }
+    },
+    {
+      "name": "body_overwrite_at_json_path",
+      "description": "Skill JSON body already contains the credential field. The bodyField strategy OVERWRITES — same rationale as the header case. The output is re-serialized canonically (sort_keys=True, separators=(',', ':')), so the field order is alphabetical regardless of input order.",
+      "strategy": "bodyField",
+      "inputs": {
+        "credential": "real-vault-FAKE",
+        "upstream_base": "https://x",
+        "strategy_params": {"json_path": "client_secret"},
+        "skill_request": {
+          "method": "POST",
+          "upstream_path": "token",
+          "query": "",
+          "headers": {"Content-Type": "application/json"},
+          "body": "{\"client_secret\":\"skill-supplied-WRONG\",\"grant_type\":\"client_credentials\"}"
+        }
+      },
+      "expected_upstream_request": {
+        "method": "POST",
+        "url": "https://x/token",
+        "headers": {"Content-Type": "application/json"},
+        "body": "{\"client_secret\":\"real-vault-FAKE\",\"grant_type\":\"client_credentials\"}"
+      }
+    }
+  ]
+}

@@ -12,6 +12,8 @@
 
 import { checkAccess } from "../../vault/src/vault.js";
 import type { VerifiedLease } from "../routes/lease-middleware.js";
+import { findForbiddenReceiptField } from "./receipt-guard.js";
+import { logEvent } from "../obs/log.js";
 
 /**
  * Discriminated union of injection strategies per
@@ -315,22 +317,59 @@ function emitProxyCallTelemetry(
       tsMs:             args.startMs,
       nonceHex:         generateNonceHex(),
     };
+    // `{ ...receipt }` because `ProxyCallReceipt` is a closed interface with no
+    // index signature — spreading gives the guard a plain record without
+    // widening the receipt type itself, which is the structural guarantee worth
+    // keeping.
+    if (refuseIfForbidden({ ...receipt }, "receipt")) return;
     receipts.emit(receipt);
   }
   if (metrics) {
     // Phase 7 — bounded-cardinality labels only. NEVER include
     // the credential value, request body, query string, or
-    // upstream URL fragments.
-    metrics.emit({
-      name: "vault_proxy_call",
-      labels: {
-        service:        args.cfg.name,
-        peer_fp:        args.peerFp,
-        status:         args.status,
-        injection_kind: args.cfg.injection.kind,
-      },
-    });
+    // upstream URL fragments. That sentence used to be the only
+    // thing enforcing it here — labels are assembled from `args`
+    // and `ProxyCallReceipt`'s type does not constrain them, so
+    // this arm was the weaker of the two. `refuseIfForbidden` is
+    // now the rail (cloister-d7216a).
+    const labels = {
+      service:        args.cfg.name,
+      peer_fp:        args.peerFp,
+      status:         args.status,
+      injection_kind: args.cfg.injection.kind,
+    };
+    if (refuseIfForbidden(labels, "metric")) return;
+    metrics.emit({ name: "vault_proxy_call", labels });
   }
+}
+
+/**
+ * Gate one telemetry row before it leaves the process. Returns `true` when the
+ * row was REFUSED and the caller must not emit it.
+ *
+ * Refuses rather than throws: `emitProxyCallTelemetry` runs in a `finally`
+ * after the upstream response is already in hand, so throwing would convert a
+ * successful proxied call into a 500 for what can only be a code change to the
+ * receipt shape. Per credential-isolation/v1's vector, the requirement is that
+ * a leaky receipt "never reaches the signing key" — dropping it satisfies that;
+ * failing the caller's request does not follow from it.
+ *
+ * Dropping is not silent. A missing receipt is itself meaningful under
+ * Interlace §13.2 ("silence is evidence"), so the refusal is logged at error
+ * level with the offending field NAME — never its value, which is the material
+ * we are refusing to commit in the first place.
+ */
+function refuseIfForbidden(row: Record<string, unknown>, kind: "receipt" | "metric"): boolean {
+  const field = findForbiddenReceiptField(row);
+  if (field === null) return false;
+  logEvent("error", {
+    target:  "vault-proxy",
+    op:      `emit-${kind}`,
+    outcome: "refused",
+    reason:  "forbidden field in telemetry row (credential-isolation/v1)",
+    field,
+  });
+  return true;
 }
 
 // ── Default emitters (cloister-6e888b / X-1 production-readiness) ────────
@@ -626,16 +665,40 @@ export function parseVaultProxyPath(
   const tail = pathname.slice(PREFIX.length);
   const firstSlash = tail.indexOf("/");
   if (firstSlash === -1) {
-    // /vault/proxy/<service> with no upstream path — valid; upstream
-    // path is "/" (the upstream's root resource).
-    return tail.length === 0
-      ? null
-      : { service: tail, upstreamPath: "/" };
+    // /vault/proxy/<service> with no upstream path. The canonical service-root
+    // upstream path is the EMPTY STRING, not "/", per
+    // leyline-schema-spec/credential-isolation/v1 path-parsing vectors
+    // (happy_service_root_no_trailing_slash). cloister returned "/" here and
+    // pinned it in a test; the change is unobservable upstream because the
+    // value is concatenated as `baseUrl.replace(/\/+$/,"") + upstreamPath` and
+    // both forms normalize to the same URL — but it makes `/vault/proxy/svc`
+    // and `/vault/proxy/svc/` distinguishable, which the receipt records.
+    return isValidServiceName(tail) ? { service: tail, upstreamPath: "" } : null;
   }
   const service = tail.slice(0, firstSlash);
   const upstreamPath = tail.slice(firstSlash); // includes leading slash
-  if (service.length === 0) return null;
+  if (!isValidServiceName(service)) return null;
   return { service, upstreamPath };
+}
+
+/**
+ * `[a-z0-9][a-z0-9._-]{0,62}` — the service-name grammar from
+ * credential-isolation/v1's path-parsing vectors.
+ *
+ * Case-sensitive by requirement, not by accident. The vector's rationale:
+ * "case-sensitivity in service names would create lookup hazards (manifest
+ * entries are lowercase by convention; accepting OpenAI would either silently
+ * miss the openai entry or silently equate them, both bad)." Rejecting is the
+ * only option that is neither silent miss nor silent equate.
+ *
+ * Rejection is uniform `null` at the call sites, indistinguishable from a
+ * malformed prefix. That is deliberate: every rejection on this surface
+ * collapses into one constant-time 404 so the proxy cannot be used to
+ * enumerate which services exist, so a discriminated reject kind would be a
+ * channel that has to be kept closed rather than a feature.
+ */
+function isValidServiceName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,62}$/.test(name);
 }
 
 /**
@@ -689,9 +752,33 @@ export const SHAPE_U_ERROR_BODY = JSON.stringify({
  * Retry-After + other forward-relevant headers from the source
  * Response are preserved.
  */
+/**
+ * Response headers the proxy CONTROLS on every response it emits — never
+ * copied from upstream. Per credential-isolation/v1
+ * `wire/proxy-envelope.md` §"Response" and its reserved-response-headers
+ * vector. Compared case-insensitively on the wire (HTTP §3.2).
+ *
+ * `Interlace-Receipt` is listed because the contract reserves it, NOT because
+ * cloister emits it yet — that needs the master Ed25519 signing key the
+ * vault-proxy handler does not have (see the known-gap test in
+ * test/routes/vault-proxy-reserved-headers.test.ts).
+ */
+export const RESERVED_RESPONSE_HEADERS: readonly string[] = Object.freeze([
+  "Interlace-Receipt",
+  "Server",
+]);
+
+/**
+ * The fixed `Server` value. Overwrites whatever the upstream sent, so a
+ * response never advertises which origin actually answered — passing
+ * `Server: nginx/1.23` through would make the proxy a fingerprinting oracle
+ * for the upstream fleet.
+ */
+export const PROXY_SERVER_HEADER_VALUE = "cloister/credential-isolation/v1";
+
 export async function collapseWireShape(res: Response): Promise<Response> {
   const status = res.status;
-  if (status >= 200 && status < 400) return res;
+  if (status >= 200 && status < 400) return stampReservedHeaders(res);
 
   const isAccessFailure   = status === 401 || status === 403 || status === 404 || status === 429;
   const isUpstreamFailure = status === 502 || status === 503;
@@ -705,7 +792,24 @@ export async function collapseWireShape(res: Response): Promise<Response> {
   const extra: Record<string, string> = {};
   const retryAfter = res.headers.get("retry-after");
   if (retryAfter) extra["retry-after"] = retryAfter;
-  return errorResponse(status, canonicalBody, extra);
+  return stampReservedHeaders(errorResponse(status, canonicalBody, extra));
+}
+
+/**
+ * Set the proxy-controlled response headers, overwriting anything upstream
+ * sent under the same names. Every other header passes through untouched —
+ * the vector calls out Content-Type / Content-Length / Transfer-Encoding /
+ * Set-Cookie specifically, because body framing breaks if any are mutated.
+ *
+ * Applied to error responses too. The vector's cases are success-shaped, but
+ * `Server` identifies the proxy on every response it emits; a FIXED value
+ * cannot leak anything through the constant-time error path, while omitting it
+ * there would turn the header into a success-only signal.
+ */
+function stampReservedHeaders(res: Response): Response {
+  const headers = new Headers(res.headers);
+  headers.set("Server", PROXY_SERVER_HEADER_VALUE);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 /**

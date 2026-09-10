@@ -24,7 +24,8 @@ harness.
 | `$HOME` | **Denied by default** — `~/.ssh`, `~/.aws`, dotfiles, everything. Kernel `EPERM`, not convention. |
 | Workdir | `-a <workdir>` — the rw workspace (recursive). |
 | Harness state | `-a ~/.claude` + `--allow-file ~/.claude.json` — its own config/session state and (audit mode) its OWN credentials. |
-| Network | `--block-net` + `--open-port <shim port>` — external connects fail `EPERM` before a packet leaves; the only TCP is localhost to the shim. `--allow-unix-socket <path>` for UDS seams. |
+| Network (outbound) | `--block-net` + `--open-port <shim port>` — external connects fail `EPERM` before a packet leaves. Port-filtered on both platforms. `--allow-unix-socket <path>` for UDS seams. |
+| Network (bind/inbound) | **macOS: NOT restricted.** Seatbelt cannot filter bind or inbound by port, so nono emits an unqualified `(allow network-bind)` + `(allow network-inbound)` whenever localhost TCP is permitted at all — verified in the locked nono 0.70.0, `src/sandbox/macos.rs:812`. A confined harness may open a listener on any port and accept from any source; that is a channel out of the sandbox which does not traverse the vault proxy and emits no receipt. Linux (Landlock V4+) does restrict it. Tracked as `cloister-2d420c`. |
 | System | nono default-allows system/toolchain paths + `/tmp` so binaries load. Don't stage secrets in `/tmp` — `$HOME` is the protected surface. |
 
 ## Usage
@@ -62,7 +63,7 @@ strictly for filesystem + process confinement. Whether cloister should
 some day *delegate* credential injection to nono's proxy (or keep its
 own) is an open design question — a future ADR, not this wiring.
 
-## §7 confinement commitment (cloister-c80953)
+## §8 confinement commitment (cloister-c80953)
 
 The policy may carry an optional `confinement` block — the confinement/v1
 manifest this workload is bound to, plus its Interlace identity cert and the CA
@@ -79,7 +80,7 @@ master pubkey:
 When present, the runner — **before** the irreversible `Sandbox::apply` —
 `verify_cert_chain`s the cert against the master, extracts the committed
 `confinementDigest` (Interlace extension OID `.1.7`), recomputes the BLAKE3-256
-of the §6-canonical manifest it is about to enforce, and **refuses to confine on
+of the §7-canonical manifest it is about to enforce, and **refuses to confine on
 any mismatch**. This is fail-closed: a cert that commits *no* digest, a cert that
 doesn't verify, or a manifest that digests differently all `bail!` before the
 harness ever execs.

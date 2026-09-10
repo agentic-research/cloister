@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Content pin for the generated LLO execution/v1 MCP contract artifact.",
+    "Update the source commit and digest together when LLO publishes a new contract.",
+    "",
+    "sourceCommit MUST be a commit reachable from a published tag, not a branch tip.",
+    "This pin previously named 2835bdce — a commit on LLO's integration branch, which",
+    "PR #317 squash-merged into main. It is NOT an ancestor of v0.15.0, so the bytes",
+    "this artifact claimed to come from were already unreachable from any released",
+    "history and would vanish entirely when the branch was deleted. A content pin",
+    "whose source cannot be fetched is a digest with no provenance: it still detects",
+    "cloister-side corruption, but it can no longer answer `where did this come from`,",
+    "which is the question the pin exists to answer.",
+    "",
+    "REGENERATING (needs an LLO checkout; cloister CI deliberately has none):",
+    "  1. node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-tooldefs",
+    "  2. from <llo>/rs/ll-core/schema-spec at the tag named by sourceCommit:",
+    "     capnp compile -o<path-from-step-1>:<outdir> --src-prefix=. execution/v1/execution.capnp",
+    "  3. copy <outdir>/execution.tools.json over `artifact`, update sha256.",
+    "Step 1 matters: the generator must itself come from the digest-verified path.",
+    "The v0.15.0 re-vendor was first done with a hand-downloaded binary, which is the",
+    "same unverified-input shape the schema-bridge lock exists to prevent."
+  ],
+  "source": "agentic-research/ley-line-open",
+  "sourceCommit": "32e9dab2c3c39b949112ae7fc4dd0619e711f7d9",
+  "sourceTag": "v0.17.0",
+  "artifact": "src/generated/llo-execution-tools.json",
+  "sha256": "37136028e8459b78029b2497291560649bf8735abf3b70e1eea7c9e8eaec1cd8"
+}

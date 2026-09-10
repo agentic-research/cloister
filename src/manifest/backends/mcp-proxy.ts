@@ -54,6 +54,8 @@
 
 import { z } from "zod";
 
+import { fetchedOrigin } from "../../wire/origin.js";
+import type { OriginSet } from "../../wire/origin.js";
 import type { Env, JsonRpcResponse, McpTool } from "../../types.js";
 import { JsonRpcInvocationError, type ToolBackend } from "../../backends.js";
 import type { HttpForwardBackend } from "../types.js";
@@ -280,6 +282,39 @@ export class McpProxyToolBackend implements ToolBackend {
       // implementation so existing fetch-injection tests are unchanged.
       fetch: (init) => this.fetchImpl(url, init),
     };
+  }
+
+  /**
+   * ADR-0065 phase 2 / threat model §21 — the endpoint cloister dials for this
+   * backend, as a cloister-vouched origin.
+   *
+   * Both routes are operator-declared and neither is caller-steerable (§21.2):
+   * the service-binding name and the URL var both come from the manifest and are
+   * enforced on both deployment paths by `lint:binding-parity`.
+   *
+   * The service-binding route reports the BINDING, not the synthetic URL the
+   * fetch is dressed in. `SERVICE_BINDING_SYNTHETIC_HOST` exists so workerd has
+   * a Request to route; it names no real host, and recording it would put a
+   * fictional endpoint into a provenance record — a fabricated fact in the one
+   * structure whose entire purpose is not containing any.
+   *
+   * Returns an EMPTY set when neither route resolves, matching `resolveUpstream`
+   * returning null: a backend that cannot dial has ingested nothing, and an
+   * empty set derives origin-unknown rather than asserting a source that was
+   * never contacted.
+   */
+  contentOrigin(env: Env): OriginSet {
+    const envAny = env as unknown as Record<string, unknown>;
+    const bindingName = this.spec.serviceBinding ?? "";
+    if (bindingName !== "") {
+      const binding = envAny[bindingName];
+      if (binding && typeof binding === "object" && typeof (binding as { fetch?: unknown }).fetch === "function") {
+        return [fetchedOrigin(`cloister:service-binding/${bindingName}`)];
+      }
+    }
+    const url = envAny[this.spec.urlBinding];
+    if (typeof url !== "string" || url === "") return [];
+    return [fetchedOrigin(url)];
   }
 
   tools(): McpTool[] {

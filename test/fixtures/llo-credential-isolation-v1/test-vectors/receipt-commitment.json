@@ -1,0 +1,60 @@
+{
+  "$comment": "Receipt canonical input + sha256 digest. The capability tag 'cloister/credential-isolation/v1' is pinned as the first field — domain-separation: a different capability re-using sha256+LF produces different bytes for the same field values, so receipts can't be cross-replayed between capabilities. All forbidden MUST-NOT-COMMIT fields (credential value, allowedSubs, request/response body, query, KEK source URL) are STRUCTURALLY absent — there is no key for them in the canonical input grammar.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "openai_success_200",
+      "description": "Successful proxied chat-completion. peer_fp is all-a fake; ts/nonce shared with proxy-envelope-canonical.json:happy_bearer_chat_completion for cross-referenceability. upstream_status=200, request/response sizes pinned.",
+      "inputs": {
+        "peer_fp_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "service": "openai",
+        "upstream_status": 200,
+        "upstream_url_path": "/v1/chat/completions",
+        "request_size_bytes": 72,
+        "response_size_bytes": 348,
+        "wall_clock_ms": 413,
+        "ts_ms": 1700000100000,
+        "nonce_hex": "a1a2a3a4a5a6a7a8a9aaabacadaeafb0"
+      },
+      "expected_canonical_input_len": 187,
+      "expected_canonical_input_hex": "636c6f69737465722f63726564656e7469616c2d69736f6c6174696f6e2f76310a616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161610a6f70656e61690a3230300a2f76312f636861742f636f6d706c6574696f6e730a37320a3334380a3431330a313730303030303130303030300a6131613261336134613561366137613861396161616261636164616561666230",
+      "expected_digest_sha256_hex": "0b936cb90841396ee4b6d5f7ebcb2a938a1ee97234ec6356703d34dcef7a4ed6"
+    },
+    {
+      "name": "github_404_upstream",
+      "description": "Upstream returned 404. The receipt commits to upstream_status=404 — the proxy faithfully reports upstream's status. NOTE: this is the upstream's 404, not the proxy's own constant-time 404 (those don't generate receipts because no credential lookup happens for them).",
+      "inputs": {
+        "peer_fp_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "service": "github",
+        "upstream_status": 404,
+        "upstream_url_path": "/repos/agentic-research/cloister/issues/9999",
+        "request_size_bytes": 0,
+        "response_size_bytes": 58,
+        "wall_clock_ms": 88,
+        "ts_ms": 1700000200000,
+        "nonce_hex": "b1b2b3b4b5b6b7b8b9babbbcbdbebfc0"
+      },
+      "expected_canonical_input_len": 208,
+      "expected_canonical_input_hex": "636c6f69737465722f63726564656e7469616c2d69736f6c6174696f6e2f76310a626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262620a6769746875620a3430340a2f7265706f732f6167656e7469632d72657365617263682f636c6f69737465722f6973737565732f393939390a300a35380a38380a313730303030303230303030300a6231623262336234623562366237623862396261626262636264626562666330",
+      "expected_digest_sha256_hex": "25461644fcbb6b52b6d068377645c0d6cdfbf5aa9a6ce54e3b27e600f1f4d7e2"
+    },
+    {
+      "name": "oauth_token_400_bad_request",
+      "description": "Upstream returned 400 (e.g. bad grant_type). Receipt still commits to the URL path and status even on error — observers see a peer's failed attempts, but the request body (which would contain client_id + secret in OAuth client_credentials shape) is NEVER part of the receipt input.",
+      "inputs": {
+        "peer_fp_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "service": "oauth-x",
+        "upstream_status": 400,
+        "upstream_url_path": "/token",
+        "request_size_bytes": 29,
+        "response_size_bytes": 110,
+        "wall_clock_ms": 27,
+        "ts_ms": 1700000300000,
+        "nonce_hex": "c1c2c3c4c5c6c7c8c9cacbcccdcecfd0"
+      },
+      "expected_canonical_input_len": 173,
+      "expected_canonical_input_hex": "636c6f69737465722f63726564656e7469616c2d69736f6c6174696f6e2f76310a636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363630a6f617574682d780a3430300a2f746f6b656e0a32390a3131300a32370a313730303030303330303030300a6331633263336334633563366337633863396361636263636364636563666430",
+      "expected_digest_sha256_hex": "27e61c17fa998ab053035545ffc3b143facf58cc0347289d2c1036c991c7216d"
+    }
+  ]
+}

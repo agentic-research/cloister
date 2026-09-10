@@ -11,12 +11,20 @@ ENV CARGO_HOME="/usr/local/cargo"
 ENV CLOISTER_BIN_DIR="/opt/cloister/bin"
 ENV CLOISTER_LIBEXEC_DIR="/opt/cloister/libexec"
 
+# `task install` builds cloister-host-runtime with `--features llo-execution`,
+# which pulls ley-line-open's runtime and, through it, `capnp-json`. That
+# crate's build script shells out to the `capnp` compiler (package
+# `capnproto`) and its schema imports `/capnp/c++.capnp`, which only
+# `libcapnp-dev` ships — the compiler package alone is just the binary and
+# fails with "Import failed: /capnp/c++.capnp".
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
+    capnproto \
     curl \
     git \
+    libcapnp-dev \
     libdbus-1-dev \
     pkg-config \
   && rm -rf /var/lib/apt/lists/*

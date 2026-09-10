@@ -1,0 +1,969 @@
+[
+  {
+    "name": "llo_execution_capabilities",
+    "description": "Discover execution interfaces and backend classes without mutating host state.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "llo_execution_status",
+    "description": "Read substrate readiness without provisioning or creating storage.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "description": "Optional run to inspect; empty means substrate status." }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "llo_execution_provision",
+    "description": "Explicitly and idempotently provision execution storage or backend resources.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class to provision." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "$defs": {
+    "BackendClass": { "type": "string", "description": "Isolation class required by resolved policy.", "enum": ["native", "microVm"] },
+    "RunState": { "type": "string", "description": "Append-only execution lifecycle state.", "enum": ["accepted", "provisioning", "ready", "running", "succeeded", "failed", "cancelled", "cleaning", "cleaned"] },
+    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
+    "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
+    "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
+    "DigestRef": {
+      "type": "object",
+      "description": "Algorithm-tagged content digest.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Digest algorithm, for example blake3-256 or sha256." },
+        "value": { "type": "string", "description": "Lowercase digest bytes encoded as hexadecimal text." }
+      },
+      "required": ["algorithm", "value"],
+      "additionalProperties": false
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "description": "Content-addressed identity, provenance, or enforcement evidence.",
+      "properties": {
+        "mediaType": { "type": "string", "description": "Versioned media type identifying the external evidence contract." },
+        "digest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the canonical evidence bytes." }
+      },
+      "required": ["mediaType", "digest"],
+      "additionalProperties": false
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "description": "Immutable content-addressed executable or data artifact.",
+      "properties": {
+        "digest": { "$ref": "#/$defs/DigestRef", "description": "Artifact content digest." },
+        "mediaType": { "type": "string", "description": "Artifact media type." }
+      },
+      "required": ["digest", "mediaType"],
+      "additionalProperties": false
+    },
+    "KeyValue": {
+      "type": "object",
+      "description": "Public non-secret environment entry.",
+      "properties": {
+        "key": { "type": "string", "description": "Environment variable name." },
+        "value": { "type": "string", "description": "Public value. Secret material is forbidden here." }
+      },
+      "required": ["key", "value"],
+      "additionalProperties": false
+    },
+    "SecretHandle": {
+      "type": "object",
+      "description": "Opaque reference to a credential broker entry.",
+      "properties": {
+        "name": { "type": "string", "description": "Name exposed to the workload." },
+        "brokerRef": { "type": "string", "description": "Opaque broker reference; never the credential value." }
+      },
+      "required": ["name", "brokerRef"],
+      "additionalProperties": false
+    },
+    "ResourceLimits": {
+      "type": "object",
+      "description": "Resolved or requested resource ceilings.",
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means policy default." },
+        "memoryBytes": { "type": "integer", "minimum": 0, "description": "Maximum memory in bytes; zero means policy default." },
+        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Maximum cumulative CPU time in milliseconds; zero means policy default." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means policy default." }
+      },
+      "required": ["wallTimeMs", "memoryBytes", "cpuMillis", "outputBytes"],
+      "additionalProperties": false
+    },
+    "WorkspaceIntent": {
+      "type": "object",
+      "description": "Requested logical Graph workspace; carries no host path authority.",
+      "properties": {
+        "name": { "type": "string", "description": "Name by which the workload addresses this workspace." },
+        "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Immutable input Graph root." }
+      },
+      "required": ["name", "graphRoot"],
+      "additionalProperties": false
+    },
+    "WorkspaceGrant": {
+      "type": "object",
+      "description": "Resolved authority over one logical Graph workspace.",
+      "properties": {
+        "name": { "type": "string", "description": "RunSpec workspace name this grant resolves." },
+        "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Authorized input Graph root." },
+        "expectedGeneration": { "type": "integer", "minimum": 0, "description": "Optimistic-concurrency generation for mutation." },
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." }
+      },
+      "required": ["name", "graphRoot", "expectedGeneration", "operations"],
+      "additionalProperties": false
+    },
+    "CapabilityGrant": {
+      "type": "object",
+      "description": "Verified authorization grant mapped to a versioned interface.",
+      "properties": {
+        "grant": { "type": "string", "description": "Lane-1 Signet capability URN." },
+        "interface": { "type": "string", "description": "Lane-3 interface identifier, for example cloister/execution/v1." }
+      },
+      "required": ["grant", "interface"],
+      "additionalProperties": false
+    },
+    "OutputDeclaration": {
+      "type": "object",
+      "description": "Named content-addressed result expected from a run.",
+      "properties": {
+        "name": { "type": "string", "description": "Stable result name." },
+        "mediaType": { "type": "string", "description": "Expected result media type." }
+      },
+      "required": ["name", "mediaType"],
+      "additionalProperties": false
+    },
+    "RunSpec": {
+      "type": "object",
+      "description": "Content-addressed execution intent. It is not authority.",
+      "properties": {
+        "schemaVersion": { "type": "string", "description": "Contract identifier; must be cloister/execution/v1." },
+        "executable": { "$ref": "#/$defs/ArtifactRef", "description": "Immutable executable or guest artifact." },
+        "arguments": { "type": "array", "items": { "type": "string" }, "description": "Argument vector excluding argv[0]." },
+        "workspaceInputs": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceIntent" }, "description": "Logical content-addressed workspaces requested by name." },
+        "publicEnvironment": { "type": "array", "items": { "$ref": "#/$defs/KeyValue" }, "description": "Non-secret environment values." },
+        "secretHandles": { "type": "array", "items": { "$ref": "#/$defs/SecretHandle" }, "description": "Opaque secret broker handles; never secret values." },
+        "requestedInterfaces": { "type": "array", "items": { "type": "string" }, "description": "Lane-3 interfaces requested by the workload." },
+        "requestedLimits": { "$ref": "#/$defs/ResourceLimits", "description": "Requested ceilings; the grant may only narrow them." },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/OutputDeclaration" }, "description": "Declared content-addressed outputs." },
+        "cancellationMode": { "$ref": "#/$defs/CancellationMode", "description": "Requested cancellation behavior." },
+        "compatibilityRuntime": { "$ref": "#/$defs/ArtifactRef", "description": "Optional guest runtime artifact; an empty digest means none." }
+      },
+      "required": ["schemaVersion", "executable", "arguments", "workspaceInputs", "publicEnvironment", "secretHandles", "requestedInterfaces", "requestedLimits", "outputs", "cancellationMode"],
+      "additionalProperties": false
+    },
+    "GrantSignature": {
+      "type": "object",
+      "description": "Detached issuer signature over a RunGrant. See wire/run-grant.md for the covered bytes.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Signature algorithm; ed25519 is the only value this contract defines." },
+        "keyId": { "type": "string", "description": "Unauthenticated issuer key hint. A verifier checks every trusted key regardless and never selects one by this." },
+        "value": { "type": "string", "contentEncoding": "base64", "description": "Raw signature bytes; 64 for ed25519." }
+      },
+      "required": ["algorithm", "keyId", "value"],
+      "additionalProperties": false
+    },
+    "RunGrant": {
+      "type": "object",
+      "description": "Authenticated, resolved execution authority bound to one RunSpec digest.",
+      "properties": {
+        "grantId": { "type": "string", "description": "Issuer-unique grant identifier." },
+        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "expiresAtUnixMs": { "type": "integer", "minimum": 0, "description": "Absolute expiry in Unix milliseconds." },
+        "replayKey": { "type": "string", "description": "Idempotency and replay-protection key." },
+        "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the authorized RunSpec." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
+        "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
+        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
+        "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
+        "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
+      },
+      "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
+      "additionalProperties": false
+    },
+    "ExecutionError": {
+      "type": "object",
+      "description": "Stable transport-independent execution error.",
+      "properties": {
+        "code": { "$ref": "#/$defs/ErrorCode", "description": "Machine-readable classification." },
+        "message": { "type": "string", "description": "Safe operator-facing message with no secrets." },
+        "retryable": { "type": "boolean", "description": "Whether retry under the same authority may succeed." },
+        "detailRef": { "$ref": "#/$defs/DigestRef", "description": "Optional content-addressed diagnostic detail; empty digest means absent." }
+      },
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": false
+    },
+    "RunEvent": {
+      "type": "object",
+      "description": "One append-only lifecycle event.",
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0, "description": "Monotonic per-run event sequence." },
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Lifecycle state after this event." },
+        "timestampMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed Unix timestamp in milliseconds." },
+        "detailDigest": { "$ref": "#/$defs/DigestRef", "description": "Optional event detail digest; empty digest means absent." }
+      },
+      "required": ["sequence", "runId", "state", "timestampMs"],
+      "additionalProperties": false
+    },
+    "ArtifactResult": {
+      "type": "object",
+      "description": "Collected named output.",
+      "properties": {
+        "name": { "type": "string", "description": "Output declaration name." },
+        "artifact": { "$ref": "#/$defs/ArtifactRef", "description": "Immutable collected artifact." }
+      },
+      "required": ["name", "artifact"],
+      "additionalProperties": false
+    },
+    "ResourceUsage": {
+      "type": "object",
+      "description": "Terminal resource accounting.",
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Observed wall-clock runtime." },
+        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Observed cumulative CPU time." },
+        "peakMemory": { "type": "integer", "minimum": 0, "description": "Observed peak memory bytes." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Collected output bytes." }
+      },
+      "required": ["wallTimeMs", "cpuMillis", "peakMemory", "outputBytes"],
+      "additionalProperties": false
+    },
+    "EnforcedCeilings": {
+      "type": "object",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "properties": {
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
+        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+      },
+      "required": ["wallTime", "vcpus", "memory"],
+      "additionalProperties": false
+    },
+    "BackendEvidence": {
+      "type": "object",
+      "description": "Implementation and enforcement evidence for the selected backend class.",
+      "properties": {
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class actually used." },
+        "backendId": { "type": "string", "description": "Versioned implementation identifier." },
+        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." },
+        "enforced": { "$ref": "#/$defs/EnforcedCeilings", "description": "Per-ceiling enforcement mechanism actually applied by this backend. Absent on receipts from producers that predate it; a consumer treats absence as unknown, never as unenforced." }
+      },
+      "required": ["backendClass", "backendId", "evidence"],
+      "additionalProperties": false
+    },
+    "RunReceipt": {
+      "type": "object",
+      "description": "Terminal substrate evidence; may be embedded by a separate APAS attester.",
+      "properties": {
+        "schemaVersion": { "type": "string", "description": "Receipt contract identifier." },
+        "runId": { "type": "string", "description": "Run identifier." },
+        "terminalState": { "$ref": "#/$defs/RunState", "description": "Terminal lifecycle state." },
+        "eventLogRoot": { "$ref": "#/$defs/DigestRef", "description": "Root of the ordered event log." },
+        "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Executed intent digest." },
+        "runGrantDigest": { "$ref": "#/$defs/DigestRef", "description": "Verified authority digest." },
+        "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "Policy digest actually enforced." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Workload identity evidence used for authorization." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Delegated actor/provenance evidence used for authorization." },
+        "backend": { "$ref": "#/$defs/BackendEvidence", "description": "Backend identity and enforcement evidence." },
+        "inputRoots": { "type": "array", "items": { "$ref": "#/$defs/DigestRef" }, "description": "Content roots materialized for the run." },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs only." },
+        "usage": { "$ref": "#/$defs/ResourceUsage", "description": "Terminal resource accounting." },
+        "startedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed start time." },
+        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." }
+      },
+      "required": ["schemaVersion", "runId", "terminalState", "eventLogRoot", "runSpecDigest", "runGrantDigest", "confinementDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "backend", "inputRoots", "outputs", "usage", "startedAtUnixMs", "completedAtUnixMs"],
+      "additionalProperties": false
+    },
+    "CapabilityDescriptor": {
+      "type": "object",
+      "description": "One supported execution interface or backend class.",
+      "properties": {
+        "name": { "type": "string", "description": "Stable interface or backend identifier." },
+        "version": { "type": "string", "description": "Implementation or contract version." }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "CapabilitiesInput": {
+      "type": "object",
+      "description": "Discover execution interfaces and backend classes without mutating host state.",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "OpInfo": {
+      "type": "object",
+      "properties": {
+        "input": { "type": "string" },
+        "output": { "type": "string" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "name": { "type": "string" }
+      },
+      "required": ["input", "output", "errors", "name"],
+      "additionalProperties": false
+    },
+    "CapabilitiesOutput": {
+      "type": "object",
+      "description": "Read-only execution capability discovery result.",
+      "properties": {
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityDescriptor" }, "description": "Supported interfaces and backend classes." }
+      },
+      "required": ["capabilities"],
+      "additionalProperties": false
+    },
+    "StatusInput": {
+      "type": "object",
+      "description": "Read substrate readiness without provisioning or creating storage.",
+      "properties": {
+        "runId": { "type": "string", "description": "Optional run to inspect; empty means substrate status." }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "StatusOutput": {
+      "type": "object",
+      "description": "Read-only substrate or run status.",
+      "properties": {
+        "provisioned": { "type": "boolean", "description": "Whether the selected backend is explicitly provisioned." },
+        "backend": { "type": "string", "description": "Selected backend implementation identifier; empty when unavailable." },
+        "runId": { "type": "string", "description": "Run identifier; empty for substrate status." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Current state; accepted is the neutral value for substrate-only status." },
+        "lastEvent": { "type": "integer", "minimum": 0, "description": "Latest observed event sequence; zero when no run was selected." }
+      },
+      "required": ["provisioned", "backend", "runId", "state", "lastEvent"],
+      "additionalProperties": false
+    },
+    "ProvisionInput": {
+      "type": "object",
+      "description": "Explicitly and idempotently provision execution storage or backend resources.",
+      "properties": {
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class to provision." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["backendClass", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "ProvisionOutput": {
+      "type": "object",
+      "description": "Provisioning result.",
+      "properties": {
+        "provisioned": { "type": "boolean", "description": "True when the backend is ready." },
+        "backendId": { "type": "string", "description": "Selected backend implementation identifier." }
+      },
+      "required": ["provisioned", "backendId"],
+      "additionalProperties": false
+    },
+    "StartInput": {
+      "type": "object",
+      "description": "Verify a resolved grant, materialize only its capabilities, and start one run.",
+      "properties": {
+        "spec": { "$ref": "#/$defs/RunSpec", "description": "Untrusted execution intent." },
+        "grant": { "$ref": "#/$defs/RunGrant", "description": "Authenticated resolved authority bound to spec." }
+      },
+      "required": ["spec", "grant"],
+      "additionalProperties": false
+    },
+    "StartOutput": {
+      "type": "object",
+      "description": "Accepted run identity and initial state.",
+      "properties": {
+        "runId": { "type": "string", "description": "Stable run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Initial state after acceptance." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    },
+    "InspectInput": {
+      "type": "object",
+      "description": "Read one run and its append-only events.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "afterSequence": { "type": "integer", "minimum": 0, "description": "Return events strictly after this sequence." }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    },
+    "InspectOutput": {
+      "type": "object",
+      "description": "Current run state and ordered new events.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Current lifecycle state." },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/RunEvent" }, "description": "Events after the requested sequence." }
+      },
+      "required": ["runId", "state", "events"],
+      "additionalProperties": false
+    },
+    "CancelInput": {
+      "type": "object",
+      "description": "Request cancellation using the run capability.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "CancelOutput": {
+      "type": "object",
+      "description": "Cancellation request result.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Observed state after the request." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    },
+    "CollectInput": {
+      "type": "object",
+      "description": "Collect declared outputs and a terminal receipt.",
+      "properties": {
+        "runId": { "type": "string", "description": "Terminal run identifier." }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    },
+    "CollectOutput": {
+      "type": "object",
+      "description": "Declared outputs and terminal receipt.",
+      "properties": {
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs." },
+        "receipt": { "$ref": "#/$defs/RunReceipt", "description": "Terminal substrate receipt." }
+      },
+      "required": ["outputs", "receipt"],
+      "additionalProperties": false
+    },
+    "CleanupInput": {
+      "type": "object",
+      "description": "Idempotently release one run's ephemeral resources.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "CleanupOutput": {
+      "type": "object",
+      "description": "Cleanup result.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "cleaned when all ephemeral resources are released." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    }
+      },
+      "required": ["backendClass", "idempotencyKey"]
+    }
+  },
+  {
+    "name": "llo_execution_start",
+    "description": "Verify a resolved grant, materialize only its capabilities, and start one run.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "spec": { "$ref": "#/$defs/RunSpec", "description": "Untrusted execution intent." },
+        "grant": { "$ref": "#/$defs/RunGrant", "description": "Authenticated resolved authority bound to spec." }
+      },
+      "$defs": {
+    "BackendClass": { "type": "string", "description": "Isolation class required by resolved policy.", "enum": ["native", "microVm"] },
+    "RunState": { "type": "string", "description": "Append-only execution lifecycle state.", "enum": ["accepted", "provisioning", "ready", "running", "succeeded", "failed", "cancelled", "cleaning", "cleaned"] },
+    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
+    "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
+    "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
+    "DigestRef": {
+      "type": "object",
+      "description": "Algorithm-tagged content digest.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Digest algorithm, for example blake3-256 or sha256." },
+        "value": { "type": "string", "description": "Lowercase digest bytes encoded as hexadecimal text." }
+      },
+      "required": ["algorithm", "value"],
+      "additionalProperties": false
+    },
+    "EvidenceRef": {
+      "type": "object",
+      "description": "Content-addressed identity, provenance, or enforcement evidence.",
+      "properties": {
+        "mediaType": { "type": "string", "description": "Versioned media type identifying the external evidence contract." },
+        "digest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the canonical evidence bytes." }
+      },
+      "required": ["mediaType", "digest"],
+      "additionalProperties": false
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "description": "Immutable content-addressed executable or data artifact.",
+      "properties": {
+        "digest": { "$ref": "#/$defs/DigestRef", "description": "Artifact content digest." },
+        "mediaType": { "type": "string", "description": "Artifact media type." }
+      },
+      "required": ["digest", "mediaType"],
+      "additionalProperties": false
+    },
+    "KeyValue": {
+      "type": "object",
+      "description": "Public non-secret environment entry.",
+      "properties": {
+        "key": { "type": "string", "description": "Environment variable name." },
+        "value": { "type": "string", "description": "Public value. Secret material is forbidden here." }
+      },
+      "required": ["key", "value"],
+      "additionalProperties": false
+    },
+    "SecretHandle": {
+      "type": "object",
+      "description": "Opaque reference to a credential broker entry.",
+      "properties": {
+        "name": { "type": "string", "description": "Name exposed to the workload." },
+        "brokerRef": { "type": "string", "description": "Opaque broker reference; never the credential value." }
+      },
+      "required": ["name", "brokerRef"],
+      "additionalProperties": false
+    },
+    "ResourceLimits": {
+      "type": "object",
+      "description": "Resolved or requested resource ceilings.",
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means policy default." },
+        "memoryBytes": { "type": "integer", "minimum": 0, "description": "Maximum memory in bytes; zero means policy default." },
+        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Maximum cumulative CPU time in milliseconds; zero means policy default." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means policy default." }
+      },
+      "required": ["wallTimeMs", "memoryBytes", "cpuMillis", "outputBytes"],
+      "additionalProperties": false
+    },
+    "WorkspaceIntent": {
+      "type": "object",
+      "description": "Requested logical Graph workspace; carries no host path authority.",
+      "properties": {
+        "name": { "type": "string", "description": "Name by which the workload addresses this workspace." },
+        "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Immutable input Graph root." }
+      },
+      "required": ["name", "graphRoot"],
+      "additionalProperties": false
+    },
+    "WorkspaceGrant": {
+      "type": "object",
+      "description": "Resolved authority over one logical Graph workspace.",
+      "properties": {
+        "name": { "type": "string", "description": "RunSpec workspace name this grant resolves." },
+        "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Authorized input Graph root." },
+        "expectedGeneration": { "type": "integer", "minimum": 0, "description": "Optimistic-concurrency generation for mutation." },
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." }
+      },
+      "required": ["name", "graphRoot", "expectedGeneration", "operations"],
+      "additionalProperties": false
+    },
+    "CapabilityGrant": {
+      "type": "object",
+      "description": "Verified authorization grant mapped to a versioned interface.",
+      "properties": {
+        "grant": { "type": "string", "description": "Lane-1 Signet capability URN." },
+        "interface": { "type": "string", "description": "Lane-3 interface identifier, for example cloister/execution/v1." }
+      },
+      "required": ["grant", "interface"],
+      "additionalProperties": false
+    },
+    "OutputDeclaration": {
+      "type": "object",
+      "description": "Named content-addressed result expected from a run.",
+      "properties": {
+        "name": { "type": "string", "description": "Stable result name." },
+        "mediaType": { "type": "string", "description": "Expected result media type." }
+      },
+      "required": ["name", "mediaType"],
+      "additionalProperties": false
+    },
+    "RunSpec": {
+      "type": "object",
+      "description": "Content-addressed execution intent. It is not authority.",
+      "properties": {
+        "schemaVersion": { "type": "string", "description": "Contract identifier; must be cloister/execution/v1." },
+        "executable": { "$ref": "#/$defs/ArtifactRef", "description": "Immutable executable or guest artifact." },
+        "arguments": { "type": "array", "items": { "type": "string" }, "description": "Argument vector excluding argv[0]." },
+        "workspaceInputs": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceIntent" }, "description": "Logical content-addressed workspaces requested by name." },
+        "publicEnvironment": { "type": "array", "items": { "$ref": "#/$defs/KeyValue" }, "description": "Non-secret environment values." },
+        "secretHandles": { "type": "array", "items": { "$ref": "#/$defs/SecretHandle" }, "description": "Opaque secret broker handles; never secret values." },
+        "requestedInterfaces": { "type": "array", "items": { "type": "string" }, "description": "Lane-3 interfaces requested by the workload." },
+        "requestedLimits": { "$ref": "#/$defs/ResourceLimits", "description": "Requested ceilings; the grant may only narrow them." },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/OutputDeclaration" }, "description": "Declared content-addressed outputs." },
+        "cancellationMode": { "$ref": "#/$defs/CancellationMode", "description": "Requested cancellation behavior." },
+        "compatibilityRuntime": { "$ref": "#/$defs/ArtifactRef", "description": "Optional guest runtime artifact; an empty digest means none." }
+      },
+      "required": ["schemaVersion", "executable", "arguments", "workspaceInputs", "publicEnvironment", "secretHandles", "requestedInterfaces", "requestedLimits", "outputs", "cancellationMode"],
+      "additionalProperties": false
+    },
+    "GrantSignature": {
+      "type": "object",
+      "description": "Detached issuer signature over a RunGrant. See wire/run-grant.md for the covered bytes.",
+      "properties": {
+        "algorithm": { "type": "string", "description": "Signature algorithm; ed25519 is the only value this contract defines." },
+        "keyId": { "type": "string", "description": "Unauthenticated issuer key hint. A verifier checks every trusted key regardless and never selects one by this." },
+        "value": { "type": "string", "contentEncoding": "base64", "description": "Raw signature bytes; 64 for ed25519." }
+      },
+      "required": ["algorithm", "keyId", "value"],
+      "additionalProperties": false
+    },
+    "RunGrant": {
+      "type": "object",
+      "description": "Authenticated, resolved execution authority bound to one RunSpec digest.",
+      "properties": {
+        "grantId": { "type": "string", "description": "Issuer-unique grant identifier." },
+        "issuerEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified issuer/signature evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "expiresAtUnixMs": { "type": "integer", "minimum": 0, "description": "Absolute expiry in Unix milliseconds." },
+        "replayKey": { "type": "string", "description": "Idempotency and replay-protection key." },
+        "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Digest of the authorized RunSpec." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified Interlace/WIMSE workload identity evidence. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Verified delegated actor/provenance evidence, such as a Signet bridge certificate. Must be bound to this run — see the evidence-binding rule in README.md." },
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
+        "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
+        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
+        "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
+        "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
+      },
+      "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
+      "additionalProperties": false
+    },
+    "ExecutionError": {
+      "type": "object",
+      "description": "Stable transport-independent execution error.",
+      "properties": {
+        "code": { "$ref": "#/$defs/ErrorCode", "description": "Machine-readable classification." },
+        "message": { "type": "string", "description": "Safe operator-facing message with no secrets." },
+        "retryable": { "type": "boolean", "description": "Whether retry under the same authority may succeed." },
+        "detailRef": { "$ref": "#/$defs/DigestRef", "description": "Optional content-addressed diagnostic detail; empty digest means absent." }
+      },
+      "required": ["code", "message", "retryable"],
+      "additionalProperties": false
+    },
+    "RunEvent": {
+      "type": "object",
+      "description": "One append-only lifecycle event.",
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0, "description": "Monotonic per-run event sequence." },
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Lifecycle state after this event." },
+        "timestampMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed Unix timestamp in milliseconds." },
+        "detailDigest": { "$ref": "#/$defs/DigestRef", "description": "Optional event detail digest; empty digest means absent." }
+      },
+      "required": ["sequence", "runId", "state", "timestampMs"],
+      "additionalProperties": false
+    },
+    "ArtifactResult": {
+      "type": "object",
+      "description": "Collected named output.",
+      "properties": {
+        "name": { "type": "string", "description": "Output declaration name." },
+        "artifact": { "$ref": "#/$defs/ArtifactRef", "description": "Immutable collected artifact." }
+      },
+      "required": ["name", "artifact"],
+      "additionalProperties": false
+    },
+    "ResourceUsage": {
+      "type": "object",
+      "description": "Terminal resource accounting.",
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Observed wall-clock runtime." },
+        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Observed cumulative CPU time." },
+        "peakMemory": { "type": "integer", "minimum": 0, "description": "Observed peak memory bytes." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Collected output bytes." }
+      },
+      "required": ["wallTimeMs", "cpuMillis", "peakMemory", "outputBytes"],
+      "additionalProperties": false
+    },
+    "EnforcedCeilings": {
+      "type": "object",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "properties": {
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
+        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+      },
+      "required": ["wallTime", "vcpus", "memory"],
+      "additionalProperties": false
+    },
+    "BackendEvidence": {
+      "type": "object",
+      "description": "Implementation and enforcement evidence for the selected backend class.",
+      "properties": {
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class actually used." },
+        "backendId": { "type": "string", "description": "Versioned implementation identifier." },
+        "evidence": { "$ref": "#/$defs/EvidenceRef", "description": "Content-addressed backend enforcement evidence." },
+        "enforced": { "$ref": "#/$defs/EnforcedCeilings", "description": "Per-ceiling enforcement mechanism actually applied by this backend. Absent on receipts from producers that predate it; a consumer treats absence as unknown, never as unenforced." }
+      },
+      "required": ["backendClass", "backendId", "evidence"],
+      "additionalProperties": false
+    },
+    "RunReceipt": {
+      "type": "object",
+      "description": "Terminal substrate evidence; may be embedded by a separate APAS attester.",
+      "properties": {
+        "schemaVersion": { "type": "string", "description": "Receipt contract identifier." },
+        "runId": { "type": "string", "description": "Run identifier." },
+        "terminalState": { "$ref": "#/$defs/RunState", "description": "Terminal lifecycle state." },
+        "eventLogRoot": { "$ref": "#/$defs/DigestRef", "description": "Root of the ordered event log." },
+        "runSpecDigest": { "$ref": "#/$defs/DigestRef", "description": "Executed intent digest." },
+        "runGrantDigest": { "$ref": "#/$defs/DigestRef", "description": "Verified authority digest." },
+        "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "Policy digest actually enforced." },
+        "workloadIdentityEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Workload identity evidence used for authorization." },
+        "actorProvenanceEvidence": { "$ref": "#/$defs/EvidenceRef", "description": "Delegated actor/provenance evidence used for authorization." },
+        "backend": { "$ref": "#/$defs/BackendEvidence", "description": "Backend identity and enforcement evidence." },
+        "inputRoots": { "type": "array", "items": { "$ref": "#/$defs/DigestRef" }, "description": "Content roots materialized for the run." },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs only." },
+        "usage": { "$ref": "#/$defs/ResourceUsage", "description": "Terminal resource accounting." },
+        "startedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed start time." },
+        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." }
+      },
+      "required": ["schemaVersion", "runId", "terminalState", "eventLogRoot", "runSpecDigest", "runGrantDigest", "confinementDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "backend", "inputRoots", "outputs", "usage", "startedAtUnixMs", "completedAtUnixMs"],
+      "additionalProperties": false
+    },
+    "CapabilityDescriptor": {
+      "type": "object",
+      "description": "One supported execution interface or backend class.",
+      "properties": {
+        "name": { "type": "string", "description": "Stable interface or backend identifier." },
+        "version": { "type": "string", "description": "Implementation or contract version." }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    },
+    "CapabilitiesInput": {
+      "type": "object",
+      "description": "Discover execution interfaces and backend classes without mutating host state.",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "OpInfo": {
+      "type": "object",
+      "properties": {
+        "input": { "type": "string" },
+        "output": { "type": "string" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "name": { "type": "string" }
+      },
+      "required": ["input", "output", "errors", "name"],
+      "additionalProperties": false
+    },
+    "CapabilitiesOutput": {
+      "type": "object",
+      "description": "Read-only execution capability discovery result.",
+      "properties": {
+        "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityDescriptor" }, "description": "Supported interfaces and backend classes." }
+      },
+      "required": ["capabilities"],
+      "additionalProperties": false
+    },
+    "StatusInput": {
+      "type": "object",
+      "description": "Read substrate readiness without provisioning or creating storage.",
+      "properties": {
+        "runId": { "type": "string", "description": "Optional run to inspect; empty means substrate status." }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "StatusOutput": {
+      "type": "object",
+      "description": "Read-only substrate or run status.",
+      "properties": {
+        "provisioned": { "type": "boolean", "description": "Whether the selected backend is explicitly provisioned." },
+        "backend": { "type": "string", "description": "Selected backend implementation identifier; empty when unavailable." },
+        "runId": { "type": "string", "description": "Run identifier; empty for substrate status." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Current state; accepted is the neutral value for substrate-only status." },
+        "lastEvent": { "type": "integer", "minimum": 0, "description": "Latest observed event sequence; zero when no run was selected." }
+      },
+      "required": ["provisioned", "backend", "runId", "state", "lastEvent"],
+      "additionalProperties": false
+    },
+    "ProvisionInput": {
+      "type": "object",
+      "description": "Explicitly and idempotently provision execution storage or backend resources.",
+      "properties": {
+        "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Isolation class to provision." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["backendClass", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "ProvisionOutput": {
+      "type": "object",
+      "description": "Provisioning result.",
+      "properties": {
+        "provisioned": { "type": "boolean", "description": "True when the backend is ready." },
+        "backendId": { "type": "string", "description": "Selected backend implementation identifier." }
+      },
+      "required": ["provisioned", "backendId"],
+      "additionalProperties": false
+    },
+    "StartInput": {
+      "type": "object",
+      "description": "Verify a resolved grant, materialize only its capabilities, and start one run.",
+      "properties": {
+        "spec": { "$ref": "#/$defs/RunSpec", "description": "Untrusted execution intent." },
+        "grant": { "$ref": "#/$defs/RunGrant", "description": "Authenticated resolved authority bound to spec." }
+      },
+      "required": ["spec", "grant"],
+      "additionalProperties": false
+    },
+    "StartOutput": {
+      "type": "object",
+      "description": "Accepted run identity and initial state.",
+      "properties": {
+        "runId": { "type": "string", "description": "Stable run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Initial state after acceptance." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    },
+    "InspectInput": {
+      "type": "object",
+      "description": "Read one run and its append-only events.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "afterSequence": { "type": "integer", "minimum": 0, "description": "Return events strictly after this sequence." }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    },
+    "InspectOutput": {
+      "type": "object",
+      "description": "Current run state and ordered new events.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Current lifecycle state." },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/RunEvent" }, "description": "Events after the requested sequence." }
+      },
+      "required": ["runId", "state", "events"],
+      "additionalProperties": false
+    },
+    "CancelInput": {
+      "type": "object",
+      "description": "Request cancellation using the run capability.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "CancelOutput": {
+      "type": "object",
+      "description": "Cancellation request result.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "Observed state after the request." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    },
+    "CollectInput": {
+      "type": "object",
+      "description": "Collect declared outputs and a terminal receipt.",
+      "properties": {
+        "runId": { "type": "string", "description": "Terminal run identifier." }
+      },
+      "required": ["runId"],
+      "additionalProperties": false
+    },
+    "CollectOutput": {
+      "type": "object",
+      "description": "Declared outputs and terminal receipt.",
+      "properties": {
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs." },
+        "receipt": { "$ref": "#/$defs/RunReceipt", "description": "Terminal substrate receipt." }
+      },
+      "required": ["outputs", "receipt"],
+      "additionalProperties": false
+    },
+    "CleanupInput": {
+      "type": "object",
+      "description": "Idempotently release one run's ephemeral resources.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"],
+      "additionalProperties": false
+    },
+    "CleanupOutput": {
+      "type": "object",
+      "description": "Cleanup result.",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "state": { "$ref": "#/$defs/RunState", "description": "cleaned when all ephemeral resources are released." }
+      },
+      "required": ["runId", "state"],
+      "additionalProperties": false
+    }
+      },
+      "required": ["spec", "grant"]
+    }
+  },
+  {
+    "name": "llo_execution_inspect",
+    "description": "Read one run and its append-only events.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "afterSequence": { "type": "integer", "minimum": 0, "description": "Return events strictly after this sequence." }
+      },
+      "required": ["runId"]
+    }
+  },
+  {
+    "name": "llo_execution_cancel",
+    "description": "Request cancellation using the run capability.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"]
+    }
+  },
+  {
+    "name": "llo_execution_collect",
+    "description": "Collect declared outputs and a terminal receipt.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "description": "Terminal run identifier." }
+      },
+      "required": ["runId"]
+    }
+  },
+  {
+    "name": "llo_execution_cleanup",
+    "description": "Idempotently release one run's ephemeral resources.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "runId": { "type": "string", "description": "Run identifier." },
+        "idempotencyKey": { "type": "string", "description": "Caller-stable retry key." }
+      },
+      "required": ["runId", "idempotencyKey"]
+    }
+  }
+]

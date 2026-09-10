@@ -152,8 +152,8 @@ Unset is not fatal — it costs only the routes that binding serves. For
 `cloister run` that is `/identity/*` and the notme-sourced CA bundle; a dev run
 uses `DEV_CA_MASTER` as its authority and touches neither.
 
-**5. The confinement binary.** `task install` builds and packages the current
-compatibility provider, including the confinement helper. To rebuild it later:
+**5. The confinement binary.** `task install` builds and packages the
+confinement helper. To rebuild it later:
 
 ```sh
 cloister runtime install

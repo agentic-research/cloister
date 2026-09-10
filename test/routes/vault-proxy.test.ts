@@ -57,10 +57,17 @@ describe("parseVaultProxyPath — Phase 0 (only piece that ships green in the sc
     });
   });
 
-  it("treats /vault/proxy/openai as upstream root", () => {
+  // CHANGED 2026-08-03 (cloister-1b2961): the canonical service-root upstream
+  // path is "" , not "/". This test previously pinned "/" — a cloister choice
+  // that diverged from credential-isolation/v1's published path-parsing
+  // vectors. Unobservable upstream (both concatenations normalize to the same
+  // URL, verified), but it makes `/vault/proxy/openai` and
+  // `/vault/proxy/openai/` distinguishable, which the receipt records.
+  // The vector-driven suite is test/routes/vault-proxy-path-vectors.test.ts.
+  it("treats /vault/proxy/openai as the canonical service root", () => {
     expect(parseVaultProxyPath("/vault/proxy/openai")).toEqual({
       service: "openai",
-      upstreamPath: "/",
+      upstreamPath: "",
     });
   });
 

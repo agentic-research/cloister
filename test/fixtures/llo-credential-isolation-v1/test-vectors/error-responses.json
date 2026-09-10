@@ -1,0 +1,36 @@
+{
+  "$comment": "Constant-time-shape error responses for 401 / 404 (Shape R, access-failure class). Per wire/error-responses.md, ALL access-failure outcomes (401 lease invalid / 404 service undeclared / 404 allowedSubs-mismatch collapsed from 403 per cloister-aa9376 / 429 rate-limited) collapse to byte-equal Shape R bodies. The route boundary owns the wire contract; vault DO emits structured shapes internally but the route rewraps. This corpus pins the X-2 unification from cloister-6eba0a (2026-05-18 cycle) — distinct 403 body is HISTORY, the new canonical Shape R applies. See ambiguity note resolution in conformance/README.md.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "unauthorized_401_lease_invalid",
+      "description": "401 response when Interlace lease fails verification per interlace-spec/0.1.0/ §3.2. Body shape pinned. sha256 lets a second impl assert byte-equality without re-parsing the JSON.",
+      "inputs": {
+        "scenario": "lease_invalid"
+      },
+      "expected_status": 401,
+      "expected_body": "{\"error\":\"unauthorized\",\"reason\":\"interlace lease verification failed\"}",
+      "expected_body_sha256_hex": "ea0cb215fca9e6532cfc10622c18d850fef582af2e6cdc3f5ee1af07645f55f9"
+    },
+    {
+      "name": "not_found_404_allowed_subs_collapsed",
+      "description": "404 response when lease is valid but peerFp doesn't match the credential's allowedSubs glob — historically a 403 'forbidden' shape, now collapsed to a 404 Shape R per cloister-aa9376 + 2026-05-18 cycle X-2 (cloister-6eba0a). The spec MUST NOT distinguish 'credential exists, peer not allowed' from 'no credential for this service' from 'service undeclared' — all three return the same Shape R body. This is the per-peer + per-service enumeration-oracle closure.",
+      "inputs": {
+        "scenario": "allowed_subs_mismatch"
+      },
+      "expected_status": 404,
+      "expected_body": "{\"error\":\"unauthorized\",\"reason\":\"interlace lease verification failed\"}",
+      "expected_body_sha256_hex": "ea0cb215fca9e6532cfc10622c18d850fef582af2e6cdc3f5ee1af07645f55f9"
+    },
+    {
+      "name": "not_found_404_service_undeclared",
+      "description": "404 when <service> is not a vaultProxyService in the manifest. Body MATCHES the 401 + allowed-subs-mismatch cases byte-for-byte — same constant-time Shape R so the caller cannot use this endpoint to enumerate which services the operator has declared.",
+      "inputs": {
+        "scenario": "service_undeclared"
+      },
+      "expected_status": 404,
+      "expected_body": "{\"error\":\"unauthorized\",\"reason\":\"interlace lease verification failed\"}",
+      "expected_body_sha256_hex": "ea0cb215fca9e6532cfc10622c18d850fef582af2e6cdc3f5ee1af07645f55f9"
+    }
+  ]
+}

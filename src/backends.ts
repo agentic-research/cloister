@@ -15,6 +15,7 @@
  */
 
 import type { Env, McpTool } from "./types.js";
+import type { OriginSet } from "./wire/origin.js";
 
 export interface ToolBackend {
   tools(): McpTool[];
@@ -44,6 +45,24 @@ export interface ToolBackend {
    * "private". Backends without an opinion omit the method.
    */
   cacheMeta?(): { ttlMs?: number; cacheScope?: "public" | "private" } | undefined;
+  /**
+   * The content-origin set for what this backend ingests (ADR-0065 phase 2,
+   * threat model §21). Optional — a backend that serves only content cloister
+   * itself composed has no ingress and omits it.
+   *
+   * A property of the BACKEND, not of a call: an `mcpProxy` always dials the
+   * same operator-declared endpoint, so the origin does not vary per invocation
+   * and does not need to ride the `invoke()` return (which is `unknown`, and
+   * threading provenance through it would put a trust fact in a channel with no
+   * shape).
+   *
+   * What it means is narrow, deliberately: cloister dialled THIS ENDPOINT. It is
+   * not a claim about the bytes returned. An upstream that itself relays content
+   * has origins of its own, and until it propagates them cloister's set is
+   * incomplete — which must present as origin-asserted, never as attestation of
+   * the part cloister never saw (§21.1).
+   */
+  contentOrigin?(env: Env): OriginSet;
 }
 
 export class JsonRpcInvocationError extends Error {

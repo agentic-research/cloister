@@ -1,0 +1,61 @@
+{
+  "$comment": "ADVERSARIAL: malformed lease envelope headers MUST be rejected at the pre-signature parse path, BEFORE the proxy attempts any credential lookup. Each rejection has an `expected_reject_kind` enum the conformant impl exposes. The 401 wire body the caller eventually sees is constant-time-equal across all four — kinds are for the conformance suite, not for the wire.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "reject_missing_required_header",
+      "description": "Interlace-Sig header is absent. The pre-signature parser MUST reject before doing any work — even fetching the cert. A conformant impl returns 401 with the standard '{\"error\":\"unauthorized\",\"reason\":\"interlace lease verification failed\"}' body.",
+      "inputs": {
+        "headers": {
+          "Interlace-Cert": "MIIBNDCB56ADAgECAgkA9aF",
+          "Interlace-Cert-Chain": "g6JhdgJjcmluZpEKaXBlb3BsZQ",
+          "Interlace-Nonce": "oaKjpKWmp6ipqqusra6vsA",
+          "Interlace-Ts": "1700000100000"
+        }
+      },
+      "expected_reject_kind": "missing_required_header"
+    },
+    {
+      "name": "reject_malformed_nonce_short",
+      "description": "Nonce is 21 base64url chars instead of the required 22. A short nonce expands the collision surface for replay-resistance — the rejection must happen at the parse layer, not at the seen-nonces dedup layer (which would let an attacker fingerprint the dedup window by submitting same short nonce twice).",
+      "inputs": {
+        "headers": {
+          "Interlace-Cert": "MIIBNDCB56ADAgECAgkA9aF",
+          "Interlace-Cert-Chain": "g6JhdgJjcmluZpEKaXBlb3BsZQ",
+          "Interlace-Sig": "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1UzIFrZaOHmPqXaFMAhPyRmUNI-QUbObx2vxD4PAA",
+          "Interlace-Nonce": "oaKjpKWmp6ipqqusra6vs",
+          "Interlace-Ts": "1700000100000"
+        }
+      },
+      "expected_reject_kind": "malformed_nonce"
+    },
+    {
+      "name": "reject_malformed_ts_non_decimal",
+      "description": "Timestamp is scientific-notation ('1.7e12'). The spec requires plain decimal unix-ms with no leading zeros — accepting alternative numeric forms breaks byte-equality of canonical bytes across impls (Python's str(1.7e12) == '1700000000000.0', JavaScript's String(1.7e12) == '1700000000000', etc).",
+      "inputs": {
+        "headers": {
+          "Interlace-Cert": "MIIBNDCB56ADAgECAgkA9aF",
+          "Interlace-Cert-Chain": "g6JhdgJjcmluZpEKaXBlb3BsZQ",
+          "Interlace-Sig": "AhN2uSj4KIk2ZGXd06kHthcFw0_Cs6JPGtOedQn1l6TWH1UzIFrZaOHmPqXaFMAhPyRmUNI-QUbObx2vxD4PAA",
+          "Interlace-Nonce": "oaKjpKWmp6ipqqusra6vsA",
+          "Interlace-Ts": "1.7e12"
+        }
+      },
+      "expected_reject_kind": "malformed_ts"
+    },
+    {
+      "name": "reject_malformed_sig_short",
+      "description": "Signature is fewer than 86 base64url chars (Ed25519 sig is 64 raw bytes → 86 b64url no-pad). A truncated sig at the parse layer is fine to reject cleanly; depending on the actual byte content to fail the verifier would expose timing-distinguishable behavior.",
+      "inputs": {
+        "headers": {
+          "Interlace-Cert": "MIIBNDCB56ADAgECAgkA9aF",
+          "Interlace-Cert-Chain": "g6JhdgJjcmluZpEKaXBlb3BsZQ",
+          "Interlace-Sig": "tooShortNotASig",
+          "Interlace-Nonce": "oaKjpKWmp6ipqqusra6vsA",
+          "Interlace-Ts": "1700000100000"
+        }
+      },
+      "expected_reject_kind": "malformed_sig"
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// confinement-digest — the TypeScript §6 canonicalizer + confinementDigest for
+// confinement-digest — the TypeScript §7 canonicalizer + confinementDigest for
 // cloister/confinement/v1. The runtime (lease-verify) side of what
 // rs/crates/cas/{examples,tests}/confinement-digest.rs proves in Rust: a
-// ConfinementManifest is §6-canonicalized (ASCII-sorted keys, 2-space indent,
+// ConfinementManifest is §7-canonicalized (ASCII-sorted keys, 2-space indent,
 // no trailing newline, null fields omitted) and BLAKE3-256-hashed via cloister's
 // substrate hash (cas-hash → leyline-cas-ffi). The result is the `confinementDigest`
-// committed to the bundle's lane-2 Interlace identity (§7) and compared at
+// committed to the bundle's lane-2 Interlace identity (§8) and compared at
 // lease-verify time (cloister-c80953, property #3).
 //
 // Conformance: this MUST reproduce LLO's pinned digest for the canonical vector
@@ -15,7 +15,7 @@
 import { blake3Hex } from "./cas-hash.js";
 
 /**
- * §6 canonical serialization of a ConfinementManifest (or any JSON value) to
+ * §7 canonical serialization of a ConfinementManifest (or any JSON value) to
  * UTF-8 bytes: object keys ASCII-sorted at every level, 2-space indentation, no
  * trailing newline (last byte `}`), null/undefined fields omitted. Array element
  * order is significant and preserved.
@@ -26,7 +26,7 @@ export function canonicalizeConfinement(manifest: unknown): Uint8Array {
 }
 
 /**
- * confinementDigest (§7): lowercase-hex BLAKE3-256 of the §6-canonical bytes,
+ * confinementDigest (§8): lowercase-hex BLAKE3-256 of the §7-canonical bytes,
  * computed via the substrate hash so it byte-matches LLO's `blake3`-crate digest.
  */
 export function confinementDigest(manifest: unknown): string {
@@ -34,8 +34,8 @@ export function confinementDigest(manifest: unknown): string {
 }
 
 /**
- * Recursively rebuild a value with ASCII-sorted object keys (§6.2) and
- * null/undefined fields omitted (§6.4). Arrays keep their element order; scalars
+ * Recursively rebuild a value with ASCII-sorted object keys (§7 item 2) and
+ * null/undefined fields omitted (§7 item 4). Arrays keep their element order; scalars
  * pass through. Object keys are ASCII, so `Array.prototype.sort`'s UTF-16 order
  * equals ASCII byte order.
  */

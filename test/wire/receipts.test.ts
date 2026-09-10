@@ -5,6 +5,8 @@ import {
   buildHeadersCommittedBytes,
   decodeReceiptHeader,
   encodeCommitment,
+  commitmentCborMap,
+  decodeReceiptBytes,
   encodeReceiptEnvelope,
   encodeStreamCloseCommitment,
   encodeStreamOpenCommitment,
@@ -19,6 +21,7 @@ import {
   type StreamCloseCommitment,
   type StreamOpenCommitment,
 } from "../../src/wire/receipts.js";
+import { canonicalCbor } from "../../src/wire/receipts-cbor.js";
 
 // ── Test fixtures ─────────────────────────────────────────────────────────
 //
@@ -254,5 +257,67 @@ describe("encodeReceiptEnvelope produces signed-envelope bytes", () => {
     // Decode round-trip
     const dec = decodeReceiptHeader(btoa(String.fromCharCode(...env)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
     expect(dec.ok).toBe(true);
+  });
+});
+
+// ── ADR-0065 phase 2b: origins_hash on the commitment ────────────────────
+
+describe("origins_hash is optional and backward-compatible", () => {
+  const base = () => ({
+    nonce:       new Uint8Array(16).fill(1),
+    requestHash: new Uint8Array(32).fill(2),
+    status:      200,
+    bodyHash:    new Uint8Array(32).fill(3),
+    headersHash: new Uint8Array(32).fill(4),
+    timestampMs: 1_700_000_000_000,
+    actorFp:     new Uint8Array(32).fill(5),
+    epoch:       7,
+  });
+
+  it("a commitment WITHOUT origins encodes byte-identically to the pre-0065 shape", () => {
+    // The compatibility claim, made falsifiable. If adding the field ever
+    // changes the no-origins encoding, every previously-issued receipt stops
+    // verifying and nothing else in the suite would say so.
+    const withoutField = encodeCommitment(base());
+    const withUndefined = encodeCommitment({ ...base(), originsHash: undefined });
+    expect(Array.from(withUndefined)).toEqual(Array.from(withoutField));
+  });
+
+  it("round-trips a commitment carrying origins_hash", () => {
+    const c = { ...base(), originsHash: new Uint8Array(32).fill(9) };
+    const decoded = decodeReceiptBytes(
+      encodeReceiptEnvelope({ commitment: c, signature: new Uint8Array(64) }),
+    );
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) expect(Array.from(decoded.value.commitment.originsHash!)).toEqual(Array.from(c.originsHash));
+  });
+
+  it("an absent origins_hash decodes to an ABSENT field, not an explicit undefined", () => {
+    // So a decoded commitment deep-equals one built without the key, and
+    // re-encoding it reproduces the same bytes.
+    const decoded = decodeReceiptBytes(
+      encodeReceiptEnvelope({ commitment: base(), signature: new Uint8Array(64) }),
+    );
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) expect("originsHash" in decoded.value.commitment).toBe(false);
+  });
+
+  it("rejects an origins_hash of the wrong length rather than accepting a short digest", () => {
+    const bad = { ...base(), originsHash: new Uint8Array(16).fill(9) };
+    const decoded = decodeReceiptBytes(
+      encodeReceiptEnvelope({ commitment: bad, signature: new Uint8Array(64) }),
+    );
+    expect(decoded.ok).toBe(false);
+  });
+
+  it("still rejects a genuinely unknown key — the strictness is not loosened", () => {
+    // The optional-key allowance must admit exactly one name, not open the
+    // commitment to arbitrary clauses. An unrecognised clause in a SIGNED
+    // structure being silently ignored is the failure this check exists for.
+    const raw = canonicalCbor({
+      commitment: { ...commitmentCborMap(base()), surprise: new Uint8Array(4) },
+      signature: new Uint8Array(64),
+    });
+    expect(decodeReceiptBytes(raw).ok).toBe(false);
   });
 });

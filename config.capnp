@@ -194,6 +194,19 @@ const cloisterWorker :Workerd.Worker = (
     ( name = "INTERLACE_DISCLOSURE_HMAC_KEY",
       text = "",
     ),
+    # Fallback for `[gateway.actor].fingerprint` when the manifest leaves it
+    # empty — "sha256:<64 lowercase hex>" over the master pubkey. Read only by
+    # src/routes/actor-fingerprint.ts.
+    #
+    # Declared because cluster.toml declares the identity routes and does NOT
+    # declare a fingerprint, so without this the routes could never answer on
+    # any deployment. `cloister dev bootstrap` derives it. Empty is still a
+    # legitimate posture: no fingerprint anywhere means this cluster publishes
+    # no identity and the routes 404 by design. What gate-integrity forbids is
+    # declaring the routes with NOTHING able to supply the value.
+    ( name = "INTERLACE_ACTOR_FP",
+      text = "",
+    ),
     ( name = "RECEIPT_SIGNING_KEY",
       text = "",
     ),

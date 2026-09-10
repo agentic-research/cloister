@@ -14,6 +14,28 @@ substrate consumes. Both ship in the scaffold output; Phase 4 will
 retire the hand-edited `cloister.capnp` once `[gateway]` lands in
 `cluster.toml`.
 
+## Before the identity surface answers
+
+This recipe declares `wellKnownInterlace`, `wellKnownIdentityBridge`, and
+`disclosure`. All of them are gated on the actor fingerprint, and **every one
+returns 404 until it resolves** — including `POST /oauth/token`.
+
+The fingerprint is `sha256:<hex>` over the cluster's master public key, so it
+is derived rather than invented. Two ways to supply it:
+
+```sh
+cloister dev bootstrap    # derives it into INTERLACE_ACTOR_FP in .env.local
+```
+
+or set `[gateway.actor].fingerprint` in `cluster.toml` for a deployment whose
+master key is already fixed. The manifest value wins when both are present — an
+environment variable must not be able to repoint a committed identity.
+
+Neither set is a legitimate state: it means "this cluster publishes no
+identity", and the routes 404 by design. What is NOT legitimate is declaring
+the routes and leaving no way to answer them, which is what this recipe did
+before `gate-integrity.test.mjs` started checking.
+
 ## What's included
 
 This recipe's bundles. Per-bundle tier + transport + purpose definitions

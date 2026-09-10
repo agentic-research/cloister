@@ -1,0 +1,36 @@
+{
+  "$comment": "Path parsing for /vault/proxy/<service>/<upstream-path>. The 404-vs-400 boundary lives here: a missing prefix or malformed <service> is rejected at parse time (before any lease verification), while a valid parse with an unknown <service> falls through to the constant-time 404. service grammar: lower-case alnum + dot/dash/underscore, 1..63 chars.",
+  "version": "cloister/credential-isolation/v1",
+  "vectors": [
+    {
+      "name": "happy_openai_chat",
+      "description": "Canonical good shape — service + upstream-path, leading slash preserved on upstream-path.",
+      "inputs": {"path": "/vault/proxy/openai/v1/chat/completions"},
+      "expected_result": "ok",
+      "expected_service": "openai",
+      "expected_upstream_path": "/v1/chat/completions"
+    },
+    {
+      "name": "happy_service_root_no_trailing_slash",
+      "description": "/vault/proxy/<service> with no trailing slash and no upstream path. Returns ('<service>', '') — the empty string is the canonical 'service root' upstream path. Some upstreams treat / and empty as equivalent; downstream resolution handles that.",
+      "inputs": {"path": "/vault/proxy/openai"},
+      "expected_result": "ok",
+      "expected_service": "openai",
+      "expected_upstream_path": ""
+    },
+    {
+      "name": "reject_wrong_prefix",
+      "description": "Path doesn't start with /vault/proxy/ — caller is on the wrong route entirely. Reject at parse time (rather than fall through to a 404), so the route table can dispatch cleanly.",
+      "inputs": {"path": "/vault/read/openai/secret"},
+      "expected_result": "reject",
+      "expected_reject_kind": "malformed_path"
+    },
+    {
+      "name": "reject_service_uppercase",
+      "description": "<service> must match [a-z0-9][a-z0-9._-]{0,62} — uppercase is rejected because case-sensitivity in service names would create lookup hazards (manifest entries are lowercase by convention; accepting OpenAI would either silently miss the openai entry or silently equate them, both bad).",
+      "inputs": {"path": "/vault/proxy/OpenAI/v1/foo"},
+      "expected_result": "reject",
+      "expected_reject_kind": "malformed_service"
+    }
+  ]
+}
