@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +27,7 @@ import {
 } from "../../cli/lib/harness/targets.mjs";
 import {
   findViolations,
-  SCANNED,
+  scannedFiles,
   PROVIDER_PATTERNS,
 } from "../lint-harness-target-literals.mjs";
 import { resolvePlan, PreconditionError } from "../../cli/lib/harness/launch.mjs";
@@ -171,15 +171,15 @@ test("rail: the shipped tree has no provider literals in code", () => {
 
 test("rail: it actually scans something, and for real patterns", () => {
   // Guards the vacuous-pass failure mode: a rail that looked at nothing.
-  assert.ok(SCANNED.length > 0);
+  assert.ok(scannedFiles(ROOT).length > 0);
   assert.ok(PROVIDER_PATTERNS.length > 0);
-  for (const rel of SCANNED) {
+  for (const rel of scannedFiles(ROOT)) {
     assert.ok(readFileSync(resolve(ROOT, rel), "utf8").length > 0, `${rel} is non-empty`);
   }
 });
 
 test("rail: a provider literal in CODE is caught", (t) => {
-  const file = resolve(ROOT, SCANNED[0]);
+  const file = resolve(ROOT, scannedFiles(ROOT)[0]);
   const original = readFileSync(file, "utf8");
   t.after(() => writeFileSync(file, original));
 
@@ -192,12 +192,71 @@ test("rail: a provider literal in CODE is caught", (t) => {
 test("rail: a provider name in a COMMENT is exempt", (t) => {
   // Usage examples naming both harnesses are documentation worth keeping; a
   // rail that forced deleting them would earn a blanket suppression.
-  const file = resolve(ROOT, SCANNED[0]);
+  const file = resolve(ROOT, scannedFiles(ROOT)[0]);
   const original = readFileSync(file, "utf8");
   t.after(() => writeFileSync(file, original));
 
   writeFileSync(file, original + '\n// example: export ANTHROPIC_BASE_URL=...\n/* openai too */\n');
   assert.deepEqual(findViolations(ROOT), []);
+});
+
+/** A throwaway root holding `files` ({relPath: contents}); removed after `t`. */
+function railFixture(t, files) {
+  const root = mkdtempSync(join(tmpdir(), "harness-rail-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const [rel, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, rel)), { recursive: true });
+    writeFileSync(join(root, rel), body);
+  }
+  return root;
+}
+
+test("rail: a provider URL in a STRING is caught — its `//` is not a comment", (t) => {
+  // The pre-#204 constant, verbatim. A per-line indexOf("//") cut the line at
+  // `https:` and the literal this rail exists for passed clean.
+  const root = railFixture(t, {
+    "scripts/harness-dev.mjs": 'const UPSTREAM = "https://api.anthropic.com";\n',
+  });
+  const hits = findViolations(root);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].file, "scripts/harness-dev.mjs");
+  assert.equal(hits[0].line, 1);
+});
+
+test("rail: comment stripping still works around string and regex literals", (t) => {
+  const root = railFixture(t, {
+    "scripts/harness-dev.mjs": [
+      'const URL_RE = /^https?:\\/\\//; // export OPENAI_BASE_URL=… is documentation',
+      'const sep = "//"; /* anthropic, in a block comment */',
+      "const tpl = `${sep}`; // codex",
+      "/*",
+      "  CODEX_HOME=~/.codex   (multi-line block comment)",
+      "*/",
+      "",
+    ].join("\n"),
+  });
+  assert.deepEqual(findViolations(root), []);
+});
+
+test("rail: cli/lib/harness/* is scanned — the harness logic lives there now", (t) => {
+  // The rail used to list two files; the harness moved, and a key read in
+  // launch.mjs passed clean because nothing looked at it.
+  const root = railFixture(t, {
+    "cli/lib/harness/launch.mjs": "const key = process.env.ANTHROPIC_API_KEY;\n",
+    "cli/lib/harness/a-file-added-later.mjs": 'export const ENV = "CODEX_HOME";\n',
+  });
+  const hits = findViolations(root).map((h) => `${h.file}:${h.line}`);
+  assert.deepEqual(hits, [
+    "cli/lib/harness/a-file-added-later.mjs:1",
+    "cli/lib/harness/launch.mjs:1",
+  ]);
+});
+
+test("rail: the shipped scan covers every source file in cli/lib/harness", () => {
+  const scanned = new Set(scannedFiles(ROOT));
+  for (const f of ["launch.mjs", "targets.mjs"]) {
+    assert.ok(scanned.has(`cli/lib/harness/${f}`), `cli/lib/harness/${f} is scanned`);
+  }
 });
 
 // ── harness:dev must be safe to ASK about (cloister-eb33d4 / eb27ae) ───────
