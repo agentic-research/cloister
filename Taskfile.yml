@@ -1137,7 +1137,7 @@ tasks:
     sources:
       - scripts/harness-dev.mjs
       - cli/commands/run.mjs
-      - cli/lib/harness/targets.mjs
+      - cli/lib/harness/**/*
       - scripts/lint-harness-target-literals.mjs
       - src/harness-shim/index.ts
 

@@ -22,8 +22,8 @@
 //
 // Exit 0 clean, 1 on violations, 2 on usage error.
 
-import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname, relative } from "node:path";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { resolve, dirname, relative, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,11 +31,39 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The one file allowed to name providers. */
 export const DECLARATION_FILE = "cluster.toml ([[gateway.harnessTargets]] + [[gateway.vaultProxyServices]])";
 
-/** Files scanned. The harness path — where a literal would actually bite. */
+/**
+ * Paths scanned — files, or directories walked recursively. The harness path,
+ * where a literal would actually bite. `cli/lib/harness` is a DIRECTORY on
+ * purpose: the harness logic moved there from scripts/harness-dev.mjs, and a
+ * rail that enumerates files goes blind to the next one added beside them.
+ */
 export const SCANNED = [
   "scripts/harness-dev.mjs",
   "src/harness-shim/index.ts",
+  "cli/lib/harness",
 ];
+
+/** Source extensions read inside a scanned directory. */
+const SOURCE_EXT = /\.(?:m?js|ts)$/;
+
+/**
+ * SCANNED expanded to the source files that exist under `root`, sorted.
+ * @param {string} root
+ * @returns {string[]} paths relative to root
+ */
+export function scannedFiles(root = ROOT) {
+  const out = [];
+  const walk = (abs) => {
+    if (!existsSync(abs)) return; // a scanned path may legitimately not exist yet
+    if (statSync(abs).isDirectory()) {
+      for (const name of readdirSync(abs).sort()) walk(join(abs, name));
+    } else if (SOURCE_EXT.test(abs)) {
+      out.push(relative(root, abs));
+    }
+  };
+  for (const rel of SCANNED) walk(resolve(root, rel));
+  return out;
+}
 
 // Provider-identifying substrings. Case-insensitive. Deliberately narrow:
 // matching bare "claude" would fire on every mention of Claude Code in prose,
@@ -61,23 +89,19 @@ export const PROVIDER_PATTERNS = [
  */
 export function findViolations(root = ROOT) {
   const hits = [];
-  for (const rel of SCANNED) {
-    const abs = resolve(root, rel);
-    if (!existsSync(abs)) continue; // a scanned file may legitimately not exist yet
-    const lines = readFileSync(abs, "utf8").split("\n");
-    let inBlockComment = false;
-    lines.forEach((raw, i) => {
-      // Comments are exempt, deliberately. A comment cannot hardcode behavior,
-      // and the useful thing operators read is usage examples naming both
-      // harnesses ("Codex: OPENAI_BASE_URL=…"). Flagging those would force
-      // deleting real documentation to satisfy a lint — which is how a rail
-      // earns a blanket suppression and stops protecting anything.
-      const text = stripComment(raw, inBlockComment);
-      inBlockComment = nextBlockState(raw, inBlockComment);
+  for (const rel of scannedFiles(root)) {
+    const raw = readFileSync(resolve(root, rel), "utf8");
+    // Comments are exempt, deliberately. A comment cannot hardcode behavior,
+    // and the useful thing operators read is usage examples naming both
+    // harnesses ("Codex: OPENAI_BASE_URL=…"). Flagging those would force
+    // deleting real documentation to satisfy a lint — which is how a rail
+    // earns a blanket suppression and stops protecting anything.
+    const rawLines = raw.split("\n");
+    stripComments(raw).split("\n").forEach((text, i) => {
       if (!text.trim()) return;
       for (const pattern of PROVIDER_PATTERNS) {
         if (text.toLowerCase().includes(pattern.toLowerCase())) {
-          hits.push({ file: relative(root, abs), line: i + 1, pattern, text: raw.trim() });
+          hits.push({ file: rel, line: i + 1, pattern, text: rawLines[i].trim() });
           break; // one finding per line is enough to act on
         }
       }
@@ -86,33 +110,90 @@ export function findViolations(root = ROOT) {
   return hits;
 }
 
-/** Code portion of a line, with `//` and `/* … *\/` comment text removed. */
-function stripComment(line, inBlock) {
-  if (inBlock) {
-    const end = line.indexOf("*/");
-    return end === -1 ? "" : line.slice(end + 2);
+/**
+ * `src` with every comment blanked and every string, template and regex
+ * literal left intact; newlines are preserved so line numbers still line up.
+ *
+ * This has to be a scan, not a per-line `indexOf("//")`: the `//` in
+ * `"https://api.anthropic.com"` is not a comment, and treating it as one let
+ * exactly the literal this rail exists for pass clean (cloister-742e19).
+ * @param {string} src
+ * @returns {string}
+ */
+export function stripComments(src) {
+  let out = "";
+  let i = 0;
+  // Last significant (non-space, non-comment) character emitted — decides
+  // whether a `/` opens a regex literal or is division.
+  let prev = "";
+  const blank = (s) => s.replace(/[^\n]/g, " ");
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      const end = src.indexOf("\n", i);
+      const stop = end === -1 ? src.length : end;
+      out += blank(src.slice(i, stop));
+      i = stop;
+    } else if (c === "/" && next === "*") {
+      const end = src.indexOf("*/", i + 2);
+      const stop = end === -1 ? src.length : end + 2;
+      out += blank(src.slice(i, stop));
+      i = stop;
+    } else if (c === '"' || c === "'" || c === "`") {
+      const stop = literalEnd(src, i, c);
+      out += src.slice(i, stop);
+      prev = c;
+      i = stop;
+    } else if (c === "/" && (prev === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev))) {
+      const stop = regexEnd(src, i);
+      out += src.slice(i, stop);
+      prev = "/";
+      i = stop;
+    } else {
+      out += c;
+      if (!/\s/.test(c)) prev = c;
+      i += 1;
+    }
   }
-  let out = line;
-  const block = out.indexOf("/*");
-  if (block !== -1) out = out.slice(0, block);
-  const lineComment = out.indexOf("//");
-  if (lineComment !== -1) out = out.slice(0, lineComment);
   return out;
 }
 
-/** Whether the NEXT line begins inside a block comment. */
-function nextBlockState(line, inBlock) {
-  if (inBlock) return line.indexOf("*/") === -1;
-  const open = line.lastIndexOf("/*");
-  if (open === -1) return false;
-  return line.indexOf("*/", open) === -1;
+/** Index just past the string/template literal opened by `quote` at `start`. */
+function literalEnd(src, start, quote) {
+  let i = start + 1;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") i += 2;
+    else if (c === quote) return i + 1;
+    // An unterminated '…' or "…" ends at the line; only a template spans lines.
+    else if (c === "\n" && quote !== "`") return i;
+    else i += 1;
+  }
+  return i;
+}
+
+/** Index just past the regex literal opened at `start` (handles `[/]` classes). */
+function regexEnd(src, start) {
+  let i = start + 1;
+  let inClass = false;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") i += 2;
+    else if (c === "\n") return i;
+    else if (c === "[") (inClass = true), (i += 1);
+    else if (c === "]") (inClass = false), (i += 1);
+    else if (c === "/" && !inClass) return i + 1;
+    else i += 1;
+  }
+  return i;
 }
 
 function main() {
   const violations = findViolations();
   if (violations.length === 0) {
     console.log(`lint-harness-target-literals: clean ✓`);
-    console.log(`  ${SCANNED.length} file(s) scanned, ${PROVIDER_PATTERNS.length} provider pattern(s)`);
+    console.log(`  ${scannedFiles().length} file(s) scanned, ${PROVIDER_PATTERNS.length} provider pattern(s)`);
     console.log(`  provider literals confined to ${DECLARATION_FILE} (cloister-742e19)`);
     return 0;
   }
