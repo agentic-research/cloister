@@ -50,6 +50,7 @@ This ADR is the **declaration half only**. Keeping the halves apart is the point
   enforcement, including widening confinement/v1 §4 to more than one port.
   Implementation choices there (e.g. building the broker on Pingora) are
   LLO's to make in LLO's ADRs, not here.
+  Tracked as `ley-line-open-e2c5ce` (connection broker).
 
 The seam between them is a data contract: cloister emits, per bundle, a list of
 `{endpoint, target, appProtocol, credentialRef}` plus the confinement manifest.
@@ -204,7 +205,7 @@ own data (the Go service and its database). So:
 |---|---|
 | `httpPort` | `ports[]` (deprecated; still parses) |
 | confinement port grants | `ports[]` — never hand-written alongside them |
-| `network.allowHosts` | `[]` for any bundle with connections: the endpoints are its only egress |
+| `network.allowHosts` | `[]` for any bundle with connections: the endpoints are its only egress (loopback endpoints need `ley-line-open-0e73e8`) |
 | `Wire.binding` env | a `connection` env source |
 | `[[edges]].appProtocol` | `ports[]` + `connections` |
 
@@ -212,7 +213,8 @@ own data (the Go service and its database). So:
 
 A real service binds more than one port. Cloister declares and derives the
 list; confinement/v1 §4 granting a single port is an **upstream dependency**
-(LLO). Cloister-side: `Confinement` gains `ports @4 :List(ConfinementPort)`
+(LLO: `ley-line-open-e2c33f`; enforcement of any listener grant is
+`ley-line-open-17536d`). Cloister-side: `Confinement` gains `ports @4 :List(ConfinementPort)`
 (append-only; singular `port @2` still parses as a one-element list). Until
 the pinned LLO release folds a list, the rail refuses a multi-listener microvm
 bundle by name, citing the dependency — fail closed, never "grant the first
