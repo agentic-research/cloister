@@ -51,7 +51,7 @@
     "@agentic-research/dpop": "0.3.0",
     "cbor-x": "^1.6.4",
     "chalk": "^5.6.2",
-    "smol-toml": "^1.7.1",
+    "smol-toml": "^1.9.0",
     "tsx": "^4.23.0",
     "zod": "^4.4.3"
   }
