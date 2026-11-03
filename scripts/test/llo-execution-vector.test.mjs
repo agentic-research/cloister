@@ -245,6 +245,96 @@ test("an out-of-vocabulary enum value in the canonical grant is rejected", () =>
   );
 });
 
+// ── oci-resources.json (LLO v0.21, cloister-dac140) ─────────────────────────
+// LLO's statement of the OCI `linux.resources` ceilings on execution/v1: one
+// spec/grant pair started on three tiers, each tier replacing
+// grant.backendClass. Unlike canonical-run.json it is SPARSE — it leaves out
+// fields whose value is the Cap'n Proto default (outputBytes, the empty
+// lists), because absent means zero/empty on LLO's carrier. Cloister's
+// validator is deliberately stricter (every `required` key present), so the
+// vector is completed with those defaults, derived from the schema, before it
+// is fed through the production path. Nothing below names a field.
+
+const OCI_VECTOR = JSON.parse(readFileSync(new URL(
+  "../../test/fixtures/llo-execution-v1/test-vectors/oci-resources.json",
+  import.meta.url,
+), "utf8"));
+
+/** Fill every absent required key with its Cap'n Proto default, recursively. */
+function withCapnpDefaults(value, schema, defs) {
+  const resolved = schema?.$ref ? deref(schema.$ref, defs) : schema;
+  if (Array.isArray(resolved?.enum)) return value ?? resolved.enum[0];
+  switch (resolved?.type) {
+    case "object": {
+      const out = { ...(value ?? {}) };
+      for (const name of resolved.required ?? []) {
+        out[name] = withCapnpDefaults(out[name], resolved.properties[name], defs);
+      }
+      for (const [name, child] of Object.entries(out)) {
+        if (resolved.properties?.[name] && child !== undefined) {
+          out[name] = withCapnpDefaults(child, resolved.properties[name], defs);
+        }
+      }
+      return out;
+    }
+    case "array": return value ?? [];
+    case "string": return value ?? "";
+    case "integer":
+    case "number": return value ?? 0;
+    case "boolean": return value ?? false;
+    default: return value;
+  }
+}
+
+function completedOciDocuments() {
+  const start = lloExecutionTools().find((tool) => tool.inputSchema?.properties?.grant?.$ref);
+  const defs = start.inputSchema.$defs;
+  return {
+    spec: withCapnpDefaults(OCI_VECTOR.spec, start.inputSchema.properties.spec, defs),
+    grant: withCapnpDefaults(OCI_VECTOR.grant, start.inputSchema.properties.grant, defs),
+  };
+}
+
+test("oci-resources.json is in the vendored manifest", () => {
+  assert.ok(
+    MANIFEST.some(({ path }) => path.endsWith("oci-resources.json")),
+    "VECTORS.sha256 no longer lists oci-resources.json",
+  );
+});
+
+test("every ceiling the OCI vector sets is declared by the generated ResourceLimits", () => {
+  // The sparse half: keys the vector DOES carry must all be declared, with no
+  // default-filling to hide a stale key. A pre-OCI pin fails here on `memory`.
+  const limitsSchema = deref(
+    structForVectorKey("spec").properties.requestedLimits.$ref,
+    toolsWithDefs()[0].inputSchema.$defs,
+  );
+  for (const limits of [OCI_VECTOR.spec.requestedLimits, OCI_VECTOR.grant.limits]) {
+    for (const key of Object.keys(limits)) {
+      assert.ok(limitsSchema.properties[key], `vector ceiling ${key} is not in the generated schema`);
+    }
+  }
+});
+
+for (const tier of OCI_VECTOR.tiers) {
+  test(`the OCI vector's ${tier.name} start validates through Cloister's validator`, () => {
+    const { spec, grant } = completedOciDocuments();
+    const request = lloExecutionRequest.start(spec, { ...grant, backendClass: tier.backendClass });
+    assert.equal(request.grant.backendClass, tier.backendClass);
+    assert.deepEqual(request.spec.requestedLimits.memory, OCI_VECTOR.spec.requestedLimits.memory);
+  });
+}
+
+test("the OCI vector's tier mechanisms are the generated CeilingMechanism vocabulary", () => {
+  // `enforced` is LLO's per-tier declaration — the same names a receipt's
+  // EnforcedCeilings carries. A mechanism outside the pinned enum would be one
+  // Cloister could not read back from a receipt.
+  const defs = toolsWithDefs()[0].inputSchema.$defs;
+  const vocabulary = Object.values(defs).find((schema) => Array.isArray(schema.enum)
+    && OCI_VECTOR.tiers.every((t) => Object.values(t.enforced).every((m) => schema.enum.includes(m))));
+  assert.ok(vocabulary, "no generated enum carries every mechanism the OCI vector names");
+});
+
 test("Cloister's validator is the same one the vector exercises", () => {
   // Guards against the test above quietly drifting onto a private copy of the
   // validation logic: the exported entry point must reject the same document.

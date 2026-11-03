@@ -14,21 +14,59 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use leyline_runtime::{
-    Backend as LeylineBackendTrait, DigestRef, ExecutionError, ExecutionRequest, ResourceLimits,
+    Backend as LeylineBackendTrait, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
+    EnforcedCeilings, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
 };
 
 use crate::{Backend, LaunchPlan, RuntimeError};
 
-/// Default limits for a launch plan, which carries none of its own.
+/// Default ceilings for a launch plan, which carries none of its own.
 ///
 /// `LaunchPlan` is cloister's operator surface and deliberately does not model
 /// vcpus/memory/wall-time — those are deployment properties, not per-bundle
-/// ones. LLO's `ExecutionRequest` requires them, so they are supplied here and
-/// named as a cloister default rather than smuggled in as if the operator had
-/// asked for them.
-const DEFAULT_VCPUS: u8 = 2;
-const DEFAULT_MEMORY_MIB: u32 = 1024;
+/// ones. They are supplied here and named as a cloister default rather than
+/// smuggled in as if the operator had asked for them.
+///
+/// LLO v0.21 (execution/v1 OCI `ResourceLimits`) states memory in bytes and CPU
+/// as an OCI quota/period pair; zero means "no ceiling" on every field. The
+/// microVM tier sizes whole MiB and whole vCPUs, so both defaults are exact
+/// multiples: 1024 MiB, and two periods of quota per period (two vCPUs).
+const DEFAULT_VCPUS: u64 = 2;
+const DEFAULT_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 const DEFAULT_WALL_TIME_MS: u64 = 15 * 60 * 1000;
+
+/// cloister's default ceilings, restricted to the ones `enforced` applies.
+///
+/// Every LLO tier refuses, by name, a non-zero ceiling it cannot enforce
+/// (ADR-0035 §4): `outputBytes` everywhere, and memory/cpu/pids on the native
+/// tier without a delegated cgroup root. A cloister DEFAULT is not operator
+/// authority, so asking for one the tier cannot apply would turn every launch
+/// on that tier into a refusal over a number nobody requested. The defaults are
+/// therefore requested only where the backend declares a mechanism for them.
+///
+/// This narrows nothing the operator asked for — `LaunchPlan` asks for nothing
+/// here — and the receipt still records the mechanism LLO actually applied.
+/// `outputBytes` and `pids` carry no cloister default (there was none before
+/// the OCI migration either), so they stay zero.
+fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
+    let when = |mechanism: leyline_runtime::CeilingMechanism, value: u64| {
+        if mechanism.is_enforced() { value } else { 0 }
+    };
+    let quota = when(enforced.cpu, DEFAULT_VCPUS * DEFAULT_CPU_PERIOD_US);
+    ResourceLimits {
+        wall_time_ms: when(enforced.wall_time, DEFAULT_WALL_TIME_MS),
+        output_bytes: 0,
+        memory: MemoryLimits {
+            limit: when(enforced.memory, DEFAULT_MEMORY_BYTES),
+        },
+        cpu: CpuLimits {
+            quota,
+            // A period without a quota names no ceiling and LLO refuses it.
+            period: if quota == 0 { 0 } else { DEFAULT_CPU_PERIOD_US },
+        },
+        pids: PidsLimits { limit: 0 },
+    }
+}
 
 /// cloister's `Backend`, served by an LLO execution backend.
 ///
@@ -84,7 +122,10 @@ impl<B: LeylineBackendTrait> LeylineExecutionBackend<B> {
 /// Sending `Some(...)` before that is possible would not be a smaller version of
 /// the right thing. It would be a run that fails closed at compile time, with a
 /// diagnostic naming a dimension mismatch nobody intended to create.
-fn to_execution_request(plan: &LaunchPlan) -> Result<ExecutionRequest, RuntimeError> {
+fn to_execution_request(
+    plan: &LaunchPlan,
+    enforced: &EnforcedCeilings,
+) -> Result<ExecutionRequest, RuntimeError> {
     if !plan.confinement.network.allow_hosts.is_empty() {
         return Err(RuntimeError::InvalidPlan(
             "LLO execution/v1 does not yet support egress grants; refusing to discard confinement.network.allowHosts".into(),
@@ -149,19 +190,20 @@ fn to_execution_request(plan: &LaunchPlan) -> Result<ExecutionRequest, RuntimeEr
         arguments: plan.artifact.args.clone(),
         public_environment: BTreeMap::new(),
         allowed_egress: Vec::new(),
-        limits: ResourceLimits {
-            vcpus: DEFAULT_VCPUS,
-            memory_mib: DEFAULT_MEMORY_MIB,
-            wall_time_ms: DEFAULT_WALL_TIME_MS,
-        },
+        limits: default_limits(enforced),
         confinement_digest: String::new(),
         confinement_manifest: None,
+        // No Graph workspace authority is mapped from a launch plan, and on LLO
+        // v0.21.1 the native tier refuses any Graph workspace grant before
+        // spawn (workspaces are microVM-only). Empty is the only value cloister
+        // can carry here without a grant to take it from.
+        workspaces: Vec::new(),
     })
 }
 
 impl<B: LeylineBackendTrait> Backend for LeylineExecutionBackend<B> {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError> {
-        let request = to_execution_request(plan)?;
+        let request = to_execution_request(plan, &self.inner.capabilities().enforced)?;
         self.inner
             .start(&request)
             .map(|_run| ())

@@ -1,0 +1,109 @@
+{
+  "version": "cloister/execution/v1",
+  "description": "OCI linux.resources ceilings on execution/v1 (ADR-0035, 'OCI resources on execution/v1'). One RunSpec and RunGrant carrying memory.limit, cpu.quota/period and pids.limit, started on three tiers. Each tier lists the mechanism it applies per ResourceLimits field; a tier that cannot enforce a requested ceiling refuses the run with unsupportedBackend and names the first such field in ResourceLimits order (wallTimeMs, outputBytes, memory.limit, cpu.quota, pids.limit). A tier's backendClass replaces grant.backendClass; the spec, and so canonicalSpecDigest, is the same for all three.",
+  "canonicalSpecDigest": "blake3-256:46e877d9701af006686f35fa8c87a57f5e3eef9cb332229bc29c5079067624d3",
+  "spec": {
+    "schemaVersion": "cloister/execution/v1",
+    "executable": {
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "mediaType": "application/vnd.art.executable"
+    },
+    "arguments": ["build"],
+    "requestedInterfaces": ["cloister/execution/v1"],
+    "requestedLimits": {
+      "wallTimeMs": 60000,
+      "memory": {"limit": 536870912},
+      "cpu": {"quota": 200000, "period": 100000},
+      "pids": {"limit": 64}
+    },
+    "cancellationMode": "explicitOnly"
+  },
+  "grant": {
+    "grantId": "grant-oci-01",
+    "issuerEvidence": {
+      "mediaType": "application/vnd.signet.envelope+cbor",
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    "expiresAtUnixMs": 1785542400000,
+    "replayKey": "oci-resources-01",
+    "runSpecDigest": {
+      "algorithm": "blake3-256",
+      "value": "46e877d9701af006686f35fa8c87a57f5e3eef9cb332229bc29c5079067624d3"
+    },
+    "workloadIdentityEvidence": {
+      "mediaType": "application/vnd.interlace.identity+der",
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    "actorProvenanceEvidence": {
+      "mediaType": "application/vnd.signet.bridge-cert+der",
+      "digest": {
+        "algorithm": "blake3-256",
+        "value": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "capabilities": [
+      {
+        "grant": "urn:signet:cap:execute:run",
+        "interface": "cloister/execution/v1"
+      }
+    ],
+    "confinementDigest": {
+      "algorithm": "blake3-256",
+      "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "backendClass": "microVm",
+    "limits": {
+      "wallTimeMs": 60000,
+      "memory": {"limit": 536870912},
+      "cpu": {"quota": 100000, "period": 100000},
+      "pids": {"limit": 64}
+    }
+  },
+  "tiers": [
+    {
+      "name": "microVm (libkrun)",
+      "backendClass": "microVm",
+      "enforced": {
+        "wallTime": "supervisor",
+        "outputBytes": "unenforced",
+        "memory": "hypervisor",
+        "cpu": "hypervisor",
+        "pids": "unenforced"
+      },
+      "outcome": {"refused": "pids.limit", "code": "unsupportedBackend"}
+    },
+    {
+      "name": "native, Linux, delegated cgroup root (memory cpu pids)",
+      "backendClass": "native",
+      "enforced": {
+        "wallTime": "supervisor",
+        "outputBytes": "unenforced",
+        "memory": "cgroup",
+        "cpu": "cgroup",
+        "pids": "cgroup"
+      },
+      "outcome": {"accepted": true}
+    },
+    {
+      "name": "native, macOS (or Linux without a cgroup root)",
+      "backendClass": "native",
+      "enforced": {
+        "wallTime": "supervisor",
+        "outputBytes": "unenforced",
+        "memory": "unenforced",
+        "cpu": "unenforced",
+        "pids": "unenforced"
+      },
+      "outcome": {"refused": "memory.limit", "code": "unsupportedBackend"}
+    }
+  ]
+}

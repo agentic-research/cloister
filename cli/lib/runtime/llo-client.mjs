@@ -126,6 +126,44 @@ export function lloCleanup(socketPath, runId, idempotencyKey = "", deps) {
   return callLloJson(socketPath, lloExecutionRequest.cleanup(runId, idempotencyKey), deps);
 }
 
+/**
+ * The `ResourceLimits` layout revision Cloister speaks (cloister-dac140).
+ *
+ * LLO v0.21 replaced execution/v1 `ResourceLimits` in place with the OCI
+ * `linux.resources` shape (memory / cpu / pids). The contract name
+ * `cloister/execution/v1` did not change, so it cannot say which layout a
+ * daemon reads. A daemon that predates the OCI layout reads an OCI-shaped
+ * message as its own four words: `memory`, `cpu` and `pids` vanish, and every
+ * ceiling Cloister asked for is silently unenforced. That daemon cannot refuse
+ * what it cannot see, so the refusal has to be Cloister's.
+ *
+ * LLO's execution/v1 README: a client MUST find this entry in
+ * `llo_execution_capabilities` before it sends `start`, and treat its absence
+ * as a daemon that would drop every OCI ceiling. Revision 1 (the pre-OCI
+ * layout) was never advertised, so anything other than an exact "2" is refused.
+ */
+export const LLO_RESOURCE_LIMITS_CAPABILITY = Object.freeze({
+  name: "cloister/execution/v1/resource-limits",
+  version: "2",
+});
+
+/** Throw unless a capabilities response advertises the OCI limits layout. */
+export function requireResourceLimitsRevision(capabilities, socketPath) {
+  const entries = Array.isArray(capabilities?.capabilities) ? capabilities.capabilities : [];
+  const { name, version } = LLO_RESOURCE_LIMITS_CAPABILITY;
+  const entry = entries.find((candidate) => candidate?.name === name);
+  if (!entry || entry.version !== version) {
+    const found = entry ? `version ${JSON.stringify(entry.version)}` : "no such entry";
+    throw new LloClientError(
+      `refusing to start: LLO daemon does not advertise ${name} version ${version} ` +
+        `(${found}); it would read execution/v1 ResourceLimits in the pre-OCI layout and ` +
+        "drop every memory, cpu and pids ceiling. Upgrade the daemon to LLO v0.21 or later.",
+      { socketPath, capabilities },
+    );
+  }
+  return entry;
+}
+
 export async function runLloEnvelope(socketPath, envelopePath, deps) {
   let envelope;
   try {
@@ -142,5 +180,8 @@ export async function runLloEnvelope(socketPath, envelopePath, deps) {
       { socketPath, envelopePath },
     );
   }
-  return callLloJson(socketPath, lloExecutionRequest.start(envelope.spec, envelope.grant), deps);
+  // Validate locally first, so a malformed envelope never costs a round trip.
+  const start = lloExecutionRequest.start(envelope.spec, envelope.grant);
+  requireResourceLimitsRevision(await lloCapabilities(socketPath, deps), socketPath);
+  return callLloJson(socketPath, start, deps);
 }
