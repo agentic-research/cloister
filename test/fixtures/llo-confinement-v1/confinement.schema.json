@@ -24,7 +24,7 @@
       }
     },
     "network": {
-      "description": "Egress dimension (README §3), in two clauses: `allowHosts` names hosts reachable through the proxy, `connectLocal` names the single loopback port the workload may dial — typically that proxy. LISTENER control is deliberately NOT here; that is the `port` block, and the two are opposite directions.",
+      "description": "Egress dimension (README §3), in two clauses: `allowHosts` names hosts reachable through the proxy, `connectLocal` names the loopback port or ports the workload may dial — typically that proxy, or a set of broker endpoints. LISTENER control is deliberately NOT here; that is the `port` block, and the two are opposite directions.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
@@ -35,31 +35,30 @@
           "items": { "$ref": "#/$defs/HostPattern" }
         },
         "connectLocal": {
-          "description": "The single loopback TCP port this workload may connect(2) to, and may NOT bind. Single-valued for the same reason `port.bind` is: multi-port bundles publish v2. No 1024 floor, unlike `port.bind` — binding a privileged port is a privileged act, connecting to one is not. THIS DOES NOT AUTHENTICATE THE PEER: a loopback port is a shared host namespace, so the grant names which port may be dialled, not who is listening on it. A channel named this way needs its own authentication; `unixSocket.allow` gets peer identity from the filesystem, this gets it from the protocol or not at all.",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
+          "description": "The loopback TCP port(s) this workload may connect(2) to, and may NOT bind: one integer, or a non-empty list of distinct integers (README §3, ley-line-open-e2c33f). Canonical form (README §7 rule 5): a one-element list is emitted as the bare integer, so every single-port document digests as it did before lists existed; two or more are emitted as an ascending list. No 1024 floor, unlike `port.bind` — binding a privileged port is a privileged act, connecting to one is not. THIS DOES NOT AUTHENTICATE THE PEER: a loopback port is a shared host namespace, so the grant names which port may be dialled, not who is listening on it. A channel named this way needs its own authentication; `unixSocket.allow` gets peer identity from the filesystem, this gets it from the protocol or not at all.",
+          "oneOf": [
+            { "$ref": "#/$defs/LocalPort" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/LocalPort" }
+            }
+          ]
         }
       }
     },
     "port": {
-      "description": "Listener dimension (README §4). v1 is deliberately single-port; a multi-port bundle needs v2. An omitted block means the bundle MUST NOT bind any listener.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["bind"],
-      "properties": {
-        "bind": {
-          "description": "The one port the bundle may bind. Privileged ports are out of scope in v1.",
-          "type": "integer",
-          "minimum": 1024,
-          "maximum": 65535
-        },
-        "address": {
-          "description": "Bind address. Defaults to 127.0.0.1 when omitted, so exposing a listener beyond loopback is always an explicit declaration.",
-          "type": "string",
-          "minLength": 1
+      "description": "Listener dimension (README §4): one listener grant, or a non-empty list of distinct grants (ley-line-open-e2c33f). An omitted block means the bundle MUST NOT bind any listener; an empty list is refused, because it declares nothing and the omitted block already says so. Canonical form (README §7 rule 5): a one-element list is emitted as the bare grant object, so every single-port document digests as it did before lists existed; two or more are emitted as a list sorted by `bind`, then by effective address. A list must not name the same socket twice, including under two spellings of the default address — JSON Schema cannot express that, so it is the parser's refusal.",
+      "oneOf": [
+        { "$ref": "#/$defs/PortGrant" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/PortGrant" }
         }
-      }
+      ]
     },
     "unixSocket": {
       "description": "UNIX domain socket dimension (README §6). Compiled to a per-path socket grant on macOS; not available at the Landlock ABI this implementation targets, where a runner MUST refuse a §6 declaration rather than drop it.",
@@ -79,6 +78,31 @@
     }
   },
   "$defs": {
+    "PortGrant": {
+      "description": "One listener grant: a port the bundle may bind, and the address it may bind it on.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bind"],
+      "properties": {
+        "bind": {
+          "description": "A port the bundle may bind. Privileged ports are out of scope in v1.",
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "address": {
+          "description": "Bind address. Defaults to 127.0.0.1 when omitted, so exposing a listener beyond loopback is always an explicit declaration. The spelling is preserved in the canonical form: an omitted address and an explicit \"127.0.0.1\" bind the same socket but digest differently.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "LocalPort": {
+      "description": "A loopback TCP port a workload may dial.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
     "FsEntry": {
       "description": "One path grant: a bare string is read-only, an object carries an explicit mode. Read-only is the shorter form on purpose — the cheaper spelling is the safer one.",
       "oneOf": [

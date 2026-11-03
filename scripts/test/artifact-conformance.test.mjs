@@ -81,6 +81,30 @@ test("the validator refuses a schema keyword it does not implement", () => {
   );
 });
 
+test("minItems and uniqueItems are enforced, not merely tolerated", () => {
+  // confinement/v1 @ v0.21.1 lets §4 `port` be a non-empty list of distinct
+  // grants. Both halves must bite: `[]` is refused (it gives "no listener" a
+  // second spelling), and the same grant twice is refused even when its keys
+  // are written in another order — JSON-Schema equality ignores key order.
+  const schema = JSON.parse(read(ARTIFACTS[0].schema));
+  const base = ARTIFACTS[0].produce();
+  const withPort = (port) => validate({ ...base, port }, schema);
+
+  assert.deepEqual(withPort({ bind: 8443 }), [], "the single-grant form stays valid");
+  assert.deepEqual(withPort([{ bind: 8443 }, { bind: 9090 }]), [], "a list of distinct grants is valid");
+  assert.notDeepEqual(withPort([]), [], "an empty port list must be refused (minItems)");
+  assert.notDeepEqual(
+    withPort([{ bind: 8443, address: "0.0.0.0" }, { address: "0.0.0.0", bind: 8443 }]),
+    [],
+    "a repeated grant must be refused regardless of key order (uniqueItems)",
+  );
+  assert.deepEqual(
+    validate([{ a: 1, b: [1, 2] }, { a: 1, b: [2, 1] }], { type: "array", uniqueItems: true }),
+    [],
+    "array order is significant to instance equality",
+  );
+});
+
 test("the validator rejects the documents that actually shipped broken", () => {
   // The regression pin, and the reason to trust the layer at all: the two real
   // defects must FAIL here. A validator that passes everything is the vacuous

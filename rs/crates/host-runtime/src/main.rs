@@ -56,8 +56,15 @@ fn krun_config() -> KrunWorkerConfig {
         worker: path("CLOISTER_KRUN_WORKER", "/usr/local/libexec/leyline-krun-worker"),
         cas_root: path("CLOISTER_CAS_ROOT", "/var/lib/cloister/cas"),
         ephemeral_root: path("CLOISTER_EPHEMERAL_ROOT", "/var/lib/cloister/run"),
-        libkrun: path("CLOISTER_LIBKRUN", "/usr/local/lib/libkrun.dylib"),
-        runtime_files: Vec::new(),
+        // LLO v0.21 (bead ley-line-open-f1c46f): the worker LINKS libkrun, so
+        // there is no libkrun path to configure (`CLOISTER_LIBKRUN` is gone).
+        // libkrunfw is still loaded at run time and must be granted to the
+        // worker as a runtime file; no default is guessed, since a wrong path
+        // would be granted into the confinement document.
+        runtime_files: std::env::var_os("CLOISTER_LIBKRUNFW")
+            .map(PathBuf::from)
+            .into_iter()
+            .collect(),
         devices: Vec::new(),
         ready_timeout: Duration::from_secs(30),
         // Off, and not reachable from a launch plan. LLO's own comment is the

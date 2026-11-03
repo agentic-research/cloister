@@ -7,7 +7,7 @@
 //
 // cloister has no JSON-Schema dependency and adding one to validate two files
 // is a poor trade against a supply-chain surface threat model §17.1 already
-// spends effort keeping small. The subset here is 13 validating keywords, all
+// spends effort keeping small. The subset here is 15 validating keywords, all
 // enumerated from the schemas actually vendored.
 //
 // ## The property that makes a hand validator safe
@@ -29,7 +29,24 @@ const ANNOTATIONS = new Set(["$schema", "$id", "title", "description", "$comment
 const IMPLEMENTED = new Set([
   "type", "const", "enum", "pattern", "minLength", "minimum", "maximum",
   "required", "properties", "additionalProperties", "minProperties", "items", "oneOf", "$ref", "$defs",
+  // confinement/v1 @ LLO v0.21.1: §4 `port` and §3 `connectLocal` became
+  // "one value or a non-empty list of distinct values" (ley-line-open-e2c33f).
+  "minItems", "uniqueItems",
 ]);
+
+/**
+ * JSON-Schema instance equality for `uniqueItems`: structural, with object key
+ * order irrelevant (so `{"a":1,"b":2}` equals `{"b":2,"a":1}`) and array order
+ * significant. Serialising with sorted keys gives exactly that relation.
+ */
+function instanceKey(value) {
+  if (Array.isArray(value)) return `[${value.map(instanceKey).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value).sort()
+      .map((k) => `${JSON.stringify(k)}:${instanceKey(value[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
 
 export class UnsupportedSchemaError extends Error {
   override_name = "UnsupportedSchemaError";
@@ -137,10 +154,26 @@ export function validate(value, schema, { root = schema, path = "$" } = {}) {
     }
   }
 
-  if (typeOf(value) === "array" && schema.items !== undefined) {
-    value.forEach((item, i) => {
-      errors.push(...validate(item, schema.items, { root, path: `${path}[${i}]` }));
-    });
+  if (typeOf(value) === "array") {
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      errors.push(`${path}: fewer than minItems ${schema.minItems}`);
+    }
+    if (schema.uniqueItems === true) {
+      const seen = new Map();
+      value.forEach((item, i) => {
+        const key = instanceKey(item);
+        if (seen.has(key)) {
+          errors.push(`${path}[${i}]: duplicates ${path}[${seen.get(key)}] (uniqueItems)`);
+        } else {
+          seen.set(key, i);
+        }
+      });
+    }
+    if (schema.items !== undefined) {
+      value.forEach((item, i) => {
+        errors.push(...validate(item, schema.items, { root, path: `${path}[${i}]` }));
+      });
+    }
   }
 
   return errors;

@@ -4,17 +4,17 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@75e3af6aecf3287eb7adc0610399ff923256ee7e"
-resolved = "0.18.2"
-sha256 = "sha256:6883a4a3ea01c6fca68721b932b6f25172f368d1adaf7efa778fce2c1a54dd71"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/75e3af6aecf3287eb7adc0610399ff923256ee7e/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0"
+resolved = "0.21.1"
+sha256 = "sha256:acfbf52619fb818d8cd001ed1bacc2a97c411be8398432f66f82cc7b2df8fd4e"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0/server.json"
 signer = ""
-bytes = 3065
+bytes = 3237
 
 [inputs.llo.oci]
 identifier = "ghcr.io/agentic-research/ley-line-open"
-version = "v0.18.2"
-digest = "sha256:d63f349d675d62b4671f8f82f4be6851c5bffc9700ff473189646e499a03d258"
+version = "v0.21.1"
+digest = "sha256:ea10a84436d8911e2f0876247cadcbb6549317317a30f7b21f329a882816f371"
 
 [inputs.notme]
 ref = "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a"
@@ -105,6 +105,17 @@ requiresSession = true
 
 [[generated_backends]]
 input = "llo"
+name = "write"
+handlesPrefix = ""
+stripPrefix = ""
+claims = [ "propose" ]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+requiresSession = true
+
+[[generated_backends]]
+input = "llo"
 name = "sheaf"
 handlesPrefix = "sheaf_"
 stripPrefix = ""
@@ -119,7 +130,7 @@ input = "llo"
 name = "query"
 handlesPrefix = ""
 stripPrefix = ""
-claims = [ "query", "list_children", "read_content", "find_callers", "find_defs", "find_callees", "get_refs_map", "get_defs_map", "get_schema", "get_db_path", "get_node", "inspect_symbol", "at_position", "inspect_neighborhood", "search_symbols", "agreement" ]
+claims = [ "query", "list_children", "read_content", "read_source", "find_callers", "find_defs", "find_callees", "get_refs_map", "get_defs_map", "get_schema", "get_db_path", "get_node", "inspect_symbol", "at_position", "inspect_neighborhood", "search_symbols", "agreement" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
@@ -163,7 +174,7 @@ input = "llo"
 name = "execution"
 handlesPrefix = "llo_execution_"
 stripPrefix = ""
-claims = [ "llo_execution_capabilities", "llo_execution_provision", "llo_execution_status", "llo_execution_start", "llo_execution_inspect", "llo_execution_cancel", "llo_execution_collect", "llo_execution_cleanup" ]
+claims = [ "llo_execution_capabilities", "llo_execution_status", "llo_execution_provision", "llo_execution_start", "llo_execution_inspect", "llo_execution_cancel", "llo_execution_collect", "llo_execution_cleanup" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"

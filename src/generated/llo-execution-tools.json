@@ -34,7 +34,7 @@
     "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
-    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor", "cgroup"] },
     "DigestRef": {
       "type": "object",
       "description": "Algorithm-tagged content digest.",
@@ -85,16 +85,45 @@
       "required": ["name", "brokerRef"],
       "additionalProperties": false
     },
+    "MemoryLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.memory, the subset LLO enforces.",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0, "description": "OCI memory.limit: maximum memory in bytes; zero means no ceiling." }
+      },
+      "required": ["limit"],
+      "additionalProperties": false
+    },
+    "CpuLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.cpu bandwidth: at most quota microseconds of CPU per period.",
+      "properties": {
+        "quota": { "type": "integer", "minimum": 0, "description": "OCI cpu.quota: CPU microseconds allowed per period; zero means no ceiling." },
+        "period": { "type": "integer", "minimum": 0, "description": "OCI cpu.period in microseconds; zero means the cgroup v2 default, 100000. Nonzero without a quota is refused." }
+      },
+      "required": ["quota", "period"],
+      "additionalProperties": false
+    },
+    "PidsLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.pids.",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0, "description": "OCI pids.limit: maximum tasks in the run's process tree; zero means no ceiling." }
+      },
+      "required": ["limit"],
+      "additionalProperties": false
+    },
     "ResourceLimits": {
       "type": "object",
-      "description": "Resolved or requested resource ceilings.",
+      "description": "Resolved or requested resource ceilings: OCI linux.resources memory, cpu and pids, plus the LLO-only wall clock and output size. A ceiling the selected tier cannot enforce is refused by name, never accepted silently.",
       "properties": {
-        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means policy default." },
-        "memoryBytes": { "type": "integer", "minimum": 0, "description": "Maximum memory in bytes; zero means policy default." },
-        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Maximum cumulative CPU time in milliseconds; zero means policy default." },
-        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means policy default." }
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means no ceiling requested. LLO-only: OCI does not model it." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means no ceiling. LLO-only. Ordinal 1 is deliberate: an old-shape message's memoryBytes decodes here and is refused." },
+        "memory": { "$ref": "#/$defs/MemoryLimits", "description": "OCI linux.resources.memory." },
+        "cpu": { "$ref": "#/$defs/CpuLimits", "description": "OCI linux.resources.cpu quota and period." },
+        "pids": { "$ref": "#/$defs/PidsLimits", "description": "OCI linux.resources.pids." }
       },
-      "required": ["wallTimeMs", "memoryBytes", "cpuMillis", "outputBytes"],
+      "required": ["wallTimeMs", "outputBytes", "memory", "cpu", "pids"],
       "additionalProperties": false
     },
     "WorkspaceIntent": {
@@ -183,7 +212,7 @@
         "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
         "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
-        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
+        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings the run is held to; each may only narrow the spec's requestedLimits." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
         "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
@@ -242,13 +271,15 @@
     },
     "EnforcedCeilings": {
       "type": "object",
-      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism, one entry per ResourceLimits field. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
       "properties": {
-        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
-        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
-        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.wallTimeMs." },
+        "outputBytes": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.outputBytes." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.memory.limit." },
+        "cpu": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.cpu quota and period." },
+        "pids": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.pids.limit." }
       },
-      "required": ["wallTime", "vcpus", "memory"],
+      "required": ["wallTime", "outputBytes", "memory", "cpu", "pids"],
       "additionalProperties": false
     },
     "BackendEvidence": {
@@ -484,7 +515,7 @@
     "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
-    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor"] },
+    "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor", "cgroup"] },
     "DigestRef": {
       "type": "object",
       "description": "Algorithm-tagged content digest.",
@@ -535,16 +566,45 @@
       "required": ["name", "brokerRef"],
       "additionalProperties": false
     },
+    "MemoryLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.memory, the subset LLO enforces.",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0, "description": "OCI memory.limit: maximum memory in bytes; zero means no ceiling." }
+      },
+      "required": ["limit"],
+      "additionalProperties": false
+    },
+    "CpuLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.cpu bandwidth: at most quota microseconds of CPU per period.",
+      "properties": {
+        "quota": { "type": "integer", "minimum": 0, "description": "OCI cpu.quota: CPU microseconds allowed per period; zero means no ceiling." },
+        "period": { "type": "integer", "minimum": 0, "description": "OCI cpu.period in microseconds; zero means the cgroup v2 default, 100000. Nonzero without a quota is refused." }
+      },
+      "required": ["quota", "period"],
+      "additionalProperties": false
+    },
+    "PidsLimits": {
+      "type": "object",
+      "description": "OCI linux.resources.pids.",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 0, "description": "OCI pids.limit: maximum tasks in the run's process tree; zero means no ceiling." }
+      },
+      "required": ["limit"],
+      "additionalProperties": false
+    },
     "ResourceLimits": {
       "type": "object",
-      "description": "Resolved or requested resource ceilings.",
+      "description": "Resolved or requested resource ceilings: OCI linux.resources memory, cpu and pids, plus the LLO-only wall clock and output size. A ceiling the selected tier cannot enforce is refused by name, never accepted silently.",
       "properties": {
-        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means policy default." },
-        "memoryBytes": { "type": "integer", "minimum": 0, "description": "Maximum memory in bytes; zero means policy default." },
-        "cpuMillis": { "type": "integer", "minimum": 0, "description": "Maximum cumulative CPU time in milliseconds; zero means policy default." },
-        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means policy default." }
+        "wallTimeMs": { "type": "integer", "minimum": 0, "description": "Maximum wall-clock runtime in milliseconds; zero means no ceiling requested. LLO-only: OCI does not model it." },
+        "outputBytes": { "type": "integer", "minimum": 0, "description": "Maximum collected output bytes; zero means no ceiling. LLO-only. Ordinal 1 is deliberate: an old-shape message's memoryBytes decodes here and is refused." },
+        "memory": { "$ref": "#/$defs/MemoryLimits", "description": "OCI linux.resources.memory." },
+        "cpu": { "$ref": "#/$defs/CpuLimits", "description": "OCI linux.resources.cpu quota and period." },
+        "pids": { "$ref": "#/$defs/PidsLimits", "description": "OCI linux.resources.pids." }
       },
-      "required": ["wallTimeMs", "memoryBytes", "cpuMillis", "outputBytes"],
+      "required": ["wallTimeMs", "outputBytes", "memory", "cpu", "pids"],
       "additionalProperties": false
     },
     "WorkspaceIntent": {
@@ -633,7 +693,7 @@
         "capabilities": { "type": "array", "items": { "$ref": "#/$defs/CapabilityGrant" }, "description": "Exact verified grants and interface mappings." },
         "confinementDigest": { "$ref": "#/$defs/DigestRef", "description": "confinement/v1 digest that enforcement must match." },
         "backendClass": { "$ref": "#/$defs/BackendClass", "description": "Required isolation class; callers cannot weaken it." },
-        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings." },
+        "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings the run is held to; each may only narrow the spec's requestedLimits." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
         "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
@@ -692,13 +752,15 @@
     },
     "EnforcedCeilings": {
       "type": "object",
-      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
+      "description": "Which resource ceilings the selected backend actually applied, and by what mechanism, one entry per ResourceLimits field. A ceiling means different things under a hypervisor, a cgroup, and a supervisor, so the number alone attests less than it appears to.",
       "properties": {
-        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "Wall-clock deadline." },
-        "vcpus": { "$ref": "#/$defs/CeilingMechanism", "description": "vCPU count." },
-        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "Memory ceiling." }
+        "wallTime": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.wallTimeMs." },
+        "outputBytes": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.outputBytes." },
+        "memory": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.memory.limit." },
+        "cpu": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.cpu quota and period." },
+        "pids": { "$ref": "#/$defs/CeilingMechanism", "description": "ResourceLimits.pids.limit." }
       },
-      "required": ["wallTime", "vcpus", "memory"],
+      "required": ["wallTime", "outputBytes", "memory", "cpu", "pids"],
       "additionalProperties": false
     },
     "BackendEvidence": {

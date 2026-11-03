@@ -119,7 +119,35 @@ interface SignetWasmExports {
     master_pubkey_ptr: number, master_pubkey_len: number,
     claims_out_buf: number, claims_out_len: number,
   ) => number;
+
+  /**
+   * Verify a leaf through zero or more concatenated DER intermediates up to
+   * the Ed25519 anchor, and require the path's certificate profile
+   * (LLO v0.21, rs/ll-open/sign/src/ffi.rs). With `intermediates_len == 0`
+   * the pointer is not read and this is `leyline_verify_cert_chain` plus the
+   * profile binding. Same claims JSON, same -1 on failure.
+   *
+   * `expected_profile`: 0 either, 1 Interlace, 2 Signet; any other value fails.
+   */
+  leyline_verify_cert_path: (
+    leaf_der_ptr: number, leaf_der_len: number,
+    intermediates_ptr: number, intermediates_len: number,
+    anchor_pubkey_ptr: number, anchor_pubkey_len: number,
+    expected_profile: number,
+    claims_out_buf: number, claims_out_len: number,
+  ) => number;
 }
+
+/**
+ * The certificate profile the lease anchor issues (LLO `CertProfile::FFI_INTERLACE`).
+ *
+ * Two profiles share the `1.3.6.1.4.1.99999.1.*` arc and give `.1.5` / `.1.6`
+ * different meanings: Interlace reads them as peer fingerprint and scope, while
+ * notme/signet use them for authMethod and a peer binding. Binding the lease
+ * anchor to Interlace means a Signet-profile certificate under the same key
+ * cannot be read as a lease, so its `.1.6` bytes never become a lease scope.
+ */
+const EXPECTED_PROFILE_INTERLACE = 1;
 
 // ── Module instance — lazy, synchronous ──────────────────────────────
 
@@ -323,19 +351,25 @@ export function verifyCertChain(
   const claimsOutPtr = exports.lsign_alloc(claimsOutLen);
 
   try {
-    const result = exports.leyline_verify_cert_chain(
+    // No intermediates (pointer 0, length 0: not read): the lease cert is
+    // signed directly by the anchor, as with `leyline_verify_cert_chain`, and
+    // the path call adds the Interlace profile binding.
+    const result = exports.leyline_verify_cert_path(
       certPtr, certDer.length,
+      0, 0,
       masterPtr, masterPubkey.length,
+      EXPECTED_PROFILE_INTERLACE,
       claimsOutPtr, claimsOutLen,
     );
 
     if (result < 0) {
       // -1 covers: bad DER, wrong sig algorithm, signature mismatch,
-      // bad SPKI, malformed Interlace extension, or output buffer too
-      // small. The wasm doesn't return structured error info; surface
-      // a generic reason. Callers that want to log details can match
-      // on the verdict at the Rust side via tests.
-      return { ok: false, reason: "cert chain verify failed (parse, sig, or buffer)" };
+      // bad SPKI, malformed Interlace extension, a non-Interlace
+      // (Signet-profile) certificate, or output buffer too small. The wasm
+      // doesn't return structured error info; surface a generic reason.
+      // Callers that want to log details can match on the verdict at the
+      // Rust side via tests.
+      return { ok: false, reason: "cert chain verify failed (parse, sig, profile, or buffer)" };
     }
 
     const jsonBytes = new Uint8Array(exports.memory.buffer, claimsOutPtr, result).slice();

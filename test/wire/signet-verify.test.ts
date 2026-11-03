@@ -21,6 +21,10 @@ import {
   NOT_AFTER,
   NOT_BEFORE,
 } from "./fixtures/cert-chain.js";
+import {
+  NOTME_DIRECT_SIGNING_CERT_B64,
+  NOTME_ROOT_PUBKEY_B64,
+} from "./fixtures/notme-direct-signing.js";
 
 /** base64url (no padding) decode — for fixture material. */
 function b64uDecode(s: string): Uint8Array {
@@ -315,7 +319,52 @@ describe("verifyCertChain", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.reason).toMatch(/parse, sig, or buffer/i);
+    expect(result.reason).toMatch(/parse, sig, profile, or buffer/i);
+  });
+
+  // cloister-bc42d9 / LLO v0.21 `leyline_verify_cert_path` expected_profile=1.
+  // A real notme Signet-profile cert, signed by the anchor passed in, is
+  // REFUSED: its `.1.5`/`.1.6` carry authMethod and a peer binding, which an
+  // Interlace reader would take as peer fingerprint and lease scope.
+  it("refuses a Signet-profile cert signed by the very anchor it is checked against", () => {
+    const signetCert = b64uDecode(NOTME_DIRECT_SIGNING_CERT_B64);
+    const notmeRoot = b64uDecode(NOTME_ROOT_PUBKEY_B64);
+    const result = verifyCertChain(signetCert, notmeRoot);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cert chain verify failed/i);
+  });
+
+  // The refusal above must be the PROFILE binding, not a signature or parse
+  // failure — otherwise the test passes against an anchor-mismatch bug. The
+  // same bytes through the same export with "either profile" (code 0) verify,
+  // and report the Signet profile.
+  it("the same Signet cert verifies with profile 0, so the refusal is the profile binding", () => {
+    const signetCert = b64uDecode(NOTME_DIRECT_SIGNING_CERT_B64);
+    const notmeRoot = b64uDecode(NOTME_ROOT_PUBKEY_B64);
+    const cert = allocWasmBuffer(signetCert);
+    const anchor = allocWasmBuffer(notmeRoot);
+    const outLen = 1024;
+    const out = cert.exports.lsign_alloc(outLen);
+    try {
+      const call = (profile: number) => cert.exports.leyline_verify_cert_path(
+        cert.ptr, cert.length, 0, 0, anchor.ptr, anchor.length, profile, out, outLen,
+      );
+      const either = call(0);
+      expect(either).toBeGreaterThan(0);
+      const json = JSON.parse(new TextDecoder().decode(
+        new Uint8Array(cert.exports.memory.buffer, out, either).slice(),
+      )) as Record<string, unknown>;
+      expect(json["pr"]).toBe("signet");
+      expect(call(2)).toBeGreaterThan(0);
+      expect(call(1)).toBe(-1);
+      // An unknown code fails rather than meaning "either".
+      expect(call(3)).toBe(-1);
+    } finally {
+      freeWasmBuffer(cert.exports, cert.ptr, cert.length);
+      freeWasmBuffer(anchor.exports, anchor.ptr, anchor.length);
+      cert.exports.lsign_free(out, outLen);
+    }
   });
 
   it("rejects cert with critical unknown extension (RFC 5280 §4.2 / cloister-c71977)", () => {
