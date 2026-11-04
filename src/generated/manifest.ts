@@ -159,6 +159,22 @@ export const manifest: Gateway = {
               }
             },
             {
+              "name": "write",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
+                  "claims": [
+                    "propose"
+                  ]
+                }
+              }
+            },
+            {
               "name": "sheaf",
               "handlesPrefix": "sheaf_",
               "kind": {
@@ -193,6 +209,7 @@ export const manifest: Gateway = {
                     "query",
                     "list_children",
                     "read_content",
+                    "read_source",
                     "find_callers",
                     "find_defs",
                     "find_callees",
@@ -272,8 +289,8 @@ export const manifest: Gateway = {
                   "requiresSession": true,
                   "claims": [
                     "llo_execution_capabilities",
-                    "llo_execution_provision",
                     "llo_execution_status",
+                    "llo_execution_provision",
                     "llo_execution_start",
                     "llo_execution_inspect",
                     "llo_execution_cancel",

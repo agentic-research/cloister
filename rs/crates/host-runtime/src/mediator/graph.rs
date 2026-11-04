@@ -90,10 +90,12 @@ impl Graph for ConfinementGraph {
         self.deny_write(&Self::child_id(new_parent, new_name))?;
         self.inner.rename_node(id, new_parent, new_name)
     }
-    fn flush_node(&self, id: &str) -> Result<()> {
-        // Delegate: leyline-fs's flush drives the validate-on-write splice reproject.
-        self.inner.flush_node(id)
-    }
+    // No `flush_node`: LLO removed it from `Graph` with ADR-0040 D3 ("one write
+    // path", LLO #422), where a store is written only through
+    // `leyline_cli_lib::source_write`. `batch_splice`, `serialize` and
+    // `flush_to_arena` are deliberately NOT delegated: their trait defaults
+    // refuse, so this decorator cannot become a write path that bypasses
+    // `deny_write`.
 }
 
 #[cfg(test)]

@@ -8,6 +8,43 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — ley-line-open v0.21.1 (`cloister-bc42d9`, `cloister-dac140`)
+
+Every LLO channel moves from v0.18.2 (`75e3af6`) to v0.21.1 (`d11e89a8`) via
+`task llo:bump`: the Cargo git deps, `[inputs.llo]`, `schema-bridge.lock.json`
+(all twelve generator digests checked against the release's `SHA256SUMS`), and
+`llo-execution-contract.lock.json` (the regenerated `execution.tools.json` is
+byte-identical to the release asset). The execution/v1 vectors and the
+confinement/v1 schema are re-vendored from the tag.
+
+**BREAKING — execution/v1 `ResourceLimits` is the OCI shape.** `memoryBytes` /
+`cpuMillis` are gone; limits are `wallTimeMs`, `outputBytes`, `memory{limit}`,
+`cpu{quota, period}`, `pids{limit}`, zero meaning no ceiling. Every tier
+refuses a non-zero `outputBytes`; native without a delegated cgroup root
+refuses memory, cpu and pids; the microVM tier sizes whole MiB and whole vCPUs
+and refuses pids. `cloister-host-runtime` requests its defaults (15 min wall
+clock, 1024 MiB, 2 vCPUs) only on the dimensions the backend declares it
+enforces.
+
+**BREAKING — `cloister runtime run` refuses a daemon without the OCI limits
+layout.** Before `start` it reads `llo_execution_capabilities` and requires
+`cloister/execution/v1/resource-limits` at version `2`. A pre-v0.21 daemon would
+read the OCI message as its old four words and drop every memory, cpu and pids
+ceiling without saying so.
+
+**BREAKING — `CLOISTER_LIBKRUN` is gone.** The LLO worker links libkrun. Grant
+libkrunfw with `CLOISTER_LIBKRUNFW=<path>` (passed to the worker as a runtime
+file); nothing is granted when it is unset.
+
+**Lease certs must be Interlace-profile.** The lease gate verifies through
+`leyline_verify_cert_path` with `expected_profile=1`, so a Signet-profile
+(notme/signet) certificate under the lease anchor is refused instead of having
+its `.1.5`/`.1.6` read as peer fingerprint and scope.
+
+Also from v0.21.1: the native tier refuses Graph workspace grants (workspaces
+are microVM-only). Cloister maps no workspace authority from a launch plan, so
+nothing in cloister routes a workspace run to native.
+
 ### Shipped 2026-08-05
 
 **BREAKING — the confinement digest changed twice. Re-mint dev certs.**

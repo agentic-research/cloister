@@ -24,9 +24,10 @@
     "requestedInterfaces": ["cloister/execution/v1"],
     "requestedLimits": {
       "wallTimeMs": 300000,
-      "memoryBytes": 4294967296,
-      "cpuMillis": 120000,
-      "outputBytes": 67108864
+      "outputBytes": 67108864,
+      "memory": {"limit": 4294967296},
+      "cpu": {"quota": 200000, "period": 100000},
+      "pids": {"limit": 256}
     },
     "outputs": [{"name": "audit-log", "mediaType": "application/json"}],
     "cancellationMode": "explicitOnly"
@@ -73,9 +74,10 @@
     "backendClass": "microVm",
     "limits": {
       "wallTimeMs": 300000,
-      "memoryBytes": 4294967296,
-      "cpuMillis": 120000,
-      "outputBytes": 67108864
+      "outputBytes": 67108864,
+      "memory": {"limit": 4294967296},
+      "cpu": {"quota": 200000, "period": 100000},
+      "pids": {"limit": 256}
     },
     "workspaces": [
       {
