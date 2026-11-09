@@ -48,6 +48,7 @@ import { resolve, join, dirname } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { startLocalRouter } from "../dev/router.mjs";
+import { ensureWorkerArtifacts } from "../dev/worker-artifacts.mjs";
 import { resolveInstallLayout } from "../install-layout.mjs";
 import {
   readProviderRecord,
@@ -1369,6 +1370,12 @@ export async function launch(request, deps = {}) {
   // other precondition — an operator who aborts on a failed pin has not caused
   // a credential to be written.
   if (plan.sandbox) verifySkills(plan, log, deps);
+  // The Worker cannot start without its wasm modules (cloister-1b92fa). Also
+  // before minting: a run that cannot start has no reason to write a credential.
+  // --setup-only never starts the Worker, so it does not need them.
+  if (!plan.setupOnly) {
+    await (deps.ensureWorkerArtifacts ?? ensureWorkerArtifacts)({ root: plan.root, env: deps.env ?? process.env, log });
+  }
 
   const artifacts = performSetup(plan, deps);
   if (plan.setupOnly) {

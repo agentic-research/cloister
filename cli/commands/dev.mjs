@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 import { bootstrapLocalDev as defaultBootstrapLocalDev } from "../lib/dev/bootstrap.mjs";
 import { startLocalRouter as defaultStartLocalRouter } from "../lib/dev/router.mjs";
+import { ensureWorkerArtifacts as defaultEnsureWorkerArtifacts } from "../lib/dev/worker-artifacts.mjs";
 import { runNodeTests as defaultRunNodeTests } from "../lib/dev/test-runner.mjs";
 import { renderCommandHelp } from "../surface.mjs";
 
@@ -94,6 +95,11 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         env: deps.env ?? process.env,
       });
     }
+    await (deps.ensureWorkerArtifacts ?? defaultEnsureWorkerArtifacts)({
+      root: args.root,
+      env: deps.env ?? process.env,
+      log: errLog,
+    });
     const child = (deps.startLocalRouter ?? defaultStartLocalRouter)({
       root: args.root,
       env: deps.env ?? process.env,

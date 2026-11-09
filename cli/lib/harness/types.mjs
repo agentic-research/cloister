@@ -262,6 +262,7 @@ export class PreconditionError extends Error {
  * @property {Function} [loadHarnessConfig]
  * @property {Function} [resolveNativeHelper]
  * @property {Function} [startLocalRouter]
+ * @property {(o: {root: string, env?: Record<string,string|undefined>, log?: (m: string) => void}) => Promise<void>} [ensureWorkerArtifacts]
  * @property {(wranglerToml: string, env?: Record<string,string|undefined>) => {binding:string, service:string, dir:string|null, envVar:string, port:number}[]} [resolveCompanionWorkers]
  */
 

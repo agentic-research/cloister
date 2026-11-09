@@ -21,7 +21,9 @@ test("dev bootstrap accepts an explicit checkout directory", async () => {
 test("dev serve starts the first-party router and waits for its exit", async () => {
   const child = { pid: 42 };
   let started;
+  let ensured;
   const code = await main(["serve", "--dir", "/tmp/cloister"], {
+    ensureWorkerArtifacts: async (options) => { ensured = options; },
     startLocalRouter: (options) => { started = options; return child; },
     waitForChild: async (value) => {
       assert.equal(value, child);
@@ -32,6 +34,8 @@ test("dev serve starts the first-party router and waits for its exit", async () 
     env: {},
   });
   assert.equal(started.root, "/tmp/cloister");
+  // The Worker's wasm must be provided BEFORE the router starts (cloister-1b92fa).
+  assert.equal(ensured.root, "/tmp/cloister");
   assert.equal(code, 7);
 });
 
