@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — LLO's prebuilt signing wasm; pin rail covers `tools/` (`cloister-dbe9c3`, `cloister-b4d6eb`)
+
+- The Worker now loads LLO's published `leyline_sign.wasm` instead of a local
+  wasm32 build. It is digest-pinned under `"wasm"` in `schema-bridge.lock.json`
+  at the same release version as the generators, fetched by `task llo:wasm`.
+  `rs:sign:wasm` is removed. `cloister_cas.wasm` is still built locally until
+  `ley-line-open-dbacd2` ships.
+- `lint:upstream-pins` walks `tools/` as well as `rs/`.
+  `tools/harness-sandbox`'s leyline-sign pin had sat at v0.7.6 while `rs/`
+  moved to v0.21.1. It is now on v0.21.1.
+
 ### 2026-11 — ley-line-open v0.21.1 (`cloister-bc42d9`, `cloister-dac140`)
 
 Every LLO channel moves from v0.18.2 (`75e3af6`) to v0.21.1 (`d11e89a8`) via
