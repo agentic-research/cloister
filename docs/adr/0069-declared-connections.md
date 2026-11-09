@@ -19,6 +19,12 @@ relates_to:
 
 Tracking bead: `cloister-77870d`. Related: `cloister-778a44` (edge `appProtocol` has no reader).
 
+Prior beads this picks up:
+- `cloister-6fc72e` shipped non-MCP *routes* (OCI registry, OIDC bridge), which proved ADR-0002's protocol-agnostic seam on the inbound side only.
+- `cloister-0fa3d7` added the `art.*` / `x-<vendor>-*` lint, and `cloister-0402b5` made the label set substrate-controlled. This ADR is the first reader of that label.
+- `cloister-9d19e3` / `cloister-c2bd47` (ADR-0033) are why bead access goes through rsry MCP and never a SQL connection (§3).
+- `cloister-c9cf2d` (parked) covers minting SQL credentials, which would also apply to `art.mysql` / `art.postgres` targets.
+
 ## Context
 
 The use case is ordinary: **a local dev environment that mirrors a GCP
