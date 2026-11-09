@@ -12,18 +12,22 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-test("lockfile keeps PostCSS and sharp above current advisory floors", () => {
+test("lockfile keeps PostCSS, sharp and undici above current advisory floors", () => {
   // lint-allow-rawparse: the lockfile is YAML, but this test deliberately
   // treats it as opaque text and only checks that forbidden version tokens do
   // not return; parsing the whole dependency graph would test pnpm itself.
   const lock = readFileSync(resolve(ROOT, "pnpm-lock.yaml"), "utf8");
 
   assert.match(lock, /postcss@<8\.5\.18:\s*\^8\.5\.19/);
-  assert.match(lock, /sharp@<0\.35\.3:\s*\^0\.35\.3/);
+  assert.match(lock, /sharp@<0\.35\.5:\s*\^0\.35\.5/);
+  assert.match(lock, /undici@>=7\.0\.0 <7\.30\.1:\s*\^7\.30\.1/);
   assert.match(lock, /postcss@8\.5\.(?:1[89]|[2-9]\d)/);
-  assert.match(lock, /sharp@0\.35\.[3-9]\d*/);
+  assert.match(lock, /sharp@0\.35\.(?:[5-9]|\d{2,})/);
   assert.doesNotMatch(lock, /postcss@8\.5\.(?:[0-9]|1[0-7])\b/);
-  assert.doesNotMatch(lock, /sharp@0\.34\./);
+  assert.doesNotMatch(lock, /sharp@0\.(?:34\.|35\.[0-4]\b)/);
+  // cloister-6ecd70: 18 open undici advisories were all < 7.30.1, reached
+  // through miniflare's exact 7.28.0 pin.
+  assert.doesNotMatch(lock, /undici@7\.(?:[0-9]|1\d|2\d|30\.0)\b/);
 });
 
 test("the development toolchain resolves one Miniflare generation", () => {

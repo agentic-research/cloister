@@ -102,7 +102,7 @@ tasks:
       - target/release/cloister-host-runtime
 
   audit:
-    desc: "Supply-chain audit for the Rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit + cargo deny over the helper's transitive closure."
+    desc: "Supply-chain audit for the Rust workspace. Asserts toolchain pin matches ADR-0019; runs cargo audit over EVERY committed Cargo.lock (rs/ plus discovered tools/*) + cargo deny over the helper's transitive closure."
     cmds:
       # Preflight (fail-loud, never skip). This is a SECURITY gate — if
       # cargo-audit / cargo-deny are missing, a bare `cargo audit` prints a
@@ -121,4 +121,20 @@ tasks:
         fi
       - 'grep -q ''channel = "1.95.0"'' rust-toolchain.toml || (echo "rs/rust-toolchain.toml: channel != 1.95.0 — see ADR-0019 §Implementation pins"; exit 1)'
       - cargo audit --deny warnings
+      # Every OTHER committed Cargo.lock, under this same .cargo/audit.toml
+      # policy (cargo audit reads it from the working dir). Discovered, not
+      # listed: after #266 cleared quinn-proto/rustls here, the same crates
+      # stayed vulnerable in tools/harness-sandbox/Cargo.lock for weeks because
+      # this gate only read rs/Cargo.lock (cloister-6ecd70). Finding none means
+      # discovery broke, not that the tree is clean — so that fails too.
+      - |
+        locks=$(git -C .. ls-files '*Cargo.lock' ':!rs/Cargo.lock')
+        if [ -z "$locks" ]; then
+          echo "rs:audit: found no Cargo.lock outside rs/ — expected tools/harness-sandbox; lockfile discovery is broken" >&2
+          exit 1
+        fi
+        for lock in $locks; do
+          echo "rs:audit: ../$lock"
+          cargo audit --deny warnings -f "../$lock"
+        done
       - cargo deny check

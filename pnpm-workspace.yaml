@@ -11,7 +11,9 @@ allowBuilds:
 # tree. vite/esbuild move with the vitest toolchain; this keeps the lockfile's
 # override policy visible to pnpm 10 and pnpm 11+.
 overrides:
-  "undici@>=7.0.0 <7.29.0": ^7.29.0
+  # Raised 7.29.0 -> 7.30.1 for the 18 undici advisories open on main in
+  # 2026-11 (cloister-6ecd70). miniflare@4 still pins 7.28.0 exactly.
+  "undici@>=7.0.0 <7.30.1": ^7.30.1
   "esbuild@>=0.27.0 <0.28.1": ^0.28.1
   # Security floors for transitive tooling dependencies. Vite pulls PostCSS
   # (GHSA-r28c-9q8g-f849 / Dependabot #26); Wrangler/Miniflare pulls sharp
@@ -19,7 +21,16 @@ overrides:
   # Dependabot #25). Keep vulnerable lockfile resolutions out of fresh
   # installs until their direct parents publish compatible ranges.
   "postcss@<8.5.18": ^8.5.19
-  "sharp@<0.35.3": ^0.35.3
+  # Raised 0.35.3 -> 0.35.5 for GHSA-rgj7-g3m4-5g8c / GHSA-wq5f-xc86-pv6w
+  # (cloister-6ecd70); miniflare pins sharp 0.35.2 exactly.
+  "sharp@<0.35.5": ^0.35.5
+  # NOT overridden, deliberately: zod GHSA-mrhx-c7xc-m3w5 (memory exhaustion
+  # validating an attacker-supplied unbounded array). @cloudflare/vitest-pool-
+  # workers 0.15.2 depends on zod 3 (resolves 3.25.76, the last 3.x — the
+  # advisory has no 3.x fix) and calls the zod-3 `z.ostring`; forcing ^4.6.6
+  # onto it fails `vitest.config.ts` at load. Its zod validates only our own
+  # test config (dev-only, no untrusted input), so this is a documented
+  # residual; our direct zod dependency is ^4.6.6 (cloister-6ecd70).
   # CVE-2026-48779 (high): memory-exhaustion DoS from tiny fragments/data
   # chunks. Dev-only reach — ws arrives transitively via miniflare -> wrangler /
   # vitest-pool-workers, never in the shipped worker bundle (workerd provides
