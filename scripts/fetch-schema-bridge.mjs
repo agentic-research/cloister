@@ -36,6 +36,7 @@
 // which keeps `task lint` offline-capable after a first fetch.
 //
 // Usage: node scripts/fetch-schema-bridge.mjs [binary-name]
+//        node scripts/fetch-schema-bridge.mjs --wasm <module.wasm>
 // Prints the absolute path of the verified binary on stdout.
 
 import { createHash } from "node:crypto";
@@ -84,17 +85,53 @@ export async function ensureBinary(name, { lock = readLock(), target = hostTarge
   }
 
   const cacheDir = resolve(ROOT, "rs/target/schema-bridge", lock.version);
-  const cached = join(cacheDir, name);
+  return ensureAsset({
+    label: `${name}-${target}`,
+    url: `https://github.com/${lock.repo}/releases/download/${lock.version}/${name}-${target}`,
+    expected,
+    cached: join(cacheDir, name),
+    mode: 0o755,
+    fetchImpl,
+  });
+}
 
+/** Where `task llo:wasm` places a verified module. A FIXED path, because the
+ * Worker imports it statically; the digest check, not the path, carries the
+ * version — a module left over from another pin fails it and is refetched. */
+export const WASM_DIR = resolve(ROOT, "rs/target/llo-wasm");
+
+/**
+ * Resolve a verified wasm32 module from the pinned LLO release (cloister-dbe9c3).
+ * Platform-independent, so one digest per module rather than one per target.
+ * @returns {Promise<string>} absolute path
+ */
+export async function ensureWasm(name, { lock = readLock(), fetchImpl = fetch, dir = WASM_DIR } = {}) {
+  const expected = lock.wasm?.[name];
+  if (!expected) {
+    throw new Error(
+      `llo-wasm: ${name} has no pinned digest under "wasm" in schema-bridge.lock.json. ` +
+      `Add one rather than skipping verification.`,
+    );
+  }
+  return ensureAsset({
+    label: name,
+    url: `https://github.com/${lock.repo}/releases/download/${lock.version}/${name}`,
+    expected,
+    cached: join(dir, name),
+    mode: 0o644,
+    fetchImpl,
+  });
+}
+
+async function ensureAsset({ label, url, expected, cached, mode, fetchImpl }) {
   // Verify on EVERY run, not just after download: a cached file that no longer
   // matches has been tampered with or half-written, and trusting it because it
   // exists is exactly the assumption this rail removes.
   if (existsSync(cached)) {
     if (sha256(readFileSync(cached)) === expected) return cached;
-    console.error(`schema-bridge: cached ${name} failed digest check — refetching`);
+    console.error(`schema-bridge: cached ${label} failed digest check — refetching`);
   }
 
-  const url = `https://github.com/${lock.repo}/releases/download/${lock.version}/${name}-${target}`;
   const res = await fetchImpl(url);
   if (!res.ok) {
     throw new Error(`schema-bridge: download failed ${res.status} ${url}`);
@@ -103,7 +140,7 @@ export async function ensureBinary(name, { lock = readLock(), target = hostTarge
   const got = sha256(bytes);
   if (got !== expected) {
     throw new Error(
-      `schema-bridge: DIGEST MISMATCH for ${name}-${target}\n` +
+      `schema-bridge: DIGEST MISMATCH for ${label}\n` +
       `  expected ${expected}\n  got      ${got}\n` +
       `  from ${url}\n` +
       `  The published asset does not match the pinned digest. Do not "fix" this by ` +
@@ -112,16 +149,18 @@ export async function ensureBinary(name, { lock = readLock(), target = hostTarge
     );
   }
 
-  mkdirSync(cacheDir, { recursive: true });
+  mkdirSync(dirname(cached), { recursive: true });
   writeFileSync(cached, bytes);
-  chmodSync(cached, 0o755);
+  chmodSync(cached, mode);
   return cached;
 }
 
 async function main() {
-  const name = process.argv[2] ?? "capnpc-schema-bridge-zod";
+  const args = process.argv.slice(2);
+  const wasm = args[0] === "--wasm";
+  const name = (wasm ? args[1] : args[0]) ?? "capnpc-schema-bridge-zod";
   try {
-    const path = await ensureBinary(name);
+    const path = wasm ? await ensureWasm(name) : await ensureBinary(name);
     process.stdout.write(path + "\n");
     return 0;
   } catch (e) {

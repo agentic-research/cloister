@@ -75,15 +75,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y capnproto libdbus-1-dev pkg-config
 
       - name: Install Rust toolchain (1.95.0 — pinned by rs/rust-toolchain.toml) + wasm32 target
-        # Required by `task rs:sign:wasm` and `task rs:sign:host`, both
-        # deps of `task test` → `task lint`. The wasm artifact is loaded
-        # by src/wire/signet-verify.ts; without it, vitest-pool-workers
-        # fails every test file at module init (cloister-bd5241).
+        # Required by `task rs:cas:wasm` and `task rs:sign:host`, both
+        # deps of `task test` → `task lint`. cloister_cas.wasm is loaded by
+        # src/wire/cas-hash.ts; without it, vitest-pool-workers fails every
+        # test file at module init. (leyline_sign.wasm is no longer built
+        # here — `task llo:wasm` fetches LLO's digest-pinned asset,
+        # cloister-dbe9c3.)
         #
         # Install 1.95.0 explicitly (matching rs/rust-toolchain.toml,
         # pinned by ADR-0019 §"Implementation pins") to avoid a parallel
         # rustup-download race: `task lint` runs `rs:sign:host` +
-        # `rs:sign:wasm` concurrently via Task's dep parallelism. If
+        # `rs:cas:wasm` concurrently via Task's dep parallelism. If
         # the installed channel here is `stable`, cargo's rustup-proxy
         # sees the override file and BOTH parallel cargo invocations
         # race-fetch 1.95.0 into the same ~/.rustup/downloads/*.partial
@@ -134,7 +136,7 @@ jobs:
         run: cd rs && cargo --version && rustc --version
 
       - name: Lint (the inner-loop gate)
-        # `task lint` chains: task manifest → task rs:sign:wasm → tsc
+        # `task lint` chains: task manifest → rs:test + llo:wasm → tsc
         # --noEmit → vitest in workerd → the script/rail node:test suites.
         #
         # NOTE: this job's `name:` above is a REQUIRED status check in main's
@@ -283,7 +285,7 @@ jobs:
 
       - name: Pre-warm rustup toolchain
         # See the lint job's matching step. `task verify` fans out
-        # `lint` (which runs rs:sign:host + rs:sign:wasm in parallel)
+        # `lint` (which runs rs:sign:host + rs:cas:wasm in parallel)
         # AND `rs:sign:host-extras` + `rs:audit`; pre-warming avoids
         # the parallel rustup-download race.
         run: cd rs && cargo --version && rustc --version
@@ -412,11 +414,12 @@ jobs:
       - name: Install Node dependencies
         run: task deps:node
 
-      - name: Build the leyline-sign wasm artifact
-        # Built explicitly rather than relied on as a transitive dep: wrangler
+      - name: Fetch the leyline-sign wasm artifact
+        # Fetched explicitly rather than relied on as a transitive dep: wrangler
         # invokes esbuild directly, not Task, so nothing in the smoke path would
-        # trigger this build on its own.
-        run: task rs:sign:wasm
+        # trigger it on its own. LLO's digest-pinned release asset, not a local
+        # wasm32 build (cloister-dbe9c3).
+        run: task llo:wasm
 
       - name: Download upstream binaries
         # Both repos publish linux-amd64 release assets, so the smoke runs

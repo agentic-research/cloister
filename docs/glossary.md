@@ -50,8 +50,9 @@ Two-faced crate:
 1. **Library** — `cdylib + staticlib + rlib` Ed25519 CMS primitives
    (certificate generation, `SignedData` create/verify). Builds for
    wasm32 with the default feature set; the wasm artifact is byte-
-   identical regardless of the `host` feature flag (verified by
-   `task rs:sign:wasm`).
+   identical regardless of the `host` feature flag. cloister consumes
+   LLO's published `leyline_sign.wasm` release asset, digest-pinned in
+   `schema-bridge.lock.json` (`task llo:wasm`).
 2. **Binary** — `leyline-sign` is also the name of a gpgsm-compatible
    commit-signing CLI (drop-in for `jj`'s signing backend).
 

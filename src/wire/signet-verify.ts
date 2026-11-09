@@ -45,7 +45,7 @@
 // output buffers via lsign_alloc, copy bytes via Uint8Array views over
 // the wasm memory, call the function, copy outputs back, free.
 
-import wasmModule from "../../rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm";
+import wasmModule from "../../rs/target/llo-wasm/leyline_sign.wasm";
 
 // ── wasm exports — must match rs/ll-open/sign/src/ffi.rs (LLO) ────────
 

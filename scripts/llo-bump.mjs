@@ -68,6 +68,11 @@ function lockedFamilies(lock) {
 }
 const PLATFORMS = ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"];
 
+/** wasm32 modules cloister pins (cloister-dbe9c3). Platform-independent. */
+function lockedWasm(lock) {
+  return Object.keys(lock.wasm ?? {});
+}
+
 function die(msg) {
   process.stderr.write(`llo-bump: ${msg}\n`);
   process.exit(1);
@@ -113,7 +118,7 @@ function resolveCommit(tag, lloRoot) {
  * the git-resolved channels succeed, the release-resolved one 404s, and the
  * tree is inconsistent in a way `task lint` will not notice until a regen.
  */
-function requireRelease(tag, families) {
+function requireRelease(tag, families, wasm = []) {
   let raw;
   try {
     raw = sh("gh", ["release", "view", tag, "--repo", REPO, "--json", "assets,isDraft"]);
@@ -129,16 +134,30 @@ function requireRelease(tag, families) {
   const rel = JSON.parse(raw);
   if (rel.isDraft) die(`release ${tag} is still a DRAFT — its assets are not downloadable.`);
   const have = new Set((rel.assets ?? []).map((a) => a.name));
-  const want = families.flatMap((f) => PLATFORMS.map((p) => `${f}-${p}`));
+  const want = [...families.flatMap((f) => PLATFORMS.map((p) => `${f}-${p}`)), ...wasm];
   const missing = want.filter((n) => !have.has(n));
   if (missing.length) {
     die(
       `release ${tag} exists but is missing ${missing.length} of ${want.length} ` +
-      `generator binaries:\n${missing.map((m) => `    ${m}`).join("\n")}\n` +
+      `pinned assets:\n${missing.map((m) => `    ${m}`).join("\n")}\n` +
       `  A build job likely failed. Do not bump against a partial release.`,
     );
   }
   return want.length;
+}
+
+/** Download one release asset and hash it. */
+function assetDigest(tag, name) {
+  const bytes = execFileSync("gh", [
+    "release", "download", tag, "--repo", REPO,
+    "--pattern", name, "--output", "-",
+  ], { maxBuffer: 256 * 1024 * 1024 });
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Download each pinned wasm module and hash it. */
+function wasmDigests(tag, names) {
+  return Object.fromEntries(names.map((n) => [n, assetDigest(tag, n)]));
 }
 
 /** Download each pinned generator and hash it. */
@@ -233,11 +252,12 @@ function writeInput(commit, version, dry) {
 }
 
 /** schema-bridge.lock.json: JSON, so a real round-trip is correct here. */
-function writeGeneratorLock(tag, digests, dry) {
+function writeGeneratorLock(tag, digests, dry, wasm = {}) {
   const abs = resolve(ROOT, "schema-bridge.lock.json");
   const lock = JSON.parse(readFileSync(abs, "utf8"));
   lock.version = tag;
   for (const fam of Object.keys(lock.binaries)) lock.binaries[fam] = digests[fam];
+  for (const name of Object.keys(lock.wasm ?? {})) lock.wasm[name] = wasm[name];
   if (!dry) writeFileSync(abs, `${JSON.stringify(lock, null, 2)}\n`);
 }
 
@@ -308,12 +328,13 @@ function main(argv) {
 
   const lock = JSON.parse(readFileSync(resolve(ROOT, "schema-bridge.lock.json"), "utf8"));
   const families = lockedFamilies(lock);
+  const wasmNames = lockedWasm(lock);
   const version = tag.replace(/^v/, "");
 
   process.stdout.write(`llo-bump: ${tag}\n`);
   const commit = resolveCommit(tag, lloRoot);
-  const assetCount = requireRelease(tag, families);
-  process.stdout.write(`  release OK — ${assetCount} generator binaries present\n`);
+  const assetCount = requireRelease(tag, families, wasmNames);
+  process.stdout.write(`  release OK — ${assetCount} pinned assets present\n`);
 
   // The channel list is the RAIL's, imported. See the header.
   const channels = upstreamChannels();
@@ -323,13 +344,13 @@ function main(argv) {
   const digests = generatorDigests(tag, families);
   const n = writeCargo(pins, commit, version, dry);
   writeInput(commit, version, dry);
-  writeGeneratorLock(tag, digests, dry);
+  writeGeneratorLock(tag, digests, dry, wasmDigests(tag, wasmNames));
 
   process.stdout.write(
     `${dry ? "  DRY RUN — nothing written\n" : ""}` +
     `  cargo: ${n} manifest(s) @ ${commit.slice(0, 8)} / ${version}\n` +
     `  input: cluster.toml @ ${commit.slice(0, 8)} / ${version}\n` +
-    `  generator: schema-bridge.lock.json @ ${tag}, ${families.length} famil(ies) re-digested\n`,
+    `  generator: schema-bridge.lock.json @ ${tag}, ${families.length} famil(ies) + ${wasmNames.length} wasm module(s) re-digested\n`,
   );
   // The artifact is generated, so it is part of the bump rather than a
   // follow-up. Skippable only because `capnp` is not everywhere.

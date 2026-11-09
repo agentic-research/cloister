@@ -6,11 +6,13 @@
 # LLO's `leyline-cas-ffi` (BLAKE3 substrate) AND `leyline-sign` (CMS +
 # Ed25519 verify) into cloister's build graph so:
 #
-#   - `cargo build --target wasm32-unknown-unknown -p leyline-sign`
-#     emits `target/wasm32-unknown-unknown/release/leyline_sign.wasm`
-#     from LLO's crate (consumed by `src/wire/signet-verify.ts`), and
+#   - `cargo build -p leyline-sign` build-checks the NATIVE crate (host
+#     helper, host-extras closure). The wasm32 `leyline_sign.wasm` the
+#     Worker loads is no longer built here: it is LLO's digest-pinned
+#     release asset, fetched by `task llo:wasm` (cloister-dbe9c3), and
 #   - `cargo build --target wasm32-unknown-unknown -p cloister-cas`
-#     emits `cloister_cas.wasm` from the local bridge crate.
+#     emits `cloister_cas.wasm` from the local bridge crate (until LLO's
+#     cas-ffi asset carries its exports, ley-line-open-dbacd2).
 #
 # Both git deps are pinned by SHA in `crates/cas/Cargo.toml`; bumping
 # either rev is a deliberate act and re-runs the cross-runtime fixture

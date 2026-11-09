@@ -5,10 +5,10 @@ compatibility_flags = ["nodejs_compat"]
 
 # ── WebAssembly modules ───────────────────────────────────────────────────
 # Bundles `.wasm` files imported via TS into the Worker as
-# `WebAssembly.Module` objects. cloister-bd5241 ships leyline-sign as a
-# wasm32 build (LLO `rs/ll-open/sign/`, git dep pinned in
-# `rs/crates/cas/Cargo.toml`) — CMS/PKCS#7 + Ed25519 verifier
-# loadable from src/wire/signet-verify.ts. Build via `task rs:sign:wasm`.
+# `WebAssembly.Module` objects. leyline_sign.wasm (CMS/PKCS#7 + Ed25519
+# verifier, loaded by src/wire/signet-verify.ts) is LLO's published release
+# asset, digest-pinned in schema-bridge.lock.json; fetch via `task llo:wasm`
+# (cloister-dbe9c3). cloister_cas.wasm is still built via `task rs:cas:wasm`.
 [[rules]]
 type = "CompiledWasm"
 globs = ["**/*.wasm"]
