@@ -17,4 +17,16 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
+  # VULNERABILITY, not informational: libsqlite3-sys 0.37.0 bundles SQLite
+  # < 3.54.0 (CVE-2026-119375 / GHSA-72w2-rjgg-q729). Opening a database
+  # together with a crafted `-wal` of a different page size returns
+  # uninitialized page-cache memory. Local vector only, and only for a process
+  # that opens a db + wal pair a less-trusted party could have written — here,
+  # cloister-host-runtime opening an arena through leyline-fs, so the residual
+  # risk is a confined run with write access to an arena directory. Reached
+  # through ley-line-open's leyline-fs / leyline-schema -> rusqlite 0.39; the
+  # fix is rusqlite 0.41 (libsqlite3-sys 0.39), a semver-breaking bump only LLO
+  # can make, tracked as ley-line-open-6ef210 (cloister-6ecd70). Delete this
+  # entry when cloister pins an LLO release carrying it.
+  "RUSTSEC-2026-0459",
 ]

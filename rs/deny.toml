@@ -19,8 +19,12 @@ yanked = "deny"
 # don't fail the check (we can't always patch them without forking).
 unmaintained = "workspace"
 # Don't ignore known advisories silently — surface them so we can
-# either patch, vendor, or document the residual.
-ignore = []
+# either patch, vendor, or document the residual. Each entry here mirrors a
+# documented residual in .cargo/audit.toml (the full rationale lives there);
+# delete both together.
+ignore = [
+    { id = "RUSTSEC-2026-0459", reason = "bundled SQLite CVE-2026-119375 via LLO rusqlite 0.39; fix is LLO's rusqlite 0.41 bump (ley-line-open-6ef210). See .cargo/audit.toml." },
+]
 
 [licenses]
 # AGPL-3.0-or-later host crate; AGPL-compatible deps OK. Most
