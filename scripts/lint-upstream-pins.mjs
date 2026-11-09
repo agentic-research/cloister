@@ -7,7 +7,7 @@
 // used to carry its own version string:
 //
 //   1. [inputs.llo] in cluster.toml       server.json @ git SHA
-//   2. Cargo git deps (two manifests)     5 crates @ rev + version
+//   2. Cargo git deps (rs/ + tools/)      every crate @ rev + version
 //   3. schema-bridge.lock.json            generator binaries @ release tag
 //   4. [inputs.llo.oci] in the lockfile   image, DERIVED from (1) — not checked here
 //
@@ -54,6 +54,11 @@ import TOML from "smol-toml";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RS = join(ROOT, "rs");
+// tools/ holds standalone crates that are NOT rs/ workspace members, so neither
+// `cargo check --workspace` nor an rs/-only walk sees them. tools/harness-sandbox
+// sat at leyline-sign v0.7.6 while every rs/ pin moved to v0.21.1, invisible to
+// this rail for months (cloister-b4d6eb / cloister-3a5ad4).
+const CARGO_ROOTS = [RS, join(ROOT, "tools")];
 const UPSTREAM = "https://github.com/agentic-research/ley-line-open";
 
 // Parsed as TOML, never regexed. A Cargo dependency is expressible as an
@@ -65,7 +70,7 @@ const UPSTREAM = "https://github.com/agentic-research/ley-line-open";
 // replaced it.
 const DEP_SECTIONS = ["dependencies", "dev-dependencies", "build-dependencies"];
 
-/** Every Cargo.toml under rs/, excluding target dirs and test fixtures. */
+/** Every Cargo.toml under `dir`, excluding target dirs and test fixtures. */
 function manifests(dir, out = []) {
   for (const e of readdirSync(dir)) {
     if (e === "target" || e === "node_modules" || e === ".git") continue;
@@ -90,9 +95,10 @@ function* depTables(doc) {
 }
 
 /** @returns {{file: string, name: string, rev: string, version: string}[]} */
-export function collectLloPins(rsDir = RS) {
+export function collectLloPins(roots = CARGO_ROOTS) {
   const pins = [];
-  for (const file of manifests(rsDir)) {
+  const files = [roots].flat().filter((d) => existsSync(d)).flatMap((d) => manifests(d));
+  for (const file of files) {
     let doc;
     try {
       doc = TOML.parse(readFileSync(file, "utf8"));
@@ -158,7 +164,7 @@ function main() {
   const MIN_EXPECTED_PINS = 3;
   if (pins.length < MIN_EXPECTED_PINS) {
     fail(
-      `found only ${pins.length} ley-line-open git dependency(ies) under rs/ ` +
+      `found only ${pins.length} ley-line-open git dependency(ies) under rs/ + tools/ ` +
       `— expected at least ${MIN_EXPECTED_PINS}. Either the pins moved somewhere ` +
       `this lint does not walk (making it vacuous), or the dependency genuinely ` +
       `shrank and MIN_EXPECTED_PINS should be lowered deliberately.`,

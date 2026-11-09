@@ -22,7 +22,12 @@
     "committed, so it needs the same pin as one used by a task.",
     "Bumping: change version, replace ALL digests, run `task schema-bridge:fetch`",
     "on one platform to confirm, and regenerate. A digest that does not match",
-    "fails the build closed."
+    "fails the build closed.",
+    "",
+    "`wasm` pins the platform-independent wasm32 modules the Worker imports, from the",
+    "SAME release (cloister-dbe9c3). They replace building LLO's crates for wasm32",
+    "inside cloister. Same trust rule: the digest here, not SHA256SUMS, is the root.",
+    "`task llo:wasm` verifies and places them at rs/target/llo-wasm/<name>."
   ],
   "repo": "agentic-research/ley-line-open",
   "version": "v0.21.1",
@@ -45,5 +50,8 @@
       "linux-amd64": "175b20d1adfa27d3a24323bbfb7a395d94e1af6d0a8ab4f4400a11a005e1ab2d",
       "linux-arm64": "45876f766a473996d966bc5c8633359899d9f48445a30220cbaf4137c63d2105"
     }
+  },
+  "wasm": {
+    "leyline_sign.wasm": "d6b6db724390f69d12cd4dde10761f104a31d07369d74dce24d2e560cbe48478"
   }
 }

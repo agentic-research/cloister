@@ -112,6 +112,16 @@ tasks:
       - schema-bridge.lock.json
       - scripts/fetch-schema-bridge.mjs
 
+  llo:wasm:
+    desc: "Fetch LLO's wasm32 modules the Worker imports (leyline_sign.wasm) as DIGEST-PINNED release assets into rs/target/llo-wasm/ (cloister-dbe9c3). Replaces building LLO's crates for wasm32 in cloister: the digest lives in schema-bridge.lock.json beside the generator pins, at the SAME release version, so lint:upstream-pins and llo:bump cover it. Verified on every run; a warm cache needs no network."
+    cmds:
+      - node scripts/fetch-schema-bridge.mjs --wasm leyline_sign.wasm
+    sources:
+      - schema-bridge.lock.json
+      - scripts/fetch-schema-bridge.mjs
+    generates:
+      - rs/target/llo-wasm/leyline_sign.wasm
+
   harness:sandbox:build:
     desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
     dir: tools/harness-sandbox
@@ -662,13 +672,11 @@ tasks:
       - dist/config.capnp
 
   test:
-    # `rs:sign:wasm` is required because src/wire/signet-verify.ts imports
-    # rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm; without
-    # it vitest-pool-workers fails every test file at module init. The
-    # rs:sign:wasm task has sources/generates declared, so it's a no-op
-    # on rebuilds. The crate source now lives in LLO
-    # (`rs/ll-open/sign/`); cargo pulls it via the git dep pinned in
-    # `rs/crates/cas/Cargo.toml`.
+    # `llo:wasm` is required because src/wire/signet-verify.ts imports
+    # rs/target/llo-wasm/leyline_sign.wasm; without it vitest-pool-workers
+    # fails every test file at module init. It is LLO's published release
+    # asset, digest-pinned in schema-bridge.lock.json — no longer compiled
+    # here (cloister-dbe9c3).
     #
     # `rs:sign:host` runs the host-binary integration + adversarial test
     # suites (cloister-99165e, ADR-0019). Wired into `task test` so the
@@ -679,7 +687,7 @@ tasks:
     # correct behavior. Without this wire-up, the failing tests don't
     # gate the merge — which defeats the entire point of the gate.
     desc: Run tests inside workerd (real DOs, real SQLite)
-    deps: [manifest, rs:test]
+    deps: [manifest, rs:test, llo:wasm]
     cmds:
       - pnpm exec vitest run
     # Content-hash cache (Task `method: checksum`): skip the workerd suite when
@@ -709,11 +717,11 @@ tasks:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - manifest/**/*.capnp
-      - rs/target/wasm32-unknown-unknown/release/leyline_sign.wasm
+      - rs/target/llo-wasm/leyline_sign.wasm
 
   test:watch:
     desc: Watch mode
-    deps: [manifest, rs:sign:wasm]
+    deps: [manifest, llo:wasm]
     cmds:
       - pnpm exec vitest
 

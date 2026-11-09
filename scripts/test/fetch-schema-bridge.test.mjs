@@ -12,9 +12,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { ensureBinary, hostTarget, readLock, sha256 } from "../fetch-schema-bridge.mjs";
+import { ensureBinary, ensureWasm, hostTarget, readLock, sha256 } from "../fetch-schema-bridge.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const LOCK = readLock(resolve(ROOT, "schema-bridge.lock.json"));
@@ -123,4 +125,67 @@ test("sha256 helper matches the digest of a known input", () => {
     sha256(Buffer.from("abc")),
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   );
+});
+
+// ── wasm32 modules (cloister-dbe9c3) ──────────────────────────────────────
+
+/** Every `rs/target/llo-wasm/<name>.wasm` the Worker source imports. */
+function workerWasmImports() {
+  const out = new Set();
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".ts")) {
+        // lint-allow-rawparse: collecting import specifier strings only; no
+        // TypeScript semantics are needed to know which file path is named.
+        for (const m of readFileSync(p, "utf8").matchAll(/rs\/target\/llo-wasm\/([\w.-]+\.wasm)/g)) out.add(m[1]);
+      }
+    }
+  };
+  walk(resolve(ROOT, "src"));
+  return [...out];
+}
+
+test("every LLO wasm module the Worker imports has a pinned digest", () => {
+  // The import path is what the bundler resolves; the lock is what verifies it.
+  // A new import with no pin would make `task llo:wasm` never fetch it, and the
+  // build would fall back to whatever stale file happened to be on disk.
+  const imported = workerWasmImports();
+  assert.ok(imported.includes("leyline_sign.wasm"), `expected signet-verify.ts to import leyline_sign.wasm, saw ${imported}`);
+  for (const name of imported) {
+    assert.match(LOCK.wasm?.[name] ?? "", /^[0-9a-f]{64}$/, `${name} is imported but not pinned under "wasm"`);
+  }
+});
+
+test("a wasm module that does not match its pinned digest fails closed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "llo-wasm-"));
+  try {
+    await assert.rejects(
+      () => ensureWasm("leyline_sign.wasm", { dir, fetchImpl: stubFetch(Buffer.from("not wasm")) }),
+      /DIGEST MISMATCH/,
+    );
+    assert.equal(existsSync(join(dir, "leyline_sign.wasm")), false, "a rejected payload must not be written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an unpinned wasm module is refused rather than fetched unverified", async () => {
+  await assert.rejects(
+    () => ensureWasm("leyline_unpinned.wasm", { fetchImpl: stubFetch(Buffer.from("x")) }),
+    /no pinned digest/,
+  );
+});
+
+test("a matching payload is written and its path returned", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "llo-wasm-"));
+  try {
+    const bytes = Buffer.from("pretend module");
+    const lock = { ...LOCK, wasm: { "m.wasm": sha256(bytes) } };
+    const p = await ensureWasm("m.wasm", { lock, dir, fetchImpl: stubFetch(bytes) });
+    assert.equal(sha256(readFileSync(p)), sha256(bytes));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
