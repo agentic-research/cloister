@@ -17,23 +17,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, rmSync, mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const RAIL = resolve(ROOT, "scripts/lint-schema-claim.mjs");
-const PROBE = resolve(ROOT, "src/__schema_claim_probe.mjs");
-const TEST_PROBE = resolve(ROOT, "scripts/test/__schema_claim_probe.test.mjs");
+// Probe files go in a TEMP tree the rail is pointed at, never into src/ or
+// scripts/test/: other suites walk those directories concurrently and read a
+// half-written or just-deleted probe (cloister-76986e).
+const PROBE = "src/__schema_claim_probe.mjs";
+const TEST_PROBE = "scripts/test/__schema_claim_probe.test.mjs";
+
+/** @type {Record<string, string>} */
+let railEnv = {};
 
 function runRail() {
-  const r = spawnSync("node", [RAIL], { encoding: "utf8" });
+  const r = spawnSync("node", [RAIL], { encoding: "utf8", env: { ...process.env, ...railEnv } });
   return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
-function withFile(path, body, fn) {
+function withFile(rel, body, fn) {
+  const root = mkdtempSync(resolve(tmpdir(), "schema-claim-"));
+  const path = resolve(root, rel);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, body);
-  try { return fn(); } finally { rmSync(path, { force: true }); }
+  railEnv = { SCHEMA_CLAIM_SCAN_ROOT: root };
+  try { return fn(); } finally {
+    railEnv = {};
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 test("the shipped tree satisfies the rail", () => {
@@ -120,15 +134,15 @@ test("a test may state the wire shape only via the generated contract module", (
 
 // A rail whose data source vanished must fail, not pass with an empty field set.
 test("the rail refuses to run vacuously without the generated artifact", () => {
-  const src = resolve(ROOT, "src/generated/llo-execution-tools.json");
-  const bak = `${src}.railtest.bak`;
-  spawnSync("mv", [src, bak]);
+  // Point the rail at an absent artifact rather than moving the real one aside:
+  // runtime-provider/runtime-status import it at module load in parallel.
+  railEnv = { SCHEMA_CLAIM_ARTIFACT: resolve(tmpdir(), "schema-claim-absent", "llo-execution-tools.json") };
   try {
     const { code, out } = runRail();
     assert.equal(code, 1, "rail passed with no artifact to check against");
     assert.match(out, /artifact missing/i);
   } finally {
-    spawnSync("mv", [bak, src]);
+    railEnv = {};
   }
 });
 
