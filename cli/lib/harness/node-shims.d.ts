@@ -24,6 +24,13 @@ declare module "node:child_process" {
     args?: readonly string[],
     options?: Record<string, unknown>,
   ): string;
+  // ensureWorkerArtifacts (cli/lib/dev/worker-artifacts.mjs) builds the
+  // Worker's wasm with cargo before the router starts (cloister-1b92fa).
+  export function spawnSync(
+    command: string,
+    args: readonly string[],
+    options?: Record<string, unknown>,
+  ): { status: number | null; error?: Error };
 }
 
 declare module "node:fs" {

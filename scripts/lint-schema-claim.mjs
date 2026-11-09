@@ -40,8 +40,15 @@ import { readFileSync, globSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ARTIFACT = resolve(ROOT, "src/generated/llo-execution-tools.json");
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Both overridable so this rail's OWN tests can probe a temp tree instead of
+// writing into src/ and scripts/test/ — and moving the shared artifact aside —
+// while sibling suites read those same paths concurrently (cloister-76986e).
+// Unset, the rail checks the real tree, which is what `task lint` runs.
+const ROOT = process.env.SCHEMA_CLAIM_SCAN_ROOT ? resolve(process.env.SCHEMA_CLAIM_SCAN_ROOT) : REPO;
+const ARTIFACT = process.env.SCHEMA_CLAIM_ARTIFACT
+  ? resolve(process.env.SCHEMA_CLAIM_ARTIFACT)
+  : resolve(REPO, "src/generated/llo-execution-tools.json");
 
 // Structs whose fields cloister must never restate. Read from the artifact, so
 // a field added upstream is covered the moment the pin is bumped.
