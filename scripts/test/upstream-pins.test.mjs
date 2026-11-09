@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,6 +51,30 @@ test("the pins span more than one manifest — the cross-file case is real", () 
     `all LLO pins now live in one manifest (${[...files]}); the cross-manifest ` +
     `walk is no longer exercised by the real tree`,
   );
+});
+
+/** Any table, at any depth, with git = <LLO>. Independent of the rail's walker. */
+function pinsUpstream(node) {
+  if (!node || typeof node !== "object") return false;
+  if (node.git === "https://github.com/agentic-research/ley-line-open") return true;
+  return Object.values(node).some(pinsUpstream);
+}
+
+test("the walk reaches every committed Cargo.toml that pins ley-line-open, not only rs/", () => {
+  // tools/harness-sandbox is not an rs/ workspace member. The rail walked rs/
+  // only, so that pin sat at v0.7.6 while rs/ moved to v0.21.1 and the rail
+  // reported OK (cloister-b4d6eb). Derive the expected set from git, not from
+  // the rail's own root list, so a crate added under a new top-level directory
+  // fails here instead of drifting unseen.
+  const tracked = execFileSync("git", ["-C", ROOT, "ls-files", "*Cargo.toml"], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)
+    .filter((f) => pinsUpstream(parseToml(readFileSync(resolve(ROOT, f), "utf8"))));
+  const walked = new Set(collectLloPins().map((p) => p.file));
+  assert.ok(tracked.includes("tools/harness-sandbox/Cargo.toml"), "fixture assumption: harness-sandbox pins LLO");
+  for (const f of tracked) {
+    assert.ok(walked.has(f), `${f} pins ley-line-open but lint:upstream-pins does not walk it`);
+  }
 });
 
 test("the shipped tree states ONE ley-line-open version across all three channels", () => {
