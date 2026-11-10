@@ -250,7 +250,10 @@ fn to_execution_request(
 
 /// The confinement document to carry for `plan`'s §6 grants, with its digest:
 /// `(String::new(), None)` when there are none. See `to_execution_request`.
-fn carried_confinement(
+///
+/// Public so the emitter-fixture test can run it on the exact plans
+/// `cloister runtime plan` emits (test/fixtures/runtime-plan/).
+pub fn carried_confinement(
     plan: &LaunchPlan,
     deployment: &Deployment,
 ) -> Result<(String, Option<String>), RuntimeError> {

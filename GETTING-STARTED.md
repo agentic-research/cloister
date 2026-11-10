@@ -275,8 +275,18 @@ target's socket, so the `dolt` plan binds the same path the `orders` plan
 connects to, and the two plans join without a broker. `--env` (default `local`)
 picks which target row is used. `--channel-dir` (default
 `/tmp/cloister-host-runtime/ch`) must be a canonical absolute path short enough
-that every socket path fits in 103 bytes. A `process` bundle with ports or
-connections is refused, because `guestPort` is microVM-only.
+that every socket path fits in 103 bytes, with no trailing slash. You don't
+need to create it: before a launch, the host runtime creates any missing parent
+directory of a `bind` grant's socket with mode 0700. LLO refuses to start a
+guest whose bind directory is missing. A parent that exists but is not a
+directory (a symlink included) is refused.
+
+`runtime plan` validates `cluster.toml` with the same pipeline as
+`task cluster:toml`, so a typo'd key or a duplicate bundle fails here too. An
+exposed port or a connection is allowed only on an external
+`executionMode = "microvm"` bundle (a port with `expose = "none"` is allowed
+anywhere), and such a bundle's name must be a DNS label. §6 grants can't be
+written by hand under `confinement`; they come only from ports and connections.
 
 Apart from those declared channels, the guest has no network at all. There is
 no virtual NIC, UDP is denied, and undeclared loopback ports are refused. That

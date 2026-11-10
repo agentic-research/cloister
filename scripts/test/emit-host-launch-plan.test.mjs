@@ -8,27 +8,40 @@ import { parse as parseToml } from "smol-toml";
 import {
   buildLaunchPlan,
   parsePlanArgs,
+  planFromToml,
 } from "../../cli/commands/runtime-plan.mjs";
+import { parseTomlToCluster } from "../../cli/lib/cluster/toml-to-cluster.mjs";
 
-const cluster = {
-  bundles: [
-    {
-      name: "mache",
-      kind: "external",
-      confinement: {
-        fs: { allow: [{ path: "/workspace", mode: "rw" }] },
-        network: { allowHosts: [] },
-        port: { bind: 7532, address: "127.0.0.1" },
-        credentialSource: "",
-      },
-      external: {
-        entryPoint: "/usr/bin/mache",
-        executionMode: "microvm",
-        args: ["serve", "--http", "127.0.0.1:7532", "/workspace"],
-      },
-    },
-  ],
-};
+// buildLaunchPlan takes a VALIDATED cluster (cloister-991e65: runtime plan
+// parses cluster.toml through parseTomlToCluster first), so the fixture is
+// TOML run through that pipeline rather than a hand-built object.
+const CLUSTER_TOML = `
+[metadata]
+name = "plan-fixture"
+version = "0.0.1"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[bundles]]
+name = "mache"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+entryPoint = "/usr/bin/mache"
+executionMode = "microvm"
+args = ["serve", "--http", "127.0.0.1:7532", "/workspace"]
+
+[bundles.confinement.port]
+bind = 7532
+address = "127.0.0.1"
+
+[[bundles.confinement.fs.allow]]
+path = "/workspace"
+mode = "rw"
+`;
+const cluster = await parseTomlToCluster(CLUSTER_TOML);
 
 const lock = {
   inputs: {
@@ -80,7 +93,7 @@ test("buildLaunchPlan refuses a mutable OCI tag", () => {
 
 test("buildLaunchPlan refuses missing operator entrypoint instead of guessing", () => {
   const missing = structuredClone(cluster);
-  delete missing.bundles[0].external.entryPoint;
+  missing.bundles[0].kind.external.entryPoint = "";
   assert.throws(
     () => buildLaunchPlan(missing, lock, {
       bundle: "mache",
@@ -117,7 +130,7 @@ test("parsePlanArgs requires explicit bundle and absolute workspace", () => {
 
 test("buildLaunchPlan rejects non-canonical guest paths instead of normalizing policy", () => {
   const ambiguous = structuredClone(cluster);
-  ambiguous.bundles[0].external.entryPoint = "/usr/bin/../bin/mache";
+  ambiguous.bundles[0].kind.external.entryPoint = "/usr/bin/../bin/mache";
   assert.throws(
     () => buildLaunchPlan(ambiguous, lock, {
       bundle: "mache",
@@ -135,5 +148,18 @@ test("the declared Mache tenant has an explicit in-guest workspace fallback", ()
   assert.deepEqual(
     mache.external.args,
     ["serve", "--http", "127.0.0.1:7532", "--path", "/workspace"],
+  );
+});
+
+test("planFromToml is the cluster.toml entry point and applies the full schema", async () => {
+  const plan = await planFromToml(CLUSTER_TOML, lock, {
+    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock",
+  });
+  assert.equal(plan.bundle, "mache");
+  await assert.rejects(
+    planFromToml(CLUSTER_TOML.replace("entryPoint", "entryPiont"), lock, {
+      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock",
+    }),
+    /\[bundles.external\] declares unknown field "entryPiont"/,
   );
 });

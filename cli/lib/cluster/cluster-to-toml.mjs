@@ -135,13 +135,20 @@ function canonicalizeEdge(e) {
   return body;
 }
 
-/** Keep only non-empty strings and non-zero numbers, keys sorted. */
+/**
+ * Drop EMPTY SCALARS ("" and 0, the capnp defaults the reader restores) from
+ * a port / connection / target row, keys sorted. Everything else is kept —
+ * booleans, and any nested struct or list, empty or not. An earlier version
+ * kept only non-empty strings and numbers, so a nested field added to one of
+ * these structs would have been silently erased by the round-trip
+ * (cloister-991e65 review, N4).
+ */
 function pruneEmptyScalars(row) {
   const body = {};
   for (const k of Object.keys(row ?? {}).sort()) {
     const v = row[k];
-    if (typeof v === "string" && v !== "") body[k] = v;
-    else if (typeof v === "number" && v !== 0) body[k] = v;
+    if (v === "" || v === 0 || v === undefined || v === null) continue;
+    body[k] = v && typeof v === "object" && !Array.isArray(v) ? sortKeys(v) : v;
   }
   return body;
 }

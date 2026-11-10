@@ -270,6 +270,65 @@ pub trait Backend: Send + Sync {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError>;
 }
 
+/// Create the missing parent directories of every bind grant's socket, mode
+/// 0700, before a launch (cloister-991e65, S4).
+///
+/// LLO does not create them: its pre-start check (`check_channel_host_ends`,
+/// invariant I4, `ley-line-open-bb2143`) refuses a serve mapping whose
+/// directory does not exist, and libkrun binds the socket only in an existing
+/// directory. `cloister runtime plan` puts every channel under `--channel-dir`
+/// (default `/tmp/cloister-host-runtime/ch`), so the first run on a host would
+/// otherwise be refused for want of a `mkdir`.
+///
+/// Only bind (`bind`, `connect-bind`) grants are prepared: a connect grant's
+/// socket is a peer's, and its directory is that peer's to create. A parent
+/// that exists but is not a directory, a symlink included, is refused rather
+/// than followed — the grant names a path, and the socket must land there.
+/// Directories that already exist are left with their own mode.
+pub fn prepare_channel_dirs(plan: &LaunchPlan) -> Result<(), RuntimeError> {
+    use std::os::unix::fs::DirBuilderExt;
+    for entry in &plan.confinement.unix_socket.allow {
+        if entry.mode != "bind" && entry.mode != "connect-bind" {
+            continue;
+        }
+        let parent = Path::new(&entry.path).parent().ok_or_else(|| {
+            RuntimeError::InvalidPlan(format!(
+                "confinement unixSocket path {:?} has no parent directory",
+                entry.path
+            ))
+        })?;
+        match std::fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "the directory of confinement unixSocket bind path {:?} exists but is not a directory: {}",
+                    entry.path,
+                    parent.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(parent)
+                    .map_err(|error| {
+                        RuntimeError::Backend(format!(
+                            "create channel directory {}: {error}",
+                            parent.display()
+                        ))
+                    })?;
+            }
+            Err(error) => {
+                return Err(RuntimeError::Backend(format!(
+                    "inspect channel directory {}: {error}",
+                    parent.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub struct HostRuntime {
     process: Option<Arc<dyn Backend>>,
     microvm: Option<Arc<dyn Backend>>,

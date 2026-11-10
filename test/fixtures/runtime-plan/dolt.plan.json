@@ -1,0 +1,35 @@
+{
+  "schema": "cloister/host-runtime/v1",
+  "bundle": "dolt",
+  "mode": "microvm",
+  "artifact": {
+    "image": "ghcr.io/example/dolt",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "entrypoint": "/usr/local/bin/dolt",
+    "args": []
+  },
+  "confinement": {
+    "fs": {
+      "allow": []
+    },
+    "network": {
+      "allowHosts": []
+    },
+    "port": {
+      "bind": 0,
+      "address": ""
+    },
+    "credentialSource": "",
+    "unixSocket": {
+      "allow": [
+        {
+          "path": "/tmp/cloister-host-runtime/ch/dolt.mysql.sock",
+          "mode": "bind",
+          "guestPort": 3306
+        }
+      ]
+    }
+  },
+  "workspace": "/tmp/cloister-ws",
+  "controlSocket": "/tmp/cloister-host-runtime/dolt.sock"
+}

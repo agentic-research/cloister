@@ -6,9 +6,10 @@
 // Two consumers, one rule set:
 //   - toml-to-cluster runs `assertPortsAndConnections` as a build-time check,
 //     so an unresolvable declaration fails `task cluster:toml` by name;
-//   - `cloister runtime plan` runs the same check on the raw cluster.toml it
-//     reads, then `lowerChannelGrants` turns the declarations into
-//     confinement/v1 §6 `unixSocket.allow` grants with `guestPort`.
+//   - `cloister runtime plan` validates cluster.toml through that same
+//     pipeline (`parseTomlToCluster`), then `lowerChannelGrants` turns the
+//     declarations into confinement/v1 §6 `unixSocket.allow` grants with
+//     `guestPort`. Its own refusals stay as defense in depth.
 //
 // The lowering is a pure function of (cluster.toml, env, channelDir): the
 // socket a target bundle BINDS and the socket a dialling bundle CONNECTS are
@@ -83,10 +84,65 @@ function portNameProblem(name) {
 }
 
 /**
+ * A bundle that holds a channel end — an exposed port, an outbound
+ * connection, or a connection target — names a socket file, and (once
+ * forwarded placements exist) a Kubernetes namespace. So its name must be an
+ * RFC 1123 DNS label: a-z, 0-9 and hyphen, 1-63 chars, alphanumeric at both
+ * ends. Lowercase-only also rules out two bundles whose socket paths differ
+ * only in case colliding on a case-insensitive filesystem (macOS by default).
+ * Char scan, no regex (cloister-6f06cc).
+ */
+export function dnsLabelProblem(name) {
+  if (typeof name !== "string" || name === "") return "is empty";
+  if (name.length > 63) return `is ${name.length} characters (at most 63)`;
+  for (const ch of name) {
+    const ok = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "-";
+    if (!ok) return `contains ${JSON.stringify(ch)} (allowed: a-z, 0-9, hyphen)`;
+  }
+  if (name.startsWith("-") || name.endsWith("-")) return "starts or ends with a hyphen";
+  return null;
+}
+
+/**
+ * Why bundle `b` cannot hold a channel end, or null if it can.
+ *
+ * Channels are lowered only for external `microvm` bundles: confinement/v1 §6
+ * `guestPort` presentation is microVM-only (LLO). A workerd bundle reaches
+ * peers through service bindings, never a socket — and ADR-0069 §3 forbids a
+ * SQL-wire connection from one outright (ADR-0033). An external `process`
+ * bundle has no way to be handed the channel at all.
+ */
+function endpointProblem(b) {
+  if (b.kind !== "external") {
+    return `is a ${b.kind || "non-external"} bundle; workerd bundles reach peers through ` +
+      `service bindings, not declared channels (and ADR-0069 §3 forbids a SQL-wire ` +
+      `connection from one — ADR-0033)`;
+  }
+  if (b.executionMode !== "microvm") {
+    return `has executionMode ${JSON.stringify(b.executionMode)}; channels are lowered only ` +
+      `for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, LLO)`;
+  }
+  return null;
+}
+
+function assertEndpoint(b, role) {
+  const problem = endpointProblem(b);
+  if (problem) throw new Error(`bundle "${b.name}" ${role} but ${problem}`);
+  const nameProblem = dnsLabelProblem(b.name);
+  if (nameProblem) {
+    throw new Error(
+      `bundle "${b.name}" ${role}, so its name must be a DNS label — it names a socket ` +
+        `file and a namespace, and lowercase-only keeps two names from colliding on a ` +
+        `case-insensitive filesystem — but it ${nameProblem}`,
+    );
+  }
+}
+
+/**
  * Build-time checks capnp cannot express. Throws on the first violation,
  * naming the bundle / connection at fault.
  *
- * @param {Array<{name: string, ports: Array}>} bundles normalized bundles
+ * @param {Array<{name, kind, executionMode, ports}>} bundles see `checkableBundle`
  * @param {Array} connections normalized connections
  */
 export function assertPortsAndConnections(bundles, connections) {
@@ -123,10 +179,14 @@ export function assertPortsAndConnections(bundles, connections) {
       }
       const protoProblem = validateAppProtocol(p.appProtocol);
       if (protoProblem) throw new Error(`${where}: appProtocol ${protoProblem}`);
+      // expose = "none" is a declaration only — no channel — so it is allowed
+      // on any bundle. An exposed port is a channel end.
+      if (isExposed(p)) assertEndpoint(b, `exposes port "${p.name}"`);
     }
   }
 
   const seen = new Set();
+  const edges = new Map();
   for (const c of connections) {
     const where = `connection "${c.name}" (from "${c.from}")`;
     if (c.name === "") throw new Error(`a connection from "${c.from}" has an empty name`);
@@ -138,6 +198,7 @@ export function assertPortsAndConnections(bundles, connections) {
       throw new Error(`${where} is declared more than once — (from, name) must be unique`);
     }
     seen.add(key);
+    assertEndpoint(byName.get(c.from), `is the from of connection "${c.name}"`);
     const protoProblem = validateAppProtocol(c.appProtocol);
     if (protoProblem) throw new Error(`${where}: appProtocol ${protoProblem}`);
     if (c.targets.length === 0) {
@@ -171,8 +232,34 @@ export function assertPortsAndConnections(bundles, connections) {
             `"${t.bundle}.${t.port}" appProtocol "${port.appProtocol}"`,
         );
       }
+      assertEndpoint(target, `is the target of connection "${c.name}"`);
+      // Two connections from one bundle to the same port in one env are one
+      // edge declared twice. Refused here, by name, rather than surfacing
+      // later as a guestPort collision that names neither connection.
+      const edge = `${c.from}\u0000${t.env}\u0000${t.bundle}\u0000${t.port}`;
+      if (edges.has(edge)) {
+        throw new Error(
+          `connections "${edges.get(edge)}" and "${c.name}" (from "${c.from}") both reach ` +
+            `"${t.bundle}.${t.port}" in env "${t.env}" — a duplicate edge; declare it once`,
+        );
+      }
+      edges.set(edge, c.name);
     }
   }
+}
+
+/**
+ * The fields the checks above read, from a validated Bundle (the zod shape:
+ * `kind` is `{ external: {...} }` or `{ workerd: {...} }`).
+ */
+export function checkableBundle(b) {
+  const kind = b?.kind && typeof b.kind === "object" ? Object.keys(b.kind)[0] ?? "" : "";
+  return {
+    name: b?.name,
+    kind,
+    executionMode: b?.kind?.external?.executionMode ?? "",
+    ports: b?.ports ?? [],
+  };
 }
 
 /** The one socket path a (bundle, port) pair lowers to. Both ends use it. */

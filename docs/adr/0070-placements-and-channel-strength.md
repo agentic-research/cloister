@@ -188,6 +188,10 @@ is an operator decision outside the plan (the host runtime's existing rule).
   connection's address reaching the workload as an env var — a launch plan
   carries no workload env yet, which is also why colliding guest ports are
   refused rather than shifted); `cloudSql` / `cloudRun` targets.
+- Not built: ADR-0069 §2's rail "every connection resolves for every declared
+  env". There is no env registry yet, so nothing knows which envs a cluster
+  declares. A connection with no target for an env is refused only when that
+  env is lowered (`runtime plan --env`).
 
 The first slice after this ADR is two services joined by one declared
 connection, with:

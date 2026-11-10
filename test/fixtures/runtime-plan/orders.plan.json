@@ -1,0 +1,39 @@
+{
+  "schema": "cloister/host-runtime/v1",
+  "bundle": "orders",
+  "mode": "microvm",
+  "artifact": {
+    "image": "ghcr.io/example/orders",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "entrypoint": "/usr/local/bin/orders",
+    "args": []
+  },
+  "confinement": {
+    "fs": {
+      "allow": []
+    },
+    "network": {
+      "allowHosts": []
+    },
+    "port": {
+      "bind": 0,
+      "address": ""
+    },
+    "credentialSource": "",
+    "unixSocket": {
+      "allow": [
+        {
+          "path": "/tmp/cloister-host-runtime/ch/orders.grpc.sock",
+          "mode": "bind",
+          "guestPort": 50051
+        },
+        {
+          "path": "/tmp/cloister-host-runtime/ch/dolt.mysql.sock",
+          "guestPort": 3306
+        }
+      ]
+    }
+  },
+  "workspace": "/tmp/cloister-ws",
+  "controlSocket": "/tmp/cloister-host-runtime/orders.sock"
+}

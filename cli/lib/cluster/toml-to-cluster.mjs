@@ -39,7 +39,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import { assertPortsAndConnections } from "./connections.mjs";
+import { assertPortsAndConnections, checkableBundle } from "./connections.mjs";
 
 // Path constants — the repo-root cluster.toml (operator source) and
 // src/generated/cluster.ts (the sole generated output; the legacy
@@ -77,7 +77,7 @@ export async function parseTomlToCluster(tomlString) {
   // Loaded BEFORE the transform: assertDeclaredInputKeys runs inside the
   // synchronous unflatten pass and cannot await, and a shape that arrives
   // afterwards would leave that guard silently inert.
-  const { ClusterSchema, InputSpecSchema, HarnessTargetSchema } = await tsImport(
+  const { ClusterSchema, InputSpecSchema, HarnessTargetSchema, ExternalBundleSchema } = await tsImport(
     new URL("../../../src/generated/cluster.zod.ts", import.meta.url).href,
     { parentURL: import.meta.url },
   );
@@ -86,6 +86,9 @@ export async function parseTomlToCluster(tomlString) {
     ?? null;
   harnessTargetShape = HarnessTargetSchema?._def?.getter?.()?.shape
     ?? HarnessTargetSchema?.def?.getter?.()?.shape
+    ?? null;
+  externalShape = ExternalBundleSchema?._def?.getter?.()?.shape
+    ?? ExternalBundleSchema?.def?.getter?.()?.shape
     ?? null;
 
   const transformed = unflattenForSchema(raw);
@@ -173,7 +176,7 @@ export async function parseTomlToCluster(tomlString) {
   //        bundle, and the two ends agree on appProtocol. Shared with
   //        `cloister runtime plan`, which lowers the same declarations.
   assertPortsAndConnections(
-    validated.bundles.map((b) => ({ name: b.name, ports: b.ports ?? [] })),
+    validated.bundles.map(checkableBundle),
     validated.connections ?? [],
   );
 
@@ -487,6 +490,7 @@ function unflattenBackend(b) {
 /** InputSpec's declared shape, cached from the generated schema. */
 let inputShape = null;
 let harnessTargetShape = null;
+let externalShape = null;
 
 function unflattenInputs(raw) {
   if (raw === undefined || raw === null) return [];
@@ -777,8 +781,28 @@ function unflattenBundleKind(b) {
 // Missing → the empty deny-all manifest (fail-closed). fs.allow entries may be a
 // bare string (read-only) or `{path, mode:"rw"}`; both normalize to the typed
 // {path, mode} shape the capnp schema uses. Empty every dimension = DENY.
-function normalizeConfinement(c) {
+// Keys the facet declares. A key outside this set used to be DROPPED here
+// without a word — the declarable-and-invisible failure CLAUDE.md records —
+// so it is refused instead (cloister-991e65).
+const CONFINEMENT_KEYS = ["fs", "network", "port", "credentialSource"];
+
+function normalizeConfinement(c, bundleName) {
   const src = c && typeof c === "object" ? c : {};
+  for (const key of Object.keys(src)) {
+    if (key === "unixSocket") {
+      throw new Error(
+        `bundle "${bundleName}" declares confinement.unixSocket by hand. §6 grants are ` +
+          `derived from [[bundles.ports]] and [[connections]] by \`cloister runtime plan\` ` +
+          `(ADR-0070 §4), never written directly — declare the port or connection instead`,
+      );
+    }
+    if (!CONFINEMENT_KEYS.includes(key)) {
+      throw new Error(
+        `bundle "${bundleName}" confinement declares unknown key ${JSON.stringify(key)} ` +
+          `(declared: ${CONFINEMENT_KEYS.join(", ")}); refusing rather than dropping it`,
+      );
+    }
+  }
   const fs = src.fs && typeof src.fs === "object" ? src.fs : {};
   const network = src.network && typeof src.network === "object" ? src.network : {};
   const port = src.port && typeof src.port === "object" ? src.port : {};
@@ -815,13 +839,35 @@ function normalizeBundleDefaults(bundle) {
     // cloister-a34edc: the §1 confinement facet. Defaults to the empty
     // (deny-all) manifest for bundles that don't declare one — which is the
     // fail-closed baseline (Inv 10). Operators opt in by declaring `[bundles.X.confinement]`.
-    confinement:         normalizeConfinement(bundle.confinement),
+    confinement:         normalizeConfinement(bundle.confinement, bundle.name),
   };
 
   if (result.kind && typeof result.kind === "object" && !Array.isArray(result.kind) && result.kind.external) {
     const external = result.kind.external && typeof result.kind.external === "object"
       ? result.kind.external
       : {};
+    // The object below is hand-enumerated, so a key outside it was DROPPED
+    // without a word — `entryPiont = "/bin/x"` vanished and the plan failed
+    // later for a "missing" entryPoint (found by cloister-991e65's
+    // runtime-plan-validates-the-whole-file tests). Refuse it by name instead.
+    // The declared key list is read from the generated ExternalBundleSchema,
+    // so a new capnp field is accepted here without editing this file.
+    const declared = externalShape ? Object.keys(externalShape) : null;
+    if (!declared) {
+      throw new Error(
+        "cannot check [bundles.external] keys: ExternalBundleSchema shape unavailable. " +
+          "Refusing to project from a hand-written key list.",
+      );
+    }
+    for (const key of Object.keys(external)) {
+      if (!declared.includes(key)) {
+        throw new Error(
+          `bundle "${bundle.name}" [bundles.external] declares unknown field ${JSON.stringify(key)} ` +
+            `(manifest/cluster.capnp's ExternalBundle declares: ${declared.slice().sort().join(", ")}); ` +
+            `refusing rather than dropping it`,
+        );
+      }
+    }
     result = {
       ...result,
       kind: {

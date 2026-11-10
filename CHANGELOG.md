@@ -33,8 +33,29 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
     ports or connections on a `process` bundle, and a target that is not a
     microvm bundle.
   - Plans for bundles with no declarations are byte-identical to before.
-- Not built: forwarded placements, the strength rail, and env lowering
-  (ADR-0070 "What exists today").
+- **Review hardening.**
+  - `runtime plan` parses `cluster.toml` with `parseTomlToCluster`, the same
+    strict pipeline as `cluster:toml`. There is no second, looser parse path.
+  - Build time refuses:
+    - an exposed port or a connection end on any bundle that isn't an external
+      `microvm` bundle (so ADR-0069 §3's no-SQL-from-workerd rule is
+      structural);
+    - a hand-written `confinement.unixSocket`, and any other unknown
+      `confinement` or `[bundles.external]` key, which used to be dropped
+      silently;
+    - a channel-endpoint bundle whose name isn't a DNS label;
+    - a duplicate edge.
+  - `--channel-dir` refuses a trailing slash.
+  - The host runtime creates missing bind-grant directories (0700) before
+    launch, because LLO refuses a missing one.
+  - The emitted dolt/orders plans are committed as
+    `test/fixtures/runtime-plan/`, and both the JS emitter and the Rust parser
+    test against them.
+  - `cluster-to-toml` drops only empty scalars from port and connection rows.
+  - New rail: `lint:conflict-markers`.
+- Not built: forwarded placements, the strength rail, env lowering, and an env
+  registry for ADR-0069's "resolves for every env" rail (ADR-0070 "What exists
+  today").
 
 ### 2026-11 — Two microVMs over a declared edge: gRPC in one, Dolt in the other (`cloister-991e65`)
 
