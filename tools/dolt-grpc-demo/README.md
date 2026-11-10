@@ -96,6 +96,12 @@ in `orders.yaml`. cloister does not emit env vars yet.
 NetworkPolicy is only enforced when the CNI enforces it. kind's default CNI
 does from v0.24.
 
+**Demo only:** `dolt.yaml` gives Dolt a passwordless `root@'%'`, so the
+NetworkPolicies are the only thing keeping other pods out. That is the claim
+the negative check tests. Don't reuse this manifest anywhere that a CNI might
+not enforce NetworkPolicy, or for real data. Real credentials belong in a vault
+slice (ADR-0069 §2).
+
 From the repository root:
 
 ```sh
