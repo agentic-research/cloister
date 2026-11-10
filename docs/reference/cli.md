@@ -35,6 +35,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
 | [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
+| [`cloister runtime import`](#cloister-runtime-import) | Import a digest-pinned OCI image layout as a microVM rootfs |
 | [`cloister runtime run`](#cloister-runtime-run) | Run a compatibility plan or LLO execution envelope |
 | [`cloister runtime inspect`](#cloister-runtime-inspect) | Inspect LLO execution events |
 | [`cloister runtime collect`](#cloister-runtime-collect) | Collect an LLO terminal receipt |
@@ -263,6 +264,20 @@ cloister runtime install
 ```
 
 Builds the native confinement helper and host runtime, copies them into ~/.local/libexec/cloister (or CLOISTER_LIBEXEC_DIR), and writes a provider record containing their SHA-256 digests. Runtime commands verify those digests before execution.
+
+## cloister runtime import
+
+```
+cloister runtime import --layout <dir> --image <sha256:…> [--symlinks refuse|resolve]
+```
+
+Import a digest-pinned OCI image layout as a microVM rootfs
+
+| Flag | | |
+|---|---|---|
+| `--layout <dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store |
+| `--image <sha256:…>` |  | index or manifest digest to import; tags are refused |
+| `--symlinks <refuse|resolve>` |  | refuse links (default) or copy in-image targets |
 
 ## cloister runtime run
 

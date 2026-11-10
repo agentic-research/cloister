@@ -323,6 +323,13 @@ export const COMMANDS = [
       "record containing their SHA-256 digests. Runtime commands verify those " +
       "digests before execution.",
   },
+  { name: "runtime import", usage: "cloister runtime import --layout <dir> --image <sha256:…> [--symlinks refuse|resolve]",
+    summary: "Import a digest-pinned OCI image layout as a microVM rootfs",
+    flags: [
+      { flag: "--layout <dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store" },
+      { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused" },
+      { flag: "--symlinks <refuse|resolve>", summary: "refuse links (default) or copy in-image targets" },
+    ] },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a compatibility plan or LLO execution envelope" },
   { name: "runtime inspect", usage: "cloister runtime inspect <run-id>",
