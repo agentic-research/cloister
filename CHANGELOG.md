@@ -51,7 +51,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `runtime plan` lowering of `cluster.toml` connections is the next step
   (ADR-0070 §4).
 
-||||||| parent of 04ed78e ([cloister-991e65] feat(runtime): lower declared ports + connections to confinement/v1 §6 grants)
 ### 2026-11 — LLO v0.28.0: declared channels reach unmodified workloads; Dolt served over one (`cloister-da1a59`)
 
 - **Pins.** Every ley-line-open channel moves to v0.28.0 (dafd2976). The krun
@@ -114,7 +113,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   libkrun only warns when it cannot bind one, so the channel would silently
   not exist (ley-line-open-bb2143).
 
-||||||| parent of 6d16c56 ([cloister-3a6dd7] feat(runtime): `cloister runtime import` turns an OCI layout into a microVM rootfs)
 ### 2026-11 — runtime docs and CLI stop describing krunvm (`cloister-a4e446`)
 
 - GETTING-STARTED's microVM path described the krunvm runtime that
