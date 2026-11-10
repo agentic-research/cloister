@@ -1466,13 +1466,13 @@ dependencies = [
 
 [[package]]
 name = "leyline-ffi-helpers"
-version = "0.21.1"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0#d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0"
+version = "0.26.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
 
 [[package]]
 name = "leyline-sign"
-version = "0.21.1"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0#d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0"
+version = "0.26.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
 dependencies = [
  "cms",
  "const-oid 0.9.6",

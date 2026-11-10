@@ -188,9 +188,24 @@ export const manifest: Gateway = {
                     "sheaf_set_topology",
                     "sheaf_invalidate",
                     "sheaf_defect",
-                    "sheaf_stalks",
                     "sheaf_status",
                     "sheaf_learned_weights"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "sql",
+              "handlesPrefix": "",
+              "kind": {
+                "mcpProxy": {
+                  "urlBinding": "LLO_MCP_URL",
+                  "tools": [],
+                  "dynamicTools": true,
+                  "serviceBinding": "LSP_MCP",
+                  "requiresSession": true,
+                  "claims": [
+                    "query"
                   ]
                 }
               }
@@ -206,16 +221,12 @@ export const manifest: Gateway = {
                   "serviceBinding": "LSP_MCP",
                   "requiresSession": true,
                   "claims": [
-                    "query",
                     "list_children",
                     "read_content",
                     "read_source",
                     "find_callers",
                     "find_defs",
                     "find_callees",
-                    "get_refs_map",
-                    "get_defs_map",
-                    "get_schema",
                     "get_db_path",
                     "get_node",
                     "inspect_symbol",
