@@ -79,7 +79,7 @@ func seed(addr string) error {
 	for _, stmt := range []string{
 		"CREATE DATABASE IF NOT EXISTS orders",
 		"CREATE TABLE IF NOT EXISTS orders.orders (id INT PRIMARY KEY, msg VARCHAR(128))",
-		"INSERT IGNORE INTO orders.orders VALUES (1, 'read from Dolt in another microVM')",
+		"INSERT IGNORE INTO orders.orders VALUES (1, 'read from Dolt over a declared connection')",
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("%s: %w", stmt, err)

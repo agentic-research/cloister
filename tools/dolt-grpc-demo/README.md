@@ -68,7 +68,7 @@ grpcurl 1.9 needs the `unix://` scheme. With `-unix`, it still dials TCP.
 
 Checked on darwin-arm64 with LLO v0.28.0 and socket hijacking off (main fd3e96c):
 
-- `Get {"id":1}` returned `{"id":1,"msg":"read from Dolt in another microVM","branch":"main"}`
+- `Get {"id":1}` returned the seeded row with `"branch":"main"`
   on the first attempt. `Get {"id":9}` returned `NotFound`.
 - With B's connect grant on A's socket removed (bind grant kept), B exited 2,
   the service's "database did not answer" branch, and the host got no reply.
@@ -147,3 +147,18 @@ kubectl run probe -n orders --labels app=orders --rm -i --restart=Never --image=
 ```
 
 Clean up with `kind delete cluster --name cloister-demo`.
+
+### What was observed on kind
+
+Checked on darwin-arm64 with kind v0.33.0 (OrbStack Docker) and the manifests
+emitted by `cloister cluster k8s`:
+
+- Positive: `grpcurl` through `port-forward svc/orders` returned the seeded
+  row with `"branch":"main"`. The orders pod reached Dolt across namespaces on
+  the one allowed edge.
+- Negative: a busybox `nc -z -w3 dolt.dolt.svc.cluster.local 3306` from a
+  pod in the `intruder` namespace failed.
+- Control: the same probe from the `orders` namespace with label `app=orders`
+  succeeded. So the negative failure is the policy, not DNS or reachability.
+- Second control: from the `orders` namespace with label `app=other`, the probe
+  failed. The allow rule matches the source pods, not just their namespace.
