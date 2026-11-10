@@ -31,7 +31,7 @@
       "$defs": {
     "BackendClass": { "type": "string", "description": "Isolation class required by resolved policy.", "enum": ["native", "microVm"] },
     "RunState": { "type": "string", "description": "Append-only execution lifecycle state.", "enum": ["accepted", "provisioning", "ready", "running", "succeeded", "failed", "cancelled", "cleaning", "cleaned"] },
-    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
+    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal", "workspaceUnserved"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
     "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor", "cgroup"] },
@@ -512,7 +512,7 @@
       "$defs": {
     "BackendClass": { "type": "string", "description": "Isolation class required by resolved policy.", "enum": ["native", "microVm"] },
     "RunState": { "type": "string", "description": "Append-only execution lifecycle state.", "enum": ["accepted", "provisioning", "ready", "running", "succeeded", "failed", "cancelled", "cleaning", "cleaned"] },
-    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal"] },
+    "ErrorCode": { "type": "string", "description": "Stable error classification shared by every transport.", "enum": ["invalidSpec", "invalidGrant", "unauthenticated", "unauthorized", "identityPolicyMismatch", "unsupportedBackend", "notProvisioned", "resourceConflict", "resourceExhausted", "backendFailed", "cancelled", "internal", "workspaceUnserved"] },
     "WorkspaceOperation": { "type": "string", "description": "Operation authorized on one logical Graph workspace.", "enum": ["read", "list", "query", "mutate", "commit"] },
     "CancellationMode": { "type": "string", "description": "Behavior requested when a caller cancels or disconnects.", "enum": ["explicitOnly", "cancelOnDisconnect"] },
     "CeilingMechanism": { "type": "string", "description": "How a tier applies one resource ceiling, or that it does not.", "enum": ["unenforced", "supervisor", "hypervisor", "cgroup"] },

@@ -218,9 +218,13 @@ fn to_execution_request(
         limits: default_limits(enforced),
         confinement_digest: String::new(),
         confinement_manifest: None,
-        // No Graph workspace authority is mapped from a launch plan, and on LLO
-        // v0.21.1 the native tier refuses any Graph workspace grant before
-        // spawn (workspaces are microVM-only). Empty is the only value cloister
+        // No Graph workspace authority is mapped from a launch plan. On LLO
+        // v0.26.0 the native tier, and libkrun without a share provider or with
+        // two or more workspaces, refuse a workspace grant before spawn with
+        // ErrorCode::WorkspaceUnserved (cloister-dc4a53); such a run must be
+        // routed to a workspace-serving backend, never retried without the
+        // workspace. A grant's graphRoot is `blake3-256:<storeRoot>` and pre-M1
+        // roots are refused (cloister-83d669). Empty is the only value cloister
         // can carry here without a grant to take it from.
         workspaces: Vec::new(),
     })

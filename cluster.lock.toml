@@ -4,17 +4,17 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0"
-resolved = "0.21.1"
-sha256 = "sha256:acfbf52619fb818d8cd001ed1bacc2a97c411be8398432f66f82cc7b2df8fd4e"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/d11e89a8fe5abcec8bc2aa5c0b25ea23080d1fc0/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+resolved = "0.26.0"
+sha256 = "sha256:29f40313f329a1c875966a42c24eca804c726b71aaeca91b7a0571eedc84d36d"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/f18c09356f3ebb4bd3582be7c6293bb565da10e7/server.json"
 signer = ""
-bytes = 3237
+bytes = 3247
 
 [inputs.llo.oci]
 identifier = "ghcr.io/agentic-research/ley-line-open"
-version = "v0.21.1"
-digest = "sha256:ea10a84436d8911e2f0876247cadcbb6549317317a30f7b21f329a882816f371"
+version = "v0.26.0"
+digest = "sha256:105172cb5c8e75ed81dde5958286f6f58fa96a4e0b9ee2a036727676835d8d50"
 
 [inputs.notme]
 ref = "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a"
@@ -119,7 +119,18 @@ input = "llo"
 name = "sheaf"
 handlesPrefix = "sheaf_"
 stripPrefix = ""
-claims = [ "sheaf_set_topology", "sheaf_invalidate", "sheaf_defect", "sheaf_stalks", "sheaf_status", "sheaf_learned_weights" ]
+claims = [ "sheaf_set_topology", "sheaf_invalidate", "sheaf_defect", "sheaf_status", "sheaf_learned_weights" ]
+dynamicTools = true
+urlBinding = "LLO_MCP_URL"
+serviceBinding = "LSP_MCP"
+requiresSession = true
+
+[[generated_backends]]
+input = "llo"
+name = "sql"
+handlesPrefix = ""
+stripPrefix = ""
+claims = [ "query" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
@@ -130,7 +141,7 @@ input = "llo"
 name = "query"
 handlesPrefix = ""
 stripPrefix = ""
-claims = [ "query", "list_children", "read_content", "read_source", "find_callers", "find_defs", "find_callees", "get_refs_map", "get_defs_map", "get_schema", "get_db_path", "get_node", "inspect_symbol", "at_position", "inspect_neighborhood", "search_symbols", "agreement" ]
+claims = [ "list_children", "read_content", "read_source", "find_callers", "find_defs", "find_callees", "get_db_path", "get_node", "inspect_symbol", "at_position", "inspect_neighborhood", "search_symbols", "agreement" ]
 dynamicTools = true
 urlBinding = "LLO_MCP_URL"
 serviceBinding = "LSP_MCP"
