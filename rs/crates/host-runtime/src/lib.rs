@@ -198,4 +198,9 @@ pub enum RuntimeError {
     BackendUnavailable(ExecutionMode),
     #[error("execution backend failed: {0}")]
     Backend(String),
+    /// The launch was accepted and the workload ran, then ended in failure.
+    /// Distinct from `Backend` so a caller never reads "the guest's process
+    /// exited non-zero" as "the runtime refused the plan", or the reverse.
+    #[error("the workload ran and failed: {0}")]
+    RunFailed(String),
 }

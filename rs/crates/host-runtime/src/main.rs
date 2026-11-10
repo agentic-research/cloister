@@ -116,7 +116,14 @@ fn run() -> Result<()> {
             {
                 HostRuntime::new(None, Some(Arc::new(backend())))
                     .launch(&plan)
-                    .context("launch refused")
+                    .map_err(|error| match error {
+                        // The run happened; "launch refused" would send the
+                        // reader to the plan when the answer is in the guest.
+                        cloister_host_runtime::RuntimeError::RunFailed(_) => {
+                            anyhow::Error::new(error)
+                        }
+                        other => anyhow::Error::new(other).context("launch refused"),
+                    })
             }
             // Fails closed, and says which build it is. `BackendUnavailable`
             // alone would read as a broken deployment rather than a deliberate

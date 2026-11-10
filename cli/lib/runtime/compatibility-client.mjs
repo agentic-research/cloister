@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { resolveInstallLayout } from "../install-layout.mjs";
 import {
   readProviderRecord,
+  resolveMicrovm,
   resolveProviderArtifact,
   RuntimeProviderError,
 } from "./provider-record.mjs";
@@ -42,6 +43,37 @@ export function resolveHostRuntime({ env = process.env } = {}) {
   return { command, source: "compatibility provider", record };
 }
 
+/**
+ * The environment the host runtime is started with (cloister-991e65).
+ *
+ * cloister-host-runtime reads its microVM deployment facts from env, with
+ * defaults (/usr/local/libexec, /var/lib/cloister) that `runtime install` never
+ * populated. The installed record now names them, so they are passed here. An
+ * explicitly set variable still wins: these are operator facts, and the
+ * operator overriding one is a decision, not drift.
+ *
+ * DYLD_LIBRARY_PATH: libkrun inside the worker loads libkrunfw by bare name
+ * ("libkrunfw.5.dylib"), so the granted absolute path is not what dlopen
+ * searches, and the VM fails with "Couldn't find or load libkrunfw.5.dylib".
+ * LLO's own hypervisor tests set the same variable. Tracked upstream as
+ * ley-line-open-a267af; remove this line when the worker loads the path it is
+ * granted.
+ *
+ * @param {any} record @param {Record<string, string|undefined>} env
+ */
+export function hostRuntimeEnv(record, env) {
+  const microvm = resolveMicrovm(record);
+  if (!microvm) return env;
+  const out = { ...env };
+  const set = (key, value) => { if (!out[key]) out[key] = value; };
+  set("CLOISTER_KRUN_WORKER", microvm.krunWorker);
+  set("CLOISTER_CAS_ROOT", microvm.casRoot);
+  set("CLOISTER_EPHEMERAL_ROOT", microvm.runRoot);
+  set("CLOISTER_LIBKRUNFW", microvm.libkrunfw);
+  set("DYLD_LIBRARY_PATH", dirname(microvm.libkrunfw));
+  return out;
+}
+
 export class CompatibilityRuntimeError extends Error {
   constructor(message, evidence) {
     super(message);
@@ -57,7 +89,7 @@ export function runCompatibilityJson(args, deps = {}) {
   const result = spawn(binary.command, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    env,
+    env: binary.record ? hostRuntimeEnv(binary.record, env) : env,
   });
   const evidence = {
     command: binary.command,
@@ -112,6 +144,7 @@ export function runHostRuntime(args, deps = {}) {
   let binary;
   try {
     binary = resolveHostRuntime({ env });
+    if (binary.record) binary.env = hostRuntimeEnv(binary.record, env);
   } catch (error) {
     if (!(error instanceof RuntimeProviderError)) throw error;
     errLog(`cloister: ${error.message}`);
@@ -120,7 +153,7 @@ export function runHostRuntime(args, deps = {}) {
     }
     return 2;
   }
-  const result = spawn(binary.command, args, { stdio: "inherit", env });
+  const result = spawn(binary.command, args, { stdio: "inherit", env: binary.env ?? env });
   if (result.error) {
     errLog(
       `cloister: unable to execute ${binary.command}: ${result.error.message}`,

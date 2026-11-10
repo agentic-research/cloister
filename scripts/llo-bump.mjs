@@ -62,11 +62,16 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = "agentic-research/ley-line-open";
 const UPSTREAM = `https://github.com/${REPO}`;
 
-/** Generator families cloister pins. Read from the lock, not restated. */
-function lockedFamilies(lock) {
-  return Object.keys(lock.binaries ?? {});
+/**
+ * Pinned binary families and, per family, the platforms the lock pins. Both are
+ * read from the lock, not restated: the generators publish four platforms, but
+ * `leyline-krun-worker` publishes darwin-arm64 only (cloister-991e65), and a
+ * fixed platform list would make every bump demand assets LLO never ships.
+ * @returns {Array<[string, string[]]>}
+ */
+export function lockedFamilies(lock) {
+  return Object.entries(lock.binaries ?? {}).map(([fam, plats]) => [fam, Object.keys(plats)]);
 }
-const PLATFORMS = ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"];
 
 /** wasm32 modules cloister pins (cloister-dbe9c3). Platform-independent. */
 function lockedWasm(lock) {
@@ -134,7 +139,7 @@ function requireRelease(tag, families, wasm = []) {
   const rel = JSON.parse(raw);
   if (rel.isDraft) die(`release ${tag} is still a DRAFT — its assets are not downloadable.`);
   const have = new Set((rel.assets ?? []).map((a) => a.name));
-  const want = [...families.flatMap((f) => PLATFORMS.map((p) => `${f}-${p}`)), ...wasm];
+  const want = [...families.flatMap(([f, plats]) => plats.map((p) => `${f}-${p}`)), ...wasm];
   const missing = want.filter((n) => !have.has(n));
   if (missing.length) {
     die(
@@ -163,9 +168,9 @@ function wasmDigests(tag, names) {
 /** Download each pinned generator and hash it. */
 function generatorDigests(tag, families) {
   const out = {};
-  for (const fam of families) {
+  for (const [fam, plats] of families) {
     out[fam] = {};
-    for (const plat of PLATFORMS) {
+    for (const plat of plats) {
       const name = `${fam}-${plat}`;
       const bytes = execFileSync("gh", [
         "release", "download", tag, "--repo", REPO,
