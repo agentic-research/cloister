@@ -62,33 +62,51 @@ test("compatibility JSON failures retain subprocess evidence", () => {
   );
 });
 
-test("storage status JSON is exact and contains no human commentary", async () => {
+// cloister-a4e446: the compatibility provider's storage is the microVM store
+// `cloister runtime install` creates. Status observes it directly instead of
+// asking the host-runtime, whose `status` was removed with krunvm.
+const LAYOUT_ENV = { CLOISTER_STATE_DIR: "/state" };
+
+test("storage status JSON reports the microVM store without spawning anything", async () => {
   const lines = [];
   const status = await runtimeMain(["storage", "status", "--json"], {
     log: (line) => lines.push(line),
     errLog: (line) => lines.push(`ERR:${line}`),
-    runCompatibilityJson: () => ({ data: STATUS, provider: "compatibility provider" }),
+    env: LAYOUT_ENV,
+    existsSync: () => true,
+    runCompatibilityJson: () => { throw new Error("storage status must not spawn the host-runtime"); },
   });
 
   assert.equal(status, 0);
   assert.equal(lines.length, 1);
-  assert.deepEqual(JSON.parse(lines[0]), STATUS);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    state: "prepared",
+    provider: "compatibility",
+    maturity: "experimental",
+    backend: "microVm",
+    storageVolume: "/state/cas",
+    trackedRuns: null,
+    runningRuns: null,
+  });
 });
 
-test("missing storage is a successful observation with a CLI-owned next step", async () => {
+test("missing storage is a successful observation that names runtime install", async () => {
   const lines = [];
   const status = await runtimeMain(["storage", "status"], {
     log: (line) => lines.push(line),
     errLog: (line) => lines.push(`ERR:${line}`),
-    runCompatibilityJson: () => ({ data: STATUS, provider: "compatibility provider" }),
+    env: LAYOUT_ENV,
+    existsSync: () => false,
+    runCompatibilityJson: () => { throw new Error("storage status must not spawn the host-runtime"); },
   });
 
   assert.equal(status, 0);
-  assert.match(lines.join("\n"), /Runtime storage is not prepared\./);
-  assert.match(lines.join("\n"), /Provider: compatibility \(experimental\)/);
-  assert.match(lines.join("\n"), /Backend: krunvm compatibility/);
-  assert.match(lines.join("\n"), /Run: cloister runtime storage init/);
-  assert.doesNotMatch(lines.join("\n"), /task /i);
+  const text = lines.join("\n");
+  assert.match(text, /Runtime storage is not prepared\./);
+  assert.match(text, /Provider: compatibility \(experimental\)/);
+  assert.match(text, /Storage: \/state\/cas/);
+  assert.match(text, /Run: cloister runtime install/);
+  assert.doesNotMatch(text, /krunvm|storage init|task /i);
 });
 
 test("runtime doctor names the provider boundary and verified artifact", async () => {
@@ -118,7 +136,7 @@ test("runtime doctor names the provider boundary and verified artifact", async (
   const text = lines.join("\n");
   assert.match(text, /Runtime provider: compatibility \(experimental\)/);
   assert.match(text, /Transport: subprocess/);
-  assert.match(text, /Backends: nativeNonoCompatibility, krunvm compatibility/);
+  assert.match(text, /Backends: nativeNonoCompatibility, libkrun microVM \(LLO worker\)/);
   assert.match(text, new RegExp(`Host runtime digest: ${"a".repeat(64)}`));
   assert.match(text, /Storage: notPrepared/);
 });

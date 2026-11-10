@@ -41,9 +41,8 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister runtime cancel`](#cloister-runtime-cancel) | Cancel an LLO execution |
 | [`cloister runtime cleanup`](#cloister-runtime-cleanup) | Release LLO execution resources |
 | [`cloister runtime doctor`](#cloister-runtime-doctor) | Check runtime prerequisites and storage |
-| [`cloister runtime storage init`](#cloister-runtime-storage-init) | Create/attach bounded krunvm storage |
+| [`cloister runtime storage init`](#cloister-runtime-storage-init) | Provision storage through the LLO provider |
 | [`cloister runtime storage status`](#cloister-runtime-storage-status) | Show bounded storage state without changing it |
-| [`cloister runtime storage gc`](#cloister-runtime-storage-gc) | Preview or execute safe reclamation |
 
 ## cloister install
 
@@ -51,7 +50,7 @@ Global options may appear before or after a command. Cloister stops reading them
 cloister install
 ```
 
-Installs the locked Node dependencies, regenerates the files declared by cluster.toml, builds and digest-checks the current compatibility runtime, and puts the cloister command in ~/.local/bin (or CLOISTER_BIN_DIR). The compatibility runtime currently starts local processes and krunvm as subprocesses; it is temporary while LLO's native execution API matures.
+Installs the locked Node dependencies, regenerates the files declared by cluster.toml, builds and digest-checks the current compatibility runtime, and puts the cloister command in ~/.local/bin (or CLOISTER_BIN_DIR). On macOS arm64 it also installs LLO's digest-pinned leyline-krun-worker and creates the microVM store; the compatibility runtime is temporary while LLO's native execution API matures.
 
 ## cloister uninstall
 
@@ -320,10 +319,10 @@ Check runtime prerequisites and storage
 ## cloister runtime storage init
 
 ```
-cloister runtime storage init
+cloister runtime storage init --idempotency-key <key> [--backend native|microVm]
 ```
 
-Create/attach bounded krunvm storage
+Provision storage through the LLO provider
 
 ## cloister runtime storage status
 
@@ -336,14 +335,6 @@ Show bounded storage state without changing it
 | Flag | | |
 |---|---|---|
 | `--json` |  | print one machine-readable status object |
-
-## cloister runtime storage gc
-
-```
-cloister runtime storage gc
-```
-
-Preview or execute safe reclamation
 
 ---
 

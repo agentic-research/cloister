@@ -144,8 +144,6 @@ test("runtime operator commands delegate exact arguments to one Rust seam", () =
   const cases = [
     [["runtime", "run", "/tmp/plan.json"], ["run", "/tmp/plan.json"]],
     [["runtime", "doctor"], ["doctor"]],
-    [["runtime", "storage", "status"], ["status"]],
-    [["runtime", "storage", "gc", "--yes"], ["gc", "--yes"]],
   ];
   for (const [args, expected] of cases) {
     const result = run(args, env);
@@ -215,20 +213,21 @@ test("runtime command executes the digest-verified provider artifact", () => {
   assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), ["doctor"]);
 });
 
-// Sparsebundles are an APFS/hdiutil concept, so this subcommand is macOS-only
-// by design. Assert the branch this host actually takes rather than skipping
-// off macOS: asserting nothing on Linux is exactly what let the unconditional
-// `status === 0` below pass on dev machines and fail on CI.
-test("runtime storage init previews on macOS and refuses elsewhere", () => {
-  const r = run(["runtime", "storage", "init", "--print"]);
-  if (process.platform === "darwin") {
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /krunvm storage plan/);
-    assert.match(r.stdout, /host storage unchanged/);
-  } else {
-    assert.equal(r.status, 2, r.stdout);
-    assert.match(r.stderr, /macOS-only/);
-  }
+// cloister-a4e446: the compatibility provider has no storage step. The krunvm
+// sparsebundle this used to create is read by nothing since cloister-17e502,
+// so the command refuses and names what does create the store, rather than
+// provisioning something no runtime reads.
+test("runtime storage init without the LLO provider refuses and names runtime install", () => {
+  const r = run(["runtime", "storage", "init"]);
+  assert.equal(r.status, 2, r.stdout);
+  assert.match(r.stderr, /only the LLO provider has a storage step/);
+  assert.match(r.stderr, /cloister runtime install/);
+});
+
+test("runtime storage gc is gone: run lifecycle belongs to LLO", () => {
+  const r = run(["runtime", "storage", "gc"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown command/);
 });
 
 test("unknown top-level command fails with usage", () => {
