@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
 name = "aes"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -733,6 +739,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32fast"
+version = "1.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b929dd2a135771f40afabd1073f85eed59c800b7c61901e5c254270497dad64"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "crmf"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1113,6 +1128,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1123,6 +1148,17 @@ name = "flagset"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe"
+
+[[package]]
+name = "flate2"
+version = "1.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+ "zlib-rs",
+]
 
 [[package]]
 name = "foldhash"
@@ -1296,14 +1332,17 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "foldhash",
+]
 
 [[package]]
 name = "hashlink"
-version = "0.11.1"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "824e001ac4f3012dd16a264bec811403a67ca9deb6c102fc5049b32c4574b35f"
+checksum = "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -1769,8 +1808,8 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "leyline-cas-ffi"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "leyline-core",
  "leyline-ffi-helpers",
@@ -1778,8 +1817,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-core"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1793,8 +1832,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-envelope"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1809,13 +1848,13 @@ dependencies = [
 
 [[package]]
 name = "leyline-ffi-helpers"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 
 [[package]]
 name = "leyline-fs"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1834,8 +1873,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-public-schema"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "capnp",
  "capnp-json",
@@ -1845,14 +1884,15 @@ dependencies = [
 
 [[package]]
 name = "leyline-runtime"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "anyhow",
  "base64",
  "blake3",
  "capnp",
  "capnp-json",
+ "flate2",
  "leyline-core",
  "leyline-envelope",
  "leyline-public-schema",
@@ -1863,14 +1903,16 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "thiserror",
 ]
 
 [[package]]
 name = "leyline-schema"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "anyhow",
  "rusqlite",
@@ -1878,13 +1920,13 @@ dependencies = [
 
 [[package]]
 name = "leyline-schema-spec"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 
 [[package]]
 name = "leyline-sign"
-version = "0.26.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=f18c09356f3ebb4bd3582be7c6293bb565da10e7#f18c09356f3ebb4bd3582be7c6293bb565da10e7"
+version = "0.27.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=65da27c358744cc3f1bd8f237a387de99b16ab37#65da27c358744cc3f1bd8f237a387de99b16ab37"
 dependencies = [
  "anyhow",
  "axum",
@@ -1941,9 +1983,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.37.0"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f111c8c41e7c61a49cd34e44c7619462967221a6443b0ec299e0ac30cfb9b1"
+checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
  "pkg-config",
@@ -2027,6 +2069,16 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
 
 [[package]]
 name = "mio"
@@ -2634,9 +2686,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.39.0"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0d2b0146dd9661bf67bb107c0bb2a55064d556eeb3fc314151b957f313bcd4e"
+checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
 dependencies = [
  "bitflags 2.13.0",
  "fallible-iterator",
@@ -3305,6 +3357,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "simd-adler32"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
 name = "simd_cesu8"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3438,6 +3496,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
 ]
 
 [[package]]
@@ -4304,6 +4372,12 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"

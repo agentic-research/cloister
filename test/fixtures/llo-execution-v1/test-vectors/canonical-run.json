@@ -141,6 +141,10 @@
     "inputRoots": [
       {
         "algorithm": "blake3-256",
+        "value": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      {
+        "algorithm": "blake3-256",
         "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     ],
