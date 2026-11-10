@@ -92,7 +92,7 @@ fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         bail!(
-            "usage: cloister-host-runtime <validate|run|doctor> [plan.json]"
+            "usage: cloister-host-runtime <validate|run|doctor|import-oci> [args]"
         );
     };
 
@@ -165,6 +165,57 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
+        // OCI image → CAS rootfs, through LLO's importer in-process
+        // (ley-line-open-7736ab, cloister-3a6dd7). cloister does not convert
+        // images itself: LLO verifies every blob and diff_id, selects the
+        // host platform, applies whiteouts and publishes the tree under the
+        // same CAS root the execution backend loads from, so the printed
+        // `rootfs` is directly the plan's `blake3-256:` artifact digest.
+        "import-oci" => {
+            let usage = "usage: cloister-host-runtime import-oci --layout <dir> --image <sha256:…|name@sha256:…> [--symlinks refuse|resolve]";
+            let (mut layout, mut image, mut symlinks) = (None, None, String::from("refuse"));
+            while let Some(flag) = args.next() {
+                let value = args.next().with_context(|| format!("{flag} needs a value; {usage}"))?;
+                match flag.as_str() {
+                    "--layout" => layout = Some(std::path::PathBuf::from(value)),
+                    "--image" => image = Some(value),
+                    "--symlinks" => symlinks = value,
+                    other => bail!("unknown flag {other:?}; {usage}"),
+                }
+            }
+            let layout = layout.context(usage)?;
+            let image = image.context(usage)?;
+            #[cfg(feature = "llo-execution")]
+            {
+                use leyline_runtime::artifacts::oci::{
+                    import_oci_layout, OciImport, Platform, SymlinkPolicy, DEFAULT_MAX_ROOTFS_BYTES,
+                };
+                let symlinks = match symlinks.as_str() {
+                    "refuse" => SymlinkPolicy::Refuse,
+                    "resolve" => SymlinkPolicy::Resolve,
+                    other => bail!("--symlinks must be refuse or resolve, not {other:?}"),
+                };
+                let cas_root = krun_config().cas_root;
+                let imported = import_oci_layout(
+                    &OciImport {
+                        layout: &layout,
+                        reference: &image,
+                        platform: Platform::host()?,
+                        symlinks,
+                        max_rootfs_bytes: DEFAULT_MAX_ROOTFS_BYTES,
+                    },
+                    &cas_root,
+                )
+                .with_context(|| format!("import {image} from {}", layout.display()))?;
+                println!("{}", serde_json::to_string(&imported)?);
+                Ok(())
+            }
+            #[cfg(not(feature = "llo-execution"))]
+            {
+                let _ = (layout, image, symlinks);
+                bail!("import-oci needs the `llo-execution` feature (ley-line-open's runtime)")
+            }
+        }
         // `status` and `gc` are GONE, not ported. Both managed krunvm's buildah
         // storage volume — listing it and pruning it — and that volume does not
         // exist once cloister stops driving krunvm. Porting them would have
@@ -176,7 +227,7 @@ fn run() -> Result<()> {
             "{command} managed krunvm's buildah storage, which cloister no longer uses \
              (cloister-17e502). Run lifecycle now belongs to ley-line-open."
         ),
-        _ => bail!("unknown command {command:?}; expected validate, run, or doctor"),
+        _ => bail!("unknown command {command:?}; expected validate, run, doctor, or import-oci"),
     }
 }
 

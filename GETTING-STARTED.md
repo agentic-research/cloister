@@ -209,18 +209,30 @@ separate storage step. `cloister runtime run` waits for the guest: a workload
 that exits non-zero is reported as a run failure (exit 1), not a launch refusal.
 
 **What runs today, and what does not yet.** The microVM tier runs a plan whose
-root filesystem is already in the store, addressed by `blake3-256:` digest, and
-that declares no filesystem, credential, or port grants. Two things are not
-wired yet:
+root filesystem is in the store, addressed by `blake3-256:` digest. An OCI
+image gets there through LLO's importer:
 
-- **OCI images.** `cloister runtime plan <bundle>` emits a plan that names an
-  OCI image by `sha256:` digest. The runtime refuses it until LLO's
-  `leyline rootfs import-oci` (ley-line-open-7736ab) turns that image into a
-  store entry.
-- **Grants.** A plan carrying `fs.allow`, credentials, or `port.bind` is
-  refused by name ("authority mapping … is not implemented") rather than run
-  with its grants silently dropped. Mapping them onto LLO's confinement manifest
-  is tracked on `cloister-991e65`.
+```sh
+cloister runtime import --layout /path/to/oci-layout --image sha256:<index-or-manifest-digest>
+# prints LLO's import record; "rootfs" is the plan's blake3-256 artifact digest
+```
+
+The input is an OCI image *layout* (`oci-layout` plus `blobs/sha256`), pinned by
+digest. A docker store is not a layout, and tags are refused. Produce one with
+`skopeo copy docker://…@sha256:… oci:DIR` or `docker buildx … --output
+type=oci`. The importer verifies every blob, selects the host's Linux platform,
+and refuses what rootfs manifest v1 cannot express: symlinks (use `--symlinks
+resolve` to copy in-image targets; dangling links still fail), and device
+nodes. `cloister runtime plan <bundle>` still emits an OCI `sha256:` plan, which
+the runtime refuses until the plan names the imported rootfs instead. One known
+gap: an entrypoint at the rootfs root (`/hello`, common in scratch images) exits
+127 on LLO v0.27.0 unless a workspace is mounted (ley-line-open-fe130c).
+Entrypoints under a directory (`/bin/…`) run.
+
+A plan carrying `fs.allow`, credentials, or `port.bind` is refused by name
+("authority mapping … is not implemented") rather than run with its grants
+silently dropped. Mapping them onto LLO's confinement manifest is tracked on
+`cloister-991e65`.
 
 Without grants the guest has no network at all: no virtual NIC, and no channel
 out except vsock ports built from declared grants. That is the isolation

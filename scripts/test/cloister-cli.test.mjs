@@ -144,6 +144,10 @@ test("runtime operator commands delegate exact arguments to one Rust seam", () =
   const cases = [
     [["runtime", "run", "/tmp/plan.json"], ["run", "/tmp/plan.json"]],
     [["runtime", "doctor"], ["doctor"]],
+    [
+      ["runtime", "import", "--layout", "/l", "--image", "sha256:abc", "--symlinks", "resolve"],
+      ["import-oci", "--layout", "/l", "--image", "sha256:abc", "--symlinks", "resolve"],
+    ],
   ];
   for (const [args, expected] of cases) {
     const result = run(args, env);

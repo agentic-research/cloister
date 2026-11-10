@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister runtime import`: OCI image → microVM rootfs (`cloister-3a6dd7`)
+
+- `cloister runtime import --layout DIR --image sha256:…` imports a
+  digest-pinned OCI image layout into the microVM store through LLO's importer
+  (`import_oci_layout`, in-process in the host runtime, not a subprocess). It
+  prints LLO's import record, whose `rootfs` is the plan's `blake3-256:`
+  digest. Tags are refused. Re-importing gives the same digest.
+- Live on darwin-arm64 (LLO v0.27.0): `hello-world@sha256:c567b231…` imported
+  and booted. This is the first boot of an import-oci rootfs. Its root-level
+  `/hello` entrypoint exits 127 because LLO execs it as a bare name when no
+  workspace is mounted (ley-line-open-fe130c). The same bytes under `bin/`
+  exit 0.
+- None of the first-party images cloister pins import yet. LLO's carries a
+  `dev/console` device (ley-line-open-fe3d26), and mache and rosary carry
+  dangling symlinks (ley-line-open-391965).
+
 ### 2026-11 — a declared channel, and no other: §6 grants reach the microVM (`cloister-bb0142`)
 
 - A host-runtime launch plan can declare confinement/v1 §6 socket grants
@@ -26,6 +42,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   libkrun only warns when it cannot bind one, so the channel would silently
   not exist (ley-line-open-bb2143).
 
+||||||| parent of 6d16c56 ([cloister-3a6dd7] feat(runtime): `cloister runtime import` turns an OCI layout into a microVM rootfs)
 ### 2026-11 — runtime docs and CLI stop describing krunvm (`cloister-a4e446`)
 
 - GETTING-STARTED's microVM path described the krunvm runtime that
