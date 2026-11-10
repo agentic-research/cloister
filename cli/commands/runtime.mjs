@@ -111,10 +111,14 @@ function renderDoctor(report, log) {
   if (storage) {
     log(`Storage: ${storage.state} (${storage.storageVolume})`);
   }
-  const microvm = report.checks.microvm;
-  if (microvm) {
-    log(`krunvm: ${microvm.krunvm ? "available" : "missing"}`);
-    log(`Buildah: ${microvm.buildah ? "available" : "missing"}`);
+  // The host runtime answers {available} per tier (cloister-17e502 retired the
+  // krunvm/buildah PATH probe). This used to read `.krunvm` / `.buildah`, which
+  // no longer exist, and so printed "missing" for both on every host.
+  for (const tier of ["microvm", "process"]) {
+    const check = report.checks[tier];
+    if (check && typeof check.available === "boolean") {
+      log(`${tier === "microvm" ? "microVM" : "process"}: ${check.available ? "available" : "unavailable"}`);
+    }
   }
 }
 
@@ -253,11 +257,20 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   try {
     const install = deps.installCompatibilityProvider
       ?? (await import("../lib/runtime/install-compatibility.mjs")).installCompatibilityProvider;
-    const record = await install({ root, layout, spawn: deps.spawn, platform: deps.platform });
+    const record = await install({
+      root, layout, spawn: deps.spawn, platform: deps.platform, env,
+      log: (m) => log(`cloister runtime install: ${m}`),
+    });
     log(
       `cloister runtime install: installed ${record.provider} provider ` +
       `(${record.maturity}) in ${layout.libexecDir}`,
     );
+    if (record.microvm) {
+      log(
+        `cloister runtime install: microVM tier — worker ${record.microvm.krunWorker.file}, ` +
+        `guest kernel ${record.microvm.libkrunfw.path}, store ${record.microvm.casRoot}`,
+      );
+    }
     return 0;
   } catch (error) {
     errLog(`cloister runtime install: ${error.message}`);

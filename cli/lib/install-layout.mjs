@@ -13,6 +13,12 @@ export function resolveInstallLayout({
   const libexecDir = resolve(
     env.CLOISTER_LIBEXEC_DIR || join(home, ".local", "libexec", "cloister"),
   );
+  // Mutable runtime state (cloister-991e65): the content store the microVM tier
+  // reads rootfs trees from, and the per-run ephemeral roots LLO creates and
+  // removes. XDG state, not libexec — these are written at run time.
+  const stateDir = resolve(
+    env.CLOISTER_STATE_DIR || join(home, ".local", "state", "cloister"),
+  );
   return {
     checkoutRoot: root,
     binDir,
@@ -21,5 +27,9 @@ export function resolveInstallLayout({
     providerRecord: join(libexecDir, "runtime-provider.json"),
     nativeHelper: join(libexecDir, "cloister-harness"),
     hostRuntime: join(libexecDir, "cloister-host-runtime"),
+    krunWorker: join(libexecDir, "leyline-krun-worker"),
+    stateDir,
+    casRoot: join(stateDir, "cas"),
+    runRoot: join(stateDir, "run"),
   };
 }

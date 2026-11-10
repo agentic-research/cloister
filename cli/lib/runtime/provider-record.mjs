@@ -79,7 +79,33 @@ function validateRecord(record) {
   }
   validateArtifact(record, "nativeHelper");
   validateArtifact(record, "hostRuntime");
+  if (record.microvm !== undefined) validateMicrovm(record.microvm);
   return record;
+}
+
+/**
+ * The microVM tier is OPTIONAL in a record — a host LLO publishes no worker for
+ * still gets the harness lane — but when present it is validated as strictly
+ * as the required artifacts: a half-written section must not be selectable.
+ * @param {any} microvm
+ */
+function validateMicrovm(microvm) {
+  if (!microvm || typeof microvm !== "object" || Array.isArray(microvm)) {
+    throw new RuntimeProviderError("runtime provider microvm must be an object");
+  }
+  validateArtifact({ artifacts: { krunWorker: microvm.krunWorker } }, "krunWorker");
+  const fw = microvm.libkrunfw;
+  if (!fw || typeof fw.path !== "string" || !isAbsolute(fw.path)) {
+    throw new RuntimeProviderError("runtime provider microvm.libkrunfw.path must be an absolute path");
+  }
+  if (typeof fw.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(fw.sha256)) {
+    throw new RuntimeProviderError("runtime provider microvm.libkrunfw.sha256 must be a complete SHA-256 digest");
+  }
+  for (const key of ["casRoot", "runRoot"]) {
+    if (typeof microvm[key] !== "string" || !isAbsolute(microvm[key])) {
+      throw new RuntimeProviderError(`runtime provider microvm.${key} must be an absolute path`);
+    }
+  }
 }
 
 /** @param {any} record @param {string} dir */
@@ -130,4 +156,46 @@ export function resolveProviderArtifact(record, kind) {
     );
   }
   return file;
+}
+
+/**
+ * Resolve the installed microVM tier into the paths the host runtime reads,
+ * re-verifying both executable inputs (cloister-991e65). `null` when the record
+ * carries no tier. A worker or firmware whose bytes changed since install is
+ * refused, never run: libkrunfw is the guest KERNEL, so a swapped file is a
+ * swapped kernel.
+ * @param {any} record
+ * @returns {null | {krunWorker: string, libkrunfw: string, casRoot: string, runRoot: string}}
+ */
+export function resolveMicrovm(record) {
+  const microvm = record?.microvm;
+  if (!microvm) return null;
+  const recordDir = record[RECORD_DIR];
+  if (!recordDir) {
+    throw new RuntimeProviderError("runtime provider record has no installation directory");
+  }
+  const krunWorker = resolve(recordDir, microvm.krunWorker.file);
+  for (const [label, file, expected] of [
+    ["krunWorker", krunWorker, microvm.krunWorker.sha256],
+    ["libkrunfw", microvm.libkrunfw.path, microvm.libkrunfw.sha256],
+  ]) {
+    if (!existsSync(file)) {
+      throw new RuntimeProviderError(
+        `runtime provider ${label} is missing: ${file}\nRun: cloister runtime install`,
+      );
+    }
+    const actual = sha256File(file);
+    if (actual !== expected) {
+      throw new RuntimeProviderError(
+        `runtime provider digest mismatch for ${label}: expected ${expected}, got ${actual}\n` +
+        "If this was an intended upgrade, run: cloister runtime install",
+      );
+    }
+  }
+  return {
+    krunWorker,
+    libkrunfw: microvm.libkrunfw.path,
+    casRoot: microvm.casRoot,
+    runRoot: microvm.runRoot,
+  };
 }

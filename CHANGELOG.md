@@ -8,6 +8,36 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `runtime install` provides the microVM tier; `run` waits for the guest (`cloister-991e65`)
+
+- `cloister runtime install` now installs LLO's `leyline-krun-worker`, a
+  release asset pinned by digest in `schema-bridge.lock.json` (darwin-arm64
+  only, which is the only platform LLO publishes it for). It also creates the
+  content store and run roots under `~/.local/state/cloister` and records the
+  libkrunfw it found, with that file's digest. Before this, the host runtime
+  looked for the worker at `/usr/local/libexec` and its store under
+  `/var/lib`, and nothing created either, so `doctor` reported
+  `microvm: false` on every install. When this host can't have the tier,
+  install says why and still installs the harness lane.
+- The CLI starts the host runtime with those paths. Variables the operator
+  has set explicitly still take precedence. A worker or libkrunfw whose bytes
+  have changed since install is refused.
+- `cloister-host-runtime run` now waits for the run to finish. It used to
+  return as soon as the worker was ready, exit 0 without anyone seeing the
+  guest's result, and then cancel the VM when the backend was dropped on exit.
+  A guest that fails now gives `the workload ran and failed`, which is
+  distinct from `launch refused`.
+- `runtime doctor` prints `microVM:` / `process:` availability. It previously
+  read `krunvm` / `buildah` fields that no longer exist, so it always printed
+  "missing".
+- `llo-bump` reads each family's platforms from the lockfile instead of a
+  fixed list of four.
+- Verified on darwin-arm64: `dolt version` in a microVM exits 0, and an
+  unknown subcommand exits 1. Two upstream gaps were found along the way:
+  libkrunfw is loaded by bare name (`ley-line-open-a267af`; worked around for
+  now with `DYLD_LIBRARY_PATH`), and guest output is discarded
+  (`ley-line-open-a26ad0`).
+
 ### 2026-11 — LLO's prebuilt signing wasm; pin rail covers `tools/` (`cloister-dbe9c3`, `cloister-b4d6eb`)
 
 - The Worker now loads LLO's published `leyline_sign.wasm` instead of a local

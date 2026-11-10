@@ -15,22 +15,25 @@
 // for "this workload is not confined". A test that only checked the happy path
 // would pass equally well against the old backend.
 //
-// What this CANNOT prove, stated so nobody reads more into a green run: no
-// libkrun exists on macOS, so the real `KrunWorkerBackend` is never exercised
-// here. This drives the API path — cloister's `Backend` → LLO's `Backend` —
-// with a recording stub. That is the seam the bead is about; the VM is LLO's
-// own test surface, upstream.
+// What this CANNOT prove, stated so nobody reads more into a green run: the real
+// `KrunWorkerBackend` is never exercised here. This drives the API path —
+// cloister's `Backend` → LLO's `Backend` — with a recording stub. That is the
+// seam the bead is about; the VM is LLO's own test surface, upstream. (An
+// earlier version said "no libkrun exists on macOS". It does — Homebrew ships
+// libkrun + libkrunfw, and LLO's darwin-arm64 krun worker boots a guest there,
+// cloister-991e65. The stub is a choice of test scope, not a platform limit.)
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cloister_host_runtime::execution::LeylineExecutionBackend;
+use cloister_host_runtime::execution::{AwaitRun, LeylineExecutionBackend};
 use cloister_host_runtime::{
     Artifact, Backend, Confinement, ConfinementNetwork, ExecutionMode, HostRuntime, LaunchPlan,
+    RuntimeError,
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
-    DEFAULT_CPU_PERIOD_US, EnforcedCeilings, ExecutionError, ExecutionRequest,
+    BackendRunStatus, DEFAULT_CPU_PERIOD_US, EnforcedCeilings, ExecutionError, ExecutionRequest,
 };
 
 /// Records what cloister asked LLO to do, and nothing else happens.
@@ -43,6 +46,10 @@ struct RecordingBackend {
     enforced: EnforcedCeilings,
     starts: AtomicUsize,
     seen: Mutex<Vec<ExecutionRequest>>,
+    /// Run IDs `await_run` was asked about, in order.
+    awaited: Mutex<Vec<String>>,
+    /// What the run ends as. `None` = succeeded.
+    fails_with: Option<String>,
 }
 
 impl Default for RecordingBackend {
@@ -58,7 +65,26 @@ impl RecordingBackend {
             enforced,
             starts: AtomicUsize::new(0),
             seen: Mutex::new(Vec::new()),
+            awaited: Mutex::new(Vec::new()),
+            fails_with: None,
         }
+    }
+
+    fn failing(detail: &str) -> Self {
+        Self {
+            fails_with: Some(detail.into()),
+            ..Self::default()
+        }
+    }
+}
+
+impl AwaitRun for RecordingBackend {
+    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError> {
+        self.awaited.lock().unwrap().push(run_id.into());
+        Ok(match &self.fails_with {
+            None => BackendRunStatus::Succeeded,
+            Some(detail) => BackendRunStatus::Failed(ExecutionError::backend(detail.clone())),
+        })
     }
 }
 
@@ -271,4 +297,45 @@ fn a_malformed_artifact_digest_is_refused_before_the_backend_is_called() {
         0,
         "the backend is never reached"
     );
+}
+
+/// cloister-991e65: `start` returning is READINESS, not completion. A launch
+/// that reported success at readiness exited 0 for a guest whose outcome nobody
+/// saw, and dropping the backend on exit cancelled the VM it had just started.
+#[test]
+fn launch_waits_for_the_run_it_started() {
+    let recorder = Arc::new(RecordingBackend::default());
+    LeylineExecutionBackend::new(Arc::clone(&recorder))
+        .launch(&plan())
+        .expect("a run that succeeds");
+    let started = recorder.seen.lock().unwrap()[0].run_id.clone();
+    assert_eq!(
+        *recorder.awaited.lock().unwrap(),
+        vec![started],
+        "the launch waits on exactly the run it started"
+    );
+}
+
+#[test]
+fn a_run_that_fails_is_a_run_failure_not_a_refusal() {
+    let recorder = Arc::new(RecordingBackend::failing("guest exited 3"));
+    let err = LeylineExecutionBackend::new(Arc::clone(&recorder))
+        .launch(&plan())
+        .expect_err("a failed run must not report success");
+    assert!(
+        matches!(&err, RuntimeError::RunFailed(detail) if detail.contains("guest exited 3")),
+        "{err:?}"
+    );
+    assert_eq!(recorder.starts.load(Ordering::SeqCst), 1, "it did start");
+}
+
+#[test]
+fn a_refused_plan_is_never_awaited() {
+    let recorder = Arc::new(RecordingBackend::default());
+    let mut bad = plan();
+    bad.artifact.digest = "not-a-digest".into();
+    LeylineExecutionBackend::new(Arc::clone(&recorder))
+        .launch(&bad)
+        .expect_err("refused");
+    assert!(recorder.awaited.lock().unwrap().is_empty());
 }

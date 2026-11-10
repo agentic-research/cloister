@@ -20,6 +20,8 @@ import {
   resolveProviderArtifact,
 } from "../../cli/lib/runtime/provider-record.mjs";
 import { installCompatibilityProvider } from "../../cli/lib/runtime/install-compatibility.mjs";
+import { hostRuntimeEnv } from "../../cli/lib/runtime/compatibility-client.mjs";
+import { resolveMicrovm } from "../../cli/lib/runtime/provider-record.mjs";
 import { main as runtimeMain } from "../../cli/commands/runtime.mjs";
 import { resolveNativeHelper } from "../../cli/lib/harness/launch.mjs";
 
@@ -28,6 +30,11 @@ function tempRoot(t) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
+
+/** Pre-991e65 tests are about the two cargo-built artifacts. Without this they
+ * would reach for the real libkrunfw and the real LLO release on a darwin-arm64
+ * host, and pass or fail by machine. */
+const NO_MICROVM = { findLibkrunfw: () => null };
 
 function fakeCargo(root, calls, { failHost = false } = {}) {
   return async (command, args, options) => {
@@ -66,6 +73,10 @@ test("install layout has stable XDG-like defaults and explicit overrides", () =>
     providerRecord: "/home/example/.local/libexec/cloister/runtime-provider.json",
     nativeHelper: "/home/example/.local/libexec/cloister/cloister-harness",
     hostRuntime: "/home/example/.local/libexec/cloister/cloister-host-runtime",
+    krunWorker: "/home/example/.local/libexec/cloister/leyline-krun-worker",
+    stateDir: "/home/example/.local/state/cloister",
+    casRoot: "/home/example/.local/state/cloister/cas",
+    runRoot: "/home/example/.local/state/cloister/run",
   });
 
   const overridden = resolveInstallLayout({
@@ -92,7 +103,7 @@ test("compatibility install copies both binaries and writes the provider record 
   const installed = await installCompatibilityProvider({
     root,
     layout,
-    spawn: fakeCargo(root, calls),
+    spawn: fakeCargo(root, calls), ...NO_MICROVM,
     platform: "darwin",
   });
 
@@ -119,7 +130,7 @@ test("provider resolution refuses a binary whose bytes changed after install", a
     home: root,
     checkoutRoot: root,
   });
-  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []) });
+  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []), ...NO_MICROVM });
   writeFileSync(layout.hostRuntime, "tampered\n");
 
   const record = readProviderRecord(layout);
@@ -133,7 +144,7 @@ test("confined harness launch resolves the native helper from the installed prov
   const root = tempRoot(t);
   const env = { CLOISTER_LIBEXEC_DIR: join(root, "libexec") };
   const layout = resolveInstallLayout({ env, home: root, checkoutRoot: root });
-  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []) });
+  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []), ...NO_MICROVM });
 
   assert.equal(resolveNativeHelper({ root, env }), layout.nativeHelper);
 });
@@ -156,7 +167,7 @@ test("provider selection rejects a record that changes the named compatibility c
     home: root,
     checkoutRoot: root,
   });
-  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []) });
+  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []), ...NO_MICROVM });
   const record = JSON.parse(readFileSync(layout.providerRecord, "utf8"));
   record.transport = "uds";
   writeFileSync(layout.providerRecord, JSON.stringify(record));
@@ -190,7 +201,7 @@ test("the on-disk provider record contains only relative artifact names", async 
     home: root,
     checkoutRoot: root,
   });
-  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []) });
+  await installCompatibilityProvider({ root, layout, spawn: fakeCargo(root, []), ...NO_MICROVM });
   const raw = JSON.parse(readFileSync(layout.providerRecord, "utf8"));
   assert.equal(raw.artifacts.nativeHelper.file, "cloister-harness");
   assert.equal(raw.artifacts.hostRuntime.file, "cloister-host-runtime");
@@ -219,4 +230,127 @@ test("cloister runtime install selects the named compatibility provider", async 
   assert.equal(calls[0].root, root);
   assert.equal(calls[0].layout.libexecDir, join(root, "libexec"));
   assert.match(logs.join("\n"), /compatibility.*experimental/i);
+});
+
+// ── cloister-991e65: the microVM tier is provided by install ────────────────
+
+function microvmFixture(t) {
+  const root = tempRoot(t);
+  const layout = resolveInstallLayout({
+    env: {
+      CLOISTER_LIBEXEC_DIR: join(root, "libexec"),
+      CLOISTER_STATE_DIR: join(root, "state"),
+    },
+    home: root,
+    checkoutRoot: root,
+  });
+  const fetched = join(root, "download/leyline-krun-worker");
+  mkdirSync(dirname(fetched), { recursive: true });
+  writeFileSync(fetched, "krun worker\n");
+  const firmware = join(root, "lib/libkrunfw.5.dylib");
+  mkdirSync(dirname(firmware), { recursive: true });
+  writeFileSync(firmware, "guest kernel\n");
+  const fetches = [];
+  const deps = {
+    root,
+    layout,
+    spawn: fakeCargo(root, []),
+    platform: "darwin",
+    arch: "arm64",
+    env: {},
+    fetchKrunWorker: async (_root, target) => { fetches.push(target); return fetched; },
+    findLibkrunfw: () => firmware,
+  };
+  return { root, layout, firmware, fetches, deps };
+}
+
+test("install provides the microVM tier: pinned worker, store, run root, recorded firmware", async (t) => {
+  const { layout, firmware, fetches, deps } = microvmFixture(t);
+  await installCompatibilityProvider(deps);
+
+  assert.deepEqual(fetches, ["darwin-arm64"]);
+  assert.ok(existsSync(layout.krunWorker));
+  assert.ok(existsSync(layout.casRoot) && existsSync(layout.runRoot));
+  const record = readProviderRecord(layout);
+  assert.equal(record.microvm.krunWorker.file, "leyline-krun-worker");
+  assert.equal(record.microvm.libkrunfw.path, firmware);
+  assert.deepEqual(resolveMicrovm(record), {
+    krunWorker: layout.krunWorker,
+    libkrunfw: firmware,
+    casRoot: layout.casRoot,
+    runRoot: layout.runRoot,
+  });
+});
+
+test("a host with no published worker installs without the tier and says why", async (t) => {
+  const { layout, fetches, deps } = microvmFixture(t);
+  const lines = [];
+  await installCompatibilityProvider({ ...deps, platform: "linux", arch: "x64", log: (m) => lines.push(m) });
+  assert.deepEqual(fetches, [], "nothing is fetched for a target LLO does not publish");
+  assert.equal(readProviderRecord(layout).microvm, undefined);
+  assert.match(lines.join("\n"), /microVM tier unavailable: .*darwin-arm64 only/);
+});
+
+test("no libkrunfw means no tier, with the install hint — never a guessed path", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  const lines = [];
+  await installCompatibilityProvider({ ...deps, findLibkrunfw: () => null, log: (m) => lines.push(m) });
+  assert.equal(readProviderRecord(layout).microvm, undefined);
+  assert.match(lines.join("\n"), /libkrunfw not found.*brew install libkrunfw/);
+});
+
+test("a worker download that fails stops the install before any record is published", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  await assert.rejects(
+    installCompatibilityProvider({
+      ...deps,
+      fetchKrunWorker: async () => { throw new Error("schema-bridge: DIGEST MISMATCH for leyline-krun-worker-darwin-arm64"); },
+    }),
+    /leyline-krun-worker: schema-bridge: DIGEST MISMATCH/,
+  );
+  assert.equal(existsSync(layout.providerRecord), false);
+});
+
+test("a swapped guest kernel or worker is refused at run time", async (t) => {
+  const { layout, firmware, deps } = microvmFixture(t);
+  await installCompatibilityProvider(deps);
+  writeFileSync(firmware, "a different kernel\n");
+  assert.throws(() => resolveMicrovm(readProviderRecord(layout)), /digest mismatch for libkrunfw/);
+
+  writeFileSync(firmware, "guest kernel\n");
+  writeFileSync(layout.krunWorker, "tampered\n");
+  assert.throws(() => resolveMicrovm(readProviderRecord(layout)), /digest mismatch for krunWorker/);
+});
+
+test("the host runtime is started with the installed tier; explicit operator env wins", async (t) => {
+  const { layout, firmware, deps } = microvmFixture(t);
+  await installCompatibilityProvider(deps);
+  const record = readProviderRecord(layout);
+
+  const env = hostRuntimeEnv(record, { PATH: "/usr/bin" });
+  assert.equal(env.CLOISTER_KRUN_WORKER, layout.krunWorker);
+  assert.equal(env.CLOISTER_CAS_ROOT, layout.casRoot);
+  assert.equal(env.CLOISTER_EPHEMERAL_ROOT, layout.runRoot);
+  assert.equal(env.CLOISTER_LIBKRUNFW, firmware);
+  assert.equal(env.DYLD_LIBRARY_PATH, dirname(firmware));
+  assert.equal(env.PATH, "/usr/bin");
+
+  const overridden = hostRuntimeEnv(record, { CLOISTER_CAS_ROOT: "/operator/cas" });
+  assert.equal(overridden.CLOISTER_CAS_ROOT, "/operator/cas");
+});
+
+test("a record without the tier leaves the environment untouched", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  await installCompatibilityProvider({ ...deps, findLibkrunfw: () => null });
+  const env = { PATH: "/usr/bin" };
+  assert.equal(hostRuntimeEnv(readProviderRecord(layout), env), env);
+});
+
+test("a half-written microvm section makes the record unselectable", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  await installCompatibilityProvider(deps);
+  const raw = JSON.parse(readFileSync(layout.providerRecord, "utf8"));
+  delete raw.microvm.libkrunfw.sha256;
+  writeFileSync(layout.providerRecord, JSON.stringify(raw));
+  assert.throws(() => readProviderRecord(layout), /libkrunfw\.sha256/);
 });

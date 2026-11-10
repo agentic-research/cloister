@@ -13,8 +13,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
 use leyline_runtime::{
-    Backend as LeylineBackendTrait, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
+    Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
     EnforcedCeilings, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
 };
 
@@ -75,11 +76,35 @@ fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
 /// onto cloister's two `ExecutionMode`s, and `HostRuntime` already dispatches on
 /// mode. Pinning the concrete type here would rebuild that dispatch a second
 /// time in a second place.
-pub struct LeylineExecutionBackend<B: LeylineBackendTrait> {
+pub struct LeylineExecutionBackend<B: LeylineBackendTrait + AwaitRun> {
     inner: Arc<B>,
 }
 
-impl<B: LeylineBackendTrait> LeylineExecutionBackend<B> {
+/// Block until a started run reaches its terminal state (cloister-991e65).
+///
+/// LLO's `Backend::start` returns once the worker reports READY, which is
+/// before the workload has done anything. Treating that as the run's outcome is
+/// how `cloister-host-runtime run` exited 0 for a guest whose result nobody
+/// observed — and, since the process then exited and dropped the backend, the
+/// drop cancelled the VM it had just started. A launch is therefore not
+/// complete until the run is.
+///
+/// A trait of cloister's rather than LLO's `poll`, because `poll` is
+/// non-blocking and the only way to turn it into a wait is a sleep loop, which
+/// LLO's own `wait_for_completion` doc forbids ("must not infer completion by
+/// ... sleeping for a guessed duration"). The real backend's blocking wait is
+/// an inherent method; this names it so the generic wrapper can call it.
+pub trait AwaitRun {
+    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError>;
+}
+
+impl AwaitRun for KrunWorkerBackend {
+    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError> {
+        self.wait_for_completion(run_id)
+    }
+}
+
+impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
     pub fn new(inner: Arc<B>) -> Self {
         Self { inner }
     }
@@ -201,12 +226,19 @@ fn to_execution_request(
     })
 }
 
-impl<B: LeylineBackendTrait> Backend for LeylineExecutionBackend<B> {
+impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError> {
         let request = to_execution_request(plan, &self.inner.capabilities().enforced)?;
         self.inner
             .start(&request)
-            .map(|_run| ())
-            .map_err(|error: ExecutionError| RuntimeError::Backend(error.to_string()))
+            .map_err(|error: ExecutionError| RuntimeError::Backend(error.to_string()))?;
+        match self
+            .inner
+            .await_run(&request.run_id)
+            .map_err(|error| RuntimeError::Backend(error.to_string()))?
+        {
+            BackendRunStatus::Succeeded => Ok(()),
+            BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(error.to_string())),
+        }
     }
 }

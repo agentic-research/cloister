@@ -177,6 +177,12 @@ test("task install bootstraps dependencies before exposing a usable CLI", () => 
         ...process.env,
         CLOISTER_BIN_DIR: binDir,
         CLOISTER_LIBEXEC_DIR: libexecDir,
+        // This test is about the bootstrap, not the microVM tier: point the
+        // firmware lookup nowhere so a darwin-arm64 host with Homebrew libkrunfw
+        // neither downloads LLO's worker nor writes the operator's real state
+        // dir (cloister-991e65; that tier is covered in runtime-provider.test).
+        CLOISTER_LIBKRUNFW: join(root, "no-libkrunfw"),
+        CLOISTER_STATE_DIR: join(root, ".install", "state"),
         CLOISTER_TEST_SOURCE_NODE_MODULES: resolve(REPO_ROOT, "node_modules"),
         CLOISTER_TEST_TOOL_LOG: toolLog,
         PATH: `${shimDir}:${process.env.PATH}`,
