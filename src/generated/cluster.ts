@@ -44,6 +44,7 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
+      "ports": [],
       "kind": {
         "external": {
           "image": "cloister:0.1.0",
@@ -78,6 +79,7 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
+      "ports": [],
       "kind": {
         "external": {
           "image": "",
@@ -112,6 +114,7 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
+      "ports": [],
       "kind": {
         "external": {
           "image": "",
@@ -151,6 +154,7 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
+      "ports": [],
       "kind": {
         "external": {
           "image": "",
@@ -191,6 +195,7 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
+      "ports": [],
       "kind": {
         "external": {
           "image": "",
@@ -579,5 +584,6 @@ export const cluster: Cluster = {
       }
     ]
   },
-  "edges": []
+  "edges": [],
+  "connections": []
 } as const;

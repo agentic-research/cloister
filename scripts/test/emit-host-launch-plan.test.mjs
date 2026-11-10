@@ -104,6 +104,8 @@ test("parsePlanArgs requires explicit bundle and absolute workspace", () => {
       workspace: "/repo",
       controlSocket: "/tmp/mache.sock",
       output: "/tmp/plan.json",
+      env: "local",
+      channelDir: "/tmp/cloister-host-runtime/ch",
     },
   );
   assert.throws(() => parsePlanArgs(["mache", "--workspace", "relative"]), /absolute/);

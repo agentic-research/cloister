@@ -111,6 +111,12 @@ function canonicalizeCluster(c) {
   if (Array.isArray(c.edges) && c.edges.length > 0) {
     out.edges = c.edges.map(canonicalizeEdge);
   }
+  // ADR-0069 §1 (cloister-991e65): `[[connections]]` with
+  // `[[connections.targets]]` rows. Skipped on empty, like edges, so a
+  // cluster with no declared connections round-trips byte-identically.
+  if (Array.isArray(c.connections) && c.connections.length > 0) {
+    out.connections = c.connections.map(canonicalizeConnection);
+  }
   if (c.storage) out.storage = sortKeys(c.storage);
   return out;
 }
@@ -126,6 +132,31 @@ function canonicalizeEdge(e) {
   if (typeof e.to          === "string" && e.to          !== "") body.to          = e.to;
   if (typeof e.appProtocol === "string" && e.appProtocol !== "") body.appProtocol = e.appProtocol;
   if (typeof e.transport   === "string" && e.transport   !== "") body.transport   = e.transport;
+  return body;
+}
+
+/** Keep only non-empty strings and non-zero numbers, keys sorted. */
+function pruneEmptyScalars(row) {
+  const body = {};
+  for (const k of Object.keys(row ?? {}).sort()) {
+    const v = row[k];
+    if (typeof v === "string" && v !== "") body[k] = v;
+    else if (typeof v === "number" && v !== 0) body[k] = v;
+  }
+  return body;
+}
+
+/**
+ * Canonicalize a ConnectionSpec (ADR-0069 §1). Scalars drop when empty, as
+ * for edges; `targets` rows stay in declaration order (order is meaningful
+ * to nobody, but reordering would be a diff the operator did not write).
+ */
+function canonicalizeConnection(conn) {
+  const { targets, ...scalars } = conn ?? {};
+  const body = pruneEmptyScalars(scalars);
+  if (Array.isArray(targets) && targets.length > 0) {
+    body.targets = targets.map(pruneEmptyScalars);
+  }
   return body;
 }
 
@@ -373,6 +404,13 @@ function pruneBundleScalarDefaults(scalars) {
   if (flat.workerdServiceName === "") delete flat.workerdServiceName;
   if (flat.hypervisorRationale === "") delete flat.hypervisorRationale;
   if (flat.perTenant === false) delete flat.perTenant;
+  // ADR-0069 §1 (cloister-991e65): `[[bundles.ports]]` rows, omitted when
+  // none are declared so existing cluster.toml files gain no `ports = []`.
+  if (!Array.isArray(flat.ports) || flat.ports.length === 0) {
+    delete flat.ports;
+  } else {
+    flat.ports = flat.ports.map(pruneEmptyScalars);
+  }
   // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
   // default applied in toml-to-cluster's normalizeConfinement.

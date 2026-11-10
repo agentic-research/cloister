@@ -242,6 +242,42 @@ sees the channel as TCP on `127.0.0.1:<guestPort>`. For example, Dolt
 `mysql --socket=<path>`. The guest has no `/tmp`, so ship one in the rootfs if
 the workload needs it.
 
+You don't write these grants by hand. Declare ports and connections in
+`cluster.toml`, and `cloister runtime plan` derives the grants for a `microvm`
+bundle:
+
+```toml
+# inside the `dolt` [[bundles]] entry (an external bundle, executionMode = "microvm")
+[[bundles.ports]]
+name = "mysql"
+port = 3306
+appProtocol = "art.mysql"
+expose = "cluster"
+
+[[connections]]
+from = "orders"
+name = "orders-db"
+appProtocol = "art.mysql"
+
+[[connections.targets]]
+env = "local"
+bundle = "dolt"
+port = "mysql"
+```
+
+```sh
+cloister runtime plan orders --workspace /tmp/ws --env local --channel-dir /tmp/cloister-host-runtime/ch
+```
+
+Each exposed port becomes a `bind` grant on `<channel-dir>/<bundle>.<port>.sock`
+with `guestPort` set to the port. Each connection becomes a connect grant on the
+target's socket, so the `dolt` plan binds the same path the `orders` plan
+connects to, and the two plans join without a broker. `--env` (default `local`)
+picks which target row is used. `--channel-dir` (default
+`/tmp/cloister-host-runtime/ch`) must be a canonical absolute path short enough
+that every socket path fits in 103 bytes. A `process` bundle with ports or
+connections is refused, because `guestPort` is microVM-only.
+
 Apart from those declared channels, the guest has no network at all. There is
 no virtual NIC, UDP is denied, and undeclared loopback ports are refused. That
 is the isolation property this tier exists for.

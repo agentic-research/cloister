@@ -11,6 +11,13 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
+import {
+  DEFAULT_CHANNEL_DIR,
+  assertPortsAndConnections,
+  lowerChannelGrants,
+  normalizeConnections,
+  normalizePorts,
+} from "../lib/cluster/connections.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -35,6 +42,12 @@ export function parsePlanArgs(argv) {
     } else if (arg === "--control-socket") {
       opts.controlSocket = requiredValue(argv, i, arg);
       i += 1;
+    } else if (arg === "--env") {
+      opts.env = requiredValue(argv, i, arg);
+      i += 1;
+    } else if (arg === "--channel-dir") {
+      opts.channelDir = requiredValue(argv, i, arg);
+      i += 1;
     } else if (arg === "--output") {
       opts.output = requiredValue(argv, i, arg);
       i += 1;
@@ -56,6 +69,12 @@ export function parsePlanArgs(argv) {
   if (!isAbsolute(opts.controlSocket)) throw new Error("--control-socket must be absolute");
   if (!isCanonicalAbsolutePath(opts.controlSocket)) {
     throw new Error("--control-socket must be a canonical absolute path");
+  }
+  opts.env ??= "local";
+  opts.channelDir ??= DEFAULT_CHANNEL_DIR;
+  if (!isAbsolute(opts.channelDir)) throw new Error("--channel-dir must be absolute");
+  if (!isCanonicalAbsolutePath(opts.channelDir)) {
+    throw new Error("--channel-dir must be a canonical absolute path");
   }
   if (opts.output && !isAbsolute(opts.output)) throw new Error("--output must be absolute");
   if (opts.output && !isCanonicalAbsolutePath(opts.output)) {
@@ -107,6 +126,28 @@ export function buildLaunchPlan(cluster, lock, options) {
     );
   }
 
+  // ADR-0069 / ADR-0070 §4 (cloister-991e65): declared ports + connections
+  // lower to confinement/v1 §6 grants. Checked here as well as in
+  // toml-to-cluster because this command reads cluster.toml directly.
+  const bundles = (cluster?.bundles ?? []).map((b) => ({
+    name: b?.name,
+    ports: normalizePorts(b?.ports),
+    executionMode: b?.external?.executionMode ?? "",
+  }));
+  const connections = normalizeConnections(cluster?.connections);
+  assertPortsAndConnections(bundles, connections);
+  const grants = lowerChannelGrants(bundles, connections, {
+    bundle: bundle.name,
+    env: options.env ?? "local",
+    channelDir: options.channelDir ?? DEFAULT_CHANNEL_DIR,
+  });
+  const baseConfinement = bundle.confinement ?? defaultConfinement();
+  // The key is added only when there is a grant, so a plan for a bundle with
+  // no declarations is byte-identical to one emitted before this lowering.
+  const confinement = grants.length > 0
+    ? { ...baseConfinement, unixSocket: { allow: grants } }
+    : baseConfinement;
+
   return {
     schema: "cloister/host-runtime/v1",
     bundle: bundle.name,
@@ -117,7 +158,7 @@ export function buildLaunchPlan(cluster, lock, options) {
       entrypoint: external.entryPoint,
       args: Array.isArray(external.args) ? external.args : [],
     },
-    confinement: bundle.confinement ?? defaultConfinement(),
+    confinement,
     workspace: options.workspace,
     controlSocket: options.controlSocket,
   };
@@ -128,6 +169,8 @@ function printHelp(log = console.log) {
   log("");
   log("Options:");
   log("  --control-socket <path>  Host-runtime control socket");
+  log('  --env <name>             Environment whose connection targets to lower (default "local")');
+  log(`  --channel-dir <path>     Directory of channel sockets (default ${DEFAULT_CHANNEL_DIR})`);
   log("  --output <path>          Write JSON atomically-addressable plan input");
 }
 

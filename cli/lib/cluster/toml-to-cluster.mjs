@@ -39,6 +39,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
+import { assertPortsAndConnections } from "./connections.mjs";
 
 // Path constants — the repo-root cluster.toml (operator source) and
 // src/generated/cluster.ts (the sole generated output; the legacy
@@ -165,6 +166,16 @@ export async function parseTomlToCluster(tomlString) {
       }
     }
   });
+
+  //    4c-1. Declared ports + connections resolve (ADR-0069 §1–2,
+  //        cloister-991e65). Port names / numbers unique per bundle, every
+  //        connection's target names an exposed port on another declared
+  //        bundle, and the two ends agree on appProtocol. Shared with
+  //        `cloister runtime plan`, which lowers the same declarations.
+  assertPortsAndConnections(
+    validated.bundles.map((b) => ({ name: b.name, ports: b.ports ?? [] })),
+    validated.connections ?? [],
+  );
 
   //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
   //        tables are the blind spot: smol-toml rejects a duplicate KEY inside

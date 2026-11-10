@@ -68,6 +68,60 @@ export interface Cluster {
    * an empty list.
    */
   edges?:   readonly EdgeSpec[];
+  /**
+   * Declared outbound connections (ADR-0069 §1 / cloister-991e65). Each
+   * names the dialling bundle, the connection's name, its appProtocol, and
+   * one target row per environment. On the microvm placement each lowers to
+   * a confinement/v1 §6 connect grant (ADR-0070 §4).
+   *
+   * Optional in the TS mirror, like `edges`; absent = no connections.
+   */
+  connections?: readonly ConnectionSpec[];
+}
+
+/**
+ * One declared outbound connection (ADR-0069 §1). Mirrors
+ * `manifest/cluster.capnp` `ConnectionSpec`. Not to be confused with
+ * `Connection` (ADR-0051), which is how cloister reaches an INPUT.
+ */
+export interface ConnectionSpec {
+  /** The dialling bundle. */
+  from: string;
+  /** The connection's name; (from, name) is unique. */
+  name: string;
+  /** ADR-0030 §A4 label; must equal the target port's `appProtocol`. */
+  appProtocol: string;
+  /** One row per environment; `env` unique within the connection. */
+  targets: readonly ConnectionTarget[];
+}
+
+/**
+ * One environment's answer to a connection. Only the bundle target kind
+ * exists in this slice; cloudRun / cloudSql targets arrive as appended fields.
+ */
+export interface ConnectionTarget {
+  /** Environment name, e.g. `"local"`; selected by `runtime plan --env`. */
+  env: string;
+  /** A declared bundle other than the connection's `from`. */
+  bundle: string;
+  /** A port NAME on `bundle` whose `expose` is not `"none"`. */
+  port: string;
+}
+
+/**
+ * One named inbound port (ADR-0069 §1). Mirrors `manifest/cluster.capnp`
+ * `PortSpec`. Names and numbers are unique per bundle; checked by
+ * toml-to-cluster.
+ */
+export interface PortSpec {
+  /** a-z, 0-9 and hyphen; connections reference the port by this name. */
+  name: string;
+  /** 1-65535. On microvm, the guest-loopback port the channel is presented on. */
+  port: number;
+  /** ADR-0030 §A4 label. */
+  appProtocol: string;
+  /** `"none"` | `"cluster"` | `"edge"`; `""` means `"none"`. */
+  expose: string;
 }
 
 /**
@@ -296,11 +350,21 @@ export interface Bundle {
 
   /**
    * cloister-a34edc: the §1 confinement facet (cloister/confinement/v1). Four fail-closed default-DENY dimensions (of the spec's five —
-   * §6 unixSocket is not yet expressible here; see manifest/cluster.capnp); BLAKE3-256 of its §7-canonical form is
+   * §6 unixSocket is not declared here: it is derived from `ports` + `Cluster.connections`); BLAKE3-256 of its §7-canonical form is
    * the `confinementDigest` committed to the bundle's Interlace identity.
    * (Hand-mirrors `src/generated/cluster.zod.ts`; the dedup is bead cloister-204ac9.)
    */
   confinement: Confinement;
+
+  /**
+   * Named inbound ports (ADR-0069 §1 / cloister-991e65). On microvm, each
+   * exposed port lowers to a §6 bind grant with `guestPort` — §6 grants are
+   * derived from these and `Cluster.connections` by `cloister runtime plan`,
+   * never declared on `confinement` directly. Required (not optional like
+   * `Cluster.edges`) because bundle-drift-guard.ts holds Bundle structurally
+   * equal to the generated type; toml-to-cluster defaults it to `[]`.
+   */
+  ports: readonly PortSpec[];
 }
 
 /** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */

@@ -31,6 +31,7 @@ export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
     hypervisorRationale: z.string().default(""),
     perTenant: z.boolean().default(false),
     confinement: ConfinementSchema,
+    ports: z.array(PortSpecSchema).readonly().default([]),
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
       z.object({ external: ExternalBundleSchema }).strict(),
@@ -46,6 +47,7 @@ export interface Bundle {
   hypervisorRationale: string;
   perTenant: boolean;
   confinement: Confinement;
+  ports: readonly PortSpec[];
   kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
 }
 
@@ -167,6 +169,21 @@ export interface EdgeSpec {
   transport: string;
 }
 
+export const ConnectionSpecSchema: z.ZodType<ConnectionSpec> = z.lazy(() =>
+  z.object({
+    from: z.string().default(""),
+    name: z.string().default(""),
+    appProtocol: z.string().default(""),
+    targets: z.array(ConnectionTargetSchema).readonly().default([]),
+  }).strict());
+
+export interface ConnectionSpec {
+  from: string;
+  name: string;
+  appProtocol: string;
+  targets: readonly ConnectionTarget[];
+}
+
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
     metadata: ClusterMetadataSchema,
@@ -177,6 +194,7 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     routes: z.array(RouteSchema).readonly().default([]),
     gateway: GatewaySchema,
     edges: z.array(EdgeSpecSchema).readonly().default([]),
+    connections: z.array(ConnectionSpecSchema).readonly().default([]),
   }).strict());
 
 export interface Cluster {
@@ -188,6 +206,7 @@ export interface Cluster {
   routes: readonly Route[];
   gateway: Gateway;
   edges: readonly EdgeSpec[];
+  connections: readonly ConnectionSpec[];
 }
 
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
@@ -235,6 +254,21 @@ export interface Confinement {
   network: ConfinementNetwork;
   port: ConfinementPort;
   credentialSource: string;
+}
+
+export const PortSpecSchema: z.ZodType<PortSpec> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    port: z.number().int().nonnegative().default(0),
+    appProtocol: z.string().default(""),
+    expose: z.string().default(""),
+  }).strict());
+
+export interface PortSpec {
+  name: string;
+  port: number;
+  appProtocol: string;
+  expose: string;
 }
 
 export const ConfinementFsSchema: z.ZodType<ConfinementFs> = z.lazy(() =>
@@ -621,6 +655,19 @@ export const BodyFieldSpecSchema: z.ZodType<BodyFieldSpec> = z.lazy(() =>
 
 export interface BodyFieldSpec {
   path: string;
+}
+
+export const ConnectionTargetSchema: z.ZodType<ConnectionTarget> = z.lazy(() =>
+  z.object({
+    env: z.string().default(""),
+    bundle: z.string().default(""),
+    port: z.string().default(""),
+  }).strict());
+
+export interface ConnectionTarget {
+  env: string;
+  bundle: string;
+  port: string;
 }
 
 export const GeneratedBackendSchema: z.ZodType<GeneratedBackend> = z.lazy(() =>

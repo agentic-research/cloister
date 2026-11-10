@@ -255,6 +255,8 @@ Emit a fail-closed host launch plan
 |---|---|---|
 | `--workspace` `<abs>` | **required** | workspace the plan is scoped to |
 | `--control-socket` `<path>` |  | host-runtime control socket |
+| `--env` `<name>` |  | environment whose connection targets are lowered (default: local) |
+| `--channel-dir` `<abs>` |  | directory of declared-channel sockets (default: /tmp/cloister-host-runtime/ch) |
 | `--output` `<path>` |  | write the JSON plan here |
 
 ## cloister runtime install
