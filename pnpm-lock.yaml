@@ -30,13 +30,16 @@ importers:
       tsx:
         specifier: ^4.23.0
         version: 4.23.0
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
         specifier: ^4.6.6
         version: 4.6.6
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.15.2
-        version: 0.15.2(@cloudflare/workers-types@4.20260702.1)(@vitest/runner@4.1.12)(@vitest/snapshot@4.1.12)(vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)))
+        version: 0.15.2(@cloudflare/workers-types@4.20260702.1)(@vitest/runner@4.1.12)(@vitest/snapshot@4.1.12)(vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)))
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
         version: 4.20260702.1
@@ -48,10 +51,10 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^7.3.7
-        version: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)
+        version: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0))
+        version: 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1))
       workerd:
         specifier: ^1.20260511.1
         version: 1.20260511.1
@@ -1264,6 +1267,11 @@ packages:
       utf-8-validate:
         optional: true
 
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   youch-core@0.3.3:
     resolution: {integrity: sha512-ho7XuGjLaJ2hWHoK8yFnsUGy2Y5uDpqSTq1FkHLK4/oqKtyUU1AFbOOxY4IpC9f0fTLjwYbslUz0Po5BpD1wrA==}
 
@@ -1306,14 +1314,14 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260430.1
 
-  '@cloudflare/vitest-pool-workers@0.15.2(@cloudflare/workers-types@4.20260702.1)(@vitest/runner@4.1.12)(@vitest/snapshot@4.1.12)(vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)))':
+  '@cloudflare/vitest-pool-workers@0.15.2(@cloudflare/workers-types@4.20260702.1)(@vitest/runner@4.1.12)(@vitest/snapshot@4.1.12)(vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)))':
     dependencies:
       '@vitest/runner': 4.1.12
       '@vitest/snapshot': 4.1.12
       cjs-module-lexer: 1.4.3
       esbuild: 0.28.1
       miniflare: 4.20260430.0
-      vitest: 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0))
+      vitest: 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1))
       wrangler: 4.87.0(@cloudflare/workers-types@4.20260702.1)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -1751,13 +1759,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0))':
+  '@vitest/mocker@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1))':
     dependencies:
       '@vitest/spy': 4.1.12
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)
+      vite: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)
 
   '@vitest/pretty-format@4.1.12':
     dependencies:
@@ -2095,7 +2103,7 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
-  vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0):
+  vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1):
     dependencies:
       esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.7)
@@ -2107,11 +2115,12 @@ snapshots:
       fsevents: 2.3.3
       lightningcss: 1.32.0
       tsx: 4.23.0
+      yaml: 2.9.1
 
-  vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)):
+  vitest@4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)):
     dependencies:
       '@vitest/expect': 4.1.12
-      '@vitest/mocker': 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0))
+      '@vitest/mocker': 4.1.12(vite@7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1))
       '@vitest/pretty-format': 4.1.12
       '@vitest/runner': 4.1.12
       '@vitest/snapshot': 4.1.12
@@ -2128,7 +2137,7 @@ snapshots:
       tinyexec: 1.1.1
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)
+      vite: 7.3.7(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.1)
       why-is-node-running: 2.3.0
     transitivePeerDependencies:
       - msw
@@ -2173,6 +2182,8 @@ snapshots:
       - utf-8-validate
 
   ws@8.21.1: {}
+
+  yaml@2.9.1: {}
 
   youch-core@0.3.3:
     dependencies:

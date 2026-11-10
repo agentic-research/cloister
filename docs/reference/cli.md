@@ -32,6 +32,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister cluster resolve`](#cloister-cluster-resolve) | Resolve declared inputs into cluster.lock.toml |
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up via compose |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
+| [`cloister cluster k8s`](#cloister-cluster-k8s) | Lower kubernetes placements to manifests + NetworkPolicy |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
 | [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
@@ -234,6 +235,22 @@ Stops the cluster and KEEPS its volumes. Durable-Object SQLite state lives in th
 |---|---|---|
 | `--dir` `<path>` |  | cluster directory (default: the current directory) |
 | `--destroy` |  | ALSO remove volumes — unrecoverable; DO state lives there |
+
+## cloister cluster k8s
+
+```
+cloister cluster k8s --out <dir> [--env <name>] [--dir <path>]
+```
+
+For each bundle placed "kubernetes" in --env, checks its rendered manifest's Service against the ports cluster.toml declares, copies the manifest unchanged, and adds an overlay in a namespace named after the bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one NetworkPolicy per declared connection into it. Apply each bundle's directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. Edges to other placements are refused (they need LLO's broker). ADR-0070 §4.
+
+| Flag | | |
+|---|---|---|
+| `--out` `<dir>` | **required** | output directory (may exist, but only with files this run writes) |
+| `--env` `<name>` |  | environment whose placements and targets are lowered (default: local) |
+| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+
+See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-placements-and-channel-strength.md)
 
 ## cloister artifacts pull
 

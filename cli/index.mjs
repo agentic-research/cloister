@@ -100,7 +100,7 @@ export async function main(argv = process.argv.slice(2), context = {}) {
     // `cluster` or `cluster --help` also routes, so asking for help works
     // before you know the verbs.
     const sub = rest[0];
-    if (sub === "generate" || sub === "resolve" || sub === "up" || sub === "down" || sub === undefined || sub === "--help" || sub === "-h") {
+    if (sub === "generate" || sub === "resolve" || sub === "up" || sub === "down" || sub === "k8s" || sub === undefined || sub === "--help" || sub === "-h") {
       const { main: clusterMain } = await import("./commands/cluster.mjs");
       return clusterMain(rest, {
         log,

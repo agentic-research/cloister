@@ -234,6 +234,33 @@ struct Bundle {
   #
   # Append-only ordinal per ADR-0004.
   ports @10 :List(PortSpec);
+
+  # ── placements (ADR-0070 §2; cloister-991e65) ───────────────────────────
+  #
+  # Where this bundle runs, one row per environment. A bundle with no rows and
+  # executionMode "microvm" is implicitly placed "microvm" in every env (the
+  # pre-placement behaviour); any other bundle a connection names in an env
+  # must declare a row for it. Append-only ordinal per ADR-0004.
+  placements @11 :List(PlacementSpec);
+}
+
+# ── PlacementSpec (ADR-0070 §2 / cloister-991e65) ─────────────────────────
+#
+# A list keyed by `env`, not ADR-0070's original `placement.<env>` table,
+# because capnp has no maps (same reason as ConnectionSpec.targets).
+struct PlacementSpec {
+  env @0 :Text;   # unique per bundle
+  # "microvm" | "workerd" (constructed: cloister builds the node)
+  # "kubernetes" | "cloudRun" (forwarded: cloister owns only the edges).
+  # Lowered today: microvm (`cloister runtime plan`) and kubernetes
+  # (`cloister cluster k8s`). workerd and cloudRun parse, and every emitter
+  # refuses them by name.
+  kind @1 :Text;
+  # Path, relative to the cluster directory, to the operator's RENDERED
+  # manifest. Forwarded kinds only: required for kubernetes, refused on
+  # constructed kinds. Cloister parses it to check edges and copies it
+  # unchanged; it never edits the operator's objects.
+  manifest @2 :Text;
 }
 
 # ── PortSpec (ADR-0069 §1 / cloister-991e65) ─────────────────────────────
@@ -265,6 +292,11 @@ struct ConnectionSpec {
   name @1 :Text;          # the connection's name, unique per `from`
   appProtocol @2 :Text;   # must equal the target port's appProtocol
   targets @3 :List(ConnectionTarget);
+  # ADR-0070 §3: "" (no floor) | "none" | "policy" | "capability". An edge's
+  # strength in an env is the meet of its two ends' placements (microvm =
+  # capability, kubernetes = policy, else none); below this floor the build
+  # fails by name. Append-only ordinal per ADR-0004.
+  minStrength @4 :Text;
 }
 
 # One environment's answer to a connection. This slice declares only the

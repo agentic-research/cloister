@@ -93,6 +93,11 @@ export interface ConnectionSpec {
   appProtocol: string;
   /** One row per environment; `env` unique within the connection. */
   targets: readonly ConnectionTarget[];
+  /**
+   * ADR-0070 §3 floor: `""` | `"none"` | `"policy"` | `"capability"`. The
+   * build fails when the meet of the two ends' placement strengths is lower.
+   */
+  minStrength: string;
 }
 
 /**
@@ -365,6 +370,32 @@ export interface Bundle {
    * equal to the generated type; toml-to-cluster defaults it to `[]`.
    */
   ports: readonly PortSpec[];
+
+  /**
+   * Where the bundle runs, one row per environment (ADR-0070 §2 /
+   * cloister-991e65). No rows + executionMode "microvm" = implicitly
+   * "microvm" everywhere. Required for the same drift-guard reason as `ports`.
+   */
+  placements: readonly PlacementSpec[];
+}
+
+/**
+ * One environment's placement for a bundle (ADR-0070 §2). Mirrors
+ * `manifest/cluster.capnp` `PlacementSpec`.
+ */
+export interface PlacementSpec {
+  /** Environment name; unique per bundle. */
+  env: string;
+  /**
+   * `"microvm"` | `"workerd"` (constructed) or `"kubernetes"` | `"cloudRun"`
+   * (forwarded). Only microvm and kubernetes are lowered today.
+   */
+  kind: string;
+  /**
+   * Cluster-dir-relative path to the operator's rendered manifest. Required
+   * for kubernetes, refused on constructed kinds; copied, never edited.
+   */
+  manifest: string;
 }
 
 /** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */

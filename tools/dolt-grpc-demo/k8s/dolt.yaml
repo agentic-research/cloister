@@ -1,0 +1,56 @@
+# Rendered manifest for the `dolt` bundle (ADR-0070 §2: forwarded, kubernetes).
+# cloister copies this file unchanged and adds its own Namespace +
+# NetworkPolicy overlay; it never edits these objects.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dolt
+  labels:
+    app: dolt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dolt
+  template:
+    metadata:
+      labels:
+        app: dolt
+    spec:
+      containers:
+        - name: dolt
+          # dolt 1.86.1, multi-arch index digest.
+          image: dolthub/dolt-sql-server:1.86.1@sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c8242
+          # The image's entrypoint always runs `dolt sql-server --host=0.0.0.0
+          # --port=3306`. DOLT_ROOT_HOST="%" with no DOLT_ROOT_PASSWORD makes a
+          # passwordless root@'%', so the orders pod can log in from its own
+          # namespace. Demo only: reachability is what NetworkPolicy decides.
+          env:
+            - name: DOLT_ROOT_HOST
+              value: "%"
+          ports:
+            - name: mysql
+              containerPort: 3306
+          readinessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/dolt
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dolt
+spec:
+  selector:
+    app: dolt
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      appProtocol: art.mysql

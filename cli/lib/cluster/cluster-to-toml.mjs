@@ -418,6 +418,12 @@ function pruneBundleScalarDefaults(scalars) {
   } else {
     flat.ports = flat.ports.map(pruneEmptyScalars);
   }
+  // ADR-0070 §2: `[[bundles.placements]]` rows, omitted when none.
+  if (!Array.isArray(flat.placements) || flat.placements.length === 0) {
+    delete flat.placements;
+  } else {
+    flat.placements = flat.placements.map(pruneEmptyScalars);
+  }
   // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
   // default applied in toml-to-cluster's normalizeConfinement.

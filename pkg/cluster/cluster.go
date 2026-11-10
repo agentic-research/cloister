@@ -36,6 +36,7 @@ type Bundle struct {
 	PerTenant           bool            `json:"perTenant"`
 	Confinement         Confinement     `json:"confinement"`
 	Ports               []PortSpec      `json:"ports"`
+	Placements          []PlacementSpec `json:"placements"`
 	Kind                BundleKindUnion `json:"kind"`
 }
 
@@ -235,6 +236,7 @@ type ConnectionSpec struct {
 	Name        string             `json:"name"`
 	AppProtocol string             `json:"appProtocol"`
 	Targets     []ConnectionTarget `json:"targets"`
+	MinStrength string             `json:"minStrength"`
 }
 
 type Cluster struct {
@@ -276,6 +278,12 @@ type PortSpec struct {
 	Port        uint16 `json:"port"`
 	AppProtocol string `json:"appProtocol"`
 	Expose      string `json:"expose"`
+}
+
+type PlacementSpec struct {
+	Env      string `json:"env"`
+	Kind     string `json:"kind"`
+	Manifest string `json:"manifest"`
 }
 
 type ConfinementFs struct {

@@ -8,6 +8,49 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Placements, the strength rail, and `cloister cluster k8s` (`cloister-991e65`)
+
+- **Schema.**
+  - `Bundle.placements @11 :List(PlacementSpec)` holds `{env, kind, manifest}`
+    rows (TOML: `[[bundles.placements]]`). Kinds are microvm, workerd,
+    kubernetes and cloudRun.
+  - `ConnectionSpec.minStrength @4` is one of "", none, policy, capability.
+  - Both are append-only. ADR-0070 §2 is amended to the list form.
+  - A bundle with no rows and `executionMode = "microvm"` is placed `microvm`
+    everywhere, so existing clusters lower unchanged.
+- **Build-time checks**, refused by name:
+  - a duplicate env;
+  - an unknown kind;
+  - `microvm` without `executionMode = "microvm"`;
+  - `kubernetes` without a manifest, or a manifest on a constructed kind;
+  - a non-relative manifest path;
+  - a connection end unplaced in the env, or placed a kind no emitter lowers.
+    #283's "channel ends are external microvm bundles" rule generalises to
+    "placed `microvm` or `kubernetes`". An exposed port needs at least one
+    such placement.
+- **Strength rail (ADR-0070 §3).** microvm = capability, kubernetes = policy,
+  everything else = none. An edge is as strong as its weaker end, and below
+  its `minStrength` the build fails, naming the connection, the env, both
+  placements and the computed strength.
+- **`cloister cluster k8s --env <name> --out <dir> [--dir <cluster>]`.** For
+  each bundle placed `kubernetes`, it checks the rendered manifest's one
+  Service against the declared ports (name, number, `appProtocol`) and copies
+  the manifest unchanged. It adds a per-bundle Namespace, a
+  default-deny-ingress NetworkPolicy, and an allow policy per declared
+  connection.
+  - Refused: namespace conflicts, a missing or mismatched Service port, edges
+    across placements (they need LLO's broker, `ley-line-open-e2c5ce`), and
+    unlowered kinds.
+  - A stale file already in `--out` is refused, not deleted.
+- **Demo.** `tools/dolt-grpc-demo/` gains a distroless Dockerfile and a
+  `k8s/` fixture: Dolt 1.86.1 pinned by index digest, plus orders and a
+  `cluster.toml` with `minStrength = "policy"`. The README lists the kind
+  commands for a positive check (grpcurl) and a negative one (an intruder
+  namespace's `nc` must fail).
+- Adds the `yaml` dependency (2.9.1), required because `lint:structured-parse`
+  forbids hand-matching YAML.
+- No env lowering yet: the operator's manifest carries the address.
+
 ### 2026-11 — Declared ports and connections lower to §6 grants (`cloister-991e65`)
 
 - **Schema.** `Bundle.ports @10 :List(PortSpec)` and
