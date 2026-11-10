@@ -15,7 +15,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseToml } from "smol-toml";
 import { parseAllDocuments } from "yaml";
 
 import { parseTomlToCluster, checkableBundle } from "../../cli/lib/cluster/toml-to-cluster.mjs";
@@ -23,7 +22,7 @@ import { clusterToToml } from "../../cli/lib/cluster/cluster-to-toml.mjs";
 import { emitK8s } from "../../cli/lib/cluster/emit-k8s.mjs";
 import { meetStrength, strengthOf } from "../../cli/lib/cluster/connections.mjs";
 import { emitK8sDir } from "../../cli/commands/cluster.mjs";
-import { buildLaunchPlan } from "../../cli/commands/runtime-plan.mjs";
+import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEMO = resolve(ROOT, "tools/dolt-grpc-demo/k8s");
@@ -154,7 +153,7 @@ const placementRefusals = [
     /manifest "..\/dolt.yaml" has a ".." segment/],
   ["a connection end with no placement for the env",
     (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "staging"\nkind = "kubernetes"\nmanifest = "dolt.yaml"\n`),
-    /connection "orders-db" \(from "orders"\) env "local": bundle "dolt" has no placement for env "local"/],
+    /bundle "dolt" is the target of connection "orders-db" but has no placement for env "local"/],
 ];
 
 for (const [label, edit, pattern] of placementRefusals) {
@@ -273,10 +272,38 @@ for (const [label, edit, pattern] of manifestRefusals) {
   });
 }
 
-test("cluster k8s refuses an edge to an unlowered kind (cloudRun)", async () => {
-  const t = placeAs(DEMO_TOML, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n`)
-    .replace('minStrength = "policy"', 'minStrength = ""');
-  await assert.rejects(emit(t), /"dolt" is placed "cloudRun", which is not lowered yet/);
+test("a connection end placed cloudRun fails the BUILD: a channel end must be microvm or kubernetes", async () => {
+  // dolt keeps a kubernetes row (staging) so its exposed port is legal; in
+  // env "local" it is placed cloudRun, which no emitter lowers.
+  const t = placeAs(
+    DEMO_TOML,
+    "dolt.yaml",
+    `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n\n[[bundles.placements]]\nenv = "staging"\nkind = "kubernetes"\nmanifest = "dolt.yaml"\n`,
+  ).replace('minStrength = "policy"', 'minStrength = ""');
+  await assert.rejects(
+    parseTomlToCluster(t),
+    /bundle "dolt" is the target of connection "orders-db" but is placed "cloudRun" for env "local"; a channel end must be placed microvm or kubernetes/,
+  );
+});
+
+test("an exposed port on a bundle with no microvm or kubernetes placement fails the build", async () => {
+  const t = placeAs(DEMO_TOML, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n`);
+  await assert.rejects(
+    parseTomlToCluster(t),
+    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm or kubernetes \(declared: cloudRun\)/,
+  );
+});
+
+test("cluster k8s keeps its unlowered-kind refusal as defense in depth", () => {
+  const bundles = [
+    { name: "orders", kind: "external", executionMode: "", ports: [], placements: [{ env: "local", kind: "kubernetes", manifest: "orders.yaml" }] },
+    { name: "dolt", kind: "external", executionMode: "", ports: [], placements: [{ env: "local", kind: "cloudRun", manifest: "" }] },
+  ];
+  const connections = [{ from: "orders", name: "orders-db", appProtocol: "art.mysql", minStrength: "", targets: [{ env: "local", bundle: "dolt", port: "mysql" }] }];
+  assert.throws(
+    () => emitK8s({ bundles, connections, env: "local", readManifest: () => "" }),
+    /"dolt" is placed "cloudRun", which is not lowered yet/,
+  );
 });
 
 test("cluster k8s refuses a cross-tier edge (kubernetes → microvm): it needs LLO's broker", async () => {
@@ -293,26 +320,27 @@ test("cluster k8s refuses a cross-tier edge (kubernetes → microvm): it needs L
 const lock = {
   inputs: Object.fromEntries(["dolt", "orders"].map((n) => [n, { oci: { identifier: `x/${n}`, digest: `sha256:${"a".repeat(64)}` } }])),
 };
+/** cluster.toml text → plan, through parseTomlToCluster (the only path). */
 function plan(toml, bundle) {
-  return buildLaunchPlan(parseToml(toml), lock, {
+  return planFromToml(toml, lock, {
     bundle, workspace: "/workspace", controlSocket: `/tmp/${bundle}.sock`, env: "local", channelDir: "/tmp/ch",
   });
 }
 
-test("runtime plan refuses the microvm end of a cross-tier edge, naming the broker", () => {
+test("runtime plan refuses the microvm end of a cross-tier edge, naming the broker", async () => {
   let t = asMicrovm(DEMO_TOML, "orders", "dolt-grpc-demo:dev");
   t = placeAs(t, "orders.yaml", MICROVM("orders"));
-  assert.throws(() => plan(t, "orders"), /joins "orders" \(microvm\) to "dolt" \(kubernetes\).*ley-line-open-e2c5ce/);
+  await assert.rejects(plan(t, "orders"), /joins "orders" \(microvm\) to "dolt" \(kubernetes\).*ley-line-open-e2c5ce/);
 });
 
-test("runtime plan refuses a bundle placed kubernetes, pointing at cluster k8s", () => {
+test("runtime plan refuses a bundle placed kubernetes, pointing at cluster k8s", async () => {
   let t = asMicrovm(DEMO_TOML, "dolt", DOLT_IMAGE);
   t = asMicrovm(t, "orders", "dolt-grpc-demo:dev");
-  assert.throws(() => plan(t, "orders"), /bundle "orders" is placed "kubernetes" for env "local"; lower it with `cloister cluster k8s`/);
+  await assert.rejects(plan(t, "orders"), /bundle "orders" is placed "kubernetes" for env "local"; lower it with `cloister cluster k8s`/);
 });
 
-test("runtime plan lowers explicit microvm placements as before", () => {
-  const p = plan(microvmBoth("capability"), "orders");
+test("runtime plan lowers explicit microvm placements as before", async () => {
+  const p = await plan(microvmBoth("capability"), "orders");
   assert.deepEqual(p.confinement.unixSocket.allow, [
     { path: "/tmp/ch/orders.grpc.sock", mode: "bind", guestPort: 50051 },
     { path: "/tmp/ch/dolt.mysql.sock", guestPort: 3306 },

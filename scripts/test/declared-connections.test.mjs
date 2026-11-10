@@ -354,7 +354,7 @@ test("a socket path over 103 bytes is refused, naming it", async () => {
 test("cluster:toml refuses an exposed port on a process bundle", async () => {
   await assert.rejects(
     parseTomlToCluster(fixtureToml({ ordersMode: "process", connections: "" })),
-    /bundle "orders" exposes port "grpc" but has executionMode "process"; channels are lowered only for "microvm" bundles/,
+    /bundle "orders" exposes port "grpc" but has executionMode "process" and no placements; channels are lowered only for "microvm" bundles/,
   );
 });
 

@@ -24,7 +24,10 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   - `microvm` without `executionMode = "microvm"`;
   - `kubernetes` without a manifest, or a manifest on a constructed kind;
   - a non-relative manifest path;
-  - a connection end unplaced in the env.
+  - a connection end unplaced in the env, or placed a kind no emitter lowers.
+    #283's "channel ends are external microvm bundles" rule generalises to
+    "placed `microvm` or `kubernetes`". An exposed port needs at least one
+    such placement.
 - **Strength rail (ADR-0070 §3).** microvm = capability, kubernetes = policy,
   everything else = none. An edge is as strong as its weaker end, and below
   its `minStrength` the build fails, naming the connection, the env, both
