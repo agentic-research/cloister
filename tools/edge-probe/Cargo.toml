@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Guest side of the declared-edge proof (cloister-77870d). Linux-only, built
+# static for aarch64-unknown-linux-musl and placed in a microVM rootfs. Its own
+# workspace: it never builds for the host.
+[package]
+name = "edge-probe"
+version = "0.0.1"
+edition = "2021"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+libc = "0.2"
+
+[workspace]

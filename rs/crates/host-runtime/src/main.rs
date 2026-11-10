@@ -13,7 +13,7 @@ use cloister_host_runtime::LaunchPlan;
 #[cfg(feature = "llo-execution")]
 use cloister_host_runtime::HostRuntime;
 #[cfg(feature = "llo-execution")]
-use cloister_host_runtime::execution::LeylineExecutionBackend;
+use cloister_host_runtime::execution::{Deployment, LeylineExecutionBackend};
 #[cfg(feature = "llo-execution")]
 use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerConfig};
 
@@ -77,7 +77,15 @@ fn krun_config() -> KrunWorkerConfig {
 
 #[cfg(feature = "llo-execution")]
 fn backend() -> LeylineExecutionBackend<KrunWorkerBackend> {
-    LeylineExecutionBackend::new(Arc::new(KrunWorkerBackend::new(krun_config())))
+    let config = krun_config();
+    // The deployment inputs LLO compiles its document from, taken from the
+    // same config the backend gets, so cloister's carried document and the
+    // worker's compiled one start from identical values.
+    let deployment = Deployment {
+        runtime_files: config.runtime_files.clone(),
+        devices: config.devices.clone(),
+    };
+    LeylineExecutionBackend::new(Arc::new(KrunWorkerBackend::new(config)), deployment)
 }
 
 fn run() -> Result<()> {

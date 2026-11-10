@@ -11,9 +11,12 @@
 // no PATH, no argv quoting, and no exit-status-to-error translation.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
+use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
+use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
     EnforcedCeilings, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
@@ -78,6 +81,21 @@ fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
 /// time in a second place.
 pub struct LeylineExecutionBackend<B: LeylineBackendTrait + AwaitRun> {
     inner: Arc<B>,
+    deployment: Deployment,
+}
+
+/// The deployment inputs LLO compiles its own confinement document from.
+///
+/// They are the SAME values the backend was constructed with
+/// (`KrunWorkerConfig.runtime_files` / `.devices`), handed here as well so
+/// cloister can compute, before the run, the exact document the worker will
+/// compile — which is what LLO requires of any carried document (see
+/// `to_execution_request`). Per-deployment configuration, not per-run values,
+/// so the document is predictable.
+#[derive(Debug, Clone, Default)]
+pub struct Deployment {
+    pub runtime_files: Vec<PathBuf>,
+    pub devices: Vec<PathBuf>,
 }
 
 /// Block until a started run reaches its terminal state (cloister-991e65).
@@ -105,8 +123,8 @@ impl AwaitRun for KrunWorkerBackend {
 }
 
 impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
-    pub fn new(inner: Arc<B>) -> Self {
-        Self { inner }
+    pub fn new(inner: Arc<B>, deployment: Deployment) -> Self {
+        Self { inner, deployment }
     }
 
     /// Availability snapshot, for `doctor` / `status`.
@@ -122,34 +140,33 @@ impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
 
 /// Translate a cloister launch plan into an LLO execution request.
 ///
-/// ## Why `confinement_manifest` is None
+/// ## When a confinement document is carried, and when it is not
 ///
-/// Not an omission, and not a TODO. cloister's `LaunchPlan.confinement` and
-/// LLO's compiled confinement document describe DIFFERENT TIERS, and passing one
-/// as the other is refused — verified against LLO integration head b9b800c
-/// before this code existed, by running cloister's document through LLO's own
-/// fold: it answered `FOLD-REFUSED`, naming `§2 fs.allow` as the dimension the
-/// compiled policy does not carry.
+/// LLO's worker compiles its own confinement/v1 document from the deployment
+/// (the symbolic rootfs `/run/rootfs/`, runtime files, devices), folds in the
+/// dimensions a grant may originate (§4, §6) from a carried document, and then
+/// requires the carried document to EQUAL the compiled one — equality, not
+/// subset, so a carried document can never claim a policy the worker would not
+/// apply (LLO PR #329; verified against LLO head b9b800c, where passing the
+/// bundle's own boundary as the document answered `FOLD-REFUSED` on §2).
 ///
-/// LLO's document is built from `LibkrunBackendConfig` — the symbolic rootfs
-/// (`/run/rootfs/`), the deployment's runtime files, its device nodes. cloister's
-/// is the bundle's own boundary (workspace roots, allowHosts, port). They are
-/// both valid confinement/v1 documents and they are not the same document, so
-/// the equality contract PR #329 introduced refuses the pairing by name.
+/// - **No §6 grant:** nothing is carried (`None`), and LLO compiles its own
+///   policy exactly as before.
+/// - **§6 grants:** cloister builds the document with LLO's own compiler
+///   (`confinement_manifest`) over the same deployment inputs the worker uses,
+///   then adds the grants. That is the document the worker will compile after
+///   folding them, so equality holds by construction rather than by keeping
+///   two implementations in step. Its digest is carried too, so the worker's
+///   attestation is checked against what cloister asked for.
 ///
-/// Carrying a document requires cloister to reproduce LLO's compiled one exactly,
-/// which per LLO ADR-0036 an issuer configured for a deployment can do — it needs
-/// LLO's runtime files and devices, which cloister does not model today. Until it
-/// does, LLO compiles its own policy (the `None` path, unchanged behaviour) and
-/// cloister's confinement continues to govern the tier it actually describes:
-/// the nono/Seatbelt process boundary in `tools/harness-sandbox`.
-///
-/// Sending `Some(...)` before that is possible would not be a smaller version of
-/// the right thing. It would be a run that fails closed at compile time, with a
-/// diagnostic naming a dimension mismatch nobody intended to create.
+/// Every other grant is still refused by name. §2 `fs.allow` cannot be carried
+/// (LLO never folds it — that would widen what LLO grants itself), §4 needs
+/// socket hijacking, which is off and not plan-reachable, and §5 / egress have
+/// no mapping. Refusing keeps a plan from running with grants silently dropped.
 fn to_execution_request(
     plan: &LaunchPlan,
     enforced: &EnforcedCeilings,
+    deployment: &Deployment,
 ) -> Result<ExecutionRequest, RuntimeError> {
     if !plan.confinement.network.allow_hosts.is_empty() {
         return Err(RuntimeError::InvalidPlan(
@@ -165,6 +182,7 @@ fn to_execution_request(
             "LLO execution/v1 authority mapping for filesystem, credentials, and ports is not implemented; refusing to discard launch-plan grants".into(),
         ));
     }
+    let (confinement_digest, carried) = carried_confinement(plan, deployment)?;
     if plan.artifact.args.iter().any(|arg| arg.contains('\0')) {
         return Err(RuntimeError::InvalidPlan(
             "artifact arguments must not contain NUL bytes".into(),
@@ -216,8 +234,8 @@ fn to_execution_request(
         public_environment: BTreeMap::new(),
         allowed_egress: Vec::new(),
         limits: default_limits(enforced),
-        confinement_digest: String::new(),
-        confinement_manifest: None,
+        confinement_digest,
+        confinement_manifest: carried,
         // No Graph workspace authority is mapped from a launch plan. On LLO
         // v0.26.0 the native tier, and libkrun without a share provider or with
         // two or more workspaces, refuse a workspace grant before spawn with
@@ -230,9 +248,42 @@ fn to_execution_request(
     })
 }
 
+/// The confinement document to carry for `plan`'s §6 grants, with its digest:
+/// `(String::new(), None)` when there are none. See `to_execution_request`.
+fn carried_confinement(
+    plan: &LaunchPlan,
+    deployment: &Deployment,
+) -> Result<(String, Option<String>), RuntimeError> {
+    let grants = &plan.confinement.unix_socket.allow;
+    if grants.is_empty() {
+        return Ok((String::new(), None));
+    }
+    let invalid = |error: ExecutionError| RuntimeError::InvalidPlan(error.to_string());
+    let mut document =
+        confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
+            .map_err(invalid)?;
+    for entry in grants {
+        let grant = match entry.mode.as_str() {
+            "" => UnixSocketGrant::connect(entry.path.clone()),
+            "bind" => UnixSocketGrant::bind(entry.path.clone()),
+            "connect-bind" => UnixSocketGrant::connect_bind(entry.path.clone()),
+            other => {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "confinement unixSocket mode {other:?} is not connect, bind, or connect-bind"
+                )));
+            }
+        };
+        document = document.with_unix_socket(grant).map_err(invalid)?;
+    }
+    let digest = document.confinement_digest().map_err(invalid)?;
+    let json = document.to_canonical_json().map_err(invalid)?;
+    Ok((digest, Some(json)))
+}
+
 impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError> {
-        let request = to_execution_request(plan, &self.inner.capabilities().enforced)?;
+        let request =
+            to_execution_request(plan, &self.inner.capabilities().enforced, &self.deployment)?;
         self.inner
             .start(&request)
             .map_err(|error: ExecutionError| RuntimeError::Backend(error.to_string()))?;
