@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package cloister.demo.v1;
+
+option go_package = "github.com/agentic-research/cloister/tools/dolt-grpc-demo/ordersv1";
+
+// Orders answers from the MySQL-wire database behind its one declared
+// connection. The service dials 127.0.0.1:3306 inside its microVM; what
+// answers there is decided by the confinement document, not by the service.
+service Orders {
+  rpc Get(GetRequest) returns (Order);
+}
+
+message GetRequest {
+  int32 id = 1;
+}
+
+message Order {
+  int32 id = 1;
+  string msg = 2;
+  // The database's active branch, read in the same query, so a reply shows
+  // the row came from the server and not from the service.
+  string branch = 3;
+}
