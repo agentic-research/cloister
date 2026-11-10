@@ -8,6 +8,34 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — LLO v0.28.0: declared channels reach unmodified workloads; Dolt served over one (`cloister-da1a59`)
+
+- **Pins.** Every ley-line-open channel moves to v0.28.0 (dafd2976). The krun
+  worker is pinned at 52969c3c…, which matches SHA256SUMS. confinement/v1
+  changed only in §6, additively (`guestPort`), so the mirrored dimensions are
+  unchanged.
+- **`guestPort`.** A launch plan's §6 grant can carry one. With connect, the
+  workload dials `127.0.0.1:guestPort` and reaches exactly that peer. With
+  `bind`, it listens there and only that channel reaches it. The port is in the
+  attested document.
+  - Plans are refused by name, before LLO sees them, for port 0,
+    connect-bind with a port, and a port presented twice.
+  - Tests run LLO's own fold over the carried document and show the port is
+    part of the digest.
+- **`tools/edge-probe` is plain std::net** (no vsock). Live on darwin-arm64:
+  - it dialed its declared peer and served on its declared port;
+  - undeclared loopback ports were refused;
+  - TCP to anything else was unreachable, and UDP was denied;
+  - interfaces were `lo` and `dummy0`.
+- **Dolt `sql-server`** (static linux-arm64 1.86.1) ran in a microVM with one
+  §6 bind grant on guestPort 3306. The host's stock `mysql` client, connecting
+  over the declared UNIX socket, created a database, wrote a row and read it
+  back.
+  - Needed: the guest has no `/tmp`, so the rootfs ships `data/` and `tmp/`
+    placeholders.
+  - Until LLO a915e3 ships, a connect before the workload listens is accepted
+    and then closed, so clients retry on EOF.
+
 ### 2026-11 — `cloister runtime import`: OCI image → microVM rootfs (`cloister-3a6dd7`)
 
 - `cloister runtime import --layout DIR --image sha256:…` imports a

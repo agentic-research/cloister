@@ -71,12 +71,21 @@ pub struct ConfinementUnixSocket {
 /// One §6 grant. `mode` follows `fs.allow`'s convention: empty is the narrow
 /// default (connect-only), and widening is spelled out — `bind` (serve without
 /// dial) or `connect-bind`.
+///
+/// `guestPort` (confinement/v1 §6, LLO v0.28.0, ADR-0046 Q7) presents the
+/// channel to an UNMODIFIED workload as TCP on the guest's loopback: with
+/// connect the workload dials `127.0.0.1:guestPort` and reaches exactly this
+/// peer; with `bind` it listens there and only this channel reaches it. It is
+/// committed in the attested digest, so the address is allocated by the
+/// issuer, never chosen by the workload.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct UnixSocketAllowEntry {
     pub path: String,
     #[serde(default)]
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guest_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -199,6 +208,37 @@ impl LaunchPlan {
                     entry.mode
                 )));
             }
+            // LLO refuses these too; refusing here names the plan, not a
+            // worker-side compile error, and a bad plan never reaches LLO.
+            match entry.guest_port {
+                Some(0) => {
+                    return Err(RuntimeError::InvalidPlan(format!(
+                        "confinement unixSocket guestPort for {:?} must be 1-65535",
+                        entry.path
+                    )));
+                }
+                Some(port) if entry.mode == "connect-bind" => {
+                    return Err(RuntimeError::InvalidPlan(format!(
+                        "confinement unixSocket guestPort {port} cannot be carried by the connect-bind grant {:?}: one guest port cannot be both the dial presentation's listener and the workload's",
+                        entry.path
+                    )));
+                }
+                _ => {}
+            }
+        }
+        let mut ports: Vec<u16> = self
+            .confinement
+            .unix_socket
+            .allow
+            .iter()
+            .filter_map(|entry| entry.guest_port)
+            .collect();
+        ports.sort_unstable();
+        if let Some(pair) = ports.windows(2).find(|pair| pair[0] == pair[1]) {
+            return Err(RuntimeError::InvalidPlan(format!(
+                "confinement unixSocket guestPort {} is presented by two grants",
+                pair[0]
+            )));
         }
         Ok(())
     }
