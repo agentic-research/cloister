@@ -10,7 +10,4 @@ edition = "2021"
 publish = false
 license = "AGPL-3.0-or-later"
 
-[dependencies]
-libc = "0.2"
-
 [workspace]

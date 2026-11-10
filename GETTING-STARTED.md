@@ -234,9 +234,17 @@ A plan carrying `fs.allow`, credentials, or `port.bind` is refused by name
 silently dropped. Mapping them onto LLO's confinement manifest is tracked on
 `cloister-991e65`.
 
-Without grants the guest has no network at all: no virtual NIC, and no channel
-out except vsock ports built from declared grants. That is the isolation
-property this tier exists for.
+The one grant the tier does map is confinement/v1 §6, `unixSocket.allow`.
+Each entry is a host UNIX socket path, a mode (empty = connect, `bind` =
+serve), and optionally a `guestPort`. With a guestPort, an unmodified workload
+sees the channel as TCP on `127.0.0.1:<guestPort>`. For example, Dolt
+`sql-server` with a `bind` grant on 3306 is reachable from the host as
+`mysql --socket=<path>`. The guest has no `/tmp`, so ship one in the rootfs if
+the workload needs it.
+
+Apart from those declared channels, the guest has no network at all. There is
+no virtual NIC, UDP is denied, and undeclared loopback ports are refused. That
+is the isolation property this tier exists for.
 
 ### Editing the cluster shape
 

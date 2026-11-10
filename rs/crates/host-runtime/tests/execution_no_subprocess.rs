@@ -352,6 +352,7 @@ fn plan_with_channel(mode: &str) -> LaunchPlan {
     p.confinement.unix_socket.allow = vec![UnixSocketAllowEntry {
         path: "/run/cloister/alpha/edge.sock".into(),
         mode: mode.into(),
+        guest_port: None,
     }];
     p
 }
@@ -442,9 +443,73 @@ fn a_socket_tree_or_unknown_mode_is_refused_before_the_backend_is_called() {
         let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), deployment()));
         let mut p = plan();
         p.confinement.unix_socket.allow =
-            vec![UnixSocketAllowEntry { path: path.into(), mode: mode.into() }];
+            vec![UnixSocketAllowEntry { path: path.into(), mode: mode.into(), guest_port: None }];
         let err = HostRuntime::new(None, Some(backend)).launch(&p).expect_err("refused");
         assert!(format!("{err}").contains(needle), "{path} {mode}: {err}");
         assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
     }
+}
+
+// ── §6 guestPort: the channel as guest-loopback TCP (cloister-da1a59) ──────
+
+/// A served channel with a guestPort survives LLO's own fold unchanged, and
+/// the port is in the document whose digest the worker attests.
+#[test]
+fn a_guest_port_is_committed_in_the_document_the_worker_will_compile() {
+    use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
+    use leyline_runtime::confinement::ConfinementManifest;
+
+    let mut p = plan_with_channel("bind");
+    p.confinement.unix_socket.allow[0].guest_port = Some(3306);
+    let request = carried(&p);
+    let authorized =
+        ConfinementManifest::parse(request.confinement_manifest.as_deref().unwrap()).unwrap();
+    let d = deployment();
+    let compiled = confinement_manifest(&d.runtime_files, &d.devices, Some(&authorized))
+        .expect("LLO's fold accepts a guestPort grant");
+    assert_eq!(compiled.confinement_digest().unwrap(), request.confinement_digest);
+    assert_eq!(authorized.unix_sockets()[0].guest_port(), Some(3306));
+
+    // The port is part of the commitment: the same grant without it digests
+    // differently, so a worker cannot present it on another port unnoticed.
+    let without = carried(&plan_with_channel("bind"));
+    assert_ne!(without.confinement_digest, request.confinement_digest);
+}
+
+/// (grants as (mode, guestPort), the refusal's expected text)
+type GuestPortCase = (Vec<(&'static str, Option<u16>)>, &'static str);
+
+#[test]
+fn guest_port_refusals_happen_before_the_backend_is_called() {
+    let cases: Vec<GuestPortCase> = vec![
+        (vec![("bind", Some(0))], "must be 1-65535"),
+        (vec![("connect-bind", Some(8080))], "connect-bind"),
+        (vec![("bind", Some(8080)), ("bind", Some(8080))], "presented by two grants"),
+    ];
+    for (grants, needle) in cases {
+        let recorder = Arc::new(RecordingBackend::default());
+        let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), deployment()));
+        let mut p = plan();
+        p.confinement.unix_socket.allow = grants
+            .iter()
+            .enumerate()
+            .map(|(i, (mode, port))| UnixSocketAllowEntry {
+                path: format!("/run/cloister/alpha/edge-{i}.sock"),
+                mode: (*mode).into(),
+                guest_port: *port,
+            })
+            .collect();
+        let err = HostRuntime::new(None, Some(backend)).launch(&p).expect_err("refused");
+        assert!(format!("{err}").contains(needle), "{grants:?}: {err}");
+        assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
+fn a_guest_port_over_65535_does_not_parse() {
+    let json = r#"{"path":"/run/x.sock","mode":"bind","guestPort":70000}"#;
+    assert!(serde_json::from_str::<UnixSocketAllowEntry>(json).is_err());
+    let ok: UnixSocketAllowEntry =
+        serde_json::from_str(r#"{"path":"/run/x.sock","mode":"bind","guestPort":3306}"#).unwrap();
+    assert_eq!(ok.guest_port, Some(3306));
 }

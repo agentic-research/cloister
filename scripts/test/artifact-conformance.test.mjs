@@ -82,7 +82,7 @@ test("the validator refuses a schema keyword it does not implement", () => {
 });
 
 test("minItems and uniqueItems are enforced, not merely tolerated", () => {
-  // confinement/v1 @ v0.27.0 lets §4 `port` be a non-empty list of distinct
+  // confinement/v1 @ v0.28.0 lets §4 `port` be a non-empty list of distinct
   // grants. Both halves must bite: `[]` is refused (it gives "no listener" a
   // second spelling), and the same grant twice is refused even when its keys
   // are written in another order — JSON-Schema equality ignores key order.

@@ -35,31 +35,31 @@
     "platforms a family needs are read from this file, never from a fixed list."
   ],
   "repo": "agentic-research/ley-line-open",
-  "version": "v0.27.0",
+  "version": "v0.28.0",
   "binaries": {
     "capnpc-schema-bridge-zod": {
-      "darwin-amd64": "21215d17ac75ab5947f3e6c2888769f72450f5902c29bacfddf1542251761809",
-      "darwin-arm64": "d70ee3cbd9d16ff445c200f794d238b028cfb524334f8d9caf949d75006e1aff",
-      "linux-amd64": "b41a85796afc51fefed03c8824f1c0cfb5e0cfcd5942bca43b833112d5fb6094",
-      "linux-arm64": "6c3d6798903e300c8e486b1c4fc34e0b3986da3135473ce0b7e98471743110d6"
+      "darwin-amd64": "42693aad8ed38be8142beaafb23856e0512148e25a34b267e88bad4b0fca5d2b",
+      "darwin-arm64": "496c8ade4ce06e5492b7cb0c6287fd745753cc691c404438348fed3b3a2a06d2",
+      "linux-amd64": "df09caf05210809154ba23b7f4bdf36fe3d0537b28152b7d2ee0c735c9e71fb6",
+      "linux-arm64": "3e5f8a46f53850c74f583030f3f59fefad018bdcb5edf98fdc3e0a1b0aa493b4"
     },
     "capnpc-schema-bridge-go": {
-      "darwin-amd64": "9b7bf4c31d703994cabb97335eca809c518112e9d6d4504dae715fb85c29681e",
-      "darwin-arm64": "9aef3142ca1ad3bdbb2a4f01ef38475617582abed483a98ebbe94c2ba43b4222",
-      "linux-amd64": "8d467f1d06c011c8dbc4b59ecdcb9b22b54864dd00bccbbc0a4e8c77bf1c452a",
-      "linux-arm64": "03d316c01e0eaf736936f096ea58740a692734cfe660f67c6b93688decd0f26a"
+      "darwin-amd64": "7b8386543444f8ebf78c5f5fa7501f5ee55aea0734a1bb87136333bda8935dd8",
+      "darwin-arm64": "d0e5a46bd21494822e033fc50d93495897076b77f460fcab25529af6c492e1f3",
+      "linux-amd64": "7164f14faea8f9372df5f1799e3058242ce45960f043b4a1491de53b9dfff72f",
+      "linux-arm64": "27eb3c91a8f5166756eefa3f21bfd19c46951aebea91303d56be878bebab42f3"
     },
     "capnpc-schema-bridge-tooldefs": {
-      "darwin-amd64": "ce8e039dfd960c591a293a3fb4216a0d98253040bfde70094660ed6bcfe4f82c",
-      "darwin-arm64": "19a258add5698f0f090bbdc4eb1bb1d90ac6c325077ac86acae51bf4a42aae16",
-      "linux-amd64": "76c287e5d27c17989004e6cabf8db223bc104f68687bcb6c9eb1179183544de7",
-      "linux-arm64": "ea0c30f223ed57375a10ae27bbd5dc81933e486a56fa4451dab91b968300ada8"
+      "darwin-amd64": "68d6aacd7fc3041a29352730c2887891f6fd68f0b43b68a7012e4b43dd65ae4c",
+      "darwin-arm64": "60a6c20e8d2a813501ad0edcd3a337d583f47ce03cefe8cab6ea5ddbf2041a1d",
+      "linux-amd64": "b0e8e8ed3fcc950654056e545808d2a387da098c0385d18548f7b92e75e6d318",
+      "linux-arm64": "57ffb821ab7238ca11b7f8a809db2922d9d5f6817e080447e40aae0d7c08c3bb"
     },
     "leyline-krun-worker": {
-      "darwin-arm64": "4656cd2e9afa8e3d8ad3de16a664f6f6aefb5705287a516ea2deece5850dee5d"
+      "darwin-arm64": "52969c3c1cfe72efb8299029918450cedd45108aac83220832780e7c492e3c4c"
     }
   },
   "wasm": {
-    "leyline_sign.wasm": "b728576a12111941309bee978518f426bed86fb1460323e88f16c4339a7f0f24"
+    "leyline_sign.wasm": "51a8ea4b8a81826aeca3942a543ca02b85ef9a17cc018eed41203f2720af84c9"
   }
 }

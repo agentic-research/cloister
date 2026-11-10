@@ -204,7 +204,7 @@ struct Bundle {
   #
   # This bundle's kernel-confinement declaration, conformant to LLO's
   # cloister/confinement/v1 §1 ConfinementManifest (leyline-schema-spec @
-  # v0.27.0). All four dimensions cloister mirrors are fail-closed default-DENY
+  # v0.28.0). All four dimensions cloister mirrors are fail-closed default-DENY
   # — enforced at build time by lint:bundle-isolation Inv 11. The BLAKE3-256 of
   # the §7-canonical form is the `confinementDigest` committed to the bundle's
   # Interlace identity (lane-2) as cert extension OID 1.3.6.1.4.1.99999.1.7
@@ -297,7 +297,7 @@ struct EnvVar {
 # ── Confinement: cloister/confinement/v1 §1 ConfinementManifest ────────────
 #
 # The vendor-neutral kernel-confinement contract (LLO leyline-schema-spec
-# confinement/v1 @ v0.27.0). Every dimension is fail-closed default-DENY:
+# confinement/v1 @ v0.28.0). Every dimension is fail-closed default-DENY:
 # anything not explicitly allowed is denied at the kernel boundary; there is no
 # "unrestricted" mode. Cloister emits the §7-canonical JSON + the BLAKE3-256
 # `confinementDigest` via cloister-cas — the conformance gate is

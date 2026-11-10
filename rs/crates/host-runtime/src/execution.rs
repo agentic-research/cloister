@@ -273,6 +273,10 @@ fn carried_confinement(
                 )));
             }
         };
+        let grant = match entry.guest_port {
+            Some(port) => grant.with_guest_port(port).map_err(invalid)?,
+            None => grant,
+        };
         document = document.with_unix_socket(grant).map_err(invalid)?;
     }
     let digest = document.confinement_digest().map_err(invalid)?;
