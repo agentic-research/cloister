@@ -28,7 +28,6 @@ const OPERATOR_TASKS = [
   "runtime:run",
   "runtime:storage:init",
   "runtime:storage:status",
-  "runtime:storage:gc",
 ];
 
 function taskBody(taskfile, name) {

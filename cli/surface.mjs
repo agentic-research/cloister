@@ -109,8 +109,9 @@ export const COMMANDS = [
       "Installs the locked Node dependencies, regenerates the files declared by " +
       "cluster.toml, builds and digest-checks the current compatibility runtime, " +
       "and puts the cloister command in ~/.local/bin (or CLOISTER_BIN_DIR). " +
-      "The compatibility runtime currently starts local processes and krunvm as " +
-      "subprocesses; it is temporary while LLO's native execution API matures.",
+      "On macOS arm64 it also installs LLO's digest-pinned leyline-krun-worker " +
+      "and creates the microVM store; the compatibility runtime is temporary " +
+      "while LLO's native execution API matures.",
   },
   {
     name: "uninstall",
@@ -335,13 +336,11 @@ export const COMMANDS = [
   { name: "runtime doctor", usage: "cloister runtime doctor [--json]",
     summary: "Check runtime prerequisites and storage",
     flags: [{ flag: "--json", summary: "print one machine-readable report" }] },
-  { name: "runtime storage init", usage: "cloister runtime storage init",
-    summary: "Create/attach bounded krunvm storage" },
+  { name: "runtime storage init", usage: "cloister runtime storage init --idempotency-key <key> [--backend native|microVm]",
+    summary: "Provision storage through the LLO provider" },
   { name: "runtime storage status", usage: "cloister runtime storage status [--json]",
     summary: "Show bounded storage state without changing it",
     flags: [{ flag: "--json", summary: "print one machine-readable status object" }] },
-  { name: "runtime storage gc", usage: "cloister runtime storage gc",
-    summary: "Preview or execute safe reclamation" },
 ];
 
 /**

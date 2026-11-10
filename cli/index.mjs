@@ -8,7 +8,6 @@ import { main as initMain } from "./commands/init.mjs";
 import { main as addMain } from "./commands/add.mjs";
 import { main as pullMain } from "./commands/artifacts-pull.mjs";
 import { main as planMain } from "./commands/runtime-plan.mjs";
-import { main as storageMain } from "./commands/runtime-storage-init.mjs";
 import { runHostRuntime } from "./lib/runtime/compatibility-client.mjs";
 import {
   lloCollect,
@@ -136,7 +135,6 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       "runtime run",
       "runtime doctor",
       "runtime storage status",
-      "runtime storage gc",
       "runtime inspect",
       "runtime collect",
       "runtime cancel",
@@ -230,19 +228,12 @@ export async function main(argv = process.argv.slice(2), context = {}) {
         return 1;
       }
     }
-    return storageMain(rest.slice(2), {
-      log,
-      error,
-      style: output.style,
-      input: context.stdin ?? process.stdin,
-      output: stdout,
-    });
-  }
-  if (command === "runtime" && rest[0] === "storage" && rest[1] === "gc") {
-    return runHostRuntime(["gc", ...rest.slice(2)], {
-      errLog: error,
-      env,
-    });
+    // The compatibility provider needs no storage step: `cloister runtime
+    // install` creates the microVM store. The krunvm sparsebundle this used
+    // to create is read by nothing since cloister-17e502 (cloister-a4e446).
+    error("cloister runtime storage init: only the LLO provider has a storage step (set CLOISTER_LLO_CONTROL_SOCKET).");
+    error("  For the compatibility provider, `cloister runtime install` creates the microVM store.");
+    return 2;
   }
 
   error(`cloister: unknown command: ${global.argv.join(" ")}`);

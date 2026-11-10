@@ -1319,19 +1319,14 @@ tasks:
       - "node bin/cloister.mjs runtime run {{.CLI_ARGS}}"
 
   runtime:storage:init:
-    desc: "Create/attach one grow-on-demand case-sensitive sparsebundle for krunvm. Preview: task runtime:storage:init -- --print"
+    desc: "Provision execution storage through the LLO provider (needs CLOISTER_LLO_CONTROL_SOCKET). The compatibility provider has no storage step: `cloister runtime install` creates its microVM store."
     cmds:
       - "node bin/cloister.mjs runtime storage init {{.CLI_ARGS | default \"--help\"}}"
 
   runtime:storage:status:
-    desc: "Read the selected provider's storage readiness, capacity, and tracked run counts without changing storage."
+    desc: "Read the selected provider's storage readiness without changing it."
     cmds:
       - "node bin/cloister.mjs runtime storage status {{.CLI_ARGS}}"
-
-  runtime:storage:gc:
-    desc: "Preview bounded krunvm reclamation; pass --yes to execute. Usage: task runtime:storage:gc -- --print"
-    cmds:
-      - "node bin/cloister.mjs runtime storage gc {{.CLI_ARGS | default \"--print\"}}"
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + upstream-pin coherence (lint:upstream-pins) + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

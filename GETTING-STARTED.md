@@ -26,7 +26,7 @@ Optional, only needed if you want the relevant backends working:
 | `notme` worker                | `/identity/*` proxy (JWT, passkeys, agent certs)          |
 | `rosary` MCP HTTP             | `rsry_*` orchestration, bead, and dispatch tools           |
 | `workerd` binary              | running directly without wrangler / Cloudflare account    |
-| `krunvm` + Buildah (macOS)    | digest-pinned external tools in separate microVMs          |
+| `libkrunfw` (macOS arm64, `brew install libkrunfw`) | the guest kernel for the microVM tier (path D) |
 
 ## 2. Install + bootstrap
 
@@ -188,46 +188,43 @@ slightly (`wrangler` uses `.wrangler/state/...`, `workerd` uses
 `/data/do` per `config.capnp`, `cluster:dev` uses
 `$HOME/.cache/cloister-dev/do/`); the DO API is identical.
 
-### Optional path D — external tools in krunvm (macOS)
+### Optional path D — a workload in a microVM (macOS arm64)
 
-This path isolates an external OCI tool separately from the local
-Cloister router. It is not required for Wrangler, direct `workerd`, or
-the native-process cluster path.
-
-```sh
-task runtime:storage:init -- --print  # inspect hdiutil actions
-task runtime:storage:init -- --yes    # create/attach the bounded volume
-task runtime:build
-task runtime:plan -- mache --workspace "$PWD" --output /tmp/mache-plan.json
-task runtime:doctor
-task runtime:run -- /tmp/mache-plan.json
-```
-
-The default storage is `.cloister/krunvm.sparsebundle`, mounted at
-`/Volumes/krunvm`, with a 3 GiB logical ceiling. It grows on demand; it
-does not reserve 3 GiB immediately. Override the mounted volume for the
-Rust operator with `CLOISTER_KRUNVM_VOLUME`.
-
-The generated plan requires an immutable `sha256:` OCI digest, a
-canonical workspace path, and a numeric loopback guest bind. The Rust
-runtime verifies `krunvm inspect` against the exact `image@digest`
-before starting, persists a versioned restriction record under a file
-lock, and never substitutes a native subprocess for microVM mode.
-
-Inspect before reclaiming:
+This path runs one workload inside its own microVM, separate from the local
+Cloister router. It is not required for Wrangler, direct `workerd`, or the
+native-process cluster path.
 
 ```sh
-task runtime:storage:status
-task runtime:storage:gc -- --print
-task runtime:storage:gc -- --yes
+brew install libkrunfw       # the guest kernel; the VMM itself ships with LLO
+cloister runtime install     # installs LLO's digest-pinned leyline-krun-worker
+cloister runtime doctor      # expect "microVM: available"
+cloister runtime run /absolute/plan.json
 ```
 
-`--yes` deletes only tracked, inactive, superseded VM state, then asks
-Buildah to prune through explicit `root` and `runroot` paths. Unknown or
-still-referenced state is protected. Complete per-operation filesystem
-mediation through the LLO-backed `ConfinementGraph` remains separate
-follow-on work; this shipped path is coarse isolation at the external
-tool VM boundary.
+`runtime install` fetches `leyline-krun-worker` from the pinned ley-line-open
+release, verifies it against `schema-bridge.lock.json`, and creates the
+content-addressed store under `~/.local/state/cloister/` (`cas/` for root
+filesystems, `run/` for per-run state, cleaned after each run). There is no
+separate storage step. `cloister runtime run` waits for the guest: a workload
+that exits non-zero is reported as a run failure (exit 1), not a launch refusal.
+
+**What runs today, and what does not yet.** The microVM tier runs a plan whose
+root filesystem is already in the store, addressed by `blake3-256:` digest, and
+that declares no filesystem, credential, or port grants. Two things are not
+wired yet:
+
+- **OCI images.** `cloister runtime plan <bundle>` emits a plan that names an
+  OCI image by `sha256:` digest. The runtime refuses it until LLO's
+  `leyline rootfs import-oci` (ley-line-open-7736ab) turns that image into a
+  store entry.
+- **Grants.** A plan carrying `fs.allow`, credentials, or `port.bind` is
+  refused by name ("authority mapping … is not implemented") rather than run
+  with its grants silently dropped. Mapping them onto LLO's confinement manifest
+  is tracked on `cloister-991e65`.
+
+Without grants the guest has no network at all: no virtual NIC, and no channel
+out except vsock ports built from declared grants. That is the isolation
+property this tier exists for.
 
 ### Editing the cluster shape
 

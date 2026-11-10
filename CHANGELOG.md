@@ -8,6 +8,28 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — runtime docs and CLI stop describing krunvm (`cloister-a4e446`)
+
+- GETTING-STARTED's microVM path described the krunvm runtime that
+  cloister-17e502 retired: a krunvm + Buildah prerequisite, a sparsebundle
+  storage step, and `sha256:` OCI plans. It now describes what runs:
+  `brew install libkrunfw`, `cloister runtime install`, and a plan over a
+  `blake3-256:` root filesystem in the store. It also says plainly that OCI
+  images wait on LLO's import-oci and that grants are refused by name until
+  they are mapped.
+- `cloister runtime storage gc` and `task runtime:storage:gc` are removed. Both
+  failed with "managed krunvm's buildah storage, which cloister no longer
+  uses".
+- `cloister runtime storage init` without the LLO provider no longer creates a
+  sparsebundle that nothing reads. It refuses and names `cloister runtime
+  install`. The LLO-provider path is unchanged.
+- `cloister runtime storage status` on the compatibility provider reports the
+  microVM store directly instead of calling a host-runtime command that no
+  longer exists.
+- `doctor` labels the backend "libkrun microVM (LLO worker)". The persisted
+  record identifier is unchanged, so existing installs still validate.
+- The runtime-subprocess ratchet drops from 13 to 9 sites.
+
 ### 2026-11 — `runtime install` provides the microVM tier; `run` waits for the guest (`cloister-991e65`)
 
 - `cloister runtime install` now installs LLO's `leyline-krun-worker`, a

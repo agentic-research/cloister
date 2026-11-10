@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { existsSync as nodeExistsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,8 +27,11 @@ function parseJsonOnly(argv, usage) {
   throw new Error(`${usage} accepts only --json`);
 }
 
+// `krunvmCompatibility` is the persisted provider-record identifier and stays
+// as-is so existing records validate; what it runs is LLO's libkrun worker,
+// not krunvm (cloister-17e502), so that is what the operator is shown.
 function backendLabel(backend) {
-  return backend === "krunvmCompatibility" ? "krunvm compatibility" : backend;
+  return backend === "krunvmCompatibility" ? "libkrun microVM (LLO worker)" : backend;
 }
 
 function formatBytes(bytes) {
@@ -50,7 +54,7 @@ function renderStorageStatus(status, log) {
     log(`Storage: ${status.storageVolume}`);
     log(status.provider === "llo"
       ? "Provision through the LLO execution/v1 provider"
-      : "Run: cloister runtime storage init");
+      : "Run: cloister runtime install");
     return;
   }
 
@@ -64,7 +68,9 @@ function renderStorageStatus(status, log) {
       `${formatBytes(status.capacity.availableBytes)} available`,
     );
   }
-  log(`Tracked runs: ${status.trackedRuns}; running: ${status.runningRuns}`);
+  if (status.trackedRuns !== null && status.trackedRuns !== undefined) {
+    log(`Tracked runs: ${status.trackedRuns}; running: ${status.runningRuns}`);
+  }
 }
 
 function doctorReport(invocation) {
@@ -190,10 +196,21 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
           runningRuns: null,
         };
       } else {
-        data = runCompatibilityJson(["status"], {
-          env,
-          spawnSync: deps.spawnSync,
-        }).data;
+        // The compatibility provider's only storage is the microVM store that
+        // `cloister runtime install` creates. Run lifecycle (and with it the
+        // old krunvm sparsebundle, tracked-run counts and gc) moved to LLO in
+        // cloister-17e502; there is nothing else to observe (cloister-a4e446).
+        const layout = resolveInstallLayout({ env, checkoutRoot: resolve(deps.root ?? ROOT) });
+        const exists = deps.existsSync ?? nodeExistsSync;
+        data = {
+          state: exists(layout.casRoot) && exists(layout.runRoot) ? "prepared" : "notPrepared",
+          provider: "compatibility",
+          maturity: "experimental",
+          backend: "microVm",
+          storageVolume: layout.casRoot,
+          trackedRuns: null,
+          runningRuns: null,
+        };
       }
       if (json) log(JSON.stringify(data, null, 2));
       else renderStorageStatus(data, log);
