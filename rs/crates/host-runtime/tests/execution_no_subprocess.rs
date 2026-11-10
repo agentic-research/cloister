@@ -33,7 +33,7 @@ use cloister_host_runtime::{
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
-    BackendRunStatus, DEFAULT_CPU_PERIOD_US, EnforcedCeilings, ExecutionError, ExecutionRequest,
+    BackendRunStatus, EnforcedCeilings, ExecutionError, ExecutionRequest, DEFAULT_CPU_PERIOD_US,
 };
 
 /// Records what cloister asked LLO to do, and nothing else happens.
@@ -144,7 +144,10 @@ fn launch_reaches_the_llo_api_without_spawning_anything() {
     unsafe { std::env::set_var("PATH", "") };
 
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     let result = HostRuntime::new(None, Some(backend)).launch(&plan());
 
     match &original {
@@ -163,7 +166,10 @@ fn launch_reaches_the_llo_api_without_spawning_anything() {
 #[test]
 fn the_plan_is_translated_rather_than_passed_through() {
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     HostRuntime::new(None, Some(backend))
         .launch(&plan())
         .expect("launch");
@@ -194,14 +200,20 @@ fn the_plan_is_translated_rather_than_passed_through() {
 #[test]
 fn microvm_launch_carries_oci_defaults_the_hypervisor_can_size() {
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     HostRuntime::new(None, Some(backend))
         .launch(&plan())
         .expect("the microVM tier accepts cloister's defaults");
 
     let seen = recorder.seen.lock().unwrap();
     let limits = seen.first().expect("one request").limits;
-    assert_eq!(limits.wall_time_ms, 15 * 60 * 1000);
+    assert_eq!(
+        limits.wall_time_ms, 0,
+        "cloister invents no wall-time ceiling"
+    );
     assert_eq!(limits.output_bytes, 0, "every tier refuses outputBytes");
     assert_eq!(limits.memory.limit, 1024 * 1024 * 1024);
     assert_eq!(limits.cpu.quota, 2 * DEFAULT_CPU_PERIOD_US);
@@ -217,20 +229,28 @@ fn microvm_launch_carries_oci_defaults_the_hypervisor_can_size() {
 
 /// The native tier without a delegated cgroup root enforces only the wall
 /// clock and refuses memory/cpu/pids by name. A cloister default is not
-/// operator authority, so it must not turn every launch there into a refusal.
+/// operator authority, so it must not turn every launch there into a refusal,
+/// and since cloister invents no wall-time ceiling either, such a tier is
+/// asked for no ceiling at all.
 #[test]
-fn native_wall_clock_only_launch_requests_only_the_wall_clock() {
+fn native_wall_clock_only_launch_requests_no_ceiling() {
     let recorder = Arc::new(RecordingBackend::tier(
         BackendClass::Native,
         EnforcedCeilings::wall_clock_only(),
     ));
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     HostRuntime::new(None, Some(backend))
         .launch(&plan())
-        .expect("a wall-clock-only tier accepts the narrowed defaults");
+        .expect("a wall-clock-only tier accepts a request with no ceilings");
 
     let limits = recorder.seen.lock().unwrap()[0].limits;
-    assert_eq!(limits.wall_time_ms, 15 * 60 * 1000);
+    assert_eq!(
+        limits.wall_time_ms, 0,
+        "cloister invents no wall-time ceiling"
+    );
     assert_eq!(limits.memory.limit, 0);
     assert_eq!(limits.cpu.quota, 0);
     assert_eq!(
@@ -264,7 +284,10 @@ fn the_recording_tier_refuses_a_ceiling_it_cannot_enforce() {
 #[test]
 fn unsupported_launch_grants_are_refused_before_the_backend_is_called() {
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     let mut unsupported = plan();
     unsupported.confinement.network.allow_hosts = vec!["api.example.com".into()];
     let err = HostRuntime::new(None, Some(backend))
@@ -277,7 +300,10 @@ fn unsupported_launch_grants_are_refused_before_the_backend_is_called() {
 #[test]
 fn a_malformed_artifact_digest_is_refused_before_the_backend_is_called() {
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        Deployment::default(),
+    ));
     let mut bad = plan();
     bad.artifact.digest = "not-a-digest".into();
 
@@ -359,8 +385,13 @@ fn plan_with_channel(mode: &str) -> LaunchPlan {
 
 fn carried(plan: &LaunchPlan) -> leyline_runtime::ExecutionRequest {
     let recorder = Arc::new(RecordingBackend::default());
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), deployment()));
-    HostRuntime::new(None, Some(backend)).launch(plan).expect("launch");
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&recorder),
+        deployment(),
+    ));
+    HostRuntime::new(None, Some(backend))
+        .launch(plan)
+        .expect("launch");
     let seen = recorder.seen.lock().unwrap();
     seen.first().expect("one request").clone()
 }
@@ -375,7 +406,10 @@ fn a_declared_channel_is_carried_as_the_document_the_worker_will_compile() {
     use leyline_runtime::confinement::ConfinementManifest;
 
     let request = carried(&plan_with_channel("bind"));
-    let document = request.confinement_manifest.as_deref().expect("a §6 grant carries a document");
+    let document = request
+        .confinement_manifest
+        .as_deref()
+        .expect("a §6 grant carries a document");
     let authorized = ConfinementManifest::parse(document).expect("canonical confinement/v1");
 
     let d = deployment();
@@ -386,20 +420,28 @@ fn a_declared_channel_is_carried_as_the_document_the_worker_will_compile() {
         request.confinement_digest,
         "the worker attests this digest; the supervisor compares it with the request's"
     );
-    assert_eq!(authorized.confinement_digest().unwrap(), request.confinement_digest);
+    assert_eq!(
+        authorized.confinement_digest().unwrap(),
+        request.confinement_digest
+    );
 
     let sockets = authorized.unix_sockets();
     assert_eq!(sockets.len(), 1, "exactly the declared channel");
     assert_eq!(sockets[0].path(), "/run/cloister/alpha/edge.sock");
     assert_eq!(sockets[0].mode(), "bind");
-    assert!(authorized.port_binds().is_empty(), "no listener rides along");
+    assert!(
+        authorized.port_binds().is_empty(),
+        "no listener rides along"
+    );
 }
 
 /// The channel set is exactly the declaration: on the microVM tier §6 compiles
 /// to vsock mappings and nothing else exists, so grant i is the only port pair.
 #[test]
 fn the_channel_compiles_to_exactly_one_vsock_mapping() {
-    use leyline_runtime::backends::libkrun::confinement::{vsock_unix_mappings, VSOCK_UNIX_BASE_PORT};
+    use leyline_runtime::backends::libkrun::confinement::{
+        vsock_unix_mappings, VSOCK_UNIX_BASE_PORT,
+    };
     use leyline_runtime::confinement::ConfinementManifest;
 
     // A connect grant names an endpoint someone else owns, and LLO refuses to
@@ -414,7 +456,13 @@ fn the_channel_compiles_to_exactly_one_vsock_mapping() {
     for (mode, expected) in [
         ("", vec![(VSOCK_UNIX_BASE_PORT, false)]),
         ("bind", vec![(VSOCK_UNIX_BASE_PORT + 1, true)]),
-        ("connect-bind", vec![(VSOCK_UNIX_BASE_PORT, false), (VSOCK_UNIX_BASE_PORT + 1, true)]),
+        (
+            "connect-bind",
+            vec![
+                (VSOCK_UNIX_BASE_PORT, false),
+                (VSOCK_UNIX_BASE_PORT + 1, true),
+            ],
+        ),
     ] {
         let mut p = plan_with_channel(mode);
         p.confinement.unix_socket.allow[0].path = peer.to_str().unwrap().into();
@@ -437,14 +485,26 @@ fn a_socket_tree_or_unknown_mode_is_refused_before_the_backend_is_called() {
         ("relative.sock", "bind", "socket path"),
         ("/run/cloister/alpha/edge.sock", "listen", "unixSocket mode"),
         // Over sun_path: libkrun would warn and run without the channel.
-        (&*format!("/run/{}/edge.sock", "x".repeat(110)), "bind", "socket paths hold at most"),
+        (
+            &*format!("/run/{}/edge.sock", "x".repeat(110)),
+            "bind",
+            "socket paths hold at most",
+        ),
     ] {
         let recorder = Arc::new(RecordingBackend::default());
-        let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), deployment()));
+        let backend = Arc::new(LeylineExecutionBackend::new(
+            Arc::clone(&recorder),
+            deployment(),
+        ));
         let mut p = plan();
-        p.confinement.unix_socket.allow =
-            vec![UnixSocketAllowEntry { path: path.into(), mode: mode.into(), guest_port: None }];
-        let err = HostRuntime::new(None, Some(backend)).launch(&p).expect_err("refused");
+        p.confinement.unix_socket.allow = vec![UnixSocketAllowEntry {
+            path: path.into(),
+            mode: mode.into(),
+            guest_port: None,
+        }];
+        let err = HostRuntime::new(None, Some(backend))
+            .launch(&p)
+            .expect_err("refused");
         assert!(format!("{err}").contains(needle), "{path} {mode}: {err}");
         assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
     }
@@ -467,7 +527,10 @@ fn a_guest_port_is_committed_in_the_document_the_worker_will_compile() {
     let d = deployment();
     let compiled = confinement_manifest(&d.runtime_files, &d.devices, Some(&authorized))
         .expect("LLO's fold accepts a guestPort grant");
-    assert_eq!(compiled.confinement_digest().unwrap(), request.confinement_digest);
+    assert_eq!(
+        compiled.confinement_digest().unwrap(),
+        request.confinement_digest
+    );
     assert_eq!(authorized.unix_sockets()[0].guest_port(), Some(3306));
 
     // The port is part of the commitment: the same grant without it digests
@@ -484,11 +547,17 @@ fn guest_port_refusals_happen_before_the_backend_is_called() {
     let cases: Vec<GuestPortCase> = vec![
         (vec![("bind", Some(0))], "must be 1-65535"),
         (vec![("connect-bind", Some(8080))], "connect-bind"),
-        (vec![("bind", Some(8080)), ("bind", Some(8080))], "presented by two grants"),
+        (
+            vec![("bind", Some(8080)), ("bind", Some(8080))],
+            "presented by two grants",
+        ),
     ];
     for (grants, needle) in cases {
         let recorder = Arc::new(RecordingBackend::default());
-        let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&recorder), deployment()));
+        let backend = Arc::new(LeylineExecutionBackend::new(
+            Arc::clone(&recorder),
+            deployment(),
+        ));
         let mut p = plan();
         p.confinement.unix_socket.allow = grants
             .iter()
@@ -499,7 +568,9 @@ fn guest_port_refusals_happen_before_the_backend_is_called() {
                 guest_port: *port,
             })
             .collect();
-        let err = HostRuntime::new(None, Some(backend)).launch(&p).expect_err("refused");
+        let err = HostRuntime::new(None, Some(backend))
+            .launch(&p)
+            .expect_err("refused");
         assert!(format!("{err}").contains(needle), "{grants:?}: {err}");
         assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
     }
