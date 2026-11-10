@@ -8,6 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Two microVMs over a declared edge: gRPC in one, Dolt in the other (`cloister-991e65`)
+
+- **`tools/dolt-grpc-demo`** is a static Go gRPC service. It dials its database
+  at `127.0.0.1:3306` and serves on `127.0.0.1:50051`, both guest loopback
+  ports presented by §6 `guestPort` grants.
+- **Verified live** on darwin-arm64 with LLO v0.28.0 and hijacking off.
+  `grpcurl` on the host calls the service in microVM B. The service answers
+  with a row it read from `dolt sql-server` in microVM A, over a connect grant
+  on A's socket. No broker is involved.
+- **Negative case.** The same service without that connect grant exits with
+  its "database did not answer" code, and the host gets no reply.
+- **Not yet done.** Launch plans and CAS rootfs are still written by hand. The
+  `runtime plan` lowering of `cluster.toml` connections is the next step
+  (ADR-0070 §4).
+
 ### 2026-11 — LLO v0.28.0: declared channels reach unmodified workloads; Dolt served over one (`cloister-da1a59`)
 
 - **Pins.** Every ley-line-open channel moves to v0.28.0 (dafd2976). The krun

@@ -86,6 +86,7 @@ rs/target/
 # harness-sandbox, mediator). Same pattern as rs/: Cargo.lock tracked,
 # target/ not.
 tools/*/target/
+tools/dolt-grpc-demo/out/
 
 # Python bytecode
 __pycache__/
