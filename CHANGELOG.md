@@ -8,6 +8,24 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a declared channel, and no other: §6 grants reach the microVM (`cloister-bb0142`)
+
+- A host-runtime launch plan can declare confinement/v1 §6 socket grants
+  (`confinement.unixSocket.allow[]`, mode empty = connect, `bind`, or
+  `connect-bind`). The execution adapter builds the confinement document with
+  LLO's own compiler over the same deployment inputs the worker uses, adds the
+  grants, and sends it with its digest. LLO folds §6 in and requires the
+  documents to be equal, so they match by construction.
+- Live on darwin-arm64 with LLO's v0.26.0 worker (hijacking off), the guest
+  served on its one declared vsock port and the host reached it through the
+  declared UNIX path. Every other way out failed: undeclared vsock ports had no
+  answer, a guest-originated dial on the serve port was reset, and TCP and UDP
+  reported "network unreachable" (interfaces: `lo`, `dummy0`).
+  `tools/edge-probe` is the guest that ran it.
+- Socket paths longer than the platform's `sun_path` are refused by name.
+  libkrun only warns when it cannot bind one, so the channel would silently
+  not exist (ley-line-open-bb2143).
+
 ### 2026-11 — runtime docs and CLI stop describing krunvm (`cloister-a4e446`)
 
 - GETTING-STARTED's microVM path described the krunvm runtime that

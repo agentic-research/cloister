@@ -50,6 +50,33 @@ pub struct Confinement {
     pub port: ConfinementPort,
     #[serde(default)]
     pub credential_source: String,
+    /// confinement/v1 §6 `unixSocket.allow`: the channels the workload holds.
+    ///
+    /// On the microVM tier each grant becomes exactly one vsock↔UNIX-socket
+    /// mapping, and a guest started without socket hijacking has no other
+    /// way out — no NIC, no implicit vsock. So this list is not a filter over
+    /// a network the guest already has; it is the complete set of channels
+    /// that exist. No entry, no channel (cloister-77870d).
+    #[serde(default)]
+    pub unix_socket: ConfinementUnixSocket,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfinementUnixSocket {
+    #[serde(default)]
+    pub allow: Vec<UnixSocketAllowEntry>,
+}
+
+/// One §6 grant. `mode` follows `fs.allow`'s convention: empty is the narrow
+/// default (connect-only), and widening is spelled out — `bind` (serve without
+/// dial) or `connect-bind`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnixSocketAllowEntry {
+    pub path: String,
+    #[serde(default)]
+    pub mode: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -146,9 +173,43 @@ impl LaunchPlan {
                 )));
             }
         }
+        for entry in &self.confinement.unix_socket.allow {
+            // A leaf, not a tree: the microVM tier maps one vsock port per
+            // endpoint, and a directory grant has no endpoint to map.
+            if !is_canonical_absolute_path(Path::new(&entry.path)) || entry.path.ends_with('/') {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "confinement unixSocket path must be a canonical absolute socket path: {:?}",
+                    entry.path
+                )));
+            }
+            // sun_path holds 104 bytes on macOS and 108 on Linux, NUL
+            // included. Past that, libkrun's listening proxy fails to bind and
+            // only logs a warning, so the declared channel silently does not
+            // exist — found by running a 120-byte path on a live guest.
+            if entry.path.len() > MAX_UNIX_SOCKET_PATH {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "confinement unixSocket path is {} bytes; this platform's socket paths hold at most {MAX_UNIX_SOCKET_PATH}: {:?}",
+                    entry.path.len(),
+                    entry.path
+                )));
+            }
+            if !["", "bind", "connect-bind"].contains(&entry.mode.as_str()) {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "confinement unixSocket mode must be empty (connect), bind, or connect-bind: {:?}",
+                    entry.mode
+                )));
+            }
+        }
         Ok(())
     }
 }
+
+/// Longest UNIX socket path the platform's `sockaddr_un.sun_path` holds,
+/// excluding the terminating NUL.
+#[cfg(target_os = "macos")]
+const MAX_UNIX_SOCKET_PATH: usize = 103;
+#[cfg(not(target_os = "macos"))]
+const MAX_UNIX_SOCKET_PATH: usize = 107;
 
 fn is_canonical_absolute_path(path: &Path) -> bool {
     path.is_absolute()
