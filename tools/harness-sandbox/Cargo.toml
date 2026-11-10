@@ -38,7 +38,7 @@ anyhow = "1"
 # native — NO `host` feature (that gates the tokio/keyring helper-binary closure
 # this binary does not need). SAME rev as rs/crates/cas/Cargo.toml so the digest
 # semantics and cert format match end-to-end.
-leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "f18c09356f3ebb4bd3582be7c6293bb565da10e7", version = "0.26.0", package = "leyline-sign" }
+leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "65da27c358744cc3f1bd8f237a387de99b16ab37", version = "0.27.0", package = "leyline-sign" }
 
 # BLAKE3-256 of the §7-canonical confinement/v1 manifest — the substrate digest
 # the runner recomputes and compares against the cert commitment. `blake3::hash`
