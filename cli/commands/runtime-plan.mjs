@@ -3,6 +3,12 @@
 //
 // Lower one external bundle plus its lockfile-pinned OCI input into the
 // fail-closed cloister/host-runtime/v1 contract.
+//
+// cluster.toml goes through `parseTomlToCluster` — the same pipeline as
+// `cluster:toml`, with the strict ClusterSchema and every step-4 check — before
+// anything is lowered (cloister-991e65). There is no second, looser parse:
+// a typo'd key, a duplicate bundle, a string port or a misspelled table fails
+// here exactly as it fails the build.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, resolve as resolvePath, dirname } from "node:path";
@@ -11,6 +17,12 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
+import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
+import {
+  DEFAULT_CHANNEL_DIR,
+  checkableBundle,
+  lowerChannelGrants,
+} from "../lib/cluster/connections.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -35,6 +47,12 @@ export function parsePlanArgs(argv) {
     } else if (arg === "--control-socket") {
       opts.controlSocket = requiredValue(argv, i, arg);
       i += 1;
+    } else if (arg === "--env") {
+      opts.env = requiredValue(argv, i, arg);
+      i += 1;
+    } else if (arg === "--channel-dir") {
+      opts.channelDir = requiredValue(argv, i, arg);
+      i += 1;
     } else if (arg === "--output") {
       opts.output = requiredValue(argv, i, arg);
       i += 1;
@@ -57,6 +75,14 @@ export function parsePlanArgs(argv) {
   if (!isCanonicalAbsolutePath(opts.controlSocket)) {
     throw new Error("--control-socket must be a canonical absolute path");
   }
+  opts.env ??= "local";
+  opts.channelDir ??= DEFAULT_CHANNEL_DIR;
+  if (!isAbsolute(opts.channelDir)) throw new Error("--channel-dir must be absolute");
+  // The confinement digest commits to each grant's path string, so the
+  // directory is spelled one way only: no trailing slash.
+  if (!isCanonicalAbsolutePath(opts.channelDir) || (opts.channelDir.endsWith("/") && opts.channelDir !== "/")) {
+    throw new Error("--channel-dir must be a canonical absolute path (no trailing slash)");
+  }
   if (opts.output && !isAbsolute(opts.output)) throw new Error("--output must be absolute");
   if (opts.output && !isCanonicalAbsolutePath(opts.output)) {
     throw new Error("--output must be a canonical absolute path");
@@ -64,23 +90,27 @@ export function parsePlanArgs(argv) {
   return opts;
 }
 
-function defaultConfinement() {
-  return {
-    fs: { allow: [] },
-    network: { allowHosts: [] },
-    port: { bind: 0, address: "" },
-    credentialSource: "",
-  };
+/**
+ * Validate `tomlString` with the full cluster pipeline, then lower one bundle.
+ * The only entry point that starts from cluster.toml text.
+ */
+export async function planFromToml(tomlString, lock, options) {
+  return buildLaunchPlan(await parseTomlToCluster(tomlString), lock, options);
 }
 
+/**
+ * Lower one bundle of an ALREADY VALIDATED cluster (the `parseTomlToCluster`
+ * shape: `kind` is `{ external: {...} }`, confinement normalized). Callers
+ * holding cluster.toml text use `planFromToml`.
+ */
 export function buildLaunchPlan(cluster, lock, options) {
   const bundle = (cluster?.bundles ?? []).find((candidate) => candidate.name === options.bundle);
   if (!bundle) throw new Error(`bundle ${JSON.stringify(options.bundle)} is not declared`);
-  if (bundle.kind !== "external" || !bundle.external) {
+  const external = bundle.kind?.external;
+  if (!external) {
     throw new Error(`bundle ${JSON.stringify(options.bundle)} is not an external bundle`);
   }
 
-  const external = bundle.external;
   if (!["microvm", "process"].includes(external.executionMode)) {
     throw new Error(
       `bundle ${JSON.stringify(options.bundle)} requires executionMode = "microvm" or "process"`,
@@ -107,6 +137,35 @@ export function buildLaunchPlan(cluster, lock, options) {
     );
   }
 
+  // Defense in depth: parseTomlToCluster already refuses this. §6 grants come
+  // only from declared ports and connections, never from the plan's input.
+  if (bundle.confinement?.unixSocket !== undefined) {
+    throw new Error(
+      `bundle ${JSON.stringify(options.bundle)} carries confinement.unixSocket; §6 grants ` +
+        `are derived from ports and connections, never written by hand`,
+    );
+  }
+
+  // ADR-0069 / ADR-0070 §4 (cloister-991e65): declared ports + connections
+  // lower to confinement/v1 §6 grants. The declarations were checked by
+  // parseTomlToCluster; lowerChannelGrants keeps its own refusals as defense
+  // in depth.
+  const grants = lowerChannelGrants(
+    cluster.bundles.map(checkableBundle),
+    cluster.connections ?? [],
+    {
+      bundle: bundle.name,
+      env: options.env ?? "local",
+      channelDir: options.channelDir ?? DEFAULT_CHANNEL_DIR,
+    },
+  );
+  const baseConfinement = bundle.confinement;
+  // The key is added only when there is a grant, so a plan for a bundle with
+  // no declarations is byte-identical to one emitted before this lowering.
+  const confinement = grants.length > 0
+    ? { ...baseConfinement, unixSocket: { allow: grants } }
+    : baseConfinement;
+
   return {
     schema: "cloister/host-runtime/v1",
     bundle: bundle.name,
@@ -117,7 +176,7 @@ export function buildLaunchPlan(cluster, lock, options) {
       entrypoint: external.entryPoint,
       args: Array.isArray(external.args) ? external.args : [],
     },
-    confinement: bundle.confinement ?? defaultConfinement(),
+    confinement,
     workspace: options.workspace,
     controlSocket: options.controlSocket,
   };
@@ -128,10 +187,12 @@ function printHelp(log = console.log) {
   log("");
   log("Options:");
   log("  --control-socket <path>  Host-runtime control socket");
+  log('  --env <name>             Environment whose connection targets to lower (default "local")');
+  log(`  --channel-dir <path>     Directory of channel sockets (default ${DEFAULT_CHANNEL_DIR})`);
   log("  --output <path>          Write JSON atomically-addressable plan input");
 }
 
-export function main(argv = process.argv.slice(2), io = {}) {
+export async function main(argv = process.argv.slice(2), io = {}) {
   const log = io.log ?? console.log;
   const error = io.error ?? console.error;
   let opts;
@@ -153,9 +214,8 @@ export function main(argv = process.argv.slice(2), io = {}) {
     const lockPath = process.env.CLOISTER_LOCKFILE
       ? resolvePath(process.env.CLOISTER_LOCKFILE)
       : resolvePath(REPO_ROOT, "cluster.lock.toml");
-    const cluster = parseToml(readFileSync(clusterPath, "utf8"));
     const lock = parseToml(readFileSync(lockPath, "utf8"));
-    const plan = buildLaunchPlan(cluster, lock, opts);
+    const plan = await planFromToml(readFileSync(clusterPath, "utf8"), lock, opts);
     const json = `${JSON.stringify(plan, null, 2)}\n`;
     if (opts.output) {
       writeFileSync(opts.output, json, { mode: 0o600 });
@@ -171,5 +231,5 @@ export function main(argv = process.argv.slice(2), io = {}) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  process.exit(main());
+  process.exit(await main());
 }

@@ -97,10 +97,12 @@ path = "/healthz"
 from        = "orders"
 name        = "orders-db"
 appProtocol = "art.postgres"
-[connections.target.local]
+[[connections.targets]]
+env    = "local"
 bundle = "postgres"
 port   = "pg"
-[connections.target.gcp]
+[[connections.targets]]
+env        = "gcp"
 cloudSql   = "proj:us-central1:orders"
 vaultSlice = "orders-db-iam"
 
@@ -108,14 +110,22 @@ vaultSlice = "orders-db-iam"
 from        = "orders"
 name        = "payments"
 appProtocol = "art.grpc"
-[connections.target.local]
+[[connections.targets]]
+env    = "local"
 bundle = "payments"
 port   = "grpc"
-[connections.target.gcp]
+[[connections.targets]]
+env      = "gcp"
 cloudRun = "payments"
 ```
 
 The service reads `DATABASE_ADDR` and dials it. That is its whole contract.
+
+**Amended 2026-11-10 (`cloister-991e65`):** targets are a list of rows keyed by
+`env`, not `[connections.target.<env>]` tables, because capnp has no map type.
+In the shipped `cluster.toml` bundles are `[[bundles]]` rows, so ports are
+`[[bundles.ports]]` inside one. The first slice declares only the `bundle`
+target kind; `cloudSql` / `cloudRun` arrive as appended fields.
 
 ### 2. Rules
 
@@ -124,8 +134,8 @@ The service reads `DATABASE_ADDR` and dials it. That is its whole contract.
 - **One env namespace, one source per name.** Literal, vault slice,
   connection, emulator convention, platform convention — two sources for one
   name fails the build (compose's last-writer-wins is the bug this prevents).
-- **Targets are per environment; the image is not.** `target.<env>` is
-  selected at emit (`--env local|gcp`); every connection must resolve for every
+- **Targets are per environment; the image is not.** The `targets` row whose
+  `env` matches is selected at emit (`--env local|gcp`); every connection must resolve for every
   env the cluster declares.
 - **Platform conventions are emitted, not hand-set.** `PORT` (Cloud Run) from
   the first exposed port; `PUBSUB_EMULATOR_HOST` / `STORAGE_EMULATOR_HOST` /
@@ -164,11 +174,13 @@ not speak the connection's wire fails the build.
 from        = "orders"
 name        = "orders-db"
 appProtocol = "art.mysql"
-[connections.target.local]
+[[connections.targets]]
+env    = "local"
 bundle = "dolt"                     # engine = "dolt", declared on the bundle
 database = "orders"
 branch   = "dev-${USER}"            # Dolt-only component
-[connections.target.gcp]
+[[connections.targets]]
+env        = "gcp"
 cloudSql   = "proj:us-central1:orders"   # engine = "cloudsql-mysql"
 database   = "orders"
 vaultSlice = "orders-db-iam"

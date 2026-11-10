@@ -122,6 +122,10 @@ fn run() -> Result<()> {
 
             #[cfg(feature = "llo-execution")]
             {
+                // LLO refuses a bind grant whose directory is missing; create
+                // it (0700) only after the plan has been validated.
+                plan.validate().context("launch refused")?;
+                cloister_host_runtime::prepare_channel_dirs(&plan).context("launch refused")?;
                 HostRuntime::new(None, Some(Arc::new(backend())))
                     .launch(&plan)
                     .map_err(|error| match error {

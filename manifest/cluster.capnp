@@ -10,11 +10,11 @@
 # runtime parsing.
 #
 # This is the "Helm chart" of a cloister deployment: bundles + wires +
-# storage policy. Three emitters consume it:
+# storage policy. Emitters that consume it include:
 #
-#   scripts/emit-compose.mjs  → docker-compose.yaml (nerdctl/podman/compose)
-#   scripts/emit-pod.mjs      → k8s Pod manifest (multi-container, shared netns)
-#   scripts/emit-dev.mjs      → task dev:all launcher (mac native, no containers)
+#   scripts/emit-compose.mjs        → docker-compose.yaml (nerdctl/podman/compose)
+#   scripts/emit-cloister-capnp.mjs → the generated cloister.capnp Gateway value
+#   cli/commands/runtime-plan.mjs   → cloister/host-runtime/v1 launch plans
 #
 # Per cloister-be0607 / ADR-0009 amendment 2026-05-10. The other ADR-0009
 # substrate targets (Firecracker, WASI, unikernel) are NOT covered by
@@ -86,6 +86,17 @@ struct Cluster {
   #
   # Append-only ordinal per ADR-0004.
   edges    @7 :List(EdgeSpec);
+  # ── Connections (ADR-0069 §1, outbound; cloister-991e65) ─────────────────
+  #
+  # Declared outbound connections: bundle `from` dials the name `name`, and
+  # each environment's target says which bundle port answers. Lowered per
+  # placement (ADR-0070 §4); on the microvm placement each becomes a
+  # confinement/v1 §6 connect grant with `guestPort`.
+  #
+  # Empty list = no declared connections (back-compat default).
+  #
+  # Append-only ordinal per ADR-0004.
+  connections @8 :List(ConnectionSpec);
 }
 
 struct ClusterMetadata {
@@ -213,6 +224,56 @@ struct Bundle {
   # manifest is the compute-substrate runner's job (ADR-0044). This facet
   # declares + attests. Omitted = no confinement declared.
   confinement @9 :Confinement;
+
+  # ── ports (ADR-0069 §1, inbound; cloister-991e65) ───────────────────────
+  #
+  # The bundle's named inbound ports. Connections reference a port by NAME;
+  # the number appears only here. On the microvm placement each port whose
+  # `expose` is not "none" lowers to a confinement/v1 §6 bind grant with
+  # `guestPort = port` (ADR-0070 §4). Empty list = no declared ports.
+  #
+  # Append-only ordinal per ADR-0004.
+  ports @10 :List(PortSpec);
+}
+
+# ── PortSpec (ADR-0069 §1 / cloister-991e65) ─────────────────────────────
+#
+# One named inbound port. Names are unique per bundle, numbers are unique per
+# bundle and non-zero — checked by toml-to-cluster, since capnp cannot.
+struct PortSpec {
+  name @0 :Text;
+  port @1 :UInt16;
+  # ADR-0030 §A4 label (`art.*` blessed set or `x-<vendor>-*`). A connection to
+  # this port must declare the same label.
+  appProtocol @2 :Text;
+  # Who may reach it: "none" | "cluster" | "edge". "" means "none". A port
+  # with expose "none" is not a connection target and gets no channel.
+  expose @3 :Text;
+}
+
+# ── ConnectionSpec (ADR-0069 §1 / cloister-991e65) ───────────────────────
+#
+# One declared outbound connection. Named ConnectionSpec, not Connection,
+# because `Connection` (ADR-0051, above) already names a different concept:
+# how cloister reaches an INPUT. This is how one bundle reaches ANOTHER.
+#
+# (from, name) is unique; `targets` holds one row per environment. ADR-0069
+# sketched `[connections.target.<env>]` tables; capnp has no maps, so the
+# surface is a list keyed by `env`.
+struct ConnectionSpec {
+  from @0 :Text;          # the dialling bundle
+  name @1 :Text;          # the connection's name, unique per `from`
+  appProtocol @2 :Text;   # must equal the target port's appProtocol
+  targets @3 :List(ConnectionTarget);
+}
+
+# One environment's answer to a connection. This slice declares only the
+# bundle target kind; cloudRun / cloudSql targets (ADR-0069 §1, §3) arrive
+# later as appended fields.
+struct ConnectionTarget {
+  env @0 :Text;      # e.g. "local"; unique within a connection
+  bundle @1 :Text;   # a declared bundle, never the connection's `from`
+  port @2 :Text;     # a port NAME on `bundle`, whose expose is not "none"
 }
 
 enum Tier {

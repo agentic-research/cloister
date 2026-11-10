@@ -35,6 +35,7 @@ type Bundle struct {
 	HypervisorRationale string          `json:"hypervisorRationale"`
 	PerTenant           bool            `json:"perTenant"`
 	Confinement         Confinement     `json:"confinement"`
+	Ports               []PortSpec      `json:"ports"`
 	Kind                BundleKindUnion `json:"kind"`
 }
 
@@ -229,15 +230,23 @@ type EdgeSpec struct {
 	Transport   string `json:"transport"`
 }
 
+type ConnectionSpec struct {
+	From        string             `json:"from"`
+	Name        string             `json:"name"`
+	AppProtocol string             `json:"appProtocol"`
+	Targets     []ConnectionTarget `json:"targets"`
+}
+
 type Cluster struct {
-	Metadata ClusterMetadata `json:"metadata"`
-	Bundles  []Bundle        `json:"bundles"`
-	Wires    []Wire          `json:"wires"`
-	Storage  StoragePolicy   `json:"storage"`
-	Inputs   []InputSpec     `json:"inputs"`
-	Routes   []Route         `json:"routes"`
-	Gateway  Gateway         `json:"gateway"`
-	Edges    []EdgeSpec      `json:"edges"`
+	Metadata    ClusterMetadata  `json:"metadata"`
+	Bundles     []Bundle         `json:"bundles"`
+	Wires       []Wire           `json:"wires"`
+	Storage     StoragePolicy    `json:"storage"`
+	Inputs      []InputSpec      `json:"inputs"`
+	Routes      []Route          `json:"routes"`
+	Gateway     Gateway          `json:"gateway"`
+	Edges       []EdgeSpec       `json:"edges"`
+	Connections []ConnectionSpec `json:"connections"`
 }
 
 type WorkerdBundle struct {
@@ -260,6 +269,13 @@ type Confinement struct {
 	Network          ConfinementNetwork `json:"network"`
 	Port             ConfinementPort    `json:"port"`
 	CredentialSource string             `json:"credentialSource"`
+}
+
+type PortSpec struct {
+	Name        string `json:"name"`
+	Port        uint16 `json:"port"`
+	AppProtocol string `json:"appProtocol"`
+	Expose      string `json:"expose"`
 }
 
 type ConfinementFs struct {
@@ -527,6 +543,12 @@ type QueryParamSpec struct {
 
 type BodyFieldSpec struct {
 	Path string `json:"path"`
+}
+
+type ConnectionTarget struct {
+	Env    string `json:"env"`
+	Bundle string `json:"bundle"`
+	Port   string `json:"port"`
 }
 
 type GeneratedBackend struct {

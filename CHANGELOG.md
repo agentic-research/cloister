@@ -8,6 +8,55 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Declared ports and connections lower to §6 grants (`cloister-991e65`)
+
+- **Schema.** `Bundle.ports @10 :List(PortSpec)` and
+  `Cluster.connections @8 :List(ConnectionSpec)`, append-only. In TOML these
+  are `[[bundles.ports]]` and `[[connections]]` with one
+  `[[connections.targets]]` row per `env` (ADR-0069, amended to the list form
+  because capnp has no maps). `ConnectionSpec` is a different thing from
+  ADR-0051's `Connection`. Only the `bundle` target kind exists so far.
+- **Build-time checks** in `toml-to-cluster`, each refused by name:
+  - per bundle: port names unique (a-z, 0-9, hyphen), port non-zero and
+    unique, `expose` one of `none` / `cluster` / `edge`;
+  - per connection: `from` declared, (from, name) unique, at least one target,
+    `env` unique, target bundle declared and not `from`, target port exists
+    and is exposed, and the `appProtocol`s match.
+  - Labels use the one ADR-0030 §A4 validator, now in `cli/lib/app-protocol.mjs`.
+    `art.mysql` joins the blessed set.
+- **`cloister runtime plan --env <name> --channel-dir <abs>`** lowers a
+  microvm bundle's exposed ports to `bind` grants and its connections to
+  connect grants, both with `guestPort`, on `<channel-dir>/<bundle>.<port>.sock`.
+  The two ends of an edge get the same path, so two plans join with no broker.
+  - Refused: no target for `--env`, a guest port used twice (no auto-shift,
+    because plans carry no workload env yet), a socket path over 103 bytes,
+    ports or connections on a `process` bundle, and a target that is not a
+    microvm bundle.
+  - Plans for bundles with no declarations are byte-identical to before.
+- **Review hardening.**
+  - `runtime plan` parses `cluster.toml` with `parseTomlToCluster`, the same
+    strict pipeline as `cluster:toml`. There is no second, looser parse path.
+  - Build time refuses:
+    - an exposed port or a connection end on any bundle that isn't an external
+      `microvm` bundle (so ADR-0069 §3's no-SQL-from-workerd rule is
+      structural);
+    - a hand-written `confinement.unixSocket`, and any other unknown
+      `confinement` or `[bundles.external]` key, which used to be dropped
+      silently;
+    - a channel-endpoint bundle whose name isn't a DNS label;
+    - a duplicate edge.
+  - `--channel-dir` refuses a trailing slash.
+  - The host runtime creates missing bind-grant directories (0700) before
+    launch, because LLO refuses a missing one.
+  - The emitted dolt/orders plans are committed as
+    `test/fixtures/runtime-plan/`, and both the JS emitter and the Rust parser
+    test against them.
+  - `cluster-to-toml` drops only empty scalars from port and connection rows.
+  - New rail: `lint:conflict-markers`.
+- Not built: forwarded placements, the strength rail, env lowering, and an env
+  registry for ADR-0069's "resolves for every env" rail (ADR-0070 "What exists
+  today").
+
 ### 2026-11 — Two microVMs over a declared edge: gRPC in one, Dolt in the other (`cloister-991e65`)
 
 - **`tools/dolt-grpc-demo`** is a static Go gRPC service. It dials its database
@@ -85,7 +134,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   libkrun only warns when it cannot bind one, so the channel would silently
   not exist (ley-line-open-bb2143).
 
-||||||| parent of 6d16c56 ([cloister-3a6dd7] feat(runtime): `cloister runtime import` turns an OCI layout into a microVM rootfs)
 ### 2026-11 — runtime docs and CLI stop describing krunvm (`cloister-a4e446`)
 
 - GETTING-STARTED's microVM path described the krunvm runtime that

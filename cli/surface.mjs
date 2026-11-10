@@ -311,6 +311,8 @@ export const COMMANDS = [
     flags: [
       { flag: "--workspace", value: "<abs>", required: true, summary: "workspace the plan is scoped to" },
       { flag: "--control-socket", value: "<path>", summary: "host-runtime control socket" },
+      { flag: "--env", value: "<name>", summary: "environment whose connection targets are lowered (default: local)" },
+      { flag: "--channel-dir", value: "<abs>", summary: "directory of declared-channel sockets (default: /tmp/cloister-host-runtime/ch)" },
       { flag: "--output", value: "<path>", summary: "write the JSON plan here" },
     ] },
   {

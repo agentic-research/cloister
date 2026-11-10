@@ -568,6 +568,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
     edges: [], // ADR-0030 / cloister-0e3004 — required schema field
+    connections: [], // ADR-0069 / cloister-991e65 — schema default
   };
   const t1 = clusterToToml(empty);
   const back = await parseTomlToCluster(t1);

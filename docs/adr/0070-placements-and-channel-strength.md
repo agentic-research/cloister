@@ -173,8 +173,25 @@ is an operator decision outside the plan (the host runtime's existing rule).
 - The constructed `microvm` lowering of one edge works at the runtime layer:
   `cloister-bb0142` carries a §6 grant as the exact LLO-compiled document.
 - The `workerd` lowering is the existing binding model.
-- The emitter lowering from `cluster.toml`, the forwarded placements, and the
-  strength rail are not built.
+- The emitter lowering from `cluster.toml` for the `microvm` row of §4 is
+  built (`cloister-991e65`). `cluster.toml` declares `[[bundles.ports]]` and
+  `[[connections]]` with per-env `[[connections.targets]]` rows (bundle
+  targets only). `toml-to-cluster` checks them by name. `cloister runtime plan
+  --env <name> --channel-dir <abs>` lowers a microvm bundle's exposed ports to
+  §6 `bind` grants and its connections to connect grants, both with
+  `guestPort`, on `<channel-dir>/<bundle>.<port>.sock`. The two ends of an
+  edge get the same path, so separately emitted plans join with no broker. A
+  `process` bundle with ports or connections is refused (guestPort is
+  microVM-only), and so is a connection whose target is not a microvm bundle.
+- Not built: forwarded placements (`kubernetes`, `cloudRun`) and per-env
+  `placement`; the strength rail and `minStrength`; env lowering (a
+  connection's address reaching the workload as an env var — a launch plan
+  carries no workload env yet, which is also why colliding guest ports are
+  refused rather than shifted); `cloudSql` / `cloudRun` targets.
+- Not built: ADR-0069 §2's rail "every connection resolves for every declared
+  env". There is no env registry yet, so nothing knows which envs a cluster
+  declares. A connection with no target for an env is refused only when that
+  env is lowered (`runtime plan --env`).
 
 The first slice after this ADR is two services joined by one declared
 connection, with:

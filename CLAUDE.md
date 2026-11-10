@@ -123,6 +123,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
 | `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
+| `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs

@@ -394,6 +394,9 @@ convention:
   semantic handling. Adding a name requires a PR + ADR amendment.
   Initial set: `art.mcp-jsonrpc`, `art.interlace-capnp`, `art.capnp-uds`,
   `art.http`, `art.http2`, `art.grpc`, `art.tcp`, `art.tls`.
+  Added 2026-11-10 by ADR-0069 §2–3 (`cloister-991e65`): `art.mysql`, the
+  MySQL wire, which the first declared connection (a service to Dolt) uses.
+  `art.postgres` and `art.redis` are added when a connection first needs them.
 - **`x-<vendor>-*`** — operator-extensible experimental space. Substrate
   routes as opaque pass-through; no semantic claims. Operators may use
   for unblessed protocols (`x-myorg-redis`, `x-deploy-bespoke-rpc`).
