@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // `cloister cluster up|down` — bring a declared cluster up, and take it down.
+// `cloister cluster k8s` — lower kubernetes placements (ADR-0070 §4).
 //
 // ── Why this is a CLI verb and not (only) a Taskfile task ──────────────────
 //
@@ -26,8 +27,8 @@
 // the multi-cluster case is a loop rather than a rewrite.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve, isAbsolute } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve, isAbsolute, join } from "node:path";
 import { renderCommandHelp } from "../surface.mjs";
 
 export class ClusterUsageError extends Error {}
@@ -74,6 +75,7 @@ function spawnSyncSafe(bin, args) {
 export function parseArgs(argv) {
   const out = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
+    env: "local", out: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -86,7 +88,12 @@ export function parseArgs(argv) {
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError("--dir requires a value");
       out.dir = v; i++; continue;
     }
-    if (!out.sub && ["generate", "resolve", "up", "down"].includes(a)) { out.sub = a; continue; }
+    if (a === "--env" || a === "--out") {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith("--")) throw new ClusterUsageError(`${a} requires a value`);
+      out[a.slice(2)] = v; i++; continue;
+    }
+    if (!out.sub && ["generate", "resolve", "up", "down", "k8s"].includes(a)) { out.sub = a; continue; }
     if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
     throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
   }
@@ -111,6 +118,53 @@ export function clusterComposePath(dir) {
     );
   }
   return { root, file };
+}
+
+/**
+ * `cloister cluster k8s`: read `<root>/cluster.toml`, validate it, lower its
+ * kubernetes placements for `env`, and write them under `out`.
+ *
+ * `out` may already exist, but only holding files this run writes: a stale
+ * file from an earlier run (a bundle since removed, a renamed manifest) would
+ * otherwise be applied by `kubectl apply -f`, so it is refused by name rather
+ * than deleted or silently kept.
+ */
+export async function emitK8sDir({ root, env, out }) {
+  const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
+  const { emitK8s } = await import("../lib/cluster/emit-k8s.mjs");
+  const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
+  const files = emitK8s({
+    bundles: cluster.bundles.map(checkableBundle),
+    connections: cluster.connections ?? [],
+    env,
+    readManifest: (path) => readFileSync(resolve(root, path), "utf8"),
+  });
+  if (files.length === 0) {
+    throw new ClusterUsageError(`no bundle is placed "kubernetes" for env "${env}"`);
+  }
+  const expected = new Set(files.map((f) => f.path));
+  const stale = existsSync(out)
+    ? readdirSync(out, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => join(d.parentPath ?? d.path, d.name).slice(out.length + 1))
+      .filter((p) => !expected.has(p))
+      .sort()
+    : [];
+  if (stale.length > 0) {
+    throw new ClusterUsageError(
+      `${out} holds files this run would not write (${stale.join(", ")}); ` +
+        `kubectl would apply them too. Remove them or choose an empty --out.`,
+    );
+  }
+  for (const f of files) {
+    const dest = join(out, f.path);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, f.content);
+  }
+  return {
+    files: files.map((f) => f.path),
+    bundles: [...new Set(files.map((f) => f.path.split("/")[0]))],
+  };
 }
 
 export async function main(argv = process.argv.slice(2), deps = {}) {
@@ -173,6 +227,19 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     } catch (error) {
       errLog(`cloister cluster resolve: ${error.message}`);
       return 1;
+    }
+  }
+
+  if (args.sub === "k8s") {
+    try {
+      const outDir = args.out ?? (() => { throw new ClusterUsageError("--out <dir> is required"); })();
+      const written = await emitK8sDir({ root: selectedRoot, env: args.env, out: resolve(process.cwd(), outDir) });
+      for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
+      for (const b of written.bundles) log(`  kubectl apply -n ${b} -f ${join(outDir, b)}`);
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster k8s: ${error.message}`);
+      return error instanceof ClusterUsageError ? 2 : 1;
     }
   }
 

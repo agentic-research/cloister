@@ -109,6 +109,7 @@ test("toml-to-cluster accepts the fixture and carries ports + connections", asyn
       from: "orders",
       name: "orders-db",
       appProtocol: "art.mysql",
+      minStrength: "",
       targets: [{ env: "local", bundle: "dolt", port: "mysql" }],
     },
   ]);

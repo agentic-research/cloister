@@ -304,6 +304,25 @@ export const COMMANDS = [
       { flag: "--destroy", summary: "ALSO remove volumes — unrecoverable; DO state lives there" },
     ],
   },
+  {
+    name: "cluster k8s",
+    usage: "cloister cluster k8s --out <dir> [--env <name>] [--dir <path>]",
+    summary: "Lower kubernetes placements to manifests + NetworkPolicy",
+    detail:
+      "For each bundle placed \"kubernetes\" in --env, checks its rendered " +
+      "manifest's Service against the ports cluster.toml declares, copies the " +
+      "manifest unchanged, and adds an overlay in a namespace named after the " +
+      "bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one " +
+      "NetworkPolicy per declared connection into it. Apply each bundle's " +
+      "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. Edges to " +
+      "other placements are refused (they need LLO's broker). ADR-0070 §4.",
+    flags: [
+      { flag: "--out", value: "<dir>", required: true, summary: "output directory (may exist, but only with files this run writes)" },
+      { flag: "--env", value: "<name>", summary: "environment whose placements and targets are lowered (default: local)" },
+      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+    ],
+    seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
+  },
   { name: "artifacts pull", usage: "cloister artifacts pull [options]",
     summary: "Acquire lockfile-pinned OCI artifacts" },
   { name: "runtime plan", usage: "cloister runtime plan <bundle> --workspace <absolute-path> [options]",

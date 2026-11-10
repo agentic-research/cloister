@@ -78,14 +78,30 @@ placement uses the mechanism it already has (§3).
 ### 2. Placement is declared per environment, beside ADR-0069's targets
 
 ```toml
-[bundles.orders]
-placement.local = "microvm"     # constructed by cloister + LLO
-placement.gcp   = "cloudRun"    # forwarded; deployed by the operator's own tooling
+[[bundles]]
+name = "orders"
+[[bundles.placements]]
+env  = "local"
+kind = "microvm"          # constructed by cloister + LLO
+[[bundles.placements]]
+env  = "gcp"
+kind = "cloudRun"         # forwarded; deployed by the operator's own tooling
 
-[bundles.payments]
-placement.local = "kubernetes"  # forwarded to whatever cluster kubectl targets (kind locally)
-manifest        = "deploy/payments/service.yaml"
+[[bundles]]
+name = "payments"
+[[bundles.placements]]
+env      = "local"
+kind     = "kubernetes"   # forwarded to whatever cluster kubectl targets (kind locally)
+manifest = "deploy/payments/service.yaml"
 ```
+
+**Amended 2026-11-10 (`cloister-991e65`):** placements are a list of rows
+keyed by `env`, not `placement.<env>` keys, because capnp has no map type
+(the same amendment ADR-0069 made for connection targets). `manifest` sits on
+the row, so each environment can forward a different rendered file. A bundle
+with no rows and `executionMode = "microvm"` is placed `microvm` in every env
+implicitly, which keeps clusters written before placements existed lowering
+unchanged.
 
 Placements come in two classes, and the class decides what cloister owns.
 
@@ -183,20 +199,56 @@ is an operator decision outside the plan (the host runtime's existing rule).
   edge get the same path, so separately emitted plans join with no broker. A
   `process` bundle with ports or connections is refused (guestPort is
   microVM-only), and so is a connection whose target is not a microvm bundle.
-- Not built: forwarded placements (`kubernetes`, `cloudRun`) and per-env
-  `placement`; the strength rail and `minStrength`; env lowering (a
-  connection's address reaching the workload as an env var — a launch plan
-  carries no workload env yet, which is also why colliding guest ports are
-  refused rather than shifted); `cloudSql` / `cloudRun` targets.
+- Placements and the strength rail are built (`cloister-991e65`).
+  `Bundle.placements` holds `{env, kind, manifest}` rows and
+  `ConnectionSpec.minStrength` holds the floor. `toml-to-cluster` refuses the
+  following by name:
+  - a duplicate env;
+  - an unknown kind;
+  - a `microvm` row on a bundle whose `executionMode` is not `microvm`;
+  - a `kubernetes` row with no manifest, or a manifest on a constructed kind;
+  - a manifest path that is not relative to the cluster directory;
+  - a connection end with no placement for the env, or placed a kind no
+    emitter lowers (a channel end must be placed `microvm` or `kubernetes`);
+  - an exposed port on a bundle with no `microvm` or `kubernetes` placement;
+  - an edge whose meet is below its `minStrength`.
+
+  The rail takes microvm as `capability` unconditionally, because socket
+  hijacking is hardcoded off in the host runtime and no plan field can turn it
+  on.
+- The forwarded `kubernetes` row of §4 is built: `cloister cluster k8s --env
+  <name> --out <dir>`. For each bundle placed `kubernetes`, it:
+  - parses the rendered manifest with a YAML parser;
+  - requires exactly one Service, carrying every exposed port with the same
+    name, number and `appProtocol`;
+  - copies the manifest byte-for-byte;
+  - adds a Namespace named after the bundle, unless the manifest declares it,
+    and refuses objects in any other namespace;
+  - adds a default-deny-ingress NetworkPolicy;
+  - adds one NetworkPolicy per declared kubernetes ↔ kubernetes connection,
+    admitting the source namespace + source Service selector to the target
+    Service selector on the Service's `targetPort`, TCP.
+
+  The operator's objects carry no namespace, so each bundle directory is
+  applied with `kubectl apply -n <bundle>`. The demo is
+  `tools/dolt-grpc-demo/k8s/`.
+- Edges across placements (microvm ↔ kubernetes) are legal in the graph and
+  refused by both emitters, which name LLO's broker (`ley-line-open-e2c5ce`).
+  `workerd` and `cloudRun` rows parse, and every emitter refuses them as not
+  lowered yet.
+- No env lowering. A connection's address does not reach the workload: the
+  operator's manifest carries it by hand (the demo's `orders.yaml` passes
+  `-db dolt.dolt.svc.cluster.local:3306`), and a launch plan carries no
+  workload env. That is also why colliding guest ports are refused rather
+  than shifted.
+- Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, the
+  "no `cluster.toml` field duplicates a forwarded spec field" rail beyond the
+  Service-port check, and policy for `expose = "edge"` ingress from outside
+  the cluster.
 - Not built: ADR-0069 §2's rail "every connection resolves for every declared
   env". There is no env registry yet, so nothing knows which envs a cluster
   declares. A connection with no target for an env is refused only when that
-  env is lowered (`runtime plan --env`).
-
-The first slice after this ADR is two services joined by one declared
-connection, with:
-1. a positive and a negative assertion on a `capability` placement, and
-2. the same two services forwarded to kind as the `policy` tier.
+  env is lowered (`runtime plan --env`, `cluster k8s --env`).
 
 ## Out of scope
 

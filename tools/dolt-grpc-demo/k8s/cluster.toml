@@ -1,0 +1,59 @@
+# Two bundles forwarded to kubernetes for env "local", joined by one declared
+# connection (ADR-0069 / ADR-0070). `cloister cluster k8s --dir . --env local
+# --out out` lowers this; see ../README.md.
+
+[metadata]
+name = "dolt-grpc-demo"
+version = "0.0.1"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[bundles]]
+name = "dolt"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolthub/dolt-sql-server:1.86.1@sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c8242"
+
+[[bundles.ports]]
+name = "mysql"
+port = 3306
+appProtocol = "art.mysql"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "dolt.yaml"
+
+[[bundles]]
+name = "orders"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolt-grpc-demo:dev"
+
+[[bundles.ports]]
+name = "grpc"
+port = 50051
+appProtocol = "art.grpc"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "orders.yaml"
+
+[[connections]]
+from = "orders"
+name = "orders-db"
+appProtocol = "art.mysql"
+minStrength = "policy"
+
+[[connections.targets]]
+env = "local"
+bundle = "dolt"
+port = "mysql"

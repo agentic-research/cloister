@@ -32,6 +32,7 @@ export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
     perTenant: z.boolean().default(false),
     confinement: ConfinementSchema,
     ports: z.array(PortSpecSchema).readonly().default([]),
+    placements: z.array(PlacementSpecSchema).readonly().default([]),
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
       z.object({ external: ExternalBundleSchema }).strict(),
@@ -48,6 +49,7 @@ export interface Bundle {
   perTenant: boolean;
   confinement: Confinement;
   ports: readonly PortSpec[];
+  placements: readonly PlacementSpec[];
   kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
 }
 
@@ -175,6 +177,7 @@ export const ConnectionSpecSchema: z.ZodType<ConnectionSpec> = z.lazy(() =>
     name: z.string().default(""),
     appProtocol: z.string().default(""),
     targets: z.array(ConnectionTargetSchema).readonly().default([]),
+    minStrength: z.string().default(""),
   }).strict());
 
 export interface ConnectionSpec {
@@ -182,6 +185,7 @@ export interface ConnectionSpec {
   name: string;
   appProtocol: string;
   targets: readonly ConnectionTarget[];
+  minStrength: string;
 }
 
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
@@ -269,6 +273,19 @@ export interface PortSpec {
   port: number;
   appProtocol: string;
   expose: string;
+}
+
+export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
+  z.object({
+    env: z.string().default(""),
+    kind: z.string().default(""),
+    manifest: z.string().default(""),
+  }).strict());
+
+export interface PlacementSpec {
+  env: string;
+  kind: string;
+  manifest: string;
 }
 
 export const ConfinementFsSchema: z.ZodType<ConfinementFs> = z.lazy(() =>

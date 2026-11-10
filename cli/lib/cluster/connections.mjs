@@ -53,12 +53,115 @@ export function normalizeConnections(raw) {
     from: text(c?.from),
     name: text(c?.name),
     appProtocol: text(c?.appProtocol),
+    minStrength: text(c?.minStrength),
     targets: (Array.isArray(c?.targets) ? c.targets : []).map((t) => ({
       env: text(t?.env),
       bundle: text(t?.bundle),
       port: text(t?.port),
     })),
   }));
+}
+
+/** Normalize `[[bundles.placements]]` rows to the PlacementSpec shape. */
+export function normalizePlacements(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((p) => ({ env: text(p?.env), kind: text(p?.kind), manifest: text(p?.manifest) }));
+}
+
+// ── Placements and channel strength (ADR-0070 §2–3) ──────────────────────
+
+/** Constructed: cloister builds the node. Forwarded: it owns only the edges. */
+export const CONSTRUCTED_KINDS = Object.freeze(["microvm", "workerd"]);
+export const FORWARDED_KINDS = Object.freeze(["kubernetes", "cloudRun"]);
+export const PLACEMENT_KINDS = Object.freeze([...CONSTRUCTED_KINDS, ...FORWARDED_KINDS]);
+
+/** Ordered weakest → strongest; the meet of two is the earlier one. */
+export const STRENGTHS = Object.freeze(["none", "policy", "capability"]);
+
+/**
+ * The channel strength a placement kind delivers (ADR-0070 §3).
+ *
+ * microvm is `capability` unconditionally because socket hijacking is off by
+ * construction: the host runtime hardcodes it and a launch plan cannot turn it
+ * on. If that ever becomes a plan field, a hijacking microvm must map to
+ * `policy` here. kubernetes is `policy` (NetworkPolicy, which the cluster's CNI
+ * must enforce). Every other kind is `none` until it is lowered with a
+ * mechanism that enforces anything — never an optimistic default.
+ */
+export function strengthOf(kind) {
+  if (kind === "microvm") return "capability";
+  if (kind === "kubernetes") return "policy";
+  return "none";
+}
+
+/** The meet (weaker) of two strengths. */
+export function meetStrength(a, b) {
+  return STRENGTHS[Math.min(STRENGTHS.indexOf(a), STRENGTHS.indexOf(b))];
+}
+
+/**
+ * A bundle's placement kind for `env`, or null when it has none.
+ *
+ * A bundle with NO placement rows and executionMode "microvm" is implicitly
+ * "microvm" in every env — the behaviour before placements existed, kept so a
+ * cluster.toml that only says `executionMode = "microvm"` still lowers. Any
+ * declared row turns the implicit default off for that bundle entirely.
+ */
+export function placementFor(bundle, env) {
+  const rows = bundle?.placements ?? [];
+  if (rows.length === 0) return bundle?.executionMode === "microvm" ? "microvm" : null;
+  return rows.find((p) => p.env === env)?.kind ?? null;
+}
+
+/** The manifest path of a bundle's placement row for `env` ("" if none). */
+export function placementManifest(bundle, env) {
+  return (bundle?.placements ?? []).find((p) => p.env === env)?.manifest ?? "";
+}
+
+/** Cluster-dir-relative path: no leading "/", no "." / ".." / empty segment. */
+function relativePathProblem(path) {
+  if (path.startsWith("/")) return "is absolute";
+  if (path.includes("\0") || path.includes("\\")) return "contains a NUL or backslash";
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === "." || seg === "..") return `has a ${JSON.stringify(seg)} segment`;
+  }
+  return null;
+}
+
+function assertPlacements(b) {
+  const envs = new Set();
+  for (const p of b.placements ?? []) {
+    const where = `bundle "${b.name}" placement env "${p.env}"`;
+    if (p.env === "") throw new Error(`bundle "${b.name}": a placement has an empty env`);
+    if (envs.has(p.env)) {
+      throw new Error(`bundle "${b.name}" declares a placement for env "${p.env}" more than once`);
+    }
+    envs.add(p.env);
+    if (!PLACEMENT_KINDS.includes(p.kind)) {
+      throw new Error(`${where}: kind ${JSON.stringify(p.kind)} is not one of ${PLACEMENT_KINDS.join(", ")}`);
+    }
+    if (p.kind === "microvm" && b.executionMode !== "microvm") {
+      throw new Error(
+        `${where}: kind "microvm" requires executionMode = "microvm" ` +
+          `(the bundle declares ${JSON.stringify(b.executionMode)}) — the two must agree`,
+      );
+    }
+    if (CONSTRUCTED_KINDS.includes(p.kind) && p.manifest !== "") {
+      throw new Error(
+        `${where}: kind "${p.kind}" is constructed by cloister and takes no manifest ` +
+          `(manifest is for forwarded kinds: ${FORWARDED_KINDS.join(", ")})`,
+      );
+    }
+    if (p.kind === "kubernetes" && p.manifest === "") {
+      throw new Error(`${where}: kind "kubernetes" requires a manifest (a rendered YAML path)`);
+    }
+    if (p.manifest !== "") {
+      const problem = relativePathProblem(p.manifest);
+      if (problem) {
+        throw new Error(`${where}: manifest ${JSON.stringify(p.manifest)} ${problem}; it must be relative to the cluster directory`);
+      }
+    }
+  }
 }
 
 /** True when a port is reachable by anything other than its own bundle. */
@@ -112,21 +215,52 @@ export function dnsLabelProblem(name) {
  * SQL-wire connection from one outright (ADR-0033). An external `process`
  * bundle has no way to be handed the channel at all.
  */
-function endpointProblem(b) {
+/** Placement kinds a channel end may have: the two that are lowered. */
+const CHANNEL_KINDS = ["microvm", "kubernetes"];
+
+/**
+ * Why bundle `b` cannot hold a channel end — in `env` when given (a
+ * connection end), or in any env (an exposed port) — or null if it can.
+ *
+ * Placements generalise #283's "external microvm only" rule: an end must be
+ * placed `microvm` or `kubernetes`, the two kinds an emitter lowers. A bundle
+ * with no placement rows is placed implicitly only if it is an external
+ * microvm bundle, so for it the old rule and message stand.
+ */
+function endpointProblem(b, env) {
   if (b.kind !== "external") {
     return `is a ${b.kind || "non-external"} bundle; workerd bundles reach peers through ` +
       `service bindings, not declared channels (and ADR-0069 §3 forbids a SQL-wire ` +
       `connection from one — ADR-0033)`;
   }
-  if (b.executionMode !== "microvm") {
-    return `has executionMode ${JSON.stringify(b.executionMode)}; channels are lowered only ` +
-      `for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, LLO)`;
+  const rows = b.placements ?? [];
+  if (rows.length === 0 && b.executionMode !== "microvm") {
+    return `has executionMode ${JSON.stringify(b.executionMode)} and no placements; channels ` +
+      `are lowered only for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, ` +
+      `LLO) or bundles placed "kubernetes"`;
+  }
+  if (env !== undefined) {
+    const kind = placementFor(b, env);
+    if (kind === null) {
+      return `has no placement for env "${env}" — declare a [[bundles.placements]] row ` +
+        `(only an executionMode "microvm" bundle with no rows is placed implicitly)`;
+    }
+    if (!CHANNEL_KINDS.includes(kind)) {
+      return `is placed "${kind}" for env "${env}"; a channel end must be placed ` +
+        `${CHANNEL_KINDS.join(" or ")}, the kinds ADR-0070 §4 lowers today`;
+    }
+    return null;
+  }
+  const kinds = rows.length === 0 ? ["microvm"] : rows.map((r) => r.kind);
+  if (!kinds.some((k) => CHANNEL_KINDS.includes(k))) {
+    return `has no placement of kind ${CHANNEL_KINDS.join(" or ")} (declared: ` +
+      `${kinds.join(", ")}), so nothing would lower its channel`;
   }
   return null;
 }
 
-function assertEndpoint(b, role) {
-  const problem = endpointProblem(b);
+function assertEndpoint(b, role, env) {
+  const problem = endpointProblem(b, env);
   if (problem) throw new Error(`bundle "${b.name}" ${role} but ${problem}`);
   const nameProblem = dnsLabelProblem(b.name);
   if (nameProblem) {
@@ -150,6 +284,7 @@ export function assertPortsAndConnections(bundles, connections) {
   for (const b of bundles) byName.set(b.name, b);
 
   for (const b of bundles) {
+    assertPlacements(b);
     const names = new Set();
     const numbers = new Map();
     for (const p of b.ports ?? []) {
@@ -198,9 +333,13 @@ export function assertPortsAndConnections(bundles, connections) {
       throw new Error(`${where} is declared more than once — (from, name) must be unique`);
     }
     seen.add(key);
-    assertEndpoint(byName.get(c.from), `is the from of connection "${c.name}"`);
     const protoProblem = validateAppProtocol(c.appProtocol);
     if (protoProblem) throw new Error(`${where}: appProtocol ${protoProblem}`);
+    if (c.minStrength !== "" && !STRENGTHS.includes(c.minStrength)) {
+      throw new Error(
+        `${where}: minStrength ${JSON.stringify(c.minStrength)} is not one of ${STRENGTHS.join(", ")}`,
+      );
+    }
     if (c.targets.length === 0) {
       throw new Error(`${where} declares no targets — add a [[connections.targets]] row per env`);
     }
@@ -232,7 +371,24 @@ export function assertPortsAndConnections(bundles, connections) {
             `"${t.bundle}.${t.port}" appProtocol "${port.appProtocol}"`,
         );
       }
-      assertEndpoint(target, `is the target of connection "${c.name}"`);
+      // Both ends must be channel ends placed in this env (ADR-0070: every
+      // bundle a connection touches resolves a placement for the env it names).
+      assertEndpoint(byName.get(c.from), `is the from of connection "${c.name}"`, t.env);
+      assertEndpoint(target, `is the target of connection "${c.name}"`, t.env);
+      const fromKind = placementFor(byName.get(c.from), t.env);
+      const toKind = placementFor(target, t.env);
+      // ADR-0070 §3: the edge is as strong as its weaker end.
+      if (c.minStrength !== "") {
+        const strength = meetStrength(strengthOf(fromKind), strengthOf(toKind));
+        if (STRENGTHS.indexOf(strength) < STRENGTHS.indexOf(c.minStrength)) {
+          throw new Error(
+            `${tw}: minStrength "${c.minStrength}" is not met — "${c.from}" is placed ` +
+              `"${fromKind}" and "${t.bundle}" is placed "${toKind}", ` +
+              `so the edge's strength is "${strength}" (the meet of ` +
+              `${strengthOf(fromKind)} and ${strengthOf(toKind)})`,
+          );
+        }
+      }
       // Two connections from one bundle to the same port in one env are one
       // edge declared twice. Refused here, by name, rather than surfacing
       // later as a guestPort collision that names neither connection.
@@ -259,7 +415,38 @@ export function checkableBundle(b) {
     kind,
     executionMode: b?.kind?.external?.executionMode ?? "",
     ports: b?.ports ?? [],
+    placements: b?.placements ?? [],
   };
+}
+
+/** Refuse a bundle this emitter does not lower, naming why. */
+export function refuseNonMicrovm(label, kind, env) {
+  if (kind === "kubernetes") {
+    throw new Error(`${label} is placed "kubernetes" for env "${env}"; lower it with \`cloister cluster k8s\`, not \`runtime plan\``);
+  }
+  throw new Error(`${label} is placed "${kind}" for env "${env}", which is not lowered yet (ADR-0070 §4)`);
+}
+
+/**
+ * Refuse an edge whose two ends are placed differently. Such an edge is legal
+ * in the graph — it is how constructed and forwarded tiers meet — but no
+ * emitter joins two placements directly: that is LLO's broker
+ * (ley-line-open-e2c5ce), which does not exist yet.
+ */
+export function refuseCrossPlacement(c, fromName, fromKind, toName, toKind, env) {
+  for (const [end, kind] of [[fromName, fromKind], [toName, toKind]]) {
+    if (kind === "workerd" || kind === "cloudRun") {
+      throw new Error(
+        `connection "${c.name}" (from "${fromName}") env "${env}": "${end}" is ` +
+          `placed "${kind}", which is not lowered yet (ADR-0070 §4)`,
+      );
+    }
+  }
+  throw new Error(
+    `connection "${c.name}" (from "${fromName}") env "${env}" joins "${fromName}" ` +
+      `(${fromKind}) to "${toName}" (${toKind}): an edge across placements needs ` +
+      `LLO's broker (ley-line-open-e2c5ce), which no emitter lowers yet`,
+  );
 }
 
 /** The one socket path a (bundle, port) pair lowers to. Both ends use it. */
@@ -294,7 +481,9 @@ export function lowerChannelGrants(bundles, connections, options) {
   const exposed = ports.filter(isExposed);
   if (ports.length === 0 && outbound.length === 0) return [];
 
-  if (self.executionMode !== "microvm") {
+  const selfKind = placementFor(self, env);
+  if (selfKind !== "microvm") {
+    if (selfKind !== null) refuseNonMicrovm(`bundle "${name}"`, selfKind, env);
     throw new Error(
       `bundle "${name}" declares ports or connections but its executionMode is ` +
         `"${self.executionMode}": confinement/v1 §6 guestPort presentation is ` +
@@ -316,15 +505,12 @@ export function lowerChannelGrants(bundles, connections, options) {
       );
     }
     const tb = bundles.find((b) => b.name === target.bundle);
-    if (tb.executionMode !== "microvm") {
+    const targetKind = placementFor(tb, env);
+    if (targetKind !== "microvm") {
       // The other end would never bind the socket: a non-microvm target is a
       // different placement, and constructed ↔ other joins go through LLO's
       // broker (ADR-0070 §4), which this lowering does not emit.
-      throw new Error(
-        `connection "${c.name}" (from "${name}") env "${env}": target bundle ` +
-          `"${target.bundle}" is not a microvm bundle, so nothing would bind ` +
-          `its channel; joining other placements needs LLO's broker (ADR-0070 §4)`,
-      );
+      refuseCrossPlacement(c, name, "microvm", target.bundle, targetKind, env);
     }
     const port = tb.ports.find((p) => p.name === target.port);
     grants.push({ path: channelSocketPath(channelDir, target.bundle, port.name), guestPort: port.port });

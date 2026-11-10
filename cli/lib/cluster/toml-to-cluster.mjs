@@ -170,7 +170,7 @@ export async function parseTomlToCluster(tomlString) {
     }
   });
 
-  //    4c-1. Declared ports + connections resolve (ADR-0069 §1–2,
+  //    4c-1. Declared ports, placements + connections resolve (ADR-0069 §1–2,
   //        cloister-991e65). Port names / numbers unique per bundle, every
   //        connection's target names an exposed port on another declared
   //        bundle, and the two ends agree on appProtocol. Shared with
@@ -273,6 +273,10 @@ export async function parseTomlToCluster(tomlString) {
 
   return validated;
 }
+
+// Re-exported so `cloister cluster k8s` sees bundles exactly as the build
+// check did (one definition, in connections.mjs).
+export { checkableBundle };
 
 /** Return the first duplicated value in `arr`, or null if all unique. */
 function firstDuplicate(arr) {
