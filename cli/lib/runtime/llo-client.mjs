@@ -8,6 +8,21 @@ import {
   validateLloExecutionResponse,
 } from "./llo-execution-contract.mjs";
 
+// `ProvisionOutput.casRoot` arrived in LLO v0.29.0 (ley-line-open-ba86d3),
+// and the generated schema requires it (cloister-164236). A provision reply
+// without it therefore comes from an older LLO daemon: say THAT, and the
+// version needed, instead of only the schema error.
+const CAS_ROOT_SINCE = "v0.29.0";
+
+function olderDaemonProblem(operationName, response) {
+  if (operationName !== "llo_execution_provision") return null;
+  if (response && typeof response === "object" && !("casRoot" in response)) {
+    return `the LLO daemon is older than ${CAS_ROOT_SINCE}: its provision reply has no casRoot ` +
+      `(added in ${CAS_ROOT_SINCE}). Run an LLO execution daemon at ${CAS_ROOT_SINCE} or later`;
+  }
+  return null;
+}
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 
@@ -64,6 +79,8 @@ export function callLloJson(socketPath, request, deps = {}) {
       const line = buffer.slice(0, newline);
       try {
         const response = JSON.parse(line);
+        const older = olderDaemonProblem(operationName, response);
+        if (older) throw new Error(older);
         finish(resolve, validateLloExecutionResponse(operationName, response));
       } catch (error) {
         finish(reject, new LloClientError(

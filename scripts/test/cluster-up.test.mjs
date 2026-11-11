@@ -358,7 +358,13 @@ function fakeChild(pid) {
   c.signalCode = null;
   c.stderr = new EventEmitter();
   c.killed = [];
-  c.exit = (code, signal) => { c.exitCode = code; c.signalCode = signal; c.emit("exit", code, signal); };
+  c.exit = (code, signal) => {
+    c.exitCode = code;
+    c.signalCode = signal;
+    c.emit("exit", code, signal);
+    c.stderr.emit("end");
+    c.emit("close", code, signal);
+  };
   c.kill = (sig) => { c.killed.push(sig); setImmediate(() => c.exit(128 + 15, null)); return true; };
   return c;
 }

@@ -138,7 +138,7 @@ running.
 | §3 `up` distinguishes bound from healthy; health gates dependents | partly: `up` reports "bound", never "ready" (#287). Health checks and gating are not built. |
 | §4 declared grace period and enforced escalation | not built |
 | §5 restart policy | not built. Any exit ends `up`. |
-| §6 ceiling stop reported distinctly | built (#287): the host runtime exits 124 and `up` names the ceiling. "No ceiling" is not built (`ley-line-open-e6b1bb`). |
+| §6 ceiling stop reported distinctly | built (#287): the host runtime exits 124 and `up` names the ceiling. No guest output is printed for it (#289). "No ceiling" is not built (`ley-line-open-e6b1bb`). |
 
 ## Rails to ship with the implementation
 
@@ -153,8 +153,9 @@ running.
 - A cloister daemon. Durable ownership is LLO's.
 - Log shipping and retention. Guest output reaches cloister through LLO's
   execution result (`cloister-edec62`). Since LLO v0.29.0 the host runtime
-  prints a failed or ceiling-stopped run's stdout/stderr tails, labelled
-  untrusted, and `up` shows them under the bundle's prefix. Nothing is stored,
+  prints a FAILED run's stdout/stderr tails, labelled untrusted, and `up`
+  shows them under the bundle's prefix. It prints nothing for a ceiling stop
+  (§6), which is not a workload failure. Nothing is stored,
   shipped, or kept beyond that one report.
 - Restart back-off tuning, rolling updates, autoscaling. A forwarded
   placement already has these; a constructed one does not need them yet.

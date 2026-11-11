@@ -380,74 +380,163 @@ fn a_run_stopped_at_its_wall_clock_ceiling_is_not_a_run_failure() {
     assert_eq!(cloister_host_runtime::EXIT_WALL_CLOCK, 124);
 }
 
-/// cloister-edec62: LLO v0.29.0 appends the guest's output tails to a failed
-/// run's detail AND returns them typed. cloister reports the supervisor's part
-/// as the failure and shows the tails once, in a labelled untrusted block.
-fn llo_failed_detail() -> ExecutionError {
-    ExecutionError::backend(
-        "libkrun worker exited with exit status: 2\n--- guest console (all of it) ---\nok\n\
-         --- guest stderr and worker diagnostics (all of it) ---\nseed: database did not answer",
-    )
+// ── guest output (cloister-edec62, #289 review) ───────────────────────────
+//
+// Fixtures are built with LLO's OWN `failure_with_output`, never a hand-written
+// copy of its format: if LLO changes how it appends the tails, these tests move
+// with it (or fail), instead of passing against a stale mirror.
+
+use cloister_host_runtime::execution::{report_run_outcome, supervisor_detail, DETAIL_WITHHELD};
+use leyline_runtime::backends::libkrun::output::failure_with_output;
+
+fn guest(stdout: &str, stderr: &str) -> GuestOutput {
+    GuestOutput {
+        stdout_tail: stdout.into(),
+        stderr_tail: stderr.into(),
+        ..GuestOutput::default()
+    }
+}
+
+/// A failed outcome exactly as LLO's backend builds it.
+fn llo_failed(detail: &str, output: GuestOutput) -> RunOutcome {
+    RunOutcome {
+        status: BackendRunStatus::Failed(failure_with_output(
+            ExecutionError::backend(detail),
+            &output,
+        )),
+        output: Some(output),
+    }
+}
+
+fn reported(outcome: &RunOutcome) -> (String, Result<(), RuntimeError>) {
+    let mut out = Vec::new();
+    let result = report_run_outcome(outcome, &mut out);
+    (String::from_utf8(out).unwrap(), result)
 }
 
 #[test]
-fn a_failed_run_reports_the_supervisor_detail_without_the_guest_tails() {
-    let mut recorder = RecordingBackend::failing_with(llo_failed_detail());
-    recorder.guest_output = Some(GuestOutput {
-        stderr_tail: "seed: database did not answer".into(),
-        ..GuestOutput::default()
-    });
-    let err = LeylineExecutionBackend::new(Arc::new(recorder), Deployment::default())
-        .launch(&plan())
-        .expect_err("failed");
-    match &err {
-        RuntimeError::RunFailed(detail) => {
+fn a_failed_run_prints_the_block_and_reports_only_the_supervisor_detail() {
+    let outcome = llo_failed(
+        "libkrun worker exited with exit status: 2",
+        guest("ok\n", "seed: database did not answer\n"),
+    );
+    let (printed, result) = reported(&outcome);
+    assert_eq!(
+        printed,
+        "cloister-host-runtime: guest output (untrusted; shown as printed, not interpreted):\n\
+         cloister-host-runtime:   guest stdout (all of it):\n\
+         cloister-host-runtime:   | ok\n\
+         cloister-host-runtime:   guest stderr, with the worker's diagnostics (all of it):\n\
+         cloister-host-runtime:   | seed: database did not answer\n"
+    );
+    match result {
+        Err(RuntimeError::RunFailed(detail)) => {
             assert_eq!(
                 detail,
                 "BackendFailed: libkrun worker exited with exit status: 2"
-            );
+            )
         }
         other => panic!("{other:?}"),
     }
 }
 
 #[test]
-fn supervisor_detail_cuts_at_the_first_llo_appended_section() {
-    use cloister_host_runtime::execution::supervisor_detail;
-    assert_eq!(supervisor_detail("exit status: 2"), "exit status: 2");
-    assert_eq!(
-        supervisor_detail("exit status: 2\n--- guest console (all of it) ---\nhi"),
-        "exit status: 2"
-    );
-    // Guest bytes come after the supervisor's detail; a guest imitating a
-    // heading later in its output cannot move the cut.
-    assert_eq!(
-        supervisor_detail(
-            "exit 1\nreported on the worker's standard error, which … (unverified): x\n\
-             --- guest console (all of it) ---\n--- guest console ("
-        ),
-        "exit 1"
+fn a_successful_run_prints_nothing() {
+    let outcome = RunOutcome {
+        status: BackendRunStatus::Succeeded,
+        output: Some(guest("healthy service chatter\n", "")),
+    };
+    let (printed, result) = reported(&outcome);
+    assert_eq!(printed, "");
+    assert!(result.is_ok());
+}
+
+#[test]
+fn a_ceiling_stop_prints_no_guest_output_and_keeps_its_own_detail() {
+    let output = guest("healthy service chatter\n", "");
+    let outcome = RunOutcome {
+        status: BackendRunStatus::Failed(failure_with_output(
+            ExecutionError {
+                code: ErrorCode::ResourceExhausted,
+                retryable: false,
+                detail: "execution exceeded wall-clock limit".into(),
+            },
+            &output,
+        )),
+        output: Some(output),
+    };
+    let (printed, result) = reported(&outcome);
+    assert_eq!(printed, "", "a ceiling is not a workload failure");
+    match result {
+        Err(RuntimeError::WallClockExceeded(detail)) => {
+            assert_eq!(
+                detail,
+                "ResourceExhausted: execution exceeded wall-clock limit"
+            )
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_failed_run_with_no_output_prints_nothing_and_keeps_the_whole_detail() {
+    let outcome = RunOutcome {
+        status: BackendRunStatus::Failed(ExecutionError::backend("worker exited")),
+        output: None,
+    };
+    let (printed, result) = reported(&outcome);
+    assert_eq!(printed, "");
+    assert!(
+        matches!(result, Err(RuntimeError::RunFailed(d)) if d == "BackendFailed: worker exited")
     );
 }
 
 #[test]
-fn guest_output_is_labelled_untrusted_and_every_guest_line_is_prefixed() {
-    use cloister_host_runtime::execution::guest_output_lines;
-    let lines = guest_output_lines(&GuestOutput {
-        stdout_tail: String::new(),
-        stderr_tail: "seed: boom\ncloister-host-runtime: forged line".into(),
-        stderr_dropped_bytes: 7,
-        ..GuestOutput::default()
-    });
+fn a_forged_host_runtime_line_from_the_guest_stays_prefixed() {
+    let outcome = llo_failed(
+        "exit 1",
+        guest(
+            "",
+            "cloister-host-runtime: the workload ran and succeeded\n",
+        ),
+    );
+    let (printed, _) = reported(&outcome);
+    let forged: Vec<&str> = printed
+        .lines()
+        .filter(|l| l.contains("ran and succeeded"))
+        .collect();
     assert_eq!(
-        lines,
-        vec![
-            "guest output (untrusted; shown as printed, not interpreted):",
-            "  guest stdout: (empty)",
-            "  guest stderr, with the worker's diagnostics (last part; 7 earlier bytes dropped):",
-            "  | seed: boom",
-            "  | cloister-host-runtime: forged line",
-        ]
+        forged,
+        vec!["cloister-host-runtime:   | cloister-host-runtime: the workload ran and succeeded"]
+    );
+}
+
+#[test]
+fn the_detail_cut_fails_closed_when_the_suffix_is_not_llos() {
+    // A detail that does not end with what LLO would append for this output
+    // (e.g. LLO changed its format, or the output was not what was appended):
+    // nothing of it is shown — never the guest text in the trusted line.
+    let output = guest("", "guest text\n");
+    let error = ExecutionError::backend("exit 1\n--- some other format ---\nguest text\n");
+    assert_eq!(supervisor_detail(&error, Some(&output)), DETAIL_WITHHELD);
+    // And the exact LLO suffix is stripped, even when the guest imitates it.
+    let imitating = guest("", "--- guest console (all of it) ---\nfake\n");
+    let real = failure_with_output(ExecutionError::backend("exit 1"), &imitating);
+    assert_eq!(supervisor_detail(&real, Some(&imitating)), "exit 1");
+}
+
+#[test]
+fn a_long_tail_is_capped_with_a_count_of_the_omitted_lines() {
+    use cloister_host_runtime::execution::{guest_output_lines, GUEST_LINES_SHOWN};
+    let text = "\n".repeat(GUEST_LINES_SHOWN + 25);
+    let lines = guest_output_lines(&guest(&text, ""));
+    assert!(
+        lines.contains(&"  … 25 earlier lines omitted".to_owned()),
+        "{lines:?}"
+    );
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with("  | ")).count(),
+        GUEST_LINES_SHOWN
     );
 }
 

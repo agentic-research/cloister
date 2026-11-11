@@ -334,7 +334,7 @@ test("a provision reply without casRoot (a pre-v0.29.0 LLO) is refused by the ge
         return socket;
       },
     }),
-    /response.casRoot is required by the generated schema/,
+    /the LLO daemon is older than v0\.29\.0: its provision reply has no casRoot \(added in v0\.29\.0\)\. Run an LLO execution daemon at v0\.29\.0 or later/,
   );
 });
 

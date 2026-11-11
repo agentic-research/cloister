@@ -16,6 +16,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
 use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
+use leyline_runtime::backends::libkrun::output::failure_with_output;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
@@ -165,30 +166,49 @@ impl AwaitRun for KrunWorkerBackend {
     }
 }
 
-/// Markers LLO's `failure_with_output` uses when it appends the reported
-/// event and the output tails to a failed run's detail (runtime
-/// backends/libkrun/output.rs). The supervisor's own detail always comes
-/// FIRST, so cutting at the earliest marker keeps exactly the trusted part:
-/// guest bytes come after it and cannot move the cut, even if they imitate a
-/// heading.
-const APPENDED_BY_LLO: [&str; 3] = [
-    "\nreported on the worker's standard error",
-    "\n--- guest console (",
-    "\n--- guest stderr and worker diagnostics (",
-];
+/// Printed in place of a failure's detail when cloister cannot separate the
+/// supervisor's words from the guest's (see `supervisor_detail`). Fails CLOSED:
+/// guest text never reaches the trusted failure line.
+pub const DETAIL_WITHHELD: &str =
+    "detail withheld: it did not end with the guest output LLO appends, so cloister cannot tell the supervisor's words from the guest's";
 
-/// The supervisor's part of a failed run's detail — what cloister reports as
-/// the failure. The guest's output is shown separately, labelled untrusted.
-pub fn supervisor_detail(detail: &str) -> &str {
-    let cut = APPENDED_BY_LLO
-        .iter()
-        .filter_map(|marker| detail.find(marker))
-        .min()
-        .unwrap_or(detail.len());
-    &detail[..cut]
+/// The supervisor's own part of a failed run's detail.
+///
+/// LLO appends the guest's tails (and any reported, unverified event) to a
+/// failure's detail with `failure_with_output`. Rather than mirror LLO's
+/// heading strings, cloister asks LLO's own function what it would append for
+/// THIS output — by applying it to the same error with an empty detail — and
+/// strips exactly that suffix. If LLO changes its format, this still computes
+/// the right suffix; if the detail does not end with it, the detail is
+/// withheld rather than shown, so a guest can never write into the trusted
+/// line. With no output, LLO appended nothing and the detail is whole.
+pub fn supervisor_detail(error: &ExecutionError, output: Option<&GuestOutput>) -> String {
+    let Some(output) = output else {
+        return error.detail.clone();
+    };
+    let appended = failure_with_output(
+        ExecutionError {
+            code: error.code,
+            retryable: error.retryable,
+            detail: String::new(),
+        },
+        output,
+    )
+    .detail;
+    match error.detail.strip_suffix(appended.as_str()) {
+        Some(own) => own.to_owned(),
+        None => DETAIL_WITHHELD.to_owned(),
+    }
 }
 
-/// The guest-output block printed for a failed or ceiling-stopped run.
+/// At most this many lines of each guest stream are printed; the rest are
+/// counted, so a tail of bare newlines cannot flood a terminal's scrollback.
+pub const GUEST_LINES_SHOWN: usize = 40;
+
+/// The guest-output block printed for a FAILED run (never for a success, and
+/// never for a stop at the wall-clock ceiling: that is not the workload
+/// failing, and a healthy service's stdout does not belong in a CI log
+/// because a deadline passed).
 ///
 /// The text is the workload's own: untrusted, never interpreted, and it never
 /// changes the exit status. LLO has already replaced control characters other
@@ -215,11 +235,60 @@ pub fn guest_output_lines(output: &GuestOutput) -> Vec<String> {
             "all of it".to_owned()
         };
         lines.push(format!("  guest {name} ({kept}):"));
-        for line in text.lines() {
+        let all: Vec<&str> = text.lines().collect();
+        let omitted = all.len().saturating_sub(GUEST_LINES_SHOWN);
+        if omitted > 0 {
+            lines.push(format!("  … {omitted} earlier lines omitted"));
+        }
+        for line in &all[omitted..] {
             lines.push(format!("  | {line}"));
         }
     }
     lines
+}
+
+/// Turn a finished run's outcome into the launch result, writing the guest
+/// output block to `out` for a failed run. Separated from `launch` so tests
+/// can observe exactly what is printed.
+///
+/// - Succeeded: nothing is written.
+/// - Failed at the wall-clock ceiling (LLO reports the deadline as
+///   ResourceExhausted — runtime process.rs; at the pinned LLO no other
+///   libkrun-tier failure uses that code): no block; `WallClockExceeded`.
+/// - Failed otherwise: the block (when LLO returned output), then `RunFailed`
+///   carrying the supervisor's detail only.
+///
+/// The block is written through one `out` borrow; `launch` passes a locked
+/// stderr, so the stop thread's messages cannot interleave with it.
+pub fn report_run_outcome(
+    outcome: &RunOutcome,
+    out: &mut dyn std::io::Write,
+) -> Result<(), RuntimeError> {
+    let summary = |error: &ExecutionError| {
+        format!(
+            "{:?}: {}",
+            error.code,
+            supervisor_detail(error, outcome.output.as_ref())
+        )
+    };
+    match &outcome.status {
+        BackendRunStatus::Succeeded => Ok(()),
+        BackendRunStatus::Failed(error) if error.code == ErrorCode::ResourceExhausted => {
+            Err(RuntimeError::WallClockExceeded(summary(error)))
+        }
+        BackendRunStatus::Failed(error) => {
+            if let Some(output) = &outcome.output {
+                let block: String = guest_output_lines(output)
+                    .into_iter()
+                    .map(|line| format!("cloister-host-runtime: {line}\n"))
+                    .collect();
+                // Ignore write errors: the supervisor may be gone (see note!).
+                let _ = out.write_all(block.as_bytes());
+                let _ = out.flush();
+            }
+            Err(RuntimeError::RunFailed(summary(error)))
+        }
+    }
 }
 
 impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
@@ -477,28 +546,6 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             .inner
             .await_run(&request.run_id)
             .map_err(|error| RuntimeError::Backend(error.to_string()))?;
-        // A failed or ceiling-stopped run shows what its guest printed, as a
-        // labelled untrusted block. The error itself is the supervisor's
-        // detail only, so the tails appear once.
-        let report = |error: &ExecutionError| {
-            if let Some(output) = &outcome.output {
-                for line in guest_output_lines(output) {
-                    crate::note!("cloister-host-runtime: {line}");
-                }
-            }
-            format!("{:?}: {}", error.code, supervisor_detail(&error.detail))
-        };
-        match &outcome.status {
-            BackendRunStatus::Succeeded => Ok(()),
-            // LLO's supervisor reports the deadline as ResourceExhausted
-            // ("execution exceeded wall-clock limit", runtime process.rs);
-            // at the pinned LLO no other libkrun-tier failure uses that code.
-            // The code is matched, not the text, and a cleanup failure
-            // appended to the detail keeps the run's code.
-            BackendRunStatus::Failed(error) if error.code == ErrorCode::ResourceExhausted => {
-                Err(RuntimeError::WallClockExceeded(report(error)))
-            }
-            BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(report(error))),
-        }
+        report_run_outcome(&outcome, &mut std::io::stderr().lock())
     }
 }

@@ -123,9 +123,10 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
   The workload may not be listening yet. Since LLO
   v0.29.0 an early connection is held for up to 10 s, not closed; `orders`'
   client still retries.
-- When a run fails, or reaches its wall-clock ceiling, the host runtime prints
-  the guest's stdout and stderr tails (LLO v0.29.0, a26ad0) as a block
-  labelled `guest output (untrusted …)`. Every guest line is prefixed with
+- When a run FAILS, the host runtime prints the guest's stdout and stderr
+  tails (LLO v0.29.0, a26ad0) as a block labelled `guest output (untrusted …)`.
+  Nothing is printed for a success, or for a stop at the wall-clock ceiling,
+  which isn't a workload failure. Every guest line is prefixed with
   `| `, and `up` shows it under the bundle's `[name]` prefix. It is the
   workload's own text: never interpreted, and it never changes an exit status.
   Exit codes propagate as before.

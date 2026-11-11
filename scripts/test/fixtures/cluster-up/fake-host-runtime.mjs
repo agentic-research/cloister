@@ -4,6 +4,8 @@
 // scripts/test/cluster-up-process.test.mjs (cloister-991e65). Real process,
 // real signals, real stdin pipe — no VM. Behaviour per bundle from env:
 //   FAKE_<BUNDLE>      ok | slow-bind | never-bind | bind-then-die | ignore-term
+//                      | split-line-then-die (bind, write ONE stderr line in
+//                        several small writes, exit 1)
 //   FAKE_STOP_MS       delay between SIGTERM and exiting 143 (default 0)
 //   FAKE_BIND_MS / FAKE_DIE_MS  delays for slow-bind / bind-then-die
 //   FAKE_LOG           file; one "<bundle> <pid> <event>" line per event
@@ -28,6 +30,18 @@ if (mode === "slow-bind") setTimeout(bind, Number(process.env.FAKE_BIND_MS ?? 30
 if (mode === "bind-then-die") {
   bind();
   setTimeout(() => { event("die"); process.exit(1); }, Number(process.env.FAKE_DIE_MS ?? 300));
+}
+
+if (mode === "split-line-then-die") {
+  bind();
+  const pieces = ["cloister-host-runtime:   ", "| seed: data", "base did not ", "answer\n", "cloister-host-runtime: the workload ran and failed"];
+  let i = 0;
+  const next = () => {
+    if (i < pieces.length) { process.stderr.write(pieces[i++]); setTimeout(next, 30); return; }
+    event("die");
+    process.exit(1);
+  };
+  setTimeout(next, 100);
 }
 
 process.on("SIGTERM", () => {

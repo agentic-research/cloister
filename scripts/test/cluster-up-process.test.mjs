@@ -184,3 +184,21 @@ test("a third signal SIGKILLs host runtimes that will not stop, and says their V
     up.cleanup();
   }
 });
+
+test("a stderr line written in several small pieces is relayed whole, never split", async () => {
+  const up = startUp({ FAKE_ORDERS: "split-line-then-die" });
+  try {
+    const { code } = await up.exited;
+    assert.equal(code, 1, up.out.stderr);
+    const orders = up.out.stderr.split("\n").filter((l) => l.startsWith("[orders]"));
+    assert.deepEqual(orders, [
+      "[orders] cloister-host-runtime:   | seed: database did not answer",
+      "[orders] cloister-host-runtime: the workload ran and failed",
+    ]);
+    // describeExit names the last WHOLE line (here flushed at end of stream).
+    assert.match(up.out.stderr, /bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed\n/);
+  } finally {
+    up.child.kill("SIGKILL");
+    up.cleanup();
+  }
+});
