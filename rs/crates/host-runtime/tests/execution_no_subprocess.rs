@@ -210,10 +210,7 @@ fn microvm_launch_carries_oci_defaults_the_hypervisor_can_size() {
 
     let seen = recorder.seen.lock().unwrap();
     let limits = seen.first().expect("one request").limits;
-    assert_eq!(
-        limits.wall_time_ms, 0,
-        "cloister invents no wall-time ceiling"
-    );
+    assert_eq!(limits.wall_time_ms, 15 * 60 * 1000);
     assert_eq!(limits.output_bytes, 0, "every tier refuses outputBytes");
     assert_eq!(limits.memory.limit, 1024 * 1024 * 1024);
     assert_eq!(limits.cpu.quota, 2 * DEFAULT_CPU_PERIOD_US);
@@ -229,11 +226,9 @@ fn microvm_launch_carries_oci_defaults_the_hypervisor_can_size() {
 
 /// The native tier without a delegated cgroup root enforces only the wall
 /// clock and refuses memory/cpu/pids by name. A cloister default is not
-/// operator authority, so it must not turn every launch there into a refusal,
-/// and since cloister invents no wall-time ceiling either, such a tier is
-/// asked for no ceiling at all.
+/// operator authority, so it must not turn every launch there into a refusal.
 #[test]
-fn native_wall_clock_only_launch_requests_no_ceiling() {
+fn native_wall_clock_only_launch_requests_only_the_wall_clock() {
     let recorder = Arc::new(RecordingBackend::tier(
         BackendClass::Native,
         EnforcedCeilings::wall_clock_only(),
@@ -244,13 +239,10 @@ fn native_wall_clock_only_launch_requests_no_ceiling() {
     ));
     HostRuntime::new(None, Some(backend))
         .launch(&plan())
-        .expect("a wall-clock-only tier accepts a request with no ceilings");
+        .expect("a wall-clock-only tier accepts the narrowed defaults");
 
     let limits = recorder.seen.lock().unwrap()[0].limits;
-    assert_eq!(
-        limits.wall_time_ms, 0,
-        "cloister invents no wall-time ceiling"
-    );
+    assert_eq!(limits.wall_time_ms, 15 * 60 * 1000);
     assert_eq!(limits.memory.limit, 0);
     assert_eq!(limits.cpu.quota, 0);
     assert_eq!(
@@ -583,4 +575,38 @@ fn a_guest_port_over_65535_does_not_parse() {
     let ok: UnixSocketAllowEntry =
         serde_json::from_str(r#"{"path":"/run/x.sock","mode":"bind","guestPort":3306}"#).unwrap();
     assert_eq!(ok.guest_port, Some(3306));
+}
+
+/// The request cloister builds must pass LLO's OWN request validation, not
+/// only the recording stub's. `ExecutionRequest::validate` is crate-private in
+/// LLO, so this drives the real libkrun backend with a worker path that does
+/// not exist: it validates the request first and only then checks that the
+/// worker is available. A request LLO would refuse fails as `InvalidSpec`; a
+/// sound one fails later, on the missing worker.
+///
+/// This is the rail for cloister-991e65's regression: a default of
+/// `wall_time_ms = 0` passed every stub-backed test and was refused by every
+/// real launch ("wall_time_ms must be non-zero").
+#[test]
+fn cloisters_default_request_passes_llos_own_validation() {
+    use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerConfig};
+    let missing = std::path::PathBuf::from("/nonexistent/cloister-test/leyline-krun-worker");
+    let real = Arc::new(KrunWorkerBackend::new(KrunWorkerConfig {
+        worker: missing.clone(),
+        cas_root: missing.clone(),
+        ephemeral_root: missing,
+        runtime_files: Vec::new(),
+        devices: Vec::new(),
+        ready_timeout: std::time::Duration::from_secs(1),
+        tsi_hijack_inet: false,
+    }));
+    let backend = Arc::new(LeylineExecutionBackend::new(real, Deployment::default()));
+    let error = HostRuntime::new(None, Some(backend))
+        .launch(&plan())
+        .expect_err("a backend with no worker cannot launch");
+    let text = error.to_string();
+    assert!(
+        !text.contains("InvalidSpec") && !text.contains("must be non-zero"),
+        "LLO refused cloister's request as invalid before reaching the worker: {text}"
+    );
 }

@@ -8,19 +8,16 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
-### 2026-11 — No invented wall-time ceiling (`cloister-991e65`)
+### 2026-11 — Restore the wall-time ceiling; test against LLO's own validation (`cloister-991e65`)
 
-- The host runtime no longer asks LLO for a 15-minute wall-time ceiling that
-  nothing declared. That ceiling stopped long-running services such as
-  `dolt sql-server` after 15 minutes. How long a workload runs is part of its
-  own declaration:
-  - A microVM bundle that exposes a port is a service, and it runs until
-    stopped.
-  - A forwarded workload keeps its deadline in the operator's spec
-    (`activeDeadlineSeconds`, Cloud Run `timeoutSeconds`/`taskTimeout`), which
-    cloister passes through untouched (ADR-0070 §2).
-- Zero is LLO's "no ceiling". The run receipt records what was applied.
-- The memory and vCPU defaults are unchanged. They size the microVM itself.
+- #285 removed cloister's 15-minute wall-time default by sending zero. LLO
+  refuses a zero wall time ("wall_time_ms must be non-zero"), so every microVM
+  launch on main failed. This restores the default.
+- The gap that let it through: the tests used a recording stub, which never
+  ran LLO's request validation. A new test drives the real libkrun backend
+  with a missing worker, so a request LLO would call invalid fails the test.
+- A service still stops after 15 minutes. Running one with no ceiling needs LLO
+  to accept that (`ley-line-open-e6b1bb`).
 
 ### 2026-11 — Placements, the strength rail, and `cloister cluster k8s` (`cloister-991e65`)
 
