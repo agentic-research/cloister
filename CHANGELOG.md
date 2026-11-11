@@ -44,6 +44,9 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   - A stop that arrives while LLO is still starting the run waits for start
     to settle, then cancels.
   - Only a real cancel is reported as "stopped".
+  - Messages on the stop path never panic on a closed stderr. `eprintln!` did,
+    which meant that after `kill -9` of `up` the host runtimes kept running.
+    Seen live, then fixed.
   - The run exits 128+signal.
   - Not covered until ley-line-open-f963e6: a host runtime that is itself
     SIGKILLed can still leave its worker running.

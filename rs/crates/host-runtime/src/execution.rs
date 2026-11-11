@@ -392,7 +392,7 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             to_execution_request(plan, &self.inner.capabilities().enforced, &self.deployment)?;
         // Say what ceiling this run carries, so a supervisor's log shows why a
         // service stops when it does (ley-line-open-e6b1bb).
-        eprintln!(
+        crate::note!(
             "cloister-host-runtime: {}: wall-clock ceiling {} s (the run is stopped when it is reached)",
             request.run_id,
             request.limits.wall_time_ms / 1000

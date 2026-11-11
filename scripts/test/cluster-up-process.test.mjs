@@ -146,14 +146,21 @@ test("a run ending on its own still makes the exit non-zero when a signal also a
 
 test("kill -9 of up: each host runtime sees stdin EOF and stops", async () => {
   const up = startUp({});
+  let dir;
   try {
     await up.waitFor(/all bundles ready/);
+    dir = up.channelDir();
     const pids = fakePids(up);
     up.child.kill("SIGKILL");
     await up.exited;
     assert.ok(await allDead(pids), "host runtimes exited after their supervisor died");
     assert.deepEqual(up.events().filter((e) => e.what === "eof").map((e) => e.bundle).sort(), ["dolt", "orders"]);
+    // Nothing runs `up`'s teardown after kill -9, so its channel dir stays —
+    // stated here rather than hidden; a later `up` never reuses it (each
+    // invocation makes a fresh one).
+    assert.equal(existsSync(dir), true);
   } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
     up.cleanup();
   }
 });

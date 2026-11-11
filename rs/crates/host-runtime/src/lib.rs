@@ -329,6 +329,22 @@ pub fn prepare_channel_dirs(plan: &LaunchPlan) -> Result<(), RuntimeError> {
     Ok(())
 }
 
+/// Write one diagnostic line to stderr, IGNORING write errors.
+///
+/// `eprintln!` panics when stderr cannot be written. Under `cluster up`, stderr
+/// is a pipe to the supervisor; when the supervisor dies (the exact case
+/// `--stop-on-stdin-eof` handles) that pipe is gone, and a panic in the stop
+/// thread meant no cancel and no exit — observed live: after `kill -9` of `up`
+/// both host runtimes survived, one with its worker still running
+/// (cloister-991e65). Every message on the stop path goes through this.
+#[macro_export]
+macro_rules! note {
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stderr(), $($arg)*);
+    }};
+}
+
 /// Block until `reader` reaches end-of-file (or fails), then call `on_eof`
 /// once. Data read before then is discarded.
 ///

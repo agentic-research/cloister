@@ -156,7 +156,7 @@ fn run() -> Result<()> {
                 if stop_on_stdin_eof {
                     std::thread::spawn(|| {
                         cloister_host_runtime::watch_for_eof(std::io::stdin().lock(), || {
-                            eprintln!("cloister-host-runtime: stdin closed: the supervisor is gone; stopping");
+                            cloister_host_runtime::note!("cloister-host-runtime: stdin closed: the supervisor is gone; stopping");
                             // SAFETY: kill(getpid(), SIGTERM) only signals this process.
                             unsafe {
                                 libc::kill(libc::getpid(), libc::SIGTERM);
@@ -181,7 +181,7 @@ fn run() -> Result<()> {
                     // A distinct exit status, not just a message: see
                     // EXIT_WALL_CLOCK.
                     cloister_host_runtime::RuntimeError::WallClockExceeded(_) => {
-                        eprintln!("cloister-host-runtime: {error}");
+                        cloister_host_runtime::note!("cloister-host-runtime: {error}");
                         std::process::exit(cloister_host_runtime::EXIT_WALL_CLOCK);
                     }
                     other => anyhow::Error::new(other).context("launch refused"),
@@ -336,7 +336,7 @@ fn stop_on_signal(
         // SAFETY: `set` is the initialised set blocked in this process.
         let rc = unsafe { libc::sigwait(&set, &mut signal) };
         if rc != 0 {
-            eprintln!(
+            cloister_host_runtime::note!(
                 "cloister-host-runtime: sigwait failed ({}); the run cannot be stopped by signal",
                 std::io::Error::from_raw_os_error(rc)
             );
@@ -355,18 +355,18 @@ fn stop_on_signal(
         // parent die, are LLO's: ley-line-open-f963e6.
         match backend.cancel(&plan) {
             Ok(CancelOutcome::Cancelled) => {
-                eprintln!("cloister-host-runtime: {name}: run for {bundle} stopped")
+                cloister_host_runtime::note!("cloister-host-runtime: {name}: run for {bundle} stopped")
             }
-            Ok(CancelOutcome::NeverStarted) => eprintln!(
+            Ok(CancelOutcome::NeverStarted) => cloister_host_runtime::note!(
                 "cloister-host-runtime: {name}: stop arrived before the run for {bundle} was started; it was not started"
             ),
-            Ok(CancelOutcome::StartFailed) => eprintln!(
+            Ok(CancelOutcome::StartFailed) => cloister_host_runtime::note!(
                 "cloister-host-runtime: {name}: the run for {bundle} had failed to start; nothing to stop"
             ),
-            Ok(CancelOutcome::AlreadyEnded) => eprintln!(
+            Ok(CancelOutcome::AlreadyEnded) => cloister_host_runtime::note!(
                 "cloister-host-runtime: {name}: the run for {bundle} had already ended"
             ),
-            Err(error) => eprintln!(
+            Err(error) => cloister_host_runtime::note!(
                 "cloister-host-runtime: {name}: stopping the run for {bundle} FAILED, its worker may still be running: {error}"
             ),
         }
@@ -376,7 +376,7 @@ fn stop_on_signal(
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("cloister-host-runtime: {error:#}");
+        cloister_host_runtime::note!("cloister-host-runtime: {error:#}");
         std::process::exit(1);
     }
 }

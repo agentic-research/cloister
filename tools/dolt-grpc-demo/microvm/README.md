@@ -73,7 +73,11 @@ When the VMs are, and are not, cleaned up:
   - a stop during a bundle's start: the host runtime waits for start to
     settle, then cancels;
   - `up` itself killed with `kill -9`: each host runtime sees its stdin close
-    and stops its run.
+    and stops its run. Seen live: both host runtimes and both workers were
+    gone within a second. Nothing removes `up`'s socket directory in that
+    case, because its teardown never ran. Remove the printed
+    `/private/tmp/cloister-up-…` directory by hand. A later `up` never reuses
+    it.
 - **Not guaranteed:**
   - A third signal makes `up` SIGKILL the host runtimes, and `up` says so.
   - A host runtime killed with `kill -9` directly.
