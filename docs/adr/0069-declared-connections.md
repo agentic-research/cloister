@@ -1,6 +1,6 @@
 ---
 title: "ADR-0069: Declared connections — the service dials a name, the substrate decides what answers"
-status: Proposed
+status: Accepted (2026-11-11)
 date: 2026-10-20
 tags: [connections, ports, env, app-protocol, credentials, vault, confinement, local-dev, gcp, llo-boundary]
 threat_model: docs/security/threat-model.md
@@ -62,6 +62,21 @@ The seam between them is a data contract: cloister emits, per bundle, a list of
 `{endpoint, target, appProtocol, credentialRef}` plus the confinement manifest.
 Its shape is to be agreed with LLO before this ADR is accepted
 (discovery-first: read LLO's current ADRs on the broker / host-runtime first).
+
+**Agreed (2026-11-11).** The contract is two LLO documents, and cloister emits
+both:
+- **Within one placement (microVM):** confinement/v1 §6 unix-socket grants with
+  `guestPort`, one per exposed port and one per connection. The issuer chooses
+  the port and the digest commits to it (`ley-line-open-be3711`).
+- **Across placements:** connections/v1, carried in the signed run grant
+  (`connectionsDigest`, `connectionsDocument`), with canonical vectors on
+  `ley-line-open-e9d940` (ADR-0046 Slice 1, LLO design PR #572). Cloister's
+  emitter is `cloister-55424e`.
+
+Cloister allocates every endpoint; LLO validates and refuses by name.
+`credentialRef` is not in Slice 1. Brokered credentials are a later LLO
+slice, and until then the `vaultSlice` env source is the only credential
+path.
 
 ## Decision
 
@@ -237,6 +252,22 @@ list; confinement/v1 §4 granting a single port is an **upstream dependency**
 the pinned LLO release folds a list, the rail refuses a multi-listener microvm
 bundle by name, citing the dependency — fail closed, never "grant the first
 one".
+
+*Resolved for microVMs (2026-11-11):* each exposed port is its own §6 bind
+grant, and confinement/v1 allows any number of them. So a multi-listener
+microVM bundle needs no §4 widening, and the lowering emits one grant per
+port. §4's single `port` still limits the native tier only.
+
+## Status at acceptance (2026-11-11)
+
+| Part | State |
+|---|---|
+| §1 `ports[]` and `[[connections]]` (list form) | built: schema, build-time checks, lowering to §6 grants (#283), Kubernetes lowering (#284), `cluster up` (#287) |
+| `expose = "edge"` | in progress (`cloister-991e65`). An interim host relay in `cluster up` will be replaced by LLO's publish channel (`ley-line-open-797917`, `cloister-79bdeb`). |
+| §1 `[bundles.*.env]` and connection-derived env | not built (`cloister-2af426`); needs LLO v0.30.0's byte-exact env channel |
+| §2 per-env targets beyond `bundle` (`cloudRun`, `cloudSql`) | not built. Discovery from Terraform is researched in `docs/research/iac-graphs-as-cloister-input-2026-11-11.md`. |
+| §3 engine/wire check, `database`/`branch` | not built |
+| Brokered connections across placements | `cloister-55424e`, on LLO Slice 1 |
 
 ## Rails shipped with the implementation
 
