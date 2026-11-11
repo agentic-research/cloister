@@ -109,6 +109,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
       });
     }
   }
+  if (command === "inspect") {
+    const { main: inspectMain } = await import("./commands/inspect.mjs");
+    return inspectMain(rest, { log, errLog: error });
+  }
   if (command === "runtime" && rest[0] === "plan") {
     return planMain(rest.slice(1), { log, error });
   }

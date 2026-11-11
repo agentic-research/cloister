@@ -1,0 +1,147 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.10.0",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "data.cloudflare_zone.example",
+          "mode": "data",
+          "type": "cloudflare_zone",
+          "name": "example",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "values": { "name": "example.com" },
+          "sensitive_values": {}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.edge",
+          "resources": [
+            {
+              "address": "module.edge.cloudflare_workers_script.router",
+              "mode": "managed",
+              "type": "cloudflare_workers_script",
+              "name": "router",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": {
+                "account_id": "00000000000000000000000000000000",
+                "script_name": "cloister",
+                "compatibility_date": "2026-01-01",
+                "main_module": "index.js",
+                "content": "FIXTURE-WORKER-SOURCE-MUST-NOT-BE-READ",
+                "bindings": [
+                  { "name": "MACHE_BUNDLE", "type": "service", "service": "mache" },
+                  { "name": "BILLING", "type": "service", "service": "billing" },
+                  { "name": "SESSIONS", "type": "kv_namespace", "namespace_id": "11111111111111111111111111111111" },
+                  { "name": "LEDGER", "type": "d1", "id": "22222222-2222-2222-2222-222222222222" },
+                  { "name": "API_TOKEN", "type": "secret_text", "text": "FIXTURE-SECRET-MUST-NOT-BE-READ" },
+                  { "name": "FLAGS", "type": "json", "json": "{\"fixture\":\"FIXTURE-JSON-MUST-NOT-BE-READ\"}" }
+                ]
+              },
+              "sensitive_values": {
+                "bindings": [ {}, {}, {}, {}, { "text": true }, {} ]
+              }
+            },
+            {
+              "address": "module.edge.cloudflare_workers_script.standalone",
+              "mode": "managed",
+              "type": "cloudflare_workers_script",
+              "name": "standalone",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": {
+                "account_id": "00000000000000000000000000000000",
+                "script_name": "reports",
+                "bindings": [ { "name": "ROUTER", "type": "service", "service": "cloister" } ]
+              },
+              "sensitive_values": { "bindings": [ {} ] }
+            },
+            {
+              "address": "module.edge.cloudflare_workers_route.api",
+              "mode": "managed",
+              "type": "cloudflare_workers_route",
+              "name": "api",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "zone_id": "33333333333333333333333333333333", "pattern": "api.example.com/*", "script": "cloister" },
+              "sensitive_values": {}
+            },
+            {
+              "address": "module.edge.cloudflare_workers_kv_namespace.sessions",
+              "mode": "managed",
+              "type": "cloudflare_workers_kv_namespace",
+              "name": "sessions",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "account_id": "00000000000000000000000000000000", "id": "11111111111111111111111111111111", "title": "sessions" },
+              "sensitive_values": {}
+            },
+            {
+              "address": "module.edge.cloudflare_d1_database.ledger",
+              "mode": "managed",
+              "type": "cloudflare_d1_database",
+              "name": "ledger",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "account_id": "00000000000000000000000000000000", "id": "22222222-2222-2222-2222-222222222222", "uuid": "22222222-2222-2222-2222-222222222222", "name": "ledger" },
+              "sensitive_values": {}
+            },
+            {
+              "address": "module.edge.cloudflare_zero_trust_tunnel_cloudflared.origin",
+              "mode": "managed",
+              "type": "cloudflare_zero_trust_tunnel_cloudflared",
+              "name": "origin",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "account_id": "00000000000000000000000000000000", "id": "44444444-4444-4444-4444-444444444444", "name": "origin", "tunnel_secret": "FIXTURE-TUNNEL-SECRET-MUST-NOT-BE-READ" },
+              "sensitive_values": { "tunnel_secret": true }
+            },
+            {
+              "address": "module.edge.cloudflare_zero_trust_tunnel_cloudflared_config.origin",
+              "mode": "managed",
+              "type": "cloudflare_zero_trust_tunnel_cloudflared_config",
+              "name": "origin",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": {
+                "account_id": "00000000000000000000000000000000",
+                "tunnel_id": "44444444-4444-4444-4444-444444444444",
+                "config": { "ingress": [ { "hostname": "origin.example.com", "service": "http://localhost:8080" }, { "service": "http_status:404" } ] }
+              },
+              "sensitive_values": { "config": { "ingress": [ {}, {} ] } }
+            },
+            {
+              "address": "module.edge.cloudflare_zero_trust_access_application.admin",
+              "mode": "managed",
+              "type": "cloudflare_zero_trust_access_application",
+              "name": "admin",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": {
+                "account_id": "00000000000000000000000000000000",
+                "id": "55555555-5555-5555-5555-555555555555",
+                "name": "admin",
+                "domain": "admin.example.com",
+                "type": "self_hosted",
+                "policies": [ { "name": "staff", "decision": "allow", "precedence": 1, "include": [ { "email": { "email": "fixture@example.com" } } ] } ]
+              },
+              "sensitive_values": { "policies": [ { "include": [ {} ] } ] }
+            },
+            {
+              "address": "module.edge.cloudflare_dns_record.api",
+              "mode": "managed",
+              "type": "cloudflare_dns_record",
+              "name": "api",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "zone_id": "33333333333333333333333333333333", "name": "api.example.com", "type": "CNAME", "content": "origin.example.com", "proxied": true },
+              "sensitive_values": {}
+            },
+            {
+              "address": "module.edge.cloudflare_ruleset.waf",
+              "mode": "managed",
+              "type": "cloudflare_ruleset",
+              "name": "waf",
+              "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+              "values": { "name": "waf" },
+              "sensitive_values": {}
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
