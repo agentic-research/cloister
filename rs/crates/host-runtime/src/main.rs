@@ -9,11 +9,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-#[cfg(feature = "llo-execution")]
-use cloister_host_runtime::execution::{Deployment, LeylineExecutionBackend};
+use cloister_host_runtime::LaunchPlan;
 #[cfg(feature = "llo-execution")]
 use cloister_host_runtime::HostRuntime;
-use cloister_host_runtime::LaunchPlan;
+#[cfg(feature = "llo-execution")]
+use cloister_host_runtime::execution::{Deployment, LeylineExecutionBackend};
 #[cfg(feature = "llo-execution")]
 use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerConfig};
 
@@ -22,13 +22,9 @@ use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerC
 /// `false` without `llo-execution` is the honest answer, not a probe failure:
 /// there is no backend compiled in to ask.
 #[cfg(feature = "llo-execution")]
-fn microvm_available() -> bool {
-    backend().available()
-}
+fn microvm_available() -> bool { backend().available() }
 #[cfg(not(feature = "llo-execution"))]
-fn microvm_available() -> bool {
-    false
-}
+fn microvm_available() -> bool { false }
 
 fn read_plan(path: &Path) -> Result<LaunchPlan> {
     let bytes =
@@ -54,15 +50,10 @@ fn read_plan(path: &Path) -> Result<LaunchPlan> {
 /// not be able to name its own runtime files.
 fn krun_config() -> KrunWorkerConfig {
     let path = |var: &str, default: &str| -> PathBuf {
-        std::env::var_os(var)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(default))
+        std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default))
     };
     KrunWorkerConfig {
-        worker: path(
-            "CLOISTER_KRUN_WORKER",
-            "/usr/local/libexec/leyline-krun-worker",
-        ),
+        worker: path("CLOISTER_KRUN_WORKER", "/usr/local/libexec/leyline-krun-worker"),
         cas_root: path("CLOISTER_CAS_ROOT", "/var/lib/cloister/cas"),
         ephemeral_root: path("CLOISTER_EPHEMERAL_ROOT", "/var/lib/cloister/run"),
         // LLO v0.21 (bead ley-line-open-f1c46f): the worker LINKS libkrun, so
@@ -100,7 +91,9 @@ fn backend() -> LeylineExecutionBackend<KrunWorkerBackend> {
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
-        bail!("usage: cloister-host-runtime <validate|run|doctor|import-oci> [args]");
+        bail!(
+            "usage: cloister-host-runtime <validate|run|doctor|import-oci> [args]"
+        );
     };
 
     match command.as_str() {
@@ -186,9 +179,7 @@ fn run() -> Result<()> {
             let usage = "usage: cloister-host-runtime import-oci --layout <dir> --image <sha256:…|name@sha256:…> [--symlinks refuse|resolve]";
             let (mut layout, mut image, mut symlinks) = (None, None, String::from("refuse"));
             while let Some(flag) = args.next() {
-                let value = args
-                    .next()
-                    .with_context(|| format!("{flag} needs a value; {usage}"))?;
+                let value = args.next().with_context(|| format!("{flag} needs a value; {usage}"))?;
                 match flag.as_str() {
                     "--layout" => layout = Some(std::path::PathBuf::from(value)),
                     "--image" => image = Some(value),

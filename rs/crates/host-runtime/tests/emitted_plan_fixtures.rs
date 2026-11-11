@@ -14,8 +14,8 @@ fn fixture(bundle: &str) -> LaunchPlan {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test/fixtures/runtime-plan")
         .join(format!("{bundle}.plan.json"));
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
 }
 
@@ -59,8 +59,8 @@ fn carried_confinement_accepts_the_emitted_plans_and_llo_folds_them() {
     };
     for bundle in ["dolt", "orders"] {
         let plan = fixture(bundle);
-        let (digest, document) =
-            carried_confinement(&plan, &deployment).unwrap_or_else(|e| panic!("{bundle}: {e}"));
+        let (digest, document) = carried_confinement(&plan, &deployment)
+            .unwrap_or_else(|e| panic!("{bundle}: {e}"));
         let document = document.expect("a plan with grants carries a document");
         let authorized = ConfinementManifest::parse(&document).expect("canonical confinement/v1");
         let compiled = confinement_manifest(
@@ -71,11 +71,7 @@ fn carried_confinement_accepts_the_emitted_plans_and_llo_folds_them() {
         .expect("LLO's fold accepts the carried document");
         assert_eq!(compiled.confinement_digest().unwrap(), digest, "{bundle}");
         let sockets = authorized.unix_sockets();
-        assert_eq!(
-            sockets.len(),
-            plan.confinement.unix_socket.allow.len(),
-            "{bundle}"
-        );
+        assert_eq!(sockets.len(), plan.confinement.unix_socket.allow.len(), "{bundle}");
         for (socket, grant) in sockets.iter().zip(&plan.confinement.unix_socket.allow) {
             assert_eq!(socket.path(), grant.path);
             assert_eq!(socket.guest_port(), grant.guest_port);

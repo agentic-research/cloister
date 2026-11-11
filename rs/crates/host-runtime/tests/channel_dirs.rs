@@ -47,10 +47,7 @@ fn missing_parents_of_a_bind_grant_are_created_0700() {
         let mode = std::fs::metadata(&created).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700, "{} is {mode:o}", created.display());
     }
-    assert!(
-        !dir.join("orders.grpc.sock").exists(),
-        "only the directory, never the socket"
-    );
+    assert!(!dir.join("orders.grpc.sock").exists(), "only the directory, never the socket");
 }
 
 #[test]
@@ -68,10 +65,7 @@ fn an_existing_directory_is_left_with_its_own_mode() {
     std::fs::create_dir(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o750)).unwrap();
     prepare_channel_dirs(&plan(vec![(&dir.join("a.sock"), "connect-bind")])).unwrap();
-    assert_eq!(
-        std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
-        0o750
-    );
+    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o750);
 }
 
 #[test]
@@ -88,8 +82,5 @@ fn a_parent_that_is_not_a_directory_is_refused() {
     let link = root.path().join("link");
     std::os::unix::fs::symlink(root.path(), &link).unwrap();
     let err = prepare_channel_dirs(&plan(vec![(&link.join("a.sock"), "bind")])).unwrap_err();
-    assert!(
-        matches!(err, RuntimeError::InvalidPlan(_)),
-        "a symlinked parent is refused, not followed"
-    );
+    assert!(matches!(err, RuntimeError::InvalidPlan(_)), "a symlinked parent is refused, not followed");
 }

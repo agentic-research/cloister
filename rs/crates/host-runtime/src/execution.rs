@@ -18,9 +18,8 @@ use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
 use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
-    Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
-    ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
-    DEFAULT_CPU_PERIOD_US,
+    Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
+    EnforcedCeilings, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
 };
 
 use crate::{Backend, LaunchPlan, RuntimeError};
@@ -28,7 +27,7 @@ use crate::{Backend, LaunchPlan, RuntimeError};
 /// Default ceilings for a launch plan, which carries none of its own.
 ///
 /// `LaunchPlan` is cloister's operator surface and deliberately does not model
-/// vcpus/memory — those are deployment properties, not per-bundle
+/// vcpus/memory/wall-time — those are deployment properties, not per-bundle
 /// ones. They are supplied here and named as a cloister default rather than
 /// smuggled in as if the operator had asked for them.
 ///
@@ -38,14 +37,7 @@ use crate::{Backend, LaunchPlan, RuntimeError};
 /// multiples: 1024 MiB, and two periods of quota per period (two vCPUs).
 const DEFAULT_VCPUS: u64 = 2;
 const DEFAULT_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
-// No wall-time default. How long a workload may run is a property of its
-// declaration, not a number cloister invents (ADR-0070 §2: cloister adds no
-// field a workload's own spec already owns). A microVM bundle that exposes a
-// port is a service and runs until it is stopped, like a Deployment. A forwarded
-// workload's deadline stays in the operator's spec (`activeDeadlineSeconds`,
-// Cloud Run `timeoutSeconds`/`taskTimeout`). Zero is LLO's "no ceiling", and
-// the receipt records what was applied. A fixed 15-minute default used to stop
-// long-running services such as `dolt sql-server` (cloister-991e65).
+const DEFAULT_WALL_TIME_MS: u64 = 15 * 60 * 1000;
 
 /// cloister's default ceilings, restricted to the ones `enforced` applies.
 ///
@@ -62,15 +54,11 @@ const DEFAULT_MEMORY_BYTES: u64 = 1024 * 1024 * 1024;
 /// the OCI migration either), so they stay zero.
 fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
     let when = |mechanism: leyline_runtime::CeilingMechanism, value: u64| {
-        if mechanism.is_enforced() {
-            value
-        } else {
-            0
-        }
+        if mechanism.is_enforced() { value } else { 0 }
     };
     let quota = when(enforced.cpu, DEFAULT_VCPUS * DEFAULT_CPU_PERIOD_US);
     ResourceLimits {
-        wall_time_ms: 0,
+        wall_time_ms: when(enforced.wall_time, DEFAULT_WALL_TIME_MS),
         output_bytes: 0,
         memory: MemoryLimits {
             limit: when(enforced.memory, DEFAULT_MEMORY_BYTES),
@@ -274,8 +262,9 @@ pub fn carried_confinement(
         return Ok((String::new(), None));
     }
     let invalid = |error: ExecutionError| RuntimeError::InvalidPlan(error.to_string());
-    let mut document = confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
-        .map_err(invalid)?;
+    let mut document =
+        confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
+            .map_err(invalid)?;
     for entry in grants {
         let grant = match entry.mode.as_str() {
             "" => UnixSocketGrant::connect(entry.path.clone()),
