@@ -12,14 +12,14 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
 use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
-    ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
+    ErrorCode, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
     DEFAULT_CPU_PERIOD_US,
 };
 
@@ -87,6 +87,40 @@ fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
 pub struct LeylineExecutionBackend<B: LeylineBackendTrait + AwaitRun> {
     inner: Arc<B>,
     deployment: Deployment,
+    /// Where `launch` is in starting the run, so a stop that arrives while
+    /// LLO is still starting it waits for start to settle instead of
+    /// cancelling a run LLO has not published yet (see `cancel`).
+    start: Arc<(Mutex<StartPhase>, Condvar)>,
+}
+
+/// `launch`'s progress through LLO's `start`, as `cancel` needs to see it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartPhase {
+    /// `start` has not been called. A stop now means it never will be.
+    NotStarted,
+    /// `start` is in progress: LLO has not published the run yet.
+    Starting,
+    /// `start` returned Ok: the run exists and can be cancelled.
+    Started,
+    /// `start` returned an error: there is no run.
+    StartFailed,
+    /// A stop arrived before `start` was called; `launch` must not start.
+    StopRequested,
+}
+
+/// What a stop request actually did. Reported as-is — "stopped" is only ever
+/// said for `Cancelled` (cloister-991e65 review: an `Ok(false)` from LLO used
+/// to be printed as "stopped" while the worker kept running).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelOutcome {
+    /// LLO cancelled the run and finished its cleanup.
+    Cancelled,
+    /// The stop arrived before the run was started; it will not be started.
+    NeverStarted,
+    /// `start` failed, so there was no run to cancel.
+    StartFailed,
+    /// LLO reported the run as no longer active: it had already ended.
+    AlreadyEnded,
 }
 
 /// The deployment inputs LLO compiles its own confinement document from.
@@ -129,7 +163,11 @@ impl AwaitRun for KrunWorkerBackend {
 
 impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
     pub fn new(inner: Arc<B>, deployment: Deployment) -> Self {
-        Self { inner, deployment }
+        Self {
+            inner,
+            deployment,
+            start: Arc::new((Mutex::new(StartPhase::NotStarted), Condvar::new())),
+        }
     }
 
     /// Availability snapshot, for `doctor` / `status`.
@@ -141,6 +179,63 @@ impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
     pub fn available(&self) -> bool {
         self.inner.capabilities().available
     }
+
+    /// Stop `plan`'s run and wait for LLO to release it (cloister-991e65).
+    ///
+    /// The krun worker runs in its OWN process group (LLO
+    /// `configure_process_group`), so a host runtime that simply dies leaves
+    /// the worker — and the guest — running. A supervisor that wants a run
+    /// gone (`cloister cluster up` on SIGINT) signals the host runtime, and the
+    /// host runtime calls this: LLO's cancel sweeps the worker's group and
+    /// returns only once cleanup has finished.
+    ///
+    /// A stop can arrive while `launch` is still inside LLO's `start` — up to
+    /// the worker's readiness timeout after spawn. LLO publishes the run only
+    /// when `start` returns, so a cancel before then answers `Ok(false)` and
+    /// the worker it is starting keeps going. So a stop during start marks
+    /// itself, waits for `start` to settle, and only then cancels; a stop
+    /// before `start` stops it from being called at all. The LLO side —
+    /// cancelling before readiness, and the worker noticing its parent die —
+    /// is ley-line-open-f963e6.
+    pub fn cancel(&self, plan: &LaunchPlan) -> Result<CancelOutcome, RuntimeError> {
+        let (lock, settled) = &*self.start;
+        let mut phase = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *phase == StartPhase::NotStarted {
+            *phase = StartPhase::StopRequested;
+            return Ok(CancelOutcome::NeverStarted);
+        }
+        while *phase == StartPhase::Starting {
+            phase = settled
+                .wait(phase)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        match *phase {
+            StartPhase::StartFailed => Ok(CancelOutcome::StartFailed),
+            StartPhase::StopRequested | StartPhase::NotStarted => Ok(CancelOutcome::NeverStarted),
+            StartPhase::Starting => unreachable!("waited above"),
+            StartPhase::Started => {
+                drop(phase);
+                match self.inner.cancel(&run_id(plan)) {
+                    Ok(true) => Ok(CancelOutcome::Cancelled),
+                    Ok(false) => Ok(CancelOutcome::AlreadyEnded),
+                    Err(error) => Err(RuntimeError::Backend(error.to_string())),
+                }
+            }
+        }
+    }
+
+    /// Move the start phase, waking any `cancel` waiting on it.
+    fn set_phase(&self, next: StartPhase) {
+        let (lock, settled) = &*self.start;
+        *lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = next;
+        settled.notify_all();
+    }
+}
+
+/// The LLO run id for `plan`: derived from the bundle, so a replayed plan is
+/// the same run rather than a new one each time it is submitted.
+pub fn run_id(plan: &LaunchPlan) -> String {
+    format!("run-{}", plan.bundle)
 }
 
 /// Translate a cloister launch plan into an LLO execution request.
@@ -228,7 +323,7 @@ fn to_execution_request(
     Ok(ExecutionRequest {
         // Derived from the bundle, so a replayed plan is the same run rather
         // than a new one each time it is submitted.
-        run_id: format!("run-{}", plan.bundle),
+        run_id: run_id(plan),
         replay_key: plan.artifact.digest.clone(),
         rootfs: DigestRef {
             algorithm: algorithm.to_string(),
@@ -295,15 +390,42 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError> {
         let request =
             to_execution_request(plan, &self.inner.capabilities().enforced, &self.deployment)?;
-        self.inner
-            .start(&request)
-            .map_err(|error: ExecutionError| RuntimeError::Backend(error.to_string()))?;
+        // Say what ceiling this run carries, so a supervisor's log shows why a
+        // service stops when it does (ley-line-open-e6b1bb).
+        crate::note!(
+            "cloister-host-runtime: {}: wall-clock ceiling {} s (the run is stopped when it is reached)",
+            request.run_id,
+            request.limits.wall_time_ms / 1000
+        );
+        {
+            let (lock, _) = &*self.start;
+            let mut phase = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if *phase == StartPhase::StopRequested {
+                return Err(RuntimeError::Backend(
+                    "a stop was requested before the run was started; not starting it".into(),
+                ));
+            }
+            *phase = StartPhase::Starting;
+        }
+        if let Err(error) = self.inner.start(&request) {
+            self.set_phase(StartPhase::StartFailed);
+            return Err(RuntimeError::Backend(error.to_string()));
+        }
+        self.set_phase(StartPhase::Started);
         match self
             .inner
             .await_run(&request.run_id)
             .map_err(|error| RuntimeError::Backend(error.to_string()))?
         {
             BackendRunStatus::Succeeded => Ok(()),
+            // LLO's supervisor reports the deadline as ResourceExhausted
+            // ("execution exceeded wall-clock limit", runtime process.rs);
+            // at the pinned LLO no other libkrun-tier failure uses that code.
+            // The code is matched, not the text, and a cleanup failure
+            // appended to the detail keeps the run's code.
+            BackendRunStatus::Failed(error) if error.code == ErrorCode::ResourceExhausted => {
+                Err(RuntimeError::WallClockExceeded(error.to_string()))
+            }
             BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(error.to_string())),
         }
     }

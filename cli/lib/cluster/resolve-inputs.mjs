@@ -67,8 +67,8 @@ import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 
-import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import { writeGeneratedFile } from "../atomic-write.mjs";
+import { parse as parseToml } from "smol-toml";
+import { writeLockfile } from "./lockfile.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../../..");
@@ -1307,6 +1307,10 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
   return doc;
 }
 
+// The carry-forward lives with the one lock writer (./lockfile.mjs);
+// re-exported for existing importers.
+export { carryRootfsFromPreviousLock } from "./lockfile.mjs";
+
 // ── CLI ─────────────────────────────────────────────────────────────────
 
 export class ResolutionFailedError extends Error {}
@@ -1438,7 +1442,9 @@ export async function resolveClusterInputs({
   }
 
   const doc = buildLockfile(metadata, resolved);
-  writeGeneratedFile(lockfilePath, stringifyToml(doc));
+  // Through the one lock writer: it carries a recorded rootfs forward
+  // (cloister-991e65) and writes atomically.
+  writeLockfile(lockfilePath, doc);
   log(`\nresolve-inputs: wrote ${lockfilePath}`);
   return { lockfilePath, resolvedCount: resolved.length };
 }

@@ -8,6 +8,71 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cluster up`: cluster.toml in, running microVMs out (`cloister-991e65`)
+
+- **Lock records the rootfs.** `cloister runtime import --bundle <b> [--dir]
+  --layout <oci-layout>` imports the image the lock pins. `--image` is derived
+  from the lock, and must equal it if given. The command writes
+  `[inputs.<b>.oci] rootfs = "blake3-256:…"`, plus `rootfsSymlinks` when the
+  mode isn't `refuse`. It is idempotent. `cluster resolve` carries the rootfs
+  forward while the image digest is unchanged.
+- **`runtime plan` emits runnable microvm plans.** The artifact is the
+  recorded rootfs, never the `sha256:` image. A missing rootfs, or one absent
+  from the CAS, is refused with the exact import command. Process plans are
+  unchanged. A new `--dir` flag is added.
+- **`cloister cluster up --env <env> [--dir]`** starts every microvm-placed
+  bundle.
+  - Order: targets before sources; a cycle is refused by name.
+  - A bundle is "bound" when its bind sockets exist. Health isn't checked, so
+    `up` never calls it ready (ADR-0071 §3; health-gated start is a later slice).
+  - Each `up` gets a fresh 0700 channel directory under the real `/tmp`. Each
+    exposed port's `unix://` path is printed. The directory is removed on exit.
+  - Runs in the foreground. SIGINT/SIGTERM stops runs in reverse order. A run
+    that ends on its own tears the rest down and is reported with its status.
+  - Without `--env`, `cluster up` is the unchanged compose path.
+- **The wall-clock ceiling is reported as the ceiling.** When LLO stops a run
+  at its deadline, `cloister-host-runtime run` exits 124 (`timeout(1)`'s
+  status) instead of 1. It does this by matching LLO's `ResourceExhausted`
+  code, not its text. `cluster up` reports the stop as the ceiling being
+  reached rather than as a workload failure, and exits 124. Each run's
+  ceiling is printed when it starts. Services are stopped after 15 minutes
+  until ley-line-open-e6b1bb.
+- **Host runtime stops its guest on a stop request.** The krun worker runs in
+  its own process group, so a killed host runtime used to orphan the VM.
+  - SIGINT, SIGTERM, SIGHUP and SIGQUIT now cancel the run through LLO.
+  - So does EOF on stdin, when run with `--stop-on-stdin-eof` (which `cluster
+    up` passes, so `up` dying stops its runs).
+  - A stop that arrives while LLO is still starting the run waits for start
+    to settle, then cancels.
+  - Only a real cancel is reported as "stopped".
+  - Messages on the stop path never panic on a closed stderr. `eprintln!` did,
+    which meant that after `kill -9` of `up` the host runtimes kept running.
+    Seen live, then fixed.
+  - The run exits 128+signal.
+  - Not covered until ley-line-open-f963e6: a host runtime that is itself
+    SIGKILLed can still leave its worker running.
+- **`cluster up` teardown is robust** (#287 review).
+  - Stop handlers stay installed until teardown ends.
+  - A second signal reports progress; a third SIGKILLs the host runtimes and
+    names the f963e6 risk.
+  - SIGHUP, SIGQUIT, an uncaught error and EPIPE on stdout all tear down.
+  - Any run ending on its own, including during a later bundle's start, stops
+    everything and makes the exit non-zero.
+- **The rootfs is bound to its image by value.** The lock records
+  `rootfsImage`. Plan and up refuse a rootfs imported from a different image
+  than the current pin.
+  - Every lock regeneration (`cluster resolve`, `cloister add`, the demo pin)
+    goes through one writer that carries the rootfs and writes atomically.
+    `add` used to erase it.
+  - `runtime import` re-reads the lock after importing and refuses if the pin
+    moved.
+  - A bundle pinned only through `[[inputs.*.ociBundles]]` is refused by name.
+- **Demo:** `tools/dolt-grpc-demo/microvm/`. `build.sh` builds both images as
+  OCI layouts (scratch images, no symlinks; dolt 1.86.1 fetched with a pinned
+  sha256), pins their digests into a generated, gitignored lock, and imports
+  them. `cluster up` then serves the gRPC row from Dolt over the declared
+  connection.
+
 ### 2026-11 — Restore the wall-time ceiling; test against LLO's own validation (`cloister-991e65`)
 
 - #285 removed cloister's 15-minute wall-time default by sending zero. LLO

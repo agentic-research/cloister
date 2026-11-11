@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 #[cfg(feature = "llo-execution")]
-use cloister_host_runtime::execution::{Deployment, LeylineExecutionBackend};
+use cloister_host_runtime::execution::{CancelOutcome, Deployment, LeylineExecutionBackend};
 #[cfg(feature = "llo-execution")]
 use cloister_host_runtime::HostRuntime;
 use cloister_host_runtime::LaunchPlan;
@@ -119,12 +119,17 @@ fn run() -> Result<()> {
             Ok(())
         }
         "run" => {
-            let path = args
-                .next()
-                .context("usage: cloister-host-runtime run <plan.json>")?;
-            if args.next().is_some() {
-                bail!("run accepts exactly one plan path");
+            let usage = "usage: cloister-host-runtime run [--stop-on-stdin-eof] <plan.json>";
+            let mut stop_on_stdin_eof = false;
+            let mut path = None;
+            for arg in args.by_ref() {
+                match arg.as_str() {
+                    "--stop-on-stdin-eof" => stop_on_stdin_eof = true,
+                    _ if path.is_none() && !arg.starts_with("--") => path = Some(arg),
+                    other => bail!("unexpected argument {other:?}; {usage}"),
+                }
             }
+            let path = path.context(usage)?;
             let plan = read_plan(Path::new(&path))?;
 
             #[cfg(feature = "llo-execution")]
@@ -133,23 +138,61 @@ fn run() -> Result<()> {
                 // it (0700) only after the plan has been validated.
                 plan.validate().context("launch refused")?;
                 cloister_host_runtime::prepare_channel_dirs(&plan).context("launch refused")?;
-                HostRuntime::new(None, Some(Arc::new(backend())))
-                    .launch(&plan)
-                    .map_err(|error| match error {
-                        // The run happened; "launch refused" would send the
-                        // reader to the plan when the answer is in the guest.
-                        cloister_host_runtime::RuntimeError::RunFailed(_) => {
-                            anyhow::Error::new(error)
-                        }
-                        other => anyhow::Error::new(other).context("launch refused"),
-                    })
+                // SIGINT/SIGTERM must stop the GUEST, not just this process:
+                // the worker is in its own process group and would outlive us.
+                // Blocked here, before any thread exists, so every thread
+                // inherits the mask and only the stop thread receives them.
+                // (std's Command clears the mask in children, so the worker
+                // starts with default signal handling.)
+                let signals = block_stop_signals()?;
+                let backend = Arc::new(backend());
+                stop_on_signal(signals, Arc::clone(&backend), plan.clone());
+                // Supervised (`cluster up`): EOF on stdin means the supervisor
+                // is gone, even by SIGKILL. Routed through the same stop path
+                // as SIGTERM by raising it at ourselves: it is blocked in
+                // every thread, so the stop thread's sigwait takes it. A plain
+                // `runtime run` by hand does not pass the flag and keeps
+                // today's behaviour (stdin is not watched).
+                if stop_on_stdin_eof {
+                    std::thread::spawn(|| {
+                        cloister_host_runtime::watch_for_eof(std::io::stdin().lock(), || {
+                            cloister_host_runtime::note!("cloister-host-runtime: stdin closed: the supervisor is gone; stopping");
+                            // SAFETY: kill(getpid(), SIGTERM) only signals this process.
+                            unsafe {
+                                libc::kill(libc::getpid(), libc::SIGTERM);
+                            }
+                        });
+                    });
+                }
+                let launched = HostRuntime::new(None, Some(backend)).launch(&plan);
+                // A stop in progress owns the exit: LLO's cancel wakes this
+                // thread's wait with "run_id is not active", which is not the
+                // run failing. Let the stop thread finish cleanup and exit
+                // 128+signal, so the supervisor sees one deterministic status.
+                if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
+                    loop {
+                        std::thread::park();
+                    }
+                }
+                launched.map_err(|error| match error {
+                    // The run happened; "launch refused" would send the
+                    // reader to the plan when the answer is in the guest.
+                    cloister_host_runtime::RuntimeError::RunFailed(_) => anyhow::Error::new(error),
+                    // A distinct exit status, not just a message: see
+                    // EXIT_WALL_CLOCK.
+                    cloister_host_runtime::RuntimeError::WallClockExceeded(_) => {
+                        cloister_host_runtime::note!("cloister-host-runtime: {error}");
+                        std::process::exit(cloister_host_runtime::EXIT_WALL_CLOCK);
+                    }
+                    other => anyhow::Error::new(other).context("launch refused"),
+                })
             }
             // Fails closed, and says which build it is. `BackendUnavailable`
             // alone would read as a broken deployment rather than a deliberate
             // one.
             #[cfg(not(feature = "llo-execution"))]
             {
-                let _ = plan;
+                let _ = (plan, stop_on_stdin_eof);
                 bail!(
                     "no execution backend: this binary was built without the \
                      `llo-execution` feature, which carries ley-line-open's runtime \
@@ -244,9 +287,96 @@ fn run() -> Result<()> {
     }
 }
 
+/// Set by the stop thread before it cancels; read by the launching thread.
+#[cfg(feature = "llo-execution")]
+static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Signals that stop the run (through LLO's cancel) rather than kill this
+/// process and orphan the worker: a terminal hangup or quit must not leave a
+/// VM behind any more than Ctrl-C may.
+#[cfg(feature = "llo-execution")]
+const STOP_SIGNALS: [libc::c_int; 4] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT];
+
+/// Block the stop signals in the calling thread (and every thread it later
+/// spawns) and return the set, for `stop_on_signal` to `sigwait` on.
+#[cfg(feature = "llo-execution")]
+fn block_stop_signals() -> Result<libc::sigset_t> {
+    // SAFETY: sigemptyset/sigaddset initialise a local set; pthread_sigmask
+    // only changes this thread's mask.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for signal in STOP_SIGNALS {
+            libc::sigaddset(&mut set, signal);
+        }
+        let rc = libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        if rc != 0 {
+            bail!(
+                "block stop signals: {}",
+                std::io::Error::from_raw_os_error(rc)
+            );
+        }
+        Ok(set)
+    }
+}
+
+/// Wait for SIGINT/SIGTERM on a dedicated thread; on one, cancel the run
+/// through LLO (which kills the worker's process group and cleans up) and
+/// exit 128+signal. Exiting from here rather than returning to `launch` is
+/// deliberate: LLO's cancel retires the run's completion, so the launching
+/// thread's wait would never be woken.
+#[cfg(feature = "llo-execution")]
+fn stop_on_signal(
+    set: libc::sigset_t,
+    backend: Arc<LeylineExecutionBackend<KrunWorkerBackend>>,
+    plan: LaunchPlan,
+) {
+    std::thread::spawn(move || {
+        let mut signal: libc::c_int = 0;
+        // SAFETY: `set` is the initialised set blocked in this process.
+        let rc = unsafe { libc::sigwait(&set, &mut signal) };
+        if rc != 0 {
+            cloister_host_runtime::note!(
+                "cloister-host-runtime: sigwait failed ({}); the run cannot be stopped by signal",
+                std::io::Error::from_raw_os_error(rc)
+            );
+            return;
+        }
+        STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
+        let name = match signal {
+            libc::SIGINT => "SIGINT",
+            libc::SIGHUP => "SIGHUP",
+            libc::SIGQUIT => "SIGQUIT",
+            _ => "SIGTERM",
+        };
+        let bundle = &plan.bundle;
+        // Say what actually happened; "stopped" only for a real cancel.
+        // Cancel before LLO publishes the run, and the worker noticing its
+        // parent die, are LLO's: ley-line-open-f963e6.
+        match backend.cancel(&plan) {
+            Ok(CancelOutcome::Cancelled) => {
+                cloister_host_runtime::note!("cloister-host-runtime: {name}: run for {bundle} stopped")
+            }
+            Ok(CancelOutcome::NeverStarted) => cloister_host_runtime::note!(
+                "cloister-host-runtime: {name}: stop arrived before the run for {bundle} was started; it was not started"
+            ),
+            Ok(CancelOutcome::StartFailed) => cloister_host_runtime::note!(
+                "cloister-host-runtime: {name}: the run for {bundle} had failed to start; nothing to stop"
+            ),
+            Ok(CancelOutcome::AlreadyEnded) => cloister_host_runtime::note!(
+                "cloister-host-runtime: {name}: the run for {bundle} had already ended"
+            ),
+            Err(error) => cloister_host_runtime::note!(
+                "cloister-host-runtime: {name}: stopping the run for {bundle} FAILED, its worker may still be running: {error}"
+            ),
+        }
+        std::process::exit(128 + signal);
+    });
+}
+
 fn main() {
     if let Err(error) = run() {
-        eprintln!("cloister-host-runtime: {error:#}");
+        cloister_host_runtime::note!("cloister-host-runtime: {error:#}");
         std::process::exit(1);
     }
 }

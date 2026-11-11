@@ -329,6 +329,44 @@ pub fn prepare_channel_dirs(plan: &LaunchPlan) -> Result<(), RuntimeError> {
     Ok(())
 }
 
+/// Write one diagnostic line to stderr, IGNORING write errors.
+///
+/// `eprintln!` panics when stderr cannot be written. Under `cluster up`, stderr
+/// is a pipe to the supervisor; when the supervisor dies (the exact case
+/// `--stop-on-stdin-eof` handles) that pipe is gone, and a panic in the stop
+/// thread meant no cancel and no exit — observed live: after `kill -9` of `up`
+/// both host runtimes survived, one with its worker still running
+/// (cloister-991e65). Every message on the stop path goes through this.
+#[macro_export]
+macro_rules! note {
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stderr(), $($arg)*);
+    }};
+}
+
+/// Block until `reader` reaches end-of-file (or fails), then call `on_eof`
+/// once. Data read before then is discarded.
+///
+/// `cloister cluster up` hands each host runtime a stdin pipe it never writes
+/// to and never closes. The pipe closes only when `up` itself goes away —
+/// including `kill -9` and crashes, which no signal handler sees — so EOF on
+/// stdin means "your supervisor is gone": stop the run (cloister-991e65).
+/// A read error is treated the same way: the supervisor can no longer be
+/// seen, and a run nobody can stop is the outcome this exists to prevent.
+pub fn watch_for_eof<R: std::io::Read>(mut reader: R, on_eof: impl FnOnce()) {
+    let mut buf = [0u8; 256];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+    on_eof();
+}
+
 pub struct HostRuntime {
     process: Option<Arc<dyn Backend>>,
     microvm: Option<Arc<dyn Backend>>,
@@ -363,4 +401,17 @@ pub enum RuntimeError {
     /// exited non-zero" as "the runtime refused the plan", or the reverse.
     #[error("the workload ran and failed: {0}")]
     RunFailed(String),
+    /// The run was stopped because it reached its wall-clock ceiling. Not the
+    /// workload failing: a service runs until stopped, and the ceiling is
+    /// cloister's default, not the workload's (ley-line-open-e6b1bb asks LLO
+    /// for "no ceiling" for services). Kept distinct so a supervisor never
+    /// reports the deadline as a crash (cloister-991e65).
+    #[error("the run reached its wall-clock ceiling and was stopped (not a workload failure; ley-line-open-e6b1bb): {0}")]
+    WallClockExceeded(String),
 }
+
+/// `cloister-host-runtime run`'s exit status when a run is stopped at its
+/// wall-clock ceiling — 124, the status `timeout(1)` uses for the same event,
+/// so a supervisor can tell it from a workload failure (1) without parsing
+/// text. `cloister cluster up` reads it.
+pub const EXIT_WALL_CLOCK: i32 = 124;

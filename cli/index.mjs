@@ -192,6 +192,10 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   // OCI image layout → microVM rootfs in the installed store, through LLO's
   // importer in the host runtime (cloister-3a6dd7). Prints LLO's import record;
   // its `rootfs` is the plan's `blake3-256:` artifact digest.
+  if (command === "runtime" && rest[0] === "import" && rest.includes("--bundle") && !rest.includes("--help") && !rest.includes("-h")) {
+    const { main: importMain } = await import("./commands/runtime-import.mjs");
+    return importMain(rest.slice(1), { log, errLog: error, env });
+  }
   if (command === "runtime" && rest[0] === "import" && !rest.includes("--help") && !rest.includes("-h")) {
     return runHostRuntime(["import-oci", ...rest.slice(1)], {
       errLog: error,

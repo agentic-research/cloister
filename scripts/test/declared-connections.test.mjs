@@ -80,7 +80,9 @@ const lock = {
   inputs: Object.fromEntries(
     ["dolt", "orders"].map((name) => [
       name,
-      { oci: { identifier: `ghcr.io/example/${name}`, digest: `sha256:${"a".repeat(64)}` } },
+      // `rootfs` is what `runtime import --bundle` records; a microvm plan
+      // runs it, never the sha256 image (cloister-991e65).
+      { oci: { identifier: `ghcr.io/example/${name}`, digest: `sha256:${"a".repeat(64)}`, rootfsImage: `sha256:${"a".repeat(64)}`, rootfs: `blake3-256:${"b".repeat(64)}` } },
     ]),
   ),
 };
@@ -88,6 +90,7 @@ const lock = {
 /** cluster.toml text → plan, through the full parseTomlToCluster pipeline. */
 function plan(toml, bundle, extra = {}) {
   return planFromToml(toml, lock, {
+    rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
     bundle,
     workspace: "/workspace",
     controlSocket: `/tmp/${bundle}.sock`,
@@ -282,6 +285,7 @@ for (const bundle of ["dolt", "orders"]) {
   test(`emitted ${bundle} plan equals test/fixtures/runtime-plan/${bundle}.plan.json byte for byte`, async () => {
     const p = await planFromToml(fixtureToml(), lock, {
       ...FIXTURE_OPTS,
+      rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
       bundle,
       controlSocket: `/tmp/cloister-host-runtime/${bundle}.sock`,
     });

@@ -75,7 +75,7 @@ function spawnSyncSafe(bin, args) {
 export function parseArgs(argv) {
   const out = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
-    env: "local", out: null,
+    env: null, out: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -233,13 +233,30 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   if (args.sub === "k8s") {
     try {
       const outDir = args.out ?? (() => { throw new ClusterUsageError("--out <dir> is required"); })();
-      const written = await emitK8sDir({ root: selectedRoot, env: args.env, out: resolve(process.cwd(), outDir) });
+      const written = await emitK8sDir({ root: selectedRoot, env: args.env ?? "local", out: resolve(process.cwd(), outDir) });
       for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
       for (const b of written.bundles) log(`  kubectl apply -n ${b} -f ${join(outDir, b)}`);
       return 0;
     } catch (error) {
       errLog(`cloister cluster k8s: ${error.message}`);
       return error instanceof ClusterUsageError ? 2 : 1;
+    }
+  }
+
+  // `up --env <env>`: start the env's microVM-placed bundles from cluster.toml
+  // (ADR-0070 §4). Without --env, `up` is the compose path below, unchanged —
+  // scaffolded clusters' Taskfiles call it.
+  if (args.sub === "up" && args.env !== null) {
+    if (args.detach) {
+      errLog("cloister cluster up: --detach is a compose option; `up --env` runs in the foreground (no daemon)");
+      return 2;
+    }
+    try {
+      const up = deps.clusterUp ?? (await import("../lib/cluster/up.mjs")).clusterUp;
+      return await up({ root: selectedRoot, env: args.env, deps: { log, errLog, env: deps.env ?? process.env } });
+    } catch (error) {
+      errLog(`cloister cluster up: ${error.message}`);
+      return 1;
     }
   }
 

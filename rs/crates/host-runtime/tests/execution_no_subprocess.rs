@@ -33,7 +33,8 @@ use cloister_host_runtime::{
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
-    BackendRunStatus, EnforcedCeilings, ExecutionError, ExecutionRequest, DEFAULT_CPU_PERIOD_US,
+    BackendRunStatus, EnforcedCeilings, ErrorCode, ExecutionError, ExecutionRequest,
+    DEFAULT_CPU_PERIOD_US,
 };
 
 /// Records what cloister asked LLO to do, and nothing else happens.
@@ -49,7 +50,7 @@ struct RecordingBackend {
     /// Run IDs `await_run` was asked about, in order.
     awaited: Mutex<Vec<String>>,
     /// What the run ends as. `None` = succeeded.
-    fails_with: Option<String>,
+    fails_with: Option<ExecutionError>,
 }
 
 impl Default for RecordingBackend {
@@ -70,9 +71,16 @@ impl RecordingBackend {
         }
     }
 
+    fn failing_with(error: ExecutionError) -> Self {
+        Self {
+            fails_with: Some(error),
+            ..Self::default()
+        }
+    }
+
     fn failing(detail: &str) -> Self {
         Self {
-            fails_with: Some(detail.into()),
+            fails_with: Some(ExecutionError::backend(detail)),
             ..Self::default()
         }
     }
@@ -83,7 +91,7 @@ impl AwaitRun for RecordingBackend {
         self.awaited.lock().unwrap().push(run_id.into());
         Ok(match &self.fails_with {
             None => BackendRunStatus::Succeeded,
-            Some(detail) => BackendRunStatus::Failed(ExecutionError::backend(detail.clone())),
+            Some(error) => BackendRunStatus::Failed(error.clone()),
         })
     }
 }
@@ -343,6 +351,27 @@ fn a_run_that_fails_is_a_run_failure_not_a_refusal() {
         "{err:?}"
     );
     assert_eq!(recorder.starts.load(Ordering::SeqCst), 1, "it did start");
+}
+
+/// LLO's supervisor stops a run at its deadline and reports ResourceExhausted
+/// ("execution exceeded wall-clock limit"). That is the ceiling, not the
+/// workload: it must not read as RunFailed, so `cluster up` can say which
+/// (cloister-991e65, ley-line-open-e6b1bb). The error is LLO's exact value.
+#[test]
+fn a_run_stopped_at_its_wall_clock_ceiling_is_not_a_run_failure() {
+    let recorder = Arc::new(RecordingBackend::failing_with(ExecutionError {
+        code: ErrorCode::ResourceExhausted,
+        retryable: false,
+        detail: "execution exceeded wall-clock limit".into(),
+    }));
+    let err = LeylineExecutionBackend::new(Arc::clone(&recorder), Deployment::default())
+        .launch(&plan())
+        .expect_err("a stopped run must not report success");
+    assert!(
+        matches!(&err, RuntimeError::WallClockExceeded(detail) if detail.contains("wall-clock limit")),
+        "{err:?}"
+    );
+    assert_eq!(cloister_host_runtime::EXIT_WALL_CLOCK, 124);
 }
 
 #[test]

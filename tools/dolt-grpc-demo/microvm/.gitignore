@@ -1,0 +1,4 @@
+# Built by ./build.sh: OCI layouts and the lock pinning their (machine-local)
+# digests. Neither is reproducible across machines, so neither is committed.
+out/
+cluster.lock.toml

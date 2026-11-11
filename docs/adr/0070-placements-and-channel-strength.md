@@ -241,6 +241,23 @@ is an operator decision outside the plan (the host runtime's existing rule).
   `-db dolt.dolt.svc.cluster.local:3306`), and a launch plan carries no
   workload env. That is also why colliding guest ports are refused rather
   than shifted.
+- The constructed `microvm` placement runs end to end from `cluster.toml`
+  (`cloister-991e65`).
+  - `runtime import --bundle` imports the bundle's pinned image and records
+    the rootfs in cluster.lock.toml (`[inputs.<b>.oci] rootfs`, plus
+    `rootfsSymlinks` when it isn't the default).
+  - `runtime plan` emits that `blake3-256:` rootfs. It refuses, naming the
+    import command, when the rootfs is missing from the lock or the store.
+  - `cluster up --env <env>` starts every microvm-placed bundle, targets
+    before sources. A bundle counts as "bound" once its bind sockets exist; its
+    health isn't checked (ADR-0071 §3). It supervises the
+    runs in the foreground and stops them in reverse order. The host runtime
+    cancels its LLO run on SIGINT/SIGTERM.
+  - Live: the dolt/orders demo answered grpcurl over a declared edge. With the
+    edge removed, orders exited 2 and `up` tore dolt down
+    (`tools/dolt-grpc-demo/microvm/`).
+  - Images come from on-disk OCI layouts only, because LLO v0.28.0 has no
+    registry fetch (`cloister-727354`).
 - Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, the
   "no `cluster.toml` field duplicates a forwarded spec field" rail beyond the
   Service-port check, and policy for `expose = "edge"` ingress from outside

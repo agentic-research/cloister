@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { resolveInput, buildLockfile } from "../lib/cluster/resolve-inputs.mjs";
+import { writeLockfile } from "../lib/cluster/lockfile.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -346,7 +347,10 @@ async function resolveAllAndWriteLockfile(tomlString, lockPath) {
     resolved.push(row);
   }
   const doc = buildLockfile(metadata, resolved);
-  writeFileSync(lockPath, stringifyToml(doc));
+  // The one lock writer: carries a recorded rootfs forward (this used to
+  // rebuild the lock without it, erasing `runtime import --bundle`'s record)
+  // and writes atomically (cloister-991e65).
+  writeLockfile(lockPath, doc);
 }
 
 // Run when invoked as a script (not when imported by tests).

@@ -1,0 +1,58 @@
+# Two microVMs joined by one declared connection (ADR-0069 / ADR-0070,
+# cloister-991e65). `cloister cluster up --env local --dir .` starts dolt,
+# waits for its mysql socket, then starts orders. See README.md.
+#
+# The images are built locally (./build.sh), so their digests are pinned into a
+# GENERATED, gitignored cluster.lock.toml beside this file — never committed.
+
+[metadata]
+name = "dolt-grpc-demo-microvm"
+version = "0.0.1"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[bundles]]
+name = "dolt"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolt-grpc-demo/dolt"
+entryPoint = "/bin/dolt"
+executionMode = "microvm"
+args = ["sql-server", "--host", "127.0.0.1", "--port", "3306", "--data-dir", "/data"]
+
+[[bundles.ports]]
+name = "mysql"
+port = 3306
+appProtocol = "art.mysql"
+expose = "cluster"
+
+[[bundles]]
+name = "orders"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolt-grpc-demo/orders"
+entryPoint = "/orders"
+executionMode = "microvm"
+args = ["-db", "127.0.0.1:3306", "-listen", "127.0.0.1:50051"]
+
+[[bundles.ports]]
+name = "grpc"
+port = 50051
+appProtocol = "art.grpc"
+expose = "cluster"
+
+[[connections]]
+from = "orders"
+name = "orders-db"
+appProtocol = "art.mysql"
+minStrength = "capability"
+
+[[connections.targets]]
+env = "local"
+bundle = "dolt"
+port = "mysql"
