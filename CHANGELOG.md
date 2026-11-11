@@ -8,6 +8,46 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — LLO v0.29.0: guest output reaches the operator (`cloister-164236`, `cloister-edec62`)
+
+- **Pins.** Every ley-line-open channel moves to v0.29.0 (1e811a9a), via
+  `scripts/llo-bump.mjs`. The krun worker is pinned at 0ff3aba8…, which
+  matches the release. confinement/v1 is unchanged.
+  - The execution/v1 vectors are re-synced; `rootfs-manifest.json` is new.
+  - The generated `llo-execution-tools.json` gains `ProvisionOutput.casRoot`.
+    The generated schema requires it, so a provision reply from an older LLO
+    is now refused (tested).
+- **Guest output.** The host runtime now waits on LLO's `RunOutcome`. When a
+  run FAILS, it prints the guest's stdout and stderr tails in a block labelled
+  `guest output (untrusted; shown as printed, not interpreted)`.
+  - Nothing is printed on success. Nothing is printed for a stop at the
+    wall-clock ceiling either: that isn't the workload failing, and a healthy
+    service's stdout doesn't belong in a CI log because a deadline passed.
+  - Every guest line is prefixed with `| `, so it can't pass for a host-runtime
+    line. LLO already replaces control characters other than newline and tab.
+    At most the last 40 lines of each stream are shown, with a count of the
+    rest. The block is written under one stderr lock.
+  - The reported failure is the supervisor's part of the detail only. That
+    part is found by stripping exactly the suffix LLO's own
+    `failure_with_output` appends for this output, never by matching headings.
+    If the detail doesn't end with that suffix, it is withheld (fail closed).
+  - `cluster up` relays only whole stderr lines, so a line written in pieces
+    keeps its `| ` prefix.
+  - A provision reply without `casRoot` is reported as an LLO daemon older
+    than v0.29.0.
+  - The output never changes an exit status.
+  - `cluster up` shows the block under the bundle's `[name]` prefix. Live:
+    with the connection removed, `up` printed orders' own `seed: database did
+    not answer within 30s: dial tcp 127.0.0.1:3306: connect: connection
+    refused`.
+- **`/tmp`.** Every guest now has a tmpfs `/tmp`, so the demo's Dolt image no
+  longer ships a `tmp/` placeholder (it keeps `/data`). The docs that said to
+  ship one are updated.
+- **Early connections.** A serve channel now holds a connection that arrives
+  before the workload listens, for up to 10 s. cloister's behaviour is
+  unchanged; the docs that described the old EOF are updated.
+- Still open in LLO: d4b07f (double quotes in argv), cffbb5, f963e6, e6b1bb.
+
 ### 2026-11 — `cluster up`: cluster.toml in, running microVMs out (`cloister-991e65`)
 
 - **Lock records the rootfs.** `cloister runtime import --bundle <b> [--dir]
@@ -24,7 +64,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   bundle.
   - Order: targets before sources; a cycle is refused by name.
   - A bundle is "bound" when its bind sockets exist. Health isn't checked, so
-    `up` never calls it ready (ADR-0071 §3; health-gated start is a later slice).
+    `up` never calls it ready ([ADR-0071](docs/adr/0071-who-owns-a-running-workload.md) §3; health-gated start is a later slice).
   - Each `up` gets a fresh 0700 channel directory under the real `/tmp`. Each
     exposed port's `unix://` path is printed. The directory is removed on exit.
   - Runs in the foreground. SIGINT/SIGTERM stops runs in reverse order. A run

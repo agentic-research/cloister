@@ -84,12 +84,17 @@ test("LLO storage init provisions over UDS without invoking the krunvm helper", 
       stderr,
       lloProvision: async (...args) => {
         assert.deepEqual(args.slice(0, 3), ["/run/llo.sock", "microVm", "p-1"]);
-        return { provisioned: true };
+        // A shape the generated ProvisionOutput accepts (v0.29.0 adds casRoot).
+        return { provisioned: true, backendId: "libkrun/1", casRoot: "/state/leyline/cas-volume/mnt/cas" };
       },
     },
   );
   assert.equal(status, 0);
-  assert.deepEqual(JSON.parse(output.join("")), { provisioned: true });
+  assert.deepEqual(JSON.parse(output.join("")), {
+    provisioned: true,
+    backendId: "libkrun/1",
+    casRoot: "/state/leyline/cas-volume/mnt/cas",
+  });
 });
 
 test("LLO runtime run waits for and verifies terminal receipt", async () => {

@@ -33,8 +33,9 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
    `--symlinks refuse` accepts them. (The distroless base in `../Dockerfile`
    has `etc/os-release` as a link, and the importer refused it.)
    - `dolt.Dockerfile`: the static `dolt` binary from the official
-     v1.86.1 release tarball, fetched with a pinned sha256, plus empty `/tmp`
-     and `/data`. The guest has no `/tmp` otherwise.
+     v1.86.1 release tarball, fetched with a pinned sha256, plus an empty
+     `/data` for Dolt's data directory. `/tmp` is not shipped: since LLO
+     v0.29.0 every guest has a tmpfs `/tmp`.
    - `orders.Dockerfile`: the same Go build as `../Dockerfile`.
 2. **Pins each layout's digest** (from its own `index.json`) into
    `cluster.lock.toml` as `[inputs.<bundle>.oci]`. These digests are local to
@@ -118,7 +119,15 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
 - `bound` means every socket the bundle binds exists, and nothing more. A
   dependent can then be
   granted its channel. Health is not checked, so `up` does not call it
-  ready (ADR-0071 §3). The workload may not accept connections yet (LLO a915e3);
-  `orders`' client retries.
-- Guest output is discarded (LLO a26ad0). Exit codes do propagate.
+  ready ([ADR-0071](../../../docs/adr/0071-who-owns-a-running-workload.md) §3).
+  The workload may not be listening yet. Since LLO
+  v0.29.0 an early connection is held for up to 10 s, not closed; `orders`'
+  client still retries.
+- When a run FAILS, the host runtime prints the guest's stdout and stderr
+  tails (LLO v0.29.0, a26ad0) as a block labelled `guest output (untrusted …)`.
+  Nothing is printed for a success, or for a stop at the wall-clock ceiling,
+  which isn't a workload failure. Every guest line is prefixed with
+  `| `, and `up` shows it under the bundle's `[name]` prefix. It is the
+  workload's own text: never interpreted, and it never changes an exit status.
+  Exit codes propagate as before.
 - The workload args avoid `"` (LLO d4b07f mangles it).

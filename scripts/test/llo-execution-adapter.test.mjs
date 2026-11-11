@@ -306,7 +306,10 @@ test("LLO provision uses the generated backend and idempotency contract", async 
       socket.setEncoding = () => {};
       socket.write = (line) => {
         sent = JSON.parse(line);
-        queueMicrotask(() => socket.emit("data", '{"provisioned":true,"backendId":"backend-1"}\n'));
+        // LLO v0.29.0 (ley-line-open-ba86d3): ProvisionOutput.casRoot @2 —
+        // the generated schema requires it, so a v0.29.0 reply carries it
+        // (cloister-164236).
+        queueMicrotask(() => socket.emit("data", '{"provisioned":true,"backendId":"backend-1","casRoot":"/state/leyline/cas-volume/mnt/cas"}\n'));
       };
       socket.destroy = () => {};
       return socket;
@@ -317,7 +320,22 @@ test("LLO provision uses the generated backend and idempotency contract", async 
     backendClass: "microVm",
     idempotencyKey: "provision-1",
   });
-  assert.deepEqual(result, { provisioned: true, backendId: "backend-1" });
+  assert.deepEqual(result, { provisioned: true, backendId: "backend-1", casRoot: "/state/leyline/cas-volume/mnt/cas" });
+});
+
+test("a provision reply without casRoot (a pre-v0.29.0 LLO) is refused by the generated schema", async () => {
+  await assert.rejects(
+    lloProvision("/run/llo.sock", "microVm", "provision-2", {
+      connect: () => {
+        const socket = new EventEmitter();
+        socket.setEncoding = () => {};
+        socket.write = () => queueMicrotask(() => socket.emit("data", '{"provisioned":true,"backendId":"backend-1"}\n'));
+        socket.destroy = () => {};
+        return socket;
+      },
+    }),
+    /the LLO daemon is older than v0\.29\.0: its provision reply has no casRoot \(added in v0\.29\.0\)\. Run an LLO execution daemon at v0\.29\.0 or later/,
+  );
 });
 
 test("LLO UDS client rejects an unbounded response", async () => {

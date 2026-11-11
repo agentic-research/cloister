@@ -252,8 +252,10 @@ cloister cluster up --env local --dir <cluster-dir>
 This starts every bundle placed `microvm` in the env. A connection's target
 starts before its source, and a cycle is refused. Each bundle counts as bound
 once every socket it binds exists. That means a dependent can be granted its
-channel. Health is not checked, so it is not called ready (ADR-0071 §3), and
-the workload may not be accepting yet (LLO a915e3), so clients should retry. Sockets live in a fresh owner-only directory under
+channel. Health is not checked, so it is not called ready ([ADR-0071](docs/adr/0071-who-owns-a-running-workload.md) §3), and
+the workload may not be listening yet. Since LLO v0.29.0 a serve channel holds
+a connection that arrives before the workload listens, for up to 10 s, instead
+of closing it; a client that connects later than that still retries. Sockets live in a fresh owner-only directory under
 `/private/tmp` (macOS's real `/tmp`: libkrun refused a socket path through the
 `/tmp` symlink). Each exposed port's `unix://` path is printed, and the
 directory is removed on exit.
@@ -283,8 +285,8 @@ Each entry is a host UNIX socket path, a mode (empty = connect, `bind` =
 serve), and optionally a `guestPort`. With a guestPort, an unmodified workload
 sees the channel as TCP on `127.0.0.1:<guestPort>`. For example, Dolt
 `sql-server` with a `bind` grant on 3306 is reachable from the host as
-`mysql --socket=<path>`. The guest has no `/tmp`, so ship one in the rootfs if
-the workload needs it.
+`mysql --socket=<path>`. Since LLO v0.29.0 every guest has a bounded tmpfs
+`/tmp`, so a rootfs no longer needs to ship one.
 
 You don't write these grants by hand. Declare ports and connections in
 `cluster.toml`, and `cloister runtime plan` derives the grants for a `microvm`

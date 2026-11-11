@@ -259,8 +259,8 @@ export const cluster: Cluster = {
   "inputs": [
     {
       "name": "llo",
-      "ref": "github://agentic-research/ley-line-open/server.json@dafd297605ae179d2f2ff3bd8643c61f00e5402e",
-      "version": "0.28.0",
+      "ref": "github://agentic-research/ley-line-open/server.json@1e811a9a4489aa56c1cb3d21b2712c465911a276",
+      "version": "0.29.0",
       "digest": "",
       "from": "",
       "provides": [],

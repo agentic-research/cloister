@@ -45,10 +45,11 @@ func (s *server) Get(ctx context.Context, req *ordersv1.GetRequest) (*ordersv1.O
 	return &order, nil
 }
 
-// open dials the database until it answers or the deadline passes. A fresh
-// connection through the microVM's presented port can see EOF while the peer
-// is still coming up (LLO ley-line-open-a915e3), so a failed ping is retried
-// rather than treated as final.
+// open dials the database until it answers or the deadline passes. Before LLO
+// v0.29.0 a fresh connection through the microVM's presented port could see
+// EOF while the peer was still coming up (ley-line-open-a915e3); v0.29.0 holds
+// it for up to 10 s instead. A failed ping is still retried rather than
+// treated as final, for a peer slower than that.
 func open(dsn string, deadline time.Duration) (*sql.DB, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {

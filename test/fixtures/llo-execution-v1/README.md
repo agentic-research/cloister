@@ -7,6 +7,7 @@ Vendored, byte-for-byte, from ley-line-open. **Do not edit these files.**
 | `test-vectors/canonical-run.json` | `rs/ll-core/schema-spec/execution/v1/test-vectors/canonical-run.json` | `VECTORS.sha256` (vendored alongside) |
 | `test-vectors/run-id.json` | same dir | `VECTORS.sha256` — run-identity derivation, added by LLO PR #312 |
 | `test-vectors/oci-resources.json` | same dir | `VECTORS.sha256` — OCI `linux.resources` ceilings on three tiers, added in LLO v0.21.0 (PR #495). Sparse: absent fields are Cap'n Proto defaults, which the vector test fills from the schema before validating |
+| `test-vectors/rootfs-manifest.json` | same dir | `VECTORS.sha256` — rootfs manifest v1, added in LLO v0.29.0 |
 | `VECTORS.sha256` | same dir | it IS the manifest; `scripts/test/llo-execution-vector.test.mjs` derives its case list from it |
 
 ## Why a copy rather than a checkout

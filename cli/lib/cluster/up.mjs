@@ -281,16 +281,30 @@ export async function clusterUp({ root, env, deps = {} }) {
       // which its exit event reports.
       child.stdin?.on?.("error", () => {}); // lint-allow-silent: the child's exit is the signal; see above
       const run = { bundle: plan.bundle, plan, child, stderrTail: [], stopRequested: false, done: null };
+      // Relay WHOLE lines only. A pipe delivers bytes in arbitrary chunks, so
+      // a line split across two reads used to be relayed as two lines — which
+      // could separate the host runtime's `| ` guest-output prefix from the
+      // guest's text. The unfinished tail is carried to the next chunk, and
+      // flushed as one line when the stream ends. UTF-8 decoding is
+      // stream-aware (setEncoding), so a split multi-byte character is safe.
+      let partial = "";
+      const relay = (line) => {
+        if (!line) return;
+        errLog(`[${plan.bundle}] ${line}`);
+        run.stderrTail.push(line);
+        if (run.stderrTail.length > 20) run.stderrTail.shift();
+      };
+      child.stderr?.setEncoding?.("utf8");
       child.stderr?.on("data", (chunk) => {
-        for (const line of String(chunk).split("\n")) {
-          if (!line) continue;
-          errLog(`[${plan.bundle}] ${line}`);
-          run.stderrTail.push(line);
-          if (run.stderrTail.length > 20) run.stderrTail.shift();
-        }
+        const lines = (partial + chunk).split("\n");
+        partial = lines.pop();
+        for (const line of lines) relay(line);
       });
+      child.stderr?.on("end", () => { relay(partial); partial = ""; });
       run.ended = new Promise((r) => {
-        child.on("exit", (code, signal) => r({ code, signal }));
+        // `close`, not `exit`: it fires after the child's stdio has ended, so
+        // the last stderr line is relayed before describeExit reads the tail.
+        child.on("close", (code, signal) => r({ code, signal }));
         child.on("error", (error) => r({ error }));
       }).then((res) => {
         run.done = res;

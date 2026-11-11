@@ -21,11 +21,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
-leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "dafd297605ae179d2f2ff3bd8643c61f00e5402e", version = "0.28.0", package = "leyline-fs", default-features = false }
+leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = "1e811a9a4489aa56c1cb3d21b2712c465911a276", version = "0.29.0", package = "leyline-fs", default-features = false }
 # ADR-0049 / cloister-17e502 — the first-party execution API that replaces the
 # krunvm shell-out. Same rev AND version as every other LLO pin: cargo resolves
 # on the pair, and `lint:upstream-pins` enforces ONE of each across all of them.
-leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "dafd297605ae179d2f2ff3bd8643c61f00e5402e", version = "0.28.0", package = "leyline-runtime", optional = true }
+leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "1e811a9a4489aa56c1cb3d21b2712c465911a276", version = "0.29.0", package = "leyline-runtime", optional = true }
 
 [features]
 # Default is DELIBERATELY empty: no execution backend at all.
