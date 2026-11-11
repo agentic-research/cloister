@@ -32,6 +32,7 @@ fn data_is_not_eof_and_closing_the_writer_is() {
     );
 
     drop(writer); // the supervisor dies: its end of the pipe closes
-    rx.recv_timeout(Duration::from_secs(5)).expect("EOF fires the stop");
+    rx.recv_timeout(Duration::from_secs(5))
+        .expect("EOF fires the stop");
     watcher.join().unwrap();
 }

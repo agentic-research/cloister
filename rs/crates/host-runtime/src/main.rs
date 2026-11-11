@@ -174,21 +174,18 @@ fn run() -> Result<()> {
                         std::thread::park();
                     }
                 }
-                launched
-                    .map_err(|error| match error {
-                        // The run happened; "launch refused" would send the
-                        // reader to the plan when the answer is in the guest.
-                        cloister_host_runtime::RuntimeError::RunFailed(_) => {
-                            anyhow::Error::new(error)
-                        }
-                        // A distinct exit status, not just a message: see
-                        // EXIT_WALL_CLOCK.
-                        cloister_host_runtime::RuntimeError::WallClockExceeded(_) => {
-                            eprintln!("cloister-host-runtime: {error}");
-                            std::process::exit(cloister_host_runtime::EXIT_WALL_CLOCK);
-                        }
-                        other => anyhow::Error::new(other).context("launch refused"),
-                    })
+                launched.map_err(|error| match error {
+                    // The run happened; "launch refused" would send the
+                    // reader to the plan when the answer is in the guest.
+                    cloister_host_runtime::RuntimeError::RunFailed(_) => anyhow::Error::new(error),
+                    // A distinct exit status, not just a message: see
+                    // EXIT_WALL_CLOCK.
+                    cloister_host_runtime::RuntimeError::WallClockExceeded(_) => {
+                        eprintln!("cloister-host-runtime: {error}");
+                        std::process::exit(cloister_host_runtime::EXIT_WALL_CLOCK);
+                    }
+                    other => anyhow::Error::new(other).context("launch refused"),
+                })
             }
             // Fails closed, and says which build it is. `BackendUnavailable`
             // alone would read as a broken deployment rather than a deliberate
@@ -314,7 +311,10 @@ fn block_stop_signals() -> Result<libc::sigset_t> {
         }
         let rc = libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
         if rc != 0 {
-            bail!("block stop signals: {}", std::io::Error::from_raw_os_error(rc));
+            bail!(
+                "block stop signals: {}",
+                std::io::Error::from_raw_os_error(rc)
+            );
         }
         Ok(set)
     }

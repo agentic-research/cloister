@@ -205,7 +205,9 @@ impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
             return Ok(CancelOutcome::NeverStarted);
         }
         while *phase == StartPhase::Starting {
-            phase = settled.wait(phase).unwrap_or_else(|poisoned| poisoned.into_inner());
+            phase = settled
+                .wait(phase)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
         }
         match *phase {
             StartPhase::StartFailed => Ok(CancelOutcome::StartFailed),

@@ -14,7 +14,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cloister_host_runtime::execution::{AwaitRun, CancelOutcome, Deployment, LeylineExecutionBackend};
+use cloister_host_runtime::execution::{
+    AwaitRun, CancelOutcome, Deployment, LeylineExecutionBackend,
+};
 use cloister_host_runtime::{Artifact, Backend, Confinement, ExecutionMode, LaunchPlan};
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
@@ -78,7 +80,10 @@ impl LeylineBackendTrait for GatedBackend {
             return Err(ExecutionError::backend("worker never became ready"));
         }
         self.published.store(true, Ordering::SeqCst);
-        Ok(BackendRun { backend_id: "gated".into(), channels: Vec::new() })
+        Ok(BackendRun {
+            backend_id: "gated".into(),
+            channels: Vec::new(),
+        })
     }
 
     fn cancel(&self, _run_id: &str) -> Result<bool, ExecutionError> {
@@ -111,13 +116,18 @@ fn plan() -> LaunchPlan {
 #[test]
 fn a_stop_during_start_waits_for_start_and_then_cancels_the_published_run() {
     let (inner, entered, release) = GatedBackend::new(false);
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&inner), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&inner),
+        Deployment::default(),
+    ));
 
     let launching = {
         let backend = Arc::clone(&backend);
         std::thread::spawn(move || backend.launch(&plan()))
     };
-    entered.recv_timeout(Duration::from_secs(5)).expect("start was entered");
+    entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("start was entered");
 
     // The hazard, shown on the inner backend directly: during start LLO
     // answers Ok(false) — "no such run" — although a worker is starting.
@@ -144,23 +154,37 @@ fn a_stop_during_start_waits_for_start_and_then_cancels_the_published_run() {
     // One premature Ok(false) from the direct probe above, then exactly one
     // cancel from cloister — after the run was published.
     assert_eq!(*inner.cancels.lock().unwrap(), vec![false, true]);
-    launching.join().unwrap().expect("the launch completes once cancelled");
+    launching
+        .join()
+        .unwrap()
+        .expect("the launch completes once cancelled");
 }
 
 #[test]
 fn a_stop_before_launch_means_the_run_is_never_started() {
     let (inner, _entered, _release) = GatedBackend::new(false);
     let backend = LeylineExecutionBackend::new(Arc::clone(&inner), Deployment::default());
-    assert_eq!(backend.cancel(&plan()).unwrap(), CancelOutcome::NeverStarted);
-    let err = backend.launch(&plan()).expect_err("must not start after a stop");
+    assert_eq!(
+        backend.cancel(&plan()).unwrap(),
+        CancelOutcome::NeverStarted
+    );
+    let err = backend
+        .launch(&plan())
+        .expect_err("must not start after a stop");
     assert!(err.to_string().contains("not starting it"), "{err}");
-    assert!(inner.cancels.lock().unwrap().is_empty(), "nothing to cancel in LLO");
+    assert!(
+        inner.cancels.lock().unwrap().is_empty(),
+        "nothing to cancel in LLO"
+    );
 }
 
 #[test]
 fn a_stop_while_start_fails_reports_that_there_was_nothing_to_stop() {
     let (inner, entered, release) = GatedBackend::new(true);
-    let backend = Arc::new(LeylineExecutionBackend::new(Arc::clone(&inner), Deployment::default()));
+    let backend = Arc::new(LeylineExecutionBackend::new(
+        Arc::clone(&inner),
+        Deployment::default(),
+    ));
     let launching = {
         let backend = Arc::clone(&backend);
         std::thread::spawn(move || backend.launch(&plan()))
@@ -173,5 +197,8 @@ fn a_stop_while_start_fails_reports_that_there_was_nothing_to_stop() {
     release.send(()).unwrap();
     assert_eq!(stopper.join().unwrap().unwrap(), CancelOutcome::StartFailed);
     assert!(launching.join().unwrap().is_err());
-    assert!(inner.cancels.lock().unwrap().is_empty(), "no cancel for a run that never existed");
+    assert!(
+        inner.cancels.lock().unwrap().is_empty(),
+        "no cancel for a run that never existed"
+    );
 }
