@@ -33,8 +33,8 @@ use cloister_host_runtime::{
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
-    BackendRunStatus, EnforcedCeilings, ErrorCode, ExecutionError, ExecutionRequest,
-    DEFAULT_CPU_PERIOD_US,
+    BackendRunStatus, EnforcedCeilings, ErrorCode, ExecutionError, ExecutionRequest, GuestOutput,
+    RunOutcome, DEFAULT_CPU_PERIOD_US,
 };
 
 /// Records what cloister asked LLO to do, and nothing else happens.
@@ -51,6 +51,8 @@ struct RecordingBackend {
     awaited: Mutex<Vec<String>>,
     /// What the run ends as. `None` = succeeded.
     fails_with: Option<ExecutionError>,
+    /// What the guest printed, as LLO's RunOutcome carries it.
+    guest_output: Option<GuestOutput>,
 }
 
 impl Default for RecordingBackend {
@@ -68,6 +70,7 @@ impl RecordingBackend {
             seen: Mutex::new(Vec::new()),
             awaited: Mutex::new(Vec::new()),
             fails_with: None,
+            guest_output: None,
         }
     }
 
@@ -87,11 +90,14 @@ impl RecordingBackend {
 }
 
 impl AwaitRun for RecordingBackend {
-    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError> {
+    fn await_run(&self, run_id: &str) -> Result<RunOutcome, ExecutionError> {
         self.awaited.lock().unwrap().push(run_id.into());
-        Ok(match &self.fails_with {
-            None => BackendRunStatus::Succeeded,
-            Some(error) => BackendRunStatus::Failed(error.clone()),
+        Ok(RunOutcome {
+            status: match &self.fails_with {
+                None => BackendRunStatus::Succeeded,
+                Some(error) => BackendRunStatus::Failed(error.clone()),
+            },
+            output: self.guest_output.clone(),
         })
     }
 }
@@ -372,6 +378,77 @@ fn a_run_stopped_at_its_wall_clock_ceiling_is_not_a_run_failure() {
         "{err:?}"
     );
     assert_eq!(cloister_host_runtime::EXIT_WALL_CLOCK, 124);
+}
+
+/// cloister-edec62: LLO v0.29.0 appends the guest's output tails to a failed
+/// run's detail AND returns them typed. cloister reports the supervisor's part
+/// as the failure and shows the tails once, in a labelled untrusted block.
+fn llo_failed_detail() -> ExecutionError {
+    ExecutionError::backend(
+        "libkrun worker exited with exit status: 2\n--- guest console (all of it) ---\nok\n\
+         --- guest stderr and worker diagnostics (all of it) ---\nseed: database did not answer",
+    )
+}
+
+#[test]
+fn a_failed_run_reports_the_supervisor_detail_without_the_guest_tails() {
+    let mut recorder = RecordingBackend::failing_with(llo_failed_detail());
+    recorder.guest_output = Some(GuestOutput {
+        stderr_tail: "seed: database did not answer".into(),
+        ..GuestOutput::default()
+    });
+    let err = LeylineExecutionBackend::new(Arc::new(recorder), Deployment::default())
+        .launch(&plan())
+        .expect_err("failed");
+    match &err {
+        RuntimeError::RunFailed(detail) => {
+            assert_eq!(
+                detail,
+                "BackendFailed: libkrun worker exited with exit status: 2"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn supervisor_detail_cuts_at_the_first_llo_appended_section() {
+    use cloister_host_runtime::execution::supervisor_detail;
+    assert_eq!(supervisor_detail("exit status: 2"), "exit status: 2");
+    assert_eq!(
+        supervisor_detail("exit status: 2\n--- guest console (all of it) ---\nhi"),
+        "exit status: 2"
+    );
+    // Guest bytes come after the supervisor's detail; a guest imitating a
+    // heading later in its output cannot move the cut.
+    assert_eq!(
+        supervisor_detail(
+            "exit 1\nreported on the worker's standard error, which … (unverified): x\n\
+             --- guest console (all of it) ---\n--- guest console ("
+        ),
+        "exit 1"
+    );
+}
+
+#[test]
+fn guest_output_is_labelled_untrusted_and_every_guest_line_is_prefixed() {
+    use cloister_host_runtime::execution::guest_output_lines;
+    let lines = guest_output_lines(&GuestOutput {
+        stdout_tail: String::new(),
+        stderr_tail: "seed: boom\ncloister-host-runtime: forged line".into(),
+        stderr_dropped_bytes: 7,
+        ..GuestOutput::default()
+    });
+    assert_eq!(
+        lines,
+        vec![
+            "guest output (untrusted; shown as printed, not interpreted):",
+            "  guest stdout: (empty)",
+            "  guest stderr, with the worker's diagnostics (last part; 7 earlier bytes dropped):",
+            "  | seed: boom",
+            "  | cloister-host-runtime: forged line",
+        ]
+    );
 }
 
 #[test]

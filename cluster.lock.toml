@@ -4,17 +4,17 @@ cluster = "art-default"
 version = "0.1.0"
 
 [inputs.llo]
-ref = "github://agentic-research/ley-line-open/server.json@dafd297605ae179d2f2ff3bd8643c61f00e5402e"
-resolved = "0.28.0"
-sha256 = "sha256:3eadb337d604c05a8f34b888c13d8641988e490d671ec3380aca0bde4390a6dd"
-fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/dafd297605ae179d2f2ff3bd8643c61f00e5402e/server.json"
+ref = "github://agentic-research/ley-line-open/server.json@1e811a9a4489aa56c1cb3d21b2712c465911a276"
+resolved = "0.29.0"
+sha256 = "sha256:66651887b378ea330086c0591987fc70f26b3838ee5ad1977b7cefd2be0ff111"
+fetched_from = "https://raw.githubusercontent.com/agentic-research/ley-line-open/1e811a9a4489aa56c1cb3d21b2712c465911a276/server.json"
 signer = ""
 bytes = 3247
 
 [inputs.llo.oci]
 identifier = "ghcr.io/agentic-research/ley-line-open"
-version = "v0.28.0"
-digest = "sha256:9c666ac3a54b02cb35c1a75296ba61455378b48b7564c1436b8ac604d0154275"
+version = "v0.29.0"
+digest = "sha256:e7ceb184c4c3cafba8e05e7e54663509b6e30013b3a00171aee0b48b400f6dd7"
 
 [inputs.notme]
 ref = "github://agentic-research/notme/server.json@4bae2defb4eaf61046eac99ed23894ff51bf8d9a"

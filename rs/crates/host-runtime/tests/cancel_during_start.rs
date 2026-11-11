@@ -20,7 +20,7 @@ use cloister_host_runtime::execution::{
 use cloister_host_runtime::{Artifact, Backend, Confinement, ExecutionMode, LaunchPlan};
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
-    BackendRunStatus, EnforcedCeilings, ExecutionError, ExecutionRequest,
+    BackendRunStatus, EnforcedCeilings, ExecutionError, ExecutionRequest, RunOutcome,
 };
 
 /// `start` blocks until released; `cancel` reflects whether LLO has published
@@ -52,11 +52,14 @@ impl GatedBackend {
 }
 
 impl AwaitRun for GatedBackend {
-    fn await_run(&self, _run_id: &str) -> Result<BackendRunStatus, ExecutionError> {
+    fn await_run(&self, _run_id: &str) -> Result<RunOutcome, ExecutionError> {
         while !self.cancelled.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(5));
         }
-        Ok(BackendRunStatus::Succeeded)
+        Ok(RunOutcome {
+            status: BackendRunStatus::Succeeded,
+            output: None,
+        })
     }
 }
 

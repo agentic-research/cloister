@@ -19,8 +19,8 @@ use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
-    ErrorCode, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
-    DEFAULT_CPU_PERIOD_US,
+    ErrorCode, ExecutionError, ExecutionRequest, GuestOutput, MemoryLimits, PidsLimits,
+    ResourceLimits, RunOutcome, DEFAULT_CPU_PERIOD_US,
 };
 
 use crate::{Backend, LaunchPlan, RuntimeError};
@@ -151,14 +151,75 @@ pub struct Deployment {
 /// LLO's own `wait_for_completion` doc forbids ("must not infer completion by
 /// ... sleeping for a guessed duration"). The real backend's blocking wait is
 /// an inherent method; this names it so the generic wrapper can call it.
+///
+/// It returns LLO's `RunOutcome` (v0.29.0, ley-line-open-a26ad0): the terminal
+/// status AND the guest's bounded, sanitized, UNTRUSTED output tails
+/// (cloister-edec62), so a failed run can show what its workload printed.
 pub trait AwaitRun {
-    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError>;
+    fn await_run(&self, run_id: &str) -> Result<RunOutcome, ExecutionError>;
 }
 
 impl AwaitRun for KrunWorkerBackend {
-    fn await_run(&self, run_id: &str) -> Result<BackendRunStatus, ExecutionError> {
-        self.wait_for_completion(run_id)
+    fn await_run(&self, run_id: &str) -> Result<RunOutcome, ExecutionError> {
+        self.wait_for_outcome(run_id)
     }
+}
+
+/// Markers LLO's `failure_with_output` uses when it appends the reported
+/// event and the output tails to a failed run's detail (runtime
+/// backends/libkrun/output.rs). The supervisor's own detail always comes
+/// FIRST, so cutting at the earliest marker keeps exactly the trusted part:
+/// guest bytes come after it and cannot move the cut, even if they imitate a
+/// heading.
+const APPENDED_BY_LLO: [&str; 3] = [
+    "\nreported on the worker's standard error",
+    "\n--- guest console (",
+    "\n--- guest stderr and worker diagnostics (",
+];
+
+/// The supervisor's part of a failed run's detail — what cloister reports as
+/// the failure. The guest's output is shown separately, labelled untrusted.
+pub fn supervisor_detail(detail: &str) -> &str {
+    let cut = APPENDED_BY_LLO
+        .iter()
+        .filter_map(|marker| detail.find(marker))
+        .min()
+        .unwrap_or(detail.len());
+    &detail[..cut]
+}
+
+/// The guest-output block printed for a failed or ceiling-stopped run.
+///
+/// The text is the workload's own: untrusted, never interpreted, and it never
+/// changes the exit status. LLO has already replaced control characters other
+/// than newline and tab with U+FFFD (and invalid UTF-8). Each guest line is
+/// further prefixed with `| `, so nothing the guest prints can pass for one
+/// of the host runtime's own lines.
+pub fn guest_output_lines(output: &GuestOutput) -> Vec<String> {
+    let mut lines = vec!["guest output (untrusted; shown as printed, not interpreted):".to_owned()];
+    for (name, text, dropped) in [
+        ("stdout", &output.stdout_tail, output.stdout_dropped_bytes),
+        (
+            "stderr, with the worker's diagnostics",
+            &output.stderr_tail,
+            output.stderr_dropped_bytes,
+        ),
+    ] {
+        if text.is_empty() {
+            lines.push(format!("  guest {name}: (empty)"));
+            continue;
+        }
+        let kept = if dropped > 0 {
+            format!("last part; {dropped} earlier bytes dropped")
+        } else {
+            "all of it".to_owned()
+        };
+        lines.push(format!("  guest {name} ({kept}):"));
+        for line in text.lines() {
+            lines.push(format!("  | {line}"));
+        }
+    }
+    lines
 }
 
 impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
@@ -412,11 +473,22 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             return Err(RuntimeError::Backend(error.to_string()));
         }
         self.set_phase(StartPhase::Started);
-        match self
+        let outcome = self
             .inner
             .await_run(&request.run_id)
-            .map_err(|error| RuntimeError::Backend(error.to_string()))?
-        {
+            .map_err(|error| RuntimeError::Backend(error.to_string()))?;
+        // A failed or ceiling-stopped run shows what its guest printed, as a
+        // labelled untrusted block. The error itself is the supervisor's
+        // detail only, so the tails appear once.
+        let report = |error: &ExecutionError| {
+            if let Some(output) = &outcome.output {
+                for line in guest_output_lines(output) {
+                    crate::note!("cloister-host-runtime: {line}");
+                }
+            }
+            format!("{:?}: {}", error.code, supervisor_detail(&error.detail))
+        };
+        match &outcome.status {
             BackendRunStatus::Succeeded => Ok(()),
             // LLO's supervisor reports the deadline as ResourceExhausted
             // ("execution exceeded wall-clock limit", runtime process.rs);
@@ -424,9 +496,9 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             // The code is matched, not the text, and a cleanup failure
             // appended to the detail keeps the run's code.
             BackendRunStatus::Failed(error) if error.code == ErrorCode::ResourceExhausted => {
-                Err(RuntimeError::WallClockExceeded(error.to_string()))
+                Err(RuntimeError::WallClockExceeded(report(error)))
             }
-            BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(error.to_string())),
+            BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(report(error))),
         }
     }
 }

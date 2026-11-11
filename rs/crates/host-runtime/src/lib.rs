@@ -72,7 +72,7 @@ pub struct ConfinementUnixSocket {
 /// default (connect-only), and widening is spelled out — `bind` (serve without
 /// dial) or `connect-bind`.
 ///
-/// `guestPort` (confinement/v1 §6, LLO v0.28.0, ADR-0046 Q7) presents the
+/// `guestPort` (confinement/v1 §6, since LLO v0.28.0, ADR-0046 Q7) presents the
 /// channel to an UNMODIFIED workload as TCP on the guest's loopback: with
 /// connect the workload dials `127.0.0.1:guestPort` and reaches exactly this
 /// peer; with `bind` it listens there and only this channel reaches it. It is

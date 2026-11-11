@@ -37,8 +37,9 @@ emitter now derives. It writes the two launch
 plans by hand and put each rootfs into the CAS
 yourself. A rootfs is a directory in `$CLOISTER_CAS_ROOT` named by the BLAKE3
 of its `rootfs.manifest.json`. The manifest lists each file's path, mode and
-BLAKE3. The guest has no `/tmp` unless the rootfs ships one, so include
-`tmp/.keep`.
+BLAKE3. (When this was run, on LLO v0.28.0, the guest had no `/tmp` unless the
+rootfs shipped one, so it included `tmp/.keep`. Since v0.29.0 every guest has a
+tmpfs `/tmp`.)
 
 VM A runs `dolt sql-server --host 127.0.0.1 --port 3306 --data-dir /data` with:
 
@@ -79,6 +80,19 @@ Checked on darwin-arm64 with LLO v0.28.0 and socket hijacking off (main fd3e96c)
 - Undeclared destinations from a guest, checked by `tools/edge-probe`: other
   loopback ports get "Connection refused", external addresses get "Network
   unreachable", and UDP gets "Permission denied".
+
+Re-checked with LLO v0.29.0 through `cloister cluster up`
+([`microvm/`](microvm/README.md)), which now shows the guest's own output.
+With the connection removed, `up` printed the orders service's stderr. The
+guest has no channel to `127.0.0.1:3306`, so the dial is refused, not held:
+
+```
+[orders] cloister-host-runtime: guest output (untrusted; shown as printed, not interpreted):
+[orders] cloister-host-runtime:   guest stdout: (empty)
+[orders] cloister-host-runtime:   guest stderr, with the worker's diagnostics (all of it):
+[orders] cloister-host-runtime:   | 2026/11/11 04:25:16 seed: database did not answer within 30s: dial tcp 127.0.0.1:3306: connect: connection refused
+[orders] cloister-host-runtime: the workload ran and failed: BackendFailed: libkrun worker exited with exit status: 2
+```
 
 ## Run it on kind (the `policy` tier)
 

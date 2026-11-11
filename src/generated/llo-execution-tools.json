@@ -391,9 +391,10 @@
       "description": "Provisioning result.",
       "properties": {
         "provisioned": { "type": "boolean", "description": "True when the backend is ready." },
-        "backendId": { "type": "string", "description": "Selected backend implementation identifier." }
+        "backendId": { "type": "string", "description": "Selected backend implementation identifier." },
+        "casRoot": { "type": "string", "description": "Absolute host path of the content-addressed rootfs store the provider serves, after provisioning made it exist (on macOS, on a case-sensitive volume it attached); empty when the provider does not report one." }
       },
-      "required": ["provisioned", "backendId"],
+      "required": ["provisioned", "backendId", "casRoot"],
       "additionalProperties": false
     },
     "StartInput": {
@@ -872,9 +873,10 @@
       "description": "Provisioning result.",
       "properties": {
         "provisioned": { "type": "boolean", "description": "True when the backend is ready." },
-        "backendId": { "type": "string", "description": "Selected backend implementation identifier." }
+        "backendId": { "type": "string", "description": "Selected backend implementation identifier." },
+        "casRoot": { "type": "string", "description": "Absolute host path of the content-addressed rootfs store the provider serves, after provisioning made it exist (on macOS, on a case-sensitive volume it attached); empty when the provider does not report one." }
       },
-      "required": ["provisioned", "backendId"],
+      "required": ["provisioned", "backendId", "casRoot"],
       "additionalProperties": false
     },
     "StartInput": {
