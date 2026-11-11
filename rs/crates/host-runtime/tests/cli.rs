@@ -96,4 +96,3 @@ fn status_and_gc_are_retired_with_a_reason_rather_than_an_unknown_command() {
         assert!(stderr.contains("ley-line-open"), "{command}: {stderr}");
     }
 }
-
