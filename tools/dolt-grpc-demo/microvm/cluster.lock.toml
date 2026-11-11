@@ -17,10 +17,10 @@ symlinks = "resolve"
 [inputs.orders.oci]
 identifier = "dolt-grpc-demo/orders"
 version = "local"
-digest = "sha256:877136c906a1aba4dcafe84baeb6815d350dad2e2c50fbf251e02903fd07eb79"
+digest = "sha256:0f59d7641ab32d804901c07ef8ad22b21f69fec4e56135f41fbddb345ac88480"
 
 [[inputs.orders.oci.rootfs]]
 platform = "linux/arm64"
-digest = "blake3-256:3f2fb96b9880944020be2956519d86588373ebaea1a68c5e974f5bf8c58b7147"
-image = "sha256:877136c906a1aba4dcafe84baeb6815d350dad2e2c50fbf251e02903fd07eb79"
+digest = "blake3-256:db070a03da0cbb41ea95d530559bbd7d22c95934df2f03bbb63058eecbc21df2"
+image = "sha256:0f59d7641ab32d804901c07ef8ad22b21f69fec4e56135f41fbddb345ac88480"
 symlinks = "resolve"

@@ -1289,7 +1289,9 @@ tasks:
       # The demo's cluster.toml + committed cluster.lock.toml (cloister-2af014),
       # which cluster-up and demo-locks tests read.
       - tools/dolt-grpc-demo/**/*.toml
-      - tools/dolt-grpc-demo/**/build.sh
+      - tools/dolt-grpc-demo/**/*.sh
+      - tools/dolt-grpc-demo/microvm/apko-*.yaml
+      - tools/dolt-grpc-demo/k8s/*.yaml
       - docs/adr/**/*.md
       - recipes/**
       - scripts/git-hooks/**

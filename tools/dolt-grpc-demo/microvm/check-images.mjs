@@ -20,6 +20,10 @@ const HERE = import.meta.dirname;
 const REPO = resolve(HERE, "../../..");
 const refFlag = process.argv.indexOf("--ref");
 const ref = refFlag >= 0 ? process.argv[refFlag + 1] : "HEAD";
+if (!ref || ref.startsWith("--")) {
+  console.error("check-images: --ref needs a git ref (e.g. --ref HEAD)");
+  process.exit(2);
+}
 const LOCKS = {
   microvm: ["dolt", "orders"],
   "microvm-published": ["orders"],
@@ -38,6 +42,9 @@ try {
   const built = {};
   for (const image of ["dolt", "orders"]) {
     const index = JSON.parse(readFileSync(join(out, image, "index.json"), "utf8"));
+    if (!Array.isArray(index.manifests) || index.manifests.length !== 1) {
+      throw new Error(`${image}: expected exactly one manifest in the built index.json, found ${index.manifests?.length ?? "none"}`);
+    }
     built[image] = index.manifests[0].digest;
   }
   const failures = [];
@@ -53,8 +60,11 @@ try {
   if (failures.length) {
     console.error(
       `check-images: ${failures.length} image(s) did not reproduce the committed pin. ` +
-        "A build run as a user other than uid 501 / gid 20 records different file owners " +
-        "(tools/dolt-grpc-demo/microvm/README.md, reproducibility limit).",
+        "The digests also depend on the builder: build-images.sh refuses a melange or apko " +
+        "version other than the one pinned there, but a build run as a user other than " +
+        `uid 501 / gid 20 (this one: uid ${process.getuid()} / gid ${process.getgid()}) records ` +
+        "different file owners (tools/dolt-grpc-demo/microvm/README.md, reproducibility " +
+        "limit; cloister-426cb8).",
     );
     process.exit(1);
   }

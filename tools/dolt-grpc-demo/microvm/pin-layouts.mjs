@@ -64,6 +64,25 @@ const doc = {
   version: cluster.metadata.version,
   inputs,
 };
+// A pin that moves is the demo no longer reproducing its committed lock (or a
+// deliberate rebuild). Say so loudly before writing; git diff then shows it.
+let previous = {};
+try {
+  previous = parseToml(readFileSync(lockPath, "utf8")).inputs ?? {};
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+for (const [b, row] of Object.entries(inputs)) {
+  const before = previous[b]?.oci?.digest;
+  if (before && before !== row.oci.digest) {
+    console.error(
+      `pin-layouts: WARNING: ${b}'s pin changed: ${before} → ${row.oci.digest}. If this was not a ` +
+        "deliberate change to the image, the build did not reproduce the committed lock " +
+        "(tools/dolt-grpc-demo/microvm/README.md, reproducibility limit).",
+    );
+  }
+}
+
 // The one lock writer: carries every rootfs row already recorded for an
 // unchanged image, and writes atomically.
 writeLockfile(lockPath, doc);

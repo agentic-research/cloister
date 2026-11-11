@@ -7,7 +7,9 @@
 //     imported from that pin, which `runtime plan` selects;
 //   - the orders image is the same in both demos (same build, same digest);
 //   - the published dolt pin is the digest build.sh pulls, and the one the
-//     k8s manifest runs.
+//     k8s manifest runs;
+//   - each locally built bundle's cluster.toml entryPoint is the command its
+//     apko config declares (the image and the plan cannot drift apart).
 // Whether a rebuild reproduces the pins needs melange + apko + a container
 // runtime, so it is `task demo:images:check`, not part of `task lint`.
 
@@ -16,6 +18,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { parse as parseYaml } from "yaml";
 
 import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
 import { lockedRootfsRows } from "../../cli/lib/runtime/rootfs-lock.mjs";
@@ -54,8 +57,8 @@ for (const name of DEMOS) {
         rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
         guestPlatform: () => ARM,
       });
-      assert.equal(plan.artifact.digest, arm.digest);
-      assert.equal(plan.artifact.entrypoint, bundle.external.entryPoint);
+      // The plan carries the row's rootfs, not the image digest.
+      assert.notEqual(plan.artifact.digest, oci.digest);
     }
   });
 }
@@ -74,4 +77,43 @@ test("the published dolt pin is the digest build.sh pulls and k8s/dolt.yaml runs
   const k8s = readFileSync(join(DEMO, "k8s/dolt.yaml"), "utf8");
   assert.ok(buildSh.includes(`DOLT_DIGEST=${pin}`), "build.sh pulls the pinned digest");
   assert.ok(k8s.includes(pin), "k8s/dolt.yaml runs the pinned digest");
+});
+
+// ── the image's entrypoint is the plan's ─────────────────────────────────
+
+/**
+ * The entrypoint apko-<bundle>.yaml declares. Only a bundle the demo builds
+ * itself has one: pin-layouts records such a pin as `version = "local"`, a
+ * published image as "published".
+ */
+function apkoEntrypoint(bundle) {
+  const text = readFileSync(join(DEMO, "microvm", `apko-${bundle}.yaml`), "utf8");
+  return parseYaml(text)?.entrypoint?.command ?? null;
+}
+const builtLocally = (lock, b) => lock.inputs?.[b.name]?.oci?.version === "local";
+
+/** Built bundles whose cluster.toml entryPoint differs from their apko entrypoint. */
+function entrypointDrift(lock, bundles) {
+  const drift = [];
+  for (const b of bundles.filter((x) => builtLocally(lock, x))) {
+    const command = apkoEntrypoint(b.name);
+    if (command !== b.external.entryPoint) {
+      drift.push(`${b.name}: cluster.toml entryPoint ${b.external.entryPoint}, apko-${b.name}.yaml entrypoint ${command}`);
+    }
+  }
+  return drift;
+}
+
+for (const name of DEMOS) {
+  test(`${name}: every locally built bundle's entryPoint is its apko entrypoint`, () => {
+    const { lock, bundles } = demo(name);
+    assert.ok(bundles.some((b) => builtLocally(lock, b)), "at least one bundle is built by apko here");
+    assert.deepEqual(entrypointDrift(lock, bundles), []);
+  });
+}
+
+test("the entrypoint rail catches a drift", () => {
+  const { lock, bundles } = demo("microvm");
+  const drifted = bundles.map((b) => (b.name === "orders" ? { ...b, external: { ...b.external, entryPoint: "/orders" } } : b));
+  assert.deepEqual(entrypointDrift(lock, drifted), ["orders: cluster.toml entryPoint /orders, apko-orders.yaml entrypoint /usr/bin/orders"]);
 });

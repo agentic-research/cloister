@@ -40,16 +40,25 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
      ships no dolt package. [`apko-dolt.yaml`](apko-dolt.yaml) adds an empty
      `/data` for Dolt's data directory. `/tmp` is not shipped: since LLO
      v0.29.0 every guest has a tmpfs `/tmp`.
-   - [`melange-orders.yaml`](melange-orders.yaml): the same static Go build
-     as `../Dockerfile`, with Go pinned to one Wolfi build.
+   - [`melange-orders.yaml`](melange-orders.yaml): a static (CGO off) build
+     of the same package as `../Dockerfile`, with Go pinned to one Wolfi build
+     and an empty build id. [`apko-orders.yaml`](apko-orders.yaml) runs it as
+     the nonroot user (uid 65532), as `../Dockerfile`'s image does.
    - Every stamped timestamp is a constant `SOURCE_DATE_EPOCH`, and no
      commit hash, signing key or local path reaches an image (the script's
      header says why each is pinned). Two clean builds give byte-identical
      digests.
+   - melange and apko are pinned to the versions that built the committed
+     pins (melange 0.48.2, apko 1.2.2, in `build-images.sh`): melange writes
+     its version into each APK's SBOM. Another version is refused by name.
+   - The script writes only into a directory it made (a `.build-images-out`
+     marker) and deletes only what it creates; it refuses any other
+     non-empty directory.
 2. **Pins each layout's digest** (from its own `index.json`) into
    [`cluster.lock.toml`](cluster.lock.toml) as `[inputs.<bundle>.oci]`. The
    lock is committed: a clean build pins the same digests, so `build.sh`
-   leaves it unchanged, and `git diff` after a build is the check.
+   leaves it unchanged. If a pin does change, `pin-layouts` prints a
+   `WARNING` naming the old and new digest, and `git diff` shows it.
 3. **Imports each pinned image** with `cloister runtime import --bundle
    … --symlinks resolve`. The images hold symlinks (apko's `/lib/apk`), which
    the importer's default refuses; LLO v0.30.0's rootfs manifest v2
