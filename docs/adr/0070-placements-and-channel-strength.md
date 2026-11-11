@@ -271,7 +271,8 @@ is an operator decision outside the plan (the host runtime's existing rule).
   `up` runs (ADR-0069 §2 defines the three values). A busy host port is
   refused by name before anything starts. `cluster k8s` refuses `edge` by
   name; its lowering (a NodePort plus kind `extraPortMappings`) is tracked
-  with the broker work, `cloister-55424e`.
+  with the broker work, `cloister-55424e`. The relay is interim; replaced by
+  LLO's publish channel (`ley-line-open-797917`, `cloister-79bdeb`).
 - Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, and the
   "no `cluster.toml` field duplicates a forwarded spec field" rail beyond the
   Service-port check.

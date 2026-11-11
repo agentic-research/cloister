@@ -13,9 +13,10 @@
 // Boundary (ADR-0035): this is a small DATA-PLANE piece living in cloister's
 // Node CLI, because `up` is a foreground convenience that already owns the
 // channel directory and the runs' lifecycle (ADR-0071 §1). It carries bytes and
-// makes no policy decision. LLO may absorb host publishing later (a published
-// port beside the run it fronts); if it does, this module is deleted and `up`
-// passes the declaration through instead.
+// makes no policy decision. It is interim; replaced by LLO's publish channel
+// (ley-line-open-797917, cloister-79bdeb): LLO will carry host publishing as a
+// connections/v1 `publish` channel beside the run it fronts, this module is
+// deleted, and `up` passes the declaration through instead.
 //
 // Lifecycle (ADR-0071 §1, `up`'s foreground rules):
 //   - every edge port is RESERVED (bound and listening) before anything is
