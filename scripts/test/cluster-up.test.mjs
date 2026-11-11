@@ -24,7 +24,7 @@ import {
   isBlake3Digest,
   recordRootfs,
 } from "../../cli/lib/runtime/rootfs-lock.mjs";
-import { main as importMain, parseImportArgs } from "../../cli/commands/runtime-import.mjs";
+import { main as importMain, parseImportArgs, registryReference } from "../../cli/commands/runtime-import.mjs";
 import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
 import { carryRootfsFromPreviousLock } from "../../cli/lib/cluster/resolve-inputs.mjs";
 
@@ -210,7 +210,9 @@ function importFixture(oci) {
 }
 function capture() {
   const out = { log: [], err: [] };
-  return { out, deps: { log: (m) => out.log.push(m), errLog: (m) => out.err.push(m) } };
+  // prepareCas is the real CAS attach/override check; these import tests are
+  // about the lock, so it is stubbed (it has its own tests).
+  return { out, deps: { log: (m) => out.log.push(m), errLog: (m) => out.err.push(m), prepareCas: () => {} } };
 }
 
 test("runtime import --bundle derives --image from the lock, imports, and records the rootfs", async () => {
@@ -275,7 +277,8 @@ test("runtime import --bundle refuses a bundle the lock does not pin, and a miss
 
 test("runtime import argument refusals", () => {
   assert.throws(() => parseImportArgs(["--layout", "/l"]), /--bundle is required/);
-  assert.throws(() => parseImportArgs(["--bundle", "d"]), /--layout <oci-layout-dir> is required/);
+  // --layout is optional: without it the pinned image is pulled from its registry.
+  assert.equal(parseImportArgs(["--bundle", "d"]).layout, null);
   assert.throws(() => parseImportArgs(["--bundle", "d", "--layout", "/l", "--symlinks", "x"]), /--symlinks must be one of refuse, resolve/);
   assert.throws(() => parseImportArgs(["--bundle", "d", "--wat", "x"]), /unknown argument "--wat"/);
 });
@@ -297,7 +300,7 @@ test("a microvm plan with no recorded rootfs is refused with the exact import co
     planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => assert.fail("not consulted") }),
     (e) => {
       assert.match(e.message, /bundle "dolt" is a microvm bundle with no imported rootfs in cluster.lock.toml \(\[inputs.dolt.oci\] rootfs\)/);
-      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo --layout <oci-layout-dir>"), e.message);
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>]"), e.message);
       return true;
     },
   );
@@ -309,7 +312,7 @@ test("a recorded rootfs missing from the CAS is refused the same way, naming the
     planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: false, casRoot: "/cas" }) }),
     (e) => {
       assert.match(e.message, /bundle "dolt"'s rootfs blake3-256:b+ is recorded in cluster.lock.toml but is not in the CAS \(\/cas\)/);
-      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo --layout <oci-layout-dir> --symlinks resolve"), e.message);
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>] --symlinks resolve"), e.message);
       return true;
     },
   );
@@ -345,8 +348,8 @@ executionModeRationale = "test"
 });
 
 test("importCommand spells --dir and a non-default symlink mode only when needed", () => {
-  assert.equal(importCommand("dolt", "."), "cloister runtime import --bundle dolt --layout <oci-layout-dir>");
-  assert.equal(importCommand("dolt", "x", "resolve"), "cloister runtime import --bundle dolt --dir x --layout <oci-layout-dir> --symlinks resolve");
+  assert.equal(importCommand("dolt", "."), "cloister runtime import --bundle dolt [--layout <oci-layout-dir>]");
+  assert.equal(importCommand("dolt", "x", "resolve"), "cloister runtime import --bundle dolt --dir x [--layout <oci-layout-dir>] --symlinks resolve");
 });
 
 // ── cluster up supervision, with a fake host runtime ─────────────────────
@@ -487,7 +490,7 @@ test("a rootfs imported from a different image than the current pin is refused (
     planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
     (e) => {
       assert.match(e.message, /bundle "dolt"'s recorded rootfs blake3-256:b+ was imported from sha256:a+ \(\[inputs.dolt.oci\] rootfsImage\), but the lock now pins sha256:c+/);
-      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo --layout <oci-layout-dir>"), e.message);
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>]"), e.message);
       return true;
     },
   );
@@ -580,4 +583,35 @@ test("a spawn failure is reported without a pid, and the rest are stopped", asyn
   assert.equal(r.code, 1);
   assert.match(r.err.join("\n"), /bundle "orders" could not be started: spawn ENOENT/);
   assert.doesNotMatch(r.log.join("\n"), /pid undefined/);
+});
+
+// ── registry source (cloister-727354) ─────────────────────────────────────
+
+test("runtime import --bundle with no --layout pulls the pinned identifier@digest from its registry", async () => {
+  const dir = importFixture({ digest: IMG("a") });
+  try {
+    const calls = [];
+    const { out, deps } = capture();
+    const code = await importMain(["--bundle", "dolt", "--dir", dir, "--symlinks", "resolve"], {
+      ...deps,
+      importOci: (args) => { calls.push(args); return { rootfs: { algorithm: "blake3-256", value: "b".repeat(64) } }; },
+    });
+    assert.equal(code, 0, out.err.join("\n"));
+    assert.deepEqual(calls, [["import-oci", "--from-registry", `x/dolt@${IMG("a")}`, "--symlinks", "resolve"]]);
+    const oci = parseToml(readFileSync(join(dir, "cluster.lock.toml"), "utf8")).inputs.dolt.oci;
+    assert.equal(oci.rootfs, RFS("b"));
+    assert.equal(oci.rootfsImage, IMG("a"));
+    assert.equal(oci.rootfsSymlinks, "resolve");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a registry pull is refused for an identifier carrying a tag or digest, or an unpinned image", () => {
+  assert.equal(registryReference("d", { identifier: "ghcr.io:443/o/app", digest: IMG("a") }), `ghcr.io:443/o/app@${IMG("a")}`,
+    "a registry port is not a tag");
+  assert.throws(() => registryReference("d", { identifier: "o/app:1.2", digest: IMG("a") }), /carries a tag or digest of its own/);
+  assert.throws(() => registryReference("d", { identifier: `o/app@${IMG("b")}`, digest: IMG("a") }), /carries a tag or digest of its own/);
+  assert.throws(() => registryReference("d", { identifier: "o/app", digest: "" }), /not pinned by an immutable sha256 digest .* never pulled/);
+  assert.throws(() => registryReference("d", { identifier: "", digest: IMG("a") }), /has no \[inputs.d.oci\] identifier/);
 });

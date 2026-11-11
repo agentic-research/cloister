@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { RuntimeNotInstalledError } from "../../cli/lib/runtime/provider-record.mjs";
 
 import { main as runtimeMain } from "../../cli/commands/runtime.mjs";
 import {
@@ -62,53 +63,129 @@ test("compatibility JSON failures retain subprocess evidence", () => {
   );
 });
 
-// cloister-a4e446: the compatibility provider's storage is the microVM store
-// `cloister runtime install` creates. Status observes it directly instead of
-// asking the host-runtime, whose `status` was removed with krunvm.
+// cloister-a4e446 / cloister-727354: the compatibility provider's storage is
+// the CAS volume `cloister runtime install` provisioned and recorded. Status
+// reads the CAS root from the provider record and asks the host runtime's
+// read-only `cas-status` about the volume.
 const LAYOUT_ENV = { CLOISTER_STATE_DIR: "/state" };
+const VOLUME_RECORD = { microvm: { casRoot: "/state/cas-volume/mnt/cas", casStateDir: "/state", runRoot: "/state/run" } };
 
-test("storage status JSON reports the microVM store without spawning anything", async () => {
+test("storage status JSON reports the recorded CAS volume and whether it is case-sensitive", async () => {
   const lines = [];
+  const calls = [];
   const status = await runtimeMain(["storage", "status", "--json"], {
     log: (line) => lines.push(line),
     errLog: (line) => lines.push(`ERR:${line}`),
     env: LAYOUT_ENV,
     existsSync: () => true,
-    runCompatibilityJson: () => { throw new Error("storage status must not spawn the host-runtime"); },
+    readProviderRecord: () => VOLUME_RECORD,
+    runCompatibilityJson: (args) => {
+      calls.push(args);
+      return { data: {
+        casRoot: "/state/cas-volume/mnt/cas",
+        image: "/state/cas-volume/cas.sparsebundle",
+        imageExists: true,
+        mountpoint: "/state/cas-volume/mnt",
+        attached: true,
+        filesystem: { caseSensitive: true, normalizationSensitive: false },
+      } };
+    },
   });
 
   assert.equal(status, 0);
-  assert.equal(lines.length, 1);
+  assert.deepEqual(calls, [["cas-status", "--state-dir", "/state"]], "read-only status, never provision");
   assert.deepEqual(JSON.parse(lines[0]), {
-    state: "prepared",
     provider: "compatibility",
     maturity: "experimental",
     backend: "microVm",
-    storageVolume: "/state/cas",
     trackedRuns: null,
     runningRuns: null,
+    state: "prepared",
+    storageVolume: "/state/cas-volume/mnt/cas",
+    volume: {
+      image: "/state/cas-volume/cas.sparsebundle",
+      mountpoint: "/state/cas-volume/mnt",
+      attached: true,
+      imageExists: true,
+      caseSensitive: true,
+      normalizationSensitive: false,
+    },
   });
 });
 
-test("missing storage is a successful observation that names runtime install", async () => {
+test("a detached volume is not prepared, says it re-attaches automatically, and exits 0", async () => {
+  const lines = [];
+  const status = await runtimeMain(["storage", "status"], {
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(`ERR:${line}`),
+    env: LAYOUT_ENV,
+    existsSync: () => true,
+    readProviderRecord: () => VOLUME_RECORD,
+    runCompatibilityJson: () => ({ data: {
+      casRoot: "/state/cas-volume/mnt/cas", image: "/state/cas-volume/cas.sparsebundle",
+      imageExists: true, mountpoint: "/state/cas-volume/mnt", attached: false, filesystem: null,
+    } }),
+  });
+  assert.equal(status, 0, "an observation, not a failure");
+  const text = lines.join("\n");
+  assert.match(text, /Runtime storage is not prepared\./);
+  assert.match(text, /CAS volume: \/state\/cas-volume\/cas\.sparsebundle \(not attached; case-sensitive: unknown \(not attached\)\)/);
+  assert.match(text, /re-attached automatically by `cluster up`, `runtime plan` and `runtime import`/);
+  assert.doesNotMatch(text, /Run: cloister runtime install/, "a detached volume needs no reinstall");
+});
+
+test("an old-style record (no CAS volume) reports the plain directory and names install", async () => {
+  const lines = [];
+  const status = await runtimeMain(["storage", "status"], {
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(`ERR:${line}`),
+    env: LAYOUT_ENV,
+    existsSync: () => true,
+    readProviderRecord: () => ({ microvm: { casRoot: "/state/cas", runRoot: "/state/run" } }),
+    runCompatibilityJson: () => { throw new Error("no volume: nothing to ask the host runtime"); },
+  });
+  assert.equal(status, 0);
+  const text = lines.join("\n");
+  assert.match(text, /Runtime storage is prepared\./);
+  assert.match(text, /Storage: \/state\/cas/);
+  assert.match(text, /CAS volume: none \(a plain directory; case-sensitivity unknown\)\. Run: cloister runtime install/);
+});
+
+test("storage status refuses a CLOISTER_CAS_ROOT that disagrees with the record", async () => {
+  const lines = [];
+  const status = await runtimeMain(["storage", "status"], {
+    log: (line) => lines.push(line),
+    errLog: (line) => lines.push(`ERR:${line}`),
+    env: { ...LAYOUT_ENV, CLOISTER_CAS_ROOT: "/elsewhere" },
+    existsSync: () => true,
+    readProviderRecord: () => VOLUME_RECORD,
+    runCompatibilityJson: () => { throw new Error("refused before asking"); },
+  });
+  assert.notEqual(status, 0);
+  assert.match(lines.join("\n"), /CLOISTER_CAS_ROOT=\/elsewhere differs from the installed runtime's CAS root \/state\/cas-volume\/mnt\/cas.*unset CLOISTER_CAS_ROOT, or re-run `cloister runtime install`/s);
+});
+
+test("missing storage is a successful observation that names runtime install, without spawning", async () => {
   const lines = [];
   const status = await runtimeMain(["storage", "status"], {
     log: (line) => lines.push(line),
     errLog: (line) => lines.push(`ERR:${line}`),
     env: LAYOUT_ENV,
     existsSync: () => false,
-    runCompatibilityJson: () => { throw new Error("storage status must not spawn the host-runtime"); },
+    readProviderRecord: () => { throw new RuntimeNotInstalledError("not installed"); },
+    runCompatibilityJson: () => { throw new Error("no record: nothing to ask the host runtime"); },
   });
 
   assert.equal(status, 0);
   const text = lines.join("\n");
   assert.match(text, /Runtime storage is not prepared\./);
   assert.match(text, /Provider: compatibility \(experimental\)/);
-  assert.match(text, /Storage: \/state\/cas/);
   assert.match(text, /Run: cloister runtime install/);
   assert.doesNotMatch(text, /krunvm|storage init|task /i);
 });
 
+// Restored (#290 review): removed by accident when the storage-status tests
+// above were rewritten.
 test("runtime doctor names the provider boundary and verified artifact", async () => {
   const lines = [];
   const status = await runtimeMain(["doctor"], {

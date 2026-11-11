@@ -36,7 +36,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
 | [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
-| [`cloister runtime import`](#cloister-runtime-import) | Import a digest-pinned OCI image layout as a microVM rootfs |
+| [`cloister runtime import`](#cloister-runtime-import) | Import a digest-pinned OCI image (layout or registry) as a microVM rootfs |
 | [`cloister runtime run`](#cloister-runtime-run) | Run a compatibility plan or LLO execution envelope |
 | [`cloister runtime inspect`](#cloister-runtime-inspect) | Inspect LLO execution events |
 | [`cloister runtime collect`](#cloister-runtime-collect) | Collect an LLO terminal receipt |
@@ -292,14 +292,14 @@ Builds the native confinement helper and host runtime, copies them into ~/.local
 ## cloister runtime import
 
 ```
-cloister runtime import --layout <dir> [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]
+cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]
 ```
 
-With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in cluster.lock.toml; --image may be omitted, and must equal it if given) and records the resulting blake3-256 rootfs beside the pin, which `runtime plan` and `cluster up` run. Idempotent. Without --bundle, prints LLO's import record and writes nothing.
+With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in cluster.lock.toml; --image may be omitted, and must equal it if given) and records the resulting blake3-256 rootfs beside the pin, which `runtime plan` and `cluster up` run. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned image is refused). Without --bundle, prints LLO's import record and writes nothing.
 
 | Flag | | |
 |---|---|---|
-| `--layout <dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store |
+| `--layout <dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry |
 | `--bundle <name>` |  | record the rootfs for this bundle in cluster.lock.toml |
 | `--dir <cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
 | `--image <sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |

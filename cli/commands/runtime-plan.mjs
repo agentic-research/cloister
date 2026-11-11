@@ -26,7 +26,7 @@ import {
   lockedRootfs,
   rootfsHex,
 } from "../lib/runtime/rootfs-lock.mjs";
-import { casRootInCas } from "../lib/runtime/cas-root.mjs";
+import { lazyRootfsInCas } from "../lib/runtime/cas-root.mjs";
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
 import {
   DEFAULT_CHANNEL_DIR,
@@ -290,7 +290,9 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       // Only used to spell the fix in a refusal: the directory `runtime
       // import --dir` must be given to reach the same lock.
       dir: opts.dir ?? (relativePath(process.cwd(), root) || "."),
-      rootfsInCas: io.rootfsInCas ?? casRootInCas(io.env ?? process.env),
+      // Attaches the CAS volume (or refuses by name) on first use, before
+      // the presence check — a detached volume is never read as "re-import".
+      rootfsInCas: io.rootfsInCas ?? lazyRootfsInCas({ env: io.env ?? process.env, warn: error }),
     });
     const json = `${JSON.stringify(plan, null, 2)}\n`;
     if (opts.output) {

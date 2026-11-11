@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// `cloister runtime import --bundle <name> [--dir <cluster>] --layout <dir>
+// `cloister runtime import --bundle <name> [--dir <cluster>] [--layout <dir>]
 //  [--image sha256:…] [--symlinks refuse|resolve]` (cloister-991e65).
 //
-// Imports the bundle's PINNED image from an on-disk OCI layout into the
+// With --layout the image comes from an on-disk OCI layout; without it, the
+// lock's pinned `identifier@sha256:…` is pulled from its registry through
+// LLO's in-process importer (anonymous HTTPS; cloister-727354). Either way it
+// lands in the CAS the provider record names, re-attached first.
+//
+// Imports the bundle's PINNED image (from a layout or its registry) into the
 // microVM CAS (through the host runtime's `import-oci`, i.e. LLO's importer)
 // and records the resulting rootfs in cluster.lock.toml beside the image pin,
 // which is what `runtime plan` and `cluster up` run.
@@ -23,7 +28,9 @@ import { resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { runCompatibilityJson } from "../lib/runtime/compatibility-client.mjs";
+import { prepareCas } from "../lib/runtime/cas-root.mjs";
 import { writeGeneratedFile } from "../lib/atomic-write.mjs";
+import { isSha256Digest } from "../lib/oci-artifact.mjs";
 import {
   DEFAULT_SYMLINKS,
   SYMLINK_MODES,
@@ -45,11 +52,40 @@ export function parseImportArgs(argv) {
     i += 1;
   }
   if (!out.bundle) throw new ImportUsageError("--bundle is required");
-  if (!out.layout) throw new ImportUsageError("--layout <oci-layout-dir> is required");
+  // No --layout: pull the pinned image from its registry (cloister-727354).
   if (!SYMLINK_MODES.includes(out.symlinks)) {
     throw new ImportUsageError(`--symlinks must be one of ${SYMLINK_MODES.join(", ")}`);
   }
   return out;
+}
+
+/**
+ * The registry reference for a lock-pinned image: `identifier@digest`. Only a
+ * digest pin is pulled: the identifier must be a bare repository name (no tag,
+ * no digest of its own) and the digest a full sha256, so what is fetched is
+ * exactly what the lock pins. LLO pulls anonymously over HTTPS; a private
+ * image is refused by its registry and reported as such (no credentials in
+ * this slice).
+ */
+export function registryReference(bundle, oci) {
+  const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
+  if (!identifier) {
+    throw new Error(`bundle "${bundle}" has no [inputs.${bundle}.oci] identifier to pull from`);
+  }
+  const lastSegment = identifier.slice(identifier.lastIndexOf("/") + 1);
+  if (identifier.includes("@") || lastSegment.includes(":")) {
+    throw new Error(
+      `bundle "${bundle}"'s identifier ${JSON.stringify(identifier)} carries a tag or digest of its own; ` +
+        `a registry pull uses only the bare repository name plus the locked digest`,
+    );
+  }
+  if (!isSha256Digest(oci.digest)) {
+    throw new Error(
+      `bundle "${bundle}" is not pinned by an immutable sha256 digest (${JSON.stringify(oci.digest)}); ` +
+        `an unpinned or tag-only image is never pulled`,
+    );
+  }
+  return `${identifier}@${oci.digest}`;
 }
 
 /**
@@ -70,6 +106,10 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   try {
+    // The CAS the import lands in: the recorded one, re-attached if a reboot
+    // detached it; a disagreeing CLOISTER_CAS_ROOT is refused here, not after
+    // a download (cloister-727354).
+    (deps.prepareCas ?? prepareCas)({ env, warn: errLog });
     const lockPath = resolve(args.dir, "cluster.lock.toml");
     if (!existsSync(lockPath)) {
       throw new Error(`no cluster.lock.toml in ${resolve(args.dir)}; --bundle records into the cluster's lock`);
@@ -90,7 +130,10 @@ export async function main(argv, deps = {}) {
       );
     }
     const importOci = deps.importOci ?? ((a) => runCompatibilityJson(a, { env }).data);
-    const record = importOci(["import-oci", "--layout", args.layout, "--image", image, "--symlinks", args.symlinks]);
+    const source = args.layout
+      ? ["--layout", args.layout, "--image", image]
+      : ["--from-registry", registryReference(args.bundle, oci)];
+    const record = importOci(["import-oci", ...source, "--symlinks", args.symlinks]);
     const algorithm = record?.rootfs?.algorithm;
     const value = record?.rootfs?.value;
     const rootfs = `${algorithm}:${value}`;

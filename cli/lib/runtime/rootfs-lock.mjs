@@ -21,9 +21,9 @@
 // `rootfsSymlinks` is recorded because the symlink policy changes the tree,
 // hence the rootfs digest; "refuse" is the importer's default and is omitted.
 //
-// The source of the import is an on-disk OCI layout today (LLO v0.28.0 has no
-// registry fetch). A registry source (cloister-727354) changes where the blobs
-// come from, not this record.
+// The source of the import is an on-disk OCI layout or, since LLO v0.29.0, the
+// pinned image pulled from its registry (cloister-727354). The source changes
+// where the blobs come from, not this record: both give the same rootfs.
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
@@ -95,7 +95,9 @@ export function lockedRootfs(lock, bundle) {
 export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
   const parts = ["cloister runtime import", "--bundle", bundle];
   if (dir && dir !== ".") parts.push("--dir", dir);
-  parts.push("--layout", "<oci-layout-dir>");
+  // Optional since cloister-727354: without it the pinned image is pulled
+  // from its registry.
+  parts.push("[--layout <oci-layout-dir>]");
   if (symlinks !== DEFAULT_SYMLINKS) parts.push("--symlinks", symlinks);
   return parts.join(" ");
 }

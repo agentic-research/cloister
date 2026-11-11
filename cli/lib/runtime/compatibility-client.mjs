@@ -68,6 +68,9 @@ export function hostRuntimeEnv(record, env) {
   const set = (key, value) => { if (!out[key]) out[key] = value; };
   set("CLOISTER_KRUN_WORKER", microvm.krunWorker);
   set("CLOISTER_CAS_ROOT", microvm.casRoot);
+  // The host runtime re-attaches the CAS volume from here (a reboot or logout
+  // detaches it) and checks it is the CLOISTER_CAS_ROOT above.
+  if (microvm.casStateDir) set("CLOISTER_CAS_STATE_DIR", microvm.casStateDir);
   set("CLOISTER_EPHEMERAL_ROOT", microvm.runRoot);
   set("CLOISTER_LIBKRUNFW", microvm.libkrunfw);
   set("DYLD_LIBRARY_PATH", dirname(microvm.libkrunfw));

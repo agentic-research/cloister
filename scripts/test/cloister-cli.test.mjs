@@ -260,5 +260,5 @@ test("runtime plan refuses Mache until its pinned image is imported, naming the 
   const r = run(["runtime", "plan", "mache", "--workspace", REPO_ROOT]);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /bundle "mache" is a microvm bundle with no imported rootfs in cluster\.lock\.toml/);
-  assert.match(r.stderr, /cloister runtime import --bundle mache( --dir \S+)? --layout <oci-layout-dir>/);
+  assert.match(r.stderr, /cloister runtime import --bundle mache( --dir \S+)? \[--layout <oci-layout-dir>\]/);
 });

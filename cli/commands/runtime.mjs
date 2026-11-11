@@ -16,7 +16,12 @@ import {
   lloCancel,
   lloCleanup,
 } from "../lib/runtime/llo-client.mjs";
-import { RuntimeProviderError } from "../lib/runtime/provider-record.mjs";
+import { assertNoCasRootOverride } from "../lib/runtime/cas-root.mjs";
+import {
+  RuntimeNotInstalledError,
+  RuntimeProviderError,
+  readProviderRecord,
+} from "../lib/runtime/provider-record.mjs";
 import { renderCommandHelp } from "../surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -46,15 +51,30 @@ function formatBytes(bytes) {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
+/** The CAS volume's state, when the record names one (cloister-727354). */
+function renderVolume(volume, log) {
+  if (volume === undefined) return;
+  if (volume === null) {
+    log("CAS volume: none (a plain directory; case-sensitivity unknown). Run: cloister runtime install");
+    return;
+  }
+  const cs = volume.caseSensitive === null ? "unknown (not attached)" : volume.caseSensitive ? "yes" : "NO";
+  log(`CAS volume: ${volume.image} (${volume.attached ? "attached" : "not attached"}; case-sensitive: ${cs})`);
+  if (!volume.attached && volume.imageExists) {
+    // A reboot or logout detaches it; nothing needs reinstalling.
+    log("It is re-attached automatically by `cluster up`, `runtime plan` and `runtime import`.");
+  }
+}
+
 function renderStorageStatus(status, log) {
   if (status.state === "notPrepared") {
     log("Runtime storage is not prepared.");
     log(`Provider: ${status.provider} (${status.maturity})`);
     log(`Backend: ${backendLabel(status.backend)}`);
     log(`Storage: ${status.storageVolume}`);
-    log(status.provider === "llo"
-      ? "Provision through the LLO execution/v1 provider"
-      : "Run: cloister runtime install");
+    renderVolume(status.volume, log);
+    if (status.provider === "llo") log("Provision through the LLO execution/v1 provider");
+    else if (!(status.volume?.imageExists && !status.volume?.attached)) log("Run: cloister runtime install");
     return;
   }
 
@@ -62,6 +82,7 @@ function renderStorageStatus(status, log) {
   log(`Provider: ${status.provider} (${status.maturity})`);
   log(`Backend: ${backendLabel(status.backend)}`);
   log(`Storage: ${status.storageVolume}`);
+  renderVolume(status.volume, log);
   if (status.capacity) {
     log(
       `Capacity: ${formatBytes(status.capacity.usedBytes)} used; ` +
@@ -196,21 +217,58 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
           runningRuns: null,
         };
       } else {
-        // The compatibility provider's only storage is the microVM store that
-        // `cloister runtime install` creates. Run lifecycle (and with it the
-        // old krunvm sparsebundle, tracked-run counts and gc) moved to LLO in
-        // cloister-17e502; there is nothing else to observe (cloister-a4e446).
+        // The compatibility provider's storage is the microVM store that
+        // `cloister runtime install` provisioned and RECORDED: the CAS root
+        // is read from the provider record (the one place it is decided,
+        // cloister-727354), never re-derived from the install layout. The
+        // volume itself is observed by the host runtime's read-only
+        // `cas-status` (no create, no attach). Run lifecycle moved to LLO in
+        // cloister-17e502 (cloister-a4e446).
         const layout = resolveInstallLayout({ env, checkoutRoot: resolve(deps.root ?? ROOT) });
         const exists = deps.existsSync ?? nodeExistsSync;
-        data = {
-          state: exists(layout.casRoot) && exists(layout.runRoot) ? "prepared" : "notPrepared",
+        let microvm = null;
+        try {
+          microvm = (deps.readProviderRecord ?? readProviderRecord)(layout).microvm ?? null;
+        } catch (error) {
+          if (!(error instanceof RuntimeNotInstalledError)) throw error;
+        }
+        if (microvm) assertNoCasRootOverride(env, microvm.casRoot);
+        const base = {
           provider: "compatibility",
           maturity: "experimental",
           backend: "microVm",
-          storageVolume: layout.casRoot,
           trackedRuns: null,
           runningRuns: null,
         };
+        if (!microvm) {
+          data = { ...base, state: "notPrepared", storageVolume: "not installed", volume: null };
+        } else if (!microvm.casStateDir) {
+          // A record from before the CAS volume: a plain directory, whose
+          // case-sensitivity was never established.
+          data = {
+            ...base,
+            state: exists(microvm.casRoot) && exists(microvm.runRoot) ? "prepared" : "notPrepared",
+            storageVolume: microvm.casRoot,
+            volume: null,
+          };
+        } else {
+          const runJson = deps.runCompatibilityJson ?? invokeCompatibilityJson;
+          const observed = runJson(["cas-status", "--state-dir", microvm.casStateDir], { env }).data;
+          const caseSensitive = observed.filesystem?.caseSensitive ?? null;
+          data = {
+            ...base,
+            state: observed.attached && caseSensitive === true && exists(microvm.runRoot) ? "prepared" : "notPrepared",
+            storageVolume: microvm.casRoot,
+            volume: {
+              image: observed.image,
+              mountpoint: observed.mountpoint,
+              attached: observed.attached,
+              imageExists: observed.imageExists,
+              caseSensitive,
+              normalizationSensitive: observed.filesystem?.normalizationSensitive ?? null,
+            },
+          };
+        }
       }
       if (json) log(JSON.stringify(data, null, 2));
       else renderStorageStatus(data, log);

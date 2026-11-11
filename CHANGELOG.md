@@ -8,6 +8,51 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Case-sensitive CAS volume and registry pulls (`cloister-727354`)
+
+- **CAS volume.** `runtime install` provisions LLO's case-sensitive CAS
+  volume through the new host-runtime `provision-cas` verb, which uses LLO's
+  in-process `CasVolume`.
+  - It is a sparsebundle under `<state>/cas-volume`, made with `hdiutil` as the
+    user, with no sudo.
+  - The returned `casRoot` is recorded in the provider record, the ONE place
+    the CAS root is decided. The host runtime reads it as CLOISTER_CAS_ROOT,
+    and so do `runtime plan`'s presence check and `storage status`.
+  - The run root moves onto the same volume (`mnt/run`): a Debian rootfs
+    failed to materialize on default APFS (`File exists`; LLO
+    ley-line-open-741388).
+  - A reboot or logout detaches the volume. `cluster up`, `runtime plan` and
+    `runtime import` re-attach it through the host runtime's `cas-attach`
+    (`attach_existing`, which never creates one) before they look in the
+    store, and the host runtime does the same before a run or import. A
+    detached volume no longer reads as "rootfs not in the CAS".
+  - Install provisions the volume with the freshly built host runtime before
+    anything is swapped into place, so a failed provision leaves the previous
+    install intact.
+  - A `CLOISTER_CAS_ROOT` that differs from the record is refused by the CLI;
+    the host runtime refuses one that differs from the attached volume.
+  - Removing the volume: `hdiutil detach <state>/cas-volume/mnt`, then delete
+    `cas.sparsebundle`. It does not shrink by itself.
+- **`runtime storage status`** reads the CAS root from the record and reports
+  the volume (attached, case-sensitive) through the read-only `cas-status`.
+- **Old store.** `~/.local/state/cloister/cas` is neither migrated nor
+  deleted. Install says to re-import, and `runtime plan` names the command.
+- **Registry source.** `runtime import --bundle <b>` with no `--layout` pulls
+  the lock's pinned `identifier@sha256:…` through LLO's in-process
+  `pull_oci_image`, then records the rootfs as before.
+  - The pull is anonymous HTTPS, so only public images work.
+  - An identifier with its own tag or digest, or an unpinned image, is
+    refused.
+- **Demo:** `tools/dolt-grpc-demo/microvm-published` runs the published
+  `dolthub/dolt-sql-server` 1.86.1, pinned by its index digest and pulled
+  from Docker Hub (`--symlinks resolve`).
+  - It needed no env: the image's `docker-entrypoint.sh` ran with the guest's
+    `HOME=/` and `PATH`.
+  - It does not use tini: LLO v0.29.0 drops every guest argument from a
+    literal `--` onward (ley-line-open-7410ec), so `tini -- …` cannot run.
+  - Live: grpcurl returned the seeded row, `dolt_version()` returned 1.86.1,
+    SIGINT stopped both runs, and the negative run showed orders' own error.
+
 ### 2026-11 — LLO v0.29.0: guest output reaches the operator (`cloister-164236`, `cloister-edec62`)
 
 - **Pins.** Every ley-line-open channel moves to v0.29.0 (1e811a9a), via

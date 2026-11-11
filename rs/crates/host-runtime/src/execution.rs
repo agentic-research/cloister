@@ -166,6 +166,32 @@ impl AwaitRun for KrunWorkerBackend {
     }
 }
 
+/// The message for a failed registry pull. LLO reports every registry failure
+/// as `OciImportError::Registry(String)`, so an authentication refusal is
+/// recognised by the HTTP status LLO puts in that text (`HTTP 401`, `HTTP
+/// 403`) or by its "only anonymous bearer tokens" challenge refusal. Only
+/// those get the "public images only" hint; every other failure passes
+/// through unchanged. (A typed auth variant would make this exact; until LLO
+/// has one, the status token is the narrowest signal.)
+pub fn registry_failure_message(error: &leyline_runtime::artifacts::oci::OciImportError) -> String {
+    use leyline_runtime::artifacts::oci::OciImportError;
+    let auth = matches!(
+        error,
+        OciImportError::Registry(detail)
+            if detail.contains("HTTP 401")
+                || detail.contains("HTTP 403")
+                || detail.contains("only anonymous bearer tokens")
+    );
+    if auth {
+        format!(
+            "{error} — cloister pulls anonymously, so only public images can be pulled; \
+             credentials are not supported yet"
+        )
+    } else {
+        error.to_string()
+    }
+}
+
 /// Printed in place of a failure's detail when cloister cannot separate the
 /// supervisor's words from the guest's (see `supervisor_detail`). Fails CLOSED:
 /// guest text never reaches the trusted failure line.

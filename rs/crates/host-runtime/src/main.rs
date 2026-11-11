@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::path::Path;
-#[cfg(feature = "llo-execution")]
 use std::path::PathBuf;
 #[cfg(feature = "llo-execution")]
 use std::sync::Arc;
@@ -100,7 +99,13 @@ fn backend() -> LeylineExecutionBackend<KrunWorkerBackend> {
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
-        bail!("usage: cloister-host-runtime <validate|run|doctor|import-oci> [args]");
+        bail!(
+            "usage: cloister-host-runtime <validate|run|doctor|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
+             CLOISTER_CAS_ROOT and CLOISTER_CAS_STATE_DIR are deployment inputs the cloister CLI sets \
+             from its provider record. When both are set, run and import-oci check that the attached \
+             volume's root IS that CAS root: a consistency check against a stale or hand-set value, \
+             not a security boundary."
+        );
     };
 
     match command.as_str() {
@@ -137,6 +142,9 @@ fn run() -> Result<()> {
                 // LLO refuses a bind grant whose directory is missing; create
                 // it (0700) only after the plan has been validated.
                 plan.validate().context("launch refused")?;
+                // Attach (or refuse) BEFORE creating any channel directory, so a
+                // refusal leaves nothing behind.
+                ensure_cas_volume_attached(&krun_config().cas_root).context("launch refused")?;
                 cloister_host_runtime::prepare_channel_dirs(&plan).context("launch refused")?;
                 // SIGINT/SIGTERM must stop the GUEST, not just this process:
                 // the worker is in its own process group and would outlive us.
@@ -226,8 +234,9 @@ fn run() -> Result<()> {
         // same CAS root the execution backend loads from, so the printed
         // `rootfs` is directly the plan's `blake3-256:` artifact digest.
         "import-oci" => {
-            let usage = "usage: cloister-host-runtime import-oci --layout <dir> --image <sha256:…|name@sha256:…> [--symlinks refuse|resolve]";
-            let (mut layout, mut image, mut symlinks) = (None, None, String::from("refuse"));
+            let usage = "usage: cloister-host-runtime import-oci (--layout <dir> --image <sha256:…|name@sha256:…> | --from-registry <[registry/]repository@sha256:…>) [--symlinks refuse|resolve]";
+            let (mut layout, mut image, mut registry, mut symlinks) =
+                (None, None, None, String::from("refuse"));
             while let Some(flag) = args.next() {
                 let value = args
                     .next()
@@ -235,16 +244,25 @@ fn run() -> Result<()> {
                 match flag.as_str() {
                     "--layout" => layout = Some(std::path::PathBuf::from(value)),
                     "--image" => image = Some(value),
+                    "--from-registry" => registry = Some(value),
                     "--symlinks" => symlinks = value,
                     other => bail!("unknown flag {other:?}; {usage}"),
                 }
             }
-            let layout = layout.context(usage)?;
-            let image = image.context(usage)?;
+            // Exactly one source: an on-disk layout, or a registry pull by
+            // digest (LLO v0.29.0, ley-line-open-97b636; cloister-727354).
+            let source = match (layout, image, registry) {
+                (Some(layout), Some(image), None) => ImportSource::Layout(layout, image),
+                (None, None, Some(reference)) => ImportSource::Registry(reference),
+                _ => bail!("{usage}"),
+            };
             #[cfg(feature = "llo-execution")]
             {
                 use leyline_runtime::artifacts::oci::{
                     import_oci_layout, OciImport, Platform, SymlinkPolicy, DEFAULT_MAX_ROOTFS_BYTES,
+                };
+                use leyline_runtime::artifacts::registry::{
+                    pull_oci_image, RegistryLimits, RegistryPull,
                 };
                 let symlinks = match symlinks.as_str() {
                     "refuse" => SymlinkPolicy::Refuse,
@@ -252,24 +270,121 @@ fn run() -> Result<()> {
                     other => bail!("--symlinks must be refuse or resolve, not {other:?}"),
                 };
                 let cas_root = krun_config().cas_root;
-                let imported = import_oci_layout(
-                    &OciImport {
-                        layout: &layout,
-                        reference: &image,
-                        platform: Platform::host()?,
-                        symlinks,
-                        max_rootfs_bytes: DEFAULT_MAX_ROOTFS_BYTES,
-                    },
-                    &cas_root,
-                )
-                .with_context(|| format!("import {image} from {}", layout.display()))?;
+                ensure_cas_volume_attached(&cas_root)?;
+                let imported = match &source {
+                    ImportSource::Layout(layout, image) => import_oci_layout(
+                        &OciImport {
+                            layout,
+                            reference: image,
+                            platform: Platform::host()?,
+                            symlinks,
+                            max_rootfs_bytes: DEFAULT_MAX_ROOTFS_BYTES,
+                        },
+                        &cas_root,
+                    )
+                    .with_context(|| format!("import {image} from {}", layout.display()))?,
+                    // Anonymous HTTPS only: LLO's pull has no credentials in
+                    // v1, so a private image is refused by the registry and
+                    // that refusal is reported as-is.
+                    ImportSource::Registry(reference) => pull_oci_image(
+                        &RegistryPull {
+                            reference,
+                            platform: Platform::host()?,
+                            symlinks,
+                            max_rootfs_bytes: DEFAULT_MAX_ROOTFS_BYTES,
+                            limits: RegistryLimits::default(),
+                            insecure_plain_http: None,
+                        },
+                        &cas_root,
+                    )
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "pull {reference} from its registry: {}",
+                            cloister_host_runtime::execution::registry_failure_message(&error)
+                        )
+                    })?,
+                };
                 println!("{}", serde_json::to_string(&imported)?);
                 Ok(())
             }
             #[cfg(not(feature = "llo-execution"))]
             {
-                let _ = (layout, image, symlinks);
+                let _ = (source, symlinks);
                 bail!("import-oci needs the `llo-execution` feature (ley-line-open's runtime)")
+            }
+        }
+        // The CAS volume (LLO v0.29.0 cas_volume, ley-line-open-ba86d3;
+        // cloister-727354): a case-sensitive store so images whose trees hold
+        // names differing only by case (Debian's perl: Pod/ and pod/) import on
+        // macOS. `runtime install` calls provision-cas once and records the
+        // returned casRoot; nothing else decides the CAS root.
+        "provision-cas" | "cas-status" | "cas-attach" => {
+            let usage = format!("usage: cloister-host-runtime {command} --state-dir <abs dir>");
+            let mut state_dir = None;
+            while let Some(flag) = args.next() {
+                let value = args
+                    .next()
+                    .with_context(|| format!("{flag} needs a value; {usage}"))?;
+                match flag.as_str() {
+                    "--state-dir" => state_dir = Some(PathBuf::from(value)),
+                    other => bail!("unknown flag {other:?}; {usage}"),
+                }
+            }
+            let state_dir = state_dir.with_context(|| usage.clone())?;
+            #[cfg(feature = "llo-execution")]
+            {
+                use leyline_runtime::cas_volume::{
+                    is_mount_point, probe_sensitivity, CasVolume, DEFAULT_SIZE_CAP_BYTES,
+                };
+                let volume = CasVolume::new(&state_dir, DEFAULT_SIZE_CAP_BYTES)
+                    .context("CAS volume configuration")?;
+                if command == "cas-attach" {
+                    // Re-attach a provisioned volume; NEVER create one. The CLI
+                    // calls this before any CAS check, so a volume a reboot or
+                    // logout detached reads as "attach it", never as "rootfs
+                    // missing, re-import".
+                    let attached = volume
+                        .attach_existing()
+                        .context("re-attach the CAS volume")?;
+                    let reply = match attached {
+                        Some(cas) => serde_json::json!({ "provisioned": true, "volume": cas }),
+                        None => serde_json::json!({ "provisioned": false }),
+                    };
+                    println!("{}", serde_json::to_string(&reply)?);
+                } else if command == "provision-cas" {
+                    // Idempotent: creates the sparsebundle once, attaches it,
+                    // reuses it attached. As the calling user, no sudo.
+                    let provisioned = volume.provision().context("provision the CAS volume")?;
+                    println!("{}", serde_json::to_string(&provisioned)?);
+                } else {
+                    // Read-only: reports, never creates or attaches.
+                    let layout = volume.layout();
+                    let attached = is_mount_point(&layout.mountpoint)?;
+                    let filesystem = if layout.cas_root.is_dir() {
+                        Some(probe_sensitivity(&layout.cas_root).with_context(|| {
+                            format!("probe {}", layout.cas_root.display())
+                        })?)
+                    } else {
+                        None
+                    };
+                    println!(
+                        "{}",
+                        serde_json::to_string(&serde_json::json!({
+                            "casRoot": layout.cas_root,
+                            "image": layout.image,
+                            "imageExists": layout.image.exists(),
+                            "mountpoint": layout.mountpoint,
+                            "attached": attached,
+                            "filesystem": filesystem,
+                        }))?
+                    );
+                }
+                Ok(())
+            }
+            #[cfg(not(feature = "llo-execution"))]
+            {
+                let _ = state_dir;
+                bail!("{command} needs the `llo-execution` feature (ley-line-open's runtime)")
             }
         }
         // `status` and `gc` are GONE, not ported. Both managed krunvm's buildah
@@ -283,7 +398,46 @@ fn run() -> Result<()> {
             "{command} managed krunvm's buildah storage, which cloister no longer uses \
              (cloister-17e502). Run lifecycle now belongs to ley-line-open."
         ),
-        _ => bail!("unknown command {command:?}; expected validate, run, doctor, or import-oci"),
+        _ => bail!(
+            "unknown command {command:?}; expected validate, run, doctor, import-oci, provision-cas, or cas-status"
+        ),
+    }
+}
+
+/// Where `import-oci` reads an image from. (Without `llo-execution` there is
+/// no importer, so the payloads are parsed and then unused.)
+#[cfg_attr(not(feature = "llo-execution"), allow(dead_code))]
+enum ImportSource {
+    /// An on-disk OCI layout and the digest to import from it.
+    Layout(PathBuf, String),
+    /// `[registry/]repository@sha256:…`, pulled anonymously over HTTPS.
+    Registry(String),
+}
+
+/// Re-attach the CAS volume if one is configured (CLOISTER_CAS_STATE_DIR,
+/// set by `runtime install` through the provider record), and check it is the
+/// CAS root this process was given. A sparsebundle is detached by logout or
+/// reboot; `attach_existing` re-attaches it and NEVER creates one, so a run or
+/// import after a reboot finds its store instead of an empty mountpoint.
+#[cfg(feature = "llo-execution")]
+fn ensure_cas_volume_attached(cas_root: &Path) -> Result<()> {
+    use leyline_runtime::cas_volume::{CasVolume, DEFAULT_SIZE_CAP_BYTES};
+    let Some(state_dir) = std::env::var_os("CLOISTER_CAS_STATE_DIR") else {
+        return Ok(());
+    };
+    let volume = CasVolume::new(PathBuf::from(&state_dir), DEFAULT_SIZE_CAP_BYTES)
+        .context("CAS volume configuration")?;
+    match volume.attach_existing().context("re-attach the CAS volume")? {
+        None => bail!(
+            "no CAS volume is provisioned under {}; run `cloister runtime install`",
+            PathBuf::from(&state_dir).display()
+        ),
+        Some(attached) if attached.cas_root != cas_root => bail!(
+            "the CAS volume's root is {}, but this host runtime was given {}; re-run `cloister runtime install`",
+            attached.cas_root.display(),
+            cas_root.display()
+        ),
+        Some(_) => Ok(()),
     }
 }
 
