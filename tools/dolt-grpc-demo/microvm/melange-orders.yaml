@@ -1,0 +1,31 @@
+# The orders service as an APK for the microVM demo (cloister-2af014): the
+# same static Go build as ../Dockerfile, from ../ (main.go, ordersv1, go.sum),
+# with Go pinned to one Wolfi build so two checkouts build the same bytes.
+# Built by ./build.sh (melange --source-dir tools/dolt-grpc-demo), not by hand.
+package:
+  name: orders
+  version: 0.0.1
+  epoch: 0
+  description: "cloister demo orders gRPC service"
+  copyright:
+    - license: AGPL-3.0-or-later
+  target-architecture:
+    - aarch64
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26=1.26.11-r0
+
+pipeline:
+  - runs: |
+      export CGO_ENABLED=0 GOFLAGS=-mod=readonly
+      go build -trimpath -ldflags='-s -w -buildid=' -o "${{targets.destdir}}/usr/bin/orders" .
+      # go build honours the build container's umask (0000 here); state the mode.
+      chmod 0755 "${{targets.destdir}}/usr/bin/orders"

@@ -8,6 +8,44 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Reproducible demo images (melange + apko); the demo locks are committed (`cloister-2af014`)
+
+- **Build.** The microVM demo's images are built the way cloister builds its
+  own: melange makes an APK, apko makes an OCI layout
+  (`tools/dolt-grpc-demo/microvm/build-images.sh`). The two Dockerfiles are
+  gone.
+  - Wolfi ships no dolt package, so `melange-dolt.yaml` repackages the
+    official v1.86.1 release binary, pinned by sha256.
+  - `melange-orders.yaml` is the same static Go build, with Go pinned to one
+    Wolfi build.
+- **Reproducible.** These are pinned so no build-specific value reaches an
+  image:
+  - every timestamp is a constant `SOURCE_DATE_EPOCH`, not taken from git
+    (committing the lock would move it);
+  - melange records `--git-commit unknown` and a stated repository URL, and
+    runs from the repository root with repo-relative paths;
+  - apko runs from the output dir with the relative repository `./packages`;
+  - the APKs are unsigned and apko ignores signatures: the images install only
+    these local packages, and a per-machine key would be copied into
+    `/etc/apk/keys`.
+  - Two clean builds from different checkouts gave byte-identical digests.
+- **Committed locks.** Both demos' `cluster.lock.toml` are now committed,
+  with their linux/arm64 rootfs rows. `scripts/test/demo-locks.test.mjs`
+  holds them to `cluster.toml` through the real lock readers. `task
+  demo:images:check` rebuilds from a `git archive` of HEAD and requires the
+  committed pins. It needs melange and apko, so it is not part of `task lint`.
+- **Imports** use `--symlinks resolve`: apko writes `/lib/apk ->
+  ../usr/lib/apk`. LLO v0.30.0's rootfs manifest v2 will make the default do.
+- **`/data/.keep`.** Rootfs manifest v1 lists files only, so the dolt image
+  ships one file in `/data`. Without it, dolt failed with "open /data: no such
+  file or directory".
+- **Limit.** melange records each packaged file's owner as the building
+  user's uid and gid (`a:501:20` in the apk db). The committed digests are
+  those of a build run as uid 501, gid 20 (a Mac's first account). Another
+  user's build gives other digests (`cloister-426cb8`).
+- **Docker.** melange needs a container runtime on macOS (its docker runner;
+  bubblewrap on Linux). apko and the rest of the demo do not.
+
 ### 2026-11 — One rootfs row per platform in cluster.lock.toml (`cloister-1c4ef5`)
 
 - **Lock shape.** `[inputs.<bundle>.oci]` no longer holds one flat `rootfs` /

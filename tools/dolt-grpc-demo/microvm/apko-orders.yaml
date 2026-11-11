@@ -1,0 +1,13 @@
+# The orders image for the microVM demo (cloister-2af014): the static orders
+# binary built by melange-orders.yaml, nothing else. Built by ./build.sh.
+contents:
+  # The local repository (build-images.sh's <out dir>/packages) is appended
+  # with --repository-append; there is no other repository.
+  packages:
+    - orders
+
+entrypoint:
+  command: /usr/bin/orders
+
+archs:
+  - aarch64

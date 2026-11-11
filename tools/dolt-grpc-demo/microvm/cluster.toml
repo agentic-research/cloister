@@ -19,7 +19,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "dolt-grpc-demo/dolt"
-entryPoint = "/bin/dolt"
+entryPoint = "/usr/bin/dolt"
 executionMode = "microvm"
 args = ["sql-server", "--host", "127.0.0.1", "--port", "3306", "--data-dir", "/data"]
 
@@ -36,7 +36,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "dolt-grpc-demo/orders"
-entryPoint = "/orders"
+entryPoint = "/usr/bin/orders"
 executionMode = "microvm"
 args = ["-db", "127.0.0.1:3306", "-listen", "127.0.0.1:50051"]
 

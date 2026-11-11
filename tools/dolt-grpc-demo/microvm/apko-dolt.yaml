@@ -1,0 +1,25 @@
+# The dolt image for the microVM demo (cloister-2af014): the dolt APK built by
+# melange-dolt.yaml and an empty /data (Dolt's data directory). Nothing else:
+# no shell, no package manager. Built by ./build.sh.
+contents:
+  # The local repository (build-images.sh's <out dir>/packages) is appended
+  # with --repository-append; there is no other repository.
+  packages:
+    - dolt
+
+paths:
+  - path: /data
+    type: directory
+    permissions: 0o755
+  # LLO's rootfs manifest v1 lists files only, so an empty directory is not
+  # imported (dolt then fails: "open /data: no such file or directory"). One
+  # empty file keeps /data in the rootfs.
+  - path: /data/.keep
+    type: empty-file
+    permissions: 0o644
+
+entrypoint:
+  command: /usr/bin/dolt
+
+archs:
+  - aarch64

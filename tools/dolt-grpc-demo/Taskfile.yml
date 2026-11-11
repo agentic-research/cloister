@@ -1,0 +1,10 @@
+version: "3"
+
+# dolt-grpc-demo tasks (cloister-2af014), pulled into the root Taskfile as
+# `task demo:<name>`. The root stays an index.
+
+tasks:
+  images:check:
+    desc: "Rebuild the microVM demo images from a clean export of HEAD and require the committed lock pins (cloister-2af014). Needs melange + apko (+ a container runtime on macOS); not part of task lint."
+    cmds:
+      - node microvm/check-images.mjs

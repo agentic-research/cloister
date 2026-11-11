@@ -8,6 +8,10 @@ includes:
   recipes:
     taskfile: ./recipes/Taskfile.yml
     dir: ./recipes
+  # The dolt-grpc-demo image rail (cloister-2af014): `task demo:images:check`.
+  demo:
+    taskfile: ./tools/dolt-grpc-demo/Taskfile.yml
+    dir: ./tools/dolt-grpc-demo
 
 vars:
   # Use tsx as a Node loader instead of the tsx CLI. The CLI opens an IPC
@@ -1282,6 +1286,10 @@ tasks:
       - scripts/**/*.mjs
       - test/fixtures/**
       - tools/harness-sandbox/test/**/*.mjs
+      # The demo's cluster.toml + committed cluster.lock.toml (cloister-2af014),
+      # which cluster-up and demo-locks tests read.
+      - tools/dolt-grpc-demo/**/*.toml
+      - tools/dolt-grpc-demo/**/build.sh
       - docs/adr/**/*.md
       - recipes/**
       - scripts/git-hooks/**

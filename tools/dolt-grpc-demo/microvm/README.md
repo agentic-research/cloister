@@ -14,7 +14,11 @@ and readiness are all derived from [`cluster.toml`](cluster.toml):
 
 - An Apple-silicon Mac (the images are linux/arm64), with libkrun and libkrunfw
   as `cloister runtime install` expects.
-- Docker with buildx; `grpcurl` for the check.
+- `melange` and `apko`, to build the images (only to rebuild them: the lock
+  is committed). On macOS, melange runs its build steps in a container, so
+  that step needs a container runtime (Docker or OrbStack). On Linux it uses
+  bubblewrap. apko needs neither.
+- `grpcurl` for the check.
 
 ## From a clean checkout
 
@@ -27,24 +31,41 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
 
 `build.sh` does three things:
 
-1. **Builds both images as OCI layouts** in `out/` with `docker buildx build
-   --output type=oci,tar=false`, for linux/arm64 and with no attestations.
-   Both are `FROM scratch` and contain no symlinks, so the importer's default
-   `--symlinks refuse` accepts them. (The distroless base in `../Dockerfile`
-   has `etc/os-release` as a link, and the importer refused it.)
-   - `dolt.Dockerfile`: the static `dolt` binary from the official
-     v1.86.1 release tarball, fetched with a pinned sha256, plus an empty
+1. **Builds both images reproducibly** with
+   [`build-images.sh`](build-images.sh) (`cloister-2af014`), the way cloister
+   builds its own image: melange makes an APK, apko makes an OCI layout in
+   `out/`, linux/arm64.
+   - [`melange-dolt.yaml`](melange-dolt.yaml): the static `dolt` binary from
+     the official v1.86.1 release tarball, fetched with a pinned sha256. Wolfi
+     ships no dolt package. [`apko-dolt.yaml`](apko-dolt.yaml) adds an empty
      `/data` for Dolt's data directory. `/tmp` is not shipped: since LLO
      v0.29.0 every guest has a tmpfs `/tmp`.
-   - `orders.Dockerfile`: the same Go build as `../Dockerfile`.
+   - [`melange-orders.yaml`](melange-orders.yaml): the same static Go build
+     as `../Dockerfile`, with Go pinned to one Wolfi build.
+   - Every stamped timestamp is a constant `SOURCE_DATE_EPOCH`, and no
+     commit hash, signing key or local path reaches an image (the script's
+     header says why each is pinned). Two clean builds give byte-identical
+     digests.
 2. **Pins each layout's digest** (from its own `index.json`) into
-   `cluster.lock.toml` as `[inputs.<bundle>.oci]`. These digests are local to
-   your machine, so the lock is generated and gitignored, never committed.
-3. **Imports each pinned image** with `cloister runtime import --bundle`. This
-   records the `blake3-256:` rootfs in the lock as a
+   [`cluster.lock.toml`](cluster.lock.toml) as `[inputs.<bundle>.oci]`. The
+   lock is committed: a clean build pins the same digests, so `build.sh`
+   leaves it unchanged, and `git diff` after a build is the check.
+3. **Imports each pinned image** with `cloister runtime import --bundle
+   … --symlinks resolve`. The images hold symlinks (apko's `/lib/apk`), which
+   the importer's default refuses; LLO v0.30.0's rootfs manifest v2
+   (ley-line-open-4f08ea) will record them, and the default will do. The
+   import records the `blake3-256:` rootfs as a
    `[[inputs.<bundle>.oci.rootfs]]` row for this host's platform
-   (`platform = "linux/arm64"` on Apple silicon). Re-running it is idempotent:
-   an unchanged image prints `already recorded`.
+   (`platform = "linux/arm64"` on Apple silicon). Re-running it is
+   idempotent: an unchanged image prints `already recorded`.
+
+**Reproducibility limit.** melange records each packaged file's owner as the
+uid and gid of the user running the build (its container runner hands the
+built files back through the host filesystem), and apko copies that into the
+image's apk database (`a:501:20:0755`). The committed digests are therefore
+those of a build run as uid 501, gid 20: the first account on a Mac. A build
+as another user, or on Linux, gives different digests, and `build.sh` then
+rewrites the lock (`cloister-426cb8`).
 
 `cluster up` starts `dolt`, waits until its `dolt.mysql.sock` exists (it is then "bound"), then
 starts `orders`, and prints:
@@ -91,7 +112,7 @@ When the VMs are, and are not, cleaned up:
 
 ## The negative check
 
-Copy `cluster.toml` and the generated `cluster.lock.toml` to a scratch
+Copy `cluster.toml` and `cluster.lock.toml` to a scratch
 directory. Delete the `[[connections]]` block (and its `[[connections.targets]]`
 row) from the copy, and run `cluster up --env local --dir <scratch>`. `orders`
 then has no channel to Dolt: `127.0.0.1:3306` in its guest answers nothing. It

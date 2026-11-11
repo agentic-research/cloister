@@ -1,0 +1,30 @@
+# Dolt 1.86.1 as an APK for the microVM demo (cloister-2af014). Wolfi ships no
+# dolt package, so this repackages the official static linux-arm64 release
+# binary, fetched by pinned sha256 (the bytes the demo used before melange).
+# Built by ./build.sh, not by hand.
+package:
+  name: dolt
+  version: 1.86.1
+  epoch: 0
+  description: "Dolt SQL server (official static release binary) for the cloister microVM demo"
+  copyright:
+    - license: Apache-2.0
+  target-architecture:
+    - aarch64
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://github.com/dolthub/dolt/releases/download/v${{package.version}}/dolt-linux-arm64.tar.gz
+      expected-sha256: 5dc46c9db3cb2e8a3b5154ef972e502671520efdcdcdce0df644b67bab27d958
+  - runs: |
+      install -Dm755 bin/dolt "${{targets.destdir}}/usr/bin/dolt"

@@ -1,4 +1,4 @@
-# Built by ./build.sh: OCI layouts and the lock pinning their (machine-local)
-# digests. Neither is reproducible across machines, so neither is committed.
+# Built by ./build.sh: the APKs and OCI layouts. cluster.lock.toml is
+# committed: the images are reproducible (build-images.sh), so a clean build
+# pins the same digests (cloister-2af014).
 out/
-cluster.lock.toml
