@@ -17,6 +17,11 @@
 // omitted (it is derived from the lock); if given it must equal that digest,
 // so the recorded rootfs can only ever come from the pinned image.
 //
+// The row is recorded under the platform LLO reports for the image it
+// imported (`image.platform`, from the digest-verified config), never one the
+// CLI assumes; importing on one platform adds or replaces only that
+// platform's row (cloister-1c4ef5).
+//
 // Idempotent: the same image and symlink policy give the same rootfs, and an
 // unchanged lock is not rewritten.
 //
@@ -37,6 +42,7 @@ import {
   lockedOci,
   recordRootfs,
 } from "../lib/runtime/rootfs-lock.mjs";
+import { formatPlatform } from "../lib/runtime/platform.mjs";
 
 export class ImportUsageError extends Error {}
 
@@ -137,6 +143,9 @@ export async function main(argv, deps = {}) {
     const algorithm = record?.rootfs?.algorithm;
     const value = record?.rootfs?.value;
     const rootfs = `${algorithm}:${value}`;
+    // What LLO selected and built, from the image's own config. Absent or
+    // malformed: recordRootfs refuses, and nothing is recorded.
+    const platform = formatPlatform(record?.image?.platform);
     // The import can take a while. Record into the lock as it is NOW, not the
     // text read before it: if the pin moved meanwhile (a resolve, an edit),
     // recordRootfs refuses — this rootfs is not from the image now pinned.
@@ -147,16 +156,22 @@ export async function main(argv, deps = {}) {
           `(was ${image}); the rootfs was NOT recorded. Re-run the import against the new pin.`,
       );
     }
-    const result = recordRootfs(current, { bundle: args.bundle, image, rootfs, symlinks: args.symlinks });
+    const result = recordRootfs(current, {
+      bundle: args.bundle,
+      image,
+      rootfs,
+      symlinks: args.symlinks,
+      platform,
+    });
     if (result.changed) {
       writeGeneratedFile(lockPath, result.text);
       log(
-        `cloister runtime import: ${args.bundle}: ${image} → ${rootfs}` +
+        `cloister runtime import: ${args.bundle} (${platform}): ${image} → ${rootfs}` +
           (result.previous ? ` (replaces ${result.previous})` : "") +
           `; recorded in ${lockPath}`,
       );
     } else {
-      log(`cloister runtime import: ${args.bundle}: ${image} → ${rootfs}; already recorded`);
+      log(`cloister runtime import: ${args.bundle} (${platform}): ${image} → ${rootfs}; already recorded`);
     }
     return 0;
   } catch (error) {

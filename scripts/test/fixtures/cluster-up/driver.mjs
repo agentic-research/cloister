@@ -13,6 +13,7 @@ const code = await clusterUp({
   env: "local",
   deps: {
     rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
+    guestPlatform: () => "linux/arm64",
     hostRuntime: { command: process.execPath, args: [fake], env: process.env },
     pollMs: 10,
   },

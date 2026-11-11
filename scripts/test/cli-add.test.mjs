@@ -308,11 +308,12 @@ test("main: resolve failure leaves cluster.toml mutated + exits 1", async () => 
 // cloister-991e65 review, fix 6: `add` rebuilds cluster.lock.toml from scratch.
 // It used to do so WITHOUT the rootfs carry-forward, erasing a rootfs that
 // `runtime import --bundle` had recorded. It now writes through the one lock
-// writer (cli/lib/cluster/lockfile.mjs), which carries it while the image
-// digest it came from is still the pin.
-test("main: adding an input keeps a recorded rootfs for an unchanged image", async () => {
+// writer (cli/lib/cluster/lockfile.mjs), which carries every platform's row
+// while the image pin is unchanged (cloister-1c4ef5).
+test("main: adding an input keeps every recorded rootfs row for an unchanged image", async () => {
   const digest = `sha256:${"a".repeat(64)}`;
   const rootfs = `blake3-256:${"b".repeat(64)}`;
+  const amd = `blake3-256:${"c".repeat(64)}`;
   await withClusterTomlFixture(MINIMAL_CLUSTER_TOML, async ({ dir, clusterPath, lockPath }) => {
     const serverJson = resolve(dir, "server.json");
     writeFileSync(serverJson, JSON.stringify({
@@ -329,8 +330,16 @@ ref = "file://${serverJson}"
 identifier = "example/dolt"
 version = "1.86.1"
 digest = "${digest}"
-rootfs = "${rootfs}"
-rootfsImage = "${digest}"
+
+[[inputs.dolt.oci.rootfs]]
+platform = "linux/amd64"
+digest = "${amd}"
+image = "${digest}"
+
+[[inputs.dolt.oci.rootfs]]
+platform = "linux/arm64"
+digest = "${rootfs}"
+image = "${digest}"
 `);
     const payloadPath = resolve(dir, "skill.md");
     writeFileSync(payloadPath, "skill content");
@@ -339,7 +348,9 @@ rootfsImage = "${digest}"
     const lock = parseToml(readFileSync(lockPath, "utf8"));
     assert.ok(lock.inputs["test-skill"], "the new input is locked");
     assert.equal(lock.inputs.dolt.oci.digest, digest);
-    assert.equal(lock.inputs.dolt.oci.rootfs, rootfs, "add must not erase the recorded rootfs");
-    assert.equal(lock.inputs.dolt.oci.rootfsImage, digest);
+    assert.deepEqual(JSON.parse(JSON.stringify(lock.inputs.dolt.oci.rootfs)), [
+      { platform: "linux/amd64", digest: amd, image: digest },
+      { platform: "linux/arm64", digest: rootfs, image: digest },
+    ], "add must not erase any platform's recorded rootfs");
   });
 });

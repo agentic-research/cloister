@@ -24,6 +24,18 @@ cloister runtime import --bundle dolt --dir … --symlinks resolve
 → dolthub/dolt-sql-server@sha256:d492a79d… → blake3-256:3f8b2671…  (11655 files, 1966 links resolved)
 ```
 
+The lock records it as the row for the platform LLO reported from the image's
+config (`cloister-1c4ef5`). On an amd64 host the same import adds a
+`linux/amd64` row beside it:
+
+```toml
+[[inputs.dolt.oci.rootfs]]
+platform = "linux/arm64"
+digest = "blake3-256:3f8b26712968250e02e650917f2f87adfa4746fa3e7c1230e8d8a335858c6a91"
+image = "sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c8242"
+symlinks = "resolve"
+```
+
 The pull is anonymous HTTPS, so only public images work; a tag-only or
 unpinned image is refused. The image is Debian-based and has symlinks, so it
 needs `--symlinks resolve`. It also has names that differ only by case

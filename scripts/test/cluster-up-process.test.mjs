@@ -26,7 +26,7 @@ const TSX = import.meta.resolve("tsx");
 function clusterDir() {
   const dir = mkdtempSync(join(tmpdir(), "cloister-up-proc-"));
   writeFileSync(join(dir, "cluster.toml"), DEMO_TOML);
-  const row = (img, rfs) => ({ identifier: "x", digest: img, rootfs: rfs, rootfsImage: img });
+  const row = (img, rfs) => ({ identifier: "x", digest: img, rootfs: [{ platform: "linux/arm64", digest: rfs, image: img }] });
   writeFileSync(join(dir, "cluster.lock.toml"), stringifyToml({
     schema: "cloister/lockfile/v1", cluster: "t", version: "0.0.1",
     inputs: {

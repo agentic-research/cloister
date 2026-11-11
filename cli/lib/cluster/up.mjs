@@ -34,6 +34,7 @@ import { parseTomlToCluster } from "./toml-to-cluster.mjs";
 import { checkableBundle, isExposed, placementFor } from "./connections.mjs";
 import { buildLaunchPlan, parsePlanArgs } from "../../commands/runtime-plan.mjs";
 import { lazyRootfsInCas } from "../runtime/cas-root.mjs";
+import { lazyGuestPlatform } from "../runtime/guest-platform.mjs";
 import { hostRuntimeEnv, resolveHostRuntime } from "../runtime/compatibility-client.mjs";
 import { MAX_UNIX_SOCKET_PATH } from "./connections.mjs";
 
@@ -143,7 +144,7 @@ export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQU
  * @param {object} o
  * @param {string} o.root cluster directory
  * @param {string} o.env
- * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas,
+ * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas, guestPlatform,
  *   makeTemp, exists, signals (EventEmitter-like: on/off, receives signal and
  *   uncaughtException/unhandledRejection events), stdout, pollMs,
  *   hostRuntime ({command, env, args?})
@@ -173,6 +174,9 @@ export async function clusterUp({ root, env, deps = {} }) {
   // Attaches the CAS volume (or refuses by name) when the first plan checks
   // its rootfs — before anything is spawned (cloister-727354).
   const rootfsInCas = deps.rootfsInCas ?? lazyRootfsInCas({ env: procEnv, warn: errLog });
+  // The platform whose rootfs row is run: the host runtime's, asked once
+  // (cloister-1c4ef5).
+  const guestPlatform = deps.guestPlatform ?? lazyGuestPlatform({ env: procEnv });
 
   // ── stop control ─────────────────────────────────────────────────────────
   const runs = [];
@@ -243,7 +247,7 @@ export async function clusterUp({ root, env, deps = {} }) {
     channelDir = makeChannelDir(deps.makeTemp);
     const plans = order.map((name) => {
       const opts = parsePlanArgs([name, "--workspace", absRoot, "--env", env, "--channel-dir", channelDir]);
-      return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas });
+      return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas, guestPlatform });
     });
     for (const plan of plans) {
       for (const p of bindPaths(plan)) {

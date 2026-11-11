@@ -318,13 +318,13 @@ test("cluster k8s refuses a cross-tier edge (kubernetes → microvm): it needs L
 // ── runtime plan sees placements too ─────────────────────────────────────
 
 const lock = {
-  inputs: Object.fromEntries(["dolt", "orders"].map((n) => [n, { oci: { identifier: `x/${n}`, digest: `sha256:${"a".repeat(64)}`, rootfsImage: `sha256:${"a".repeat(64)}`, rootfs: `blake3-256:${"b".repeat(64)}` } }])),
+  inputs: Object.fromEntries(["dolt", "orders"].map((n) => [n, { oci: { identifier: `x/${n}`, digest: `sha256:${"a".repeat(64)}`, rootfs: [{ platform: "linux/arm64", digest: `blake3-256:${"b".repeat(64)}`, image: `sha256:${"a".repeat(64)}` }] } }])),
 };
 /** cluster.toml text → plan, through parseTomlToCluster (the only path). */
 function plan(toml, bundle) {
   return planFromToml(toml, lock, {
     bundle, workspace: "/workspace", controlSocket: `/tmp/${bundle}.sock`, env: "local", channelDir: "/tmp/ch",
-    rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
+    rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64",
   });
 }
 

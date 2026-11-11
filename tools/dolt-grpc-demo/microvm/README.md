@@ -41,7 +41,9 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
    `cluster.lock.toml` as `[inputs.<bundle>.oci]`. These digests are local to
    your machine, so the lock is generated and gitignored, never committed.
 3. **Imports each pinned image** with `cloister runtime import --bundle`. This
-   records the `blake3-256:` rootfs in the lock. Re-running it is idempotent:
+   records the `blake3-256:` rootfs in the lock as a
+   `[[inputs.<bundle>.oci.rootfs]]` row for this host's platform
+   (`platform = "linux/arm64"` on Apple silicon). Re-running it is idempotent:
    an unchanged image prints `already recorded`.
 
 `cluster up` starts `dolt`, waits until its `dolt.mysql.sock` exists (it is then "bound"), then

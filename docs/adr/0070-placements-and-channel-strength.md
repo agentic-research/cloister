@@ -244,10 +244,12 @@ is an operator decision outside the plan (the host runtime's existing rule).
 - The constructed `microvm` placement runs end to end from `cluster.toml`
   (`cloister-991e65`).
   - `runtime import --bundle` imports the bundle's pinned image and records
-    the rootfs in cluster.lock.toml (`[inputs.<b>.oci] rootfs`, plus
-    `rootfsSymlinks` when it isn't the default).
-  - `runtime plan` emits that `blake3-256:` rootfs. It refuses, naming the
-    import command, when the rootfs is missing from the lock or the store.
+    the rootfs in cluster.lock.toml as one `[[inputs.<b>.oci.rootfs]]` row per
+    platform (`platform`, `digest`, `image`, plus `symlinks` when it isn't the
+    default; `cloister-1c4ef5`). The platform is the one LLO reports.
+  - `runtime plan` emits the row for the host runtime's guest platform. It
+    refuses, naming the import command, when that row is missing from the lock
+    or its rootfs from the store.
   - `cluster up --env <env>` starts every microvm-placed bundle, targets
     before sources. A bundle counts as "bound" once its bind sockets exist; its
     health isn't checked ([ADR-0071](0071-who-owns-a-running-workload.md) §3). It supervises the

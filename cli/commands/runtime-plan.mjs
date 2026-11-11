@@ -18,15 +18,16 @@ import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
 import {
-  ROOTFS_IMAGE_KEY,
   ROOTFS_KEY,
   importCommand,
   lockedOci,
   isBlake3Digest,
-  lockedRootfs,
+  lockedRootfsRows,
   rootfsHex,
+  selectRootfs,
 } from "../lib/runtime/rootfs-lock.mjs";
 import { lazyRootfsInCas } from "../lib/runtime/cas-root.mjs";
+import { lazyGuestPlatform } from "../lib/runtime/guest-platform.mjs";
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
 import {
   DEFAULT_CHANNEL_DIR,
@@ -206,48 +207,64 @@ export function buildLaunchPlan(cluster, lock, options) {
 }
 
 /**
- * The recorded, present rootfs for a microvm bundle, or a refusal naming the
- * exact command that fixes it. `options.rootfsInCas(hex)` answers whether the
- * CAS holds that rootfs; it is required, so a caller cannot skip the check.
+ * The recorded, present rootfs for a microvm bundle ON THIS HOST'S GUEST
+ * PLATFORM, or a refusal naming the exact command that fixes it.
+ * `options.guestPlatform()` names the platform the host runtime boots and
+ * `options.rootfsInCas(hex)` answers whether the CAS holds a rootfs; both are
+ * required, so a caller cannot skip either check (cloister-1c4ef5).
  */
 function microvmRootfs(lock, oci, options) {
   const bundle = options.bundle;
-  const fix = importCommand(bundle, options.dir);
-  const recorded = lockedRootfs(lock, bundle);
-  if (!recorded) {
+  const rows = lockedRootfsRows(lock, bundle, { dir: options.dir });
+  // Nothing recorded: the platform cannot change the answer, so the host
+  // runtime is not asked.
+  if (rows.length === 0) {
     throw new Error(
       `bundle "${bundle}" is a microvm bundle with no imported rootfs in cluster.lock.toml ` +
-        `([inputs.${bundle}.oci] ${ROOTFS_KEY}). Import its pinned image first:\n  ${fix}`,
+        `([[inputs.${bundle}.oci.${ROOTFS_KEY}]]). Import its pinned image first:\n  ` +
+        importCommand(bundle, options.dir),
     );
   }
-  if (!isBlake3Digest(recorded.rootfs)) {
+  if (typeof options.guestPlatform !== "function") {
+    throw new Error("internal: buildLaunchPlan needs guestPlatform to select a microvm rootfs");
+  }
+  const platform = options.guestPlatform();
+  const recorded = selectRootfs(rows, platform, bundle);
+  if (!recorded) {
     throw new Error(
-      `bundle "${bundle}" records rootfs ${JSON.stringify(recorded.rootfs)}, which is not a ` +
-        `blake3-256 digest. Re-import:\n  ${importCommand(bundle, options.dir, recorded.symlinks)}`,
+      `bundle "${bundle}" is a microvm bundle with no imported rootfs for this host's guest ` +
+        `platform ${platform} in cluster.lock.toml ([[inputs.${bundle}.oci.${ROOTFS_KEY}]]) ` +
+        `(it records ${rows.map((r) => r.platform).join(", ")}). ` +
+        `Import its pinned image on this host:\n  ${importCommand(bundle, options.dir)}`,
+    );
+  }
+  const fix = importCommand(bundle, options.dir, recorded.symlinks);
+  if (!isBlake3Digest(recorded.digest)) {
+    throw new Error(
+      `bundle "${bundle}" records rootfs ${JSON.stringify(recorded.digest)} for ${recorded.platform}, ` +
+        `which is not a blake3-256 digest. Re-import:\n  ${fix}`,
     );
   }
   // Bound by value, not by position: the rootfs must be the one imported from
   // the image pinned NOW. A hand-edited pin never runs an old rootfs.
   if (recorded.image !== oci.digest) {
     throw new Error(
-      `bundle "${bundle}"'s recorded rootfs ${recorded.rootfs} was imported from ` +
-        `${recorded.image ?? "an unrecorded image"} ([inputs.${bundle}.oci] ${ROOTFS_IMAGE_KEY}), ` +
-        `but the lock now pins ${oci.digest}. Re-import the pinned image:\n  ` +
-        importCommand(bundle, options.dir, recorded.symlinks),
+      `bundle "${bundle}"'s ${recorded.platform} rootfs ${recorded.digest} was imported from ` +
+        `${recorded.image ?? "an unrecorded image"} ([[inputs.${bundle}.oci.${ROOTFS_KEY}]] image), ` +
+        `but the lock now pins ${oci.digest}. Re-import the pinned image:\n  ${fix}`,
     );
   }
   if (typeof options.rootfsInCas !== "function") {
     throw new Error("internal: buildLaunchPlan needs rootfsInCas to verify a microvm rootfs");
   }
-  const where = options.rootfsInCas(rootfsHex(recorded.rootfs));
+  const where = options.rootfsInCas(rootfsHex(recorded.digest));
   if (!where.present) {
     throw new Error(
-      `bundle "${bundle}"'s rootfs ${recorded.rootfs} is recorded in cluster.lock.toml but is ` +
-        `not in the CAS (${where.casRoot}). Re-import it:\n  ` +
-        importCommand(bundle, options.dir, recorded.symlinks),
+      `bundle "${bundle}"'s ${recorded.platform} rootfs ${recorded.digest} is recorded in ` +
+        `cluster.lock.toml but is not in the CAS (${where.casRoot}). Re-import it:\n  ${fix}`,
     );
   }
-  return recorded.rootfs;
+  return recorded.digest;
 }
 
 function printHelp(log = console.log) {
@@ -293,6 +310,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       // Attaches the CAS volume (or refuses by name) on first use, before
       // the presence check — a detached volume is never read as "re-import".
       rootfsInCas: io.rootfsInCas ?? lazyRootfsInCas({ env: io.env ?? process.env, warn: error }),
+      guestPlatform: io.guestPlatform ?? lazyGuestPlatform({ env: io.env ?? process.env }),
     });
     const json = `${JSON.stringify(plan, null, 2)}\n`;
     if (opts.output) {

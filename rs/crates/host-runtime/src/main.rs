@@ -100,7 +100,7 @@ fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         bail!(
-            "usage: cloister-host-runtime <validate|run|doctor|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
+            "usage: cloister-host-runtime <validate|run|doctor|guest-platform|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
              CLOISTER_CAS_ROOT and CLOISTER_CAS_STATE_DIR are deployment inputs the cloister CLI sets \
              from its provider record. When both are set, run and import-oci check that the attached \
              volume's root IS that CAS root: a consistency check against a stale or hand-set value, \
@@ -207,6 +207,28 @@ fn run() -> Result<()> {
                      and the nono/sigstore closure threat model §17.1 keeps opt-in. \
                      Rebuild with --features llo-execution to execute tenants."
                 )
+            }
+        }
+        // The guest platform this host boots (cloister-1c4ef5): LLO's
+        // `Platform::host()`, the SAME value `import-oci` asks LLO to select
+        // from an image index. The CLI picks the lock's rootfs row with it, so
+        // "the platform this host runs" is decided here and nowhere else.
+        "guest-platform" => {
+            if args.next().is_some() {
+                bail!("guest-platform accepts no arguments");
+            }
+            #[cfg(feature = "llo-execution")]
+            {
+                let platform = leyline_runtime::artifacts::oci::Platform::host()?;
+                println!(
+                    "{}",
+                    serde_json::json!({ "platform": platform.to_string() })
+                );
+                Ok(())
+            }
+            #[cfg(not(feature = "llo-execution"))]
+            {
+                bail!("guest-platform needs the `llo-execution` feature (ley-line-open's runtime)")
             }
         }
         "doctor" => {

@@ -50,8 +50,7 @@ const lock = {
         identifier: "ghcr.io/agentic-research/mache",
         version: "v0.17.0",
         digest: `sha256:${"8".repeat(64)}`,
-        rootfs: `blake3-256:${"9".repeat(64)}`,
-        rootfsImage: `sha256:${"8".repeat(64)}`,
+        rootfs: [{ platform: "linux/arm64", digest: `blake3-256:${"9".repeat(64)}`, image: `sha256:${"8".repeat(64)}` }],
       },
     },
   },
@@ -63,7 +62,7 @@ test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () 
     bundle: "mache",
     workspace: "/Users/operator/src",
     controlSocket: "/tmp/cloister/mache.sock",
-    rootfsInCas: inCas,
+    rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
   });
 
   assert.deepEqual(plan, {
@@ -158,12 +157,12 @@ test("the declared Mache tenant has an explicit in-guest workspace fallback", ()
 
 test("planFromToml is the cluster.toml entry point and applies the full schema", async () => {
   const plan = await planFromToml(CLUSTER_TOML, lock, {
-    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas,
+    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
   });
   assert.equal(plan.bundle, "mache");
   await assert.rejects(
     planFromToml(CLUSTER_TOML.replace("entryPoint", "entryPiont"), lock, {
-      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas,
+      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
     }),
     /\[bundles.external\] declares unknown field "entryPiont"/,
   );
