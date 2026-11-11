@@ -85,6 +85,47 @@ row here:
 - Kubernetes has no such guarantee without a default-deny policy, which the
   realizer emits.
 
+### 2a. Realizers compose: a tree, not n peers
+
+Most placements are the same few primitives with a different config format
+on top. Each primitive does three jobs:
+- **boundary:** what contains the workload;
+- **interfaces:** how bytes get in and out;
+- **storage:** what it sees on disk.
+
+The **enforcing layer** is the layer that stops an undeclared edge. It must
+sit below the workload and outside the workload's control, and it sets the
+strength. So realizers form a tree. A child declares its parent and states
+only what it adds or overrides; every other row of its table is inherited.
+
+```
+container            namespaces + cgroups, veth/bridge, overlay       enforcer: host kernel  → policy
+├── docker           + bridge network (none on the default bridge)
+└── kubernetes       + Service DNS + NetworkPolicy                     (policy only if the CNI enforces it)
+vm                   hypervisor, vsock, rootfs + virtio-fs             enforcer: VMM          → capability
+└── microvm (LLO)    + confinement/v1 §6 channels
+isolate              V8 isolate, bindings, no POSIX FS                 enforcer: runtime      → capability
+└── workerd          + service bindings, vault slices
+managed (no primitives cloister can see)
+└── cloudRun         + IAM invoker, ingress setting                    enforcer: provider     → policy
+```
+
+Three consequences:
+- **Cloister configures none of these layers itself.** Below cloister, LLO and
+  each runtime configure Linux, the hypervisor or the isolate (ADR-0035). A
+  realizer is an **encoder** from a grant set into its layer's config format:
+  LLO's run grant, Kubernetes YAML, Docker flags, workerd config.
+- **A new placement is usually a new child.** Podman goes under `container`,
+  Firecracker under `vm`. The child adds an encoder and the rows that differ,
+  so ADR §6's test ("adding a placement adds one realizer") becomes "adding a
+  placement adds one node".
+- **Nesting only adds containment.** A placement can run inside another: on a
+  developer Mac, kind runs inside Docker, which runs inside a desktop VM. For
+  any edge, the strength is decided by the innermost layer that actually
+  enforces that edge. The outer layers can't raise it, and they can't lower it
+  for traffic that never crosses them. The rail computes strength from the
+  realizer the grant is placed on. The nesting is recorded only to explain it.
+
 ### 3. The strength rail is generic
 
 For each grant, the build computes the strength the realizer achieves. For
@@ -142,7 +183,7 @@ missing a concept, and the change has to say which one.
 | Part | State |
 |---|---|
 | §1 the grant set as a type | not built. The two lowerings read the graph directly. |
-| §2 realizer tables | not built. The strengths for microvm and kubernetes are hard-coded in `connections.mjs`. |
+| §2 realizer tables, §2a the realizer tree | not built. The strengths for microvm and kubernetes are hard-coded in `connections.mjs`. |
 | §3 generic strength rail | channels only (ADR-0070, #284) |
 | §4 bridge realizer | not built. It depends on LLO's broker Slice 1 (`ley-line-open-e2c5ce`) and env lowering (`cloister-2af426`). |
 | §6 the test | not run yet. The cross-placement demo (`cloister-2af831`) is its first application. |
