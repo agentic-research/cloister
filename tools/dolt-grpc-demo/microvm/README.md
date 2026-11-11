@@ -81,6 +81,15 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
 
 ## Notes
 
+- **The services are stopped after 15 minutes.** Every run carries a
+  wall-clock ceiling. LLO requires one, and cloister's default is 15 minutes.
+  A service cannot yet ask for "no ceiling" (ley-line-open-e6b1bb). When the
+  ceiling is reached, the host runtime exits 124, and `up` reports it as the
+  ceiling, not as a workload failure:
+  `bundle "dolt" reached its wall-clock ceiling and was stopped by the runtime — not a workload failure`.
+  `up` then stops the rest and exits 124. Each bundle's ceiling is printed
+  when it starts (`[dolt] cloister-host-runtime: run-dolt: wall-clock ceiling … s`).
+
 - `ready` means every socket the bundle binds exists. A dependent can then be
   granted its channel. It does not mean the workload accepts yet (LLO
   a915e3); `orders`' client retries.

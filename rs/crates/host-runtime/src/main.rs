@@ -159,6 +159,12 @@ fn run() -> Result<()> {
                         cloister_host_runtime::RuntimeError::RunFailed(_) => {
                             anyhow::Error::new(error)
                         }
+                        // A distinct exit status, not just a message: see
+                        // EXIT_WALL_CLOCK.
+                        cloister_host_runtime::RuntimeError::WallClockExceeded(_) => {
+                            eprintln!("cloister-host-runtime: {error}");
+                            std::process::exit(cloister_host_runtime::EXIT_WALL_CLOCK);
+                        }
                         other => anyhow::Error::new(other).context("launch refused"),
                     })
             }

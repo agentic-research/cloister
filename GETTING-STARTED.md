@@ -262,7 +262,11 @@ directory is removed on exit.
 runtime cancels its run through LLO, which kills the worker's process group. If
 any run ends on its own, the rest are stopped and `up` exits non-zero, naming
 the bundle and its status. Kubernetes-placed bundles are skipped with a pointer
-to `cluster k8s`. A worked example from a clean checkout is
+to `cluster k8s`. Every run is also stopped at its wall-clock ceiling, which is
+15 minutes for now; a service cannot yet ask for "no ceiling"
+(ley-line-open-e6b1bb). The host runtime exits 124 for that stop, and `up`
+reports it as the ceiling, not as a workload failure. A worked example from a
+clean checkout is
 [`tools/dolt-grpc-demo/microvm/`](tools/dolt-grpc-demo/microvm/README.md).
 
 A plan carrying `fs.allow`, credentials, or `port.bind` is refused by name

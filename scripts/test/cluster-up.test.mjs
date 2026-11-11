@@ -443,3 +443,17 @@ test("cluster up refuses a missing rootfs before starting anything", async () =>
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a run stopped at its wall-clock ceiling (host runtime status 124) is reported as the ceiling, not a failure", async () => {
+  const r = await upHarness({
+    behave: ({ bundle, plan, child, bound }) => {
+      for (const p of bindPaths(plan)) bound.add(p);
+      if (bundle === "orders") setTimeout(() => child.exit(124, null), 20);
+    },
+  });
+  assert.equal(r.code, 124);
+  const text = r.err.join("\n");
+  assert.match(text, /bundle "orders" reached its wall-clock ceiling and was stopped by the runtime — not a workload failure \(services cannot ask for "no ceiling" yet: ley-line-open-e6b1bb\)/);
+  assert.doesNotMatch(text, /exited on its own/);
+  assert.ok(r.log.some((l) => /stopped at its wall-clock ceiling .*ley-line-open-e6b1bb/.test(l)), "the ready banner says so");
+});

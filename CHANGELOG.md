@@ -29,6 +29,13 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   - Runs in the foreground. SIGINT/SIGTERM stops runs in reverse order. A run
     that ends on its own tears the rest down and is reported with its status.
   - Without `--env`, `cluster up` is the unchanged compose path.
+- **The wall-clock ceiling is reported as the ceiling.** When LLO stops a run
+  at its deadline, `cloister-host-runtime run` exits 124 (`timeout(1)`'s
+  status) instead of 1. It does this by matching LLO's `ResourceExhausted`
+  code, not its text. `cluster up` reports the stop as the ceiling being
+  reached rather than as a workload failure, and exits 124. Each run's
+  ceiling is printed when it starts. Services are stopped after 15 minutes
+  until ley-line-open-e6b1bb.
 - **Host runtime stops its guest on SIGINT/SIGTERM.** The krun worker runs in
   its own process group, so a killed host runtime used to orphan the VM. `run`
   now cancels through LLO, then exits 128+signal.

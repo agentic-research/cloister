@@ -363,4 +363,17 @@ pub enum RuntimeError {
     /// exited non-zero" as "the runtime refused the plan", or the reverse.
     #[error("the workload ran and failed: {0}")]
     RunFailed(String),
+    /// The run was stopped because it reached its wall-clock ceiling. Not the
+    /// workload failing: a service runs until stopped, and the ceiling is
+    /// cloister's default, not the workload's (ley-line-open-e6b1bb asks LLO
+    /// for "no ceiling" for services). Kept distinct so a supervisor never
+    /// reports the deadline as a crash (cloister-991e65).
+    #[error("the run reached its wall-clock ceiling and was stopped (not a workload failure; ley-line-open-e6b1bb): {0}")]
+    WallClockExceeded(String),
 }
+
+/// `cloister-host-runtime run`'s exit status when a run is stopped at its
+/// wall-clock ceiling — 124, the status `timeout(1)` uses for the same event,
+/// so a supervisor can tell it from a workload failure (1) without parsing
+/// text. `cloister cluster up` reads it.
+pub const EXIT_WALL_CLOCK: i32 = 124;

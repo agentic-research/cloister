@@ -19,7 +19,7 @@ use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
-    ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
+    ErrorCode, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
     DEFAULT_CPU_PERIOD_US,
 };
 
@@ -316,6 +316,13 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
     fn launch(&self, plan: &LaunchPlan) -> Result<(), RuntimeError> {
         let request =
             to_execution_request(plan, &self.inner.capabilities().enforced, &self.deployment)?;
+        // Say what ceiling this run carries, so a supervisor's log shows why a
+        // service stops when it does (ley-line-open-e6b1bb).
+        eprintln!(
+            "cloister-host-runtime: {}: wall-clock ceiling {} s (the run is stopped when it is reached)",
+            request.run_id,
+            request.limits.wall_time_ms / 1000
+        );
         self.inner
             .start(&request)
             .map_err(|error: ExecutionError| RuntimeError::Backend(error.to_string()))?;
@@ -325,6 +332,14 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             .map_err(|error| RuntimeError::Backend(error.to_string()))?
         {
             BackendRunStatus::Succeeded => Ok(()),
+            // LLO's supervisor reports the deadline as ResourceExhausted
+            // ("execution exceeded wall-clock limit", runtime process.rs);
+            // at the pinned LLO no other libkrun-tier failure uses that code.
+            // The code is matched, not the text, and a cleanup failure
+            // appended to the detail keeps the run's code.
+            BackendRunStatus::Failed(error) if error.code == ErrorCode::ResourceExhausted => {
+                Err(RuntimeError::WallClockExceeded(error.to_string()))
+            }
             BackendRunStatus::Failed(error) => Err(RuntimeError::RunFailed(error.to_string())),
         }
     }

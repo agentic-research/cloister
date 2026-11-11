@@ -36,6 +36,13 @@ import { hostRuntimeEnv, resolveHostRuntime } from "../runtime/compatibility-cli
 import { MAX_UNIX_SOCKET_PATH } from "./connections.mjs";
 
 /**
+ * `cloister-host-runtime run` exits 124 (timeout(1)'s status) when LLO stops a
+ * run at its wall-clock ceiling — distinct from a workload failure (1).
+ * Mirrors EXIT_WALL_CLOCK in rs/crates/host-runtime/src/lib.rs.
+ */
+export const EXIT_WALL_CLOCK = 124;
+
+/**
  * Which bundles `up` starts for `env`, in start order, and which it skips.
  *
  * @returns {{order: string[], skipped: Array<{name: string, reason: string}>}}
@@ -143,6 +150,7 @@ export async function clusterUp({ root, env, deps = {} }) {
   const runs = [];
   let stopping = false;
   let failure = null;
+  let ceilingReached = false;
   try {
     const plans = order.map((name) => {
       const opts = parsePlanArgs([name, "--workspace", absRoot, "--env", env, "--channel-dir", channelDir]);
@@ -193,6 +201,12 @@ export async function clusterUp({ root, env, deps = {} }) {
     };
 
     const describeExit = (run, result) => {
+      if (result.code === EXIT_WALL_CLOCK) {
+        ceilingReached = true;
+        return `bundle "${run.bundle}" reached its wall-clock ceiling and was stopped by the ` +
+          `runtime — not a workload failure (services cannot ask for "no ceiling" yet: ` +
+          `ley-line-open-e6b1bb)`;
+      }
       const status = result.signal ? `signal ${result.signal}` : `status ${result.code}`;
       const why = run.stderrTail.length ? `: ${run.stderrTail[run.stderrTail.length - 1]}` : "";
       return `bundle "${run.bundle}" exited on its own with ${status}${why}`;
@@ -234,6 +248,11 @@ export async function clusterUp({ root, env, deps = {} }) {
         }
       }
       log("cloister cluster up: all bundles ready; Ctrl-C to stop");
+      log(
+        "cloister cluster up: note: every run is stopped at its wall-clock ceiling (each " +
+          "bundle's is printed above); a service cannot ask for \"no ceiling\" yet " +
+          "(ley-line-open-e6b1bb)",
+      );
       // Run until a signal, or until any run ends on its own.
       const first = await Promise.race([
         stopRequested.then(() => null),
@@ -262,7 +281,9 @@ export async function clusterUp({ root, env, deps = {} }) {
 
   if (failure) {
     errLog(`cloister cluster up: ${failure}; stopped the rest`);
-    return 1;
+    // The host runtime's own status for the ceiling, so a caller can tell it
+    // from a failure too.
+    return ceilingReached ? EXIT_WALL_CLOCK : 1;
   }
   return 0;
 }
