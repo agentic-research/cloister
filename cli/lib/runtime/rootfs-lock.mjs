@@ -42,7 +42,7 @@
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
-import { isPlatform, platformAdmits } from "./platform.mjs";
+import { isPlatform, platformAdmits, platformsOverlap } from "./platform.mjs";
 
 export const ROOTFS_KEY = "rootfs";
 export const DEFAULT_SYMLINKS = "refuse";
@@ -90,20 +90,51 @@ export function lockedOci(lock, bundle) {
   return null;
 }
 
-/** True when `oci` carries the flat, platform-less rootfs shape. */
+/** The flat, platform-less keys `oci` carries (`rootfsImage`, `rootfsSymlinks`). */
+function legacyKeysIn(oci) {
+  return LEGACY_KEYS.filter((k) => oci?.[k] !== undefined);
+}
+
+/** True when `oci` carries the flat, platform-less rootfs shape and no rows. */
 function isLegacyShape(oci) {
-  return typeof oci?.[ROOTFS_KEY] === "string" || LEGACY_KEYS.some((k) => oci?.[k] !== undefined);
+  return !Array.isArray(oci?.[ROOTFS_KEY]) &&
+    (typeof oci?.[ROOTFS_KEY] === "string" || legacyKeysIn(oci).length > 0);
+}
+
+/**
+ * Refuse rows AND flat keys in one `[inputs.<bundle>.oci]`. Neither shape can
+ * be trusted over the other (a hand merge, or an old writer touching a new
+ * lock), and an import must not collapse them: that would drop other
+ * platforms' rows.
+ */
+function assertNotMixed(oci, bundle) {
+  const stray = legacyKeysIn(oci);
+  if (Array.isArray(oci?.[ROOTFS_KEY]) && stray.length > 0) {
+    throw new Error(
+      `bundle "${bundle}" records BOTH [[inputs.${bundle}.oci.${ROOTFS_KEY}]] rows and the old flat ` +
+        `key(s) ${stray.join(", ")} in [inputs.${bundle}.oci]. A lock holds one shape; the rows are ` +
+        `the current one. Remove ${stray.join(" and ")} from [inputs.${bundle}.oci] by hand, after ` +
+        `checking the rows are what you expect.`,
+    );
+  }
 }
 
 /**
  * The recorded rootfs rows for `bundle`: `[{platform, digest, image,
- * symlinks}]`, empty when none is recorded. Every row is validated here, so a
- * hand-edited value is refused before it is ever echoed into a command line.
- * Refuses the flat pre-cloister-1c4ef5 shape by name, with the command that
- * replaces it.
+ * symlinks}]`, empty when none is recorded.
+ *
+ * Checked here, for every row: that `rootfs` is a list; that `platform` is
+ * `os/architecture[/variant]` and appears once; and that `symlinks` is a
+ * known mode — so a hand-edited value is refused before it is echoed into a
+ * command line. NOT checked here: `digest` (blake3-256) and `image` (equal to
+ * the pin), which `runtime plan` checks on the row it selects.
+ *
+ * Refuses by name the flat pre-cloister-1c4ef5 shape (with the command that
+ * replaces it) and a mix of rows and flat keys.
  */
 export function lockedRootfsRows(lock, bundle, { dir } = {}) {
   const oci = lockedOci(lock, bundle);
+  assertNotMixed(oci, bundle);
   if (!oci || oci[ROOTFS_KEY] === undefined && !isLegacyShape(oci)) return [];
   if (isLegacyShape(oci)) {
     const symlinks = SYMLINK_MODES.includes(oci.rootfsSymlinks) ? oci.rootfsSymlinks : DEFAULT_SYMLINKS;
@@ -170,9 +201,12 @@ export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
  * whether anything changed (idempotent — re-importing the same image with the
  * same policy yields the same rootfs and an unchanged lock).
  *
- * Adds or replaces ONLY the row for `platform`; every other platform's row is
- * kept. A flat pre-cloister-1c4ef5 record is replaced (the fresh import says
- * which platform it is for; the old one did not).
+ * Adds or replaces ONLY the row(s) for `platform`: every row whose platform
+ * overlaps it (`linux/arm64` and `linux/arm64/v8`, which one host would both
+ * select) is replaced, so a re-import repairs what plan would refuse as
+ * ambiguous. Every other platform's row is kept. A flat pre-cloister-1c4ef5
+ * record is replaced (the fresh import says which platform it is for; the old
+ * one did not). Rows mixed with flat keys are refused, never collapsed.
  *
  * Refuses when the lock does not pin `bundle`'s image, the import was of a
  * different image than the one pinned in THIS text (callers pass the lock as
@@ -213,6 +247,7 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
   const row = { platform, digest: rootfs, image };
   if (symlinks !== DEFAULT_SYMLINKS) row.symlinks = symlinks;
 
+  assertNotMixed(oci, bundle);
   if (isLegacyShape(oci)) {
     const previous = typeof oci[ROOTFS_KEY] === "string" ? oci[ROOTFS_KEY] : null;
     for (const key of LEGACY_KEYS) delete oci[key];
@@ -220,20 +255,26 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
     return { text: stringifyToml(lock), changed: true, previous };
   }
   const rows = Array.isArray(oci[ROOTFS_KEY]) ? oci[ROOTFS_KEY] : [];
-  const existing = rows.find((r) => r?.platform === platform);
+  const replaced = rows.filter((r) => platformsOverlap(r?.platform, platform));
+  const [only] = replaced;
   if (
-    existing &&
-    existing.digest === rootfs &&
-    existing.image === image &&
-    (existing.symlinks ?? DEFAULT_SYMLINKS) === symlinks
+    replaced.length === 1 &&
+    only.platform === platform &&
+    only.digest === rootfs &&
+    only.image === image &&
+    (only.symlinks ?? DEFAULT_SYMLINKS) === symlinks
   ) {
-    return { text: lockText, changed: false, previous: existing.digest };
+    return { text: lockText, changed: false, previous: only.digest };
   }
-  const next = rows.filter((r) => r?.platform !== platform);
+  const next = rows.filter((r) => !replaced.includes(r));
   next.push(row);
   next.sort((x, y) => (x.platform < y.platform ? -1 : x.platform > y.platform ? 1 : 0));
   oci[ROOTFS_KEY] = next;
-  return { text: stringifyToml(lock), changed: true, previous: existing?.digest ?? null };
+  return {
+    text: stringifyToml(lock),
+    changed: true,
+    previous: replaced.length ? replaced.map((r) => r.digest).join(", ") : null,
+  };
 }
 
 /**

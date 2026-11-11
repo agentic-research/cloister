@@ -10,7 +10,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { formatPlatform, isPlatform, platformAdmits } from "../../cli/lib/runtime/platform.mjs";
+import { formatPlatform, isPlatform, platformAdmits, platformsOverlap } from "../../cli/lib/runtime/platform.mjs";
 import { lazyGuestPlatform, probeGuestPlatform } from "../../cli/lib/runtime/guest-platform.mjs";
 
 test("formatPlatform renders LLO's Platform object exactly, variant included", () => {
@@ -73,4 +73,13 @@ test("a host runtime without the guest-platform verb gets the reinstall remedy",
     () => probeGuestPlatform({ runJson }),
     /could not ask the host runtime which guest platform it boots \(.*unknown command "guest-platform"\)\. An installed runtime from before cloister-1c4ef5 has no `guest-platform` verb\.\nRun: cloister runtime install/,
   );
+});
+
+test("platformsOverlap is admits in either direction", () => {
+  assert.equal(platformsOverlap("linux/arm64", "linux/arm64/v8"), true);
+  assert.equal(platformsOverlap("linux/arm64/v8", "linux/arm64"), true);
+  assert.equal(platformsOverlap("linux/arm/v7", "linux/arm"), true);
+  assert.equal(platformsOverlap("linux/arm64/v8", "linux/arm64/v9"), false);
+  assert.equal(platformsOverlap("linux/arm/v6", "linux/arm/v7"), false);
+  assert.equal(platformsOverlap("linux/amd64", "linux/arm64"), false);
 });
