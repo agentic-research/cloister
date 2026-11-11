@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Restore the wall-time ceiling; test against LLO's own validation (`cloister-991e65`)
+
+- #285 removed cloister's 15-minute wall-time default by sending zero. LLO
+  refuses a zero wall time ("wall_time_ms must be non-zero"), so every microVM
+  launch on main failed. This restores the default.
+- The gap that let it through: the tests used a recording stub, which never
+  ran LLO's request validation. A new test drives the real libkrun backend
+  with a missing worker, so a request LLO would call invalid fails the test.
+- A service still stops after 15 minutes. Running one with no ceiling needs LLO
+  to accept that (`ley-line-open-e6b1bb`).
+
 ### 2026-11 — Placements, the strength rail, and `cloister cluster k8s` (`cloister-991e65`)
 
 - **Schema.**

@@ -18,8 +18,9 @@ use leyline_runtime::backends::libkrun::backend::KrunWorkerBackend;
 use leyline_runtime::backends::libkrun::confinement::confinement_manifest;
 use leyline_runtime::confinement::UnixSocketGrant;
 use leyline_runtime::{
-    Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DEFAULT_CPU_PERIOD_US, DigestRef,
-    EnforcedCeilings, ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
+    Backend as LeylineBackendTrait, BackendRunStatus, CpuLimits, DigestRef, EnforcedCeilings,
+    ExecutionError, ExecutionRequest, MemoryLimits, PidsLimits, ResourceLimits,
+    DEFAULT_CPU_PERIOD_US,
 };
 
 use crate::{Backend, LaunchPlan, RuntimeError};
@@ -54,7 +55,11 @@ const DEFAULT_WALL_TIME_MS: u64 = 15 * 60 * 1000;
 /// the OCI migration either), so they stay zero.
 fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
     let when = |mechanism: leyline_runtime::CeilingMechanism, value: u64| {
-        if mechanism.is_enforced() { value } else { 0 }
+        if mechanism.is_enforced() {
+            value
+        } else {
+            0
+        }
     };
     let quota = when(enforced.cpu, DEFAULT_VCPUS * DEFAULT_CPU_PERIOD_US);
     ResourceLimits {
@@ -262,9 +267,8 @@ pub fn carried_confinement(
         return Ok((String::new(), None));
     }
     let invalid = |error: ExecutionError| RuntimeError::InvalidPlan(error.to_string());
-    let mut document =
-        confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
-            .map_err(invalid)?;
+    let mut document = confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
+        .map_err(invalid)?;
     for entry in grants {
         let grant = match entry.mode.as_str() {
             "" => UnixSocketGrant::connect(entry.path.clone()),
