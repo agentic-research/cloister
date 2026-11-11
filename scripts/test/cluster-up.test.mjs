@@ -372,7 +372,7 @@ async function upHarness({ behave }) {
       exists: (p) => bound.has(p) || existsSync(p),
       signals,
       pollMs: 5,
-      spawn: (cmd, args) => {
+      spawn: (_command, args) => {
         const plan = JSON.parse(readFileSync(args[1], "utf8"));
         const child = fakeChild(1000 + children.length);
         children.push({ bundle: plan.bundle, plan, child });

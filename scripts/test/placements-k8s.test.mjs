@@ -98,8 +98,8 @@ test("kubernetes ↔ kubernetes does not meet minStrength capability, naming bot
 function microvmBoth(minStrength) {
   let t = asMicrovm(DEMO_TOML, "dolt", DOLT_IMAGE);
   t = asMicrovm(t, "orders", "dolt-grpc-demo:dev");
-  t = placeAs(t, "dolt.yaml", MICROVM("dolt"));
-  t = placeAs(t, "orders.yaml", MICROVM("orders"));
+  t = placeAs(t, "dolt.yaml", MICROVM());
+  t = placeAs(t, "orders.yaml", MICROVM());
   return t.replace('minStrength = "policy"', `minStrength = "${minStrength}"`);
 }
 
@@ -110,7 +110,7 @@ test("microvm ↔ microvm meets minStrength capability", async () => {
 
 test("microvm ↔ kubernetes does not meet capability (the meet is policy)", async () => {
   let t = asMicrovm(DEMO_TOML, "orders", "dolt-grpc-demo:dev");
-  t = placeAs(t, "orders.yaml", MICROVM("orders"));
+  t = placeAs(t, "orders.yaml", MICROVM());
   t = t.replace('minStrength = "policy"', 'minStrength = "capability"');
   await assert.rejects(
     parseTomlToCluster(t),
@@ -137,7 +137,7 @@ const placementRefusals = [
     (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "nomad"\n`),
     /kind "nomad" is not one of microvm, workerd, kubernetes, cloudRun/],
   ["microvm without executionMode microvm",
-    (t) => placeAs(t, "dolt.yaml", MICROVM("dolt")),
+    (t) => placeAs(t, "dolt.yaml", MICROVM()),
     /kind "microvm" requires executionMode = "microvm" \(the bundle declares ""\) — the two must agree/],
   ["kubernetes without a manifest",
     (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "kubernetes"\n`),
@@ -308,7 +308,7 @@ test("cluster k8s keeps its unlowered-kind refusal as defense in depth", () => {
 
 test("cluster k8s refuses a cross-tier edge (kubernetes → microvm): it needs LLO's broker", async () => {
   let t = asMicrovm(DEMO_TOML, "dolt", DOLT_IMAGE);
-  t = placeAs(t, "dolt.yaml", MICROVM("dolt"));
+  t = placeAs(t, "dolt.yaml", MICROVM());
   await assert.rejects(
     emit(t),
     /joins "orders" \(kubernetes\) to "dolt" \(microvm\): an edge across placements needs LLO's broker \(ley-line-open-e2c5ce\)/,
@@ -330,7 +330,7 @@ function plan(toml, bundle) {
 
 test("runtime plan refuses the microvm end of a cross-tier edge, naming the broker", async () => {
   let t = asMicrovm(DEMO_TOML, "orders", "dolt-grpc-demo:dev");
-  t = placeAs(t, "orders.yaml", MICROVM("orders"));
+  t = placeAs(t, "orders.yaml", MICROVM());
   await assert.rejects(plan(t, "orders"), /joins "orders" \(microvm\) to "dolt" \(kubernetes\).*ley-line-open-e2c5ce/);
 });
 
