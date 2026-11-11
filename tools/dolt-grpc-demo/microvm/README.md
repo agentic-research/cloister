@@ -119,7 +119,8 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
 - `bound` means every socket the bundle binds exists, and nothing more. A
   dependent can then be
   granted its channel. Health is not checked, so `up` does not call it
-  ready (ADR-0071 §3). The workload may not be listening yet. Since LLO
+  ready ([ADR-0071](../../../docs/adr/0071-who-owns-a-running-workload.md) §3).
+  The workload may not be listening yet. Since LLO
   v0.29.0 an early connection is held for up to 10 s, not closed; `orders`'
   client still retries.
 - When a run fails, or reaches its wall-clock ceiling, the host runtime prints

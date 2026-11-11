@@ -54,7 +54,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   bundle.
   - Order: targets before sources; a cycle is refused by name.
   - A bundle is "bound" when its bind sockets exist. Health isn't checked, so
-    `up` never calls it ready (ADR-0071 §3; health-gated start is a later slice).
+    `up` never calls it ready ([ADR-0071](docs/adr/0071-who-owns-a-running-workload.md) §3; health-gated start is a later slice).
   - Each `up` gets a fresh 0700 channel directory under the real `/tmp`. Each
     exposed port's `unix://` path is printed. The directory is removed on exit.
   - Runs in the foreground. SIGINT/SIGTERM stops runs in reverse order. A run
