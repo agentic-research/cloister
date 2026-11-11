@@ -228,6 +228,20 @@ scratch images) exits 127 on LLO v0.27.0 unless a workspace is mounted
 (ley-line-open-fe130c). Entrypoints under a directory (`/bin/…`) run. On
 v0.28.0 a root entrypoint (`/orders`) has been seen running.
 
+**The store is a case-sensitive volume.** `runtime install` provisions LLO's
+CAS volume, a case-sensitive APFS sparsebundle under
+`~/.local/state/cloister/cas-volume`. It is created as you, with no sudo,
+grows on demand up to 64 GiB, and is re-attached by the host runtime after a
+reboot. The CAS root (`…/mnt/cas`) and each run's ephemeral root (`…/mnt/run`)
+both live on it. Debian-based images have names that differ only by case
+(perl's `Pod/` and `pod/`), which default APFS merges. `cloister runtime
+storage status` shows the volume and whether it is case-sensitive.
+
+An earlier install's `~/.local/state/cloister/cas` is neither migrated nor
+deleted. Its trees sit on a case-insensitive filesystem, so they are not
+carried over. Re-import each bundle (`runtime plan` prints the exact command),
+then delete the old directory.
+
 For a bundle in `cluster.toml`, import with `--bundle`. It imports the image the
 lock pins (`[inputs.<bundle>.oci] digest`; `--image` may be omitted, and must
 match if given) and records the result beside the pin:
@@ -235,6 +249,15 @@ match if given) and records the result beside the pin:
 ```sh
 cloister runtime import --bundle dolt --dir <cluster-dir> --layout <oci-layout-dir>
 # cluster.lock.toml: [inputs.dolt.oci] rootfs = "blake3-256:…"
+```
+
+Leave out `--layout` to pull the pinned `identifier@sha256:…` from its registry
+instead. The pull is anonymous HTTPS, so only public images work, and a
+tag-only or unpinned image is refused. Add `--symlinks resolve` for an image
+with links:
+
+```sh
+cloister runtime import --bundle dolt --dir <cluster-dir> --symlinks resolve
 ```
 
 `cloister runtime plan` and `cluster up` run that recorded rootfs, never the

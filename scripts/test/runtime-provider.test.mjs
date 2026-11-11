@@ -251,7 +251,25 @@ function microvmFixture(t) {
   mkdirSync(dirname(firmware), { recursive: true });
   writeFileSync(firmware, "guest kernel\n");
   const fetches = [];
+  // LLO's CasVolume::provision, as `cloister-host-runtime provision-cas`
+  // returns it (cloister-727354). The real one makes an hdiutil volume.
+  const volumeRoot = join(root, "state/cas-volume/mnt/cas");
+  const provisions = [];
+  const provisionCas = (hostRuntime, stateDir) => {
+    provisions.push({ hostRuntime, stateDir });
+    mkdirSync(volumeRoot, { recursive: true });
+    return {
+      casRoot: volumeRoot,
+      mountpoint: join(root, "state/cas-volume/mnt"),
+      image: join(root, "state/cas-volume/cas.sparsebundle"),
+      created: true,
+      attached: true,
+      sizeCapBytes: 64 << 30,
+      filesystem: { caseSensitive: true, normalizationSensitive: false },
+    };
+  };
   const deps = {
+    provisionCas,
     root,
     layout,
     spawn: fakeCargo(root, []),
@@ -261,25 +279,56 @@ function microvmFixture(t) {
     fetchKrunWorker: async (_root, target) => { fetches.push(target); return fetched; },
     findLibkrunfw: () => firmware,
   };
-  return { root, layout, firmware, fetches, deps };
+  return { root, layout, firmware, fetches, deps, volumeRoot, provisions };
 }
 
-test("install provides the microVM tier: pinned worker, store, run root, recorded firmware", async (t) => {
-  const { layout, firmware, fetches, deps } = microvmFixture(t);
+test("install provides the microVM tier: pinned worker, CAS volume, run root, recorded firmware", async (t) => {
+  const { layout, firmware, fetches, deps, volumeRoot, provisions } = microvmFixture(t);
   await installCompatibilityProvider(deps);
 
   assert.deepEqual(fetches, ["darwin-arm64"]);
   assert.ok(existsSync(layout.krunWorker));
-  assert.ok(existsSync(layout.casRoot) && existsSync(layout.runRoot));
+  // The run root sits on the same case-sensitive volume as the CAS root: an
+  // ephemeral rootfs is a copy of a CAS tree.
+  const runRoot = join(dirname(volumeRoot), "run");
+  assert.ok(existsSync(runRoot));
+  // The CAS root is the one LLO's volume returned, decided here once
+  // (cloister-727354) — not the old <state>/cas directory.
+  assert.deepEqual(provisions, [{ hostRuntime: layout.hostRuntime, stateDir: layout.stateDir }]);
+  assert.equal(existsSync(layout.casRoot), false, "the pre-volume store is not created any more");
   const record = readProviderRecord(layout);
   assert.equal(record.microvm.krunWorker.file, "leyline-krun-worker");
   assert.equal(record.microvm.libkrunfw.path, firmware);
   assert.deepEqual(resolveMicrovm(record), {
     krunWorker: layout.krunWorker,
     libkrunfw: firmware,
-    casRoot: layout.casRoot,
-    runRoot: layout.runRoot,
+    casRoot: volumeRoot,
+    casStateDir: layout.stateDir,
+    runRoot,
   });
+});
+
+test("install refuses a CAS root LLO reports as case-insensitive", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  await assert.rejects(
+    installCompatibilityProvider({
+      ...deps,
+      provisionCas: () => ({ casRoot: "/x/cas", filesystem: { caseSensitive: false } }),
+    }),
+    /LLO provisioned a CAS root that is not case-sensitive/,
+  );
+  assert.equal(existsSync(layout.providerRecord), false);
+});
+
+test("an existing pre-volume store is neither migrated nor deleted, and re-import is named", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  mkdirSync(join(layout.casRoot, "abc123"), { recursive: true });
+  const lines = [];
+  await installCompatibilityProvider({ ...deps, log: (m) => lines.push(m) });
+  assert.ok(existsSync(join(layout.casRoot, "abc123")), "the old store is left as it is");
+  const text = lines.join("\n");
+  assert.match(text, /The previous store .* is no longer used and was left as it is\. Re-import each microvm bundle/);
+  assert.match(text, /CAS volume: .*case-sensitive; created/);
 });
 
 test("a host with no published worker installs without the tier and says why", async (t) => {
@@ -329,8 +378,9 @@ test("the host runtime is started with the installed tier; explicit operator env
 
   const env = hostRuntimeEnv(record, { PATH: "/usr/bin" });
   assert.equal(env.CLOISTER_KRUN_WORKER, layout.krunWorker);
-  assert.equal(env.CLOISTER_CAS_ROOT, layout.casRoot);
-  assert.equal(env.CLOISTER_EPHEMERAL_ROOT, layout.runRoot);
+  assert.equal(env.CLOISTER_CAS_ROOT, readProviderRecord(layout).microvm.casRoot);
+  assert.equal(env.CLOISTER_CAS_STATE_DIR, layout.stateDir, "so the host runtime can re-attach the volume");
+  assert.equal(env.CLOISTER_EPHEMERAL_ROOT, readProviderRecord(layout).microvm.runRoot);
   assert.equal(env.CLOISTER_LIBKRUNFW, firmware);
   assert.equal(env.DYLD_LIBRARY_PATH, dirname(firmware));
   assert.equal(env.PATH, "/usr/bin");

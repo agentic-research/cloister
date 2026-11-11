@@ -256,8 +256,13 @@ is an operator decision outside the plan (the host runtime's existing rule).
   - Live: the dolt/orders demo answered grpcurl over a declared edge. With the
     edge removed, orders exited 2 and `up` tore dolt down
     (`tools/dolt-grpc-demo/microvm/`).
-  - Images come from on-disk OCI layouts only, because LLO v0.28.0 has no
-    registry fetch (`cloister-727354`).
+  - Images come from an on-disk OCI layout, or since LLO v0.29.0 from their
+    registry. `runtime import --bundle` with no `--layout` pulls the lock's
+    pinned `identifier@sha256:…`, anonymously over HTTPS (`cloister-727354`).
+    The CAS root and the run root sit on LLO's case-sensitive volume, which
+    `runtime install` provisions. The published `dolthub/dolt-sql-server`
+    image runs this way, with no env
+    (`tools/dolt-grpc-demo/microvm-published/`).
 - Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, the
   "no `cluster.toml` field duplicates a forwarded spec field" rail beyond the
   Service-port check, and policy for `expose = "edge"` ingress from outside

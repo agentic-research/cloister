@@ -101,6 +101,11 @@ function validateMicrovm(microvm) {
   if (typeof fw.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(fw.sha256)) {
     throw new RuntimeProviderError("runtime provider microvm.libkrunfw.sha256 must be a complete SHA-256 digest");
   }
+  // casStateDir: the state dir LLO's CAS volume lives under (cloister-727354);
+  // optional, so a record written before the volume still reads.
+  if (microvm.casStateDir !== undefined && (typeof microvm.casStateDir !== "string" || !isAbsolute(microvm.casStateDir))) {
+    throw new RuntimeProviderError("runtime provider microvm.casStateDir must be an absolute path");
+  }
   for (const key of ["casRoot", "runRoot"]) {
     if (typeof microvm[key] !== "string" || !isAbsolute(microvm[key])) {
       throw new RuntimeProviderError(`runtime provider microvm.${key} must be an absolute path`);
@@ -196,6 +201,7 @@ export function resolveMicrovm(record) {
     krunWorker,
     libkrunfw: microvm.libkrunfw.path,
     casRoot: microvm.casRoot,
+    ...(microvm.casStateDir ? { casStateDir: microvm.casStateDir } : {}),
     runRoot: microvm.runRoot,
   };
 }

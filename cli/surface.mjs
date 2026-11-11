@@ -360,15 +360,17 @@ export const COMMANDS = [
       "record containing their SHA-256 digests. Runtime commands verify those " +
       "digests before execution.",
   },
-  { name: "runtime import", usage: "cloister runtime import --layout <dir> [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]",
-    summary: "Import a digest-pinned OCI image layout as a microVM rootfs",
+  { name: "runtime import", usage: "cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]",
+    summary: "Import a digest-pinned OCI image (layout or registry) as a microVM rootfs",
     detail:
       "With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in " +
       "cluster.lock.toml; --image may be omitted, and must equal it if given) and records " +
       "the resulting blake3-256 rootfs beside the pin, which `runtime plan` and `cluster up` " +
-      "run. Idempotent. Without --bundle, prints LLO's import record and writes nothing.",
+      "run. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is " +
+      "pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned " +
+      "image is refused). Without --bundle, prints LLO's import record and writes nothing.",
     flags: [
-      { flag: "--layout <dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store" },
+      { flag: "--layout <dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry" },
       { flag: "--bundle <name>", summary: "record the rootfs for this bundle in cluster.lock.toml" },
       { flag: "--dir <cluster>", summary: "with --bundle: cluster directory holding cluster.lock.toml (default: the current directory)" },
       { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest)" },

@@ -1,0 +1,65 @@
+# The microVM demo with Dolt from its PUBLISHED image (cloister-727354):
+# dolthub/dolt-sql-server 1.86.1, pinned by its multi-arch index digest (the
+# one tools/dolt-grpc-demo/k8s/dolt.yaml uses) and pulled from Docker Hub by
+# `cloister runtime import --bundle dolt --symlinks resolve` (no --layout).
+# orders is built locally as in ../microvm. See README.md.
+#
+# The image config's entrypoint is `tini -- docker-entrypoint.sh`. This runs
+# docker-entrypoint.sh directly instead: on LLO v0.29.0 every guest argument
+# from a literal `--` onward is DROPPED, so tini receives no program and prints
+# its usage (seen live; ley-line-open-7410ec). The guest has its
+# own init, so tini's reaping is not needed. Paths are absolute because a plan
+# names an absolute executable. Plans carry no env: the script runs with the
+# guest's HOME=/ and PATH, as root, and needs nothing else (seen live).
+
+[metadata]
+name = "dolt-grpc-demo-published"
+version = "0.0.1"
+
+[storage]
+doStoragePath = "/data/do"
+
+[[bundles]]
+name = "dolt"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolthub/dolt-sql-server"
+entryPoint = "/usr/local/bin/docker-entrypoint.sh"
+executionMode = "microvm"
+args = []
+
+[[bundles.ports]]
+name = "mysql"
+port = 3306
+appProtocol = "art.mysql"
+expose = "cluster"
+
+[[bundles]]
+name = "orders"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "dolt-grpc-demo/orders"
+entryPoint = "/orders"
+executionMode = "microvm"
+args = ["-db", "127.0.0.1:3306", "-listen", "127.0.0.1:50051"]
+
+[[bundles.ports]]
+name = "grpc"
+port = 50051
+appProtocol = "art.grpc"
+expose = "cluster"
+
+[[connections]]
+from = "orders"
+name = "orders-db"
+appProtocol = "art.mysql"
+minStrength = "capability"
+
+[[connections.targets]]
+env = "local"
+bundle = "dolt"
+port = "mysql"
