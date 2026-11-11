@@ -1,12 +1,14 @@
 #!/bin/sh
-# Build the microVM demo from a clean checkout (cloister-991e65):
-#   1. both images as OCI layouts (docker buildx, linux/arm64, no attestations)
-#   2. pin their digests into the generated cluster.lock.toml
-#   3. import each pinned image into the microVM CAS and record its rootfs
+# Build the microVM demo's images reproducibly (cloister-991e65, cloister-2af014):
+#   1. both images as APKs (melange) and OCI layouts (apko), linux/arm64
+#   2. pin their digests into cluster.lock.toml (committed: a clean build on
+#      another checkout gives the same digests, so the lock does not change)
+#   3. import each pinned image into the microVM CAS and record its rootfs row
 # Then: cloister cluster up --env local --dir tools/dolt-grpc-demo/microvm
 #
-# Run from anywhere; paths are resolved from this script. Needs Docker with
-# buildx and an installed runtime (`cloister runtime install`).
+# Needs melange and apko, and an installed runtime (`cloister runtime
+# install`). On macOS melange runs its build steps in a container (its docker
+# runner); on Linux it uses bubblewrap. apko needs no runner.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 DEMO=$(cd "$HERE/.." && pwd)
@@ -14,18 +16,12 @@ REPO=$(cd "$DEMO/../.." && pwd)
 OUT="$HERE/out"
 cloister() { node "$REPO/bin/cloister.mjs" "$@"; }
 
-rm -rf "$OUT"
-mkdir -p "$OUT"
-
-build() { # <bundle> <dockerfile> <context>
-  docker buildx build --platform linux/arm64 --provenance=false --sbom=false \
-    --output "type=oci,dest=$OUT/$1,tar=false" -f "$2" "$3"
-}
-build dolt "$HERE/dolt.Dockerfile" "$HERE"
-build orders "$HERE/orders.Dockerfile" "$DEMO"
-
+sh "$HERE/build-images.sh" "$OUT"
 node "$HERE/pin-layouts.mjs" "dolt=$OUT/dolt" "orders=$OUT/orders"
 
+# Wolfi images hold symlinks (apko's /lib/apk -> ../usr/lib/apk), which the
+# importer's default refuses. LLO v0.30.0's rootfs manifest v2
+# (ley-line-open-4f08ea) records links, and the default will do.
 for b in dolt orders; do
-  cloister runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b"
+  cloister runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b" --symlinks resolve
 done

@@ -4,7 +4,8 @@ The same two services as [`../microvm`](../microvm/README.md). Here `dolt` is
 **`dolthub/dolt-sql-server` 1.86.1 as published**: pinned by its multi-arch
 index digest (the one [`../k8s/dolt.yaml`](../k8s/dolt.yaml) uses) and pulled
 from Docker Hub by `cloister runtime import --bundle dolt` with no `--layout`
-(`cloister-727354`). `orders` is built locally as before.
+(`cloister-727354`). `orders` is built reproducibly with `../microvm`'s melange
++ apko build (`cloister-2af014`).
 
 ## From a clean checkout
 
@@ -16,8 +17,10 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm-
 ```
 
 `build.sh` builds orders' layout, pins orders' layout digest and Dolt's
-published digest into a generated, gitignored `cluster.lock.toml`, then imports
-both. Dolt's import is a registry pull:
+published digest into [`cluster.lock.toml`](cluster.lock.toml), then imports
+both. The lock is committed: both pins are the same on every checkout (see
+`../microvm`'s reproducibility limit for the orders image). Dolt's import is a
+registry pull:
 
 ```
 cloister runtime import --bundle dolt --dir … --symlinks resolve

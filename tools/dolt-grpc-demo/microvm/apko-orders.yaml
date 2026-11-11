@@ -1,0 +1,26 @@
+# The orders image for the microVM demo (cloister-2af014): the static orders
+# binary built by melange-orders.yaml, nothing else. Built by ./build.sh.
+contents:
+  # The local repository (build-images.sh's <out dir>/packages) is appended
+  # with --repository-append; there is no other repository.
+  packages:
+    - orders
+
+# The service needs no privilege; run it as the conventional nonroot user, as
+# the distroless image in ../Dockerfile does. (The microVM path does not read
+# the image's user today; the image states it anyway.)
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/orders
+
+archs:
+  - aarch64

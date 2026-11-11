@@ -43,7 +43,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "dolt-grpc-demo/orders"
-entryPoint = "/orders"
+entryPoint = "/usr/bin/orders"
 executionMode = "microvm"
 args = ["-db", "127.0.0.1:3306", "-listen", "127.0.0.1:50051"]
 

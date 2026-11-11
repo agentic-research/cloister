@@ -1,3 +1,4 @@
-# Built by ./build.sh: the orders layout and the generated lock.
+# Built by ./build.sh: the orders APK and layout. cluster.lock.toml is
+# committed: orders is reproducible and Dolt is pinned by its published
+# digest (cloister-2af014).
 out/
-cluster.lock.toml
