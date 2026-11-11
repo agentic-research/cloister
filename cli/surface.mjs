@@ -285,7 +285,10 @@ export const COMMANDS = [
       "each bundle bound once every socket it binds exists (health is not checked, so it " +
       "is not called ready — ADR-0071 §3). Plans are emitted in memory " +
       "exactly as `runtime plan` would. Channel sockets live in a fresh owner-only " +
-      "directory, printed per exposed port and removed on exit. Runs in the foreground; " +
+      "directory, printed per exposed port and removed on exit. A port declared " +
+      "expose = \"edge\" is also published on the host as TCP at 127.0.0.1:<port> (loopback " +
+      "only), relayed to that socket once its bundle is bound; every edge port is bound " +
+      "before anything starts, so a busy one is refused by name. Runs in the foreground; " +
       "SIGINT/SIGTERM/SIGHUP/SIGQUIT stops every run in reverse order; a second signal " +
       "reports progress, a third SIGKILLs the host runtimes (their VMs may then outlive " +
       "them until ley-line-open-f963e6). If `up` is killed, each host runtime stops on " +

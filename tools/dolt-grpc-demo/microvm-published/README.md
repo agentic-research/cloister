@@ -49,10 +49,12 @@ run's ephemeral rootfs goes on the same volume. With the run root on default
 APFS, the run was refused: `create ephemeral rootfs directory: File exists`
 (ley-line-open-741388).
 
-Then call orders as in `../microvm`:
+Then call both as in `../microvm`. Both ports are `expose = "edge"`, so `cluster
+up` publishes them on host `127.0.0.1`:
 
 ```sh
-grpcurl -plaintext -d '{"id":1}' unix://<printed orders.grpc.sock> cloister.demo.v1.Orders/Get
+mysql -h 127.0.0.1 -P 3306 -uroot -e "select * from orders.orders"
+grpcurl -plaintext -d '{"id":1}' 127.0.0.1:50051 cloister.demo.v1.Orders/Get
 # {"id": 1, "msg": "read from Dolt over a declared connection", "branch": "main"}
 ```
 

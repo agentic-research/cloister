@@ -6,11 +6,15 @@
 //   FAKE_<BUNDLE>      ok | slow-bind | never-bind | bind-then-die | ignore-term
 //                      | split-line-then-die (bind, write ONE stderr line in
 //                        several small writes, exit 1)
+//                      | echo (bind REAL unix sockets that echo every byte
+//                        back, standing in for a guest service behind its
+//                        §6 bind channel — cloister-991e65 edge relay)
 //   FAKE_STOP_MS       delay between SIGTERM and exiting 143 (default 0)
 //   FAKE_BIND_MS / FAKE_DIE_MS  delays for slow-bind / bind-then-die
 //   FAKE_LOG           file; one "<bundle> <pid> <event>" line per event
 
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 
 const [, , verb, flag, planPath] = process.argv;
 if (verb !== "run" || flag !== "--stop-on-stdin-eof") {
@@ -26,6 +30,12 @@ const bind = () => { for (const p of binds) writeFileSync(p, ""); event("bound")
 
 event("start");
 if (mode === "ok" || mode === "ignore-term") bind();
+if (mode === "echo") {
+  let left = binds.length;
+  for (const p of binds) {
+    createServer((c) => c.pipe(c)).listen(p, () => { left -= 1; if (left === 0) event("bound"); });
+  }
+}
 if (mode === "slow-bind") setTimeout(bind, Number(process.env.FAKE_BIND_MS ?? 300));
 if (mode === "bind-then-die") {
   bind();

@@ -312,6 +312,23 @@ of closing it; a client that connects later than that still retries. Sockets liv
 `/tmp` symlink). Each exposed port's `unix://` path is printed, and the
 directory is removed on exit.
 
+**Host TCP for `expose = "edge"`.** A port declared `expose = "edge"` is also
+published on the host, as TCP on `127.0.0.1:<port>` (loopback only, never
+`0.0.0.0`), and relayed to the bundle's socket. `up` prints each one:
+
+```
+cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by anything on this host)
+```
+
+So the stock clients work over TCP: `mysql -h 127.0.0.1 -P 3306`, `grpcurl
+-plaintext 127.0.0.1:50051 …`. Anything on the host can reach an edge port;
+that is what `edge` means on a developer machine. `expose = "cluster"` stays
+socket-only, reachable only through declared connections, and `none` gets no
+channel at all. Every edge port is bound before any bundle starts: a busy one
+is refused by name (which bundle and port wanted it), with nothing started. A
+connection that arrives before its bundle is bound is closed. The listeners
+close before the runs are stopped, and if `up` is killed the OS closes them.
+
 `up` stays in the foreground. Ctrl-C (or SIGTERM, SIGHUP, SIGQUIT) stops every
 run in reverse order: the host runtime cancels its run through LLO, which kills
 the worker's process group. If `up` is killed with `kill -9`, each host runtime

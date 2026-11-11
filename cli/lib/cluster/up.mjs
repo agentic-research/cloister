@@ -20,6 +20,11 @@
 //     and one that fails exits, which `up` sees.
 //   - plans: emitted in memory by `buildLaunchPlan`, the code path behind
 //     `runtime plan`, then handed to the host runtime as a 0600 file.
+//   - host TCP: a port declared `expose = "edge"` is published on
+//     127.0.0.1:<port> and relayed to the bundle's bind socket
+//     (edge-relay.mjs). Every edge port is reserved before anything starts (a
+//     busy one is refused by name), relays once its bundle is bound, and is
+//     closed before the runs are stopped. `cluster` stays socket-only.
 //
 // One fresh owner-only channel directory per invocation (LLO refuses a bind
 // path that already exists, and does not unlink sockets after a run —
@@ -37,6 +42,7 @@ import { lazyRootfsInCas } from "../runtime/cas-root.mjs";
 import { lazyGuestPlatform } from "../runtime/guest-platform.mjs";
 import { hostRuntimeEnv, resolveHostRuntime } from "../runtime/compatibility-client.mjs";
 import { MAX_UNIX_SOCKET_PATH } from "./connections.mjs";
+import { describeEdge, edgePorts, openEdgeListeners } from "./edge-relay.mjs";
 
 /**
  * `cloister-host-runtime run` exits 124 (timeout(1)'s status) when LLO stops a
@@ -147,7 +153,8 @@ export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQU
  * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas, guestPlatform,
  *   makeTemp, exists, signals (EventEmitter-like: on/off, receives signal and
  *   uncaughtException/unhandledRejection events), stdout, pollMs,
- *   hostRuntime ({command, env, args?})
+ *   hostRuntime ({command, env, args?}), openEdge (edge-relay's
+ *   openEdgeListeners)
  * @returns {Promise<number>} exit status
  */
 export async function clusterUp({ root, env, deps = {} }) {
@@ -243,6 +250,7 @@ export async function clusterUp({ root, env, deps = {} }) {
   stdout?.on?.("error", onStdoutError);
 
   let channelDir = null;
+  let edgeListeners = [];
   try {
     channelDir = makeChannelDir(deps.makeTemp);
     const plans = order.map((name) => {
@@ -254,6 +262,10 @@ export async function clusterUp({ root, env, deps = {} }) {
         if (Buffer.byteLength(p) > MAX_UNIX_SOCKET_PATH) throw new Error(`channel socket path over ${MAX_UNIX_SOCKET_PATH} bytes: ${p}`);
       }
     }
+    // Host TCP for expose = "edge": reserved now, before anything starts, so a
+    // busy port is refused by name with nothing to tear down.
+    edgeListeners = await (deps.openEdge ?? openEdgeListeners)(edgePorts(cluster, order, channelDir), { errLog });
+
     const host = deps.hostRuntime ?? (() => {
       const binary = resolveHostRuntime({ env: procEnv });
       return { command: binary.command, env: binary.record ? hostRuntimeEnv(binary.record, procEnv) : procEnv };
@@ -342,6 +354,10 @@ export async function clusterUp({ root, env, deps = {} }) {
       });
       if (stopRequested) break;
       log(`cloister cluster up: "${plan.bundle}" bound (its sockets exist; health not checked — ADR-0071 §3)`);
+      for (const l of edgeListeners.filter((x) => x.edge.bundle === plan.bundle)) {
+        l.activate();
+        log(`cloister cluster up: ${describeEdge(l.edge)} (reachable by anything on this host)`);
+      }
     }
 
     if (!stopRequested) {
@@ -351,6 +367,7 @@ export async function clusterUp({ root, env, deps = {} }) {
           log(`  ${run.bundle}.${p.name} (${p.appProtocol}): unix://${join(channelDir, `${run.bundle}.${p.name}.sock`)}`);
         }
       }
+      for (const l of edgeListeners) log(`  ${describeEdge(l.edge)}`);
       log("cloister cluster up: all bundles bound (health not checked — ADR-0071 §3); Ctrl-C to stop");
       log(
         "cloister cluster up: note: every run is stopped at its wall-clock ceiling (each " +
@@ -360,6 +377,12 @@ export async function clusterUp({ root, env, deps = {} }) {
       await stopPromise;
     }
   } finally {
+    // Edge listeners first: no new host connection may reach a bundle that is
+    // about to stop, and none outlives `up`.
+    if (edgeListeners.length > 0) {
+      await Promise.all(edgeListeners.map((l) => l.close()));
+      log(`cloister cluster up: closed edge listeners (${edgeListeners.map((l) => `127.0.0.1:${l.edge.port}`).join(", ")})`);
+    }
     // Stop in reverse start order: dependents before what they depend on.
     // The stop handlers are still installed: a second signal reports
     // progress, a third escalates — neither kills `up` mid-teardown.

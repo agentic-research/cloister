@@ -125,7 +125,10 @@ export interface PortSpec {
   port: number;
   /** ADR-0030 §A4 label. */
   appProtocol: string;
-  /** `"none"` | `"cluster"` | `"edge"`; `""` means `"none"`. */
+  /**
+   * `"none"` | `"cluster"` | `"edge"`; `""` means `"none"` (ADR-0069 §2).
+   * `"edge"` on microvm: `cluster up` also publishes it on 127.0.0.1:<port>.
+   */
   expose: string;
 }
 

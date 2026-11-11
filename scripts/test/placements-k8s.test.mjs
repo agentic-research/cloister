@@ -374,3 +374,12 @@ test("cluster k8s with no kubernetes placement for the env says so", async () =>
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test("cluster k8s refuses expose = \"edge\" by name: publishing outside the cluster is not lowered yet", async () => {
+  const toml = DEMO_TOML.replace(/(name = "mysql"\nport = 3306\nappProtocol = "art.mysql"\n)expose = "cluster"/, '$1expose = "edge"');
+  assert.notEqual(toml, DEMO_TOML, "fixture lost its mysql port row");
+  await assert.rejects(
+    emit(toml),
+    /bundle "dolt" port "mysql" has expose = "edge", which `cluster k8s` does not lower yet \(a NodePort plus kind extraPortMappings; tracked with cloister-55424e\)/,
+  );
+});

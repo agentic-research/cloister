@@ -8,6 +8,40 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `expose = "edge"`: host TCP for microvm ports in `cluster up` (`cloister-991e65`)
+
+- **What `edge` means now.** ADR-0069 §2 defines the three values: `none` (no
+  channel), `cluster` (reachable only through declared connections), `edge`
+  (that, plus from outside). For a `microvm` placement, `cluster up`
+  publishes each `edge` port on the host as TCP at `127.0.0.1:<port>`
+  (loopback only, never `0.0.0.0`) and relays each connection to the
+  bundle's bind socket (`cli/lib/cluster/edge-relay.mjs`). It prints
+  `edge: 127.0.0.1:3306 → dolt.mysql (art.mysql)`.
+- **Lifecycle (ADR-0071 §1).** Every edge port is bound before any bundle
+  starts. A busy one is refused by name (which bundle and port wanted it),
+  with nothing started; binding is the check, so nothing else can take the
+  port in between. A connection that arrives before its bundle is bound is
+  closed. The listeners close before the runs are stopped; if `up` is
+  killed, the OS closes them. Real-process tests cover SIGINT and `kill -9`.
+- **Not reused:** the harness's `assertPortsFree`. It asks `lsof` (and
+  passes when `lsof` is missing), checks then binds separately, and its
+  message is about wrangler.
+- **`cluster k8s`** refuses `edge` by name: a NodePort plus kind
+  `extraPortMappings` is tracked with the broker work (`cloister-55424e`).
+- **Demos.** `dolt.mysql` and `orders.grpc` are `expose = "edge"` in both
+  microvm demos. Live on darwin-arm64:
+  - `mysql -h 127.0.0.1 -P 3306 -uroot -e "select * from orders.orders"` and
+    `grpcurl -plaintext 127.0.0.1:50051` return the row, on both demos;
+  - the host's LAN address does not answer on 3306;
+  - with `expose = "cluster"`, nothing listens on host 3306;
+  - an edge port gives no VM a channel: with the connection removed, orders'
+    guest dial to 127.0.0.1:3306 was refused while dolt was published on the
+    host's;
+  - SIGINT leaves no listener and no host runtime.
+- **Boundary (ADR-0035).** The relay is a small data-plane piece in the Node
+  CLI, carrying bytes and deciding nothing. LLO may absorb host publishing
+  later; `up` would then pass the declaration through.
+
 ### 2026-11 — Reproducible demo images (melange + apko); the demo locks are committed (`cloister-2af014`)
 
 - **Build.** The microVM demo's images are built the way cloister builds its
