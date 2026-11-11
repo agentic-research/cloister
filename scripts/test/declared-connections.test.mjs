@@ -82,7 +82,7 @@ const lock = {
       name,
       // `rootfs` is what `runtime import --bundle` records; a microvm plan
       // runs it, never the sha256 image (cloister-991e65).
-      { oci: { identifier: `ghcr.io/example/${name}`, digest: `sha256:${"a".repeat(64)}`, rootfs: `blake3-256:${"b".repeat(64)}` } },
+      { oci: { identifier: `ghcr.io/example/${name}`, digest: `sha256:${"a".repeat(64)}`, rootfsImage: `sha256:${"a".repeat(64)}`, rootfs: `blake3-256:${"b".repeat(64)}` } },
     ]),
   ),
 };

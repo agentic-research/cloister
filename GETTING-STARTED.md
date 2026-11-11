@@ -258,8 +258,12 @@ clients should retry. Sockets live in a fresh owner-only directory under
 `/tmp` symlink). Each exposed port's `unix://` path is printed, and the
 directory is removed on exit.
 
-`up` stays in the foreground. Ctrl-C stops every run in reverse order: the host
-runtime cancels its run through LLO, which kills the worker's process group. If
+`up` stays in the foreground. Ctrl-C (or SIGTERM, SIGHUP, SIGQUIT) stops every
+run in reverse order: the host runtime cancels its run through LLO, which kills
+the worker's process group. If `up` is killed with `kill -9`, each host runtime
+sees its stdin close and stops its run. A second signal while stopping reports
+progress, and a third SIGKILLs the host runtimes. Their krun workers can then
+outlive them until ley-line-open-f963e6. If
 any run ends on its own, the rest are stopped and `up` exits non-zero, naming
 the bundle and its status. Kubernetes-placed bundles are skipped with a pointer
 to `cluster k8s`. Every run is also stopped at its wall-clock ceiling, which is

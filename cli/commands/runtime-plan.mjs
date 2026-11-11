@@ -18,8 +18,10 @@ import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
 import {
+  ROOTFS_IMAGE_KEY,
   ROOTFS_KEY,
   importCommand,
+  lockedOci,
   isBlake3Digest,
   lockedRootfs,
   rootfsHex,
@@ -138,7 +140,9 @@ export function buildLaunchPlan(cluster, lock, options) {
     );
   }
 
-  const oci = lock?.inputs?.[options.bundle]?.oci;
+  // lockedOci refuses, by name, a bundle pinned only through a multi-image
+  // producer's [[inputs.<input>.ociBundles]] (not supported yet).
+  const oci = lockedOci(lock, options.bundle);
   if (!oci || typeof oci.identifier !== "string" || !oci.identifier.trim()) {
     throw new Error(`bundle ${JSON.stringify(options.bundle)} has no locked OCI artifact`);
   }
@@ -153,7 +157,7 @@ export function buildLaunchPlan(cluster, lock, options) {
   // image and recorded beside it; a plan is never emitted without it
   // (cloister-991e65). Process mode is unchanged and keeps the image digest.
   const digest = external.executionMode === "microvm"
-    ? microvmRootfs(lock, options)
+    ? microvmRootfs(lock, oci, options)
     : oci.digest;
 
   // Defense in depth: parseTomlToCluster already refuses this. §6 grants come
@@ -206,7 +210,7 @@ export function buildLaunchPlan(cluster, lock, options) {
  * exact command that fixes it. `options.rootfsInCas(hex)` answers whether the
  * CAS holds that rootfs; it is required, so a caller cannot skip the check.
  */
-function microvmRootfs(lock, options) {
+function microvmRootfs(lock, oci, options) {
   const bundle = options.bundle;
   const fix = importCommand(bundle, options.dir);
   const recorded = lockedRootfs(lock, bundle);
@@ -220,6 +224,16 @@ function microvmRootfs(lock, options) {
     throw new Error(
       `bundle "${bundle}" records rootfs ${JSON.stringify(recorded.rootfs)}, which is not a ` +
         `blake3-256 digest. Re-import:\n  ${importCommand(bundle, options.dir, recorded.symlinks)}`,
+    );
+  }
+  // Bound by value, not by position: the rootfs must be the one imported from
+  // the image pinned NOW. A hand-edited pin never runs an old rootfs.
+  if (recorded.image !== oci.digest) {
+    throw new Error(
+      `bundle "${bundle}"'s recorded rootfs ${recorded.rootfs} was imported from ` +
+        `${recorded.image ?? "an unrecorded image"} ([inputs.${bundle}.oci] ${ROOTFS_IMAGE_KEY}), ` +
+        `but the lock now pins ${oci.digest}. Re-import the pinned image:\n  ` +
+        importCommand(bundle, options.dir, recorded.symlinks),
     );
   }
   if (typeof options.rootfsInCas !== "function") {

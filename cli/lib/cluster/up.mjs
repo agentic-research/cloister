@@ -113,45 +113,127 @@ export function bindPaths(plan) {
   return (plan.confinement?.unixSocket?.allow ?? []).filter((g) => g.mode === "bind").map((g) => g.path);
 }
 
+/** Signals that stop the cluster (never kill `up` and orphan its runs). */
+export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"]);
+
 /**
- * Bring the env up and supervise it until a signal or a run ends on its own.
+ * Bring the env up and supervise it until a stop request or a run ends on its
+ * own, then stop everything in reverse start order.
+ *
+ * Lifecycle guarantees (cloister-991e65 review):
+ *   - stop requests: SIGINT, SIGTERM, SIGHUP, SIGQUIT, an uncaught exception
+ *     or rejection inside `up`, and EPIPE on stdout all run the SAME teardown.
+ *     The handlers stay installed until teardown has finished.
+ *   - a second signal during teardown does not kill `up`; it prints which
+ *     bundles are still stopping. A THIRD signal SIGKILLs the remaining host
+ *     runtimes (escalation; no timeout is invented) and says, loudly, that
+ *     their VM workers may survive them until ley-line-open-f963e6.
+ *   - if `up` itself dies (SIGKILL, crash), each host runtime sees EOF on the
+ *     stdin pipe `up` holds open and stops its run (`run --stop-on-stdin-eof`).
+ *   - any started run that ends on its own — during a later bundle's start,
+ *     or after everything is ready — stops the cluster, and the exit status is
+ *     non-zero even if a signal also arrived: 124 when that end was the
+ *     wall-clock ceiling, 1 otherwise.
  *
  * @param {object} o
  * @param {string} o.root cluster directory
  * @param {string} o.env
  * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas,
- *   makeTemp, exists, signals (an EventEmitter-like with on/off), pollMs
+ *   makeTemp, exists, signals (EventEmitter-like: on/off, receives signal and
+ *   uncaughtException/unhandledRejection events), stdout, pollMs,
+ *   hostRuntime ({command, env, args?})
  * @returns {Promise<number>} exit status
  */
 export async function clusterUp({ root, env, deps = {} }) {
-  const log = deps.log ?? console.log;
-  const errLog = deps.errLog ?? console.error;
   const procEnv = deps.env ?? process.env;
   const spawn = deps.spawn ?? nodeSpawn;
   const exists = deps.exists ?? existsSync;
   const signals = deps.signals ?? process;
+  const stdout = deps.stdout ?? process.stdout;
   const pollMs = deps.pollMs ?? 100;
+  let stdoutBroken = false;
+  const log = (m) => { if (!stdoutBroken) (deps.log ?? console.log)(m); };
+  const errLog = deps.errLog ?? console.error;
 
+  // Everything that can be refused is refused before any side effect.
   const absRoot = realpathSync(resolve(root));
   const cluster = await parseTomlToCluster(readFileSync(join(absRoot, "cluster.toml"), "utf8"));
   const lockPath = join(absRoot, "cluster.lock.toml");
   if (!exists(lockPath)) throw new Error(`no cluster.lock.toml in ${absRoot}`);
   const lock = parseToml(readFileSync(lockPath, "utf8"));
   const { order, skipped } = startOrder(cluster, env);
-  for (const s of skipped) log(`cloister cluster up: skipping "${s.name}": ${s.reason}`);
+  for (const sk of skipped) log(`cloister cluster up: skipping "${sk.name}": ${sk.reason}`);
   if (order.length === 0) throw new Error(`no bundle is placed "microvm" for env "${env}"`);
-
   const shownDir = relative(process.cwd(), absRoot) || ".";
   const rootfsInCas = deps.rootfsInCas ?? casRootInCas(procEnv);
 
-  // Every plan is built BEFORE anything starts, so a missing rootfs or an
-  // over-long path refuses the whole `up` with nothing to tear down.
-  const channelDir = makeChannelDir(deps.makeTemp);
+  // ── stop control ─────────────────────────────────────────────────────────
   const runs = [];
-  let stopping = false;
-  let failure = null;
-  let ceilingReached = false;
+  const ownExits = [];
+  let stopRequested = false;
+  let signalCount = 0;
+  let internalError = null;
+  let forced = false;
+  let resolveStop;
+  const stopPromise = new Promise((r) => { resolveStop = r; });
+  const requestStop = (why) => {
+    if (stopRequested) return;
+    stopRequested = true;
+    resolveStop(why);
+  };
+  const pending = () => runs.filter((run) => !run.done && run.child.pid !== undefined);
+  const describePending = () => pending().map((run) => `${run.bundle} (pid ${run.child.pid})`).join(", ") || "none";
+  const forceKill = () => {
+    forced = true;
+    const left = pending();
+    for (const run of left) {
+      try { run.child.kill("SIGKILL"); } catch (error) {
+        errLog(`cloister cluster up: SIGKILL of "${run.bundle}" (pid ${run.child.pid}) failed: ${error.message}`);
+      }
+    }
+    errLog(
+      `cloister cluster up: SIGKILLed host runtimes ${left.map((run) => `${run.bundle} (pid ${run.child.pid})`).join(", ") || "none"}. ` +
+        `Their krun workers — the VMs — may STILL BE RUNNING: a worker does not notice its ` +
+        `host runtime dying until ley-line-open-f963e6. Check \`ps\` for leyline-krun-worker.`,
+    );
+  };
+  const onSignal = (sig) => {
+    signalCount += 1;
+    if (signalCount === 1) {
+      log(`cloister cluster up: ${sig}: stopping every run in reverse start order`);
+      requestStop({ signal: sig });
+    } else if (signalCount === 2) {
+      errLog(
+        `cloister cluster up: ${sig} again: still stopping ${describePending()}. ` +
+          `Waiting for them; one more signal SIGKILLs the host runtimes (their VMs may then survive — ley-line-open-f963e6).`,
+      );
+    } else if (!forced) {
+      forceKill();
+    }
+  };
+  const onInternal = (error) => {
+    internalError = internalError ?? error;
+    errLog(`cloister cluster up: internal error, stopping everything: ${error?.stack ?? error}`);
+    requestStop({ error });
+  };
+  const onStdoutError = (error) => {
+    if (error?.code === "EPIPE") {
+      stdoutBroken = true;
+      errLog("cloister cluster up: stdout closed (EPIPE); stopping everything");
+      requestStop({ epipe: true });
+    } else {
+      onInternal(error);
+    }
+  };
+  // Installed BEFORE anything exists to clean up, removed only after teardown.
+  for (const sig of STOP_SIGNALS) signals.on(sig, onSignal);
+  signals.on("uncaughtException", onInternal);
+  signals.on("unhandledRejection", onInternal);
+  stdout?.on?.("error", onStdoutError);
+
+  let channelDir = null;
   try {
+    channelDir = makeChannelDir(deps.makeTemp);
     const plans = order.map((name) => {
       const opts = parsePlanArgs([name, "--workspace", absRoot, "--env", env, "--channel-dir", channelDir]);
       return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas });
@@ -161,31 +243,39 @@ export async function clusterUp({ root, env, deps = {} }) {
         if (Buffer.byteLength(p) > MAX_UNIX_SOCKET_PATH) throw new Error(`channel socket path over ${MAX_UNIX_SOCKET_PATH} bytes: ${p}`);
       }
     }
-
     const host = deps.hostRuntime ?? (() => {
       const binary = resolveHostRuntime({ env: procEnv });
       return { command: binary.command, env: binary.record ? hostRuntimeEnv(binary.record, procEnv) : procEnv };
     })();
 
-    // Stop requests: the first SIGINT/SIGTERM stops everything.
-    let resolveStop;
-    const stopRequested = new Promise((r) => { resolveStop = r; });
-    const onSignal = (sig) => { if (!stopping) { stopping = true; resolveStop(sig); } };
-    signals.on("SIGINT", onSignal);
-    signals.on("SIGTERM", onSignal);
+    const describeExit = (run, res) => {
+      if (res.error) return `bundle "${run.bundle}" could not be started: ${res.error.message}`;
+      if (res.code === EXIT_WALL_CLOCK) {
+        return `bundle "${run.bundle}" reached its wall-clock ceiling and was stopped by the ` +
+          `runtime — not a workload failure (services cannot ask for "no ceiling" yet: ` +
+          `ley-line-open-e6b1bb)`;
+      }
+      const status = res.signal ? `signal ${res.signal}` : `status ${res.code}`;
+      const why = run.stderrTail.length ? `: ${run.stderrTail[run.stderrTail.length - 1]}` : "";
+      return `bundle "${run.bundle}" exited on its own with ${status}${why}`;
+    };
 
-    // One run's lifecycle. `ended` resolves with {code, signal}.
     const start = (plan) => {
       const planPath = join(channelDir, `${plan.bundle}.plan.json`);
       writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
-      // Own process group: a terminal Ctrl-C reaches `up` only, so `up`
-      // decides the stop order instead of every run cancelling at once.
-      const child = spawn(host.command, ["run", planPath], {
+      // detached: own process group, so a terminal Ctrl-C reaches `up` only
+      // and `up` decides the stop order. stdin: a pipe `up` holds open and
+      // never writes — it closes only when `up` is gone, which the host
+      // runtime takes as a stop (--stop-on-stdin-eof).
+      const child = spawn(host.command, [...(host.args ?? []), "run", "--stop-on-stdin-eof", planPath], {
         env: host.env,
-        stdio: ["ignore", "inherit", "pipe"],
+        stdio: ["pipe", "inherit", "pipe"],
         detached: true,
       });
-      const run = { bundle: plan.bundle, plan, child, stderrTail: [], stoppedByUs: false };
+      // Writing is never done; an EPIPE here only means the child is gone,
+      // which its exit event reports.
+      child.stdin?.on?.("error", () => {}); // lint-allow-silent: the child's exit is the signal; see above
+      const run = { bundle: plan.bundle, plan, child, stderrTail: [], stopRequested: false, done: null };
       child.stderr?.on("data", (chunk) => {
         for (const line of String(chunk).split("\n")) {
           if (!line) continue;
@@ -194,53 +284,42 @@ export async function clusterUp({ root, env, deps = {} }) {
           if (run.stderrTail.length > 20) run.stderrTail.shift();
         }
       });
-      run.ended = new Promise((r) => child.on("exit", (code, signal) => r({ code, signal })));
-      run.spawnError = new Promise((r) => child.on("error", (e) => r(e)));
+      run.ended = new Promise((r) => {
+        child.on("exit", (code, signal) => r({ code, signal }));
+        child.on("error", (error) => r({ error }));
+      }).then((res) => {
+        run.done = res;
+        if (!run.stopRequested) {
+          ownExits.push({ run, res });
+          errLog(`cloister cluster up: ${describeExit(run, res)}`);
+          requestStop({ ownExit: run.bundle });
+        }
+        return res;
+      });
       runs.push(run);
       return run;
     };
 
-    const describeExit = (run, result) => {
-      if (result.code === EXIT_WALL_CLOCK) {
-        ceilingReached = true;
-        return `bundle "${run.bundle}" reached its wall-clock ceiling and was stopped by the ` +
-          `runtime — not a workload failure (services cannot ask for "no ceiling" yet: ` +
-          `ley-line-open-e6b1bb)`;
-      }
-      const status = result.signal ? `signal ${result.signal}` : `status ${result.code}`;
-      const why = run.stderrTail.length ? `: ${run.stderrTail[run.stderrTail.length - 1]}` : "";
-      return `bundle "${run.bundle}" exited on its own with ${status}${why}`;
-    };
-
     for (const plan of plans) {
-      if (stopping) break;
+      if (stopRequested) break;
       const run = start(plan);
-      log(`cloister cluster up: started "${plan.bundle}" (pid ${run.child.pid})`);
+      log(`cloister cluster up: started "${plan.bundle}"${run.child.pid !== undefined ? ` (pid ${run.child.pid})` : ""}`);
       const binds = bindPaths(plan);
-      // Ready when every bind socket exists — or the run ends first.
-      const outcome = await new Promise((r) => {
-        let done = false;
-        const finish = (v) => { if (!done) { done = true; clearInterval(timer); r(v); } };
-        const check = () => { if (binds.every((p) => exists(p))) finish({ ready: true }); };
+      // Ready when every bind socket exists. ANY run ending on its own — this
+      // one or an earlier one — requests a stop, which ends this wait too.
+      await new Promise((r) => {
+        let finished = false;
+        const finish = () => { if (!finished) { finished = true; clearInterval(timer); r(); } };
+        const check = () => { if (binds.every((p) => exists(p))) finish(); };
         const timer = setInterval(check, pollMs);
-        run.ended.then((res) => finish({ ready: false, res }));
-        run.spawnError.then((e) => finish({ ready: false, error: e }));
-        stopRequested.then(() => finish({ ready: false, stop: true }));
+        stopPromise.then(finish);
         check();
       });
-      if (outcome.stop) break;
-      if (outcome.error) {
-        failure = `bundle "${plan.bundle}" could not be started: ${outcome.error.message}`;
-        break;
-      }
-      if (!outcome.ready) {
-        failure = `${describeExit(run, outcome.res)} — before it was ready`;
-        break;
-      }
+      if (stopRequested) break;
       log(`cloister cluster up: "${plan.bundle}" ready`);
     }
 
-    if (!failure && !stopping) {
+    if (!stopRequested) {
       for (const run of runs) {
         const ports = cluster.bundles.find((b) => b.name === run.bundle)?.ports ?? [];
         for (const p of ports.filter(isExposed)) {
@@ -253,37 +332,41 @@ export async function clusterUp({ root, env, deps = {} }) {
           "bundle's is printed above); a service cannot ask for \"no ceiling\" yet " +
           "(ley-line-open-e6b1bb)",
       );
-      // Run until a signal, or until any run ends on its own.
-      const first = await Promise.race([
-        stopRequested.then(() => null),
-        ...runs.map((run) => run.ended.then((res) => ({ run, res }))),
-      ]);
-      if (first) failure = describeExit(first.run, first.res);
+      await stopPromise;
     }
-
-    signals.off?.("SIGINT", onSignal);
-    signals.off?.("SIGTERM", onSignal);
   } finally {
     // Stop in reverse start order: dependents before what they depend on.
+    // The stop handlers are still installed: a second signal reports
+    // progress, a third escalates — neither kills `up` mid-teardown.
     for (const run of [...runs].reverse()) {
-      if (run.child.exitCode !== null || run.child.signalCode !== null) continue;
-      run.stoppedByUs = true;
-      try {
-        run.child.kill("SIGTERM");
-      } catch (error) {
-        errLog(`cloister cluster up: could not signal "${run.bundle}" (pid ${run.child.pid}): ${error.message}`);
+      if (run.done) continue;
+      run.stopRequested = true;
+      if (!forced) {
+        try {
+          run.child.kill("SIGTERM");
+        } catch (error) {
+          errLog(`cloister cluster up: could not signal "${run.bundle}" (pid ${run.child.pid}): ${error.message}`);
+        }
       }
       const res = await run.ended;
-      log(`cloister cluster up: stopped "${run.bundle}" (${res.signal ? `signal ${res.signal}` : `status ${res.code}`})`);
+      if (!res.error) {
+        log(`cloister cluster up: stopped "${run.bundle}" (${res.signal ? `signal ${res.signal}` : `status ${res.code}`})`);
+      }
     }
-    rmSync(channelDir, { recursive: true, force: true });
+    if (channelDir) rmSync(channelDir, { recursive: true, force: true });
+    for (const sig of STOP_SIGNALS) signals.off?.(sig, onSignal);
+    signals.off?.("uncaughtException", onInternal);
+    signals.off?.("unhandledRejection", onInternal);
+    stdout?.off?.("error", onStdoutError);
   }
 
-  if (failure) {
-    errLog(`cloister cluster up: ${failure}; stopped the rest`);
-    // The host runtime's own status for the ceiling, so a caller can tell it
-    // from a failure too.
-    return ceilingReached ? EXIT_WALL_CLOCK : 1;
+  if (forced) return 1;
+  if (internalError) return 1;
+  if (ownExits.length > 0) {
+    const allCeiling = ownExits.every(({ res }) => res.code === EXIT_WALL_CLOCK);
+    const names = ownExits.map(({ run }) => `"${run.bundle}"`).join(", ");
+    errLog(`cloister cluster up: ${names} ended on ${ownExits.length === 1 ? "its" : "their"} own; stopped the rest`);
+    return allCeiling ? EXIT_WALL_CLOCK : 1;
   }
   return 0;
 }

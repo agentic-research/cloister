@@ -62,7 +62,25 @@ grpcurl -plaintext -d '{"id":1}' unix:///private/tmp/cloister-up-XXXXXX/orders.g
 
 Press Ctrl-C in the `up` terminal. It stops `orders`, then `dolt`, and removes
 the socket directory. Each host runtime cancels its run through LLO, which
-kills the worker's process group, so no VM is left running.
+kills the worker's process group.
+
+When the VMs are, and are not, cleaned up:
+
+- **Cleaned up:** these paths reach LLO's cancel, which kills the worker:
+  - Ctrl-C, SIGTERM, SIGHUP or SIGQUIT to `up`;
+  - a crash inside `up`, or its stdout closing;
+  - a run ending on its own;
+  - a stop during a bundle's start: the host runtime waits for start to
+    settle, then cancels;
+  - `up` itself killed with `kill -9`: each host runtime sees its stdin close
+    and stops its run.
+- **Not guaranteed:**
+  - A third signal makes `up` SIGKILL the host runtimes, and `up` says so.
+  - A host runtime killed with `kill -9` directly.
+
+  In both cases the krun workers can outlive their host runtime, because a
+  worker does not notice its parent dying until ley-line-open-f963e6. Check
+  `ps` for `leyline-krun-worker` after such a stop.
 
 ## The negative check
 
@@ -81,6 +99,9 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
 
 ## Notes
 
+- **Signals while stopping:** a second Ctrl-C prints which bundles are still
+  stopping and keeps waiting. A third SIGKILLs the host runtimes (see the
+  limits above).
 - **The services are stopped after 15 minutes.** Every run carries a
   wall-clock ceiling. LLO requires one, and cloister's default is 15 minutes.
   A service cannot yet ask for "no ceiling" (ley-line-open-e6b1bb). When the

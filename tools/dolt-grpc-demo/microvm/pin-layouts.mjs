@@ -12,17 +12,16 @@
 // already recorded for an unchanged digest is kept, so re-running build.sh is
 // idempotent.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import { parse as parseToml } from "smol-toml";
 
-import { carryRootfs } from "../../../cli/lib/runtime/rootfs-lock.mjs";
+import { writeLockfile } from "../../../cli/lib/cluster/lockfile.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const cluster = parseToml(readFileSync(join(HERE, "cluster.toml"), "utf8"));
 const lockPath = join(HERE, "cluster.lock.toml");
-const previous = existsSync(lockPath) ? parseToml(readFileSync(lockPath, "utf8")) : {};
 
 const inputs = {};
 for (const arg of process.argv.slice(2)) {
@@ -38,7 +37,7 @@ for (const arg of process.argv.slice(2)) {
     version: "local",
     digest: index.manifests[0].digest,
   };
-  inputs[bundle] = { oci: carryRootfs(previous?.inputs?.[bundle]?.oci, oci) };
+  inputs[bundle] = { oci };
 }
 
 const doc = {
@@ -50,6 +49,8 @@ const doc = {
   version: cluster.metadata.version,
   inputs,
 };
-writeFileSync(lockPath, stringifyToml(doc));
+// The one lock writer: carries a rootfs already recorded for an unchanged
+// image, and writes atomically.
+writeLockfile(lockPath, doc);
 console.log(`pin-layouts: wrote ${lockPath}`);
 for (const [b, row] of Object.entries(inputs)) console.log(`  ${b}: ${row.oci.digest}`);

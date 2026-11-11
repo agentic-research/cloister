@@ -285,7 +285,10 @@ export const COMMANDS = [
       "each bundle ready once every socket it binds exists. Plans are emitted in memory " +
       "exactly as `runtime plan` would. Channel sockets live in a fresh owner-only " +
       "directory, printed per exposed port and removed on exit. Runs in the foreground; " +
-      "SIGINT/SIGTERM stops every run in reverse order. If a run ends on its own, the rest " +
+      "SIGINT/SIGTERM/SIGHUP/SIGQUIT stops every run in reverse order; a second signal " +
+      "reports progress, a third SIGKILLs the host runtimes (their VMs may then outlive " +
+      "them until ley-line-open-f963e6). If `up` is killed, each host runtime stops on " +
+      "stdin EOF. If a run ends on its own, the rest " +
       "are stopped and the command exits non-zero, naming it. Kubernetes-placed bundles " +
       "are skipped (`cluster k8s`). Needs each bundle's rootfs imported (`runtime import " +
       "--bundle`).\n\n" +

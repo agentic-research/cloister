@@ -12,7 +12,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 DEMO=$(cd "$HERE/.." && pwd)
 REPO=$(cd "$DEMO/../.." && pwd)
 OUT="$HERE/out"
-CLOISTER="node $REPO/bin/cloister.mjs"
+cloister() { node "$REPO/bin/cloister.mjs" "$@"; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -27,5 +27,5 @@ build orders "$HERE/orders.Dockerfile" "$DEMO"
 node "$HERE/pin-layouts.mjs" "dolt=$OUT/dolt" "orders=$OUT/orders"
 
 for b in dolt orders; do
-  $CLOISTER runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b"
+  cloister runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b"
 done

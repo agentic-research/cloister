@@ -51,6 +51,7 @@ const lock = {
         version: "v0.17.0",
         digest: `sha256:${"8".repeat(64)}`,
         rootfs: `blake3-256:${"9".repeat(64)}`,
+        rootfsImage: `sha256:${"8".repeat(64)}`,
       },
     },
   },

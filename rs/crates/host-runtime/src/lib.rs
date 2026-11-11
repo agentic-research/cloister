@@ -329,6 +329,28 @@ pub fn prepare_channel_dirs(plan: &LaunchPlan) -> Result<(), RuntimeError> {
     Ok(())
 }
 
+/// Block until `reader` reaches end-of-file (or fails), then call `on_eof`
+/// once. Data read before then is discarded.
+///
+/// `cloister cluster up` hands each host runtime a stdin pipe it never writes
+/// to and never closes. The pipe closes only when `up` itself goes away —
+/// including `kill -9` and crashes, which no signal handler sees — so EOF on
+/// stdin means "your supervisor is gone": stop the run (cloister-991e65).
+/// A read error is treated the same way: the supervisor can no longer be
+/// seen, and a run nobody can stop is the outcome this exists to prevent.
+pub fn watch_for_eof<R: std::io::Read>(mut reader: R, on_eof: impl FnOnce()) {
+    let mut buf = [0u8; 256];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+    on_eof();
+}
+
 pub struct HostRuntime {
     process: Option<Arc<dyn Backend>>,
     microvm: Option<Arc<dyn Backend>>,

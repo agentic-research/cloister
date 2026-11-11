@@ -304,3 +304,42 @@ test("main: resolve failure leaves cluster.toml mutated + exits 1", async () => 
     assert.ok(mutated.inputs.ghost, "cluster.toml mutation persists per documented behavior");
   });
 });
+
+// cloister-991e65 review, fix 6: `add` rebuilds cluster.lock.toml from scratch.
+// It used to do so WITHOUT the rootfs carry-forward, erasing a rootfs that
+// `runtime import --bundle` had recorded. It now writes through the one lock
+// writer (cli/lib/cluster/lockfile.mjs), which carries it while the image
+// digest it came from is still the pin.
+test("main: adding an input keeps a recorded rootfs for an unchanged image", async () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  const rootfs = `blake3-256:${"b".repeat(64)}`;
+  await withClusterTomlFixture(MINIMAL_CLUSTER_TOML, async ({ dir, clusterPath, lockPath }) => {
+    const serverJson = resolve(dir, "server.json");
+    writeFileSync(serverJson, JSON.stringify({
+      name: "io.example/dolt",
+      packages: [{ registryType: "oci", identifier: "example/dolt", version: "1.86.1", digest, transport: { type: "stdio" } }],
+    }));
+    writeFileSync(clusterPath, readFileSync(clusterPath, "utf8") + `
+[inputs.dolt]
+ref = "file://${serverJson}"
+`);
+    writeFileSync(lockPath, `schema = "cloister/lockfile/v1"
+
+[inputs.dolt.oci]
+identifier = "example/dolt"
+version = "1.86.1"
+digest = "${digest}"
+rootfs = "${rootfs}"
+rootfsImage = "${digest}"
+`);
+    const payloadPath = resolve(dir, "skill.md");
+    writeFileSync(payloadPath, "skill content");
+    const code = await main([`file://${payloadPath}`, "--name", "test-skill"]);
+    assert.equal(code, 0);
+    const lock = parseToml(readFileSync(lockPath, "utf8"));
+    assert.ok(lock.inputs["test-skill"], "the new input is locked");
+    assert.equal(lock.inputs.dolt.oci.digest, digest);
+    assert.equal(lock.inputs.dolt.oci.rootfs, rootfs, "add must not erase the recorded rootfs");
+    assert.equal(lock.inputs.dolt.oci.rootfsImage, digest);
+  });
+});

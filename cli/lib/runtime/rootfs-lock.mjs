@@ -11,21 +11,24 @@
 //   [inputs.<bundle>.oci]
 //   identifier = "…"
 //   digest = "sha256:…"            # the image (resolver / pin)
-//   rootfs = "blake3-256:…"        # what `runtime import --bundle` produced from it
+//   rootfs = "blake3-256:…"        # what `runtime import --bundle` produced …
+//   rootfsImage = "sha256:…"       # … from THIS image
 //   rootfsSymlinks = "resolve"     # only when not the default "refuse"
 //
+// `rootfsImage` binds the rootfs to the image it came from by VALUE, not by
+// position: a hand-edited `digest` can never run an old rootfs under a new
+// image name, because plan / up compare the two and refuse when they differ.
 // `rootfsSymlinks` is recorded because the symlink policy changes the tree,
-// hence the rootfs digest: the same image imported two ways is two rootfs.
-// "refuse" is LLO's and the importer's default, so it is omitted.
+// hence the rootfs digest; "refuse" is the importer's default and is omitted.
 //
 // The source of the import is an on-disk OCI layout today (LLO v0.28.0 has no
 // registry fetch). A registry source (cloister-727354) changes where the blobs
-// come from, not this record: the rootfs is still a function of the pinned
-// digest and the symlink policy.
+// come from, not this record.
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 export const ROOTFS_KEY = "rootfs";
+export const ROOTFS_IMAGE_KEY = "rootfsImage";
 export const SYMLINKS_KEY = "rootfsSymlinks";
 export const DEFAULT_SYMLINKS = "refuse";
 export const SYMLINK_MODES = Object.freeze(["refuse", "resolve"]);
@@ -47,17 +50,45 @@ export function rootfsHex(digest) {
   return digest.slice(BLAKE3_PREFIX.length);
 }
 
-/** `[inputs.<bundle>.oci]` from a parsed lock, or null. */
+/**
+ * `[inputs.<bundle>.oci]` from a parsed lock, or null when the lock pins
+ * nothing for `bundle`.
+ *
+ * Refuses (throws) when the bundle is pinned only through a multi-image
+ * producer's `[[inputs.<input>.ociBundles]]` row: import / plan / up do not
+ * support that shape yet, and treating it as "no pin" would send the operator
+ * to resolve something that is already resolved.
+ */
 export function lockedOci(lock, bundle) {
   const oci = lock?.inputs?.[bundle]?.oci;
-  return oci && typeof oci === "object" ? oci : null;
+  if (oci && typeof oci === "object") return oci;
+  for (const [input, row] of Object.entries(lock?.inputs ?? {})) {
+    if ((row?.ociBundles ?? []).some((b) => b?.bundle === bundle)) {
+      throw new Error(
+        `bundle "${bundle}" is pinned through [[inputs.${input}.ociBundles]] (a multi-image ` +
+          `producer), which runtime import / runtime plan / cluster up do not support yet`,
+      );
+    }
+  }
+  return null;
 }
 
-/** The recorded rootfs for `bundle`: `{rootfs, symlinks}` or null. */
+/**
+ * The recorded rootfs for `bundle`: `{rootfs, image, symlinks}` or null.
+ * `symlinks` is validated here, so a hand-edited value is refused before it
+ * is ever echoed into a command line.
+ */
 export function lockedRootfs(lock, bundle) {
   const oci = lockedOci(lock, bundle);
   if (!oci || oci[ROOTFS_KEY] === undefined) return null;
-  return { rootfs: oci[ROOTFS_KEY], symlinks: oci[SYMLINKS_KEY] ?? DEFAULT_SYMLINKS };
+  const symlinks = oci[SYMLINKS_KEY] ?? DEFAULT_SYMLINKS;
+  if (!SYMLINK_MODES.includes(symlinks)) {
+    throw new Error(
+      `bundle "${bundle}" records ${SYMLINKS_KEY} = ${JSON.stringify(symlinks)} in cluster.lock.toml; ` +
+        `it must be one of ${SYMLINK_MODES.join(", ")}`,
+    );
+  }
+  return { rootfs: oci[ROOTFS_KEY], image: oci[ROOTFS_IMAGE_KEY] ?? null, symlinks };
 }
 
 /** The exact command that records `bundle`'s rootfs, for refusal messages. */
@@ -75,7 +106,8 @@ export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
  * same policy yields the same rootfs and an unchanged lock).
  *
  * Refuses when the lock does not pin `bundle`'s image, or the import was of a
- * different image than the one pinned.
+ * different image than the one pinned in THIS text (callers pass the lock as
+ * re-read after the import, so a pin that moved meanwhile is caught).
  *
  * @param {string} lockText
  * @param {{bundle: string, image: string, rootfs: string, symlinks: string}} rec
@@ -104,10 +136,11 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks }) {
   }
   const previous = oci[ROOTFS_KEY] ?? null;
   const previousSymlinks = oci[SYMLINKS_KEY] ?? DEFAULT_SYMLINKS;
-  if (previous === rootfs && previousSymlinks === symlinks) {
+  if (previous === rootfs && previousSymlinks === symlinks && oci[ROOTFS_IMAGE_KEY] === image) {
     return { text: lockText, changed: false, previous };
   }
   oci[ROOTFS_KEY] = rootfs;
+  oci[ROOTFS_IMAGE_KEY] = image;
   if (symlinks === DEFAULT_SYMLINKS) delete oci[SYMLINKS_KEY];
   else oci[SYMLINKS_KEY] = symlinks;
   return { text: stringifyToml(lock), changed: true, previous };
@@ -115,18 +148,21 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks }) {
 
 /**
  * Carry a recorded rootfs forward across a lock regeneration (`cluster
- * resolve`), but only while the image it was imported from is unchanged. A new
- * image digest drops it: that rootfs is no longer derived from what is pinned,
- * and `runtime plan` then asks for a fresh import by name.
+ * resolve`, `cloister add`, a demo re-pin), but only while the image it was
+ * imported FROM (`rootfsImage`) is still the pinned digest. A moved pin drops
+ * it, and `runtime plan` then asks for a fresh import by name. A row that
+ * already carries a rootfs (a fresh import) is never overwritten.
  *
  * @param {object} previousOci the old lock's `[inputs.<n>.oci]`, or undefined
- * @param {object} nextOci the freshly resolved row (mutated and returned)
+ * @param {object} nextOci the freshly built row (mutated and returned)
  */
 export function carryRootfs(previousOci, nextOci) {
   if (!previousOci || !nextOci) return nextOci;
+  if (nextOci[ROOTFS_KEY] !== undefined) return nextOci;
   if (previousOci[ROOTFS_KEY] === undefined) return nextOci;
-  if (!nextOci.digest || previousOci.digest !== nextOci.digest) return nextOci;
+  if (!nextOci.digest || previousOci[ROOTFS_IMAGE_KEY] !== nextOci.digest) return nextOci;
   nextOci[ROOTFS_KEY] = previousOci[ROOTFS_KEY];
+  nextOci[ROOTFS_IMAGE_KEY] = previousOci[ROOTFS_IMAGE_KEY];
   if (previousOci[SYMLINKS_KEY] !== undefined) nextOci[SYMLINKS_KEY] = previousOci[SYMLINKS_KEY];
   return nextOci;
 }

@@ -18,11 +18,12 @@
 // Without --bundle, `runtime import` is the raw importer (cli/index.mjs) and
 // writes nothing.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { runCompatibilityJson } from "../lib/runtime/compatibility-client.mjs";
+import { writeGeneratedFile } from "../lib/atomic-write.mjs";
 import {
   DEFAULT_SYMLINKS,
   SYMLINK_MODES,
@@ -93,9 +94,19 @@ export async function main(argv, deps = {}) {
     const algorithm = record?.rootfs?.algorithm;
     const value = record?.rootfs?.value;
     const rootfs = `${algorithm}:${value}`;
-    const result = recordRootfs(lockText, { bundle: args.bundle, image, rootfs, symlinks: args.symlinks });
+    // The import can take a while. Record into the lock as it is NOW, not the
+    // text read before it: if the pin moved meanwhile (a resolve, an edit),
+    // recordRootfs refuses — this rootfs is not from the image now pinned.
+    const current = readFileSync(lockPath, "utf8");
+    if (lockedOci(parseToml(current), args.bundle)?.digest !== image) {
+      throw new Error(
+        `bundle "${args.bundle}"'s pin changed in cluster.lock.toml while importing ` +
+          `(was ${image}); the rootfs was NOT recorded. Re-run the import against the new pin.`,
+      );
+    }
+    const result = recordRootfs(current, { bundle: args.bundle, image, rootfs, symlinks: args.symlinks });
     if (result.changed) {
-      writeFileSync(lockPath, result.text);
+      writeGeneratedFile(lockPath, result.text);
       log(
         `cloister runtime import: ${args.bundle}: ${image} → ${rootfs}` +
           (result.previous ? ` (replaces ${result.previous})` : "") +

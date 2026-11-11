@@ -67,9 +67,8 @@ import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 
-import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import { carryRootfs } from "../runtime/rootfs-lock.mjs";
-import { writeGeneratedFile } from "../atomic-write.mjs";
+import { parse as parseToml } from "smol-toml";
+import { writeLockfile } from "./lockfile.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../../..");
@@ -1308,23 +1307,9 @@ export function buildLockfile(clusterMetadata, resolvedInputs) {
   return doc;
 }
 
-/** See the call site in resolveClusterInputs. Exported for tests. */
-export function carryRootfsFromPreviousLock(lockfilePath, doc) {
-  if (!existsSync(lockfilePath)) return doc;
-  let previous;
-  try {
-    previous = parseToml(readFileSync(lockfilePath, "utf8"));
-  } catch (e) {
-    // The old lock is about to be replaced; an unparseable one carries
-    // nothing forward, and saying so beats a silent drop.
-    console.error(`resolve-inputs: previous lock unreadable, no rootfs carried forward: ${e.message}`);
-    return doc;
-  }
-  for (const [name, row] of Object.entries(doc.inputs ?? {})) {
-    if (row.oci) carryRootfs(previous?.inputs?.[name]?.oci, row.oci);
-  }
-  return doc;
-}
+// The carry-forward lives with the one lock writer (./lockfile.mjs);
+// re-exported for existing importers.
+export { carryRootfsFromPreviousLock } from "./lockfile.mjs";
 
 // ── CLI ─────────────────────────────────────────────────────────────────
 
@@ -1457,13 +1442,9 @@ export async function resolveClusterInputs({
   }
 
   const doc = buildLockfile(metadata, resolved);
-  // A rootfs recorded by `runtime import --bundle` is not something this
-  // resolver can re-derive (it needs the image's blobs and LLO's importer), so
-  // regenerating the lock would silently erase it. Carry it forward while the
-  // image digest it came from is unchanged; drop it when the image moves
-  // (cloister-991e65).
-  carryRootfsFromPreviousLock(lockfilePath, doc);
-  writeGeneratedFile(lockfilePath, stringifyToml(doc));
+  // Through the one lock writer: it carries a recorded rootfs forward
+  // (cloister-991e65) and writes atomically.
+  writeLockfile(lockfilePath, doc);
   log(`\nresolve-inputs: wrote ${lockfilePath}`);
   return { lockfilePath, resolvedCount: resolved.length };
 }

@@ -38,7 +38,13 @@ function lockText(rows) {
     schema: "cloister/lockfile/v1",
     cluster: "t",
     version: "0.0.1",
-    inputs: Object.fromEntries(Object.entries(rows).map(([b, oci]) => [b, { oci: { identifier: `x/${b}`, ...oci } }])),
+    // A recorded rootfs is bound to the image it came from (rootfsImage); the
+    // fixtures default that to the pinned digest unless a test overrides it.
+    inputs: Object.fromEntries(Object.entries(rows).map(([b, oci]) => [b, { oci: {
+      identifier: `x/${b}`,
+      ...oci,
+      ...(oci.rootfs !== undefined && !("rootfsImage" in oci) ? { rootfsImage: oci.digest } : {}),
+    } }])),
   });
 }
 
@@ -159,12 +165,18 @@ for (const [label, text, rec, pattern] of recordRefusals) {
   });
 }
 
-test("carryRootfs keeps the rootfs while the image digest is unchanged, drops it when the image moves", () => {
-  const prev = { digest: IMG("a"), rootfs: RFS("b"), rootfsSymlinks: "resolve" };
+test("carryRootfs keeps the rootfs while its rootfsImage is still the pin, drops it when the image moves", () => {
+  const prev = { digest: IMG("a"), rootfs: RFS("b"), rootfsImage: IMG("a"), rootfsSymlinks: "resolve" };
   assert.deepEqual(carryRootfs(prev, { identifier: "x", digest: IMG("a") }), {
-    identifier: "x", digest: IMG("a"), rootfs: RFS("b"), rootfsSymlinks: "resolve",
+    identifier: "x", digest: IMG("a"), rootfs: RFS("b"), rootfsImage: IMG("a"), rootfsSymlinks: "resolve",
   });
   assert.deepEqual(carryRootfs(prev, { identifier: "x", digest: IMG("c") }), { identifier: "x", digest: IMG("c") });
+  // Bound by value: a row whose rootfsImage is not the previous digest (a
+  // hand-edited pin) is not carried even when the digests match.
+  const edited = { digest: IMG("a"), rootfs: RFS("b"), rootfsImage: IMG("e") };
+  assert.equal(carryRootfs(edited, { identifier: "x", digest: IMG("a") }).rootfs, undefined);
+  // A fresh import in the new row is never overwritten by the old one.
+  assert.equal(carryRootfs(prev, { identifier: "x", digest: IMG("a"), rootfs: RFS("f"), rootfsImage: IMG("a") }).rootfs, RFS("f"));
 });
 
 test("cluster resolve's lock rewrite carries a recorded rootfs forward (carryRootfsFromPreviousLock)", () => {
@@ -173,6 +185,7 @@ test("cluster resolve's lock rewrite carries a recorded rootfs forward (carryRoo
     const path = join(dir, "cluster.lock.toml");
     writeFileSync(path, lockText({ dolt: { digest: IMG("a"), rootfs: RFS("b") }, orders: { digest: IMG("c"), rootfs: RFS("d") } }));
     const doc = { inputs: { dolt: { oci: { identifier: "x/dolt", digest: IMG("a") } }, orders: { oci: { identifier: "x/orders", digest: IMG("e") } } } };
+    // (lockText records rootfsImage = digest for each row.)
     carryRootfsFromPreviousLock(path, doc);
     assert.equal(doc.inputs.dolt.oci.rootfs, RFS("b"));
     assert.equal(doc.inputs.orders.oci.rootfs, undefined, "a new image digest drops the stale rootfs");
@@ -373,7 +386,8 @@ async function upHarness({ behave }) {
       signals,
       pollMs: 5,
       spawn: (_command, args) => {
-        const plan = JSON.parse(readFileSync(args[1], "utf8"));
+        assert.deepEqual(args.slice(0, 2), ["run", "--stop-on-stdin-eof"], "supervised runs stop on stdin EOF");
+        const plan = JSON.parse(readFileSync(args[2], "utf8"));
         const child = fakeChild(1000 + children.length);
         children.push({ bundle: plan.bundle, plan, child });
         setImmediate(() => behave({ bundle: plan.bundle, plan, child, bound, signals }));
@@ -409,7 +423,7 @@ test("a bundle that exits before it is ready is reported by name and status; the
     },
   });
   assert.equal(r.code, 1);
-  assert.match(r.err.join("\n"), /bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed: exit status: 2 — before it was ready; stopped the rest/);
+  assert.match(r.err.join("\n"), /bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed: exit status: 2\ncloister cluster up: "orders" ended on its own; stopped the rest/);
   assert.deepEqual(r.children.find((c) => c.bundle === "dolt").child.killed, ["SIGTERM"]);
   assert.equal(existsSync(r.channelDir), false);
 });
@@ -422,7 +436,7 @@ test("a run that ends on its own after everything is ready ends `up` non-zero", 
     },
   });
   assert.equal(r.code, 1);
-  assert.match(r.err.join("\n"), /bundle "orders" exited on its own with status 1; stopped the rest/);
+  assert.match(r.err.join("\n"), /bundle "orders" exited on its own with status 1\ncloister cluster up: "orders" ended on its own; stopped the rest/);
 });
 
 test("cluster up refuses a missing rootfs before starting anything", async () => {
@@ -456,4 +470,108 @@ test("a run stopped at its wall-clock ceiling (host runtime status 124) is repor
   assert.match(text, /bundle "orders" reached its wall-clock ceiling and was stopped by the runtime — not a workload failure \(services cannot ask for "no ceiling" yet: ley-line-open-e6b1bb\)/);
   assert.doesNotMatch(text, /exited on its own/);
   assert.ok(r.log.some((l) => /stopped at its wall-clock ceiling .*ley-line-open-e6b1bb/.test(l)), "the ready banner says so");
+});
+
+// ── review fixes 7, 8, 10, 11 ─────────────────────────────────────────────
+
+test("a rootfs imported from a different image than the current pin is refused (rootfsImage)", async () => {
+  // A hand-edited pin: digest moved to IMG("c"), the rootfs still came from IMG("a").
+  const lock = parseToml(lockText({ dolt: { digest: IMG("c"), rootfs: RFS("b"), rootfsImage: IMG("a") } }));
+  await assert.rejects(
+    planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
+    (e) => {
+      assert.match(e.message, /bundle "dolt"'s recorded rootfs blake3-256:b+ was imported from sha256:a+ \(\[inputs.dolt.oci\] rootfsImage\), but the lock now pins sha256:c+/);
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo --layout <oci-layout-dir>"), e.message);
+      return true;
+    },
+  );
+});
+
+test("a rootfs with no recorded rootfsImage is refused: it is bound to no image", async () => {
+  const lock = parseToml(lockText({ dolt: { digest: IMG("a"), rootfs: RFS("b"), rootfsImage: undefined } }));
+  delete lock.inputs.dolt.oci.rootfsImage;
+  await assert.rejects(
+    planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
+    /was imported from an unrecorded image/,
+  );
+});
+
+test("a hand-edited rootfsSymlinks is refused before it is echoed into a command", async () => {
+  const lock = parseToml(lockText({ dolt: { digest: IMG("a"), rootfs: RFS("b"), rootfsSymlinks: "x; rm -rf ~" } }));
+  await assert.rejects(
+    planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: false, casRoot: "/cas" }) }),
+    /bundle "dolt" records rootfsSymlinks = "x; rm -rf ~" in cluster.lock.toml; it must be one of refuse, resolve/,
+  );
+});
+
+test("a bundle pinned only through [[inputs.<input>.ociBundles]] is refused by name, not treated as unpinned", async () => {
+  const lock = {
+    schema: "cloister/lockfile/v1",
+    inputs: { producer: { ociBundles: [{ bundle: "dolt", identifier: "x/dolt", digest: IMG("a") }] } },
+  };
+  const pattern = /bundle "dolt" is pinned through \[\[inputs.producer.ociBundles\]\] \(a multi-image producer\), which runtime import \/ runtime plan \/ cluster up do not support yet/;
+  await assert.rejects(
+    planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
+    pattern,
+  );
+  const dir = mkdtempSync(join(tmpdir(), "cloister-import-"));
+  try {
+    writeFileSync(join(dir, "cluster.lock.toml"), stringifyToml(lock));
+    const { out, deps } = capture();
+    assert.equal(await importMain(["--bundle", "dolt", "--dir", dir, "--layout", "/l"], { ...deps, importOci: () => assert.fail("no import") }), 1);
+    assert.match(out.err.join("\n"), pattern);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtime import re-reads the lock after importing and refuses if the pin moved meanwhile", async () => {
+  const dir = importFixture({ digest: IMG("a") });
+  try {
+    const lockPath = join(dir, "cluster.lock.toml");
+    const { out, deps } = capture();
+    const code = await importMain(["--bundle", "dolt", "--dir", dir, "--layout", "/l"], {
+      ...deps,
+      importOci: () => {
+        // A resolve lands while the (slow) import runs.
+        writeFileSync(lockPath, lockText({ dolt: { digest: IMG("c") } }));
+        return { rootfs: { algorithm: "blake3-256", value: "b".repeat(64) } };
+      },
+    });
+    assert.equal(code, 1);
+    assert.match(out.err.join("\n"), /bundle "dolt"'s pin changed in cluster.lock.toml while importing \(was sha256:a+\); the rootfs was NOT recorded/);
+    const after = parseToml(readFileSync(lockPath, "utf8")).inputs.dolt.oci;
+    assert.equal(after.digest, IMG("c"));
+    assert.equal(after.rootfs, undefined, "nothing recorded against the new pin");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runtime import records rootfsImage beside the rootfs", async () => {
+  const dir = importFixture({ digest: IMG("a") });
+  try {
+    const { deps } = capture();
+    await importMain(["--bundle", "dolt", "--dir", dir, "--layout", "/l"], {
+      ...deps,
+      importOci: () => ({ rootfs: { algorithm: "blake3-256", value: "b".repeat(64) } }),
+    });
+    const oci = parseToml(readFileSync(join(dir, "cluster.lock.toml"), "utf8")).inputs.dolt.oci;
+    assert.equal(oci.rootfsImage, IMG("a"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a spawn failure is reported without a pid, and the rest are stopped", async () => {
+  const r = await upHarness({
+    behave: ({ bundle, plan, child, bound }) => {
+      if (bundle === "dolt") { for (const p of bindPaths(plan)) bound.add(p); return; }
+      child.pid = undefined;
+      child.emit("error", new Error("spawn ENOENT"));
+    },
+  });
+  assert.equal(r.code, 1);
+  assert.match(r.err.join("\n"), /bundle "orders" could not be started: spawn ENOENT/);
+  assert.doesNotMatch(r.log.join("\n"), /pid undefined/);
 });
