@@ -223,11 +223,47 @@ digest. A docker store is not a layout, and tags are refused. Produce one with
 type=oci`. The importer verifies every blob, selects the host's Linux platform,
 and refuses what rootfs manifest v1 cannot express: symlinks (use `--symlinks
 resolve` to copy in-image targets; dangling links still fail), and device
-nodes. `cloister runtime plan <bundle>` still emits an OCI `sha256:` plan, which
-the runtime refuses until the plan names the imported rootfs instead. One known
-gap: an entrypoint at the rootfs root (`/hello`, common in scratch images) exits
-127 on LLO v0.27.0 unless a workspace is mounted (ley-line-open-fe130c).
-Entrypoints under a directory (`/bin/…`) run.
+nodes. One known gap: an entrypoint at the rootfs root (`/hello`, common in
+scratch images) exits 127 on LLO v0.27.0 unless a workspace is mounted
+(ley-line-open-fe130c). Entrypoints under a directory (`/bin/…`) run. On
+v0.28.0 a root entrypoint (`/orders`) has been seen running.
+
+For a bundle in `cluster.toml`, import with `--bundle`. It imports the image the
+lock pins (`[inputs.<bundle>.oci] digest`; `--image` may be omitted, and must
+match if given) and records the result beside the pin:
+
+```sh
+cloister runtime import --bundle dolt --dir <cluster-dir> --layout <oci-layout-dir>
+# cluster.lock.toml: [inputs.dolt.oci] rootfs = "blake3-256:…"
+```
+
+`cloister runtime plan` and `cluster up` run that recorded rootfs, never the
+`sha256:` image. A microvm bundle whose lock has no rootfs, or whose rootfs is
+not in the store, is refused, and the refusal prints the `runtime import`
+command to run. `cluster resolve` keeps a recorded rootfs while the image digest
+is unchanged, and drops it when the image moves.
+
+**From `cluster.toml` to running microVMs.**
+
+```sh
+cloister cluster up --env local --dir <cluster-dir>
+```
+
+This starts every bundle placed `microvm` in the env. A connection's target
+starts before its source, and a cycle is refused. Each bundle counts as ready
+once every socket it binds exists. That means a dependent can be granted its
+channel; it does not mean the workload is accepting yet (LLO a915e3), so
+clients should retry. Sockets live in a fresh owner-only directory under
+`/private/tmp` (macOS's real `/tmp`: libkrun refused a socket path through the
+`/tmp` symlink). Each exposed port's `unix://` path is printed, and the
+directory is removed on exit.
+
+`up` stays in the foreground. Ctrl-C stops every run in reverse order: the host
+runtime cancels its run through LLO, which kills the worker's process group. If
+any run ends on its own, the rest are stopped and `up` exits non-zero, naming
+the bundle and its status. Kubernetes-placed bundles are skipped with a pointer
+to `cluster k8s`. A worked example from a clean checkout is
+[`tools/dolt-grpc-demo/microvm/`](tools/dolt-grpc-demo/microvm/README.md).
 
 A plan carrying `fs.allow`, credentials, or `port.bind` is refused by name
 ("authority mapping … is not implemented") rather than run with its grants

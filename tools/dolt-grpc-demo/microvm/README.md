@@ -1,0 +1,88 @@
+# dolt-grpc-demo on microVMs, from `cluster.toml`
+
+Two microVMs joined by one declared connection (`cloister-991e65`, ADR-0069 /
+ADR-0070). Nothing is hand-built. The plans, the socket paths, the start order
+and readiness are all derived from [`cluster.toml`](cluster.toml):
+
+- `dolt`: `dolt sql-server` (Dolt 1.86.1). It declares port `mysql` 3306
+  (`art.mysql`, expose `cluster`).
+- `orders`: the gRPC service from [`..`](../README.md). It declares port `grpc`
+  50051 (`art.grpc`, expose `cluster`). Its connection `orders-db` targets
+  `dolt.mysql`, with `minStrength = "capability"`.
+
+## Requirements
+
+- An Apple-silicon Mac (the images are linux/arm64), with libkrun and libkrunfw
+  as `cloister runtime install` expects.
+- Docker with buildx; `grpcurl` for the check.
+
+## From a clean checkout
+
+```sh
+pnpm install
+node bin/cloister.mjs runtime install           # host runtime + krun worker
+tools/dolt-grpc-demo/microvm/build.sh           # images → layouts → lock → import
+node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
+```
+
+`build.sh` does three things:
+
+1. **Builds both images as OCI layouts** in `out/` with `docker buildx build
+   --output type=oci,tar=false`, for linux/arm64 and with no attestations.
+   Both are `FROM scratch` and contain no symlinks, so the importer's default
+   `--symlinks refuse` accepts them. (The distroless base in `../Dockerfile`
+   has `etc/os-release` as a link, and the importer refused it.)
+   - `dolt.Dockerfile`: the static `dolt` binary from the official
+     v1.86.1 release tarball, fetched with a pinned sha256, plus empty `/tmp`
+     and `/data`. The guest has no `/tmp` otherwise.
+   - `orders.Dockerfile`: the same Go build as `../Dockerfile`.
+2. **Pins each layout's digest** (from its own `index.json`) into
+   `cluster.lock.toml` as `[inputs.<bundle>.oci]`. These digests are local to
+   your machine, so the lock is generated and gitignored, never committed.
+3. **Imports each pinned image** with `cloister runtime import --bundle`. This
+   records the `blake3-256:` rootfs in the lock. Re-running it is idempotent:
+   an unchanged image prints `already recorded`.
+
+`cluster up` starts `dolt`, waits until its `dolt.mysql.sock` exists, then
+starts `orders`, and prints:
+
+```
+  dolt.mysql (art.mysql): unix:///private/tmp/cloister-up-XXXXXX/dolt.mysql.sock
+  orders.grpc (art.grpc): unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock
+cloister cluster up: all bundles ready; Ctrl-C to stop
+```
+
+From another terminal, using the printed path. `orders` may still be seeding
+for a few seconds; retry on `Unavailable`:
+
+```sh
+grpcurl -plaintext -d '{"id":1}' unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock cloister.demo.v1.Orders/Get
+# {"id": 1, "msg": "read from Dolt over a declared connection", "branch": "main"}
+```
+
+Press Ctrl-C in the `up` terminal. It stops `orders`, then `dolt`, and removes
+the socket directory. Each host runtime cancels its run through LLO, which
+kills the worker's process group, so no VM is left running.
+
+## The negative check
+
+Copy `cluster.toml` and the generated `cluster.lock.toml` to a scratch
+directory. Delete the `[[connections]]` block (and its `[[connections.targets]]`
+row) from the copy, and run `cluster up --env local --dir <scratch>`. `orders`
+then has no channel to Dolt: `127.0.0.1:3306` in its guest answers nothing. It
+gives up after its 30 s retry window and exits 2, and `up` reports:
+
+```
+cloister cluster up: bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed: BackendFailed: libkrun worker exited with exit status: 2; stopped the rest
+```
+
+The host runtime itself exits 1. Its message carries the guest's exit status,
+2. `up` stops `dolt` before exiting non-zero.
+
+## Notes
+
+- `ready` means every socket the bundle binds exists. A dependent can then be
+  granted its channel. It does not mean the workload accepts yet (LLO
+  a915e3); `orders`' client retries.
+- Guest output is discarded (LLO a26ad0). Exit codes do propagate.
+- The workload args avoid `"` (LLO d4b07f mangles it).

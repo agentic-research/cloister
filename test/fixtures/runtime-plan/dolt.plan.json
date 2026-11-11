@@ -4,7 +4,7 @@
   "mode": "microvm",
   "artifact": {
     "image": "ghcr.io/example/dolt",
-    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "digest": "blake3-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "entrypoint": "/usr/local/bin/dolt",
     "args": []
   },

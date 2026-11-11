@@ -30,8 +30,10 @@ To regenerate `ordersv1/` after editing `orders.proto`, run `protoc` with the
 
 ## Run it
 
-`cloister runtime plan` now derives these grants from `cluster.toml` ports
-and connections (ADR-0070 §4). The walkthrough below writes the two launch
+**Use [`microvm/`](microvm/README.md) instead:** `build.sh` then `cloister
+cluster up` does all of this from `cluster.toml`, with no hand-written plans.
+What follows is the original by-hand walkthrough, kept as a record of what the
+emitter now derives. It writes the two launch
 plans by hand and put each rootfs into the CAS
 yourself. A rootfs is a directory in `$CLOISTER_CAS_ROOT` named by the BLAKE3
 of its `rootfs.manifest.json`. The manifest lists each file's path, mode and

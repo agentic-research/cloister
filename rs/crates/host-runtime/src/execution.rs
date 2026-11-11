@@ -141,6 +141,27 @@ impl<B: LeylineBackendTrait + AwaitRun> LeylineExecutionBackend<B> {
     pub fn available(&self) -> bool {
         self.inner.capabilities().available
     }
+
+    /// Stop `plan`'s run and wait for LLO to release it (cloister-991e65).
+    ///
+    /// The krun worker runs in its OWN process group (LLO
+    /// `configure_process_group`), so a host runtime that simply dies leaves
+    /// the worker — and the guest — running. A supervisor that wants a run
+    /// gone (`cloister cluster up` on SIGINT) signals the host runtime, and the
+    /// host runtime calls this: LLO's cancel sweeps the worker's group and
+    /// returns only once cleanup has finished. `Ok(false)` means the run was
+    /// no longer active.
+    pub fn cancel(&self, plan: &LaunchPlan) -> Result<bool, RuntimeError> {
+        self.inner
+            .cancel(&run_id(plan))
+            .map_err(|error| RuntimeError::Backend(error.to_string()))
+    }
+}
+
+/// The LLO run id for `plan`: derived from the bundle, so a replayed plan is
+/// the same run rather than a new one each time it is submitted.
+pub fn run_id(plan: &LaunchPlan) -> String {
+    format!("run-{}", plan.bundle)
 }
 
 /// Translate a cloister launch plan into an LLO execution request.
@@ -228,7 +249,7 @@ fn to_execution_request(
     Ok(ExecutionRequest {
         // Derived from the bundle, so a replayed plan is the same run rather
         // than a new one each time it is submitted.
-        run_id: format!("run-{}", plan.bundle),
+        run_id: run_id(plan),
         replay_key: plan.artifact.digest.clone(),
         rootfs: DigestRef {
             algorithm: algorithm.to_string(),

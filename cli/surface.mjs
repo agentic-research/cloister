@@ -277,9 +277,19 @@ export const COMMANDS = [
   },
   {
     name: "cluster up",
-    usage: "cloister cluster up [--dir <path>] [--detach]",
-    summary: "Bring a declared cluster up via compose",
+    usage: "cloister cluster up [--dir <path>] [--detach] | cloister cluster up --env <name> [--dir <path>]",
+    summary: "Bring a declared cluster up (compose, or microVMs with --env)",
     detail:
+      "With --env, starts every bundle placed \"microvm\" in that env from cluster.toml and " +
+      "cluster.lock.toml: each connection's target before its source (a cycle is refused), " +
+      "each bundle ready once every socket it binds exists. Plans are emitted in memory " +
+      "exactly as `runtime plan` would. Channel sockets live in a fresh owner-only " +
+      "directory, printed per exposed port and removed on exit. Runs in the foreground; " +
+      "SIGINT/SIGTERM stops every run in reverse order. If a run ends on its own, the rest " +
+      "are stopped and the command exits non-zero, naming it. Kubernetes-placed bundles " +
+      "are skipped (`cluster k8s`). Needs each bundle's rootfs imported (`runtime import " +
+      "--bundle`).\n\n" +
+      "Without --env:\n" +
       "Runs the cluster declared by `cluster.compose.yaml` in --dir (default: " +
       "the current directory), using nerdctl, podman or docker — whichever is " +
       "present, or COMPOSE_CMD if set.\n\n" +
@@ -288,7 +298,8 @@ export const COMMANDS = [
       "of starting a cluster.",
     flags: [
       { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
-      { flag: "--detach", summary: "run in the background (compose -d)" },
+      { flag: "--detach", summary: "run in the background (compose -d); not with --env" },
+      { flag: "--env", value: "<name>", summary: "start the microVM-placed bundles of this env instead of compose" },
     ],
   },
   {
@@ -332,6 +343,7 @@ export const COMMANDS = [
       { flag: "--control-socket", value: "<path>", summary: "host-runtime control socket" },
       { flag: "--env", value: "<name>", summary: "environment whose connection targets are lowered (default: local)" },
       { flag: "--channel-dir", value: "<abs>", summary: "directory of declared-channel sockets (default: /tmp/cloister-host-runtime/ch)" },
+      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml + cluster.lock.toml (default: this checkout)" },
       { flag: "--output", value: "<path>", summary: "write the JSON plan here" },
     ] },
   {
@@ -344,12 +356,19 @@ export const COMMANDS = [
       "record containing their SHA-256 digests. Runtime commands verify those " +
       "digests before execution.",
   },
-  { name: "runtime import", usage: "cloister runtime import --layout <dir> --image <sha256:…> [--symlinks refuse|resolve]",
+  { name: "runtime import", usage: "cloister runtime import --layout <dir> [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]",
     summary: "Import a digest-pinned OCI image layout as a microVM rootfs",
+    detail:
+      "With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in " +
+      "cluster.lock.toml; --image may be omitted, and must equal it if given) and records " +
+      "the resulting blake3-256 rootfs beside the pin, which `runtime plan` and `cluster up` " +
+      "run. Idempotent. Without --bundle, prints LLO's import record and writes nothing.",
     flags: [
       { flag: "--layout <dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store" },
-      { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused" },
-      { flag: "--symlinks <refuse|resolve>", summary: "refuse links (default) or copy in-image targets" },
+      { flag: "--bundle <name>", summary: "record the rootfs for this bundle in cluster.lock.toml" },
+      { flag: "--dir <cluster>", summary: "with --bundle: cluster directory holding cluster.lock.toml (default: the current directory)" },
+      { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest)" },
+      { flag: "--symlinks <refuse|resolve>", summary: "refuse links (default) or copy in-image targets; recorded in the lock when not the default" },
     ] },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a compatibility plan or LLO execution envelope" },

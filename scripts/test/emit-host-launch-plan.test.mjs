@@ -50,16 +50,19 @@ const lock = {
         identifier: "ghcr.io/agentic-research/mache",
         version: "v0.17.0",
         digest: `sha256:${"8".repeat(64)}`,
+        rootfs: `blake3-256:${"9".repeat(64)}`,
       },
     },
   },
 };
+const inCas = () => ({ present: true, casRoot: "/cas" });
 
 test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () => {
   const plan = buildLaunchPlan(cluster, lock, {
     bundle: "mache",
     workspace: "/Users/operator/src",
     controlSocket: "/tmp/cloister/mache.sock",
+    rootfsInCas: inCas,
   });
 
   assert.deepEqual(plan, {
@@ -68,7 +71,8 @@ test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () 
     mode: "microvm",
     artifact: {
       image: "ghcr.io/agentic-research/mache",
-      digest: `sha256:${"8".repeat(64)}`,
+      // A microvm plan runs the imported rootfs, not the image digest.
+      digest: `blake3-256:${"9".repeat(64)}`,
       entrypoint: "/usr/bin/mache",
       args: ["serve", "--http", "127.0.0.1:7532", "/workspace"],
     },
@@ -153,12 +157,12 @@ test("the declared Mache tenant has an explicit in-guest workspace fallback", ()
 
 test("planFromToml is the cluster.toml entry point and applies the full schema", async () => {
   const plan = await planFromToml(CLUSTER_TOML, lock, {
-    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock",
+    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas,
   });
   assert.equal(plan.bundle, "mache");
   await assert.rejects(
     planFromToml(CLUSTER_TOML.replace("entryPoint", "entryPiont"), lock, {
-      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock",
+      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas,
     }),
     /\[bundles.external\] declares unknown field "entryPiont"/,
   );

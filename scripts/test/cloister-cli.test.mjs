@@ -247,12 +247,13 @@ test("artifacts pull dispatches to the lockfile-backed preview", () => {
   assert.match(r.stdout, /mache.*sha256:/);
 });
 
-test("runtime plan emits the digest-pinned Mache microVM contract", () => {
+test("runtime plan refuses Mache until its pinned image is imported, naming the command", () => {
+  // The repo's lock pins Mache's OCI image (sha256) but records no imported
+  // rootfs, and a microvm plan never carries the sha256 image — the host
+  // runtime cannot run it (cloister-991e65). This used to assert a sha256
+  // plan, i.e. that the emitter produced a plan no runtime would accept.
   const r = run(["runtime", "plan", "mache", "--workspace", REPO_ROOT]);
-  assert.equal(r.status, 0, r.stderr);
-  const plan = JSON.parse(r.stdout);
-  assert.equal(plan.bundle, "mache");
-  assert.equal(plan.mode, "microvm");
-  assert.equal(plan.artifact.entrypoint, "/usr/local/bin/mache");
-  assert.match(plan.artifact.digest, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /bundle "mache" is a microvm bundle with no imported rootfs in cluster\.lock\.toml/);
+  assert.match(r.stderr, /cloister runtime import --bundle mache( --dir \S+)? --layout <oci-layout-dir>/);
 });

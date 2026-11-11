@@ -8,6 +8,36 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cluster up`: cluster.toml in, running microVMs out (`cloister-991e65`)
+
+- **Lock records the rootfs.** `cloister runtime import --bundle <b> [--dir]
+  --layout <oci-layout>` imports the image the lock pins. `--image` is derived
+  from the lock, and must equal it if given. The command writes
+  `[inputs.<b>.oci] rootfs = "blake3-256:…"`, plus `rootfsSymlinks` when the
+  mode isn't `refuse`. It is idempotent. `cluster resolve` carries the rootfs
+  forward while the image digest is unchanged.
+- **`runtime plan` emits runnable microvm plans.** The artifact is the
+  recorded rootfs, never the `sha256:` image. A missing rootfs, or one absent
+  from the CAS, is refused with the exact import command. Process plans are
+  unchanged. A new `--dir` flag is added.
+- **`cloister cluster up --env <env> [--dir]`** starts every microvm-placed
+  bundle.
+  - Order: targets before sources; a cycle is refused by name.
+  - Readiness: a bundle is ready when its bind sockets exist.
+  - Each `up` gets a fresh 0700 channel directory under the real `/tmp`. Each
+    exposed port's `unix://` path is printed. The directory is removed on exit.
+  - Runs in the foreground. SIGINT/SIGTERM stops runs in reverse order. A run
+    that ends on its own tears the rest down and is reported with its status.
+  - Without `--env`, `cluster up` is the unchanged compose path.
+- **Host runtime stops its guest on SIGINT/SIGTERM.** The krun worker runs in
+  its own process group, so a killed host runtime used to orphan the VM. `run`
+  now cancels through LLO, then exits 128+signal.
+- **Demo:** `tools/dolt-grpc-demo/microvm/`. `build.sh` builds both images as
+  OCI layouts (scratch images, no symlinks; dolt 1.86.1 fetched with a pinned
+  sha256), pins their digests into a generated, gitignored lock, and imports
+  them. `cluster up` then serves the gRPC row from Dolt over the declared
+  connection.
+
 ### 2026-11 — Restore the wall-time ceiling; test against LLO's own validation (`cloister-991e65`)
 
 - #285 removed cloister's 15-minute wall-time default by sending zero. LLO
