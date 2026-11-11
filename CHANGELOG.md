@@ -20,7 +20,10 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - **Platform is reported, never typed.** `runtime import` records the
   platform LLO read from the image's digest-verified config
   (`image.platform`), variant included as reported. No platform: nothing is
-  recorded. Importing on one platform adds or replaces only that row.
+  recorded. Importing on one platform replaces only the rows that platform
+  overlaps (`linux/arm64` and `linux/arm64/v8`, which one host selects
+  alike), so a variant mismatch is repaired by re-importing rather than left
+  as an ambiguity plan refuses.
 - **One source for the host's platform.** A new host-runtime verb,
   `guest-platform`, prints LLO's `Platform::host()`, the value `import-oci`
   selects with. `runtime plan` and `cluster up` select the row it admits,
@@ -32,7 +35,10 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   command, and the platforms that are recorded); a row whose `image` is not
   the pin; two rows the host's platform both admits; and the old flat shape,
   which is not migrated because it does not say which platform it is for (its
-  refusal prints the re-import command, and a re-import replaces it).
+  refusal prints the re-import command, and a re-import replaces it); and rows
+  mixed with flat keys, at import and at plan (never collapsed: that would drop
+  other platforms' rows). The no-row remedy carries the recorded rows'
+  `--symlinks` policy, or lists each row's when they disagree.
 
 ### 2026-11 — Case-sensitive CAS volume and registry pulls (`cloister-727354`)
 
