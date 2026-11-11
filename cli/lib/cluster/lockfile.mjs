@@ -20,8 +20,9 @@ import { writeGeneratedFile } from "../atomic-write.mjs";
 import { carryRootfs } from "../runtime/rootfs-lock.mjs";
 
 /**
- * Carry recorded rootfs rows from the lock currently at `lockfilePath` into
- * `doc` (mutated, returned). See `carryRootfs` for when a row is kept.
+ * Carry recorded rootfs rows (one per platform) from the lock currently at
+ * `lockfilePath` into `doc` (mutated, returned). See `carryRootfs` for when
+ * rows are kept.
  */
 export function carryRootfsFromPreviousLock(lockfilePath, doc) {
   if (!existsSync(lockfilePath)) return doc;

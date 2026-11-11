@@ -8,6 +8,32 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — One rootfs row per platform in cluster.lock.toml (`cloister-1c4ef5`)
+
+- **Lock shape.** `[inputs.<bundle>.oci]` no longer holds one flat `rootfs` /
+  `rootfsImage` / `rootfsSymlinks`. Each imported rootfs is a
+  `[[inputs.<bundle>.oci.rootfs]]` row: `platform`, `digest` (blake3-256),
+  `image` (the sha256 it came from), and `symlinks` only when it isn't
+  `refuse`. A pin is often a multi-platform index and LLO's importer builds
+  the host's platform only; with one flat key the lock flipped between
+  architectures on every re-import.
+- **Platform is reported, never typed.** `runtime import` records the
+  platform LLO read from the image's digest-verified config
+  (`image.platform`), variant included as reported. No platform: nothing is
+  recorded. Importing on one platform adds or replaces only that row.
+- **One source for the host's platform.** A new host-runtime verb,
+  `guest-platform`, prints LLO's `Platform::host()`, the value `import-oci`
+  selects with. `runtime plan` and `cluster up` select the row it admits,
+  by LLO's matching rule (no host variant admits any; `arm64` is `arm64/v8`).
+  The CLI has no `process.arch` check.
+- **Writers.** The one lock writer keeps every row while the pin is unchanged
+  and drops all of them when it moves.
+- **Refusals, by name:** no row for this host's platform (with the import
+  command, and the platforms that are recorded); a row whose `image` is not
+  the pin; two rows the host's platform both admits; and the old flat shape,
+  which is not migrated because it does not say which platform it is for (its
+  refusal prints the re-import command, and a re-import replaces it).
+
 ### 2026-11 — Case-sensitive CAS volume and registry pulls (`cloister-727354`)
 
 - **CAS volume.** `runtime install` provisions LLO's case-sensitive CAS

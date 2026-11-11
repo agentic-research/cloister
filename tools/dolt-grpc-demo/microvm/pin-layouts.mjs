@@ -8,9 +8,9 @@
 // not stable across machines and the lock cannot honestly be committed. This
 // writes a GENERATED lock (gitignored) in the shape `cluster resolve` writes —
 // `[inputs.<bundle>.oci] identifier / version / digest` — reading each digest
-// from the layout's own index.json rather than from any build log. A rootfs
-// already recorded for an unchanged digest is kept, so re-running build.sh is
-// idempotent.
+// from the layout's own index.json rather than from any build log. Every
+// rootfs row already recorded for an unchanged digest (one per platform) is
+// kept, so re-running build.sh is idempotent.
 
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -63,8 +63,8 @@ const doc = {
   version: cluster.metadata.version,
   inputs,
 };
-// The one lock writer: carries a rootfs already recorded for an unchanged
-// image, and writes atomically.
+// The one lock writer: carries every rootfs row already recorded for an
+// unchanged image, and writes atomically.
 writeLockfile(lockPath, doc);
 console.log(`pin-layouts: wrote ${lockPath}`);
 for (const [b, row] of Object.entries(inputs)) console.log(`  ${b}: ${row.oci.digest}`);

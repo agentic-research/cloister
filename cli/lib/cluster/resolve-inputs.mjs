@@ -1442,8 +1442,9 @@ export async function resolveClusterInputs({
   }
 
   const doc = buildLockfile(metadata, resolved);
-  // Through the one lock writer: it carries a recorded rootfs forward
-  // (cloister-991e65) and writes atomically.
+  // Through the one lock writer: it carries every recorded rootfs row forward
+  // while the pin is unchanged (cloister-991e65, cloister-1c4ef5) and writes
+  // atomically.
   writeLockfile(lockfilePath, doc);
   log(`\nresolve-inputs: wrote ${lockfilePath}`);
   return { lockfilePath, resolvedCount: resolved.length };

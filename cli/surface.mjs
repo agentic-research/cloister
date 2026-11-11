@@ -291,8 +291,8 @@ export const COMMANDS = [
       "them until ley-line-open-f963e6). If `up` is killed, each host runtime stops on " +
       "stdin EOF. If a run ends on its own, the rest " +
       "are stopped and the command exits non-zero, naming it. Kubernetes-placed bundles " +
-      "are skipped (`cluster k8s`). Needs each bundle's rootfs imported (`runtime import " +
-      "--bundle`).\n\n" +
+      "are skipped (`cluster k8s`). Needs each bundle's rootfs imported for this host's " +
+      "guest platform (`runtime import --bundle`).\n\n" +
       "Without --env:\n" +
       "Runs the cluster declared by `cluster.compose.yaml` in --dir (default: " +
       "the current directory), using nerdctl, podman or docker — whichever is " +
@@ -365,8 +365,9 @@ export const COMMANDS = [
     detail:
       "With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in " +
       "cluster.lock.toml; --image may be omitted, and must equal it if given) and records " +
-      "the resulting blake3-256 rootfs beside the pin, which `runtime plan` and `cluster up` " +
-      "run. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is " +
+      "the resulting blake3-256 rootfs beside the pin as a [[inputs.<bundle>.oci.rootfs]] row " +
+      "for the platform LLO reports (other platforms' rows are kept); `runtime plan` and " +
+      "`cluster up` run the row for the host runtime's guest platform. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is " +
       "pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned " +
       "image is refused). Without --bundle, prints LLO's import record and writes nothing.",
     flags: [

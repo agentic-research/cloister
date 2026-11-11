@@ -257,12 +257,22 @@ back.
 
 For a bundle in `cluster.toml`, import with `--bundle`. It imports the image the
 lock pins (`[inputs.<bundle>.oci] digest`; `--image` may be omitted, and must
-match if given) and records the result beside the pin:
+match if given) and records the result beside the pin, as one row for the
+platform it was imported for:
 
 ```sh
 cloister runtime import --bundle dolt --dir <cluster-dir> --layout <oci-layout-dir>
-# cluster.lock.toml: [inputs.dolt.oci] rootfs = "blake3-256:…"
+# cluster.lock.toml:
+#   [[inputs.dolt.oci.rootfs]]
+#   platform = "linux/arm64"
+#   digest = "blake3-256:…"
+#   image = "sha256:…"
 ```
+
+A pin is often a multi-platform index, and the importer builds the rootfs for
+this host's platform only. `platform` is what LLO read from the image's own
+config, never typed. Importing the same lock on an amd64 host adds a
+`linux/amd64` row and keeps the arm64 one, so one lock serves both.
 
 Leave out `--layout` to pull the pinned `identifier@sha256:…` from its registry
 instead. The pull is anonymous HTTPS, so only public images work, and a
@@ -273,11 +283,17 @@ with links:
 cloister runtime import --bundle dolt --dir <cluster-dir> --symlinks resolve
 ```
 
-`cloister runtime plan` and `cluster up` run that recorded rootfs, never the
-`sha256:` image. A microvm bundle whose lock has no rootfs, or whose rootfs is
-not in the store, is refused, and the refusal prints the `runtime import`
-command to run. `cluster resolve` keeps a recorded rootfs while the image digest
-is unchanged, and drops it when the image moves.
+`cloister runtime plan` and `cluster up` run the row for the platform the host
+runtime boots (`cloister-host-runtime guest-platform`), never the `sha256:`
+image. A microvm bundle with no row for this platform, or whose rootfs is not
+in the store, is refused, and the refusal prints the `runtime import` command
+to run. `cluster resolve` keeps every row while the image digest is unchanged,
+and drops them all when the image moves.
+
+A lock written before rows existed (`[inputs.<bundle>.oci] rootfs =
+"blake3-256:…"` with `rootfsImage`) is refused by name. It does not say which
+platform its rootfs is for, so it is not migrated. Re-run the `runtime import`
+command the refusal prints; that replaces it with a row.
 
 **From `cluster.toml` to running microVMs.**
 

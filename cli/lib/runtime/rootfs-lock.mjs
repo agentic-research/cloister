@@ -1,37 +1,54 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // cli/lib/runtime/rootfs-lock.mjs — the imported microVM rootfs, recorded in
-// cluster.lock.toml next to the image it was imported from (cloister-991e65).
+// cluster.lock.toml next to the image it was imported from, one row per guest
+// platform (cloister-991e65, cloister-1c4ef5).
 //
 // A bundle's image is pinned by `[inputs.<bundle>.oci] digest` (sha256, an OCI
-// fact). The microVM tier runs a CAS rootfs named by `blake3-256:` over its
-// manifest — a different identity, derived from the image by LLO's importer.
-// The lock records the derivation's result beside its input:
+// fact, often a multi-platform index). The microVM tier runs a CAS rootfs
+// named by `blake3-256:` over its manifest — a different identity, derived
+// from the image by LLO's importer FOR ONE PLATFORM: the importer selects the
+// host's platform from the index. So the lock records one row per platform:
 //
 //   [inputs.<bundle>.oci]
 //   identifier = "…"
-//   digest = "sha256:…"            # the image (resolver / pin)
-//   rootfs = "blake3-256:…"        # what `runtime import --bundle` produced …
-//   rootfsImage = "sha256:…"       # … from THIS image
-//   rootfsSymlinks = "resolve"     # only when not the default "refuse"
+//   digest = "sha256:…"              # the image (resolver / pin)
 //
-// `rootfsImage` binds the rootfs to the image it came from by VALUE, not by
-// position: a hand-edited `digest` can never run an old rootfs under a new
-// image name, because plan / up compare the two and refuse when they differ.
-// `rootfsSymlinks` is recorded because the symlink policy changes the tree,
-// hence the rootfs digest; "refuse" is the importer's default and is omitted.
+//   [[inputs.<bundle>.oci.rootfs]]
+//   platform = "linux/arm64"         # as LLO reported it from the image config
+//   digest = "blake3-256:…"          # what `runtime import --bundle` produced …
+//   image = "sha256:…"               # … from THIS image
+//   symlinks = "resolve"             # only when not the default "refuse"
 //
-// The source of the import is an on-disk OCI layout or, since LLO v0.29.0, the
-// pinned image pulled from its registry (cloister-727354). The source changes
-// where the blobs come from, not this record: both give the same rootfs.
+// `platform` is never typed: `runtime import` records what LLO reports for the
+// image it imported (`image.platform`, from the digest-verified config), and
+// `runtime plan` / `cluster up` select the row this host's guest platform
+// admits (platform.mjs, guest-platform.mjs). Importing on one platform adds or replaces only
+// that platform's row.
+//
+// `image` binds a row to the image it came from by VALUE, not by position: a
+// hand-edited `digest` can never run an old rootfs under a new image name,
+// because plan / up compare the two and refuse when they differ. `symlinks` is
+// recorded because the symlink policy changes the tree, hence the rootfs
+// digest; "refuse" is the importer's default and is omitted.
+//
+// The flat shape before cloister-1c4ef5 (`rootfs = "blake3-256:…"`,
+// `rootfsImage`, `rootfsSymlinks`) is refused by name and never migrated: it
+// does not say which platform its rootfs is for. A re-import replaces it.
+//
+// The source of the import is an on-disk OCI layout or the pinned image pulled
+// from its registry (cloister-727354). The source changes where the blobs come
+// from, not this record: both give the same rootfs.
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
+import { isPlatform, platformAdmits } from "./platform.mjs";
+
 export const ROOTFS_KEY = "rootfs";
-export const ROOTFS_IMAGE_KEY = "rootfsImage";
-export const SYMLINKS_KEY = "rootfsSymlinks";
 export const DEFAULT_SYMLINKS = "refuse";
 export const SYMLINK_MODES = Object.freeze(["refuse", "resolve"]);
+/** Keys of the flat, platform-less shape before cloister-1c4ef5. */
+export const LEGACY_KEYS = Object.freeze(["rootfsImage", "rootfsSymlinks"]);
 
 const BLAKE3_PREFIX = "blake3-256:";
 const HEX = "0123456789abcdef";
@@ -73,22 +90,68 @@ export function lockedOci(lock, bundle) {
   return null;
 }
 
+/** True when `oci` carries the flat, platform-less rootfs shape. */
+function isLegacyShape(oci) {
+  return typeof oci?.[ROOTFS_KEY] === "string" || LEGACY_KEYS.some((k) => oci?.[k] !== undefined);
+}
+
 /**
- * The recorded rootfs for `bundle`: `{rootfs, image, symlinks}` or null.
- * `symlinks` is validated here, so a hand-edited value is refused before it
- * is ever echoed into a command line.
+ * The recorded rootfs rows for `bundle`: `[{platform, digest, image,
+ * symlinks}]`, empty when none is recorded. Every row is validated here, so a
+ * hand-edited value is refused before it is ever echoed into a command line.
+ * Refuses the flat pre-cloister-1c4ef5 shape by name, with the command that
+ * replaces it.
  */
-export function lockedRootfs(lock, bundle) {
+export function lockedRootfsRows(lock, bundle, { dir } = {}) {
   const oci = lockedOci(lock, bundle);
-  if (!oci || oci[ROOTFS_KEY] === undefined) return null;
-  const symlinks = oci[SYMLINKS_KEY] ?? DEFAULT_SYMLINKS;
-  if (!SYMLINK_MODES.includes(symlinks)) {
+  if (!oci || oci[ROOTFS_KEY] === undefined && !isLegacyShape(oci)) return [];
+  if (isLegacyShape(oci)) {
+    const symlinks = SYMLINK_MODES.includes(oci.rootfsSymlinks) ? oci.rootfsSymlinks : DEFAULT_SYMLINKS;
     throw new Error(
-      `bundle "${bundle}" records ${SYMLINKS_KEY} = ${JSON.stringify(symlinks)} in cluster.lock.toml; ` +
-        `it must be one of ${SYMLINK_MODES.join(", ")}`,
+      `bundle "${bundle}" records its rootfs in the old flat shape ([inputs.${bundle}.oci] ` +
+        `${ROOTFS_KEY} = "…" / rootfsImage), which does not say which platform it is for, so it ` +
+        `is not migrated. Re-import on each platform you run it on; that replaces it with ` +
+        `[[inputs.${bundle}.oci.${ROOTFS_KEY}]] rows:\n  ${importCommand(bundle, dir, symlinks)}`,
     );
   }
-  return { rootfs: oci[ROOTFS_KEY], image: oci[ROOTFS_IMAGE_KEY] ?? null, symlinks };
+  const rows = oci[ROOTFS_KEY];
+  if (!Array.isArray(rows)) {
+    throw new Error(`bundle "${bundle}"'s [inputs.${bundle}.oci] ${ROOTFS_KEY} must be a list of rows`);
+  }
+  const seen = new Set();
+  return rows.map((row, i) => {
+    const where = `[[inputs.${bundle}.oci.${ROOTFS_KEY}]] row ${i + 1}`;
+    if (!isPlatform(row?.platform)) {
+      throw new Error(`${where} has platform ${JSON.stringify(row?.platform)}, not os/architecture[/variant]`);
+    }
+    if (seen.has(row.platform)) {
+      throw new Error(`${where} repeats platform ${row.platform}; each platform has one row`);
+    }
+    seen.add(row.platform);
+    const symlinks = row.symlinks ?? DEFAULT_SYMLINKS;
+    if (!SYMLINK_MODES.includes(symlinks)) {
+      throw new Error(
+        `${where} records symlinks = ${JSON.stringify(symlinks)}; it must be one of ${SYMLINK_MODES.join(", ")}`,
+      );
+    }
+    return { platform: row.platform, digest: row.digest, image: row.image ?? null, symlinks };
+  });
+}
+
+/**
+ * The row this host's guest platform runs, or null when there is none.
+ * Refuses when more than one row is admitted (`linux/arm64` and
+ * `linux/arm64/v8` both recorded): picking one would be a guess.
+ */
+export function selectRootfs(rows, guestPlatform, bundle) {
+  const admitted = rows.filter((row) => platformAdmits(guestPlatform, row.platform));
+  if (admitted.length > 1) {
+    throw new Error(
+      `bundle "${bundle}" records more than one rootfs this host's guest platform ` +
+        `${guestPlatform} runs (${admitted.map((r) => r.platform).join(", ")}); keep one`,
+    );
+  }
+  return admitted[0] ?? null;
 }
 
 /** The exact command that records `bundle`'s rootfs, for refusal messages. */
@@ -107,15 +170,20 @@ export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
  * whether anything changed (idempotent — re-importing the same image with the
  * same policy yields the same rootfs and an unchanged lock).
  *
- * Refuses when the lock does not pin `bundle`'s image, or the import was of a
+ * Adds or replaces ONLY the row for `platform`; every other platform's row is
+ * kept. A flat pre-cloister-1c4ef5 record is replaced (the fresh import says
+ * which platform it is for; the old one did not).
+ *
+ * Refuses when the lock does not pin `bundle`'s image, the import was of a
  * different image than the one pinned in THIS text (callers pass the lock as
- * re-read after the import, so a pin that moved meanwhile is caught).
+ * re-read after the import, so a pin that moved meanwhile is caught), or the
+ * importer reported no platform.
  *
  * @param {string} lockText
- * @param {{bundle: string, image: string, rootfs: string, symlinks: string}} rec
+ * @param {{bundle: string, image: string, rootfs: string, symlinks: string, platform: string}} rec
  * @returns {{text: string, changed: boolean, previous: string|null}}
  */
-export function recordRootfs(lockText, { bundle, image, rootfs, symlinks }) {
+export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platform }) {
   const lock = parseToml(lockText);
   const oci = lockedOci(lock, bundle);
   if (!oci || typeof oci.digest !== "string" || oci.digest === "") {
@@ -133,27 +201,49 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks }) {
   if (!isBlake3Digest(rootfs)) {
     throw new Error(`the importer returned rootfs ${JSON.stringify(rootfs)}, not a blake3-256 digest`);
   }
+  if (!isPlatform(platform)) {
+    throw new Error(
+      `the importer reported no platform for the rootfs it built (${JSON.stringify(platform)}); ` +
+        `the rootfs was NOT recorded, because a row must say which platform it is for`,
+    );
+  }
   if (!SYMLINK_MODES.includes(symlinks)) {
     throw new Error(`--symlinks must be one of ${SYMLINK_MODES.join(", ")}, not ${JSON.stringify(symlinks)}`);
   }
-  const previous = oci[ROOTFS_KEY] ?? null;
-  const previousSymlinks = oci[SYMLINKS_KEY] ?? DEFAULT_SYMLINKS;
-  if (previous === rootfs && previousSymlinks === symlinks && oci[ROOTFS_IMAGE_KEY] === image) {
-    return { text: lockText, changed: false, previous };
+  const row = { platform, digest: rootfs, image };
+  if (symlinks !== DEFAULT_SYMLINKS) row.symlinks = symlinks;
+
+  if (isLegacyShape(oci)) {
+    const previous = typeof oci[ROOTFS_KEY] === "string" ? oci[ROOTFS_KEY] : null;
+    for (const key of LEGACY_KEYS) delete oci[key];
+    oci[ROOTFS_KEY] = [row];
+    return { text: stringifyToml(lock), changed: true, previous };
   }
-  oci[ROOTFS_KEY] = rootfs;
-  oci[ROOTFS_IMAGE_KEY] = image;
-  if (symlinks === DEFAULT_SYMLINKS) delete oci[SYMLINKS_KEY];
-  else oci[SYMLINKS_KEY] = symlinks;
-  return { text: stringifyToml(lock), changed: true, previous };
+  const rows = Array.isArray(oci[ROOTFS_KEY]) ? oci[ROOTFS_KEY] : [];
+  const existing = rows.find((r) => r?.platform === platform);
+  if (
+    existing &&
+    existing.digest === rootfs &&
+    existing.image === image &&
+    (existing.symlinks ?? DEFAULT_SYMLINKS) === symlinks
+  ) {
+    return { text: lockText, changed: false, previous: existing.digest };
+  }
+  const next = rows.filter((r) => r?.platform !== platform);
+  next.push(row);
+  next.sort((x, y) => (x.platform < y.platform ? -1 : x.platform > y.platform ? 1 : 0));
+  oci[ROOTFS_KEY] = next;
+  return { text: stringifyToml(lock), changed: true, previous: existing?.digest ?? null };
 }
 
 /**
- * Carry a recorded rootfs forward across a lock regeneration (`cluster
- * resolve`, `cloister add`, a demo re-pin), but only while the image it was
- * imported FROM (`rootfsImage`) is still the pinned digest. A moved pin drops
- * it, and `runtime plan` then asks for a fresh import by name. A row that
- * already carries a rootfs (a fresh import) is never overwritten.
+ * Carry recorded rootfs rows forward across a lock regeneration (`cluster
+ * resolve`, `cloister add`, a demo re-pin): EVERY row while the image pin is
+ * unchanged, NONE when it moved — a row is a derivation of the pinned image,
+ * and `runtime plan` then asks for a fresh import by name. A row that already
+ * carries rootfs (a fresh import) is never overwritten. A flat
+ * pre-cloister-1c4ef5 record is carried as it is, so plan can refuse it by
+ * name rather than report it missing.
  *
  * @param {object} previousOci the old lock's `[inputs.<n>.oci]`, or undefined
  * @param {object} nextOci the freshly built row (mutated and returned)
@@ -161,10 +251,9 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks }) {
 export function carryRootfs(previousOci, nextOci) {
   if (!previousOci || !nextOci) return nextOci;
   if (nextOci[ROOTFS_KEY] !== undefined) return nextOci;
-  if (previousOci[ROOTFS_KEY] === undefined) return nextOci;
-  if (!nextOci.digest || previousOci[ROOTFS_IMAGE_KEY] !== nextOci.digest) return nextOci;
-  nextOci[ROOTFS_KEY] = previousOci[ROOTFS_KEY];
-  nextOci[ROOTFS_IMAGE_KEY] = previousOci[ROOTFS_IMAGE_KEY];
-  if (previousOci[SYMLINKS_KEY] !== undefined) nextOci[SYMLINKS_KEY] = previousOci[SYMLINKS_KEY];
+  if (!nextOci.digest || previousOci.digest !== nextOci.digest) return nextOci;
+  for (const key of [ROOTFS_KEY, ...LEGACY_KEYS]) {
+    if (previousOci[key] !== undefined) nextOci[key] = structuredClone(previousOci[key]);
+  }
   return nextOci;
 }
