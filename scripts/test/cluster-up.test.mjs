@@ -187,9 +187,10 @@ test("importing on one platform adds or replaces only that platform's row", () =
     { platform: AMD, digest: RFS("c"), image: IMG("a") },
     { platform: ARM, digest: RFS("d"), image: IMG("a") },
   ], "the amd64 row is untouched");
-  // A variant is kept exactly as LLO reported it, as its own row.
+  // A variant is kept exactly as LLO reported it. linux/arm64/v8 overlaps
+  // linux/arm64 (one host selects both), so it REPLACES that row.
   const v8 = recordRootfs(text, { bundle: "dolt", image: IMG("a"), rootfs: RFS("e"), symlinks: "refuse", platform: "linux/arm64/v8" });
-  assert.deepEqual(plain(parseToml(v8.text).inputs.dolt.oci.rootfs.map((r) => r.platform)), [ARM, "linux/arm64/v8"]);
+  assert.deepEqual(plain(parseToml(v8.text).inputs.dolt.oci.rootfs), [{ platform: "linux/arm64/v8", digest: RFS("e"), image: IMG("a") }]);
 });
 
 test("a re-import replaces the old flat record with a platform row", () => {
@@ -701,7 +702,7 @@ test("no row for this host's platform is refused with the import command, naming
     planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "orders", rootfsInCas: () => assert.fail("not consulted"), guestPlatform: () => AMD }),
     (e) => {
       assert.match(e.message, /bundle "orders" is a microvm bundle with no imported rootfs for this host's guest platform linux\/amd64 in cluster.lock.toml \(\[\[inputs.orders.oci.rootfs\]\]\) \(it records linux\/arm64\)\. Import its pinned image on this host:/);
-      assert.ok(e.message.includes("cloister runtime import --bundle orders --dir demo [--layout <oci-layout-dir>]"), e.message);
+      assert.ok(e.message.endsWith("cloister runtime import --bundle orders --dir demo [--layout <oci-layout-dir>]"), e.message);
       return true;
     },
   );
@@ -781,6 +782,87 @@ test("runtime import records nothing when the importer reports no platform", asy
     assert.equal(code, 1);
     assert.match(out.err.join("\n"), /the importer reported no platform for the rootfs it built \(null\); the rootfs was NOT recorded/);
     assert.equal(readFileSync(join(dir, "cluster.lock.toml"), "utf8"), before);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── #291 review fixes ─────────────────────────────────────────────────────
+
+test("the no-row remedy carries the recorded rows' common --symlinks, or lists them when they disagree", async () => {
+  const same = parseToml(lockText({ dolt: { digest: IMG("a"), rows: [
+    { platform: ARM, digest: RFS("b"), image: IMG("a"), symlinks: "resolve" },
+    { platform: "linux/riscv64", digest: RFS("c"), image: IMG("a"), symlinks: "resolve" },
+  ] } }));
+  await assert.rejects(
+    planFromToml(DEMO_TOML, same, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => assert.fail("not consulted"), guestPlatform: () => AMD }),
+    (e) => {
+      assert.ok(e.message.endsWith("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>] --symlinks resolve"), e.message);
+      return true;
+    },
+  );
+  const differ = parseToml(lockText({ dolt: { digest: IMG("a"), rows: [
+    { platform: ARM, digest: RFS("b"), image: IMG("a"), symlinks: "resolve" },
+    { platform: "linux/riscv64", digest: RFS("c"), image: IMG("a") },
+  ] } }));
+  await assert.rejects(
+    planFromToml(DEMO_TOML, differ, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => assert.fail("not consulted"), guestPlatform: () => AMD }),
+    (e) => {
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>] --symlinks <policy>\n"), e.message);
+      assert.match(e.message, /The recorded rows disagree on --symlinks: linux\/arm64 used resolve; linux\/riscv64 used refuse$/);
+      return true;
+    },
+  );
+});
+
+test("an import replaces every row its platform overlaps, so a variant mismatch is repairable", async () => {
+  // linux/arm64/v8 recorded; the importer now reports linux/arm64. Exact-string
+  // keying would add a second row that plan refuses as ambiguous forever.
+  const text = lockText({ dolt: { digest: IMG("a"), rows: [
+    { platform: "linux/arm64/v8", digest: RFS("b"), image: IMG("a") },
+    { platform: AMD, digest: RFS("c"), image: IMG("a") },
+    { platform: "linux/arm/v7", digest: RFS("d"), image: IMG("a") },
+  ] } });
+  const r = recordRootfs(text, { bundle: "dolt", image: IMG("a"), rootfs: RFS("e"), symlinks: "refuse", platform: ARM });
+  assert.equal(r.previous, RFS("b"));
+  const rows = plain(parseToml(r.text).inputs.dolt.oci.rootfs);
+  assert.deepEqual(rows, [
+    { platform: AMD, digest: RFS("c"), image: IMG("a") },
+    { platform: "linux/arm/v7", digest: RFS("d"), image: IMG("a") },
+    { platform: ARM, digest: RFS("e"), image: IMG("a") },
+  ], "amd64 and arm/v7 are kept; only the overlapping arm64/v8 row is replaced");
+  // And plan, which refused the two-row state, now selects the one row.
+  const plan = await planFromToml(DEMO_TOML, parseToml(r.text), { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) });
+  assert.equal(plan.artifact.digest, RFS("e"));
+  // Non-overlapping variants of one architecture stay separate rows.
+  const v6 = recordRootfs(r.text, { bundle: "dolt", image: IMG("a"), rootfs: RFS("f"), symlinks: "refuse", platform: "linux/arm/v6" });
+  assert.deepEqual(plain(parseToml(v6.text).inputs.dolt.oci.rootfs).map((x) => x.platform), [AMD, "linux/arm/v6", "linux/arm/v7", ARM]);
+  // Re-recording the identical row is still a no-op.
+  assert.equal(recordRootfs(r.text, { bundle: "dolt", image: IMG("a"), rootfs: RFS("e"), symlinks: "refuse", platform: ARM }).changed, false);
+});
+
+test("rows mixed with flat keys are refused by name at import and at plan, never collapsed", async () => {
+  const mixed = stringifyToml({ inputs: { dolt: { oci: {
+    identifier: "x/dolt", digest: IMG("a"), rootfsImage: IMG("a"),
+    rootfs: [{ platform: AMD, digest: RFS("c"), image: IMG("a") }],
+  } } } });
+  const pattern = /bundle "dolt" records BOTH \[\[inputs\.dolt\.oci\.rootfs\]\] rows and the old flat key\(s\) rootfsImage in \[inputs\.dolt\.oci\]\. A lock holds one shape; the rows are the current one\. Remove rootfsImage from \[inputs\.dolt\.oci\] by hand/;
+  assert.throws(
+    () => recordRootfs(mixed, { bundle: "dolt", image: IMG("a"), rootfs: RFS("b"), symlinks: "refuse", platform: ARM }),
+    pattern,
+  );
+  await assert.rejects(
+    planFromToml(DEMO_TOML, parseToml(mixed), { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => assert.fail("not consulted"), guestPlatform: () => assert.fail("not asked") }),
+    pattern,
+  );
+  // Through the real import command: refused, and the lock is untouched.
+  const dir = mkdtempSync(join(tmpdir(), "cloister-import-"));
+  try {
+    writeFileSync(join(dir, "cluster.lock.toml"), mixed);
+    const { out, deps } = capture();
+    assert.equal(await importMain(["--bundle", "dolt", "--dir", dir, "--layout", "/l"], { ...deps, importOci: () => imported("b") }), 1);
+    assert.match(out.err.join("\n"), pattern);
+    assert.equal(readFileSync(join(dir, "cluster.lock.toml"), "utf8"), mixed);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -33,7 +33,10 @@ export function isPlatform(text) {
 
 /**
  * Whether a rootfs recorded for platform `recorded` is one this host's guest
- * platform `host` runs. Mirrors LLO's `Platform::admits` (artifacts/oci.rs),
+ * platform `host` runs. Mirrors LLO's PRIVATE `Platform::admits`
+ * (artifacts/oci.rs) by hand. Delete this, and call LLO's selection, when LLO
+ * exposes select_platform (ley-line-open-370b41). Until then a change to
+ * LLO's rule has to be copied here. It mirrors
  * the rule its importer uses to pick an index entry: os and architecture must
  * be equal; a host platform with no variant admits any variant; `arm64` with
  * no variant is `arm64/v8`, as the image spec defines it.
@@ -49,3 +52,14 @@ export function platformAdmits(host, recorded) {
   return normalized(r.architecture, r.variant) === normalized(h.architecture, h.variant);
 }
 
+
+/**
+ * Whether two recorded platforms name rows one host could both select: either
+ * admits the other under the same rule (`linux/arm64` and `linux/arm64/v8`;
+ * not `linux/arm64/v8` and `linux/arm64/v9`). An import replaces every row
+ * that overlaps the platform it recorded, so the lock never holds two rows a
+ * host must choose between (cloister-1c4ef5 review).
+ */
+export function platformsOverlap(a, b) {
+  return platformAdmits(a, b) || platformAdmits(b, a);
+}

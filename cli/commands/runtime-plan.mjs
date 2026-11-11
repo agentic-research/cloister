@@ -231,11 +231,20 @@ function microvmRootfs(lock, oci, options) {
   const platform = options.guestPlatform();
   const recorded = selectRootfs(rows, platform, bundle);
   if (!recorded) {
+    // The recorded rows' symlink policy carries into the remedy: an import
+    // without it would fail, or build a different tree. Rows that disagree
+    // are listed, not guessed between.
+    const policies = [...new Set(rows.map((r) => r.symlinks))];
+    const remedy = policies.length === 1
+      ? importCommand(bundle, options.dir, policies[0])
+      : `${importCommand(bundle, options.dir)} --symlinks <policy>\n` +
+        `The recorded rows disagree on --symlinks: ` +
+        rows.map((r) => `${r.platform} used ${r.symlinks}`).join("; ");
     throw new Error(
       `bundle "${bundle}" is a microvm bundle with no imported rootfs for this host's guest ` +
         `platform ${platform} in cluster.lock.toml ([[inputs.${bundle}.oci.${ROOTFS_KEY}]]) ` +
         `(it records ${rows.map((r) => r.platform).join(", ")}). ` +
-        `Import its pinned image on this host:\n  ${importCommand(bundle, options.dir)}`,
+        `Import its pinned image on this host:\n  ${remedy}`,
     );
   }
   const fix = importCommand(bundle, options.dir, recorded.symlinks);
