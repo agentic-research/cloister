@@ -250,7 +250,7 @@ is an operator decision outside the plan (the host runtime's existing rule).
     import command, when the rootfs is missing from the lock or the store.
   - `cluster up --env <env>` starts every microvm-placed bundle, targets
     before sources. A bundle counts as "bound" once its bind sockets exist; its
-    health isn't checked (ADR-0071). It supervises the
+    health isn't checked (ADR-0071 §3). It supervises the
     runs in the foreground and stops them in reverse order. The host runtime
     cancels its LLO run on SIGINT/SIGTERM.
   - Live: the dolt/orders demo answered grpcurl over a declared edge. With the

@@ -15,7 +15,7 @@
 //     BINDS exists. Those paths are its §6 bind grants — the same ones a
 //     dependent's connect grant names — so "bound" is exactly "a dependent can
 //     now be granted". Its health is NOT checked, so `up` never calls it
-//     ready (ADR-0071; health-gated start is a later slice).
+//     ready (ADR-0071 §3; health-gated start is a later slice).
 //     There is no timeout: a bundle that never binds is still a running child,
 //     and one that fails exits, which `up` sees.
 //   - plans: emitted in memory by `buildLaunchPlan`, the code path behind
@@ -321,7 +321,7 @@ export async function clusterUp({ root, env, deps = {} }) {
         check();
       });
       if (stopRequested) break;
-      log(`cloister cluster up: "${plan.bundle}" bound (its sockets exist; health not checked — ADR-0071)`);
+      log(`cloister cluster up: "${plan.bundle}" bound (its sockets exist; health not checked — ADR-0071 §3)`);
     }
 
     if (!stopRequested) {
@@ -331,7 +331,7 @@ export async function clusterUp({ root, env, deps = {} }) {
           log(`  ${run.bundle}.${p.name} (${p.appProtocol}): unix://${join(channelDir, `${run.bundle}.${p.name}.sock`)}`);
         }
       }
-      log("cloister cluster up: all bundles bound; Ctrl-C to stop");
+      log("cloister cluster up: all bundles bound (health not checked — ADR-0071 §3); Ctrl-C to stop");
       log(
         "cloister cluster up: note: every run is stopped at its wall-clock ceiling (each " +
           "bundle's is printed above); a service cannot ask for \"no ceiling\" yet " +

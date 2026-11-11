@@ -49,7 +49,7 @@ starts `orders`, and prints:
 ```
   dolt.mysql (art.mysql): unix:///private/tmp/cloister-up-XXXXXX/dolt.mysql.sock
   orders.grpc (art.grpc): unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock
-cloister cluster up: all bundles bound; Ctrl-C to stop
+cloister cluster up: all bundles bound (health not checked — ADR-0071 §3); Ctrl-C to stop
 ```
 
 From another terminal, using the printed path. `orders` may still be seeding
@@ -118,7 +118,7 @@ The host runtime itself exits 1. Its message carries the guest's exit status,
 - `bound` means every socket the bundle binds exists, and nothing more. A
   dependent can then be
   granted its channel. Health is not checked, so `up` does not call it
-  ready (ADR-0071). The workload may not accept connections yet (LLO a915e3);
+  ready (ADR-0071 §3). The workload may not accept connections yet (LLO a915e3);
   `orders`' client retries.
 - Guest output is discarded (LLO a26ad0). Exit codes do propagate.
 - The workload args avoid `"` (LLO d4b07f mangles it).

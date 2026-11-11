@@ -252,8 +252,8 @@ cloister cluster up --env local --dir <cluster-dir>
 This starts every bundle placed `microvm` in the env. A connection's target
 starts before its source, and a cycle is refused. Each bundle counts as bound
 once every socket it binds exists. That means a dependent can be granted its
-channel; it does not mean the workload is accepting yet (LLO a915e3), so
-clients should retry. Sockets live in a fresh owner-only directory under
+channel. Health is not checked, so it is not called ready (ADR-0071 §3), and
+the workload may not be accepting yet (LLO a915e3), so clients should retry. Sockets live in a fresh owner-only directory under
 `/private/tmp` (macOS's real `/tmp`: libkrun refused a socket path through the
 `/tmp` symlink). Each exposed port's `unix://` path is printed, and the
 directory is removed on exit.
