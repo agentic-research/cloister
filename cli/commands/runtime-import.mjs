@@ -5,9 +5,10 @@
 //
 // With --layout the image comes from an on-disk OCI layout; without it, the
 // lock's pinned `identifier@sha256:…` is pulled from its registry through
-// LLO's in-process importer (anonymous HTTPS; cloister-727354).
+// LLO's in-process importer (anonymous HTTPS; cloister-727354). Either way it
+// lands in the CAS the provider record names, re-attached first.
 //
-// Imports the bundle's PINNED image from an on-disk OCI layout into the
+// Imports the bundle's PINNED image (from a layout or its registry) into the
 // microVM CAS (through the host runtime's `import-oci`, i.e. LLO's importer)
 // and records the resulting rootfs in cluster.lock.toml beside the image pin,
 // which is what `runtime plan` and `cluster up` run.
@@ -27,6 +28,7 @@ import { resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { runCompatibilityJson } from "../lib/runtime/compatibility-client.mjs";
+import { prepareCas } from "../lib/runtime/cas-root.mjs";
 import { writeGeneratedFile } from "../lib/atomic-write.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
 import {
@@ -104,6 +106,10 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   try {
+    // The CAS the import lands in: the recorded one, re-attached if a reboot
+    // detached it; a disagreeing CLOISTER_CAS_ROOT is refused here, not after
+    // a download (cloister-727354).
+    (deps.prepareCas ?? prepareCas)({ env, warn: errLog });
     const lockPath = resolve(args.dir, "cluster.lock.toml");
     if (!existsSync(lockPath)) {
       throw new Error(`no cluster.lock.toml in ${resolve(args.dir)}; --bundle records into the cluster's lock`);

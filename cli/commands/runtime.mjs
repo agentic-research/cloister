@@ -16,6 +16,7 @@ import {
   lloCancel,
   lloCleanup,
 } from "../lib/runtime/llo-client.mjs";
+import { assertNoCasRootOverride } from "../lib/runtime/cas-root.mjs";
 import {
   RuntimeNotInstalledError,
   RuntimeProviderError,
@@ -59,6 +60,10 @@ function renderVolume(volume, log) {
   }
   const cs = volume.caseSensitive === null ? "unknown (not attached)" : volume.caseSensitive ? "yes" : "NO";
   log(`CAS volume: ${volume.image} (${volume.attached ? "attached" : "not attached"}; case-sensitive: ${cs})`);
+  if (!volume.attached && volume.imageExists) {
+    // A reboot or logout detaches it; nothing needs reinstalling.
+    log("It is re-attached automatically by `cluster up`, `runtime plan` and `runtime import`.");
+  }
 }
 
 function renderStorageStatus(status, log) {
@@ -68,9 +73,8 @@ function renderStorageStatus(status, log) {
     log(`Backend: ${backendLabel(status.backend)}`);
     log(`Storage: ${status.storageVolume}`);
     renderVolume(status.volume, log);
-    log(status.provider === "llo"
-      ? "Provision through the LLO execution/v1 provider"
-      : "Run: cloister runtime install");
+    if (status.provider === "llo") log("Provision through the LLO execution/v1 provider");
+    else if (!(status.volume?.imageExists && !status.volume?.attached)) log("Run: cloister runtime install");
     return;
   }
 
@@ -228,6 +232,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         } catch (error) {
           if (!(error instanceof RuntimeNotInstalledError)) throw error;
         }
+        if (microvm) assertNoCasRootOverride(env, microvm.casRoot);
         const base = {
           provider: "compatibility",
           maturity: "experimental",
@@ -258,6 +263,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
               image: observed.image,
               mountpoint: observed.mountpoint,
               attached: observed.attached,
+              imageExists: observed.imageExists,
               caseSensitive,
               normalizationSensitive: observed.filesystem?.normalizationSensitive ?? null,
             },

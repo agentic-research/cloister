@@ -210,7 +210,9 @@ function importFixture(oci) {
 }
 function capture() {
   const out = { log: [], err: [] };
-  return { out, deps: { log: (m) => out.log.push(m), errLog: (m) => out.err.push(m) } };
+  // prepareCas is the real CAS attach/override check; these import tests are
+  // about the lock, so it is stubbed (it has its own tests).
+  return { out, deps: { log: (m) => out.log.push(m), errLog: (m) => out.err.push(m), prepareCas: () => {} } };
 }
 
 test("runtime import --bundle derives --image from the lock, imports, and records the rootfs", async () => {

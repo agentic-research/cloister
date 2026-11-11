@@ -33,7 +33,7 @@ import { parse as parseToml } from "smol-toml";
 import { parseTomlToCluster } from "./toml-to-cluster.mjs";
 import { checkableBundle, isExposed, placementFor } from "./connections.mjs";
 import { buildLaunchPlan, parsePlanArgs } from "../../commands/runtime-plan.mjs";
-import { casRootInCas } from "../runtime/cas-root.mjs";
+import { lazyRootfsInCas } from "../runtime/cas-root.mjs";
 import { hostRuntimeEnv, resolveHostRuntime } from "../runtime/compatibility-client.mjs";
 import { MAX_UNIX_SOCKET_PATH } from "./connections.mjs";
 
@@ -170,7 +170,9 @@ export async function clusterUp({ root, env, deps = {} }) {
   for (const sk of skipped) log(`cloister cluster up: skipping "${sk.name}": ${sk.reason}`);
   if (order.length === 0) throw new Error(`no bundle is placed "microvm" for env "${env}"`);
   const shownDir = relative(process.cwd(), absRoot) || ".";
-  const rootfsInCas = deps.rootfsInCas ?? casRootInCas(procEnv);
+  // Attaches the CAS volume (or refuses by name) when the first plan checks
+  // its rootfs — before anything is spawned (cloister-727354).
+  const rootfsInCas = deps.rootfsInCas ?? lazyRootfsInCas({ env: procEnv, warn: errLog });
 
   // ── stop control ─────────────────────────────────────────────────────────
   const runs = [];

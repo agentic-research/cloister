@@ -21,9 +21,18 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   - The run root moves onto the same volume (`mnt/run`): a Debian rootfs
     failed to materialize on default APFS (`File exists`; LLO
     ley-line-open-741388).
-  - The host runtime re-attaches the volume before a run or import
-    (`attach_existing`, which never creates one), so a reboot does not empty
-    the store.
+  - A reboot or logout detaches the volume. `cluster up`, `runtime plan` and
+    `runtime import` re-attach it through the host runtime's `cas-attach`
+    (`attach_existing`, which never creates one) before they look in the
+    store, and the host runtime does the same before a run or import. A
+    detached volume no longer reads as "rootfs not in the CAS".
+  - Install provisions the volume with the freshly built host runtime before
+    anything is swapped into place, so a failed provision leaves the previous
+    install intact.
+  - A `CLOISTER_CAS_ROOT` that differs from the record is refused by the CLI;
+    the host runtime refuses one that differs from the attached volume.
+  - Removing the volume: `hdiutil detach <state>/cas-volume/mnt`, then delete
+    `cas.sparsebundle`. It does not shrink by itself.
 - **`runtime storage status`** reads the CAS root from the record and reports
   the volume (attached, case-sensitive) through the read-only `cas-status`.
 - **Old store.** `~/.local/state/cloister/cas` is neither migrated nor

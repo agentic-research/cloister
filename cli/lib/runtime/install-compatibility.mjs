@@ -97,7 +97,13 @@ function defaultProvisionCas(hostRuntime, stateDir) {
       `could not provision the CAS volume: ${result.error?.message ?? (result.stderr || `status ${result.status}`).trim()}`,
     );
   }
-  return JSON.parse(result.stdout);
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new CompatibilityInstallError(
+      `could not provision the CAS volume: the host runtime printed no JSON (${error.message}): ${result.stdout.slice(0, 200)}`,
+    );
+  }
 }
 
 async function defaultFetchKrunWorker(root, target) {
@@ -117,7 +123,15 @@ async function defaultFetchKrunWorker(root, target) {
  * have the tier still gets the harness lane; the reason is printed, never
  * swallowed.
  */
-async function installMicrovm({ root, layout, platform, arch, env, fetchKrunWorker, findLibkrunfw, provisionCas, log }) {
+/**
+ * Prepare the microVM tier WITHOUT touching the installed files: fetch the
+ * worker, and provision the CAS volume with the FRESHLY BUILT host runtime.
+ * Nothing is swapped into place here; on any failure the previous install is
+ * left exactly as it was (#290 review: provisioning after the swap left a new
+ * binary beside the old record, and every command then died on "digest
+ * mismatch"). `commit()` copies the worker into place.
+ */
+async function prepareMicrovm({ root, layout, platform, arch, env, fetchKrunWorker, findLibkrunfw, provisionCas, builtHostRuntime, log }) {
   if (platform !== "darwin" || arch !== "arm64") {
     return { unavailable: `LLO publishes leyline-krun-worker for darwin-arm64 only (this host is ${platform}-${arch})` };
   }
@@ -139,17 +153,23 @@ async function installMicrovm({ root, layout, platform, arch, env, fetchKrunWork
       `could not provide leyline-krun-worker: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  // A plain byte copy keeps the embedded code signature, which carries the
-  // com.apple.security.hypervisor entitlement the worker needs.
-  copyExecutableAtomic(fetched, layout.krunWorker);
-
   // THE one place the CAS root is decided (cloister-727354): LLO's
   // case-sensitive volume under cloister's state dir. Everything downstream —
   // the host runtime's CLOISTER_CAS_ROOT, `runtime plan`'s presence check,
   // `storage status` — reads it from the record written here. A
   // case-insensitive store (default APFS) refused Debian images that ship
   // names differing only by case (perl's Pod/ and pod/).
-  const cas = provisionCas(layout.hostRuntime, layout.stateDir);
+  let cas;
+  try {
+    cas = provisionCas(builtHostRuntime, layout.stateDir);
+  } catch (error) {
+    throw new CompatibilityInstallError(
+      `${error instanceof Error ? error.message : String(error)}\n` +
+        "The existing install was left unchanged. The volume is created as you with " +
+        "/usr/bin/hdiutil (no sudo): check that hdiutil works for this user and that the " +
+        `disk holding ${layout.stateDir} has space, then re-run cloister runtime install.`,
+    );
+  }
   if (!cas?.casRoot || cas.filesystem?.caseSensitive !== true) {
     throw new CompatibilityInstallError(
       `LLO provisioned a CAS root that is not case-sensitive: ${JSON.stringify(cas)}`,
@@ -164,9 +184,11 @@ async function installMicrovm({ root, layout, platform, arch, env, fetchKrunWork
   // collided when the run root was on default APFS ("create ephemeral rootfs
   // directory: File exists", seen live with dolthub/dolt-sql-server). So the
   // run root goes on the same case-sensitive volume, beside the CAS root.
-  // Derived from the volume LLO returned; on a host with no volume (Linux,
-  // where LLO only verifies the filesystem) it stays the layout's.
-  const runRoot = cas.mountpoint ? join(cas.mountpoint, "run") : layout.runRoot;
+  // Derived from the volume LLO returned.
+  if (!cas.mountpoint) {
+    throw new CompatibilityInstallError(`LLO provisioned a CAS root with no volume mountpoint: ${JSON.stringify(cas)}`);
+  }
+  const runRoot = join(cas.mountpoint, "run");
   mkdirSync(runRoot, { recursive: true, mode: 0o700 });
   // The pre-volume store is neither migrated nor deleted: its trees are on a
   // case-insensitive filesystem, and copying them would carry that over.
@@ -178,13 +200,16 @@ async function installMicrovm({ root, layout, platform, arch, env, fetchKrunWork
     );
   }
   return {
-    section: {
+    // A plain byte copy keeps the embedded code signature, which carries the
+    // com.apple.security.hypervisor entitlement the worker needs.
+    commit: () => copyExecutableAtomic(fetched, layout.krunWorker),
+    section: () => ({
       krunWorker: { file: basename(layout.krunWorker), sha256: sha256File(layout.krunWorker) },
       libkrunfw: { path: libkrunfw, sha256: sha256File(libkrunfw) },
       casRoot: cas.casRoot,
       casStateDir: layout.stateDir,
       runRoot,
-    },
+    }),
   };
 }
 
@@ -212,19 +237,19 @@ export async function installCompatibilityProvider({
   await runBuild(spawn, root, nativeArgs);
   await runBuild(spawn, root, hostArgs);
 
+  const builtHostRuntime = join(root, "rs/target/release/cloister-host-runtime");
+  // Everything that can fail runs BEFORE anything is swapped into place.
+  const microvm = await prepareMicrovm({
+    root, layout, platform, arch, env, fetchKrunWorker, findLibkrunfw, provisionCas, builtHostRuntime, log,
+  });
+  if (microvm.unavailable) log(`microVM tier unavailable: ${microvm.unavailable}`);
+
   copyExecutableAtomic(
     join(root, "tools/harness-sandbox/target/release/cloister-harness"),
     layout.nativeHelper,
   );
-  copyExecutableAtomic(
-    join(root, "rs/target/release/cloister-host-runtime"),
-    layout.hostRuntime,
-  );
-
-  const microvm = await installMicrovm({
-    root, layout, platform, arch, env, fetchKrunWorker, findLibkrunfw, provisionCas, log,
-  });
-  if (microvm.unavailable) log(`microVM tier unavailable: ${microvm.unavailable}`);
+  copyExecutableAtomic(builtHostRuntime, layout.hostRuntime);
+  microvm.commit?.();
 
   const record = {
     schema: PROVIDER_SCHEMA,
@@ -243,7 +268,7 @@ export async function installCompatibilityProvider({
         sha256: sha256File(layout.hostRuntime),
       },
     },
-    ...(microvm.section ? { microvm: microvm.section } : {}),
+    ...(microvm.section ? { microvm: microvm.section() } : {}),
   };
 
   // The record is the selection point. Publish it only after every executable

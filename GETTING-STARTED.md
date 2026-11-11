@@ -230,17 +230,30 @@ v0.28.0 a root entrypoint (`/orders`) has been seen running.
 
 **The store is a case-sensitive volume.** `runtime install` provisions LLO's
 CAS volume, a case-sensitive APFS sparsebundle under
-`~/.local/state/cloister/cas-volume`. It is created as you, with no sudo,
-grows on demand up to 64 GiB, and is re-attached by the host runtime after a
-reboot. The CAS root (`…/mnt/cas`) and each run's ephemeral root (`…/mnt/run`)
-both live on it. Debian-based images have names that differ only by case
-(perl's `Pod/` and `pod/`), which default APFS merges. `cloister runtime
-storage status` shows the volume and whether it is case-sensitive.
+`~/.local/state/cloister/cas-volume`. It is created as you, with no sudo, and
+grows on demand up to 64 GiB. The CAS root (`…/mnt/cas`) and each run's
+ephemeral root (`…/mnt/run`) both live on it. Debian-based images have names
+that differ only by case (perl's `Pod/` and `pod/`), which default APFS merges.
+`cloister runtime storage status` shows the volume and whether it is
+case-sensitive.
+
+- **Attach.** A reboot or logout detaches the volume, and nothing re-attaches
+  it at login. `cluster up`, `runtime plan` and `runtime import` re-attach it
+  the next time they need the store, so its contents are still there.
+  `storage status` reports a detached volume and does not attach it.
+- **Space.** The image grows as rootfs trees are imported and does not shrink
+  when they are removed. `hdiutil compact` reclaims freed space while the
+  volume is detached.
+- **Removing it.** `hdiutil detach ~/.local/state/cloister/cas-volume/mnt`
+  (it refuses while a VM or an import has a file open), then delete
+  `~/.local/state/cloister/cas-volume/cas.sparsebundle`. Every rootfs in it
+  can be re-imported; the next `runtime install` provisions a new volume.
 
 An earlier install's `~/.local/state/cloister/cas` is neither migrated nor
 deleted. Its trees sit on a case-insensitive filesystem, so they are not
 carried over. Re-import each bundle (`runtime plan` prints the exact command),
-then delete the old directory.
+then delete the old `~/.local/state/cloister/cas` yourself to get the space
+back.
 
 For a bundle in `cluster.toml`, import with `--bundle`. It imports the image the
 lock pins (`[inputs.<bundle>.oci] digest`; `--image` may be omitted, and must

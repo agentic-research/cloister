@@ -99,7 +99,13 @@ fn backend() -> LeylineExecutionBackend<KrunWorkerBackend> {
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
-        bail!("usage: cloister-host-runtime <validate|run|doctor|import-oci> [args]");
+        bail!(
+            "usage: cloister-host-runtime <validate|run|doctor|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
+             CLOISTER_CAS_ROOT and CLOISTER_CAS_STATE_DIR are deployment inputs the cloister CLI sets \
+             from its provider record. When both are set, run and import-oci check that the attached \
+             volume's root IS that CAS root: a consistency check against a stale or hand-set value, \
+             not a security boundary."
+        );
     };
 
     match command.as_str() {
@@ -136,8 +142,10 @@ fn run() -> Result<()> {
                 // LLO refuses a bind grant whose directory is missing; create
                 // it (0700) only after the plan has been validated.
                 plan.validate().context("launch refused")?;
-                cloister_host_runtime::prepare_channel_dirs(&plan).context("launch refused")?;
+                // Attach (or refuse) BEFORE creating any channel directory, so a
+                // refusal leaves nothing behind.
                 ensure_cas_volume_attached(&krun_config().cas_root).context("launch refused")?;
+                cloister_host_runtime::prepare_channel_dirs(&plan).context("launch refused")?;
                 // SIGINT/SIGTERM must stop the GUEST, not just this process:
                 // the worker is in its own process group and would outlive us.
                 // Blocked here, before any thread exists, so every thread
@@ -289,10 +297,10 @@ fn run() -> Result<()> {
                         },
                         &cas_root,
                     )
-                    .with_context(|| {
-                        format!(
-                            "pull {reference} from its registry (anonymous pulls of public images only; \
-                             credentials are not supported yet)"
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "pull {reference} from its registry: {}",
+                            cloister_host_runtime::execution::registry_failure_message(&error)
                         )
                     })?,
                 };
@@ -310,7 +318,7 @@ fn run() -> Result<()> {
         // names differing only by case (Debian's perl: Pod/ and pod/) import on
         // macOS. `runtime install` calls provision-cas once and records the
         // returned casRoot; nothing else decides the CAS root.
-        "provision-cas" | "cas-status" => {
+        "provision-cas" | "cas-status" | "cas-attach" => {
             let usage = format!("usage: cloister-host-runtime {command} --state-dir <abs dir>");
             let mut state_dir = None;
             while let Some(flag) = args.next() {
@@ -330,7 +338,20 @@ fn run() -> Result<()> {
                 };
                 let volume = CasVolume::new(&state_dir, DEFAULT_SIZE_CAP_BYTES)
                     .context("CAS volume configuration")?;
-                if command == "provision-cas" {
+                if command == "cas-attach" {
+                    // Re-attach a provisioned volume; NEVER create one. The CLI
+                    // calls this before any CAS check, so a volume a reboot or
+                    // logout detached reads as "attach it", never as "rootfs
+                    // missing, re-import".
+                    let attached = volume
+                        .attach_existing()
+                        .context("re-attach the CAS volume")?;
+                    let reply = match attached {
+                        Some(cas) => serde_json::json!({ "provisioned": true, "volume": cas }),
+                        None => serde_json::json!({ "provisioned": false }),
+                    };
+                    println!("{}", serde_json::to_string(&reply)?);
+                } else if command == "provision-cas" {
                     // Idempotent: creates the sparsebundle once, attaches it,
                     // reuses it attached. As the calling user, no sudo.
                     let provisioned = volume.provision().context("provision the CAS volume")?;
