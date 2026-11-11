@@ -414,7 +414,7 @@ test("cluster up starts in order, waits for each bind socket, and stops in rever
   assert.equal(existsSync(r.channelDir), false, "the channel dir is removed on exit");
 });
 
-test("a bundle that exits before it is ready is reported by name and status; the rest are torn down", async () => {
+test("a bundle that exits before it is bound is reported by name and status; the rest are torn down", async () => {
   const r = await upHarness({
     behave: ({ bundle, plan, child, bound }) => {
       if (bundle === "dolt") { for (const p of bindPaths(plan)) bound.add(p); return; }
@@ -428,7 +428,7 @@ test("a bundle that exits before it is ready is reported by name and status; the
   assert.equal(existsSync(r.channelDir), false);
 });
 
-test("a run that ends on its own after everything is ready ends `up` non-zero", async () => {
+test("a run that ends on its own after everything is bound ends `up` non-zero", async () => {
   const r = await upHarness({
     behave: ({ bundle, plan, child, bound }) => {
       for (const p of bindPaths(plan)) bound.add(p);
@@ -469,7 +469,7 @@ test("a run stopped at its wall-clock ceiling (host runtime status 124) is repor
   const text = r.err.join("\n");
   assert.match(text, /bundle "orders" reached its wall-clock ceiling and was stopped by the runtime — not a workload failure \(services cannot ask for "no ceiling" yet: ley-line-open-e6b1bb\)/);
   assert.doesNotMatch(text, /exited on its own/);
-  assert.ok(r.log.some((l) => /stopped at its wall-clock ceiling .*ley-line-open-e6b1bb/.test(l)), "the ready banner says so");
+  assert.ok(r.log.some((l) => /stopped at its wall-clock ceiling .*ley-line-open-e6b1bb/.test(l)), "the bound banner says so");
 });
 
 // ── review fixes 7, 8, 10, 11 ─────────────────────────────────────────────

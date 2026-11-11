@@ -84,7 +84,7 @@ const fakePids = (up) => [...new Set(up.events().map((e) => e.pid))];
 test("a second SIGINT during a slow teardown reports progress and keeps waiting — nothing is orphaned", async () => {
   const up = startUp({ FAKE_STOP_MS: "600" });
   try {
-    await up.waitFor(/all bundles ready/);
+    await up.waitFor(/all bundles bound/);
     const dir = up.channelDir();
     up.child.kill("SIGINT");
     await up.waitFor(/SIGINT: stopping/);
@@ -104,7 +104,7 @@ test("a second SIGINT during a slow teardown reports progress and keeps waiting 
 test("SIGHUP stops the cluster through the same teardown", async () => {
   const up = startUp({});
   try {
-    await up.waitFor(/all bundles ready/);
+    await up.waitFor(/all bundles bound/);
     up.child.kill("SIGHUP");
     const { code, signal } = await up.exited;
     assert.equal(signal, null, "SIGHUP did not kill up");
@@ -122,7 +122,7 @@ test("an earlier bundle dying while a later one starts is noticed: stop everythi
     const { code } = await up.exited;
     assert.equal(code, 1, up.out.stdout + up.out.stderr);
     assert.match(up.out.stderr, /bundle "dolt" exited on its own with status 1/);
-    assert.doesNotMatch(up.out.stdout, /all bundles ready/);
+    assert.doesNotMatch(up.out.stdout, /all bundles bound/);
     assert.ok(await allDead(fakePids(up)), "orders was stopped");
   } finally {
     up.child.kill("SIGKILL");
@@ -133,7 +133,7 @@ test("an earlier bundle dying while a later one starts is noticed: stop everythi
 test("a run ending on its own still makes the exit non-zero when a signal also arrives", async () => {
   const up = startUp({ FAKE_ORDERS: "bind-then-die", FAKE_DIE_MS: "400", FAKE_STOP_MS: "800" });
   try {
-    await up.waitFor(/all bundles ready/);
+    await up.waitFor(/all bundles bound/);
     await up.waitFor(/bundle "orders" exited on its own/);
     up.child.kill("SIGINT"); // arrives during dolt's slow teardown
     const { code } = await up.exited;
@@ -148,7 +148,7 @@ test("kill -9 of up: each host runtime sees stdin EOF and stops", async () => {
   const up = startUp({});
   let dir;
   try {
-    await up.waitFor(/all bundles ready/);
+    await up.waitFor(/all bundles bound/);
     dir = up.channelDir();
     const pids = fakePids(up);
     up.child.kill("SIGKILL");
@@ -168,7 +168,7 @@ test("kill -9 of up: each host runtime sees stdin EOF and stops", async () => {
 test("a third signal SIGKILLs host runtimes that will not stop, and says their VMs may survive (f963e6)", async () => {
   const up = startUp({ FAKE_DOLT: "ignore-term", FAKE_ORDERS: "ignore-term" });
   try {
-    await up.waitFor(/all bundles ready/);
+    await up.waitFor(/all bundles bound/);
     const pids = fakePids(up);
     up.child.kill("SIGINT");
     await up.waitFor(/SIGINT: stopping/);

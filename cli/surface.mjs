@@ -282,7 +282,8 @@ export const COMMANDS = [
     detail:
       "With --env, starts every bundle placed \"microvm\" in that env from cluster.toml and " +
       "cluster.lock.toml: each connection's target before its source (a cycle is refused), " +
-      "each bundle ready once every socket it binds exists. Plans are emitted in memory " +
+      "each bundle bound once every socket it binds exists (health is not checked, so it " +
+      "is not called ready — ADR-0071). Plans are emitted in memory " +
       "exactly as `runtime plan` would. Channel sockets live in a fresh owner-only " +
       "directory, printed per exposed port and removed on exit. Runs in the foreground; " +
       "SIGINT/SIGTERM/SIGHUP/SIGQUIT stops every run in reverse order; a second signal " +

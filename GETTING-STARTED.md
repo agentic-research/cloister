@@ -250,7 +250,7 @@ cloister cluster up --env local --dir <cluster-dir>
 ```
 
 This starts every bundle placed `microvm` in the env. A connection's target
-starts before its source, and a cycle is refused. Each bundle counts as ready
+starts before its source, and a cycle is refused. Each bundle counts as bound
 once every socket it binds exists. That means a dependent can be granted its
 channel; it does not mean the workload is accepting yet (LLO a915e3), so
 clients should retry. Sockets live in a fresh owner-only directory under

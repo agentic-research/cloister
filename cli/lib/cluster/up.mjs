@@ -11,9 +11,11 @@
 //     declared, and picking a subset would be a selection rule nobody wrote.
 //   - start order: a connection's target starts before its source. A cycle has
 //     no order and is refused by name.
-//   - readiness: a bundle is ready when every socket its plan BINDS exists.
-//     Those paths are its §6 bind grants — the same ones a dependent's connect
-//     grant names — so "ready" is exactly "a dependent can now be granted".
+//   - "bound", not "ready": a bundle counts as BOUND when every socket its plan
+//     BINDS exists. Those paths are its §6 bind grants — the same ones a
+//     dependent's connect grant names — so "bound" is exactly "a dependent can
+//     now be granted". Its health is NOT checked, so `up` never calls it
+//     ready (ADR-0071; health-gated start is a later slice).
 //     There is no timeout: a bundle that never binds is still a running child,
 //     and one that fails exits, which `up` sees.
 //   - plans: emitted in memory by `buildLaunchPlan`, the code path behind
@@ -108,7 +110,7 @@ export function makeChannelDir(makeTemp = mkdtempSync, realpath = realpathSync) 
   return realpath(makeTemp("/tmp/cloister-up-"));
 }
 
-/** The bind grants of a plan: what must exist before the bundle is ready. */
+/** The bind grants of a plan: what must exist before the bundle is bound. */
 export function bindPaths(plan) {
   return (plan.confinement?.unixSocket?.allow ?? []).filter((g) => g.mode === "bind").map((g) => g.path);
 }
@@ -120,18 +122,21 @@ export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQU
  * Bring the env up and supervise it until a stop request or a run ends on its
  * own, then stop everything in reverse start order.
  *
- * Lifecycle guarantees (cloister-991e65 review):
+ * Lifecycle guarantees (cloister-991e65 review; ownership of a running
+ * workload — who stops it, and what is promised when they cannot — is
+ * ADR-0071):
  *   - stop requests: SIGINT, SIGTERM, SIGHUP, SIGQUIT, an uncaught exception
  *     or rejection inside `up`, and EPIPE on stdout all run the SAME teardown.
  *     The handlers stay installed until teardown has finished.
  *   - a second signal during teardown does not kill `up`; it prints which
  *     bundles are still stopping. A THIRD signal SIGKILLs the remaining host
- *     runtimes (escalation; no timeout is invented) and says, loudly, that
- *     their VM workers may survive them until ley-line-open-f963e6.
+ *     runtimes (ADR-0071's escalation rule: a repeated signal, never a
+ *     timeout) and says, loudly, that their VM workers may survive them until
+ *     ley-line-open-f963e6.
  *   - if `up` itself dies (SIGKILL, crash), each host runtime sees EOF on the
  *     stdin pipe `up` holds open and stops its run (`run --stop-on-stdin-eof`).
  *   - any started run that ends on its own — during a later bundle's start,
- *     or after everything is ready — stops the cluster, and the exit status is
+ *     or after everything is bound — stops the cluster, and the exit status is
  *     non-zero even if a signal also arrived: 124 when that end was the
  *     wall-clock ceiling, 1 otherwise.
  *
@@ -305,7 +310,7 @@ export async function clusterUp({ root, env, deps = {} }) {
       const run = start(plan);
       log(`cloister cluster up: started "${plan.bundle}"${run.child.pid !== undefined ? ` (pid ${run.child.pid})` : ""}`);
       const binds = bindPaths(plan);
-      // Ready when every bind socket exists. ANY run ending on its own — this
+      // Bound when every bind socket exists. ANY run ending on its own — this
       // one or an earlier one — requests a stop, which ends this wait too.
       await new Promise((r) => {
         let finished = false;
@@ -316,7 +321,7 @@ export async function clusterUp({ root, env, deps = {} }) {
         check();
       });
       if (stopRequested) break;
-      log(`cloister cluster up: "${plan.bundle}" ready`);
+      log(`cloister cluster up: "${plan.bundle}" bound (its sockets exist; health not checked — ADR-0071)`);
     }
 
     if (!stopRequested) {
@@ -326,7 +331,7 @@ export async function clusterUp({ root, env, deps = {} }) {
           log(`  ${run.bundle}.${p.name} (${p.appProtocol}): unix://${join(channelDir, `${run.bundle}.${p.name}.sock`)}`);
         }
       }
-      log("cloister cluster up: all bundles ready; Ctrl-C to stop");
+      log("cloister cluster up: all bundles bound; Ctrl-C to stop");
       log(
         "cloister cluster up: note: every run is stopped at its wall-clock ceiling (each " +
           "bundle's is printed above); a service cannot ask for \"no ceiling\" yet " +
