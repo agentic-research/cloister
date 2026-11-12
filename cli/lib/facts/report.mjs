@@ -4,25 +4,41 @@
 // (ADR-0073). It reads both and changes neither.
 //
 // Three kinds of finding, and what each one does NOT mean:
-//   evidenced   a declared wire has a matching binding in the document.
+//   evidenced   a declared wire has a matching binding in the inputs.
 //   unknown     a declared wire has none here. That is absence of evidence in
-//               THIS document, not proof the edge is unenforced.
-//   undeclared  the document binds one workload to another and cluster.toml
+//               THESE inputs, not proof the edge is unenforced.
+//   undeclared  the inputs bind one workload to another and cluster.toml
 //               declares no such wire. It is reported. It is never adopted:
 //               only a declaration grants (ADR-0070 §2).
+//
+// Every join here is exact equality on a mapped attribute. Nothing is matched
+// by guessing at a resource's name.
 
-import { bindingTarget, isWorkloadBinding } from "./cloudflare.mjs";
+import { bindingTarget, isWorkloadBinding, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
+const WRANGLER = "wrangler_worker";
+
+/** A route pattern's host: the text before the first "/". Null when it holds a wildcard. */
+function routeHost(pattern) {
+  const host = pattern.split("/")[0];
+  return host === "" || host.includes("*") ? null : host;
+}
 
 export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   const byType = (type) => facts.filter((f) => f.type === type);
-  const scripts = byType(SCRIPT);
-  const kvById = new Map(byType("cloudflare_workers_kv_namespace").map((f) => [f.attrs.ids.id, f.name]));
-  const d1ById = new Map();
-  for (const f of byType("cloudflare_d1_database")) {
-    for (const id of [f.attrs.ids.id, f.attrs.ids.uuid]) if (id) d1ById.set(id, f.name);
+
+  // Workers: Terraform scripts plus wrangler configs. One name is listed once.
+  const workerMap = new Map();
+  for (const fact of [...byType(SCRIPT), ...byType(WRANGLER)]) {
+    const w = workerMap.get(fact.name) ?? { name: fact.name, terraform: false, wrangler: false, bindings: [], withheld: false };
+    const isTf = fact.type === SCRIPT;
+    w[isTf ? "terraform" : "wrangler"] = true;
+    if (isTf && fact.attrs.bindingsWithheld) w.withheld = true;
+    for (const b of fact.attrs.bindings ?? []) if (!w.bindings.some((x) => x.name === b.name)) w.bindings.push(b);
+    workerMap.set(fact.name, w);
   }
+  const workers = [...workerMap.values()].map((w) => ({ ...w, withheld: w.withheld && !w.wrangler }));
 
   const bundles = cluster?.bundles ?? [];
   const wires = cluster?.wires ?? [];
@@ -31,44 +47,53 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   const scriptOfBundle = (bundleName) => {
     const bundle = bundles.find((b) => b.name === bundleName);
     if (!bundle) return undefined;
-    return scripts.find((s) => s.name === bundle.workerdServiceName || s.name === bundle.name);
+    return workers.find((s) => s.name === bundle.workerdServiceName || s.name === bundle.name);
   };
 
-  const workloads = scripts.map((script) => ({
-    name: script.name,
-    bundle: bundleOfScript(script.name)?.name ?? "",
-    bindingsWithheld: script.attrs.bindingsWithheld,
-    bindings: script.attrs.bindings.map((b) => ({
+  const workloads = workers.map((worker) => ({
+    name: worker.name,
+    bundle: bundleOfScript(worker.name)?.name ?? "",
+    source: worker.terraform && worker.wrangler ? "both" : worker.wrangler ? "wrangler" : "terraform",
+    bindingsWithheld: worker.withheld,
+    bindings: worker.bindings.map((b) => ({
       name: b.name,
       type: b.type,
-      target: describeTarget(b, kvById, d1ById),
+      target: describeTarget(b, facts),
       workload: isWorkloadBinding(b),
     })),
   }));
 
   const findings = [];
-  for (const wire of wires) {
-    const script = scriptOfBundle(wire.from);
-    if (!script) {
-      findings.push({ kind: "unknown", wire, reason: `no Worker for bundle "${wire.from}" in this document` });
-      continue;
-    }
-    if (script.attrs.bindingsWithheld) {
-      findings.push({ kind: "unknown", wire, reason: `"${script.name}"'s bindings are marked sensitive and were not read` });
-      continue;
-    }
-    const binding = script.attrs.bindings.find((b) => b.name === wire.binding);
-    if (binding) {
-      findings.push({ kind: "evidenced", wire, binding: { type: binding.type, target: describeTarget(binding, kvById, d1ById) } });
-    } else {
-      findings.push({ kind: "unknown", wire, reason: `"${script.name}" has no binding named ${wire.binding} in this document` });
+  if (workers.length === 0 && wires.length > 0) {
+    findings.push({
+      kind: "unknown",
+      unchecked: wires.length,
+      reason: `no Worker in these inputs; ${wires.length} declared wires could not be checked (pass --wrangler <file>)`,
+    });
+  } else {
+    for (const wire of wires) {
+      const script = scriptOfBundle(wire.from);
+      if (!script) {
+        findings.push({ kind: "unknown", wire, reason: `no Worker for bundle "${wire.from}" in these inputs` });
+        continue;
+      }
+      if (script.withheld) {
+        findings.push({ kind: "unknown", wire, reason: `"${script.name}"'s bindings are marked sensitive and were not read` });
+        continue;
+      }
+      const binding = script.bindings.find((b) => b.name === wire.binding);
+      if (binding) {
+        findings.push({ kind: "evidenced", wire, binding: { type: binding.type, target: describeTarget(binding, facts) } });
+      } else {
+        findings.push({ kind: "unknown", wire, reason: `"${script.name}" has no binding named ${wire.binding} in these inputs` });
+      }
     }
   }
-  for (const script of scripts) {
+  for (const script of workers) {
     const bundle = bundleOfScript(script.name);
     if (!bundle) continue;
     const declared = new Set(wires.filter((w) => w.from === bundle.name).map((w) => w.binding));
-    for (const binding of script.attrs.bindings) {
+    for (const binding of script.bindings) {
       if (!isWorkloadBinding(binding) || declared.has(binding.name)) continue;
       findings.push({
         kind: "undeclared",
@@ -78,12 +103,39 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
     }
   }
 
+  const workerNames = new Set(workers.map((w) => w.name));
+  const routes = byType("cloudflare_workers_route").map((f) => {
+    const script = f.attrs.script ?? "";
+    return { pattern: f.attrs.pattern ?? "", script, resolved: script === "" || workerNames.has(script) };
+  });
+
+  // Request paths: a route and a tunnel ingress rule that name the same host, by exact string equality.
+  const requestPaths = [];
+  for (const config of byType("cloudflare_zero_trust_tunnel_cloudflared_config")) {
+    const [tunnelRelation] = resolveRelations(config, facts);
+    const tunnel = tunnelRelation?.to?.name || "(unnamed)";
+    for (const rule of config.attrs.ingress ?? []) {
+      if (!rule.hostname) continue;
+      for (const route of routes) {
+        if (routeHost(route.pattern) !== rule.hostname) continue;
+        requestPaths.push({ host: rule.hostname, script: route.script || "(no script)", tunnel, service: rule.service ?? "(not stated)" });
+      }
+    }
+  }
+
   return {
-    document: { kind, formatVersion },
+    document: { kind: kind ?? null, formatVersion: formatVersion ?? null },
     workloads,
-    routes: byType("cloudflare_workers_route").map((f) => ({ pattern: f.attrs.pattern ?? "", script: f.attrs.script ?? "" })),
+    routes,
+    requestPaths,
     tunnels: byType("cloudflare_zero_trust_tunnel_cloudflared").map((f) => f.name),
     ingress: byType("cloudflare_zero_trust_tunnel_cloudflared_config").flatMap((f) => f.attrs.ingress),
+    privateServices: byType("cloudflare_connectivity_directory_service").map((f) => ({
+      name: f.name,
+      type: f.attrs.type ?? "",
+      httpPort: f.attrs.http_port ?? null,
+      httpsPort: f.attrs.https_port ?? null,
+    })),
     access: byType("cloudflare_zero_trust_access_application").map((f) => ({
       name: f.name, domain: f.attrs.domain ?? "", type: f.attrs.type ?? "", policies: f.attrs.policies,
     })),
@@ -98,11 +150,18 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   };
 }
 
-/** A binding's target by NAME where the document lets us resolve one; never a raw id. */
-function describeTarget(binding, kvById, d1ById) {
-  if (isWorkloadBinding(binding)) return bindingTarget(binding) || "(not stated)";
-  if (binding.type === "kv_namespace") return kvById.get(binding.namespace_id) ?? "(a KV namespace not in this document)";
-  if (binding.type === "d1") return d1ById.get(binding.id) ?? "(a D1 database not in this document)";
+/** A binding's target by NAME where the mapping's relations resolve one; never a raw id. */
+function describeTarget(binding, facts) {
+  if (isWorkloadBinding(binding)) {
+    const name = bindingTarget(binding);
+    if (!name) return "(not stated)";
+    return resolveBinding(binding, facts).to ? name : `${name} (not in this document)`;
+  }
+  if (binding.type === "kv_namespace" || binding.type === "d1") {
+    const { to } = resolveBinding(binding, facts);
+    if (to) return to.name;
+    return binding.type === "kv_namespace" ? "(a KV namespace not in this document)" : "(a D1 database not in this document)";
+  }
   if (binding.type === "r2_bucket") return binding.bucket_name ?? "(not stated)";
   if (binding.type === "queue") return binding.queue_name ?? "(not stated)";
   return "";
@@ -111,19 +170,31 @@ function describeTarget(binding, kvById, d1ById) {
 export function renderReport(report) {
   const lines = [];
   const section = (title) => { lines.push("", title); };
-  lines.push(`Terraform ${report.document.kind} document (format ${report.document.formatVersion}). Read-only: nothing was run or written.`);
+  const { kind, formatVersion } = report.document;
+  lines.push(
+    (kind ? `Terraform ${kind} document (format ${formatVersion}). ` : "No Terraform document given. ") +
+      "Read-only: nothing was run or written.",
+  );
 
   section("Discovered workloads:");
   if (report.workloads.length === 0) lines.push("  (none)");
   for (const w of report.workloads) {
-    lines.push(`  ${w.name}  Worker${w.bundle ? `  → bundle "${w.bundle}"` : "  (not in cluster.toml)"}`);
+    const where = w.source === "both" ? "  (in both)" : w.source === "wrangler" ? "  (wrangler)" : "";
+    lines.push(`  ${w.name}  Worker${where}${w.bundle ? `  → bundle "${w.bundle}"` : "  (not in cluster.toml)"}`);
     if (w.bindingsWithheld) lines.push("    bindings: marked sensitive, not read");
     for (const b of w.bindings) lines.push(`    ${b.name}  ${b.type}${b.target ? `  → ${b.target}` : ""}`);
   }
   const list = (title, rows) => { if (rows.length) { section(title); for (const r of rows) lines.push(`  ${r}`); } };
-  list("Routes:", report.routes.map((r) => `${r.pattern}  → ${r.script || "(no script)"}`));
+  list("Routes:", report.routes.map((r) =>
+    `${r.pattern}  → ${r.script ? (r.resolved ? r.script : `${r.script} (not in this document)`) : "(no script)"}`));
+  list("Request paths:", report.requestPaths.map((p) =>
+    `${p.host}: route → ${p.script}; tunnel ${p.tunnel} → ${p.service}`));
   list("Tunnels:", report.tunnels);
   list("Tunnel ingress:", report.ingress.map((r) => `${r.hostname ?? "(catch-all)"}${r.path ? r.path : ""}  → ${r.service ?? "(not stated)"}`));
+  list("Private services:", report.privateServices.map((s) => {
+    const ports = [s.httpPort != null && `http ${s.httpPort}`, s.httpsPort != null && `https ${s.httpsPort}`].filter(Boolean).join(", ");
+    return `${s.name}  ${s.type || "type not stated"}${ports ? `  (${ports})` : ""}`;
+  }));
   list("Access applications:", report.access.map((a) => `${a.name}  ${a.domain}  (${a.type || "type not stated"}; ${a.policies.length} polic${a.policies.length === 1 ? "y" : "ies"})`));
   list("Storage:", report.storage.map((s) => `${s.kind}  ${s.name}`));
   list("DNS names:", report.dns.map((d) => `${d.name}  ${d.type}${d.proxied ? "  proxied" : ""}`));
@@ -137,6 +208,8 @@ export function renderReport(report) {
   for (const f of report.findings) {
     if (f.kind === "evidenced") {
       lines.push(`  evidenced   ${f.wire.from} → ${f.wire.to} (${f.wire.binding}): bound as ${f.binding.type}${f.binding.target ? ` → ${f.binding.target}` : ""}`);
+    } else if (f.kind === "unknown" && f.unchecked) {
+      lines.push(`  unknown: ${f.reason}`);
     } else if (f.kind === "unknown") {
       lines.push(`  unknown     ${f.wire.from} → ${f.wire.to} (${f.wire.binding}): ${f.reason}`);
     } else {
@@ -150,7 +223,7 @@ export function renderReport(report) {
   );
   const skipped = Object.entries(report.skipped).sort(([a], [b]) => a.localeCompare(b));
   if (skipped.length) {
-    lines.push("", "Not read (no adapter for these resource types):");
+    lines.push("", "Not read (no mapping for these resource types):");
     for (const [type, count] of skipped) lines.push(`  ${count}  ${type}`);
   }
   return lines.join("\n");

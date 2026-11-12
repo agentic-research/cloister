@@ -1,0 +1,2853 @@
+{
+  "provider": "cloudflare/cloudflare",
+  "resources": {
+    "cloudflare_connectivity_directory_service": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "host": {
+          "attributes": {
+            "hostname": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "ipv4": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "ipv6": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "network": {
+              "attributes": {
+                "tunnel_id": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "resolver_network": {
+              "attributes": {
+                "resolver_ips": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "tunnel_id": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "http_port": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "https_port": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "service_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "updated_at": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_d1_database": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "file_size": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "jurisdiction": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "num_tables": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "primary_location_hint": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "read_replication": {
+          "attributes": {
+            "mode": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "uuid": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "version": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_dns_record": {
+      "attributes": {
+        "comment": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "comment_modified_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "content": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "data": {
+          "attributes": {
+            "algorithm": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "altitude": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "certificate": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "digest": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "digest_type": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "fingerprint": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "flags": {
+              "sensitive": false,
+              "type": "dynamic"
+            },
+            "key_tag": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "lat_degrees": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "lat_direction": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "lat_minutes": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "lat_seconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "long_degrees": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "long_direction": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "long_minutes": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "long_seconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "matching_type": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "order": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "port": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "precision_horz": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "precision_vert": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "preference": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "priority": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "protocol": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "public_key": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "regex": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "replacement": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selector": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "service": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "size": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "target": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "usage": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "value": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "weight": {
+              "sensitive": false,
+              "type": "number"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "meta": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "modified_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "priority": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "proxiable": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "proxied": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "settings": {
+          "attributes": {
+            "flatten_cname": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "ipv4_only": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "ipv6_only": {
+              "sensitive": false,
+              "type": "bool"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "tags": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "tags_modified_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "ttl": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "zone_id": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_workers_kv_namespace": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "supports_url_encoding": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "title": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_workers_route": {
+      "attributes": {
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "pattern": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "script": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "zone_id": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_workers_script": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "assets": {
+          "attributes": {
+            "asset_manifest_sha256": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "config": {
+              "attributes": {
+                "headers": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "html_handling": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "not_found_handling": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "redirects": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "run_worker_first": {
+                  "sensitive": false,
+                  "type": "dynamic"
+                },
+                "serve_directly": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "directory": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "jwt": {
+              "sensitive": true,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "bindings": {
+          "attributes": {
+            "algorithm": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "allowed_destination_addresses": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "allowed_sender_addresses": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "bucket_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "certificate_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "class_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "dataset": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "destination_address": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "environment": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "format": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "index_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "json": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "jurisdiction": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "key_base64": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "key_jwk": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "old_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "outbound": {
+              "attributes": {
+                "params": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "worker": {
+                  "attributes": {
+                    "environment": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "service": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "part": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "pipeline": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "queue_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "script_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "secret_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "service": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "simple": {
+              "attributes": {
+                "limit": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "period": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "store_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "text": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "usages": {
+              "sensitive": false,
+              "type": [
+                "set",
+                "string"
+              ]
+            },
+            "version_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workflow_name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "body_part": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "compatibility_date": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "compatibility_flags": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "content": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "content_file": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "content_sha256": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "content_type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "handlers": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "has_assets": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "has_modules": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "keep_assets": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "keep_bindings": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "last_deployed_from": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "limits": {
+          "attributes": {
+            "cpu_ms": {
+              "sensitive": false,
+              "type": "number"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "logpush": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "main_module": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "migration_tag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "migrations": {
+          "attributes": {
+            "deleted_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_sqlite_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "old_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "renamed_classes": {
+              "attributes": {
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "steps": {
+              "attributes": {
+                "deleted_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "new_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "new_sqlite_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "renamed_classes": {
+                  "attributes": {
+                    "from": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "to": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "transferred_classes": {
+                  "attributes": {
+                    "from": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "from_script": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "to": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "transferred_classes": {
+              "attributes": {
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "from_script": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "modified_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "named_handlers": {
+          "attributes": {
+            "handlers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "observability": {
+          "attributes": {
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "head_sampling_rate": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "logs": {
+              "attributes": {
+                "destinations": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "head_sampling_rate": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "invocation_logs": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "persist": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "placement": {
+          "attributes": {
+            "host": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "hostname": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "last_analyzed_at": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "mode": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "region": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "status": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "target": {
+              "attributes": {
+                "host": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "hostname": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "region": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "placement_mode": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "placement_status": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "script_name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "startup_time_ms": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "tail_consumers": {
+          "attributes": {
+            "environment": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "service": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "set",
+          "sensitive": false
+        },
+        "usage_model": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_zero_trust_access_application": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "allow_authenticate_via_warp": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "allow_iframe": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "allowed_idps": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "app_launcher_logo_url": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "app_launcher_visible": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "aud": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "auto_redirect_to_identity": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "bg_color": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "cors_headers": {
+          "attributes": {
+            "allow_all_headers": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "allow_all_methods": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "allow_all_origins": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "allow_credentials": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "allowed_headers": {
+              "sensitive": false,
+              "type": [
+                "set",
+                "string"
+              ]
+            },
+            "allowed_methods": {
+              "sensitive": false,
+              "type": [
+                "set",
+                "string"
+              ]
+            },
+            "allowed_origins": {
+              "sensitive": false,
+              "type": [
+                "set",
+                "string"
+              ]
+            },
+            "max_age": {
+              "sensitive": false,
+              "type": "number"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "custom_deny_message": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "custom_deny_url": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "custom_non_identity_deny_url": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "custom_pages": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "destinations": {
+          "attributes": {
+            "cidr": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "hostname": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "l4_protocol": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "mcp_server_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "port_range": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uri": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "vnet_id": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "domain": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "enable_binding_cookie": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "footer_links": {
+          "attributes": {
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "url": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "header_bg_color": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "http_only_cookie_attribute": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "landing_page_design": {
+          "attributes": {
+            "button_color": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "button_text_color": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "image_url": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "message": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "logo_url": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "options_preflight_bypass": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "path_cookie_attribute": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "policies": {
+          "attributes": {
+            "connection_rules": {
+              "attributes": {
+                "rdp": {
+                  "attributes": {
+                    "allowed_clipboard_local_to_remote_formats": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "allowed_clipboard_remote_to_local_formats": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ssh": {
+                  "attributes": {
+                    "allow_email_alias": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "usernames": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "decision": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "exclude": {
+              "attributes": {
+                "any_valid_service_token": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_context": {
+                  "attributes": {
+                    "ac_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_method": {
+                  "attributes": {
+                    "auth_method": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "azure_ad": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "certificate": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "common_name": {
+                  "attributes": {
+                    "common_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "device_posture": {
+                  "attributes": {
+                    "integration_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_domain": {
+                  "attributes": {
+                    "domain": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "everyone": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "external_evaluation": {
+                  "attributes": {
+                    "evaluate_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "keys_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "geo": {
+                  "attributes": {
+                    "country_code": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "github_organization": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "team": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "group": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "gsuite": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip": {
+                  "attributes": {
+                    "ip": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "linked_app_token": {
+                  "attributes": {
+                    "app_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "login_method": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "oidc": {
+                  "attributes": {
+                    "claim_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "claim_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "okta": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "saml": {
+                  "attributes": {
+                    "attribute_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "attribute_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "service_token": {
+                  "attributes": {
+                    "token_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "set",
+              "sensitive": false
+            },
+            "id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "include": {
+              "attributes": {
+                "any_valid_service_token": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_context": {
+                  "attributes": {
+                    "ac_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_method": {
+                  "attributes": {
+                    "auth_method": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "azure_ad": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "certificate": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "common_name": {
+                  "attributes": {
+                    "common_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "device_posture": {
+                  "attributes": {
+                    "integration_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_domain": {
+                  "attributes": {
+                    "domain": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "everyone": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "external_evaluation": {
+                  "attributes": {
+                    "evaluate_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "keys_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "geo": {
+                  "attributes": {
+                    "country_code": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "github_organization": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "team": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "group": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "gsuite": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip": {
+                  "attributes": {
+                    "ip": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "linked_app_token": {
+                  "attributes": {
+                    "app_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "login_method": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "oidc": {
+                  "attributes": {
+                    "claim_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "claim_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "okta": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "saml": {
+                  "attributes": {
+                    "attribute_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "attribute_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "service_token": {
+                  "attributes": {
+                    "token_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "set",
+              "sensitive": false
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "precedence": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "require": {
+              "attributes": {
+                "any_valid_service_token": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_context": {
+                  "attributes": {
+                    "ac_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "auth_method": {
+                  "attributes": {
+                    "auth_method": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "azure_ad": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "certificate": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "common_name": {
+                  "attributes": {
+                    "common_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "device_posture": {
+                  "attributes": {
+                    "integration_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_domain": {
+                  "attributes": {
+                    "domain": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "email_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "everyone": {
+                  "attributes": {},
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "external_evaluation": {
+                  "attributes": {
+                    "evaluate_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "keys_url": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "geo": {
+                  "attributes": {
+                    "country_code": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "github_organization": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "team": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "group": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "gsuite": {
+                  "attributes": {
+                    "email": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip": {
+                  "attributes": {
+                    "ip": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ip_list": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "linked_app_token": {
+                  "attributes": {
+                    "app_uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "login_method": {
+                  "attributes": {
+                    "id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "oidc": {
+                  "attributes": {
+                    "claim_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "claim_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "okta": {
+                  "attributes": {
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "saml": {
+                  "attributes": {
+                    "attribute_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "attribute_value": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "identity_provider_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "service_token": {
+                  "attributes": {
+                    "token_id": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "set",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "read_service_tokens_from_header": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "saas_app": {
+          "attributes": {
+            "access_token_lifetime": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "allow_pkce_without_client_secret": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "app_launcher_url": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "auth_type": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "client_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "client_secret": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "consumer_service_url": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "custom_attributes": {
+              "attributes": {
+                "friendly_name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "name_format": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "required": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "source": {
+                  "attributes": {
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name_by_idp": {
+                      "attributes": {
+                        "idp_id": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "source_name": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "custom_claims": {
+              "attributes": {
+                "name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "required": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "scope": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "source": {
+                  "attributes": {
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name_by_idp": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "default_relay_state": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "grant_types": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "group_filter_regex": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "hybrid_and_implicit_options": {
+              "attributes": {
+                "return_access_token_from_authorization_endpoint": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "return_id_token_from_authorization_endpoint": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "idp_entity_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "name_id_format": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "name_id_transform_jsonata": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "public_key": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "redirect_uris": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "refresh_token_options": {
+              "attributes": {
+                "lifetime": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "saml_attribute_transform_jsonata": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "scopes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "sp_entity_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "sso_endpoint": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "same_site_cookie_attribute": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "scim_config": {
+          "attributes": {
+            "authentication": {
+              "attributes": {
+                "authorization_url": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "client_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "client_secret": {
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "password": {
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "scheme": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "scopes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "token": {
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "token_url": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "user": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "deactivate_on_delete": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "idp_uid": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "mappings": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "filter": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "operations": {
+                  "attributes": {
+                    "create": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "delete": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "update": {
+                      "sensitive": false,
+                      "type": "bool"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "schema": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "strictness": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "transform_jsonata": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "remote_uri": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "self_hosted_domains": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "service_auth_401_redirect": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "session_duration": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "skip_app_launcher_login_page": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "skip_interstitial": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "tags": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "target_criteria": {
+          "attributes": {
+            "port": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "protocol": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "target_attributes": {
+              "sensitive": false,
+              "type": [
+                "map",
+                [
+                  "list",
+                  "string"
+                ]
+              ]
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "zone_id": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "account_tag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "config_src": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "connections": {
+          "attributes": {
+            "client_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "client_version": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "colo_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "is_pending_reconnect": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "opened_at": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "origin_ip": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uuid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "conns_active_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "conns_inactive_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deleted_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "remote_config": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "status": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "tun_type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "tunnel_secret": {
+          "sensitive": true,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared_config": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "config": {
+          "attributes": {
+            "ingress": {
+              "attributes": {
+                "hostname": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "origin_request": {
+                  "attributes": {
+                    "access": {
+                      "attributes": {
+                        "aud_tag": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "required": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "team_name": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "single",
+                      "sensitive": false
+                    },
+                    "ca_pool": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "connect_timeout": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "disable_chunked_encoding": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "http2_origin": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "http_host_header": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "keep_alive_connections": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "keep_alive_timeout": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "match_sn_ito_host": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "no_happy_eyeballs": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "no_tls_verify": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "origin_server_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "proxy_type": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "tcp_keep_alive": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "tls_timeout": {
+                      "sensitive": false,
+                      "type": "number"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "path": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "service": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "origin_request": {
+              "attributes": {
+                "access": {
+                  "attributes": {
+                    "aud_tag": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "required": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "team_name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "ca_pool": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "connect_timeout": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "disable_chunked_encoding": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "http2_origin": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "http_host_header": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "keep_alive_connections": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "keep_alive_timeout": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "match_sn_ito_host": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "no_happy_eyeballs": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "no_tls_verify": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "origin_server_name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "proxy_type": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "tcp_keep_alive": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "tls_timeout": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "created_at": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "source": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "tunnel_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "version": {
+          "sensitive": false,
+          "type": "number"
+        }
+      }
+    }
+  },
+  "version": "5.18.0"
+}

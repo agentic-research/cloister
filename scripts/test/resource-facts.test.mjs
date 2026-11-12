@@ -8,16 +8,23 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { main as inspectMain, isGitTracked } from "../../cli/commands/inspect.mjs";
-import { CLOUDFLARE_ADAPTERS } from "../../cli/lib/facts/cloudflare.mjs";
+import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, importResource } from "../../cli/lib/facts/cloudflare.mjs";
+import { validateMapping, validateWranglerKeys } from "../../cli/lib/facts/validate.mjs";
+import { WRANGLER_MAPPING, importWrangler } from "../../cli/lib/facts/wrangler.mjs";
+import { projectSpec, renderSpec } from "../../scripts/gen-facts-spec.mjs";
 import { FACT_KEYS, isMarkedSensitive, makeFact, pickPublic } from "../../cli/lib/facts/facts.mjs";
 import { importFacts } from "../../cli/lib/facts/import.mjs";
+import { resolveRelations } from "../../cli/lib/facts/cloudflare.mjs";
 import { buildReport, renderReport } from "../../cli/lib/facts/report.mjs";
 import { readShowJson } from "../../cli/lib/facts/terraform.mjs";
 
 const FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/cloudflare-state.show.json", import.meta.url));
+const WRANGLER_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/wrangler.toml", import.meta.url));
+const SPEC_FILE = fileURLToPath(new URL("../../cli/lib/facts/spec/cloudflare.schema.json", import.meta.url));
 const fixture = () => JSON.parse(readFileSync(FIXTURE, "utf8"));
 const CLUSTER = {
   bundles: [
@@ -152,13 +159,13 @@ test("a plan document is read from planned_values", () => {
   assert.ok(imported.facts.length >= 9);
 });
 
-test("every adapter reads only scalars it names: a fact holds no nested value it was not built to hold", () => {
-  for (const type of Object.keys(CLOUDFLARE_ADAPTERS)) {
-    const fact = CLOUDFLARE_ADAPTERS[type]({
+test("the mapping reads only scalars it names: a fact holds no nested value it was not built to hold", () => {
+  for (const type of Object.keys(CLOUDFLARE_TYPES)) {
+    const fact = importResource({
       address: `x.${type}`, type, name: "x",
       values: { unexpected_secret: "FIXTURE-UNLISTED", nested: { deep: "FIXTURE-UNLISTED" } },
       sensitive: {},
-    });
+    }, CLOUDFLARE_TYPES[type]);
     assert.ok(!strings(fact).some((s) => s.includes("FIXTURE-UNLISTED")), type);
   }
 });
@@ -222,7 +229,210 @@ test("inspect prints the report for an untracked copy, and refuses bad usage by 
     assert.equal(await inspectMain([], io), 2);
     assert.equal(await inspectMain(["--terraform", join(dir, "missing.json")], io), 2);
     assert.equal(await inspectMain(["--terraform", file, "--dir", dir], io), 2);
-    assert.match(errors.join("\n"), /--terraform <file> is required[\s\S]*no such file[\s\S]*no cluster\.toml/);
+    assert.match(errors.join("\n"), /--terraform <file>.*or --wrangler <file> is required[\s\S]*no such file[\s\S]*no cluster\.toml/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- spec-driven mapping (ADR-0073 §3) ----
+
+const clone = (x) => structuredClone(x);
+
+test("mapping-vs-spec validation refuses each violation by name", () => {
+  const bad = (edit) => { const m = clone(CLOUDFLARE_MAPPING); edit(m); return m; };
+  const T = "cloudflare_zero_trust_tunnel_cloudflared";
+  assert.doesNotThrow(() => validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC));
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types.cloudflare_nonexistent = { name: "x" }; }), CLOUDFLARE_SPEC),
+    /unknown resource type "cloudflare_nonexistent"/,
+  );
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types[T].read = ["no_such_attribute"]; }), CLOUDFLARE_SPEC),
+    /unknown attribute "cloudflare_zero_trust_tunnel_cloudflared\.no_such_attribute"/,
+  );
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types[T].read = ["tunnel_secret"]; }), CLOUDFLARE_SPEC),
+    /sensitive attribute "cloudflare_zero_trust_tunnel_cloudflared\.tunnel_secret"/,
+  );
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types.cloudflare_workers_script.read = ["bindings"]; }), CLOUDFLARE_SPEC),
+    /attribute "cloudflare_workers_script\.bindings" is not a scalar/,
+  );
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types.cloudflare_workers_route.relations[0].toType = "cloudflare_nope"; }), CLOUDFLARE_SPEC),
+    /targets unknown type "cloudflare_nope"/,
+  );
+  assert.throws(
+    () => validateMapping(bad((m) => { m.types.cloudflare_workers_route.relations[0].toAttr = "nope"; }), CLOUDFLARE_SPEC),
+    /targets bad attribute: unknown attribute "cloudflare_workers_script\.nope"/,
+  );
+});
+
+test("every attribute in the real mapping exists in the vendored spec and is not sensitive", () => {
+  // validateMapping throws on the first violation; also assert the spec itself marks no mapped path sensitive.
+  validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
+  for (const [type, entry] of Object.entries(CLOUDFLARE_MAPPING.types)) {
+    const attrs = CLOUDFLARE_SPEC.resources[type].attributes;
+    for (const path of [entry.name, ...(entry.read ?? []), ...(entry.ids ?? [])].filter(Boolean)) {
+      assert.equal(attrs[path]?.sensitive, false, `${type}.${path}`);
+    }
+  }
+  assert.ok(!CLOUDFLARE_MAPPING.types.cloudflare_connectivity_directory_service.read.includes("host"));
+});
+
+test("the spec projection is reproducible from the providers schema", (t) => {
+  const source = process.env.FACTS_PROVIDERS_SCHEMA;
+  if (!source) {
+    t.skip("set FACTS_PROVIDERS_SCHEMA to a `tofu providers schema -json` file to check the projection byte for byte");
+    return;
+  }
+  const spec = projectSpec(JSON.parse(readFileSync(source, "utf8")), CLOUDFLARE_SPEC.version, CLOUDFLARE_MAPPING);
+  assert.equal(renderSpec(spec), readFileSync(SPEC_FILE, "utf8"));
+});
+
+test("wrangler mapping keys all exist in wrangler's config schema, and a bad key is refused by name", () => {
+  const schema = createRequire(import.meta.url)("wrangler/config-schema.json");
+  assert.doesNotThrow(() => validateWranglerKeys(WRANGLER_MAPPING.keys, schema));
+  assert.throws(() => validateWranglerKeys(["services[].nope"], schema), /key "services\[\]\.nope" is not in wrangler's config schema/);
+  assert.throws(() => validateWranglerKeys(["not_a_key"], schema), /key "not_a_key"/);
+});
+
+test("a wrangler.toml's bindings are read, and its vars never reach a fact or the report", () => {
+  assert.match(readFileSync(WRANGLER_FIXTURE, "utf8"), /FIXTURE-VAR-MUST-NOT-BE-READ/);
+  const fact = importWrangler(WRANGLER_FIXTURE);
+  assert.equal(fact.type, "wrangler_worker");
+  assert.equal(fact.source, "wrangler");
+  assert.equal(fact.name, "cloister");
+  assert.deepEqual(fact.attrs.bindings.map((b) => [b.name, b.type]), [
+    ["MACHE_BUNDLE", "service"], ["BILLING", "service"], ["SESSIONS", "kv_namespace"], ["LEDGER", "d1"],
+  ]);
+  const report = buildReport({ facts: [fact], skipped: {} }, CLUSTER);
+  const seen = [...strings(fact), ...strings(report), renderReport(report)].join("\n");
+  assert.ok(!seen.includes("FIXTURE-VAR-MUST-NOT-BE-READ"));
+  assert.deepEqual(report.findings.map((f) => f.kind), ["evidenced", "unknown", "undeclared"]);
+});
+
+test("wrangler and Terraform describing one Worker list it once, as in both, and resolve ids exactly", () => {
+  const imported = importFacts(fixture());
+  imported.facts.push(importWrangler(WRANGLER_FIXTURE));
+  const report = buildReport(imported, CLUSTER);
+  assert.equal(report.workloads.filter((w) => w.name === "cloister").length, 1);
+  assert.equal(report.workloads.find((w) => w.name === "cloister").source, "both");
+  assert.match(renderReport(report), /cloister {2}Worker {2}\(in both\)/);
+  assert.match(renderReport(report), /SESSIONS {2}kv_namespace {2}→ sessions/);
+});
+
+test("wrangler config refusals: jsonc is unsupported by name, a nameless config is refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wrangler-bad-"));
+  try {
+    writeFileSync(join(dir, "wrangler.jsonc"), "{}");
+    assert.throws(() => importWrangler(join(dir, "wrangler.jsonc")), /wrangler\.jsonc is not supported/);
+    writeFileSync(join(dir, "wrangler.json"), JSON.stringify({ vars: { A: "FIXTURE-VAR-MUST-NOT-BE-READ" } }));
+    assert.throws(() => importWrangler(join(dir, "wrangler.json")), /has no name/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A small synthetic Terraform document built from resource stubs. */
+function docOf(resources) {
+  return {
+    format_version: "1.0",
+    values: {
+      root_module: {
+        resources: resources.map(([type, name, values]) => ({
+          address: `${type}.${name}`, mode: "managed", type, name,
+          provider_name: "registry.opentofu.org/cloudflare/cloudflare", values, sensitive_values: {},
+        })),
+      },
+    },
+  };
+}
+const zeros = "0".repeat(32);
+const ones = "1".repeat(32);
+
+test("report: a dangling route, and the route-to-tunnel request path by exact host", () => {
+  const imported = importFacts(docOf([
+    ["cloudflare_workers_script", "a", { script_name: "edge", account_id: zeros }],
+    ["cloudflare_workers_route", "ok", { pattern: "app.example.com/*", script: "edge", zone_id: zeros }],
+    ["cloudflare_workers_route", "dangling", { pattern: "gone.example.com/*", script: "ghost", zone_id: zeros }],
+    ["cloudflare_workers_route", "wild", { pattern: "*.example.com/*", script: "edge", zone_id: zeros }],
+    ["cloudflare_zero_trust_tunnel_cloudflared", "t", { id: ones, account_id: zeros, name: "origin" }],
+    ["cloudflare_zero_trust_tunnel_cloudflared_config", "c", {
+      tunnel_id: ones, account_id: zeros,
+      config: { ingress: [
+        { hostname: "app.example.com", service: "http://localhost:8080" },
+        { hostname: "other.example.com", service: "http://localhost:9090" },
+      ] },
+    }],
+  ]));
+  const report = buildReport(imported, undefined);
+  const text = renderReport(report);
+  assert.match(text, /gone\.example\.com\/\*  → ghost \(not in this document\)/);
+  assert.match(text, /app\.example\.com\/\*  → edge\n/);
+  assert.deepEqual(report.requestPaths, [
+    { host: "app.example.com", script: "edge", tunnel: "origin", service: "http://localhost:8080" },
+  ]);
+  assert.match(text, /app\.example\.com: route → edge; tunnel origin → http:\/\/localhost:8080/);
+  assert.ok(!text.includes("other.example.com: route"), "no join without an exact host match");
+});
+
+test("report: an unresolved tunnel is (unnamed); a relation that matches nothing resolves to null", () => {
+  const imported = importFacts(docOf([
+    ["cloudflare_workers_route", "r", { pattern: "app.example.com/*", script: "edge", zone_id: zeros }],
+    ["cloudflare_zero_trust_tunnel_cloudflared_config", "c", {
+      tunnel_id: ones, account_id: zeros, config: { ingress: [{ hostname: "app.example.com", service: "http://localhost:1" }] },
+    }],
+  ]));
+  assert.match(renderReport(buildReport(imported, undefined)), /tunnel \(unnamed\) → http:\/\/localhost:1/);
+  const config = imported.facts.find((f) => f.type.endsWith("_config"));
+  assert.equal(resolveRelations(config, imported.facts)[0].to, null);
+});
+
+test("report: no Worker in the inputs gives one line, not one finding per wire", () => {
+  const imported = importFacts(docOf([["cloudflare_d1_database", "d", { id: ones, uuid: ones, name: "ledger" }]]));
+  const report = buildReport(imported, CLUSTER);
+  assert.equal(report.findings.length, 1);
+  assert.match(
+    renderReport(report),
+    /unknown: no Worker in these inputs; 2 declared wires could not be checked \(pass --wrangler <file>\)/,
+  );
+});
+
+test("report: private services are listed with type and ports, and `host` is never read", () => {
+  const imported = importFacts(docOf([
+    ["cloudflare_connectivity_directory_service", "s", {
+      id: ones, service_id: ones, account_id: zeros, name: "internal-api", type: "http",
+      http_port: 8080, https_port: 8443, host: { hostname: "FIXTURE-HOST-MUST-NOT-BE-READ.example.com" },
+    }],
+  ]));
+  const text = renderReport(buildReport(imported, undefined));
+  assert.match(text, /Private services:\n {2}internal-api {2}http {2}\(http 8080, https 8443\)/);
+  assert.ok(!text.includes("FIXTURE-HOST-MUST-NOT-BE-READ"));
+});
+
+test("inspect accepts --wrangler alone, with --terraform, and does not refuse a tracked wrangler file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-wrangler-"));
+  try {
+    const out = [];
+    const errors = [];
+    const io = { log: (m) => out.push(m), errLog: (m) => errors.push(m), isGitTracked: () => true };
+    assert.equal(await inspectMain(["--wrangler", WRANGLER_FIXTURE, "--json"], io), 0);
+    const alone = JSON.parse(out.pop());
+    assert.equal(alone.document.kind, null);
+    assert.equal(alone.workloads[0].name, "cloister");
+
+    const tf = join(dir, "state.json");
+    cpSync(FIXTURE, tf);
+    const untracked = { ...io, isGitTracked: () => false };
+    assert.equal(await inspectMain(["--terraform", tf, "--wrangler", WRANGLER_FIXTURE, "--json"], untracked), 0);
+    assert.equal(JSON.parse(out.pop()).workloads.find((w) => w.name === "cloister").source, "both");
+
+    // The tracked-file refusal still applies to the Terraform document, and only to it.
+    assert.equal(await inspectMain(["--terraform", tf, "--wrangler", WRANGLER_FIXTURE], io), 2);
+    assert.match(errors.join("\n"), /tracked by git/);
+    assert.equal(await inspectMain(["--wrangler", join(dir, "missing.toml")], io), 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

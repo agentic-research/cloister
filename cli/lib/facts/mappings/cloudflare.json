@@ -1,0 +1,64 @@
+{
+  "provider": "cloudflare/cloudflare",
+  "types": {
+    "cloudflare_workers_script": {
+      "name": "script_name",
+      "read": ["compatibility_date", "main_module"],
+      "ids": ["account_id"],
+      "lists": [
+        {
+          "path": "bindings",
+          "read": ["name", "type", "service", "environment", "script_name", "class_name", "namespace_id", "id", "bucket_name", "queue_name", "namespace", "dataset", "index_name", "workflow_name"]
+        }
+      ]
+    },
+    "cloudflare_workers_route": {
+      "name": "pattern",
+      "read": ["pattern", "script"],
+      "ids": ["zone_id"],
+      "relations": [{ "attr": "script", "toType": "cloudflare_workers_script", "toAttr": "script_name" }]
+    },
+    "cloudflare_workers_kv_namespace": {
+      "name": "title",
+      "ids": ["id", "account_id"]
+    },
+    "cloudflare_d1_database": {
+      "name": "name",
+      "ids": ["id", "uuid", "account_id"]
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared": {
+      "name": "name",
+      "ids": ["id", "account_id"]
+    },
+    "cloudflare_zero_trust_tunnel_cloudflared_config": {
+      "ids": ["tunnel_id", "account_id"],
+      "lists": [{ "path": "config.ingress", "read": ["hostname", "path", "service"] }],
+      "relations": [{ "attr": "tunnel_id", "toType": "cloudflare_zero_trust_tunnel_cloudflared", "toAttr": "id" }]
+    },
+    "cloudflare_zero_trust_access_application": {
+      "name": "name",
+      "read": ["domain", "type"],
+      "ids": ["id", "account_id", "zone_id"],
+      "lists": [{ "path": "policies", "read": ["name", "decision", "precedence"] }]
+    },
+    "cloudflare_dns_record": {
+      "name": "name",
+      "read": ["type", "proxied"],
+      "ids": ["zone_id"]
+    },
+    "cloudflare_connectivity_directory_service": {
+      "name": "name",
+      "read": ["type", "http_port", "https_port"],
+      "ids": ["id", "service_id", "account_id"]
+    }
+  },
+  "bindingRelations": {
+    "service": [{ "attr": "service", "toType": "cloudflare_workers_script", "toAttr": "script_name" }],
+    "durable_object_namespace": [{ "attr": "script_name", "toType": "cloudflare_workers_script", "toAttr": "script_name" }],
+    "kv_namespace": [{ "attr": "namespace_id", "toType": "cloudflare_workers_kv_namespace", "toAttr": "id" }],
+    "d1": [
+      { "attr": "id", "toType": "cloudflare_d1_database", "toAttr": "id" },
+      { "attr": "id", "toType": "cloudflare_d1_database", "toAttr": "uuid" }
+    ]
+  }
+}

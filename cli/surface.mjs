@@ -340,20 +340,23 @@ export const COMMANDS = [
   },
   {
     name: "inspect",
-    usage: "cloister inspect --terraform <file> [--dir <path>] [--json]",
-    summary: "Report what a rendered Terraform document describes, beside cluster.toml",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--json]",
+    summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
-      "plan, and lists the workloads, bindings, routes, tunnels and storage it " +
-      "describes. With a cluster.toml it also reports, for each declared wire, " +
+      "plan, and/or wrangler configs (where a Worker's bindings live), and lists the " +
+      "workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, " +
       "whether the document shows a matching binding, and lists bindings between " +
       "workloads that cluster.toml does not declare. Read-only: it runs no tool and " +
       "writes nothing. Discovered resources are facts, never grants. Only an " +
       "allowlist of non-secret attributes is read, and a file tracked by git is " +
       "refused, because a rendered document prints secrets in plain text. " +
-      "Cloudflare resource types are read today. ADR-0073.",
+      "The attributes read are a data mapping validated against the provider's " +
+      "published schema, and relations are exact joins. Cloudflare resource types " +
+      "and wrangler.toml / wrangler.json are read today. ADR-0073.",
     flags: [
-      { flag: "--terraform", value: "<file>", required: true, summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
+      { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
+      { flag: "--wrangler", value: "<file>", summary: "a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required)" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory, if it has one)" },
       { flag: "--json", summary: "print the report as JSON" },
     ],

@@ -33,7 +33,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up (compose, or microVMs with --env) |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister cluster k8s`](#cloister-cluster-k8s) | Lower kubernetes placements to manifests + NetworkPolicy |
-| [`cloister inspect`](#cloister-inspect) | Report what a rendered Terraform document describes, beside cluster.toml |
+| [`cloister inspect`](#cloister-inspect) | Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
 | [`cloister runtime install`](#cloister-runtime-install) | Build and install the experimental compatibility runtime |
@@ -260,14 +260,15 @@ See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-place
 ## cloister inspect
 
 ```
-cloister inspect --terraform <file> [--dir <path>] [--json]
+cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--json]
 ```
 
-Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and lists the workloads, bindings, routes, tunnels and storage it describes. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. Cloudflare resource types are read today. ADR-0073.
+Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and/or wrangler configs (where a Worker's bindings live), and lists the workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. The attributes read are a data mapping validated against the provider's published schema, and relations are exact joins. Cloudflare resource types and wrangler.toml / wrangler.json are read today. ADR-0073.
 
 | Flag | | |
 |---|---|---|
-| `--terraform` `<file>` | **required** | `terraform show -json` output (state or plan); must not be tracked by git |
+| `--terraform` `<file>` |  | `terraform show -json` output (state or plan); must not be tracked by git |
+| `--wrangler` `<file>` |  | a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required) |
 | `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory, if it has one) |
 | `--json` |  | print the report as JSON |
 
