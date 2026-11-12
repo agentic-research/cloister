@@ -1,0 +1,24 @@
+# Synthetic fixture. Names and ids are not real.
+name = "cloister"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+[[services]]
+binding = "MACHE_BUNDLE"
+service = "mache"
+
+[[services]]
+binding = "BILLING"
+service = "billing"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "11111111111111111111111111111111"
+
+[[d1_databases]]
+binding = "LEDGER"
+database_name = "ledger"
+database_id = "22222222-2222-2222-2222-222222222222"
+
+[vars]
+API_TOKEN = "FIXTURE-VAR-MUST-NOT-BE-READ"

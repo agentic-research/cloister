@@ -8,6 +8,34 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect --terraform` / `--wrangler`: resource facts, imported and never granted (`cloister-85999c`)
+
+- **What it does.** `cloister inspect --terraform <file>` reads the output of
+  `terraform show -json` or `tofu show -json` (state or plan) and lists what
+  it describes: Workers and their bindings, routes, KV and D1, tunnels and
+  their ingress, Access applications, DNS names, private services.
+  Cloudflare resource types are read today. `--wrangler <file>` (repeatable)
+  reads a `wrangler.toml` or `wrangler.json`, where a Worker's bindings
+  actually live; at least one of `--terraform` / `--wrangler` is required.
+- **Compared with cluster.toml.** Each declared wire is reported as
+  `evidenced` (a matching binding exists) or `unknown` (none in this
+  document). A binding between workloads that no wire declares is reported as
+  `undeclared`.
+- **Read-only.** It runs no tool, reads no backend and writes nothing. A
+  finding changes nothing: a fact has no field that could hold a grant, and
+  the constructor refuses one by name (ADR-0073).
+- **Secrets.**
+  - Only the attributes in a data mapping are read, and anything the document
+    marks sensitive is dropped. At load the mapping is validated against the
+    provider's published schema (and wrangler's config schema), so an unknown
+    or sensitive attribute cannot be mapped.
+  - Relations are exact joins on mapped attributes. A value that matches
+    nothing is reported as "not in this document"; nothing is guessed by name.
+  - Ids are join keys and are not printed.
+  - A Terraform document tracked by git is refused, because a rendered
+    document prints secrets in plain text. A wrangler config is not.
+  - The committed fixture is synthetic, and a test holds it to that.
+
 ### 2026-11 — Reproducible demo images (melange + apko); the demo locks are committed (`cloister-2af014`)
 
 - **Build.** The microVM demo's images are built the way cloister builds its
