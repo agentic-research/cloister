@@ -1,6 +1,6 @@
 ---
 title: "ADR-0071: Who owns a running workload — one owner, declared lifecycle"
-status: Proposed
+status: Accepted (2026-11-11)
 date: 2026-11-10
 tags: [lifecycle, supervision, readiness, stop, restart, microvm, llo-boundary, prior-art]
 tracking-bead: cloister-035224

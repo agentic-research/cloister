@@ -1,6 +1,6 @@
 ---
 title: "ADR-0070: Placements and channel strength — one graph, lowered per placement"
-status: Proposed
+status: Accepted (2026-11-11)
 date: 2026-11-10
 tags: [connections, placement, confinement, capability, kubernetes, knative, cloud-run, llo-boundary]
 tracking-bead: cloister-bfa5bc

@@ -1,0 +1,21 @@
+{
+  "keys": [
+    "name",
+    "services[].binding",
+    "services[].service",
+    "durable_objects.bindings[].name",
+    "durable_objects.bindings[].class_name",
+    "durable_objects.bindings[].script_name",
+    "kv_namespaces[].binding",
+    "kv_namespaces[].id",
+    "d1_databases[].binding",
+    "d1_databases[].database_id",
+    "d1_databases[].database_name",
+    "r2_buckets[].binding",
+    "r2_buckets[].bucket_name",
+    "queues.producers[].binding",
+    "queues.producers[].queue",
+    "routes[]",
+    "routes[].pattern"
+  ]
+}
