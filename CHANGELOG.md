@@ -42,8 +42,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   CLI, carrying bytes and deciding nothing. LLO may absorb host publishing
   later; `up` would then pass the declaration through.
 
-||||||| c954a3e
-
 ### 2026-11 — `cloister inspect --terraform` / `--wrangler`: resource facts, imported and never granted (`cloister-85999c`)
 
 - **What it does.** `cloister inspect --terraform <file>` reads the output of

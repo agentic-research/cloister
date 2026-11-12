@@ -33,7 +33,7 @@ if (mode === "ok" || mode === "ignore-term") bind();
 if (mode === "echo") {
   let left = binds.length;
   for (const p of binds) {
-    createServer((c) => c.pipe(c)).listen(p, () => { left -= 1; if (left === 0) event("bound"); });
+    createServer((c) => { c.on("error", () => {}); c.pipe(c); }).listen(p, () => { left -= 1; if (left === 0) event("bound"); });
   }
 }
 if (mode === "slow-bind") setTimeout(bind, Number(process.env.FAKE_BIND_MS ?? 300));

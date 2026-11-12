@@ -86,7 +86,7 @@ name, with nothing started). It starts `dolt`, waits until its
 for `orders`. It prints:
 
 ```
-cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by anything on this host)
+cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by any local user or process on this host)
 …
   dolt.mysql (art.mysql): unix:///private/tmp/cloister-up-XXXXXX/dolt.mysql.sock
   orders.grpc (art.grpc): unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock

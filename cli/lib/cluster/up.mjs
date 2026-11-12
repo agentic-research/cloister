@@ -253,6 +253,10 @@ export async function clusterUp({ root, env, deps = {} }) {
   let edgeListeners = [];
   try {
     channelDir = makeChannelDir(deps.makeTemp);
+    // Host TCP for expose = "edge": reserved first, before any plan is built or
+    // the host runtime is called, so a busy port is refused by name with
+    // nothing to tear down.
+    edgeListeners = await (deps.openEdge ?? openEdgeListeners)(edgePorts(cluster, order, channelDir), { errLog });
     const plans = order.map((name) => {
       const opts = parsePlanArgs([name, "--workspace", absRoot, "--env", env, "--channel-dir", channelDir]);
       return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas, guestPlatform });
@@ -262,9 +266,6 @@ export async function clusterUp({ root, env, deps = {} }) {
         if (Buffer.byteLength(p) > MAX_UNIX_SOCKET_PATH) throw new Error(`channel socket path over ${MAX_UNIX_SOCKET_PATH} bytes: ${p}`);
       }
     }
-    // Host TCP for expose = "edge": reserved now, before anything starts, so a
-    // busy port is refused by name with nothing to tear down.
-    edgeListeners = await (deps.openEdge ?? openEdgeListeners)(edgePorts(cluster, order, channelDir), { errLog });
 
     const host = deps.hostRuntime ?? (() => {
       const binary = resolveHostRuntime({ env: procEnv });
@@ -356,7 +357,7 @@ export async function clusterUp({ root, env, deps = {} }) {
       log(`cloister cluster up: "${plan.bundle}" bound (its sockets exist; health not checked — ADR-0071 §3)`);
       for (const l of edgeListeners.filter((x) => x.edge.bundle === plan.bundle)) {
         l.activate();
-        log(`cloister cluster up: ${describeEdge(l.edge)} (reachable by anything on this host)`);
+        log(`cloister cluster up: ${describeEdge(l.edge)} (reachable by any local user or process on this host)`);
       }
     }
 

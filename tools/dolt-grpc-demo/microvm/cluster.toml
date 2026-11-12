@@ -27,7 +27,7 @@ args = ["sql-server", "--host", "127.0.0.1", "--port", "3306", "--data-dir", "/d
 name = "mysql"
 port = 3306
 appProtocol = "art.mysql"
-expose = "edge"     # published on host 127.0.0.1 by `cluster up` (ADR-0069 §1)
+expose = "edge"     # published on host 127.0.0.1 by `cluster up` (ADR-0069 §2)
 
 [[bundles]]
 name = "orders"
@@ -44,7 +44,7 @@ args = ["-db", "127.0.0.1:3306", "-listen", "127.0.0.1:50051"]
 name = "grpc"
 port = 50051
 appProtocol = "art.grpc"
-expose = "edge"     # published on host 127.0.0.1 by `cluster up` (ADR-0069 §1)
+expose = "edge"     # published on host 127.0.0.1 by `cluster up` (ADR-0069 §2)
 
 [[connections]]
 from = "orders"

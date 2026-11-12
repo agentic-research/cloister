@@ -67,6 +67,42 @@ test("a busy host port is refused by name, and nothing stays bound", async (t) =
   await new Promise((r) => again.close(r));
 });
 
+// On macOS a loopback bind succeeds while the same user listens on a wildcard
+// address (SO_REUSEADDR), which silently took the port from that holder.
+for (const [label, listenArgs] of [
+  ["Node's default address", []],
+  ["0.0.0.0", ["0.0.0.0"]],
+  ["::", ["::"]],
+]) {
+  test(`a port held on ${label} is refused by name, nothing stays bound, and the holder keeps it`, async (t) => {
+    const holder = createServer((c) => c.end("held"));
+    const bound = await new Promise((resolve) => {
+      holder.once("error", (e) => resolve(e));
+      holder.listen(0, ...listenArgs, () => resolve(null));
+    });
+    if (bound) {
+      t.skip(`cannot bind ${label} on this host: ${bound.code}`);
+      return;
+    }
+    t.after(() => holder.close());
+    const held = holder.address().port;
+    const free = await freePort();
+    const edges = [
+      { bundle: "orders", name: "grpc", port: free, appProtocol: "art.grpc", socketPath: "/nowhere" },
+      { bundle: "dolt", name: "mysql", port: held, appProtocol: "art.mysql", socketPath: "/nowhere" },
+    ];
+    await assert.rejects(
+      openEdgeListeners(edges, { errLog: () => {} }),
+      new RegExp(`host port 127\\.0\\.0\\.1:${held} is already in use, and bundle "dolt" port "mysql" \\(expose = "edge"\\) publishes on it\\. Nothing was started\\.`),
+    );
+    // The listener that bound first was released; the holder still serves.
+    const again = createServer();
+    await new Promise((resolve, reject) => { again.once("error", reject); again.listen({ host: EDGE_HOST, port: free }, resolve); });
+    await new Promise((r) => again.close(r));
+    assert.equal(await exchange(held, ""), "held", "the holder still serves its port");
+  });
+}
+
 test("listeners bind loopback only, relay bytes after activation, and free the port on close", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "edge-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

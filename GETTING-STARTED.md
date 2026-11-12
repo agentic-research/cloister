@@ -317,11 +317,11 @@ published on the host, as TCP on `127.0.0.1:<port>` (loopback only, never
 `0.0.0.0`), and relayed to the bundle's socket. `up` prints each one:
 
 ```
-cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by anything on this host)
+cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by any local user or process on this host)
 ```
 
 So the stock clients work over TCP: `mysql -h 127.0.0.1 -P 3306`, `grpcurl
--plaintext 127.0.0.1:50051 …`. Anything on the host can reach an edge port;
+-plaintext 127.0.0.1:50051 …`. Any local user or process on the host can reach an edge port;
 that is what `edge` means on a developer machine. `expose = "cluster"` stays
 socket-only, reachable only through declared connections, and `none` gets no
 channel at all. Every edge port is bound before any bundle starts: a busy one

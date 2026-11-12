@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // cli/lib/cluster/edge-relay.mjs — `expose = "edge"` for microvm placements in
-// `cloister cluster up` (ADR-0069 §1, cloister-991e65).
+// `cloister cluster up` (ADR-0069 §2, cloister-991e65).
 //
 // A port declared `expose = "edge"` is published on the HOST as TCP at
 // 127.0.0.1:<port> — loopback only, never 0.0.0.0 — and every connection is
 // relayed to that bundle's bind socket, the same §6 channel a declared
 // connection reaches. `cluster` stays socket-only, `none` stays unreachable.
-// On a developer machine "edge" means exactly this: anything on the host can
-// reach the port, and `up` prints so.
+// On a developer machine "edge" means exactly this: any local user or process
+// on the host can reach the port, and `up` prints so.
 //
 // Boundary (ADR-0035): this is a small DATA-PLANE piece living in cloister's
 // Node CLI, because `up` is a foreground convenience that already owns the
@@ -19,10 +19,14 @@
 // deleted, and `up` passes the declaration through instead.
 //
 // Lifecycle (ADR-0071 §1, `up`'s foreground rules):
-//   - every edge port is RESERVED (bound and listening) before anything is
-//     started. Binding is the check: a busy port fails with EADDRINUSE and is
-//     refused by name, with no gap between "checked" and "bound". Nothing has
-//     been started at that point, so nothing needs stopping.
+//   - every edge port is RESERVED before anything is started. Each port is
+//     first probed on every address (0.0.0.0 and [::], exclusive), because on
+//     macOS a loopback bind succeeds even while the same user listens on a
+//     wildcard address, and would silently take the port from that holder.
+//     Then it is bound on loopback. A busy port is refused by name. A holder
+//     that appears on a wildcard address between the probe and the bind is NOT
+//     detected. Nothing has been started at that point, so nothing needs
+//     stopping.
 //   - a connection that arrives before its bundle is bound is closed at once:
 //     there is nothing to relay to yet.
 //   - after the bundle is bound, `activate()` starts relaying.
@@ -106,8 +110,46 @@ export async function openEdgeListeners(edges, deps = {}) {
   return listeners;
 }
 
+function busyError(edge) {
+  return new Error(
+    `host port ${EDGE_HOST}:${edge.port} is already in use, and bundle "${edge.bundle}" ` +
+      `port "${edge.name}" (expose = "edge") publishes on it. Nothing was started. ` +
+      `Find what holds it: lsof -nP -iTCP:${edge.port} -sTCP:LISTEN`,
+  );
+}
+
+/** Bind-and-release one probe. Resolves null if free, else the error. */
+function probeBind(createServer, listenOptions) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", (error) => resolve(error));
+    probe.listen({ ...listenOptions, exclusive: true }, () => probe.close(() => resolve(null)));
+  });
+}
+
+/**
+ * Refuse a port some other listener holds on a wildcard address. Loopback bind
+ * alone cannot see those on macOS (SO_REUSEADDR).
+ */
+async function assertNotHeld(edge, createServer) {
+  const v4 = await probeBind(createServer, { host: "0.0.0.0", port: edge.port });
+  if (v4) {
+    if (v4.code === "EADDRINUSE") throw busyError(edge);
+    throw new Error(`could not probe ${describeEdge(edge)} on 0.0.0.0 (${v4.code ?? "error"}): ${v4.message}`);
+  }
+  const v6 = await probeBind(createServer, { host: "::", port: edge.port, ipv6Only: true });
+  if (v6) {
+    if (v6.code === "EADDRINUSE") throw busyError(edge);
+    if (v6.code === "EADDRNOTAVAIL" || v6.code === "EAFNOSUPPORT") return; // no IPv6 on this host
+    throw new Error(`could not probe ${describeEdge(edge)} on :: (${v6.code ?? "error"}): ${v6.message}`);
+  }
+}
+
 async function listen(edge, { createServer, connect, errLog }) {
+  await assertNotHeld(edge, createServer);
   let active = false;
+  let failures = 0; // upstream-connect failures not yet summarised
+  let lastLogged = 0;
   const live = new Set();
   const server = createServer({ allowHalfOpen: true }, (client) => {
     live.add(client);
@@ -122,7 +164,18 @@ async function listen(edge, { createServer, connect, errLog }) {
     live.add(upstream);
     upstream.on("close", () => { live.delete(upstream); client.destroy(); });
     upstream.on("error", (error) => {
-      errLog(`cloister cluster up: ${describeEdge(edge)}: ${error.message}`);
+      const now = Date.now();
+      if (lastLogged === 0) {
+        errLog(`cloister cluster up: ${describeEdge(edge)}: ${error.message}`);
+        lastLogged = now;
+      } else {
+        failures += 1;
+        if (now - lastLogged >= 5_000) {
+          errLog(`cloister cluster up: ${describeEdge(edge)}: ${failures} more upstream connect failures`);
+          failures = 0;
+          lastLogged = now;
+        }
+      }
       upstream.destroy();
     });
     client.on("close", () => upstream.destroy());
@@ -133,11 +186,7 @@ async function listen(edge, { createServer, connect, errLog }) {
     const onError = (error) => {
       server.off("listening", onListening);
       if (error.code === "EADDRINUSE") {
-        reject(new Error(
-          `host port ${EDGE_HOST}:${edge.port} is already in use, and bundle "${edge.bundle}" ` +
-            `port "${edge.name}" (expose = "edge") publishes on it. Nothing was started. ` +
-            `Find what holds it: lsof -nP -iTCP:${edge.port} -sTCP:LISTEN`,
-        ));
+        reject(busyError(edge));
       } else {
         reject(new Error(`could not publish ${describeEdge(edge)}: ${error.message}`));
       }

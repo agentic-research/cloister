@@ -28,6 +28,7 @@ const TSX = import.meta.resolve("tsx");
 // tests must not bind the host's 3306/50051, so the default cluster keeps
 // them socket-only; the edge tests below publish on free ports instead.
 const SOCKET_ONLY_TOML = DEMO_TOML.replace(/^expose = "edge".*$/gm, 'expose = "cluster"');
+assert.ok(!SOCKET_ONLY_TOML.includes('"edge"'), "the socket-only rewrite must remove every edge port");
 
 function clusterDir(toml = SOCKET_ONLY_TOML) {
   const dir = mkdtempSync(join(tmpdir(), "cloister-up-proc-"));
@@ -268,6 +269,37 @@ test("edge: host TCP reaches the bundle's bind socket, and SIGINT closes the rel
     assert.ok(await portFree(mysql) && await portFree(grpc), "both host ports are free");
     assert.ok(await allDead(fakePids(up)), "every host runtime has exited");
   } finally {
+    up.child.kill("SIGKILL");
+    up.cleanup();
+  }
+});
+
+test("edge: SIGINT closes a held-open relayed connection and up exits 0 within 5 seconds", async () => {
+  const [mysql, grpc] = [await freePort(), await freePort()];
+  const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
+  let client;
+  try {
+    await up.waitFor(/all bundles bound/);
+    client = connect({ host: "127.0.0.1", port: mysql });
+    client.on("error", () => {});
+    let got = "";
+    client.setEncoding("utf8");
+    client.on("data", (d) => { got += d; });
+    const closed = new Promise((r) => client.on("close", r));
+    await new Promise((r) => client.once("connect", r));
+    client.write("held");
+    for (const start = Date.now(); got !== "held"; ) {
+      if (Date.now() - start > 5_000) throw new Error("the relay never echoed");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const t0 = Date.now();
+    up.child.kill("SIGINT");
+    const { code } = await up.exited;
+    assert.equal(code, 0, up.out.stderr);
+    await closed;
+    assert.ok(Date.now() - t0 < 5_000, "closed and exited within 5 seconds");
+  } finally {
+    client?.destroy();
     up.child.kill("SIGKILL");
     up.cleanup();
   }
