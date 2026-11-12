@@ -43,6 +43,9 @@ export function validateMapping(mapping, spec) {
     const here = `${type}.`;
     if (entry.name !== undefined) scalar(attributes, entry.name, here);
     for (const path of [...(entry.read ?? []), ...(entry.ids ?? [])]) scalar(attributes, path, here);
+    // A reference attribute only has to exist (and not be sensitive): it is
+    // whatever the configuration wires into it, and only its references are read.
+    for (const path of entry.referenceAttrs ?? []) lookup(attributes, path, `${here}referenceAttrs.`);
     for (const list of entry.lists ?? []) {
       const nested = lookup(attributes, list.path, here);
       if (!nested.attributes) throw new Error(`mapping: list "${here}${list.path}" is not a nested attribute`);

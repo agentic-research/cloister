@@ -355,8 +355,12 @@ export const COMMANDS = [
       "allowlist of non-secret attributes is read, and a file tracked by git is " +
       "refused, because a rendered document prints secrets in plain text. " +
       "The attributes read are a data mapping validated against the provider's " +
-      "published schema, and relations are exact joins. Cloudflare resource types " +
-      "and wrangler.toml / wrangler.json are read today. ADR-0073.",
+      "published schema, and relations are exact joins. In a plan document, a relation " +
+      "whose value is unknown until apply may resolve through the configuration's " +
+      "references, only when exactly one referenced resource has the target type. " +
+      "Cloudflare resource types, Google Cloud Run services (with their invoker " +
+      "member rows) and Cloud SQL instances and Cloud Tasks queues, and " +
+      "wrangler.toml / wrangler.json are read today. ADR-0073.",
     flags: [
       { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
       { flag: "--wrangler", value: "<file>", summary: "a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required)" },

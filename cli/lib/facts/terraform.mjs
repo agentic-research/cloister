@@ -41,7 +41,49 @@ export function readShowJson(document) {
   const kind = document.planned_values ? "plan" : "state";
   const resources = [];
   if (root) collect(root, resources);
-  return { kind, formatVersion: document.format_version, resources };
+  return {
+    kind,
+    formatVersion: document.format_version,
+    resources,
+    references: document.configuration ? readReferences(document.configuration) : new Map(),
+  };
+}
+
+/** Prefixes of a `references` entry that is not a managed resource. */
+const NOT_A_RESOURCE = ["var.", "local.", "data.", "module.", "each.", "count.", "path.", "terraform."];
+const NAME_PART = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
+/** Keep only entries that are exactly `<type>.<name>`: a managed resource address. */
+export function resourceReferences(references) {
+  const out = new Set();
+  for (const entry of Array.isArray(references) ? references : []) {
+    if (typeof entry !== "string" || NOT_A_RESOURCE.some((p) => entry.startsWith(p))) continue;
+    const parts = entry.split(".");
+    if (parts.length === 2 && parts.every((p) => NAME_PART.test(p))) out.add(entry);
+  }
+  return [...out].sort();
+}
+
+/**
+ * Per managed resource address in the ROOT module: top-level attribute name ->
+ * sorted resource addresses its expression references. Child modules are
+ * skipped on purpose: their addresses are prefixed `module.<name>.` and their
+ * expressions live under `module_calls`, so a reference there would not name
+ * an address this reader imports with confidence.
+ */
+function readReferences(configuration) {
+  const out = new Map();
+  for (const resource of configuration.root_module?.resources ?? []) {
+    // No mode check: a data source's address starts with `data.` and no fact has it.
+    if (typeof resource?.address !== "string") continue;
+    const byAttr = {};
+    for (const [attr, expression] of Object.entries(resource.expressions ?? {})) {
+      const refs = resourceReferences(expression?.references);
+      if (refs.length) byAttr[attr] = refs;
+    }
+    out.set(resource.address, byAttr);
+  }
+  return out;
 }
 
 function collect(module, out) {

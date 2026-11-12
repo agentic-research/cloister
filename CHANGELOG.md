@@ -42,6 +42,26 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   CLI, carrying bytes and deciding nothing. LLO may absorb host publishing
   later; `up` would then pass the declaration through.
 
+### 2026-11 — `cloister inspect`: plan references, Google Cloud Run / Cloud SQL, invoker evidence (`cloister-ca2582`)
+
+- **Plan references.** A plan document says, in `configuration`, which
+  resources an attribute references. For the attributes a mapping names
+  (`referenceAttrs`), a fact keeps those resource addresses. A relation whose
+  value is unknown until apply resolves through them, but only when exactly one
+  referenced address has the target type; zero or several stay unresolved. A
+  state document never uses references. A Worker's bindings list also gains a
+  "Referenced by configuration" observation, which adds no wire and no finding.
+- **More types.** `cloudflare_worker` plus its `cloudflare_worker_version`
+  (one workload), R2 buckets (and their bindings), and a Google mapping for
+  Cloud Run services, Cloud SQL instances and Cloud Tasks queues, each
+  validated against its own vendored provider spec
+  (`scripts/gen-facts-spec.mjs --provider ... --mapping ... --out ...`).
+- **Invoker evidence.** Each Cloud Run service lists the invoker member rows
+  the document holds, marks `allUsers` / `allAuthenticatedUsers` as publicly
+  invocable, and says so when no row exists. Member rows are non-authoritative.
+- **Fixture.** A real public plan (jsr, MIT) trimmed to mapped attributes by
+  `scripts/trim-plan-fixture.mjs`, under `test/fixtures/terraform/oss/`.
+
 ### 2026-11 — `cloister inspect --terraform` / `--wrangler`: resource facts, imported and never granted (`cloister-85999c`)
 
 - **What it does.** `cloister inspect --terraform <file>` reads the output of
