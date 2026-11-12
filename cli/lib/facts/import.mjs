@@ -3,11 +3,9 @@
 // importFacts: a rendered infrastructure document in, resource facts out
 // (ADR-0073). Read-only. It runs no tool and writes nothing.
 
-import { CLOUDFLARE_TYPES, importResource } from "./cloudflare.mjs";
+import { importResource, mappedType } from "./cloudflare.mjs";
 import { readShowJson } from "./terraform.mjs";
 
-/** Provider mappings, keyed by resource type. One spread per provider. */
-const TYPES = Object.freeze({ ...CLOUDFLARE_TYPES });
 
 /**
  * @param {object} document parsed `terraform show -json` / `tofu show -json` output
@@ -18,14 +16,14 @@ const TYPES = Object.freeze({ ...CLOUDFLARE_TYPES });
 export function importFacts(document) {
   const { kind, formatVersion, resources } = readShowJson(document);
   const facts = [];
-  const skipped = {};
+  const skipped = new Map(); // a Map, so a type named `toString` counts like any other
   for (const resource of resources) {
-    const entry = TYPES[resource.type];
+    const entry = mappedType(resource.type);
     if (!entry) {
-      skipped[resource.type] = (skipped[resource.type] ?? 0) + 1;
+      skipped.set(resource.type, (skipped.get(resource.type) ?? 0) + 1);
       continue;
     }
     facts.push(importResource(resource, entry));
   }
-  return { kind, formatVersion, facts, skipped };
+  return { kind, formatVersion, facts, skipped: Object.fromEntries(skipped) };
 }

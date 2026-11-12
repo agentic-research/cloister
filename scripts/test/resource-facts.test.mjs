@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -436,4 +436,98 @@ test("inspect accepts --wrangler alone, with --terraform, and does not refuse a 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── Hostile inputs (the review of PR #298) ───────────────────────────────
+
+test("a name with a newline or terminal escape cannot forge a report line", () => {
+  const doc = fixture();
+  const router = doc.values.root_module.child_modules[0].resources[0];
+  router.values.bindings[0].name = "B\nFindings:\n  evidenced   x → y (z): bound as d1\x1b[2J\r";
+  router.values.script_name = "cloister\n  evidenced   a → b (X): forged";
+  const imported = importFacts(doc);
+  const text = renderReport(buildReport(imported, CLUSTER));
+  assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(text), "no control character reaches the text report");
+  assert.equal(text.split("\n").filter((l) => /^Findings:$/.test(l)).length, 1, "exactly one Findings header");
+  assert.ok(!text.split("\n").some((l) => /^ {2}evidenced {3}(x → y|a → b)/.test(l)), "no forged finding line");
+  assert.ok(!/[\u0000-\u001f\u007f-\u009f]/.test(JSON.stringify(imported.facts).replaceAll("\\n", "")), "facts hold no control characters");
+});
+
+test("a malformed sensitivity marker fails closed", () => {
+  for (const marker of ["true", 1, null, { 0: true }]) {
+    const doc = fixture();
+    const router = doc.values.root_module.child_modules[0].resources[0];
+    router.sensitive_values.bindings = marker;
+    const fact = importFacts(doc).facts.find((f) => f.type === "cloudflare_workers_script" && f.attrs.bindingsWithheld);
+    assert.ok(fact, `a bindings marker of ${JSON.stringify(marker)} withholds the list`);
+    assert.deepEqual(fact.attrs.bindings, []);
+  }
+  for (const marker of ["true", 1, null, {}, []]) {
+    assert.deepEqual(pickPublic({ a: "secret" }, { a: marker }, ["a"]), {}, `scalar marker ${JSON.stringify(marker)}`);
+  }
+  assert.deepEqual(pickPublic({ a: "x" }, "true", ["a"]), {}, "a non-object row marker reads nothing");
+  assert.ok(isMarkedSensitive("true") && isMarkedSensitive(1) && isMarkedSensitive(null));
+});
+
+test("a marker list shorter than the rows withholds the unmarked rows", () => {
+  const doc = fixture();
+  const router = doc.values.root_module.child_modules[0].resources[0];
+  router.sensitive_values.bindings = [{}, {}];
+  const fact = importFacts(doc).facts.find((f) => f.address.endsWith("cloudflare_workers_script.router"));
+  assert.equal(fact.attrs.bindings.length, 2);
+  assert.equal(fact.attrs.bindingsWithheld, true);
+});
+
+test("a resource or binding type named after an Object.prototype member is not mapped and does not crash", () => {
+  for (const type of ["toString", "constructor", "hasOwnProperty", "__proto__", "valueOf"]) {
+    const doc = fixture();
+    const resources = doc.values.root_module.child_modules[0].resources;
+    resources.push({ address: `x.${type}`, mode: "managed", type, name: "x", values: { Object: "FIXTURE-PROTO", name: "FIXTURE-PROTO" }, sensitive_values: {} });
+    resources[0].values.bindings.push({ name: "ODD", type, service: "mache" });
+    resources[0].sensitive_values.bindings.push({});
+    const imported = importFacts(doc);
+    assert.equal(imported.skipped[type], 1, `${type} is counted as not read`);
+    assert.ok(!imported.facts.some((f) => f.type === type));
+    const report = buildReport(imported, CLUSTER);
+    assert.ok(!strings(report).some((s) => s.includes("FIXTURE-PROTO")));
+    assert.ok(!report.findings.some((f) => f.binding?.name === "ODD"), "an unmapped binding type is not a workload edge");
+  }
+});
+
+test("a Worker with 100,000 bindings is reported in well under ten seconds", () => {
+  const doc = fixture();
+  const router = doc.values.root_module.child_modules[0].resources[0];
+  router.values.bindings = Array.from({ length: 100_000 }, (_, i) => ({ name: `B${i}`, type: "service", service: `s${i}` }));
+  router.sensitive_values.bindings = router.values.bindings.map(() => ({}));
+  const started = Date.now();
+  const report = buildReport(importFacts(doc), CLUSTER);
+  assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`);
+  assert.equal(report.workloads.find((w) => w.name === "cloister").bindings.length, 100_000);
+});
+
+test("inspect refuses a symlink that points at a tracked file", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "inspect-link-repo-"));
+  const outside = mkdtempSync(join(tmpdir(), "inspect-link-out-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    writeFileSync(join(repo, "state.json"), "{}");
+    execFileSync("git", ["add", "state.json"], { cwd: repo });
+    const link = join(outside, "link.json");
+    symlinkSync(join(repo, "state.json"), link);
+    const errors = [];
+    assert.equal(await inspectMain(["--terraform", link], { log: () => {}, errLog: (m) => errors.push(m) }), 2);
+    assert.match(errors.join("\n"), /tracked by git/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("a Durable Object binding with no script named is shown as a class in the same Worker", () => {
+  const doc = fixture();
+  const router = doc.values.root_module.child_modules[0].resources[0];
+  router.values.bindings.push({ name: "AGENT", type: "durable_object_namespace", class_name: "Agent" });
+  router.sensitive_values.bindings.push({});
+  const report = buildReport(importFacts(doc), CLUSTER);
+  assert.match(renderReport(report), /AGENT {2}durable_object_namespace {2}→ \(this Worker, class Agent\)/);
 });

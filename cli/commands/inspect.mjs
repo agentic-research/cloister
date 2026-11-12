@@ -6,7 +6,7 @@
 // tool and writes nothing.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
@@ -88,7 +88,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     }
     // Only the rendered Terraform document is refused when tracked: a wrangler
     // config is normally committed and holds no secrets this tool reads.
-    if ((deps.isGitTracked ?? isGitTracked)(file)) {
+    // Check the path as given AND what it resolves to: a symlink in an untracked
+  // directory can point at a tracked file.
+  const tracked = deps.isGitTracked ?? isGitTracked;
+  if (tracked(file) || tracked(realpathSync(file))) {
       errLog(
         `cloister inspect: ${opts.terraform} is tracked by git. A rendered Terraform document ` +
           "prints secrets in plain text, so it must not be committed. Remove it from the " +

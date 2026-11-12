@@ -31,14 +31,18 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   // Workers: Terraform scripts plus wrangler configs. One name is listed once.
   const workerMap = new Map();
   for (const fact of [...byType(SCRIPT), ...byType(WRANGLER)]) {
-    const w = workerMap.get(fact.name) ?? { name: fact.name, terraform: false, wrangler: false, bindings: [], withheld: false };
+    const w = workerMap.get(fact.name) ?? { name: fact.name, terraform: false, wrangler: false, bindings: [], seen: new Set(), withheld: false };
     const isTf = fact.type === SCRIPT;
     w[isTf ? "terraform" : "wrangler"] = true;
     if (isTf && fact.attrs.bindingsWithheld) w.withheld = true;
-    for (const b of fact.attrs.bindings ?? []) if (!w.bindings.some((x) => x.name === b.name)) w.bindings.push(b);
+    for (const b of fact.attrs.bindings ?? []) {
+      if (w.seen.has(b.name)) continue;
+      w.seen.add(b.name);
+      w.bindings.push(b);
+    }
     workerMap.set(fact.name, w);
   }
-  const workers = [...workerMap.values()].map((w) => ({ ...w, withheld: w.withheld && !w.wrangler }));
+  const workers = [...workerMap.values()].map(({ seen: _seen, ...w }) => ({ ...w, withheld: w.withheld && !w.wrangler }));
 
   const bundles = cluster?.bundles ?? [];
   const wires = cluster?.wires ?? [];
@@ -154,7 +158,10 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
 function describeTarget(binding, facts) {
   if (isWorkloadBinding(binding)) {
     const name = bindingTarget(binding);
-    if (!name) return "(not stated)";
+    // A Durable Object binding with no script named is a class in the SAME
+    // Worker: that is what an omitted `script_name` means in both the
+    // provider's and wrangler's schema.
+    if (!name) return binding.type === "durable_object_namespace" ? `(this Worker${binding.class_name ? `, class ${binding.class_name}` : ""})` : "(not stated)";
     return resolveBinding(binding, facts).to ? name : `${name} (not in this document)`;
   }
   if (binding.type === "kv_namespace" || binding.type === "d1") {

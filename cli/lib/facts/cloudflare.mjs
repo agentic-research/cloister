@@ -29,6 +29,15 @@ validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
 
 const WORKER_TYPE = "cloudflare_workers_script";
 const BINDING_RELATIONS = CLOUDFLARE_MAPPING.bindingRelations;
+
+/**
+ * Own-property lookups only. A resource or binding type comes from the
+ * document, and `toString` or `constructor` must not find Object.prototype.
+ */
+const own = (table, key) => (typeof key === "string" && Object.hasOwn(table, key) ? table[key] : undefined);
+const relationsFor = (binding) => own(BINDING_RELATIONS, binding?.type) ?? [];
+/** The mapping entry for a resource type, or undefined when the type is not mapped. */
+export const mappedType = (type) => own(CLOUDFLARE_MAPPING.types, type);
 /** Fact types that count as a Worker when a relation targets a Worker script. */
 const WORKER_FACT_TYPES = new Set([WORKER_TYPE, "wrangler_worker"]);
 
@@ -61,13 +70,23 @@ export function importResource(resource, entry) {
     const markers = getPath(sensitive, list.path);
     attrs[key] = [];
     if (!Array.isArray(rows)) continue;
-    if (markers === true) {
-      attrs[`${key}Withheld`] = true; // the whole list is marked sensitive: report only that it exists
+    // A well-formed document gives a list either no marker or an array with
+    // one marker per row. `true` means the whole list is sensitive. Any other
+    // shape is malformed, and is treated the same way: the list is withheld
+    // and the report says so.
+    if (markers !== undefined && !Array.isArray(markers)) {
+      attrs[`${key}Withheld`] = true;
       continue;
     }
     rows.forEach((row, index) => {
       if (!row || typeof row !== "object") return;
-      const marker = Array.isArray(markers) ? markers[index] : undefined;
+      let marker;
+      if (Array.isArray(markers)) {
+        // A row with no marker of its own (a marker list shorter than the
+        // rows) is not known to be public, so it is withheld.
+        if (index >= markers.length) { attrs[`${key}Withheld`] = true; return; }
+        marker = markers[index];
+      }
       const picked = pickPublic(row, marker, list.read);
       if (Object.keys(picked).length > 0) attrs[key].push(picked);
     });
@@ -87,7 +106,7 @@ export const CLOUDFLARE_TYPES = CLOUDFLARE_MAPPING.types;
 
 /** The value a fact exposes for a mapped join attribute, or undefined. */
 function joinValue(fact, attr) {
-  const entry = CLOUDFLARE_TYPES[fact.type];
+  const entry = mappedType(fact.type);
   if (fact.attrs.ids?.[attr] !== undefined) return fact.attrs.ids[attr];
   if (fact.attrs[attr] !== undefined) return fact.attrs[attr];
   if (entry?.name === attr || (fact.type === "wrangler_worker" && attr === "script_name")) return fact.name || undefined;
@@ -96,8 +115,30 @@ function joinValue(fact, attr) {
 
 function resolveOne(value, relation, facts) {
   if (typeof value !== "string" && typeof value !== "number") return null;
-  const types = relation.toType === WORKER_TYPE ? WORKER_FACT_TYPES : new Set([relation.toType]);
-  return facts.find((f) => types.has(f.type) && joinValue(f, relation.toAttr) === value) ?? null;
+  return joinIndex(facts, relation).get(value) ?? null;
+}
+
+/**
+ * value → first fact, for one relation over one facts array. Built once per
+ * (facts, relation) and reused, so resolving N bindings is not N scans.
+ */
+const JOIN_INDEXES = new WeakMap();
+function joinIndex(facts, relation) {
+  let perFacts = JOIN_INDEXES.get(facts);
+  if (!perFacts) JOIN_INDEXES.set(facts, (perFacts = new Map()));
+  const key = `${relation.toType}\u0000${relation.toAttr}`;
+  let index = perFacts.get(key);
+  if (!index) {
+    index = new Map();
+    const types = relation.toType === WORKER_TYPE ? WORKER_FACT_TYPES : new Set([relation.toType]);
+    for (const fact of facts) {
+      if (!types.has(fact.type)) continue;
+      const value = joinValue(fact, relation.toAttr);
+      if (value !== undefined && !index.has(value)) index.set(value, fact);
+    }
+    perFacts.set(key, index);
+  }
+  return index;
 }
 
 /**
@@ -105,7 +146,7 @@ function resolveOne(value, relation, facts) {
  * `[{attr, value, to: fact | null}]`; `null` means "not in this document".
  */
 export function resolveRelations(fact, facts) {
-  const entry = CLOUDFLARE_TYPES[fact.type];
+  const entry = mappedType(fact.type);
   return (entry?.relations ?? []).map((relation) => {
     const value = joinValue(fact, relation.attr);
     return { attr: relation.attr, value, to: resolveOne(value, relation, facts) };
@@ -114,21 +155,21 @@ export function resolveRelations(fact, facts) {
 
 /** Resolve a Worker binding through the mapping's binding relations. */
 export function resolveBinding(binding, facts) {
-  for (const relation of BINDING_RELATIONS[binding?.type] ?? []) {
+  for (const relation of relationsFor(binding)) {
     const to = resolveOne(binding[relation.attr], relation, facts);
     if (to) return { value: binding[relation.attr], to };
   }
-  const first = (BINDING_RELATIONS[binding?.type] ?? [])[0];
+  const first = relationsFor(binding)[0];
   return { value: first ? binding[first.attr] : undefined, to: null };
 }
 
 /** True when a binding names another workload (as opposed to storage or config). */
 export function isWorkloadBinding(binding) {
-  return (BINDING_RELATIONS[binding?.type] ?? []).some((r) => r.toType === WORKER_TYPE);
+  return relationsFor(binding).some((r) => r.toType === WORKER_TYPE);
 }
 
 /** The workload a workload-binding names, or "" when the document does not say. */
 export function bindingTarget(binding) {
-  const relation = (BINDING_RELATIONS[binding?.type] ?? []).find((r) => r.toType === WORKER_TYPE);
+  const relation = relationsFor(binding).find((r) => r.toType === WORKER_TYPE);
   return relation ? (binding[relation.attr] ?? "") : "";
 }

@@ -44,13 +44,30 @@ export function makeFact(fields) {
       throw new Error(`a resource fact needs a non-empty "${key}"`);
     }
   }
-  return deepFreeze({
+  return deepFreeze(printable({
     source: fields.source,
     address: fields.address,
     type: fields.type,
     name: typeof fields.name === "string" ? fields.name : "",
     attrs: fields.attrs ?? {},
-  });
+  }));
+}
+
+/**
+ * Every string in a fact comes from a document someone else wrote, and the
+ * report prints it. A name holding a newline or a terminal escape could forge
+ * a report line (a fake "evidenced" finding) or repaint the screen. So control
+ * characters, including line breaks, become U+FFFD before a fact exists. The
+ * JSON report gets the same strings.
+ */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
+function printable(value) {
+  if (typeof value === "string") return value.replace(CONTROL, "\ufffd");
+  if (Array.isArray(value)) return value.map(printable);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [printable(k), printable(v)]));
+  }
+  return value;
 }
 
 function deepFreeze(value) {
@@ -73,11 +90,17 @@ function deepFreeze(value) {
 export function pickPublic(values, sensitive, keys) {
   const out = {};
   if (!values || typeof values !== "object") return out;
+  // A row's marker must be an object (or absent). Anything else is malformed: read nothing.
+  if (sensitive !== undefined && (sensitive === null || typeof sensitive !== "object" || Array.isArray(sensitive))) return out;
   for (const key of keys) {
-    if (!(key in values)) continue;
+    if (!Object.hasOwn(values, key)) continue;
     const value = values[key];
     if (value === null || value === undefined || value === "") continue;
-    if (isMarkedSensitive(sensitive?.[key])) continue;
+    // `pickPublic` copies scalars only, and a well-formed document marks a
+    // sensitive scalar `true` and omits a public one. Any other marker on a
+    // scalar is malformed, so the value is dropped: fail closed.
+    const marker = sensitive?.[key];
+    if (marker !== undefined && marker !== false) continue;
     if (typeof value === "object") continue; // nested values are read by their adapter, key by key
     out[key] = value;
   }
@@ -86,8 +109,10 @@ export function pickPublic(values, sensitive, keys) {
 
 /** True when a `sensitive_values` marker says any part of the value is sensitive. */
 export function isMarkedSensitive(marker) {
-  if (marker === true) return true;
+  if (marker === undefined || marker === false) return false;
   if (Array.isArray(marker)) return marker.some(isMarkedSensitive);
-  if (marker && typeof marker === "object") return Object.values(marker).some(isMarkedSensitive);
-  return false;
+  if (marker !== null && typeof marker === "object") return Object.values(marker).some(isMarkedSensitive);
+  // `true`, and anything a well-formed document would not put here ("true",
+  // 1, null): fail closed.
+  return true;
 }
