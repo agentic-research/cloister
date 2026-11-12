@@ -8,6 +8,13 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Drop the SQLite advisory residual (`cloister-6ecd70`)
+
+- The audit ignore for RUSTSEC-2026-0459 (bundled SQLite, through LLO's
+  rusqlite) is removed from `rs/.cargo/audit.toml` and `rs/deny.toml`. The
+  pinned LLO release already resolves rusqlite 0.41 / libsqlite3-sys 0.39, and
+  `task rs:audit` passes without the ignore.
+
 ### 2026-11 — `expose = "edge"`: host TCP for microvm ports in `cluster up` (`cloister-991e65`)
 
 - **What `edge` means now.** ADR-0069 §2 defines the three values: `none` (no
