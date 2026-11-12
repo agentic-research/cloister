@@ -77,7 +77,17 @@ says so.
 
 Relations are exact joins: a value equals a mapped attribute of another
 resource, or it matches nothing and is reported as "not in this document".
-Nothing is matched by guessing at a name. Account, zone and resource ids are
+Nothing is matched by guessing at a name.
+
+A plan document adds one more source for a join. A value that is unknown until
+apply (a route's `script`, a version's `worker_id`) is absent from
+`planned_values`, but `configuration` records which resources the expression
+references. For the attributes a mapping lists under `referenceAttrs`, a fact
+keeps those root-module resource addresses (exactly `<type>.<name>`; `var.`,
+`local.`, `data.`, `module.` and attribute paths are dropped). A relation uses
+them only when value equality found nothing, the document is a plan, and
+exactly one referenced address has the relation's target type. Zero or several
+candidates leave it unresolved. A state document never uses them. Account, zone and resource ids are
 kept only as join keys, so the report can resolve a binding to a name. They
 are not printed.
 
@@ -138,7 +148,10 @@ comparison is exact, not approximate. Under ADR-0072 this supplies the
 | §4 tracked-file refusal (Terraform document), synthetic-fixture test | built |
 | §5 `cloister inspect` report | built; wires only |
 | Declared connections (ADR-0069) in the comparison | not built |
-| Other providers (Google, per the research note) | not built |
+| Google types: Cloud Run services and invoker member rows, Cloud SQL, Cloud Tasks | built; own mapping and spec |
+| Plan `configuration` references as a relation source | built; root module only |
+| Invoker evidence listing (`publicly invocable`, or unknown) | built; member rows are non-authoritative |
+| Other providers | not built |
 | Target resolution from facts; emitting a policy fragment | not built; each needs its own decision |
 
 ## Out of scope

@@ -5,6 +5,7 @@
       "name": "script_name",
       "read": ["compatibility_date", "main_module"],
       "ids": ["account_id"],
+      "referenceAttrs": ["bindings"],
       "lists": [
         {
           "path": "bindings",
@@ -12,10 +13,30 @@
         }
       ]
     },
+    "cloudflare_worker": {
+      "name": "name",
+      "ids": ["id", "account_id"]
+    },
+    "cloudflare_worker_version": {
+      "ids": ["worker_id", "account_id"],
+      "referenceAttrs": ["bindings", "worker_id"],
+      "lists": [
+        {
+          "path": "bindings",
+          "read": ["name", "type", "service", "environment", "script_name", "class_name", "namespace_id", "id", "bucket_name", "queue_name", "namespace", "dataset", "index_name", "workflow_name"]
+        }
+      ],
+      "relations": [{ "attr": "worker_id", "toType": "cloudflare_worker", "toAttr": "id" }]
+    },
+    "cloudflare_r2_bucket": {
+      "name": "name",
+      "ids": ["id", "account_id"]
+    },
     "cloudflare_workers_route": {
       "name": "pattern",
       "read": ["pattern", "script"],
       "ids": ["zone_id"],
+      "referenceAttrs": ["script"],
       "relations": [{ "attr": "script", "toType": "cloudflare_workers_script", "toAttr": "script_name" }]
     },
     "cloudflare_workers_kv_namespace": {
@@ -55,6 +76,7 @@
   "bindingRelations": {
     "service": [{ "attr": "service", "toType": "cloudflare_workers_script", "toAttr": "script_name" }],
     "durable_object_namespace": [{ "attr": "script_name", "toType": "cloudflare_workers_script", "toAttr": "script_name" }],
+    "r2_bucket": [{ "attr": "bucket_name", "toType": "cloudflare_r2_bucket", "toAttr": "name" }],
     "kv_namespace": [{ "attr": "namespace_id", "toType": "cloudflare_workers_kv_namespace", "toAttr": "id" }],
     "d1": [
       { "attr": "id", "toType": "cloudflare_d1_database", "toAttr": "id" },

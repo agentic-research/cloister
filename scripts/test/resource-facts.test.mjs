@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { main as inspectMain, isGitTracked } from "../../cli/commands/inspect.mjs";
-import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, importResource } from "../../cli/lib/facts/cloudflare.mjs";
+import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, GOOGLE_MAPPING, GOOGLE_SPEC, importResource } from "../../cli/lib/facts/cloudflare.mjs";
 import { validateMapping, validateWranglerKeys } from "../../cli/lib/facts/validate.mjs";
 import { WRANGLER_MAPPING, importWrangler } from "../../cli/lib/facts/wrangler.mjs";
 import { projectSpec, renderSpec } from "../../scripts/gen-facts-spec.mjs";
@@ -20,11 +20,17 @@ import { FACT_KEYS, isMarkedSensitive, makeFact, pickPublic } from "../../cli/li
 import { importFacts } from "../../cli/lib/facts/import.mjs";
 import { resolveRelations } from "../../cli/lib/facts/cloudflare.mjs";
 import { buildReport, renderReport } from "../../cli/lib/facts/report.mjs";
-import { readShowJson } from "../../cli/lib/facts/terraform.mjs";
+import { readShowJson, resourceReferences } from "../../cli/lib/facts/terraform.mjs";
+import { trimPlan } from "../../scripts/trim-plan-fixture.mjs";
 
 const FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/cloudflare-state.show.json", import.meta.url));
 const WRANGLER_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/wrangler.toml", import.meta.url));
-const SPEC_FILE = fileURLToPath(new URL("../../cli/lib/facts/spec/cloudflare.schema.json", import.meta.url));
+const SPEC_FILES = [
+  [CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, fileURLToPath(new URL("../../cli/lib/facts/spec/cloudflare.schema.json", import.meta.url))],
+  [GOOGLE_MAPPING, GOOGLE_SPEC, fileURLToPath(new URL("../../cli/lib/facts/spec/google.schema.json", import.meta.url))],
+];
+const JSR_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/oss/jsr-plan.show.json", import.meta.url));
+const jsrDoc = () => JSON.parse(readFileSync(JSR_FIXTURE, "utf8"));
 const fixture = () => JSON.parse(readFileSync(FIXTURE, "utf8"));
 const CLUSTER = {
   bundles: [
@@ -287,8 +293,10 @@ test("the spec projection is reproducible from the providers schema", (t) => {
     t.skip("set FACTS_PROVIDERS_SCHEMA to a `tofu providers schema -json` file to check the projection byte for byte");
     return;
   }
-  const spec = projectSpec(JSON.parse(readFileSync(source, "utf8")), CLOUDFLARE_SPEC.version, CLOUDFLARE_MAPPING);
-  assert.equal(renderSpec(spec), readFileSync(SPEC_FILE, "utf8"));
+  const schema = JSON.parse(readFileSync(source, "utf8"));
+  for (const [mapping, vendored, file] of SPEC_FILES) {
+    assert.equal(renderSpec(projectSpec(schema, vendored.version, mapping)), readFileSync(file, "utf8"), file);
+  }
 });
 
 test("wrangler mapping keys all exist in wrangler's config schema, and a bad key is refused by name", () => {
@@ -530,4 +538,185 @@ test("a Durable Object binding with no script named is shown as a class in the s
   router.sensitive_values.bindings.push({});
   const report = buildReport(importFacts(doc), CLUSTER);
   assert.match(renderReport(report), /AGENT {2}durable_object_namespace {2}→ \(this Worker, class Agent\)/);
+});
+
+// ---- plan references, Google types, the jsr plan (cloister-ca2582) ----
+
+const jsrReport = () => buildReport(importFacts(jsrDoc()), CLUSTER);
+const jsrText = () => renderReport(jsrReport());
+
+test("jsr plan: both Workers appear and the LB's FRONTEND binding resolves to the frontend Worker", () => {
+  const text = jsrText();
+  assert.match(text, /deno-registry3-staging-jsr-lb {2}Worker/);
+  assert.match(text, /deno-registry3-staging-jsr-frontend {2}Worker/);
+  assert.match(text, /LB {2}service {2}→ deno-registry3-staging-jsr-lb\n/);
+  assert.match(text, /FRONTEND {2}service {2}→ deno-registry3-staging-jsr-frontend\n/);
+  assert.ok(!text.includes("not in this document"));
+  const frontend = jsrReport().workloads.find((w) => w.name.endsWith("-frontend"));
+  assert.ok(frontend.bindings.some((b) => b.name === "ASSETS"), "the version's bindings belong to the Worker");
+});
+
+test("jsr plan: the Cloud Run reference is listed as an observation, with no wire or finding", () => {
+  const report = jsrReport();
+  assert.match(renderReport(report), /Referenced by configuration:\n(?:.*\n)*? {2}deno-registry3-staging-jsr-lb: bindings reference google_cloud_run_v2_service registry-api\n/);
+  assert.ok(!report.referencedByConfiguration.some((r) => r.workload.endsWith("-lb") && r.type === "cloudflare_r2_bucket"), "resolved bucket bindings are not repeated");
+  assert.deepEqual(report.findings.map((f) => f.kind), ["unknown", "unknown"]);
+});
+
+test("jsr plan: Cloud Run services, invokers, Cloud SQL, queues and R2 buckets", () => {
+  const text = jsrText();
+  assert.equal(jsrReport().cloudRun.length, 2);
+  assert.match(text, /registry-api {2}us-central1 {2}INGRESS_TRAFFIC_ALL\n {4}invoker: allUsers {2}\(publicly invocable\)/);
+  assert.match(text, /registry-api-tasks {2}us-central1 {2}INGRESS_TRAFFIC_INTERNAL_ONLY\n {4}invoker: serviceAccount:task-dispatcher@[^\n]*\n/);
+  assert.ok(!/serviceAccount:[^\n]*publicly/.test(text));
+  assert.match(text, /Databases:\n {2}main-pg15 {2}POSTGRES_15 {2}us-central1/);
+  assert.equal(jsrReport().queues.length, 3);
+  for (const q of ["email-delivery", "npm-tarball-build-tasks2", "publishing-tasks"]) assert.match(text, new RegExp(`Queues:\\n(?:.*\\n)*? {2}${q} {2}us-central1`));
+  assert.match(text, /Storage:\n(?: {2}.*\n)* {2}r2 {2}deno-registry3-staging-modules\n/);
+  assert.equal(jsrReport().storage.filter((s) => s.kind === "r2").length, 5);
+});
+
+test("jsr plan: a service with no invoker row says unknown", () => {
+  const doc = jsrDoc();
+  doc.planned_values.root_module.resources = doc.planned_values.root_module.resources.filter((r) => !r.type.endsWith("_iam_member"));
+  const text = renderReport(buildReport(importFacts(doc), CLUSTER));
+  assert.equal(text.split("invoker: unknown (no member row in this document; member rows are non-authoritative)").length - 1, 2);
+});
+
+test("jsr plan: no id-shaped string, project id or plain_text value in text or JSON", () => {
+  const imported = importFacts(jsrDoc());
+  const report = buildReport(imported, CLUSTER);
+  const out = `${renderReport(report)}\n${JSON.stringify(report)}`;
+  assert.ok(!/[0-9a-f]{32}/.test(out) && !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/.test(out), "no id-shaped string");
+  // The `project` id is a join key too, but resource names and service-account
+  // members in this plan embed it as text, so it is checked by key, not by value.
+  for (const fact of imported.facts) for (const [key, id] of Object.entries(fact.attrs.ids ?? {})) {
+    if (key !== "project" && id.length >= 8) assert.ok(!out.replace(/serviceAccount:\S+/g, "").includes(id), `id ${id.slice(0, 4)}... printed`);
+  }
+  const raw = readFileSync(JSR_FIXTURE, "utf8");
+  assert.ok(!raw.includes('"text"'), "the fixture holds no binding value");
+  assert.ok(!JSON.stringify(imported.facts).includes('"text"'));
+});
+
+test("jsr fixture: only mapped attributes and no placeholder credential text", () => {
+  const raw = readFileSync(JSR_FIXTURE, "utf8");
+  assert.ok(!/dummy/i.test(raw));
+  assertMappedKeysOnly(jsrDoc());
+});
+
+/** Every key under planned_values/configuration is a structural key or a mapped attribute name. */
+function assertMappedKeysOnly(doc) {
+  const allowed = new Set([
+    "format_version", "planned_values", "configuration", "root_module", "resources", "address", "mode", "type",
+    "name", "provider_name", "values", "sensitive_values", "expressions", "references",
+  ]);
+  for (const mapping of [CLOUDFLARE_MAPPING, GOOGLE_MAPPING]) {
+    for (const entry of Object.values(mapping.types)) {
+      for (const path of [entry.name, ...(entry.read ?? []), ...(entry.ids ?? []), ...(entry.referenceAttrs ?? [])].filter(Boolean)) path.split(".").forEach((p) => allowed.add(p));
+      for (const list of entry.lists ?? []) { list.path.split(".").forEach((p) => allowed.add(p)); list.read.forEach((p) => allowed.add(p)); }
+    }
+  }
+  const walk = (value, path) => {
+    if (Array.isArray(value)) value.forEach((v) => walk(v, path));
+    else if (value && typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) {
+        assert.ok(allowed.has(k), `unmapped key ${path}.${k}`);
+        walk(v, `${path}.${k}`);
+      }
+    }
+  };
+  walk(doc, "$");
+}
+
+test("trim-plan-fixture is deterministic and emits only mapped keys", () => {
+  const source = jsrDoc();
+  source.variables = { v: { value: "x" } };
+  source.planned_values.root_module.resources[0].values.unmapped = "FIXTURE-UNLISTED";
+  source.planned_values.root_module.resources[0].sensitive_values.unmapped = true;
+  const a = JSON.stringify(trimPlan(source));
+  assert.equal(a, JSON.stringify(trimPlan(JSON.parse(JSON.stringify(source)))));
+  assert.ok(!a.includes("FIXTURE-UNLISTED") && !a.includes("variables"));
+  assertMappedKeysOnly(JSON.parse(a));
+});
+
+test("resourceReferences keeps only <type>.<name> and drops the rest", () => {
+  const kept = resourceReferences([
+    "var.x", "local.x", "data.a.b", "data.a", "module.m.x", "module.m", "a.b.c", "each.key", "count.index", "path.module", "terraform.workspace",
+    "google_x.y", "google_x.y", "aws_s3.b[0]", "cloudflare_r2_bucket.modules.name", "cloudflare_r2_bucket.modules",
+  ]);
+  assert.deepEqual(kept, ["cloudflare_r2_bucket.modules", "google_x.y"]);
+  assert.deepEqual(resourceReferences(undefined), []);
+});
+
+/** A plan whose route/member values are unknown, so only references can relate them. */
+function planWith(resources, configuration) {
+  return {
+    format_version: "1.2",
+    planned_values: {
+      root_module: {
+        resources: resources.map(([type, name, values]) => ({
+          address: `${type}.${name}`, mode: "managed", type, name, provider_name: "p", values, sensitive_values: {},
+        })),
+      },
+    },
+    configuration: {
+      root_module: {
+        resources: Object.entries(configuration).map(([address, expressions]) => ({ address, mode: "managed", expressions })),
+      },
+    },
+  };
+}
+const SCRIPTS = [["cloudflare_workers_script", "a", { script_name: "alpha" }], ["cloudflare_workers_script", "b", { script_name: "beta" }]];
+const routeTarget = (doc) => {
+  const { facts, kind } = importFacts(doc);
+  return resolveRelations(facts.find((f) => f.type === "cloudflare_workers_route"), facts, kind)[0].to?.address ?? null;
+};
+
+test("reference resolution: one candidate resolves; zero or two stay unresolved", () => {
+  const route = ["cloudflare_workers_route", "r", { pattern: "x.example.com/*" }];
+  const refs = (...a) => ({ "cloudflare_workers_route.r": { script: { references: a } } });
+  assert.equal(routeTarget(planWith([...SCRIPTS, route], refs("cloudflare_workers_script.a.script_name", "cloudflare_workers_script.a"))), "cloudflare_workers_script.a");
+  assert.equal(routeTarget(planWith([...SCRIPTS, route], refs("var.x"))), null);
+  assert.equal(routeTarget(planWith([...SCRIPTS, route], refs("cloudflare_workers_script.a", "cloudflare_workers_script.b"))), null);
+  assert.equal(routeTarget(planWith([...SCRIPTS, route], refs("cloudflare_workers_script.gone"))), null);
+});
+
+test("reference resolution: value equality wins, and a state document ignores references", () => {
+  const route = ["cloudflare_workers_route", "r", { pattern: "x.example.com/*", script: "beta" }];
+  const config = { "cloudflare_workers_route.r": { script: { references: ["cloudflare_workers_script.a"] } } };
+  assert.equal(routeTarget(planWith([...SCRIPTS, route], config)), "cloudflare_workers_script.b");
+  const unknown = ["cloudflare_workers_route", "r", { pattern: "x.example.com/*" }];
+  const state = planWith([...SCRIPTS, unknown], config);
+  state.values = state.planned_values;
+  delete state.planned_values;
+  const imported = importFacts(state);
+  assert.equal(imported.kind, "state");
+  assert.ok(imported.facts.every((f) => !f.attrs.references));
+  assert.equal(routeTarget(state), null);
+  // And the engine itself refuses references unless told the document is a plan.
+  const planFacts = importFacts(planWith([...SCRIPTS, unknown], { "cloudflare_workers_route.r": { script: { references: ["cloudflare_workers_script.a"] } } })).facts;
+  const route0 = planFacts.find((f) => f.type === "cloudflare_workers_route");
+  assert.equal(resolveRelations(route0, planFacts, "state")[0].to, null);
+  assert.equal(resolveRelations(route0, planFacts, "plan")[0].to?.address, "cloudflare_workers_script.a");
+});
+
+test("references are kept only for mapped referenceAttrs", () => {
+  const route = ["cloudflare_workers_route", "r", { pattern: "x.example.com/*" }];
+  const doc = planWith([...SCRIPTS, route], {
+    "cloudflare_workers_route.r": { script: { references: ["cloudflare_workers_script.a"] }, pattern: { references: ["cloudflare_dns_record.d"] } },
+  });
+  const fact = importFacts(doc).facts.find((f) => f.type === "cloudflare_workers_route");
+  assert.deepEqual(fact.attrs.references, { script: ["cloudflare_workers_script.a"] });
+});
+
+test("mapping validation refuses a referenceAttrs entry that is not in the spec", () => {
+  const bad = structuredClone(CLOUDFLARE_MAPPING);
+  bad.types.cloudflare_workers_route.referenceAttrs = ["no_such_attribute"];
+  assert.throws(() => validateMapping(bad, CLOUDFLARE_SPEC), /unknown attribute "cloudflare_workers_route\.referenceAttrs\.no_such_attribute"/);
+  assert.doesNotThrow(() => validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC));
+});
+
+test("each mapping is validated against its own spec", () => {
+  assert.throws(() => validateMapping(GOOGLE_MAPPING, CLOUDFLARE_SPEC), /unknown resource type "google_/);
+  assert.throws(() => validateMapping(CLOUDFLARE_MAPPING, GOOGLE_SPEC), /unknown resource type "cloudflare_/);
 });
