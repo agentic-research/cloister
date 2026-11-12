@@ -133,6 +133,7 @@ running.
 | Rule | State |
 |---|---|
 | §1 foreground `up` stops everything on every observable exit path | built: `cluster up` (#287, `cloister-991e65`) |
+| §1 host TCP for `expose = "edge"` lives and dies with `up` | built (`cloister-991e65`): each edge port is reserved before anything starts, relays once its bundle is bound, and is closed before the runs stop. If `up` is killed, the OS closes the listeners; tested with real processes for SIGINT and `kill -9`. The relay is interim; replaced by LLO's publish channel (`ley-line-open-797917`, `cloister-79bdeb`). |
 | §1 worker stops with its supervisor; stop during boot | not built (`ley-line-open-f963e6`) |
 | §2 argv delivered exactly | not built (`ley-line-open-d4b07f`) |
 | §3 `up` distinguishes bound from healthy; health gates dependents | partly: `up` reports "bound", never "ready" (#287). Health checks and gating are not built. |

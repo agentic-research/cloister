@@ -144,6 +144,24 @@ target kind; `cloudSql` / `cloudRun` arrive as appended fields.
 
 ### 2. Rules
 
+- **`expose` says who may reach a port, and nothing else.** Three values
+  (`""` reads as `"none"`):
+  - `none`: no channel. The port is documentation (and a health-check name);
+    nothing reaches it, and no connection may target it.
+  - `cluster`: reachable only through declared connections. On `microvm` it is
+    a §6 bind socket that only a connecting bundle's grant names; on
+    `kubernetes`, the per-edge NetworkPolicies admit only declared sources.
+  - `edge`: everything `cluster` is, AND reachable from outside the cluster's
+    declared edges. On a developer machine (`microvm`, `cloister cluster
+    up`), that is the host: TCP on `127.0.0.1:<port>`, loopback only, never
+    `0.0.0.0`, relayed to the bundle's bind socket for as long as `up` runs.
+    Anything on the host can reach it, which is the point, and `up` prints
+    each one. Placements that do not lower `edge` yet refuse it by name
+    (`kubernetes`: a NodePort plus kind `extraPortMappings`, with the broker
+    work, `cloister-55424e`).
+
+  `expose` never chooses an address or a port number: the number is the
+  port row's, on every placement.
 - **Names across references, numbers only on the port row.** Connections and
   health checks name a port.
 - **One env namespace, one source per name.** Literal, vault slice,

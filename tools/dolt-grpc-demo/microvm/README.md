@@ -5,10 +5,14 @@ ADR-0070). Nothing is hand-built. The plans, the socket paths, the start order
 and readiness are all derived from [`cluster.toml`](cluster.toml):
 
 - `dolt`: `dolt sql-server` (Dolt 1.86.1). It declares port `mysql` 3306
-  (`art.mysql`, expose `cluster`).
+  (`art.mysql`, expose `edge`).
 - `orders`: the gRPC service from [`..`](../README.md). It declares port `grpc`
-  50051 (`art.grpc`, expose `cluster`). Its connection `orders-db` targets
+  50051 (`art.grpc`, expose `edge`). Its connection `orders-db` targets
   `dolt.mysql`, with `minStrength = "capability"`.
+
+`expose = "edge"` makes `cluster up` publish each port on the host, as TCP on
+`127.0.0.1` (loopback only), relayed to the bundle's socket. So the stock
+`mysql` and `grpcurl` clients reach the VMs over TCP (ADR-0069 §2).
 
 ## Requirements
 
@@ -18,7 +22,7 @@ and readiness are all derived from [`cluster.toml`](cluster.toml):
   is committed). On macOS, melange runs its build steps in a container, so
   that step needs a container runtime (Docker or OrbStack). On Linux it uses
   bubblewrap. apko needs neither.
-- `grpcurl` for the check.
+- `mysql` (the client) and `grpcurl` for the checks.
 
 ## From a clean checkout
 
@@ -76,26 +80,44 @@ those of a build run as uid 501, gid 20: the first account on a Mac. A build
 as another user, or on Linux, gives different digests, and `build.sh` then
 rewrites the lock (`cloister-426cb8`).
 
-`cluster up` starts `dolt`, waits until its `dolt.mysql.sock` exists (it is then "bound"), then
-starts `orders`, and prints:
+`cluster up` binds host ports 3306 and 50051 first (a busy one is refused by
+name, with nothing started). It starts `dolt`, waits until its
+`dolt.mysql.sock` exists (it is then "bound"), publishes it, then does the same
+for `orders`. It prints:
 
 ```
+cloister cluster up: edge: 127.0.0.1:3306 → dolt.mysql (art.mysql) (reachable by any local user or process on this host)
+…
   dolt.mysql (art.mysql): unix:///private/tmp/cloister-up-XXXXXX/dolt.mysql.sock
   orders.grpc (art.grpc): unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock
+  edge: 127.0.0.1:3306 → dolt.mysql (art.mysql)
+  edge: 127.0.0.1:50051 → orders.grpc (art.grpc)
 cloister cluster up: all bundles bound (health not checked — ADR-0071 §3); Ctrl-C to stop
 ```
 
-From another terminal, using the printed path. `orders` may still be seeding
-for a few seconds; retry on `Unavailable`:
+From another terminal. `orders` may still be seeding for a few seconds; retry
+on `Unavailable`:
 
 ```sh
-grpcurl -plaintext -d '{"id":1}' unix:///private/tmp/cloister-up-XXXXXX/orders.grpc.sock cloister.demo.v1.Orders/Get
+mysql -h 127.0.0.1 -P 3306 -uroot -e "select * from orders.orders"
+# id	msg
+# 1	read from Dolt over a declared connection
+grpcurl -plaintext -d '{"id":1}' 127.0.0.1:50051 cloister.demo.v1.Orders/Get
 # {"id": 1, "msg": "read from Dolt over a declared connection", "branch": "main"}
 ```
 
-Press Ctrl-C in the `up` terminal. It stops `orders`, then `dolt`, and removes
-the socket directory. Each host runtime cancels its run through LLO, which
-kills the worker's process group.
+The socket paths still work, as for `expose = "cluster"`:
+`mysql --protocol=SOCKET --socket=<printed dolt.mysql.sock> -uroot`, or
+`grpcurl … unix://<printed orders.grpc.sock> …`.
+
+Press Ctrl-C in the `up` terminal. It closes the host listeners, stops
+`orders`, then `dolt`, and removes the socket directory. Each host runtime
+cancels its run through LLO, which kills the worker's process group.
+
+**What an edge port is not.** It is the host's: another VM does not reach it.
+With the `[[connections]]` block removed (the negative check below), `dolt` is
+still published on host `127.0.0.1:3306`, yet `orders`' dial to its own guest
+`127.0.0.1:3306` is refused. Only a declared connection gives a VM a channel.
 
 When the VMs are, and are not, cleaned up:
 
@@ -124,11 +146,16 @@ When the VMs are, and are not, cleaned up:
 Copy `cluster.toml` and `cluster.lock.toml` to a scratch
 directory. Delete the `[[connections]]` block (and its `[[connections.targets]]`
 row) from the copy, and run `cluster up --env local --dir <scratch>`. `orders`
-then has no channel to Dolt: `127.0.0.1:3306` in its guest answers nothing. It
-gives up after its 30 s retry window and exits 2, and `up` reports:
+then has no channel to Dolt: `127.0.0.1:3306` in its guest answers nothing,
+even though `dolt.mysql` is published on the HOST's `127.0.0.1:3306`. It gives
+up after its 30 s retry window and exits 2, and `up` reports (seen live with
+`expose = "edge"`):
 
 ```
-cloister cluster up: bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed: BackendFailed: libkrun worker exited with exit status: 2; stopped the rest
+[orders] cloister-host-runtime:   | … seed: database did not answer within 30s: dial tcp 127.0.0.1:3306: connect: connection refused
+[orders] cloister-host-runtime: the workload ran and failed: BackendFailed: libkrun worker exited with exit status: 2
+cloister cluster up: bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed: BackendFailed: libkrun worker exited with exit status: 2
+cloister cluster up: "orders" ended on its own; stopped the rest
 ```
 
 The host runtime itself exits 1. Its message carries the guest's exit status,

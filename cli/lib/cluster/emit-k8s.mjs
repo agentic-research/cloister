@@ -106,6 +106,16 @@ export function inspectManifest(bundle, objects, label) {
   const podPorts = new Map();
   const svcPorts = Array.isArray(svc.spec?.ports) ? svc.spec.ports : [];
   for (const p of bundle.ports.filter(isExposed)) {
+    if (p.expose === "edge") {
+      // Publishing a port outside the cluster (a NodePort plus kind
+      // extraPortMappings) overlaps the broker work; refused, not guessed.
+      throw new Error(
+        `${label}: bundle "${ns}" port "${p.name}" has expose = "edge", which \`cluster k8s\` does ` +
+          `not lower yet (a NodePort plus kind extraPortMappings; tracked with cloister-55424e). ` +
+          `Use expose = "cluster" for a kubernetes placement, or place the bundle microvm, where ` +
+          `\`cluster up\` publishes it on 127.0.0.1.`,
+      );
+    }
     const sp = svcPorts.find((x) => x?.name === p.name);
     const where = `${label}: Service "${svcName}" port "${p.name}"`;
     if (!sp) {

@@ -430,7 +430,7 @@ function fakeChild(pid) {
   return c;
 }
 
-async function upHarness({ behave }) {
+async function upHarness({ behave, events = [] }) {
   const root = mkdtempSync(join(tmpdir(), "cloister-up-test-"));
   writeFileSync(join(root, "cluster.toml"), DEMO_TOML);
   writeFileSync(join(root, "cluster.lock.toml"), lockText({ dolt: { digest: IMG("a"), rootfs: RFS("b") }, orders: { digest: IMG("c"), rootfs: RFS("d") } }));
@@ -448,6 +448,16 @@ async function upHarness({ behave }) {
       errLog: (m) => err.push(m),
       rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
       guestPlatform: () => ARM,
+      // The demo publishes dolt.mysql and orders.grpc (expose = "edge"); the
+      // real listeners are tested in edge-relay / cluster-up-process tests.
+      openEdge: async (edges) => edges.map((edge) => {
+        events.push(`reserve ${edge.bundle}.${edge.name}:${edge.port}`);
+        return {
+          edge,
+          activate: () => events.push(`activate ${edge.bundle}.${edge.name}`),
+          close: async () => { events.push(`close ${edge.bundle}.${edge.name}`); },
+        };
+      }),
       hostRuntime: { command: "/fake/cloister-host-runtime", env: {} },
       makeTemp: (prefix) => { channelDir = mkdtempSync(prefix); return channelDir; },
       exists: (p) => bound.has(p) || existsSync(p),
@@ -456,7 +466,10 @@ async function upHarness({ behave }) {
       spawn: (_command, args) => {
         assert.deepEqual(args.slice(0, 2), ["run", "--stop-on-stdin-eof"], "supervised runs stop on stdin EOF");
         const plan = JSON.parse(readFileSync(args[2], "utf8"));
+        events.push(`start ${plan.bundle}`);
         const child = fakeChild(1000 + children.length);
+        const kill = child.kill;
+        child.kill = (sig) => { events.push(`stop ${plan.bundle}`); return kill(sig); };
         children.push({ bundle: plan.bundle, plan, child });
         setImmediate(() => behave({ bundle: plan.bundle, plan, child, bound, signals }));
         return child;
@@ -865,5 +878,54 @@ test("rows mixed with flat keys are refused by name at import and at plan, never
     assert.equal(readFileSync(join(dir, "cluster.lock.toml"), "utf8"), mixed);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── expose = "edge" in cluster up (cloister-991e65) ───────────────────────
+
+test("edge ports are reserved before anything starts, relay after their bundle is bound, and close before any run stops", async () => {
+  const events = [];
+  const r = await upHarness({
+    events,
+    behave: ({ bundle, plan, bound, signals }) => {
+      for (const p of bindPaths(plan)) bound.add(p);
+      if (bundle === "orders") setTimeout(() => signals.emit("SIGINT", "SIGINT"), 20);
+    },
+  });
+  assert.equal(r.code, 0, r.err.join("\n"));
+  assert.deepEqual(events, [
+    "reserve dolt.mysql:3306",
+    "reserve orders.grpc:50051",
+    "start dolt",
+    "activate dolt.mysql",
+    "start orders",
+    "activate orders.grpc",
+    "close dolt.mysql",
+    "close orders.grpc",
+    "stop orders",
+    "stop dolt",
+  ]);
+  const out = r.log.join("\n");
+  assert.match(out, /cloister cluster up: edge: 127\.0\.0\.1:3306 → dolt\.mysql \(art\.mysql\) \(reachable by any local user or process on this host\)/);
+  assert.match(out, /^  edge: 127\.0\.0\.1:50051 → orders\.grpc \(art\.grpc\)$/m);
+  assert.match(out, /closed edge listeners \(127\.0\.0\.1:3306, 127\.0\.0\.1:50051\)/);
+});
+
+test("a busy edge port stops up before any bundle starts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cloister-up-test-"));
+  try {
+    writeFileSync(join(root, "cluster.toml"), DEMO_TOML);
+    writeFileSync(join(root, "cluster.lock.toml"), lockText({ dolt: { digest: IMG("a"), rootfs: RFS("b") }, orders: { digest: IMG("c"), rootfs: RFS("d") } }));
+    let spawned = 0;
+    await assert.rejects(
+      clusterUp({ root, env: "local", deps: {
+        log: () => {}, errLog: () => {}, rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => ARM,
+        openEdge: async () => { throw new Error('host port 127.0.0.1:3306 is already in use, and bundle "dolt" port "mysql" (expose = "edge") publishes on it. Nothing was started.'); },
+        hostRuntime: { command: "/fake", env: {} }, spawn: () => { spawned += 1; },
+      } }),
+    );
+    assert.equal(spawned, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

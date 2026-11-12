@@ -13,6 +13,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
+import { connect, createServer } from "node:net";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,9 +24,15 @@ const DRIVER = join(HERE, "fixtures/cluster-up/driver.mjs");
 const DEMO_TOML = readFileSync(join(HERE, "../../tools/dolt-grpc-demo/microvm/cluster.toml"), "utf8");
 const TSX = import.meta.resolve("tsx");
 
-function clusterDir() {
+// The demo publishes its ports on fixed host ports (expose = "edge"). These
+// tests must not bind the host's 3306/50051, so the default cluster keeps
+// them socket-only; the edge tests below publish on free ports instead.
+const SOCKET_ONLY_TOML = DEMO_TOML.replace(/^expose = "edge".*$/gm, 'expose = "cluster"');
+assert.ok(!SOCKET_ONLY_TOML.includes('"edge"'), "the socket-only rewrite must remove every edge port");
+
+function clusterDir(toml = SOCKET_ONLY_TOML) {
   const dir = mkdtempSync(join(tmpdir(), "cloister-up-proc-"));
-  writeFileSync(join(dir, "cluster.toml"), DEMO_TOML);
+  writeFileSync(join(dir, "cluster.toml"), toml);
   const row = (img, rfs) => ({ identifier: "x", digest: img, rootfs: [{ platform: "linux/arm64", digest: rfs, image: img }] });
   writeFileSync(join(dir, "cluster.lock.toml"), stringifyToml({
     schema: "cloister/lockfile/v1", cluster: "t", version: "0.0.1",
@@ -38,8 +45,8 @@ function clusterDir() {
 }
 
 /** Start `up` in a child process; collect its output; resolve on exit. */
-function startUp(env) {
-  const dir = clusterDir();
+function startUp(env, toml) {
+  const dir = clusterDir(toml);
   const log = join(dir, "fake.log");
   writeFileSync(log, "");
   const child = spawn(process.execPath, ["--import", TSX, DRIVER, dir], {
@@ -198,6 +205,135 @@ test("a stderr line written in several small pieces is relayed whole, never spli
     // describeExit names the last WHOLE line (here flushed at end of stream).
     assert.match(up.out.stderr, /bundle "orders" exited on its own with status 1: cloister-host-runtime: the workload ran and failed\n/);
   } finally {
+    up.child.kill("SIGKILL");
+    up.cleanup();
+  }
+});
+
+// ── expose = "edge": a real relay in a real `up` (cloister-991e65) ─────────
+
+async function freePort() {
+  const s = createServer();
+  await new Promise((r) => s.listen({ host: "127.0.0.1", port: 0 }, r));
+  const { port } = s.address();
+  await new Promise((r) => s.close(r));
+  return port;
+}
+
+/** The demo, publishing dolt.mysql and orders.grpc on the given host ports. */
+function edgeToml(mysql, grpc) {
+  assert.ok(DEMO_TOML.includes("port = 3306") && DEMO_TOML.includes("port = 50051"));
+  return DEMO_TOML.replace("port = 3306", `port = ${mysql}`).replace("port = 50051", `port = ${grpc}`);
+}
+
+/** TCP to 127.0.0.1:port: send, half-close, collect until close. Rejects on ECONNREFUSED. */
+function exchange(port, text) {
+  return new Promise((resolve, reject) => {
+    const s = connect({ host: "127.0.0.1", port });
+    let got = "";
+    s.setEncoding("utf8");
+    s.on("connect", () => s.end(text));
+    s.on("data", (d) => { got += d; });
+    s.on("error", reject);
+    s.on("close", () => resolve(got));
+  });
+}
+
+async function portFree(port, ms = 5_000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const s = createServer();
+    const ok = await new Promise((r) => {
+      s.once("error", () => r(false));
+      s.listen({ host: "127.0.0.1", port, exclusive: true }, () => r(true));
+    });
+    if (ok) { await new Promise((r) => s.close(r)); return true; }
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+test("edge: host TCP reaches the bundle's bind socket, and SIGINT closes the relay and frees the port", async () => {
+  const [mysql, grpc] = [await freePort(), await freePort()];
+  const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
+  try {
+    await up.waitFor(/all bundles bound/);
+    assert.match(up.out.stdout, new RegExp(`edge: 127\\.0\\.0\\.1:${mysql} → dolt\\.mysql \\(art\\.mysql\\)`));
+    assert.equal(await exchange(mysql, "select 1"), "select 1", "TCP → relay → dolt's bind socket → back");
+    assert.equal(await exchange(grpc, "grpc bytes"), "grpc bytes");
+    up.child.kill("SIGINT");
+    const { code } = await up.exited;
+    assert.equal(code, 0, up.out.stderr);
+    assert.match(up.out.stdout, new RegExp(`closed edge listeners \\(127\\.0\\.0\\.1:${mysql}, 127\\.0\\.0\\.1:${grpc}\\)`));
+    await assert.rejects(exchange(mysql, "x"), /ECONNREFUSED/);
+    assert.ok(await portFree(mysql) && await portFree(grpc), "both host ports are free");
+    assert.ok(await allDead(fakePids(up)), "every host runtime has exited");
+  } finally {
+    up.child.kill("SIGKILL");
+    up.cleanup();
+  }
+});
+
+test("edge: SIGINT closes a held-open relayed connection and up exits 0 within 5 seconds", async () => {
+  const [mysql, grpc] = [await freePort(), await freePort()];
+  const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
+  let client;
+  try {
+    await up.waitFor(/all bundles bound/);
+    client = connect({ host: "127.0.0.1", port: mysql });
+    client.on("error", () => {});
+    let got = "";
+    client.setEncoding("utf8");
+    client.on("data", (d) => { got += d; });
+    const closed = new Promise((r) => client.on("close", r));
+    await new Promise((r) => client.once("connect", r));
+    client.write("held");
+    for (const start = Date.now(); got !== "held"; ) {
+      if (Date.now() - start > 5_000) throw new Error("the relay never echoed");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const t0 = Date.now();
+    up.child.kill("SIGINT");
+    const { code } = await up.exited;
+    assert.equal(code, 0, up.out.stderr);
+    await closed;
+    assert.ok(Date.now() - t0 < 5_000, "closed and exited within 5 seconds");
+  } finally {
+    client?.destroy();
+    up.child.kill("SIGKILL");
+    up.cleanup();
+  }
+});
+
+test("edge: kill -9 of up leaves no listener (the OS closes its sockets) and no host runtime", async () => {
+  const [mysql, grpc] = [await freePort(), await freePort()];
+  const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
+  try {
+    await up.waitFor(/all bundles bound/);
+    assert.equal(await exchange(mysql, "ping"), "ping");
+    up.child.kill("SIGKILL");
+    const { signal } = await up.exited;
+    assert.equal(signal, "SIGKILL");
+    assert.ok(await portFree(mysql) && await portFree(grpc), "both host ports are free");
+    assert.ok(await allDead(fakePids(up)), "each host runtime stopped on stdin EOF");
+  } finally {
+    up.cleanup();
+  }
+});
+
+test("edge: a busy host port is refused by name before any bundle starts", async () => {
+  const [mysql, grpc] = [await freePort(), await freePort()];
+  const holder = createServer();
+  await new Promise((r) => holder.listen({ host: "127.0.0.1", port: grpc }, r));
+  const up = startUp({}, edgeToml(mysql, grpc));
+  try {
+    const { code } = await up.exited;
+    assert.notEqual(code, 0);
+    assert.match(up.out.stderr, new RegExp(`host port 127\\.0\\.0\\.1:${grpc} is already in use, and bundle "orders" port "grpc" \\(expose = "edge"\\) publishes on it\\. Nothing was started\\.`));
+    assert.deepEqual(up.events(), [], "no host runtime was spawned");
+    assert.ok(await portFree(mysql), "the port reserved before the refusal was released");
+  } finally {
+    holder.close();
     up.child.kill("SIGKILL");
     up.cleanup();
   }

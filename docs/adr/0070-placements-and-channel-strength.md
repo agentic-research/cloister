@@ -265,10 +265,17 @@ is an operator decision outside the plan (the host runtime's existing rule).
     `runtime install` provisions. The published `dolthub/dolt-sql-server`
     image runs this way, with no env
     (`tools/dolt-grpc-demo/microvm-published/`).
-- Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, the
+- `expose = "edge"` is lowered for `microvm` by `cluster up`
+  (`cloister-991e65`): each edge port is published on the host at
+  `127.0.0.1:<port>` and relayed to the bundle's bind socket, for as long as
+  `up` runs (ADR-0069 §2 defines the three values). A busy host port is
+  refused by name before anything starts. `cluster k8s` refuses `edge` by
+  name; its lowering (a NodePort plus kind `extraPortMappings`) is tracked
+  with the broker work, `cloister-55424e`. The relay is interim; replaced by
+  LLO's publish channel (`ley-line-open-797917`, `cloister-79bdeb`).
+- Not built: the `cloudRun` lowering, `cloudSql` / `cloudRun` targets, and the
   "no `cluster.toml` field duplicates a forwarded spec field" rail beyond the
-  Service-port check, and policy for `expose = "edge"` ingress from outside
-  the cluster.
+  Service-port check.
 - Not built: ADR-0069 §2's rail "every connection resolves for every declared
   env". There is no env registry yet, so nothing knows which envs a cluster
   declares. A connection with no target for an env is refused only when that

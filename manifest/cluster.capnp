@@ -273,8 +273,11 @@ struct PortSpec {
   # ADR-0030 §A4 label (`art.*` blessed set or `x-<vendor>-*`). A connection to
   # this port must declare the same label.
   appProtocol @2 :Text;
-  # Who may reach it: "none" | "cluster" | "edge". "" means "none". A port
-  # with expose "none" is not a connection target and gets no channel.
+  # Who may reach it: "none" | "cluster" | "edge". "" means "none" (ADR-0069
+  # §2 defines them). "none": no channel, not a connection target. "cluster":
+  # reachable only through declared connections. "edge": that, plus from
+  # outside — on microvm, `cluster up` publishes it on the host at
+  # 127.0.0.1:<port> (loopback only); `cluster k8s` refuses it, not lowered.
   expose @3 :Text;
 }
 
