@@ -18,6 +18,12 @@ import { bindingTarget, isWorkloadBinding, resolveBinding, resolveRelations } fr
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
+const WORKER = "cloudflare_worker";
+const VERSION = "cloudflare_worker_version";
+const RUN_SERVICE = "google_cloud_run_v2_service";
+const RUN_MEMBERS = ["google_cloud_run_service_iam_member", "google_cloud_run_v2_service_iam_member"];
+const INVOKER_ROLE = "roles/run.invoker";
+const PUBLIC_MEMBERS = new Set(["allUsers", "allAuthenticatedUsers"]);
 
 /** A route pattern's host: the text before the first "/". Null when it holds a wildcard. */
 function routeHost(pattern) {
@@ -28,21 +34,39 @@ function routeHost(pattern) {
 export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   const byType = (type) => facts.filter((f) => f.type === type);
 
-  // Workers: Terraform scripts plus wrangler configs. One name is listed once.
+  // Workers: Terraform scripts, Terraform Workers with their versions, and
+  // wrangler configs. One name is listed once. A cloudflare_worker and the
+  // version whose worker_id resolves to it are ONE workload.
   const workerMap = new Map();
-  for (const fact of [...byType(SCRIPT), ...byType(WRANGLER)]) {
-    const w = workerMap.get(fact.name) ?? { name: fact.name, terraform: false, wrangler: false, bindings: [], seen: new Set(), withheld: false };
-    const isTf = fact.type === SCRIPT;
+  const versionsOf = (worker) =>
+    byType(VERSION).filter((v) => resolveRelations(v, facts, kind)[0]?.to?.address === worker.address);
+  for (const fact of [...byType(SCRIPT), ...byType(WORKER), ...byType(WRANGLER)]) {
+    const w = workerMap.get(fact.name) ?? { name: fact.name, terraform: false, wrangler: false, bindings: [], seen: new Set(), withheld: false, references: new Set() };
+    const isTf = fact.type !== WRANGLER;
     w[isTf ? "terraform" : "wrangler"] = true;
-    if (isTf && fact.attrs.bindingsWithheld) w.withheld = true;
-    for (const b of fact.attrs.bindings ?? []) {
-      if (w.seen.has(b.name)) continue;
-      w.seen.add(b.name);
-      w.bindings.push(b);
+    for (const part of fact.type === WORKER ? [fact, ...versionsOf(fact)] : [fact]) {
+      if (isTf && part.attrs.bindingsWithheld) w.withheld = true;
+      for (const address of part.attrs.references?.bindings ?? []) w.references.add(address);
+      for (const b of part.attrs.bindings ?? []) {
+        if (w.seen.has(b.name)) continue;
+        w.seen.add(b.name);
+        w.bindings.push(b);
+      }
     }
     workerMap.set(fact.name, w);
   }
   const workers = [...workerMap.values()].map(({ seen: _seen, ...w }) => ({ ...w, withheld: w.withheld && !w.wrangler }));
+
+  // Observation only: what the configuration wires into a Worker's bindings
+  // beyond the targets its bindings already resolve to. No wire, no finding.
+  const referencedByConfiguration = workers.flatMap((w) => {
+    const resolved = new Set(w.bindings.map((b) => resolveBinding(b, facts).to?.address).filter(Boolean));
+    return [...w.references].sort().filter((address) => !resolved.has(address)).map((address) => {
+      const [type, tfName] = address.split(".");
+      const target = facts.find((f) => f.address === address);
+      return { workload: w.name, type, name: target?.name || tfName };
+    });
+  });
 
   const bundles = cluster?.bundles ?? [];
   const wires = cluster?.wires ?? [];
@@ -116,7 +140,7 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   // Request paths: a route and a tunnel ingress rule that name the same host, by exact string equality.
   const requestPaths = [];
   for (const config of byType("cloudflare_zero_trust_tunnel_cloudflared_config")) {
-    const [tunnelRelation] = resolveRelations(config, facts);
+    const [tunnelRelation] = resolveRelations(config, facts, kind);
     const tunnel = tunnelRelation?.to?.name || "(unnamed)";
     for (const rule of config.attrs.ingress ?? []) {
       if (!rule.hostname) continue;
@@ -130,6 +154,7 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
   return {
     document: { kind: kind ?? null, formatVersion: formatVersion ?? null },
     workloads,
+    referencedByConfiguration,
     routes,
     requestPaths,
     tunnels: byType("cloudflare_zero_trust_tunnel_cloudflared").map((f) => f.name),
@@ -146,7 +171,23 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
     storage: [
       ...byType("cloudflare_workers_kv_namespace").map((f) => ({ kind: "kv", name: f.name })),
       ...byType("cloudflare_d1_database").map((f) => ({ kind: "d1", name: f.name })),
+      ...byType("cloudflare_r2_bucket").map((f) => ({ kind: "r2", name: f.name })),
     ],
+    cloudRun: byType(RUN_SERVICE).map((f) => {
+      // Invoker rows are read from the document and are NOT authoritative: a
+      // member row elsewhere (another module, the console) is invisible here.
+      const invokers = [];
+      for (const type of RUN_MEMBERS) {
+        for (const m of byType(type)) {
+          if (m.attrs.role !== INVOKER_ROLE || !m.attrs.member) continue;
+          const [relation] = resolveRelations(m, facts, kind);
+          if (relation?.to?.address === f.address && !invokers.includes(m.attrs.member)) invokers.push(m.attrs.member);
+        }
+      }
+      return { name: f.name, location: f.attrs.location ?? "", ingress: f.attrs.ingress ?? "", invokers: invokers.map((member) => ({ member, public: PUBLIC_MEMBERS.has(member) })) };
+    }),
+    databases: byType("google_sql_database_instance").map((f) => ({ name: f.name, databaseVersion: f.attrs.database_version ?? "", region: f.attrs.region ?? "" })),
+    queues: byType("google_cloud_tasks_queue").map((f) => ({ name: f.name, location: f.attrs.location ?? "" })),
     dns: byType("cloudflare_dns_record").map((f) => ({ name: f.name, type: f.attrs.type ?? "", proxied: f.attrs.proxied === true })),
     declared: wires.map((w) => ({ from: w.from, to: w.to, binding: w.binding })),
     findings,
@@ -169,7 +210,7 @@ function describeTarget(binding, facts) {
     if (to) return to.name;
     return binding.type === "kv_namespace" ? "(a KV namespace not in this document)" : "(a D1 database not in this document)";
   }
-  if (binding.type === "r2_bucket") return binding.bucket_name ?? "(not stated)";
+  if (binding.type === "r2_bucket") return resolveBinding(binding, facts).to?.name ?? binding.bucket_name ?? "(not stated)";
   if (binding.type === "queue") return binding.queue_name ?? "(not stated)";
   return "";
 }
@@ -192,6 +233,8 @@ export function renderReport(report) {
     for (const b of w.bindings) lines.push(`    ${b.name}  ${b.type}${b.target ? `  → ${b.target}` : ""}`);
   }
   const list = (title, rows) => { if (rows.length) { section(title); for (const r of rows) lines.push(`  ${r}`); } };
+  list("Referenced by configuration:", report.referencedByConfiguration.map((r) =>
+    `${r.workload}: bindings reference ${r.type} ${r.name}`));
   list("Routes:", report.routes.map((r) =>
     `${r.pattern}  → ${r.script ? (r.resolved ? r.script : `${r.script} (not in this document)`) : "(no script)"}`));
   list("Request paths:", report.requestPaths.map((p) =>
@@ -204,6 +247,16 @@ export function renderReport(report) {
   }));
   list("Access applications:", report.access.map((a) => `${a.name}  ${a.domain}  (${a.type || "type not stated"}; ${a.policies.length} polic${a.policies.length === 1 ? "y" : "ies"})`));
   list("Storage:", report.storage.map((s) => `${s.kind}  ${s.name}`));
+  if (report.cloudRun.length) {
+    section("Cloud Run services:");
+    for (const r of report.cloudRun) {
+      lines.push(`  ${[r.name, r.location, r.ingress].filter(Boolean).join("  ")}`);
+      for (const i of r.invokers) lines.push(`    invoker: ${i.member}${i.public ? "  (publicly invocable)" : ""}`);
+      if (r.invokers.length === 0) lines.push("    invoker: unknown (no member row in this document; member rows are non-authoritative)");
+    }
+  }
+  list("Databases:", report.databases.map((d) => [d.name, d.databaseVersion, d.region].filter(Boolean).join("  ")));
+  list("Queues:", report.queues.map((q) => [q.name, q.location].filter(Boolean).join("  ")));
   list("DNS names:", report.dns.map((d) => `${d.name}  ${d.type}${d.proxied ? "  proxied" : ""}`));
 
   section("Declared wires (cluster.toml):");

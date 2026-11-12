@@ -1,0 +1,439 @@
+{
+  "provider": "hashicorp/google",
+  "resources": {
+    "google_cloud_run_service_iam_member": {
+      "attributes": {
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "member": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "service": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "google_cloud_run_v2_service": {
+      "attributes": {
+        "annotations": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "client": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "client_version": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "conditions": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "execution_reason": "string",
+                "last_transition_time": "string",
+                "message": "string",
+                "reason": "string",
+                "revision_reason": "string",
+                "severity": "string",
+                "state": "string",
+                "type": "string"
+              }
+            ]
+          ]
+        },
+        "create_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "creator": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "custom_audiences": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "delete_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deletion_protection": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "description": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "effective_annotations": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "effective_labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "expire_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "generation": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "ingress": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "invoker_iam_disabled": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "last_modifier": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "latest_created_revision": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "latest_ready_revision": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "launch_stage": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "observed_generation": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "reconciling": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "terminal_condition": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "execution_reason": "string",
+                "last_transition_time": "string",
+                "message": "string",
+                "reason": "string",
+                "revision_reason": "string",
+                "severity": "string",
+                "state": "string",
+                "type": "string"
+              }
+            ]
+          ]
+        },
+        "terraform_labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "traffic_statuses": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "percent": "number",
+                "revision": "string",
+                "tag": "string",
+                "type": "string",
+                "uri": "string"
+              }
+            ]
+          ]
+        },
+        "uid": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "update_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "uri": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "urls": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        }
+      }
+    },
+    "google_cloud_run_v2_service_iam_member": {
+      "attributes": {
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "member": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "google_cloud_tasks_queue": {
+      "attributes": {
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "google_sql_database_instance": {
+      "attributes": {
+        "available_maintenance_versions": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "connection_name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "database_version": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deletion_protection": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "dns_name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "dns_names": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "connection_type": "string",
+                "dns_scope": "string",
+                "name": "string"
+              }
+            ]
+          ]
+        },
+        "encryption_key_name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "first_ip_address": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "instance_type": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "ip_address": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "ip_address": "string",
+                "time_to_retire": "string",
+                "type": "string"
+              }
+            ]
+          ]
+        },
+        "maintenance_version": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "master_instance_name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "node_count": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "private_ip_address": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "psc_service_attachment_link": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "public_ip_address": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "region": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "replica_names": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "root_password": {
+          "sensitive": true,
+          "type": "string"
+        },
+        "self_link": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "server_ca_cert": {
+          "sensitive": true,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "cert": "string",
+                "common_name": "string",
+                "create_time": "string",
+                "expiration_time": "string",
+                "sha1_fingerprint": "string"
+              }
+            ]
+          ]
+        },
+        "service_account_email_address": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "version": "6.50.0"
+}

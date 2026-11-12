@@ -6,15 +6,15 @@
 // can validate its mapping against the provider's own published schema without
 // vendoring the whole 2.5 MB document. Generated, never hand-edited:
 //
-//   node scripts/gen-facts-spec.mjs <providers-schema.json> --version 5.18.0
+//   node scripts/gen-facts-spec.mjs <providers-schema.json> \
+//     --provider cloudflare/cloudflare --version 5.23.0 \
+//     --mapping cli/lib/facts/mappings/cloudflare.json \
+//     --out cli/lib/facts/spec/cloudflare.schema.json
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const HERE = new URL("../cli/lib/facts/", import.meta.url);
-const MAPPING = new URL("mappings/cloudflare.json", HERE);
-const OUT = new URL("spec/cloudflare.schema.json", HERE);
-const PROVIDER_KEY = "registry.opentofu.org/cloudflare/cloudflare";
+const REGISTRY = "registry.opentofu.org/";
 
 function projectAttributes(attributes) {
   const out = {};
@@ -40,9 +40,10 @@ function sortKeys(value) {
 }
 
 /** @returns {object} the deterministic projection for the mapping's resource types */
-export function projectSpec(providersSchema, version, mapping) {
-  const provider = providersSchema.provider_schemas?.[PROVIDER_KEY];
-  if (!provider) throw new Error(`providers schema has no ${PROVIDER_KEY}`);
+export function projectSpec(providersSchema, version, mapping, providerSuffix = mapping.provider) {
+  const providerKey = `${REGISTRY}${providerSuffix}`;
+  const provider = providersSchema.provider_schemas?.[providerKey];
+  if (!provider) throw new Error(`providers schema has no ${providerKey}`);
   const resources = {};
   for (const type of Object.keys(mapping.types)) {
     const schema = provider.resource_schemas?.[type];
@@ -58,15 +59,22 @@ export function renderSpec(spec) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const vIndex = args.indexOf("--version");
-  const version = vIndex >= 0 ? args[vIndex + 1] : undefined;
-  const input = args.find((a, i) => !a.startsWith("--") && i !== vIndex + 1);
-  if (!input || !version) {
-    console.error("usage: gen-facts-spec.mjs <providers-schema.json> --version <provider version>");
+  const flags = {};
+  const positional = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--")) flags[args[i].slice(2)] = args[++i];
+    else positional.push(args[i]);
+  }
+  const [input] = positional;
+  if (!input || !flags.provider || !flags.version || !flags.mapping || !flags.out) {
+    console.error(
+      "usage: gen-facts-spec.mjs <providers-schema.json> --provider <registry suffix, e.g. hashicorp/google> " +
+        "--version <provider version> --mapping <mapping.json> --out <spec.json>",
+    );
     process.exit(2);
   }
-  const mapping = JSON.parse(readFileSync(MAPPING, "utf8"));
-  const spec = projectSpec(JSON.parse(readFileSync(input, "utf8")), version, mapping);
-  writeFileSync(OUT, renderSpec(spec));
-  console.log(`wrote ${fileURLToPath(OUT)}`);
+  const mapping = JSON.parse(readFileSync(flags.mapping, "utf8"));
+  const spec = projectSpec(JSON.parse(readFileSync(input, "utf8")), flags.version, mapping, flags.provider);
+  writeFileSync(flags.out, renderSpec(spec));
+  console.log(`wrote ${flags.out}`);
 }

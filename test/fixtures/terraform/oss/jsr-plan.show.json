@@ -1,0 +1,926 @@
+{
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "cloudflare_dns_record.a",
+          "expressions": {},
+          "name": "a",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_dns_record.aaaa",
+          "expressions": {},
+          "name": "aaaa",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_dns_record.api_a",
+          "expressions": {},
+          "name": "api_a",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_dns_record.api_aaaa",
+          "expressions": {},
+          "name": "api_aaaa",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_dns_record.npm_a",
+          "expressions": {},
+          "name": "npm_a",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_dns_record.npm_aaaa",
+          "expressions": {},
+          "name": "npm_aaaa",
+          "type": "cloudflare_dns_record"
+        },
+        {
+          "address": "cloudflare_r2_bucket.docs",
+          "expressions": {},
+          "name": "docs",
+          "type": "cloudflare_r2_bucket"
+        },
+        {
+          "address": "cloudflare_r2_bucket.modules",
+          "expressions": {},
+          "name": "modules",
+          "type": "cloudflare_r2_bucket"
+        },
+        {
+          "address": "cloudflare_r2_bucket.npm",
+          "expressions": {},
+          "name": "npm",
+          "type": "cloudflare_r2_bucket"
+        },
+        {
+          "address": "cloudflare_r2_bucket.publishing",
+          "expressions": {},
+          "name": "publishing",
+          "type": "cloudflare_r2_bucket"
+        },
+        {
+          "address": "cloudflare_r2_bucket.ticket_attachments",
+          "expressions": {},
+          "name": "ticket_attachments",
+          "type": "cloudflare_r2_bucket"
+        },
+        {
+          "address": "cloudflare_worker.jsr_frontend",
+          "expressions": {},
+          "name": "jsr_frontend",
+          "type": "cloudflare_worker"
+        },
+        {
+          "address": "cloudflare_worker_version.jsr_frontend",
+          "expressions": {
+            "bindings": {
+              "references": [
+                "var.gcp_project",
+                "var.domain_name",
+                "local.api_domain",
+                "var.algolia_app_id",
+                "algolia_api_key.packages_search.key",
+                "algolia_api_key.packages_search",
+                "algolia_index.packages.name",
+                "algolia_index.packages",
+                "algolia_api_key.docs_search.key",
+                "algolia_api_key.docs_search",
+                "algolia_index.docs.name",
+                "algolia_index.docs",
+                "cloudflare_turnstile_widget.login.sitekey",
+                "cloudflare_turnstile_widget.login"
+              ]
+            },
+            "worker_id": {
+              "references": [
+                "cloudflare_worker.jsr_frontend.id",
+                "cloudflare_worker.jsr_frontend"
+              ]
+            }
+          },
+          "name": "jsr_frontend",
+          "type": "cloudflare_worker_version"
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_api",
+          "expressions": {
+            "script": {
+              "references": [
+                "cloudflare_workers_script.jsr_lb.script_name",
+                "cloudflare_workers_script.jsr_lb"
+              ]
+            }
+          },
+          "name": "jsr_api",
+          "type": "cloudflare_workers_route"
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_npm",
+          "expressions": {
+            "script": {
+              "references": [
+                "cloudflare_workers_script.jsr_lb.script_name",
+                "cloudflare_workers_script.jsr_lb"
+              ]
+            }
+          },
+          "name": "jsr_npm",
+          "type": "cloudflare_workers_route"
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_root",
+          "expressions": {
+            "script": {
+              "references": [
+                "cloudflare_workers_script.jsr_lb.script_name",
+                "cloudflare_workers_script.jsr_lb"
+              ]
+            }
+          },
+          "name": "jsr_root",
+          "type": "cloudflare_workers_route"
+        },
+        {
+          "address": "cloudflare_workers_script.jsr_lb",
+          "expressions": {
+            "bindings": {
+              "references": [
+                "local.worker_download_analytics_dataset",
+                "cloudflare_r2_bucket.modules.name",
+                "cloudflare_r2_bucket.modules",
+                "cloudflare_r2_bucket.npm.name",
+                "cloudflare_r2_bucket.npm",
+                "var.domain_name",
+                "local.api_domain",
+                "local.npm_domain",
+                "google_cloud_run_v2_service.registry_api.uri",
+                "google_cloud_run_v2_service.registry_api",
+                "var.gcp_project"
+              ]
+            }
+          },
+          "name": "jsr_lb",
+          "type": "cloudflare_workers_script"
+        },
+        {
+          "address": "google_cloud_run_service_iam_member.api_public_policy",
+          "expressions": {
+            "service": {
+              "references": [
+                "google_cloud_run_v2_service.registry_api.name",
+                "google_cloud_run_v2_service.registry_api"
+              ]
+            }
+          },
+          "name": "api_public_policy",
+          "type": "google_cloud_run_service_iam_member"
+        },
+        {
+          "address": "google_cloud_run_service_iam_member.task_dispatcher",
+          "expressions": {
+            "service": {
+              "references": [
+                "google_cloud_run_v2_service.registry_api_tasks.name",
+                "google_cloud_run_v2_service.registry_api_tasks"
+              ]
+            }
+          },
+          "name": "task_dispatcher",
+          "type": "google_cloud_run_service_iam_member"
+        },
+        {
+          "address": "google_cloud_run_v2_service.registry_api",
+          "expressions": {},
+          "name": "registry_api",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_run_v2_service.registry_api_tasks",
+          "expressions": {},
+          "name": "registry_api_tasks",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_tasks_queue.email_delivery",
+          "expressions": {},
+          "name": "email_delivery",
+          "type": "google_cloud_tasks_queue"
+        },
+        {
+          "address": "google_cloud_tasks_queue.npm_tarball_build_tasks",
+          "expressions": {},
+          "name": "npm_tarball_build_tasks",
+          "type": "google_cloud_tasks_queue"
+        },
+        {
+          "address": "google_cloud_tasks_queue.publishing_tasks",
+          "expressions": {},
+          "name": "publishing_tasks",
+          "type": "google_cloud_tasks_queue"
+        },
+        {
+          "address": "google_sql_database_instance.main_pg15",
+          "expressions": {},
+          "name": "main_pg15",
+          "type": "google_sql_database_instance"
+        }
+      ]
+    }
+  },
+  "format_version": "1.2",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "cloudflare_dns_record.a",
+          "mode": "managed",
+          "name": "a",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "@",
+            "proxied": true,
+            "type": "A",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_dns_record.aaaa",
+          "mode": "managed",
+          "name": "aaaa",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "@",
+            "proxied": true,
+            "type": "AAAA",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_dns_record.api_a",
+          "mode": "managed",
+          "name": "api_a",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "api",
+            "proxied": true,
+            "type": "A",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_dns_record.api_aaaa",
+          "mode": "managed",
+          "name": "api_aaaa",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "api",
+            "proxied": true,
+            "type": "AAAA",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_dns_record.npm_a",
+          "mode": "managed",
+          "name": "npm_a",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "npm",
+            "proxied": true,
+            "type": "A",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_dns_record.npm_aaaa",
+          "mode": "managed",
+          "name": "npm_aaaa",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_dns_record",
+          "values": {
+            "name": "npm",
+            "proxied": true,
+            "type": "AAAA",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_r2_bucket.docs",
+          "mode": "managed",
+          "name": "docs",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_r2_bucket",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-docs"
+          }
+        },
+        {
+          "address": "cloudflare_r2_bucket.modules",
+          "mode": "managed",
+          "name": "modules",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_r2_bucket",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-modules"
+          }
+        },
+        {
+          "address": "cloudflare_r2_bucket.npm",
+          "mode": "managed",
+          "name": "npm",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_r2_bucket",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-npm"
+          }
+        },
+        {
+          "address": "cloudflare_r2_bucket.publishing",
+          "mode": "managed",
+          "name": "publishing",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_r2_bucket",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-publishing"
+          }
+        },
+        {
+          "address": "cloudflare_r2_bucket.ticket_attachments",
+          "mode": "managed",
+          "name": "ticket_attachments",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_r2_bucket",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-ticket-attachments"
+          }
+        },
+        {
+          "address": "cloudflare_worker.jsr_frontend",
+          "mode": "managed",
+          "name": "jsr_frontend",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_worker",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "name": "deno-registry3-staging-jsr-frontend"
+          }
+        },
+        {
+          "address": "cloudflare_worker_version.jsr_frontend",
+          "mode": "managed",
+          "name": "jsr_frontend",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {
+            "bindings": [
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {}
+            ]
+          },
+          "type": "cloudflare_worker_version",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "bindings": [
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ASSETS",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "assets",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "LB",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": "deno-registry3-staging-jsr-lb",
+                "type": "service",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "FRONTEND_ROOT",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "API_ROOT",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "NO_COLOR",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ALGOLIA_APP_ID",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ALGOLIA_PACKAGES_SEARCH_API_KEY",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ALGOLIA_PACKAGES_INDEX",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ALGOLIA_DOCS_SEARCH_API_KEY",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "ALGOLIA_DOCS_INDEX",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "id": null,
+                "index_name": null,
+                "name": "TURNSTILE_SITE_KEY",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              }
+            ]
+          }
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_api",
+          "mode": "managed",
+          "name": "jsr_api",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_workers_route",
+          "values": {
+            "pattern": "api.deno-registry-staging.net/*",
+            "script": "deno-registry3-staging-jsr-lb",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_npm",
+          "mode": "managed",
+          "name": "jsr_npm",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_workers_route",
+          "values": {
+            "pattern": "npm.deno-registry-staging.net/*",
+            "script": "deno-registry3-staging-jsr-lb",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_workers_route.jsr_root",
+          "mode": "managed",
+          "name": "jsr_root",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {},
+          "type": "cloudflare_workers_route",
+          "values": {
+            "pattern": "deno-registry-staging.net/*",
+            "script": "deno-registry3-staging-jsr-lb",
+            "zone_id": "3a983f475e285e051aaf229773569ef8"
+          }
+        },
+        {
+          "address": "cloudflare_workers_script.jsr_lb",
+          "mode": "managed",
+          "name": "jsr_lb",
+          "provider_name": "registry.opentofu.org/cloudflare/cloudflare",
+          "sensitive_values": {
+            "bindings": [
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {},
+              {}
+            ]
+          },
+          "type": "cloudflare_workers_script",
+          "values": {
+            "account_id": "c3f1be9953433bc0c6fcf7df942a5fea",
+            "bindings": [
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": "deno-registry3-staging-downloads",
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "DOWNLOADS",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "analytics_engine",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": "deno-registry3-staging-modules",
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "MODULES_BUCKET",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "r2_bucket",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": "deno-registry3-staging-npm",
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "NPM_BUCKET",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "r2_bucket",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "ROOT_DOMAIN",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "API_DOMAIN",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "NPM_DOMAIN",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "REGISTRY_API_URL",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "plain_text",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "FRONTEND",
+                "namespace": null,
+                "namespace_id": null,
+                "queue_name": null,
+                "script_name": null,
+                "service": "deno-registry3-staging-jsr-frontend",
+                "type": "service",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "FRONTEND_RATELIMIT",
+                "namespace": null,
+                "namespace_id": "1001",
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "ratelimit",
+                "workflow_name": null
+              },
+              {
+                "bucket_name": null,
+                "class_name": null,
+                "dataset": null,
+                "environment": null,
+                "id": null,
+                "index_name": null,
+                "name": "DOCS_RATELIMIT",
+                "namespace": null,
+                "namespace_id": "1002",
+                "queue_name": null,
+                "script_name": null,
+                "service": null,
+                "type": "ratelimit",
+                "workflow_name": null
+              }
+            ],
+            "compatibility_date": "",
+            "main_module": "worker.js",
+            "script_name": "deno-registry3-staging-jsr-lb"
+          }
+        },
+        {
+          "address": "google_cloud_run_service_iam_member.api_public_policy",
+          "mode": "managed",
+          "name": "api_public_policy",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_run_service_iam_member",
+          "values": {
+            "member": "allUsers",
+            "project": "deno-registry3-staging",
+            "role": "roles/run.invoker",
+            "service": "registry-api"
+          }
+        },
+        {
+          "address": "google_cloud_run_service_iam_member.task_dispatcher",
+          "mode": "managed",
+          "name": "task_dispatcher",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_run_service_iam_member",
+          "values": {
+            "member": "serviceAccount:task-dispatcher@deno-registry3-staging.iam.gserviceaccount.com",
+            "project": "deno-registry3-staging",
+            "role": "roles/run.invoker",
+            "service": "registry-api-tasks"
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.registry_api",
+          "mode": "managed",
+          "name": "registry_api",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_ALL",
+            "location": "us-central1",
+            "name": "registry-api",
+            "project": "deno-registry3-staging"
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.registry_api_tasks",
+          "mode": "managed",
+          "name": "registry_api_tasks",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "registry-api-tasks",
+            "project": "deno-registry3-staging"
+          }
+        },
+        {
+          "address": "google_cloud_tasks_queue.email_delivery",
+          "mode": "managed",
+          "name": "email_delivery",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_tasks_queue",
+          "values": {
+            "location": "us-central1",
+            "name": "email-delivery",
+            "project": "deno-registry3-staging"
+          }
+        },
+        {
+          "address": "google_cloud_tasks_queue.npm_tarball_build_tasks",
+          "mode": "managed",
+          "name": "npm_tarball_build_tasks",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_tasks_queue",
+          "values": {
+            "location": "us-central1",
+            "name": "npm-tarball-build-tasks2",
+            "project": "deno-registry3-staging"
+          }
+        },
+        {
+          "address": "google_cloud_tasks_queue.publishing_tasks",
+          "mode": "managed",
+          "name": "publishing_tasks",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_tasks_queue",
+          "values": {
+            "location": "us-central1",
+            "name": "publishing-tasks",
+            "project": "deno-registry3-staging"
+          }
+        },
+        {
+          "address": "google_sql_database_instance.main_pg15",
+          "mode": "managed",
+          "name": "main_pg15",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_sql_database_instance",
+          "values": {
+            "database_version": "POSTGRES_15",
+            "name": "main-pg15",
+            "project": "deno-registry3-staging",
+            "region": "us-central1"
+          }
+        }
+      ]
+    }
+  }
+}

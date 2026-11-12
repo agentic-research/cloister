@@ -7,6 +7,10 @@
           "sensitive": false,
           "type": "string"
         },
+        "app_protocol": {
+          "sensitive": false,
+          "type": "string"
+        },
         "created_at": {
           "sensitive": false,
           "type": "string"
@@ -76,6 +80,28 @@
           "sensitive": false,
           "type": "string"
         },
+        "tcp_port": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "tls_settings": {
+          "attributes": {
+            "cert_verification_mode": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "certificate_authority": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "client_certificate": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
         "type": {
           "sensitive": false,
           "type": "string"
@@ -95,6 +121,13 @@
         "created_at": {
           "sensitive": false,
           "type": "string"
+        },
+        "fields": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
         },
         "file_size": {
           "sensitive": false,
@@ -312,6 +345,10 @@
           "sensitive": false,
           "type": "string"
         },
+        "include_shadow_metadata": {
+          "sensitive": false,
+          "type": "bool"
+        },
         "meta": {
           "sensitive": false,
           "type": "string"
@@ -327,6 +364,10 @@
         "priority": {
           "sensitive": false,
           "type": "number"
+        },
+        "private_routing": {
+          "sensitive": false,
+          "type": "bool"
         },
         "proxiable": {
           "sensitive": false,
@@ -379,6 +420,1285 @@
         }
       }
     },
+    "cloudflare_r2_bucket": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "creation_date": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "jurisdiction": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "storage_class": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_worker": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "created_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deployed_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "force": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "logpush": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "observability": {
+          "attributes": {
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "head_sampling_rate": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "issues": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "logs": {
+              "attributes": {
+                "destinations": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "head_sampling_rate": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "invocation_logs": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "persist": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "traces": {
+              "attributes": {
+                "destinations": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "head_sampling_rate": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "persist": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "propagation_policy": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "previews_base_config": {
+          "attributes": {
+            "cache_options": {
+              "attributes": {
+                "cross_version_cache": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "env": {
+              "attributes": {
+                "type": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "map",
+              "sensitive": false
+            },
+            "limits": {
+              "attributes": {
+                "cpu_ms": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "subrequests": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "logpush": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "observability": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "head_sampling_rate": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "issues": {
+                  "attributes": {
+                    "enabled": {
+                      "sensitive": false,
+                      "type": "bool"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "logs": {
+                  "attributes": {
+                    "destinations": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "enabled": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "head_sampling_rate": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "invocation_logs": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "persist": {
+                      "sensitive": false,
+                      "type": "bool"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "redact_query_string": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "traces": {
+                  "attributes": {
+                    "destinations": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "enabled": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "head_sampling_rate": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "persist": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "propagation_policy": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "placement": {
+              "attributes": {
+                "host": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "hostname": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "mode": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "region": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "target": {
+                  "attributes": {
+                    "host": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "hostname": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "region": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "tail_consumers": {
+              "attributes": {
+                "name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "set",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "references": {
+          "attributes": {
+            "dispatch_namespace_outbounds": {
+              "attributes": {
+                "namespace_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "namespace_name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "worker_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "worker_name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "domains": {
+              "attributes": {
+                "certificate_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "hostname": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "zone_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "zone_name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "durable_objects": {
+              "attributes": {
+                "namespace_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "namespace_name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "worker_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "worker_name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "queues": {
+              "attributes": {
+                "queue_consumer_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "queue_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "queue_name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "workers": {
+              "attributes": {
+                "id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "name": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "subdomain": {
+          "attributes": {
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "preview_url_suffix": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "previews_enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "url": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "tags": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "tail_consumers": {
+          "attributes": {
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "set",
+          "sensitive": false
+        },
+        "updated_on": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "cloudflare_worker_version": {
+      "attributes": {
+        "account_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "annotations": {
+          "attributes": {
+            "workers_message": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workers_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workers_triggered_by": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "assets": {
+          "attributes": {
+            "asset_manifest_sha256": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "config": {
+              "attributes": {
+                "base_path": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "html_handling": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "not_found_handling": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "run_worker_first": {
+                  "sensitive": false,
+                  "type": "dynamic"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "directory": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "jwt": {
+              "sensitive": true,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "author_email": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "author_id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "bindings": {
+          "attributes": {
+            "algorithm": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "allowed_destination_addresses": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "allowed_sender_addresses": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "app_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "bucket_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "certificate_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "class_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "database_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "dataset": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "destination_address": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "dispatch_namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "entrypoint": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "environment": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "format": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "identity": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "index_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "instance_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "json": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "jurisdiction": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "key_base64": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "key_jwk": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "network_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "old_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "outbound": {
+              "attributes": {
+                "params": {
+                  "attributes": {
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "worker": {
+                  "attributes": {
+                    "entrypoint": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "environment": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "service": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "part": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "pipeline": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "queue_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "script_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "secret_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "service": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "service_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "simple": {
+              "attributes": {
+                "limit": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "mitigation_timeout": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "period": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "store_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "stream": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "text": {
+              "sensitive": true,
+              "type": "string"
+            },
+            "tunnel_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "usages": {
+              "sensitive": false,
+              "type": [
+                "set",
+                "string"
+              ]
+            },
+            "version_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workflow_name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "cache_options": {
+          "attributes": {
+            "cross_version_cache": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "compatibility_date": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "compatibility_flags": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "containers": {
+          "attributes": {
+            "class_name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "set",
+          "sensitive": false
+        },
+        "created_on": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deploy": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "exports": {
+          "attributes": {
+            "cache": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "container": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "renamed_to": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "state": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "storage": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "transfer_from": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "transferred_to": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "map",
+          "sensitive": false
+        },
+        "exports_reconciliation": {
+          "attributes": {
+            "created": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "deleted": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "info": {
+              "attributes": {
+                "class": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "message": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "namespace_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "referencing_scripts": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "scenario": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "removable_entries": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "renamed": {
+              "attributes": {
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "transfer_pending": {
+              "attributes": {
+                "class": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "transferred": {
+              "attributes": {
+                "class": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "phase": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "updated": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "warnings": {
+              "attributes": {
+                "class": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "message": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "namespace_id": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "scenario": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "include": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "limits": {
+          "attributes": {
+            "cpu_ms": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "subrequests": {
+              "sensitive": false,
+              "type": "number"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "main_module": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "main_script_base64": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "migration_tag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "migrations": {
+          "attributes": {
+            "deleted_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_sqlite_classes": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "new_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "old_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "renamed_classes": {
+              "attributes": {
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "steps": {
+              "attributes": {
+                "deleted_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "new_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "new_sqlite_classes": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "renamed_classes": {
+                  "attributes": {
+                    "from": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "to": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "transferred_classes": {
+                  "attributes": {
+                    "from": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "from_script": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "to": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "transferred_classes": {
+              "attributes": {
+                "from": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "from_script": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "to": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "modules": {
+          "attributes": {
+            "content_base64": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_file": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_sha256": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_type": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "set",
+          "sensitive": false
+        },
+        "number": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "package_dependencies": {
+          "attributes": {
+            "installed_version": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "package_json_version": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "placement": {
+          "attributes": {
+            "host": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "hostname": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "mode": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "region": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "target": {
+              "attributes": {
+                "host": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "hostname": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "region": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "source": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "startup_time_ms": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "urls": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "usage_model": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "worker_id": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
     "cloudflare_workers_kv_namespace": {
       "attributes": {
         "account_id": {
@@ -386,6 +1706,14 @@
           "type": "string"
         },
         "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "jurisdiction": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "mode": {
           "sensitive": false,
           "type": "string"
         },
@@ -425,6 +1753,24 @@
           "sensitive": false,
           "type": "string"
         },
+        "annotations": {
+          "attributes": {
+            "workers_message": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workers_tag": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "workers_triggered_by": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
         "assets": {
           "attributes": {
             "asset_manifest_sha256": {
@@ -433,6 +1779,10 @@
             },
             "config": {
               "attributes": {
+                "base_path": {
+                  "sensitive": false,
+                  "type": "string"
+                },
                 "headers": {
                   "sensitive": false,
                   "type": "string"
@@ -493,6 +1843,10 @@
                 "string"
               ]
             },
+            "app_id": {
+              "sensitive": false,
+              "type": "string"
+            },
             "bucket_name": {
               "sensitive": false,
               "type": "string"
@@ -505,11 +1859,23 @@
               "sensitive": false,
               "type": "string"
             },
+            "database_id": {
+              "sensitive": false,
+              "type": "string"
+            },
             "dataset": {
               "sensitive": false,
               "type": "string"
             },
             "destination_address": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "dispatch_namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "entrypoint": {
               "sensitive": false,
               "type": "string"
             },
@@ -526,6 +1892,10 @@
               "type": "string"
             },
             "index_name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "instance_name": {
               "sensitive": false,
               "type": "string"
             },
@@ -554,6 +1924,10 @@
               "type": "string"
             },
             "namespace_id": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "network_id": {
               "sensitive": false,
               "type": "string"
             },
@@ -600,6 +1974,20 @@
               "sensitive": false,
               "type": "string"
             },
+            "retry": {
+              "attributes": {
+                "max_attempts": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "timeout_ms": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
             "script_name": {
               "sensitive": false,
               "type": "string"
@@ -612,9 +2000,17 @@
               "sensitive": false,
               "type": "string"
             },
+            "service_id": {
+              "sensitive": false,
+              "type": "string"
+            },
             "simple": {
               "attributes": {
                 "limit": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "mitigation_timeout": {
                   "sensitive": false,
                   "type": "number"
                 },
@@ -630,8 +2026,16 @@
               "sensitive": false,
               "type": "string"
             },
+            "stream": {
+              "sensitive": false,
+              "type": "string"
+            },
             "text": {
               "sensitive": true,
+              "type": "string"
+            },
+            "tunnel_id": {
+              "sensitive": false,
               "type": "string"
             },
             "type": {
@@ -657,9 +2061,41 @@
           "nesting_mode": "list",
           "sensitive": false
         },
+        "bindings_inherit": {
+          "sensitive": false,
+          "type": "string"
+        },
         "body_part": {
           "sensitive": false,
           "type": "string"
+        },
+        "cache_options": {
+          "attributes": {
+            "cross_version_cache": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "code_update_strategy": {
+          "attributes": {
+            "max_delay": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "mode": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
         },
         "compatibility_date": {
           "sensitive": false,
@@ -695,6 +2131,52 @@
         "etag": {
           "sensitive": false,
           "type": "string"
+        },
+        "exports": {
+          "attributes": {
+            "cache": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "map",
+          "sensitive": false
+        },
+        "files": {
+          "attributes": {
+            "content_base64": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_file": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_sha256": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "content_type": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "map",
+          "sensitive": false
+        },
+        "force": {
+          "sensitive": false,
+          "type": "bool"
         },
         "handlers": {
           "sensitive": false,
@@ -733,6 +2215,10 @@
         "limits": {
           "attributes": {
             "cpu_ms": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "subrequests": {
               "sensitive": false,
               "type": "number"
             }
@@ -909,6 +2395,16 @@
               "sensitive": false,
               "type": "number"
             },
+            "issues": {
+              "attributes": {
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
             "logs": {
               "attributes": {
                 "destinations": {
@@ -937,9 +2433,56 @@
               },
               "nesting_mode": "single",
               "sensitive": false
+            },
+            "traces": {
+              "attributes": {
+                "destinations": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "head_sampling_rate": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "persist": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "propagation_policy": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
             }
           },
           "nesting_mode": "single",
+          "sensitive": false
+        },
+        "package_dependencies": {
+          "attributes": {
+            "installed_version": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "package_json_version": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
           "sensitive": false
         },
         "placement": {
@@ -1170,6 +2713,10 @@
             "vnet_id": {
               "sensitive": false,
               "type": "string"
+            },
+            "worker_id": {
+              "sensitive": false,
+              "type": "string"
             }
           },
           "nesting_mode": "list",
@@ -1239,9 +2786,79 @@
           "sensitive": false,
           "type": "string"
         },
+        "mfa_config": {
+          "attributes": {
+            "allowed_authenticators": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "mfa_disabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "session_duration": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
         "name": {
           "sensitive": false,
           "type": "string"
+        },
+        "oauth_configuration": {
+          "attributes": {
+            "dynamic_client_registration": {
+              "attributes": {
+                "allow_any_on_localhost": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "allow_any_on_loopback": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "allowed_uris": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "enabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "enabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "grant": {
+              "attributes": {
+                "access_token_lifetime": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "session_duration": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
         },
         "options_preflight_bypass": {
           "sensitive": false,
@@ -1860,6 +3477,27 @@
                 }
               },
               "nesting_mode": "set",
+              "sensitive": false
+            },
+            "mfa_config": {
+              "attributes": {
+                "allowed_authenticators": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "mfa_disabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "session_duration": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "single",
               "sensitive": false
             },
             "name": {
@@ -2500,6 +4138,64 @@
         },
         "target_criteria": {
           "attributes": {
+            "exclude": {
+              "attributes": {
+                "tags": {
+                  "sensitive": false,
+                  "type": [
+                    "map",
+                    [
+                      "list",
+                      "string"
+                    ]
+                  ]
+                },
+                "target_attributes": {
+                  "attributes": {
+                    "hostname": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "include": {
+              "attributes": {
+                "tags": {
+                  "sensitive": false,
+                  "type": [
+                    "map",
+                    [
+                      "list",
+                      "string"
+                    ]
+                  ]
+                },
+                "target_attributes": {
+                  "attributes": {
+                    "hostname": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
             "port": {
               "sensitive": false,
               "type": "number"
@@ -2507,6 +4203,35 @@
             "protocol": {
               "sensitive": false,
               "type": "string"
+            },
+            "require": {
+              "attributes": {
+                "tags": {
+                  "sensitive": false,
+                  "type": [
+                    "map",
+                    [
+                      "list",
+                      "string"
+                    ]
+                  ]
+                },
+                "target_attributes": {
+                  "attributes": {
+                    "hostname": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
             },
             "target_attributes": {
               "sensitive": false,
@@ -2563,10 +4288,6 @@
             "id": {
               "sensitive": false,
               "type": "string"
-            },
-            "is_pending_reconnect": {
-              "sensitive": false,
-              "type": "bool"
             },
             "opened_at": {
               "sensitive": false,
@@ -2849,5 +4570,5 @@
       }
     }
   },
-  "version": "5.18.0"
+  "version": "5.23.0"
 }
