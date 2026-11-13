@@ -14,6 +14,12 @@ tasks:
       - task: sign:host
       - task: cas:test
       - task: host-runtime:test
+      - task: workspace:test
+
+  workspace:test:
+    desc: "Run the whole workspace with the llo-execution feature on, because feature unification changed a confinement digest that per-crate runs missed (cloister-d95ff5)."
+    cmds:
+      - cargo test --workspace --features cloister-host-runtime/llo-execution
 
   verify:
     desc: "Verify-only Rust gates. Runs after root `task lint`, so it avoids racing lint's Rust prerequisites."
