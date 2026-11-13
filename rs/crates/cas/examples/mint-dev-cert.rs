@@ -89,13 +89,11 @@ fn confinement_digest_from_env() -> Option<[u8; 32]> {
     let path = std::env::var("CLOISTER_CONFINEMENT_MANIFEST").ok()?;
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read confinement manifest {path}: {e}"));
-    // §7 canonicalization: parse → serde_json::Value (default Map is a sorted
-    // BTreeMap → §6.2 ASCII-sorted keys) → to_string_pretty (2-space, §6.4) →
-    // strip trailing newline so the last byte is `}` (§6.3).
-    let value: serde_json::Value =
-        serde_json::from_str(&raw).expect("confinement manifest is not valid JSON");
-    let pretty = serde_json::to_string_pretty(&value).expect("serialize confinement manifest");
-    let canonical = pretty.trim_end_matches('\n').as_bytes().to_vec();
+    // §7 canonicalization via the shared library function: keys sorted
+    // explicitly (independent of serde_json's `preserve_order`), 2-space indent,
+    // trailing newline stripped so the last byte is `}`.
+    let canonical = cloister_cas::canonical_confinement_json(&raw)
+        .expect("confinement manifest is not valid JSON");
     let mut out = [0u8; 32];
     // SAFETY: valid input slice; 32-byte output buffer matches BLAKE3-256.
     let rc = unsafe {
