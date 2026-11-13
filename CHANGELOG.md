@@ -15,6 +15,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Generator fetch replaces its cache file atomically (`cloister-fb0616`)
+
+- `scripts/fetch-schema-bridge.mjs` wrote a downloaded generator straight to
+  its cache path. `task lint` resolves the same generator from several
+  parallel tasks, so on a cold cache one task could run the file while
+  another was still writing it: `exec(): Text file busy`, and
+  `cloister:zod:check-drift` failed. It happened in CI on the first runs
+  after the LLO v0.30.0 bump made the cache path new.
+- The asset is now written to a private file and renamed onto the cache
+  path, so the path only ever names complete, verified bytes.
+
 ### 2026-11 — LLO v0.30.0: rootfs manifest v2, exact argv (`cloister-2fcb8f`, `cloister-b74da4`)
 
 - **Pins.** Every ley-line-open channel moves to v0.30.0 (`de638aea`):
