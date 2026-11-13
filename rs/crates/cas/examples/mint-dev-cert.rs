@@ -99,7 +99,12 @@ fn confinement_digest_from_env() -> Option<[u8; 32]> {
     let mut out = [0u8; 32];
     // SAFETY: valid input slice; 32-byte output buffer matches BLAKE3-256.
     let rc = unsafe {
-        leyline_hash_bytes(canonical.as_ptr(), canonical.len(), out.as_mut_ptr(), out.len())
+        leyline_hash_bytes(
+            canonical.as_ptr(),
+            canonical.len(),
+            out.as_mut_ptr(),
+            out.len(),
+        )
     };
     assert_eq!(rc, 32, "leyline_hash_bytes returned {rc}, expected 32");
     Some(out)
@@ -157,10 +162,19 @@ fn main() {
     };
 
     println!("{{");
-    println!("  \"masterPubB64Std\": {},", jstr(&b64std(master.verifying_key().as_bytes())));
+    println!(
+        "  \"masterPubB64Std\": {},",
+        jstr(&b64std(master.verifying_key().as_bytes()))
+    );
     println!("  \"certDerB64Url\": {},", jstr(&b64url(&cert)));
-    println!("  \"ephemeralPrivSeedB64Url\": {},", jstr(&b64url(&ephemeral.to_bytes())));
-    println!("  \"ephemeralPubB64Url\": {},", jstr(&b64url(ephemeral.verifying_key().as_bytes())));
+    println!(
+        "  \"ephemeralPrivSeedB64Url\": {},",
+        jstr(&b64url(&ephemeral.to_bytes()))
+    );
+    println!(
+        "  \"ephemeralPubB64Url\": {},",
+        jstr(&b64url(ephemeral.verifying_key().as_bytes()))
+    );
     println!("  \"peerFp\": {},", jstr(&peer_fp));
     println!("  \"scope\": {},", jstr(scope));
     println!("  \"confinementDigestHex\": {confinement_digest_json},");

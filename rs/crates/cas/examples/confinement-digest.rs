@@ -37,7 +37,12 @@ fn confinement_digest(canonical: &[u8]) -> String {
     let mut out = [0u8; 32];
     // SAFETY: valid input slice; 32-byte output buffer matches BLAKE3-256.
     let rc = unsafe {
-        leyline_hash_bytes(canonical.as_ptr(), canonical.len(), out.as_mut_ptr(), out.len())
+        leyline_hash_bytes(
+            canonical.as_ptr(),
+            canonical.len(),
+            out.as_mut_ptr(),
+            out.len(),
+        )
     };
     assert_eq!(rc, 32, "leyline_hash_bytes returned {rc}, expected 32");
     out.iter().map(|b| format!("{b:02x}")).collect()

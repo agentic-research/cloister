@@ -1,16 +1,14 @@
 # The microVM demo with Dolt from its PUBLISHED image (cloister-727354):
 # dolthub/dolt-sql-server 1.86.1, pinned by its multi-arch index digest (the
 # one tools/dolt-grpc-demo/k8s/dolt.yaml uses) and pulled from Docker Hub by
-# `cloister runtime import --bundle dolt --symlinks resolve` (no --layout).
+# `cloister runtime import --bundle dolt` (no --layout).
 # orders is built locally as in ../microvm. See README.md.
 #
-# The image config's entrypoint is `tini -- docker-entrypoint.sh`. This runs
-# docker-entrypoint.sh directly instead: on LLO v0.29.0 every guest argument
-# from a literal `--` onward is DROPPED, so tini receives no program and prints
-# its usage (seen live; ley-line-open-7410ec). The guest has its
-# own init, so tini's reaping is not needed. Paths are absolute because a plan
-# names an absolute executable. Plans carry no env: the script runs with the
-# guest's HOME=/ and PATH, as root, and needs nothing else (seen live).
+# dolt runs the image config's own entrypoint, `tini -- docker-entrypoint.sh`.
+# Since LLO v0.30.0 arguments reach the guest byte for byte, the literal `--`
+# included (ley-line-open-7410ec). Paths are absolute because a plan names an
+# absolute executable. Plans carry no env: the script runs with the guest's
+# HOME=/ and PATH, as root, and needs nothing else (seen live).
 
 [metadata]
 name = "dolt-grpc-demo-published"
@@ -26,9 +24,9 @@ tier = "cluster"
 
 [bundles.external]
 image = "dolthub/dolt-sql-server"
-entryPoint = "/usr/local/bin/docker-entrypoint.sh"
+entryPoint = "/usr/bin/tini"
 executionMode = "microvm"
-args = []
+args = ["--", "/usr/local/bin/docker-entrypoint.sh"]
 
 [[bundles.ports]]
 name = "mysql"

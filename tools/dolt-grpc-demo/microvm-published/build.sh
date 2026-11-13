@@ -6,7 +6,7 @@
 #      cluster.lock.toml (committed: both digests are the same on every
 #      checkout)
 #   3. import orders from its layout, and pull Dolt from Docker Hub by digest
-#      (--symlinks resolve: both images hold links; the CAS volume `runtime
+#      (both images hold links, kept as links; the CAS volume `runtime
 #      install` provisions is case-sensitive, which Dolt's Debian tree needs)
 # Then: cloister cluster up --env local --dir tools/dolt-grpc-demo/microvm-published
 set -eu
@@ -23,5 +23,5 @@ sh "$DEMO/microvm/build-images.sh" "$OUT" orders
 
 node "$DEMO/microvm/pin-layouts.mjs" --dir "$HERE" "orders=$OUT/orders" "dolt=$DOLT_DIGEST"
 
-cloister runtime import --bundle orders --dir "$HERE" --layout "$OUT/orders" --symlinks resolve
-cloister runtime import --bundle dolt --dir "$HERE" --symlinks resolve
+cloister runtime import --bundle orders --dir "$HERE" --layout "$OUT/orders"
+cloister runtime import --bundle dolt --dir "$HERE"

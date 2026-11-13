@@ -6,13 +6,12 @@ version = "0.0.1"
 [inputs.orders.oci]
 identifier = "dolt-grpc-demo/orders"
 version = "local"
-digest = "sha256:0f59d7641ab32d804901c07ef8ad22b21f69fec4e56135f41fbddb345ac88480"
+digest = "sha256:6f0a750d0aa418040f0b73b93a6129a67e676aae47de1a73bb3188a6efc1e699"
 
 [[inputs.orders.oci.rootfs]]
 platform = "linux/arm64"
-digest = "blake3-256:db070a03da0cbb41ea95d530559bbd7d22c95934df2f03bbb63058eecbc21df2"
-image = "sha256:0f59d7641ab32d804901c07ef8ad22b21f69fec4e56135f41fbddb345ac88480"
-symlinks = "resolve"
+digest = "blake3-256:ff86a9c179d02dedf2c864646967ee277dbc61c7f6e81434401cf2afd950ed1d"
+image = "sha256:6f0a750d0aa418040f0b73b93a6129a67e676aae47de1a73bb3188a6efc1e699"
 
 [inputs.dolt.oci]
 identifier = "dolthub/dolt-sql-server"
@@ -21,6 +20,5 @@ digest = "sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c824
 
 [[inputs.dolt.oci.rootfs]]
 platform = "linux/arm64"
-digest = "blake3-256:3f8b26712968250e02e650917f2f87adfa4746fa3e7c1230e8d8a335858c6a91"
+digest = "blake3-256:d83333de379ad072fd16744456baa136aeeecea06ac224413310fc1eae31ad07"
 image = "sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c8242"
-symlinks = "resolve"

@@ -8,6 +8,38 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — LLO v0.30.0: rootfs manifest v2, exact argv (`cloister-2fcb8f`, `cloister-b74da4`)
+
+- **Pins.** Every ley-line-open channel moves to v0.30.0 (`de638aea`):
+  Cargo deps, the `llo` input, the generator lock and the vendored
+  execution/v1 contract. The contract gains `writeScope`, the
+  `connectionsDigest` / `connectionsDocument` grant fields and
+  `ConnectionOutcome`; cloister sends none of them yet.
+- **BREAKING: every imported rootfs has a new digest.** The importer writes
+  rootfs manifest v2. A lock row recorded before this release names a v1
+  rootfs: re-run `cloister runtime import --bundle <name>` for each microvm
+  bundle. Both demo locks are re-pinned.
+- **`--symlinks` defaults to `preserve`.** Links are kept as links, so
+  merged-usr and busybox images (Wolfi, Debian) import as they are. `refuse`
+  and `resolve` remain. The demos no longer pass `--symlinks resolve`, and a
+  lock row records the mode only when it is not `preserve`.
+- **Empty directories are imported.** The demo dolt image drops its
+  `/data/.keep` placeholder.
+- **Arguments reach the guest byte for byte.** The published-image demo runs
+  the image's own `tini -- docker-entrypoint.sh` instead of calling the
+  script directly.
+- **`Backend::start` takes the run's workspace shares.** The host runtime
+  passes `ServedWorkspaces::none()`: a launch plan still maps no workspace.
+- **`ureq` is held at 3.3.0 in `rs/Cargo.lock`.** LLO v0.30.0 does not
+  compile against ureq 3.5 (`ley-line-open-d4ba4b`). Do not `cargo update`
+  it until an LLO release fixes that.
+- Checked live on darwin-arm64 with both demos: `mysql -h 127.0.0.1 -P 3306`
+  returned the seeded row, grpcurl on `127.0.0.1:50051` returned it over the
+  declared connection, and SIGINT left nothing running.
+- Not in this release, still as before: the edge relay, a numeric wall-clock
+  ceiling, and exit status 125 meaning either a pre-workload refusal or a
+  workload that itself exited 125 (LLO v0.31.0).
+
 ### 2026-11 — Drop the SQLite advisory residual (`cloister-6ecd70`)
 
 - The audit ignore for RUSTSEC-2026-0459 (bundled SQLite, through LLO's

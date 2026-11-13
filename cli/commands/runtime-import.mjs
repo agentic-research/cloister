@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // `cloister runtime import --bundle <name> [--dir <cluster>] [--layout <dir>]
-//  [--image sha256:…] [--symlinks refuse|resolve]` (cloister-991e65).
+//  [--image sha256:…] [--symlinks preserve|refuse|resolve]` (cloister-991e65).
 //
 // With --layout the image comes from an on-disk OCI layout; without it, the
 // lock's pinned `identifier@sha256:…` is pulled from its registry through

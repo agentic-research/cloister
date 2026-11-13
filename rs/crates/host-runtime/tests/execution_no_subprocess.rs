@@ -113,13 +113,17 @@ impl LeylineBackendTrait for RecordingBackend {
         }
     }
 
-    fn start(&self, request: &ExecutionRequest) -> Result<BackendRun, ExecutionError> {
+    fn start(
+        &self,
+        request: &ExecutionRequest,
+        _workspaces: leyline_runtime::ServedWorkspaces,
+    ) -> Result<BackendRun, ExecutionError> {
         self.enforced.check(&request.limits)?;
         self.starts.fetch_add(1, Ordering::SeqCst);
         self.seen.lock().unwrap().push(request.clone());
         Ok(BackendRun {
             backend_id: "recording".into(),
-            channels: Vec::new(),
+            attached: Vec::new(),
         })
     }
 
@@ -281,7 +285,7 @@ fn the_recording_tier_refuses_a_ceiling_it_cannot_enforce() {
 
     let native = RecordingBackend::tier(BackendClass::Native, EnforcedCeilings::wall_clock_only());
     let err = native
-        .start(&microvm_request)
+        .start(&microvm_request, leyline_runtime::ServedWorkspaces::none())
         .expect_err("native without a cgroup root refuses memory");
     assert!(format!("{err}").contains("memory.limit"), "{err}");
     assert_eq!(native.starts.load(Ordering::SeqCst), 0);

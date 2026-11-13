@@ -25,7 +25,8 @@ use cloister_cas::leyline_hash_bytes;
 /// neither: the old name (`LLO_CANONICAL_VECTOR_DIGEST`) read as "the v0.7.3 value" and would
 /// have invited someone to go looking for a v0.17.0 replacement that does not
 /// exist.
-const LLO_CANONICAL_VECTOR_DIGEST: &str = "d9b5b7270bb6e5ec068aec92798dd76b0f71d1fe2640b3a09833b7742d51c617";
+const LLO_CANONICAL_VECTOR_DIGEST: &str =
+    "d9b5b7270bb6e5ec068aec92798dd76b0f71d1fe2640b3a09833b7742d51c617";
 
 /// §7 canonical serialization: sorted keys (serde_json's default BTreeMap Map),
 /// 2-space indent (`to_string_pretty`), last byte `}` (trailing newline
@@ -40,7 +41,12 @@ fn confinement_digest(canonical: &[u8]) -> String {
     let mut out = [0u8; 32];
     // SAFETY: valid slice; 32-byte buffer = BLAKE3-256.
     let rc = unsafe {
-        leyline_hash_bytes(canonical.as_ptr(), canonical.len(), out.as_mut_ptr(), out.len())
+        leyline_hash_bytes(
+            canonical.as_ptr(),
+            canonical.len(),
+            out.as_mut_ptr(),
+            out.len(),
+        )
     };
     assert_eq!(rc, 32);
     out.iter().map(|b| format!("{b:02x}")).collect()

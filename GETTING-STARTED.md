@@ -221,9 +221,11 @@ The input is an OCI image *layout* (`oci-layout` plus `blobs/sha256`), pinned by
 digest. A docker store is not a layout, and tags are refused. Produce one with
 `skopeo copy docker://…@sha256:… oci:DIR` or `docker buildx … --output
 type=oci`. The importer verifies every blob, selects the host's Linux platform,
-and refuses what rootfs manifest v1 cannot express: symlinks (use `--symlinks
-resolve` to copy in-image targets; dangling links still fail), and device
-nodes. One known gap: an entrypoint at the rootfs root (`/hello`, common in
+and writes rootfs manifest v2 (LLO v0.30.0): directories carry their modes
+and symlinks are kept as links, so merged-usr and busybox images import as
+they are. `--symlinks refuse` refuses an image with links, and `--symlinks
+resolve` copies in-image targets instead. Device nodes are refused. A rootfs
+imported before v0.30.0 has a different digest: re-run the import. One known gap: an entrypoint at the rootfs root (`/hello`, common in
 scratch images) exits 127 on LLO v0.27.0 unless a workspace is mounted
 (ley-line-open-fe130c). Entrypoints under a directory (`/bin/…`) run. On
 v0.28.0 a root entrypoint (`/orders`) has been seen running.
@@ -276,11 +278,10 @@ config, never typed. Importing the same lock on an amd64 host adds a
 
 Leave out `--layout` to pull the pinned `identifier@sha256:…` from its registry
 instead. The pull is anonymous HTTPS, so only public images work, and a
-tag-only or unpinned image is refused. Add `--symlinks resolve` for an image
-with links:
+tag-only or unpinned image is refused:
 
 ```sh
-cloister runtime import --bundle dolt --dir <cluster-dir> --symlinks resolve
+cloister runtime import --bundle dolt --dir <cluster-dir>
 ```
 
 `cloister runtime plan` and `cluster up` run the row for the platform the host

@@ -563,7 +563,10 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             }
             *phase = StartPhase::Starting;
         }
-        if let Err(error) = self.inner.start(&request) {
+        if let Err(error) = self
+            .inner
+            .start(&request, leyline_runtime::ServedWorkspaces::none())
+        {
             self.set_phase(StartPhase::StartFailed);
             return Err(RuntimeError::Backend(error.to_string()));
         }
