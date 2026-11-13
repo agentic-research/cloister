@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -185,6 +185,45 @@ test("a matching payload is written and its path returned", async () => {
     const lock = { ...LOCK, wasm: { "m.wasm": sha256(bytes) } };
     const p = await ensureWasm("m.wasm", { lock, dir, fetchImpl: stubFetch(bytes) });
     assert.equal(sha256(readFileSync(p)), sha256(bytes));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── The cache path is replaced, never written in place (cloister-fb0616) ───
+//
+// Parallel lint tasks resolve the same generator. Writing the cache path in
+// place let one task exec a file another was still writing: "Text file busy".
+
+test("a stale cached file is replaced by rename, not rewritten in place", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "llo-wasm-"));
+  try {
+    const bytes = Buffer.from("the real module");
+    const lock = { ...LOCK, wasm: { "m.wasm": sha256(bytes) } };
+    const cached = join(dir, "m.wasm");
+    writeFileSync(cached, "half-writ");
+    const staleInode = statSync(cached).ino;
+    const p = await ensureWasm("m.wasm", { lock, dir, fetchImpl: stubFetch(bytes) });
+    assert.equal(p, cached);
+    assert.equal(sha256(readFileSync(p)), sha256(bytes));
+    // An in-place write keeps the inode; a rename gives the path a new one. A
+    // process that exec'd the old inode is unaffected only by the second.
+    assert.notEqual(statSync(p).ino, staleInode, "the cache path must name a new file");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent fetches of one asset both succeed and leave only the asset", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "llo-wasm-"));
+  try {
+    const bytes = Buffer.from("the real module");
+    const lock = { ...LOCK, wasm: { "m.wasm": sha256(bytes) } };
+    const paths = await Promise.all(
+      [1, 2, 3, 4].map(() => ensureWasm("m.wasm", { lock, dir, fetchImpl: stubFetch(bytes) })),
+    );
+    for (const p of paths) assert.equal(sha256(readFileSync(p)), sha256(bytes));
+    assert.deepEqual(readdirSync(dir), ["m.wasm"], "no partial file is left behind");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
