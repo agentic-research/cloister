@@ -8,6 +8,13 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — quinn-udp 0.5.16 (`cloister-a0a6c0`)
+
+- RUSTSEC-2026-0538 (a receive loop can spin after a truncated datagram) is
+  fixed in quinn-udp 0.5.16. It reaches the host runtime through LLO's
+  runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
+  nothing else changes, and `ureq` stays at 3.3.0.
+
 ### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)
 
 - The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.
