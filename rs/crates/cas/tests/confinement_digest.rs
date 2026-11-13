@@ -28,13 +28,11 @@ use cloister_cas::leyline_hash_bytes;
 const LLO_CANONICAL_VECTOR_DIGEST: &str =
     "d9b5b7270bb6e5ec068aec92798dd76b0f71d1fe2640b3a09833b7742d51c617";
 
-/// §7 canonical serialization: sorted keys (serde_json's default BTreeMap Map),
-/// 2-space indent (`to_string_pretty`), last byte `}` (trailing newline
-/// stripped).
+/// §7 canonical serialization via the shared library function: keys sorted
+/// explicitly (independent of serde_json's `preserve_order`), 2-space indent,
+/// trailing newline stripped.
 fn canonicalize(json: &str) -> Vec<u8> {
-    let value: serde_json::Value = serde_json::from_str(json).expect("valid JSON");
-    let pretty = serde_json::to_string_pretty(&value).expect("serialize");
-    pretty.trim_end_matches('\n').as_bytes().to_vec()
+    cloister_cas::canonical_confinement_json(json).expect("valid JSON")
 }
 
 fn confinement_digest(canonical: &[u8]) -> String {
@@ -91,4 +89,14 @@ fn canonicalization_is_order_and_whitespace_invariant() {
         LLO_CANONICAL_VECTOR_DIGEST,
         "canonicalization must be key-order and whitespace invariant"
     );
+}
+
+#[test]
+fn canonicalization_sorts_nested_and_array_contained_objects() {
+    // Descending key order at every depth, including objects inside arrays.
+    let descending =
+        r#"{"z":{"y":1,"b":{"q":[{"n":2,"m":1},{"d":4,"c":3}],"a":0}},"a":[{"k":2,"j":1}]}"#;
+    let ascending =
+        r#"{"a":[{"j":1,"k":2}],"z":{"b":{"a":0,"q":[{"m":1,"n":2},{"c":3,"d":4}]},"y":1}}"#;
+    assert_eq!(canonicalize(descending), canonicalize(ascending));
 }

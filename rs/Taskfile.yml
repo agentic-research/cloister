@@ -15,6 +15,11 @@ tasks:
       - task: cas:test
       - task: host-runtime:test
 
+  workspace:test:
+    desc: "Run the whole workspace with the llo-execution feature on, because feature unification changed a confinement digest that per-crate runs missed (cloister-d95ff5). Part of `verify`, not `test`: the feature's build needs the capnp standard includes, which CI's lint job does not install."
+    cmds:
+      - cargo test --workspace --features cloister-host-runtime/llo-execution
+
   verify:
     desc: "Verify-only Rust gates. Runs after root `task lint`, so it avoids racing lint's Rust prerequisites."
     cmds:
@@ -24,6 +29,7 @@ tasks:
       # deliberately: audit runs on the DEFAULT feature set, which is the set
       # this gate exists to keep clean (threat model §17.1 amendment).
       - task: host-runtime:llo
+      - task: workspace:test
       - task: audit
 
   sign:
