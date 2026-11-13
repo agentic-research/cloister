@@ -39,7 +39,7 @@ import { parseTomlToCluster } from "./toml-to-cluster.mjs";
 import { checkableBundle, isExposed, placementFor } from "./connections.mjs";
 import { buildLaunchPlan, parsePlanArgs } from "../../commands/runtime-plan.mjs";
 import { lazyRootfsInCas } from "../runtime/cas-root.mjs";
-import { lazyGuestPlatform } from "../runtime/guest-platform.mjs";
+import { lazyGuestPlatform, queryPlatformAdmits } from "../runtime/guest-platform.mjs";
 import { hostRuntimeEnv, resolveHostRuntime } from "../runtime/compatibility-client.mjs";
 import { MAX_UNIX_SOCKET_PATH } from "./connections.mjs";
 import { describeEdge, edgePorts, openEdgeListeners } from "./edge-relay.mjs";
@@ -150,7 +150,7 @@ export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQU
  * @param {object} o
  * @param {string} o.root cluster directory
  * @param {string} o.env
- * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas, guestPlatform,
+ * @param {object} [o.deps] injectable: spawn, log, errLog, env, rootfsInCas, guestPlatform, platformAdmits,
  *   makeTemp, exists, signals (EventEmitter-like: on/off, receives signal and
  *   uncaughtException/unhandledRejection events), stdout, pollMs,
  *   hostRuntime ({command, env, args?}), openEdge (edge-relay's
@@ -184,6 +184,9 @@ export async function clusterUp({ root, env, deps = {} }) {
   // The platform whose rootfs row is run: the host runtime's, asked once
   // (cloister-1c4ef5).
   const guestPlatform = deps.guestPlatform ?? lazyGuestPlatform({ env: procEnv });
+  // Which recorded rows that platform admits: LLO's rule, via the host runtime
+  // (cloister-b94b14).
+  const platformAdmits = deps.platformAdmits ?? ((p, c) => queryPlatformAdmits(p, c, { env: procEnv }));
 
   // ── stop control ─────────────────────────────────────────────────────────
   const runs = [];
@@ -259,7 +262,7 @@ export async function clusterUp({ root, env, deps = {} }) {
     edgeListeners = await (deps.openEdge ?? openEdgeListeners)(edgePorts(cluster, order, channelDir), { errLog });
     const plans = order.map((name) => {
       const opts = parsePlanArgs([name, "--workspace", absRoot, "--env", env, "--channel-dir", channelDir]);
-      return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas, guestPlatform });
+      return buildLaunchPlan(cluster, lock, { ...opts, dir: shownDir, rootfsInCas, guestPlatform, platformAdmits });
     });
     for (const plan of plans) {
       for (const p of bindPaths(plan)) {

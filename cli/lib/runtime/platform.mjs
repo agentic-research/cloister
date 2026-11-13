@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// OCI platforms, and how a recorded rootfs is matched to the guest platform
-// this host boots (cloister-1c4ef5). Pure: the platform itself comes from
-// guest-platform.mjs.
+// OCI platform strings: shape checks only (cloister-1c4ef5). Whether one
+// platform admits another is NOT decided here or anywhere in JS: the host
+// runtime's `platform-admits` verb answers it with LLO's `Platform::admits`
+// (cloister-b94b14; see guest-platform.mjs `queryPlatformAdmits`).
 //
 // Platforms are OCI's `os/architecture[/variant]` strings, kept exactly as LLO
 // reports them (`linux/arm64`, `linux/arm/v7`, `linux/arm64/v8`).
@@ -29,37 +30,4 @@ function parsePlatform(text) {
 /** True for a well-formed `os/architecture[/variant]`. */
 export function isPlatform(text) {
   return parsePlatform(text) !== null;
-}
-
-/**
- * Whether a rootfs recorded for platform `recorded` is one this host's guest
- * platform `host` runs. Mirrors LLO's PRIVATE `Platform::admits`
- * (artifacts/oci.rs) by hand. Delete this, and call LLO's selection, when LLO
- * exposes select_platform (ley-line-open-370b41). Until then a change to
- * LLO's rule has to be copied here. It mirrors
- * the rule its importer uses to pick an index entry: os and architecture must
- * be equal; a host platform with no variant admits any variant; `arm64` with
- * no variant is `arm64/v8`, as the image spec defines it.
- */
-export function platformAdmits(host, recorded) {
-  const h = parsePlatform(host);
-  const r = parsePlatform(recorded);
-  if (!h || !r) return false;
-  if (h.os !== r.os || h.architecture !== r.architecture) return false;
-  if (h.variant === null) return true;
-  const normalized = (architecture, variant) =>
-    architecture === "arm64" && variant === null ? "v8" : variant;
-  return normalized(r.architecture, r.variant) === normalized(h.architecture, h.variant);
-}
-
-
-/**
- * Whether two recorded platforms name rows one host could both select: either
- * admits the other under the same rule (`linux/arm64` and `linux/arm64/v8`;
- * not `linux/arm64/v8` and `linux/arm64/v9`). An import replaces every row
- * that overlaps the platform it recorded, so the lock never holds two rows a
- * host must choose between (cloister-1c4ef5 review).
- */
-export function platformsOverlap(a, b) {
-  return platformAdmits(a, b) || platformAdmits(b, a);
 }

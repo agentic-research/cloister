@@ -11,6 +11,11 @@ import {
   planFromToml,
 } from "../../cli/commands/runtime-plan.mjs";
 import { parseTomlToCluster } from "../../cli/lib/cluster/toml-to-cluster.mjs";
+import { tableAdmits } from "./fixtures/platform-admits-table.mjs";
+
+const ADMITS = tableAdmits({
+  "linux/arm64": { admitted: ["linux/arm64", "linux/arm64/v8"], overlapping: ["linux/arm64", "linux/arm64/v8"] },
+});
 
 // buildLaunchPlan takes a VALIDATED cluster (cloister-991e65: runtime plan
 // parses cluster.toml through parseTomlToCluster first), so the fixture is
@@ -62,7 +67,7 @@ test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () 
     bundle: "mache",
     workspace: "/Users/operator/src",
     controlSocket: "/tmp/cloister/mache.sock",
-    rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
+    rootfsInCas: inCas, guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
   });
 
   assert.deepEqual(plan, {
@@ -157,12 +162,12 @@ test("the declared Mache tenant has an explicit in-guest workspace fallback", ()
 
 test("planFromToml is the cluster.toml entry point and applies the full schema", async () => {
   const plan = await planFromToml(CLUSTER_TOML, lock, {
-    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
+    bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
   });
   assert.equal(plan.bundle, "mache");
   await assert.rejects(
     planFromToml(CLUSTER_TOML.replace("entryPoint", "entryPiont"), lock, {
-      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64",
+      bundle: "mache", workspace: "/workspace", controlSocket: "/tmp/mache.sock", rootfsInCas: inCas, guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
     }),
     /\[bundles.external\] declares unknown field "entryPiont"/,
   );
@@ -174,7 +179,7 @@ const planOptions = {
   workspace: "/workspace",
   controlSocket: "/tmp/mache.sock",
   rootfsInCas: inCas,
-  guestPlatform: () => "linux/arm64",
+  guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
 };
 function withEnv(env) {
   const c = structuredClone(cluster);

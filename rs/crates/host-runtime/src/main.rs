@@ -100,7 +100,7 @@ fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let Some(command) = args.next() else {
         bail!(
-            "usage: cloister-host-runtime <validate|run|doctor|guest-platform|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
+            "usage: cloister-host-runtime <validate|run|doctor|guest-platform|platform-admits|import-oci|provision-cas|cas-attach|cas-status> [args]\n\
              CLOISTER_CAS_ROOT and CLOISTER_CAS_STATE_DIR are deployment inputs the cloister CLI sets \
              from its provider record. When both are set, run and import-oci check that the attached \
              volume's root IS that CAS root: a consistency check against a stale or hand-set value, \
@@ -229,6 +229,56 @@ fn run() -> Result<()> {
             #[cfg(not(feature = "llo-execution"))]
             {
                 bail!("guest-platform needs the `llo-execution` feature (ley-line-open's runtime)")
+            }
+        }
+        // Platform admission, answered by LLO's `Platform::admits` so nothing
+        // in the CLI states the rule (cloister-b94b14). `--platform` must come
+        // first; every following argument is a candidate platform.
+        "platform-admits" => {
+            let usage = "usage: cloister-host-runtime platform-admits --platform <os/arch[/variant]> <candidate>...";
+            if args.next().as_deref() != Some("--platform") {
+                bail!("platform-admits needs --platform first; {usage}");
+            }
+            let platform_arg = args
+                .next()
+                .with_context(|| format!("--platform needs a value; {usage}"))?;
+            let candidates: Vec<String> = args.collect();
+            if let Some(flag) = candidates.iter().find(|c| c.starts_with("--")) {
+                bail!("unknown flag {flag:?}; {usage}");
+            }
+            #[cfg(feature = "llo-execution")]
+            {
+                use leyline_runtime::artifacts::oci::Platform;
+                let platform: Platform = platform_arg
+                    .parse()
+                    .with_context(|| format!("--platform {platform_arg:?}"))?;
+                let (mut admitted, mut overlapping) = (Vec::new(), Vec::new());
+                for text in &candidates {
+                    let candidate: Platform = text
+                        .parse()
+                        .with_context(|| format!("candidate platform {text:?}"))?;
+                    let forward = platform.admits(&candidate);
+                    if forward {
+                        admitted.push(text.as_str());
+                    }
+                    if forward || candidate.admits(&platform) {
+                        overlapping.push(text.as_str());
+                    }
+                }
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "platform": platform.to_string(),
+                        "admitted": admitted,
+                        "overlapping": overlapping,
+                    })
+                );
+                Ok(())
+            }
+            #[cfg(not(feature = "llo-execution"))]
+            {
+                let _ = (platform_arg, candidates);
+                bail!("platform-admits needs the `llo-execution` feature (ley-line-open's runtime)")
             }
         }
         "doctor" => {
