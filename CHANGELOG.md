@@ -6,6 +6,8 @@ so we batch changes by month rather than ratcheting semver per release.
 
 ## [Unreleased]
 
+Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
+
 ### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)
 
 - The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.
@@ -13,7 +15,22 @@ so we batch changes by month rather than ratcheting semver per release.
 - One shared `cloister_cas::canonical_confinement_json` replaces three copies (test, example, dev-cert minter); it is native-only, so the wasm artifact is unchanged.
 - `task rs:verify` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
 
-Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
+### 2026-11 — Declared environment reaches the microVM (`cloister-2af426`)
+
+- **Env is lowered into the plan.** A bundle's `[bundles.external]` `env`
+  entries (`name`, `value`) now appear in `cloister runtime plan` output as a
+  top-level `environment` array, in declaration order.
+- **No env, no key.** A bundle that declares none produces a plan
+  byte-identical to before.
+- **The host runtime sends it.** `LaunchPlan` carries `environment`, and the
+  execution request fills LLO's `public_environment` from it instead of
+  sending an empty map.
+- **Refusals before start.** The plan emitter and `LaunchPlan::validate` refuse
+  an empty name, `=` or NUL in a name, NUL in a value, a non-string value and a
+  duplicate name. The error names the bundle and the variable, never the value.
+  `KRUN_`-prefixed names are left to LLO's worker to refuse.
+- **Values are not secrets.** They are stored in the plan in clear. Credentials
+  go through vault slices.
 
 ### 2026-11 — `cloister inspect` ignores an inherited git environment (`cloister-10804d`)
 

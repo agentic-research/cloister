@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 
 use cloister_host_runtime::execution::{AwaitRun, Deployment, LeylineExecutionBackend};
 use cloister_host_runtime::{
-    Artifact, Backend, Confinement, ConfinementNetwork, ExecutionMode, HostRuntime, LaunchPlan,
-    RuntimeError, UnixSocketAllowEntry,
+    Artifact, Backend, Confinement, ConfinementNetwork, EnvVar, ExecutionMode, HostRuntime,
+    LaunchPlan, RuntimeError, UnixSocketAllowEntry,
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
@@ -149,6 +149,7 @@ fn plan() -> LaunchPlan {
         },
         workspace: "/tmp/workspace".into(),
         control_socket: "/tmp/control.sock".into(),
+        environment: Vec::new(),
     }
 }
 
@@ -807,5 +808,56 @@ fn cloisters_default_request_passes_llos_own_validation() {
     assert!(
         !text.contains("InvalidSpec") && !text.contains("must be non-zero"),
         "LLO refused cloister's request as invalid before reaching the worker: {text}"
+    );
+}
+
+fn plan_with_environment() -> LaunchPlan {
+    let mut p = plan();
+    p.environment = vec![
+        EnvVar {
+            name: "ZED".into(),
+            value: "1".into(),
+        },
+        EnvVar {
+            name: "ALPHA".into(),
+            value: "two words".into(),
+        },
+    ];
+    p
+}
+
+#[test]
+fn declared_environment_is_carried_as_public_environment() {
+    let request = carried(&plan_with_environment());
+    let expected: std::collections::BTreeMap<String, String> = [
+        ("ZED".to_string(), "1".to_string()),
+        ("ALPHA".to_string(), "two words".to_string()),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(request.public_environment, expected);
+}
+
+#[test]
+fn a_request_carrying_environment_passes_llos_own_validation() {
+    use leyline_runtime::backends::libkrun::backend::{KrunWorkerBackend, KrunWorkerConfig};
+    let missing = std::path::PathBuf::from("/nonexistent/cloister-test/leyline-krun-worker");
+    let real = Arc::new(KrunWorkerBackend::new(KrunWorkerConfig {
+        worker: missing.clone(),
+        cas_root: missing.clone(),
+        ephemeral_root: missing,
+        runtime_files: Vec::new(),
+        devices: Vec::new(),
+        ready_timeout: std::time::Duration::from_secs(1),
+        tsi_hijack_inet: false,
+    }));
+    let backend = Arc::new(LeylineExecutionBackend::new(real, Deployment::default()));
+    let error = HostRuntime::new(None, Some(backend))
+        .launch(&plan_with_environment())
+        .expect_err("a backend with no worker cannot launch");
+    let text = error.to_string();
+    assert!(
+        !text.contains("InvalidSpec") && !text.contains("environment"),
+        "LLO refused cloister's environment before reaching the worker: {text}"
     );
 }

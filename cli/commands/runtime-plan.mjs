@@ -190,6 +190,8 @@ export function buildLaunchPlan(cluster, lock, options) {
     ? { ...baseConfinement, unixSocket: { allow: grants } }
     : baseConfinement;
 
+  const environment = lowerEnvironment(bundle.name, external.env);
+
   return {
     schema: "cloister/host-runtime/v1",
     bundle: bundle.name,
@@ -203,7 +205,45 @@ export function buildLaunchPlan(cluster, lock, options) {
     confinement,
     workspace: options.workspace,
     controlSocket: options.controlSocket,
+    // Added only when declared, so a plan for a bundle with no env is
+    // byte-identical to one emitted before this lowering (cloister-2af426).
+    ...(environment.length > 0 ? { environment } : {}),
   };
+}
+
+/**
+ * A bundle's declared environment as `{ name, value }` rows in declaration
+ * order. Refusals name the bundle and the variable, never the value: values
+ * are stored in the plan and are not secrets, but an error is logged.
+ */
+function lowerEnvironment(bundleName, env) {
+  if (env === undefined || env === null) return [];
+  const bundleText = JSON.stringify(bundleName);
+  const seen = new Set();
+  return env.map((entry) => {
+    const { name, value } = entry ?? {};
+    if (typeof name !== "string" || name === "") {
+      throw new Error(`bundle ${bundleText} declares an environment variable with an empty or non-string name`);
+    }
+    const nameText = JSON.stringify(name);
+    if (name.includes("=")) {
+      throw new Error(`bundle ${bundleText} environment variable ${nameText}: a name must not contain "="`);
+    }
+    if (name.includes("\u0000")) {
+      throw new Error(`bundle ${bundleText} environment variable ${nameText}: a name must not contain NUL`);
+    }
+    if (typeof value !== "string") {
+      throw new Error(`bundle ${bundleText} environment variable ${nameText}: the value must be a string`);
+    }
+    if (value.includes("\u0000")) {
+      throw new Error(`bundle ${bundleText} environment variable ${nameText}: the value must not contain NUL`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`bundle ${bundleText} declares environment variable ${nameText} twice`);
+    }
+    seen.add(name);
+    return { name, value };
+  });
 }
 
 /**

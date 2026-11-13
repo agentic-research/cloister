@@ -23,6 +23,7 @@ fn write_plan(mode: ExecutionMode) -> tempfile::NamedTempFile {
         },
         workspace: "/workspace".into(),
         control_socket: "/run/cloister/host.sock".into(),
+        environment: Vec::new(),
     };
     fs::write(file.path(), serde_json::to_vec_pretty(&plan).unwrap()).unwrap();
     file
