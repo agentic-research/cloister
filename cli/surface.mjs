@@ -391,7 +391,7 @@ export const COMMANDS = [
       "record containing their SHA-256 digests. Runtime commands verify those " +
       "digests before execution.",
   },
-  { name: "runtime import", usage: "cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]",
+  { name: "runtime import", usage: "cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks preserve|refuse|resolve]",
     summary: "Import a digest-pinned OCI image (layout or registry) as a microVM rootfs",
     detail:
       "With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in " +
@@ -406,7 +406,7 @@ export const COMMANDS = [
       { flag: "--bundle <name>", summary: "record the rootfs for this bundle in cluster.lock.toml" },
       { flag: "--dir <cluster>", summary: "with --bundle: cluster directory holding cluster.lock.toml (default: the current directory)" },
       { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest)" },
-      { flag: "--symlinks <refuse|resolve>", summary: "refuse links (default) or copy in-image targets; recorded in the lock when not the default" },
+      { flag: "--symlinks <preserve|refuse|resolve>", summary: "keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default" },
     ] },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a compatibility plan or LLO execution envelope" },

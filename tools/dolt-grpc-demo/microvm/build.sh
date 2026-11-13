@@ -19,9 +19,9 @@ cloister() { node "$REPO/bin/cloister.mjs" "$@"; }
 sh "$HERE/build-images.sh" "$OUT"
 node "$HERE/pin-layouts.mjs" "dolt=$OUT/dolt" "orders=$OUT/orders"
 
-# Wolfi images hold symlinks (apko's /lib/apk -> ../usr/lib/apk), which the
-# importer's default refuses. LLO v0.30.0's rootfs manifest v2
-# (ley-line-open-4f08ea) records links, and the default will do.
+# Wolfi images hold symlinks (apko's /lib/apk -> ../usr/lib/apk). Rootfs
+# manifest v2 (LLO v0.30.0, ley-line-open-4f08ea) keeps them as links, which
+# is the importer's default.
 for b in dolt orders; do
-  cloister runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b" --symlinks resolve
+  cloister runtime import --bundle "$b" --dir "$HERE" --layout "$OUT/$b"
 done

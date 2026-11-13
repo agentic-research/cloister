@@ -23,8 +23,8 @@ both. The lock is committed: both pins are the same on every checkout (see
 registry pull:
 
 ```
-cloister runtime import --bundle dolt --dir … --symlinks resolve
-→ dolthub/dolt-sql-server@sha256:d492a79d… → blake3-256:3f8b2671…  (11655 files, 1966 links resolved)
+cloister runtime import --bundle dolt --dir …
+→ dolthub/dolt-sql-server@sha256:d492a79d… → blake3-256:d83333de…
 ```
 
 The lock records it as the row for the platform LLO reported from the image's
@@ -34,14 +34,14 @@ config (`cloister-1c4ef5`). On an amd64 host the same import adds a
 ```toml
 [[inputs.dolt.oci.rootfs]]
 platform = "linux/arm64"
-digest = "blake3-256:3f8b26712968250e02e650917f2f87adfa4746fa3e7c1230e8d8a335858c6a91"
+digest = "blake3-256:d83333de379ad072fd16744456baa136aeeecea06ac224413310fc1eae31ad07"
 image = "sha256:d492a79d22bc4bca51aa054293af95734a93ae005c22c80751148814379c8242"
-symlinks = "resolve"
 ```
 
 The pull is anonymous HTTPS, so only public images work; a tag-only or
-unpinned image is refused. The image is Debian-based and has symlinks, so it
-needs `--symlinks resolve`. It also has names that differ only by case
+unpinned image is refused. The image is Debian-based and has symlinks; rootfs
+manifest v2 (LLO v0.30.0) keeps them as links, which is the importer's
+default. It also has names that differ only by case
 (perl's `Pod/` and `pod/`), so it needs a case-sensitive store.
 `runtime install` provisions one: LLO's sparsebundle under
 `~/.local/state/cloister/cas-volume`, created unprivileged with `hdiutil`. Each
@@ -64,17 +64,17 @@ grpcurl -plaintext -d '{"id":1}' 127.0.0.1:50051 cloister.demo.v1.Orders/Get
   `docker-entrypoint.sh` ran with the guest's own `HOME=/`, `PATH` and uid 0,
   and served on port 3306. `DOLT_ROOT_HOST` is not needed, because orders'
   connection arrives on the guest's loopback (`root@localhost`). The empty
-  `WORKDIR /var/lib/dolt` is not in the imported rootfs, because the rootfs
-  manifest lists files, not empty directories. The image config's working
-  directory isn't applied either, so Dolt keeps its data under `/`. That data
+  `WORKDIR /var/lib/dolt` is in the imported rootfs (rootfs manifest v2 records
+  empty directories), but the image config's working directory isn't
+  applied, so Dolt keeps its data under `/`. That data
   lives in the run's ephemeral rootfs and is gone when the run ends.
-- **No tini.** The image's entrypoint is `tini -- docker-entrypoint.sh`. On
-  LLO v0.29.0 a guest's arguments are cut at a literal `--`: `sh -c … a -- b`
-  saw only `a`. So tini got no program and printed its usage.
-  [`cluster.toml`](cluster.toml) runs the script directly. The guest has its
-  own init. Reported as ley-line-open-7410ec.
+- **The image's own entrypoint.** [`cluster.toml`](cluster.toml) runs
+  `tini -- docker-entrypoint.sh`, as the image config does. On LLO v0.29.0 a
+  guest's arguments were cut at a literal `--`, so tini got no program
+  (ley-line-open-7410ec). Since v0.30.0 arguments reach the guest byte for
+  byte.
 
-## Observed (darwin-arm64, LLO v0.29.0)
+## Observed (darwin-arm64, LLO v0.29.0; positive and SIGINT re-run on v0.30.0)
 
 - **Positive:** `SELECT dolt_version()` over the printed `dolt.mysql.sock`
   returned `1.86.1`. grpcurl returned the seeded row with `"branch": "main"`,

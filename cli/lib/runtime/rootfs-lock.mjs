@@ -18,7 +18,7 @@
 //   platform = "linux/arm64"         # as LLO reported it from the image config
 //   digest = "blake3-256:…"          # what `runtime import --bundle` produced …
 //   image = "sha256:…"               # … from THIS image
-//   symlinks = "resolve"             # only when not the default "refuse"
+//   symlinks = "resolve"             # only when not the default "preserve"
 //
 // `platform` is never typed: `runtime import` records what LLO reports for the
 // image it imported (`image.platform`, from the digest-verified config), and
@@ -30,7 +30,8 @@
 // hand-edited `digest` can never run an old rootfs under a new image name,
 // because plan / up compare the two and refuse when they differ. `symlinks` is
 // recorded because the symlink policy changes the tree, hence the rootfs
-// digest; "refuse" is the importer's default and is omitted.
+// digest; "preserve" (links kept as links, rootfs manifest v2) is the
+// importer's default since LLO v0.30.0 and is omitted.
 //
 // The flat shape before cloister-1c4ef5 (`rootfs = "blake3-256:…"`,
 // `rootfsImage`, `rootfsSymlinks`) is refused by name and never migrated: it
@@ -45,8 +46,8 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { isPlatform, platformAdmits, platformsOverlap } from "./platform.mjs";
 
 export const ROOTFS_KEY = "rootfs";
-export const DEFAULT_SYMLINKS = "refuse";
-export const SYMLINK_MODES = Object.freeze(["refuse", "resolve"]);
+export const DEFAULT_SYMLINKS = "preserve";
+export const SYMLINK_MODES = Object.freeze(["preserve", "refuse", "resolve"]);
 /** Keys of the flat, platform-less shape before cloister-1c4ef5. */
 export const LEGACY_KEYS = Object.freeze(["rootfsImage", "rootfsSymlinks"]);
 

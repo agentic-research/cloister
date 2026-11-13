@@ -256,9 +256,9 @@ fn run() -> Result<()> {
         // same CAS root the execution backend loads from, so the printed
         // `rootfs` is directly the plan's `blake3-256:` artifact digest.
         "import-oci" => {
-            let usage = "usage: cloister-host-runtime import-oci (--layout <dir> --image <sha256:…|name@sha256:…> | --from-registry <[registry/]repository@sha256:…>) [--symlinks refuse|resolve]";
+            let usage = "usage: cloister-host-runtime import-oci (--layout <dir> --image <sha256:…|name@sha256:…> | --from-registry <[registry/]repository@sha256:…>) [--symlinks preserve|refuse|resolve]";
             let (mut layout, mut image, mut registry, mut symlinks) =
-                (None, None, None, String::from("refuse"));
+                (None, None, None, String::from("preserve"));
             while let Some(flag) = args.next() {
                 let value = args
                     .next()
@@ -287,9 +287,10 @@ fn run() -> Result<()> {
                     pull_oci_image, RegistryLimits, RegistryPull,
                 };
                 let symlinks = match symlinks.as_str() {
+                    "preserve" => SymlinkPolicy::Preserve,
                     "refuse" => SymlinkPolicy::Refuse,
                     "resolve" => SymlinkPolicy::Resolve,
-                    other => bail!("--symlinks must be refuse or resolve, not {other:?}"),
+                    other => bail!("--symlinks must be preserve, refuse or resolve, not {other:?}"),
                 };
                 let cas_root = krun_config().cas_root;
                 ensure_cas_volume_attached(&cas_root)?;

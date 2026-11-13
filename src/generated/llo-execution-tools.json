@@ -143,7 +143,8 @@
         "name": { "type": "string", "description": "RunSpec workspace name this grant resolves." },
         "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Authorized input Graph root." },
         "expectedGeneration": { "type": "integer", "minimum": 0, "description": "Optimistic-concurrency generation for mutation." },
-        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." }
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." },
+        "writeScope": { "type": "array", "items": { "type": "string" }, "description": "Paths the run may write, create, rename or delete, relative to the workspace root: an exact file path, or a directory prefix ending in '/'. The single entry '/' is the whole workspace. Present and non-empty exactly when operations include mutate or commit, and otherwise omitted: an explicit empty list is refused, so no scope has one encoding. Reads stay governed by graphRoot. A daemon that enforces it advertises cloister/execution/v1/workspace-write-scope." }
       },
       "required": ["name", "graphRoot", "expectedGeneration", "operations"],
       "additionalProperties": false
@@ -215,9 +216,11 @@
         "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings the run is held to; each may only narrow the spec's requestedLimits." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
-        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "The broker integrations the run requires, each named by contract id or broker reference; never a credential value. A daemon refuses any entry it does not implement. `cloister/connections/v1` is reserved: it marks a grant that carries connectionsDigest and connectionsDocument, and a grant carries it if and only if it carries both (ADR-0046 S3)." },
         "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
-        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." },
+        "connectionsDigest": { "$ref": "#/$defs/DigestRef", "description": "BLAKE3-256 over the canonical cloister/connections/v1 document in connectionsDocument; names those bytes only (not confinementDigest, a blob hash or any store root). Present only together with connectionsDocument and the credentialBrokerRefs entry `cloister/connections/v1`; a non-null value with an empty algorithm or value is malformed, never absent (ADR-0046 S3)." },
+        "connectionsDocument": { "type": "string", "description": "The canonical cloister/connections/v1 document connectionsDigest is taken over. The runner recomputes the digest from these bytes and refuses a document that is not byte-equal to its own canonicalization; it never normalizes. A non-null empty text is malformed, never absent." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false
@@ -294,6 +297,23 @@
       "required": ["backendClass", "backendId", "evidence"],
       "additionalProperties": false
     },
+    "ConnectionOutcome": {
+      "type": "object",
+      "description": "What one declared connection carried during a run, as the supervisor assembled it from the broker's per-connection records. No payload byte, guest address or peer pid.",
+      "properties": {
+        "name": { "type": "string", "description": "The connection's name." },
+        "target": { "type": "string", "description": "The literal dialed: `127.0.0.1:30080`, or `[::1]:30080` for IPv6." },
+        "accepted": { "type": "integer", "minimum": 0, "description": "Connections accepted on this run's endpoint from this run's peer." },
+        "dialed": { "type": "integer", "minimum": 0, "description": "Of those, the ones whose upstream dial succeeded." },
+        "refused": { "type": "integer", "minimum": 0, "description": "Of those, the ones closed without an upstream (hold expired, dial error, connection cap)." },
+        "foreignPeers": { "type": "integer", "minimum": 0, "description": "Connections closed at accept because the peer was not this run's; not counted in accepted." },
+        "complete": { "type": "boolean", "description": "True when every accepted connection has a final record, so accepted = dialed + refused; false (the broker crashed) makes every count a lower bound." },
+        "bytesToTarget": { "type": "integer", "minimum": 0, "description": "Bytes copied from the workload to the target." },
+        "bytesFromTarget": { "type": "integer", "minimum": 0, "description": "Bytes copied from the target to the workload." }
+      },
+      "required": ["name", "target", "accepted", "dialed", "refused", "foreignPeers", "complete", "bytesToTarget", "bytesFromTarget"],
+      "additionalProperties": false
+    },
     "RunReceipt": {
       "type": "object",
       "description": "Terminal substrate evidence; may be embedded by a separate APAS attester.",
@@ -312,7 +332,9 @@
         "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs only." },
         "usage": { "$ref": "#/$defs/ResourceUsage", "description": "Terminal resource accounting." },
         "startedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed start time." },
-        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." }
+        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." },
+        "connectionsDigest": { "$ref": "#/$defs/DigestRef", "description": "The connectionsDigest of the document the run's broker attested in its ready report; absent for a run without connections." },
+        "connections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionOutcome" }, "description": "One outcome per declared connection, in document order; absent for a run without connections." }
       },
       "required": ["schemaVersion", "runId", "terminalState", "eventLogRoot", "runSpecDigest", "runGrantDigest", "confinementDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "backend", "inputRoots", "outputs", "usage", "startedAtUnixMs", "completedAtUnixMs"],
       "additionalProperties": false
@@ -625,7 +647,8 @@
         "name": { "type": "string", "description": "RunSpec workspace name this grant resolves." },
         "graphRoot": { "$ref": "#/$defs/DigestRef", "description": "Authorized input Graph root." },
         "expectedGeneration": { "type": "integer", "minimum": 0, "description": "Optimistic-concurrency generation for mutation." },
-        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." }
+        "operations": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceOperation" }, "description": "Exact operations permitted on this workspace." },
+        "writeScope": { "type": "array", "items": { "type": "string" }, "description": "Paths the run may write, create, rename or delete, relative to the workspace root: an exact file path, or a directory prefix ending in '/'. The single entry '/' is the whole workspace. Present and non-empty exactly when operations include mutate or commit, and otherwise omitted: an explicit empty list is refused, so no scope has one encoding. Reads stay governed by graphRoot. A daemon that enforces it advertises cloister/execution/v1/workspace-write-scope." }
       },
       "required": ["name", "graphRoot", "expectedGeneration", "operations"],
       "additionalProperties": false
@@ -697,9 +720,11 @@
         "limits": { "$ref": "#/$defs/ResourceLimits", "description": "Resolved ceilings the run is held to; each may only narrow the spec's requestedLimits." },
         "workspaces": { "type": "array", "items": { "$ref": "#/$defs/WorkspaceGrant" }, "description": "Resolved Graph authority." },
         "allowedEgress": { "type": "array", "items": { "type": "string" }, "description": "Resolved egress endpoints or capability references." },
-        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "Resolved credential brokers; never credential values." },
+        "credentialBrokerRefs": { "type": "array", "items": { "type": "string" }, "description": "The broker integrations the run requires, each named by contract id or broker reference; never a credential value. A daemon refuses any entry it does not implement. `cloister/connections/v1` is reserved: it marks a grant that carries connectionsDigest and connectionsDocument, and a grant carries it if and only if it carries both (ADR-0046 S3)." },
         "signature": { "$ref": "#/$defs/GrantSignature", "description": "Issuer signature binding every other field of this grant; absent only when the caller is the issuer. See wire/run-grant.md." },
-        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." }
+        "confinementManifest": { "type": "string", "description": "The confinement/v1 document `confinementDigest` is taken over, as canonical JSON. Carrying the digest alone let an issuer commit to a policy the runner could never obtain, so a runner could verify a match and never learn WHAT was authorized. Absent means the issuer names a policy by digest only, and a runner that cannot otherwise obtain that document must refuse rather than guess." },
+        "connectionsDigest": { "$ref": "#/$defs/DigestRef", "description": "BLAKE3-256 over the canonical cloister/connections/v1 document in connectionsDocument; names those bytes only (not confinementDigest, a blob hash or any store root). Present only together with connectionsDocument and the credentialBrokerRefs entry `cloister/connections/v1`; a non-null value with an empty algorithm or value is malformed, never absent (ADR-0046 S3)." },
+        "connectionsDocument": { "type": "string", "description": "The canonical cloister/connections/v1 document connectionsDigest is taken over. The runner recomputes the digest from these bytes and refuses a document that is not byte-equal to its own canonicalization; it never normalizes. A non-null empty text is malformed, never absent." }
       },
       "required": ["grantId", "issuerEvidence", "expiresAtUnixMs", "replayKey", "runSpecDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "capabilities", "confinementDigest", "backendClass", "limits", "workspaces", "allowedEgress", "credentialBrokerRefs"],
       "additionalProperties": false
@@ -776,6 +801,23 @@
       "required": ["backendClass", "backendId", "evidence"],
       "additionalProperties": false
     },
+    "ConnectionOutcome": {
+      "type": "object",
+      "description": "What one declared connection carried during a run, as the supervisor assembled it from the broker's per-connection records. No payload byte, guest address or peer pid.",
+      "properties": {
+        "name": { "type": "string", "description": "The connection's name." },
+        "target": { "type": "string", "description": "The literal dialed: `127.0.0.1:30080`, or `[::1]:30080` for IPv6." },
+        "accepted": { "type": "integer", "minimum": 0, "description": "Connections accepted on this run's endpoint from this run's peer." },
+        "dialed": { "type": "integer", "minimum": 0, "description": "Of those, the ones whose upstream dial succeeded." },
+        "refused": { "type": "integer", "minimum": 0, "description": "Of those, the ones closed without an upstream (hold expired, dial error, connection cap)." },
+        "foreignPeers": { "type": "integer", "minimum": 0, "description": "Connections closed at accept because the peer was not this run's; not counted in accepted." },
+        "complete": { "type": "boolean", "description": "True when every accepted connection has a final record, so accepted = dialed + refused; false (the broker crashed) makes every count a lower bound." },
+        "bytesToTarget": { "type": "integer", "minimum": 0, "description": "Bytes copied from the workload to the target." },
+        "bytesFromTarget": { "type": "integer", "minimum": 0, "description": "Bytes copied from the target to the workload." }
+      },
+      "required": ["name", "target", "accepted", "dialed", "refused", "foreignPeers", "complete", "bytesToTarget", "bytesFromTarget"],
+      "additionalProperties": false
+    },
     "RunReceipt": {
       "type": "object",
       "description": "Terminal substrate evidence; may be embedded by a separate APAS attester.",
@@ -794,7 +836,9 @@
         "outputs": { "type": "array", "items": { "$ref": "#/$defs/ArtifactResult" }, "description": "Declared collected outputs only." },
         "usage": { "$ref": "#/$defs/ResourceUsage", "description": "Terminal resource accounting." },
         "startedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed start time." },
-        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." }
+        "completedAtUnixMs": { "type": "integer", "minimum": 0, "description": "Substrate-observed terminal time." },
+        "connectionsDigest": { "$ref": "#/$defs/DigestRef", "description": "The connectionsDigest of the document the run's broker attested in its ready report; absent for a run without connections." },
+        "connections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionOutcome" }, "description": "One outcome per declared connection, in document order; absent for a run without connections." }
       },
       "required": ["schemaVersion", "runId", "terminalState", "eventLogRoot", "runSpecDigest", "runGrantDigest", "confinementDigest", "workloadIdentityEvidence", "actorProvenanceEvidence", "backend", "inputRoots", "outputs", "usage", "startedAtUnixMs", "completedAtUnixMs"],
       "additionalProperties": false

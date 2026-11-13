@@ -42,7 +42,8 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
    - [`melange-dolt.yaml`](melange-dolt.yaml): the static `dolt` binary from
      the official v1.86.1 release tarball, fetched with a pinned sha256. Wolfi
      ships no dolt package. [`apko-dolt.yaml`](apko-dolt.yaml) adds an empty
-     `/data` for Dolt's data directory. `/tmp` is not shipped: since LLO
+     `/data` for Dolt's data directory (rootfs manifest v2 records the empty
+     directory itself). `/tmp` is not shipped: since LLO
      v0.29.0 every guest has a tmpfs `/tmp`.
    - [`melange-orders.yaml`](melange-orders.yaml): a static (CGO off) build
      of the same package as `../Dockerfile`, with Go pinned to one Wolfi build
@@ -64,9 +65,9 @@ node bin/cloister.mjs cluster up --env local --dir tools/dolt-grpc-demo/microvm
    leaves it unchanged. If a pin does change, `pin-layouts` prints a
    `WARNING` naming the old and new digest, and `git diff` shows it.
 3. **Imports each pinned image** with `cloister runtime import --bundle
-   … --symlinks resolve`. The images hold symlinks (apko's `/lib/apk`), which
-   the importer's default refuses; LLO v0.30.0's rootfs manifest v2
-   (ley-line-open-4f08ea) will record them, and the default will do. The
+   …`. The images hold symlinks (apko's `/lib/apk`); rootfs manifest v2
+   (LLO v0.30.0, ley-line-open-4f08ea) keeps them as links, which is the
+   importer's default. The
    import records the `blake3-256:` rootfs as a
    `[[inputs.<bundle>.oci.rootfs]]` row for this host's platform
    (`platform = "linux/arm64"` on Apple silicon). Re-running it is

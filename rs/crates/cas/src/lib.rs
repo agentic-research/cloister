@@ -92,25 +92,36 @@ pub unsafe extern "C" fn cloister_cas_free(ptr: *mut u8, size: usize) {
 /// an address.
 #[unsafe(no_mangle)]
 pub extern "C" fn cloister_partition_address(
-    spec_ptr: *const u8, spec_len: usize,
-    entries_ptr: *const u8, entries_len: usize,
+    spec_ptr: *const u8,
+    spec_len: usize,
+    entries_ptr: *const u8,
+    entries_len: usize,
     out_ptr: *mut u8,
 ) -> i32 {
     // `slice::from_raw_parts` with a null pointer is UB per its own
     // contract even at zero length — reject before touching either
     // pointer rather than relying on callers to never pass null.
-    if spec_ptr.is_null() || entries_ptr.is_null() { return 1; }
+    if spec_ptr.is_null() || entries_ptr.is_null() {
+        return 1;
+    }
 
     let spec_buf = unsafe { std::slice::from_raw_parts(spec_ptr, spec_len) };
-    let ent_buf  = unsafe { std::slice::from_raw_parts(entries_ptr, entries_len) };
+    let ent_buf = unsafe { std::slice::from_raw_parts(entries_ptr, entries_len) };
 
     // -- spec: tag(1) | canon(4) | scheme_len(8) | scheme | params_len(8) | params
     let mut o = 0usize;
     let rd_u64 = |b: &[u8], o: usize| -> Option<u64> {
-        b.get(o..o + 8).map(|s| u64::from_le_bytes(s.try_into().unwrap()))
+        b.get(o..o + 8)
+            .map(|s| u64::from_le_bytes(s.try_into().unwrap()))
     };
-    let tag = match spec_buf.first() { Some(t) => *t, None => return 1 };
-    let domain = match domain_from_tag(tag) { Some(d) => d, None => return 1 };
+    let tag = match spec_buf.first() {
+        Some(t) => *t,
+        None => return 1,
+    };
+    let domain = match domain_from_tag(tag) {
+        Some(d) => d,
+        None => return 1,
+    };
     o += 1;
     let canon_version = match spec_buf.get(o..o + 4) {
         Some(s) => u32::from_le_bytes(s.try_into().unwrap()),
@@ -137,7 +148,10 @@ pub extern "C" fn cloister_partition_address(
         None => return 1,
     };
     o += 8;
-    let scheme = match spec_buf.get(o..o + slen).and_then(|s| std::str::from_utf8(s).ok()) {
+    let scheme = match spec_buf
+        .get(o..o + slen)
+        .and_then(|s| std::str::from_utf8(s).ok())
+    {
         Some(s) => s.to_string(),
         None => return 1,
     };
@@ -152,9 +166,14 @@ pub extern "C" fn cloister_partition_address(
         None => return 1,
     };
     o += 8;
-    let params = match spec_buf.get(o..o + plen) { Some(s) => s.to_vec(), None => return 1 };
+    let params = match spec_buf.get(o..o + plen) {
+        Some(s) => s.to_vec(),
+        None => return 1,
+    };
     o = params_end;
-    if o != spec_buf.len() { return 1; }   // trailing bytes are a malformed spec
+    if o != spec_buf.len() {
+        return 1;
+    } // trailing bytes are a malformed spec
 
     // -- entries: count(8) | (addr[32] | a(8) | b(8))…
     // Same truncation hazard as `slen`/`plen` above — see that comment.
@@ -173,7 +192,9 @@ pub extern "C" fn cloister_partition_address(
         Some(v) => v,
         None => return 1,
     };
-    if ent_buf.len() != expected_len { return 1; }
+    if ent_buf.len() != expected_len {
+        return 1;
+    }
     let mut entries = Vec::with_capacity(count);
     for i in 0..count {
         let base = 8 + i * REC;
@@ -181,10 +202,19 @@ pub extern "C" fn cloister_partition_address(
         addr.copy_from_slice(&ent_buf[base..base + 32]);
         let a = u64::from_le_bytes(ent_buf[base + 32..base + 40].try_into().unwrap());
         let b = u64::from_le_bytes(ent_buf[base + 40..base + 48].try_into().unwrap());
-        entries.push(Entry { addr: Hash::from_bytes(addr), a, b });
+        entries.push(Entry {
+            addr: Hash::from_bytes(addr),
+            a,
+            b,
+        });
     }
 
-    let spec = PartitionSpec { domain, scheme, params, canon_version };
+    let spec = PartitionSpec {
+        domain,
+        scheme,
+        params,
+        canon_version,
+    };
     let addr = spec.address(&entries);
     unsafe { std::ptr::copy_nonoverlapping(addr.as_bytes().as_ptr(), out_ptr, 32) };
     0
@@ -239,7 +269,13 @@ mod tests {
     fn address_matches_upstream_fold_for_a_known_spec() {
         let scheme = "glob-closure/v1";
         let params = b"\x00".to_vec();
-        let addr_a = partition_address(3 /* RowSet */, scheme, &params, 1, &[([0u8; 32], 0, 1)]);
+        let addr_a = partition_address(
+            3, /* RowSet */
+            scheme,
+            &params,
+            1,
+            &[([0u8; 32], 0, 1)],
+        );
         let addr_b = partition_address(3, scheme, &params, 1, &[([0u8; 32], 1, 0)]);
         assert_ne!(addr_a, addr_b, "framing must be committed to, not ignored");
 
@@ -261,7 +297,10 @@ mod tests {
         // The free guard (size > 0) makes this a no-op — but the pointer
         // IS non-null, so callers that null-check won't false-alarm.
         let ptr = cloister_cas_alloc(0);
-        assert!(!ptr.is_null(), "zero-size alloc must return non-null sentinel");
+        assert!(
+            !ptr.is_null(),
+            "zero-size alloc must return non-null sentinel"
+        );
         unsafe { cloister_cas_free(ptr, 0) };
     }
 
@@ -325,9 +364,8 @@ mod tests {
     fn hash_via_re_export_matches_blake3() {
         let input = b"bridge-check";
         let mut out = [0u8; 32];
-        let rc = unsafe {
-            leyline_hash_bytes(input.as_ptr(), input.len(), out.as_mut_ptr(), out.len())
-        };
+        let rc =
+            unsafe { leyline_hash_bytes(input.as_ptr(), input.len(), out.as_mut_ptr(), out.len()) };
         assert_eq!(rc, 32);
         let expected = blake3::hash(input);
         assert_eq!(&out[..], expected.as_bytes());
@@ -444,7 +482,10 @@ mod tests {
         assert_eq!(entries.len(), 40);
 
         let (rc, out) = call_ffi(&spec, &entries);
-        assert_ne!(rc, 0, "overflow-inducing count must be rejected, not trapped");
+        assert_ne!(
+            rc, 0,
+            "overflow-inducing count must be rejected, not trapped"
+        );
         assert_eq!(out, SENTINEL);
     }
 

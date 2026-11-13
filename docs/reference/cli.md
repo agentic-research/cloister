@@ -310,7 +310,7 @@ Builds the native confinement helper and host runtime, copies them into ~/.local
 ## cloister runtime import
 
 ```
-cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks refuse|resolve]
+cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks preserve|refuse|resolve]
 ```
 
 With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in cluster.lock.toml; --image may be omitted, and must equal it if given) and records the resulting blake3-256 rootfs beside the pin as a [[inputs.<bundle>.oci.rootfs]] row for the platform LLO reports (other platforms' rows are kept); `runtime plan` and `cluster up` run the row for the host runtime's guest platform. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned image is refused). Without --bundle, prints LLO's import record and writes nothing.
@@ -321,7 +321,7 @@ With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest 
 | `--bundle <name>` |  | record the rootfs for this bundle in cluster.lock.toml |
 | `--dir <cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
 | `--image <sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |
-| `--symlinks <refuse|resolve>` |  | refuse links (default) or copy in-image targets; recorded in the lock when not the default |
+| `--symlinks <preserve|refuse|resolve>` |  | keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default |
 
 ## cloister runtime run
 

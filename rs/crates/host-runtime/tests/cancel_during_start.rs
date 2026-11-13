@@ -74,7 +74,11 @@ impl LeylineBackendTrait for GatedBackend {
         }
     }
 
-    fn start(&self, _request: &ExecutionRequest) -> Result<BackendRun, ExecutionError> {
+    fn start(
+        &self,
+        _request: &ExecutionRequest,
+        _workspaces: leyline_runtime::ServedWorkspaces,
+    ) -> Result<BackendRun, ExecutionError> {
         if let Some(tx) = self.entered.lock().unwrap().take() {
             let _ = tx.send(());
         }
@@ -85,7 +89,7 @@ impl LeylineBackendTrait for GatedBackend {
         self.published.store(true, Ordering::SeqCst);
         Ok(BackendRun {
             backend_id: "gated".into(),
-            channels: Vec::new(),
+            attached: Vec::new(),
         })
     }
 
