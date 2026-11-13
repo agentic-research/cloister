@@ -11,7 +11,7 @@ so we batch changes by month rather than ratcheting semver per release.
 - The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.
 - A workspace-wide build turned `preserve_order` on and broke two `confinement_digest` tests; the published digest is unchanged.
 - One shared `cloister_cas::canonical_confinement_json` replaces three copies (test, example, dev-cert minter); it is native-only, so the wasm artifact is unchanged.
-- `task rs:test` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
+- `task rs:verify` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
