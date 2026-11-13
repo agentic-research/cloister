@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect` ignores an inherited git environment (`cloister-10804d`)
+
+- `cloister inspect` refuses a rendered Terraform document that git tracks.
+  The check ran git with the caller's environment. Inside a git hook that
+  environment names the hook's repository, so the check answered for the
+  wrong repository and could report a tracked document as untracked. Git's
+  own variables are now removed before git is run.
+- The check's tests had the same fault. Run from the pre-push hook, their
+  `git add state.json` staged that file into the index of the repository
+  being pushed, and every second push failed the gate. They now run git
+  with a clean environment, and a new test proves another repository's
+  index is left alone.
+
 ### 2026-11 — Generator fetch replaces its cache file atomically (`cloister-fb0616`)
 
 - `scripts/fetch-schema-bridge.mjs` wrote a downloaded generator straight to
