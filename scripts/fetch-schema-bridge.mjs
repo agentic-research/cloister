@@ -39,8 +39,8 @@
 //        node scripts/fetch-schema-bridge.mjs --wasm <module.wasm>
 // Prints the absolute path of the verified binary on stdout.
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync, rmSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { arch, platform } from "node:os";
@@ -149,9 +149,22 @@ async function ensureAsset({ label, url, expected, cached, mode, fetchImpl }) {
     );
   }
 
+  // Never write the cache path in place (cloister-fb0616). `task lint` runs
+  // several tasks in parallel that each resolve the same generator; one that
+  // found the file complete may be exec'ing it while another, which read it
+  // half-written, rewrites it — and exec of a file open for writing fails with
+  // "Text file busy". Write a private file, then rename: the cache path only
+  // ever names complete, verified bytes, and a process already running the
+  // old file keeps its inode.
   mkdirSync(dirname(cached), { recursive: true });
-  writeFileSync(cached, bytes);
-  chmodSync(cached, mode);
+  const partial = `${cached}.${process.pid}.${randomBytes(6).toString("hex")}.partial`;
+  try {
+    writeFileSync(partial, bytes, { mode, flag: "wx" });
+    chmodSync(partial, mode);
+    renameSync(partial, cached);
+  } finally {
+    rmSync(partial, { force: true });
+  }
   return cached;
 }
 
