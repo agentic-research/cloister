@@ -29,6 +29,13 @@
 // crate's .wasm just as if we defined it here.
 pub use leyline_cas_ffi::ffi::leyline_hash_bytes;
 
+// Native-only: serde_json is a non-wasm32 dependency, so the wasm artifact is
+// untouched (cloister-d95ff5).
+#[cfg(not(target_arch = "wasm32"))]
+mod confinement_canonical;
+#[cfg(not(target_arch = "wasm32"))]
+pub use confinement_canonical::canonical_confinement_json;
+
 use leyline_core::partition::{Domain, Entry, PartitionSpec};
 use leyline_core::substrate::Hash;
 

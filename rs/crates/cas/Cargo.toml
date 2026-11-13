@@ -74,6 +74,14 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev = "de638aeaf77133e6c14125a0f59f5f6b0acade00", version = "0.30.0", package = "leyline-sign", features = ["host"] }
 
+# serde_json backs `confinement_canonical` (the §7 canonical serializer for
+# cloister/confinement/v1 ConfinementManifests, cloister-a34edc), shared by the
+# conformance test and examples. Keys are sorted explicitly there, so the result
+# does not depend on serde_json's `preserve_order` feature (cloister-d95ff5);
+# to_string_pretty gives 2-space indent. Native-only, like the module itself, so
+# the wasm32 dep graph and cloister_cas.wasm are unchanged.
+serde_json = "1"
+
 # NOTE: leyline-schema-bridge is deliberately NOT a dependency.
 #
 # It used to be anchored here so `cargo build -p leyline-schema-bridge --bin
@@ -95,12 +103,6 @@ leyline-sign = { git = "https://github.com/agentic-research/ley-line-open", rev 
 # output against `blake3::hash` directly. Matches the upstream cas-ffi
 # crate's dev-dep convention.
 blake3 = "1"
-
-# For examples/confinement-digest.rs — the §7 canonical serializer for
-# cloister/confinement/v1 ConfinementManifests (cloister-a34edc). serde_json's
-# default Map is a sorted BTreeMap (preserve_order off), which gives §6.2's
-# ASCII-sorted keys; to_string_pretty gives 2-space indent.
-serde_json = "1"
 
 # For `examples/mint-dev-cert.rs` (the ADR-0042 dev-cert minter, re-homed here
 # after PR #119 dropped the leyline-sign fork it used to live in). Versions are

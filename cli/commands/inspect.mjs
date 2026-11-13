@@ -46,12 +46,25 @@ export function parseArgs(argv) {
  * it holds in plain text, so a tracked copy is a leak already made or about to
  * be. Not being in a repository, or git being absent, is not tracked.
  */
-export function isGitTracked(file, spawn = spawnSync) {
+export function isGitTracked(file, spawn = spawnSync, env = process.env) {
   const result = spawn("git", ["ls-files", "--error-unmatch", "--", basename(file)], {
     cwd: dirname(file),
     stdio: "ignore",
+    env: withoutGitEnv(env),
   });
   return result.status === 0;
+}
+
+/**
+ * `env` without git's own variables. Inside a git hook, git exports GIT_DIR
+ * and GIT_INDEX_FILE, and with those set `cwd` no longer chooses the
+ * repository: the question would be answered for the hook's repository, not
+ * the file's, and a tracked document could be reported untracked
+ * (cloister-10804d). Every `GIT_*` variable is dropped rather than a listed
+ * few, so nothing here has to track git's list.
+ */
+export function withoutGitEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith("GIT_")));
 }
 
 export async function main(argv = process.argv.slice(2), deps = {}) {

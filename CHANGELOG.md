@@ -21,6 +21,13 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - **A rail keeps it out.** A test fails if any file under `cli/` defines or calls
   a platform-admission function.
 
+### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)
+
+- The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.
+- A workspace-wide build turned `preserve_order` on and broke two `confinement_digest` tests; the published digest is unchanged.
+- One shared `cloister_cas::canonical_confinement_json` replaces three copies (test, example, dev-cert minter); it is native-only, so the wasm artifact is unchanged.
+- `task rs:verify` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
+
 ### 2026-11 — Declared environment reaches the microVM (`cloister-2af426`)
 
 - **Env is lowered into the plan.** A bundle's `[bundles.external]` `env`
@@ -37,6 +44,30 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `KRUN_`-prefixed names are left to LLO's worker to refuse.
 - **Values are not secrets.** They are stored in the plan in clear. Credentials
   go through vault slices.
+
+### 2026-11 — `cloister inspect` ignores an inherited git environment (`cloister-10804d`)
+
+- `cloister inspect` refuses a rendered Terraform document that git tracks.
+  The check ran git with the caller's environment. Inside a git hook that
+  environment names the hook's repository, so the check answered for the
+  wrong repository and could report a tracked document as untracked. Git's
+  own variables are now removed before git is run.
+- The check's tests had the same fault. Run from the pre-push hook, their
+  `git add state.json` staged that file into the index of the repository
+  being pushed, and every second push failed the gate. They now run git
+  with a clean environment, and a new test proves another repository's
+  index is left alone.
+
+### 2026-11 — Generator fetch replaces its cache file atomically (`cloister-fb0616`)
+
+- `scripts/fetch-schema-bridge.mjs` wrote a downloaded generator straight to
+  its cache path. `task lint` resolves the same generator from several
+  parallel tasks, so on a cold cache one task could run the file while
+  another was still writing it: `exec(): Text file busy`, and
+  `cloister:zod:check-drift` failed. It happened in CI on the first runs
+  after the LLO v0.30.0 bump made the cache path new.
+- The asset is now written to a private file and renamed onto the cache
+  path, so the path only ever names complete, verified bytes.
 
 ### 2026-11 — LLO v0.30.0: rootfs manifest v2, exact argv (`cloister-2fcb8f`, `cloister-b74da4`)
 

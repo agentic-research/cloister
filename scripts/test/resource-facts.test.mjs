@@ -11,7 +11,7 @@ import { test } from "node:test";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { main as inspectMain, isGitTracked } from "../../cli/commands/inspect.mjs";
+import { main as inspectMain, isGitTracked, withoutGitEnv } from "../../cli/commands/inspect.mjs";
 import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, GOOGLE_MAPPING, GOOGLE_SPEC, importResource } from "../../cli/lib/facts/cloudflare.mjs";
 import { validateMapping, validateWranglerKeys } from "../../cli/lib/facts/validate.mjs";
 import { WRANGLER_MAPPING, importWrangler } from "../../cli/lib/facts/wrangler.mjs";
@@ -22,6 +22,11 @@ import { resolveRelations } from "../../cli/lib/facts/cloudflare.mjs";
 import { buildReport, renderReport } from "../../cli/lib/facts/report.mjs";
 import { readShowJson, resourceReferences } from "../../cli/lib/facts/terraform.mjs";
 import { trimPlan } from "../../scripts/trim-plan-fixture.mjs";
+
+// A git hook exports GIT_DIR and GIT_INDEX_FILE. A `git add` here that
+// inherited them staged this test's file into the repository being pushed
+// (cloister-10804d).
+const GIT_CLEAN = withoutGitEnv();
 
 const FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/cloudflare-state.show.json", import.meta.url));
 const WRANGLER_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/wrangler.toml", import.meta.url));
@@ -204,11 +209,11 @@ test("committed fixtures are synthetic: reserved names and repeated-digit ids on
 test("inspect refuses a file git tracks, before reading it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "inspect-tracked-"));
   try {
-    execFileSync("git", ["init", "-q"], { cwd: dir });
+    execFileSync("git", ["init", "-q"], { cwd: dir, env: GIT_CLEAN });
     const file = join(dir, "state.json");
     writeFileSync(file, "this is not JSON; reading it would fail differently");
     assert.equal(isGitTracked(file), false);
-    execFileSync("git", ["add", "state.json"], { cwd: dir });
+    execFileSync("git", ["add", "state.json"], { cwd: dir, env: GIT_CLEAN });
     assert.equal(isGitTracked(file), true);
     const errors = [];
     const code = await inspectMain(["--terraform", file], { log: () => {}, errLog: (m) => errors.push(m) });
@@ -517,9 +522,9 @@ test("inspect refuses a symlink that points at a tracked file", async () => {
   const repo = mkdtempSync(join(tmpdir(), "inspect-link-repo-"));
   const outside = mkdtempSync(join(tmpdir(), "inspect-link-out-"));
   try {
-    execFileSync("git", ["init", "-q"], { cwd: repo });
+    execFileSync("git", ["init", "-q"], { cwd: repo, env: GIT_CLEAN });
     writeFileSync(join(repo, "state.json"), "{}");
-    execFileSync("git", ["add", "state.json"], { cwd: repo });
+    execFileSync("git", ["add", "state.json"], { cwd: repo, env: GIT_CLEAN });
     const link = join(outside, "link.json");
     symlinkSync(join(repo, "state.json"), link);
     const errors = [];
@@ -719,4 +724,39 @@ test("mapping validation refuses a referenceAttrs entry that is not in the spec"
 test("each mapping is validated against its own spec", () => {
   assert.throws(() => validateMapping(GOOGLE_MAPPING, CLOUDFLARE_SPEC), /unknown resource type "google_/);
   assert.throws(() => validateMapping(CLOUDFLARE_MAPPING, GOOGLE_SPEC), /unknown resource type "cloudflare_/);
+});
+
+test("the tracked-file check ignores an inherited git environment", () => {
+  // What a pre-push hook looks like from inside: GIT_DIR and GIT_INDEX_FILE
+  // name ANOTHER repository. Neither the answer nor that repository's index
+  // may depend on them.
+  const other = mkdtempSync(join(tmpdir(), "inspect-env-other-"));
+  const dir = mkdtempSync(join(tmpdir(), "inspect-env-"));
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: other, env: GIT_CLEAN });
+    writeFileSync(join(other, "state.json"), "{}");
+    execFileSync("git", ["add", "state.json"], { cwd: other, env: GIT_CLEAN });
+    const hookEnv = { ...process.env, GIT_DIR: join(other, ".git"), GIT_INDEX_FILE: join(other, ".git", "index") };
+
+    // Not in any repository: untracked, although the hook's repository tracks
+    // a file of the same name.
+    const file = join(dir, "state.json");
+    writeFileSync(file, "{}");
+    assert.equal(isGitTracked(file, undefined, hookEnv), false);
+
+    // In its own repository and tracked there: tracked, although the hook's
+    // repository is a different one.
+    execFileSync("git", ["init", "-q"], { cwd: dir, env: GIT_CLEAN });
+    const mine = join(dir, "plan.json");
+    writeFileSync(mine, "{}");
+    execFileSync("git", ["add", "plan.json"], { cwd: dir, env: GIT_CLEAN });
+    assert.equal(isGitTracked(mine, undefined, hookEnv), true);
+
+    const index = execFileSync("git", ["ls-files"], { cwd: other, env: GIT_CLEAN, encoding: "utf8" });
+    assert.equal(index, "state.json\n", "the other repository's index is unchanged");
+    assert.deepEqual(Object.keys(withoutGitEnv(hookEnv)).filter((k) => k.startsWith("GIT_")), []);
+  } finally {
+    rmSync(other, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
