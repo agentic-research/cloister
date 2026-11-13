@@ -7,8 +7,8 @@
 # dolt runs the image config's own entrypoint, `tini -- docker-entrypoint.sh`.
 # Since LLO v0.30.0 arguments reach the guest byte for byte, the literal `--`
 # included (ley-line-open-7410ec). Paths are absolute because a plan names an
-# absolute executable. Plans carry no env: the script runs with the guest's
-# HOME=/ and PATH, as root, and needs nothing else (seen live).
+# absolute executable. The demo declares no env because the script needs none: it runs with the
+# guest's HOME=/ and PATH, as root (seen live).
 
 [metadata]
 name = "dolt-grpc-demo-published"

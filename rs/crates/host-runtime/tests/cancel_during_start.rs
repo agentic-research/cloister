@@ -117,6 +117,7 @@ fn plan() -> LaunchPlan {
         confinement: Confinement::default(),
         workspace: "/tmp/workspace".into(),
         control_socket: "/tmp/control.sock".into(),
+        environment: Vec::new(),
     }
 }
 

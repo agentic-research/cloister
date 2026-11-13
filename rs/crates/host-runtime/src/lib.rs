@@ -130,6 +130,18 @@ pub struct LaunchPlan {
     pub confinement: Confinement,
     pub workspace: PathBuf,
     pub control_socket: PathBuf,
+    /// The bundle's declared environment, in declaration order. Values are
+    /// stored in the plan and are not secrets; credentials go through vault
+    /// slices.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environment: Vec<EnvVar>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvVar {
+    pub name: String,
+    pub value: String,
 }
 
 impl LaunchPlan {
@@ -224,6 +236,40 @@ impl LaunchPlan {
                     )));
                 }
                 _ => {}
+            }
+        }
+        // Names are quoted, values never are: a value may be sensitive and an
+        // error is logged.
+        let mut seen_names = std::collections::BTreeSet::new();
+        for var in &self.environment {
+            if var.name.is_empty() {
+                return Err(RuntimeError::InvalidPlan(
+                    "environment variable name must not be empty".into(),
+                ));
+            }
+            if var.name.contains('=') {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "environment variable name {:?} must not contain '='",
+                    var.name
+                )));
+            }
+            if var.name.contains('\0') {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "environment variable name {:?} must not contain NUL",
+                    var.name
+                )));
+            }
+            if var.value.contains('\0') {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "environment variable {:?} value must not contain NUL",
+                    var.name
+                )));
+            }
+            if !seen_names.insert(var.name.as_str()) {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "environment variable {:?} is declared twice",
+                    var.name
+                )));
             }
         }
         let mut ports: Vec<u16> = self

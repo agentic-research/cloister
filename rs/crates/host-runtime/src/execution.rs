@@ -10,7 +10,6 @@
 // LLO's `Backend` trait is in-process: cloister links it, calls it, and there is
 // no PATH, no argv quoting, and no exit-status-to-error translation.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -487,7 +486,11 @@ fn to_execution_request(
         },
         executable: executable.to_string(),
         arguments: plan.artifact.args.clone(),
-        public_environment: BTreeMap::new(),
+        public_environment: plan
+            .environment
+            .iter()
+            .map(|var| (var.name.clone(), var.value.clone()))
+            .collect(),
         allowed_egress: Vec::new(),
         limits: default_limits(enforced),
         confinement_digest,

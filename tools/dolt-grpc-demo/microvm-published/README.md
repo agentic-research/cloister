@@ -60,7 +60,7 @@ grpcurl -plaintext -d '{"id":1}' 127.0.0.1:50051 cloister.demo.v1.Orders/Get
 
 ## What the published image needed
 
-- **No env.** Plans carry no environment yet. The image's
+- **No env.** The demo declares none because the script needs none. The image's
   `docker-entrypoint.sh` ran with the guest's own `HOME=/`, `PATH` and uid 0,
   and served on port 3306. `DOLT_ROOT_HOST` is not needed, because orders'
   connection arrives on the guest's loopback (`root@localhost`). The empty

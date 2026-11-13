@@ -167,3 +167,61 @@ test("planFromToml is the cluster.toml entry point and applies the full schema",
     /\[bundles.external\] declares unknown field "entryPiont"/,
   );
 });
+
+// cloister-2af426: a bundle's declared environment reaches the plan.
+const planOptions = {
+  bundle: "mache",
+  workspace: "/workspace",
+  controlSocket: "/tmp/mache.sock",
+  rootfsInCas: inCas,
+  guestPlatform: () => "linux/arm64",
+};
+function withEnv(env) {
+  const c = structuredClone(cluster);
+  c.bundles[0].kind.external.env = env;
+  return c;
+}
+
+test("buildLaunchPlan emits declared environment in declaration order", () => {
+  const plan = buildLaunchPlan(
+    withEnv([{ name: "ZED", value: "1" }, { name: "ALPHA", value: "two words" }]),
+    lock,
+    planOptions,
+  );
+  assert.deepEqual(plan.environment, [
+    { name: "ZED", value: "1" },
+    { name: "ALPHA", value: "two words" },
+  ]);
+});
+
+test("buildLaunchPlan emits no environment key for a bundle that declares none", () => {
+  for (const env of [undefined, []]) {
+    const plan = buildLaunchPlan(withEnv(env), lock, planOptions);
+    assert.equal("environment" in plan, false);
+  }
+});
+
+test("buildLaunchPlan refuses a malformed environment by bundle and name, never value", () => {
+  const secret = "s3cret-value";
+  const cases = [
+    ["empty name", [{ name: "", value: secret }], /empty or non-string name/, null],
+    ["non-string name", [{ name: 7, value: secret }], /empty or non-string name/, null],
+    ["name with =", [{ name: "A=B", value: secret }], /"A=B".*"="/, "A=B"],
+    ["NUL in name", [{ name: "A\u0000B", value: secret }], /NUL/, "A\\u0000B"],
+    ["NUL in value", [{ name: "GOOD", value: `${secret}\u0000x` }], /"GOOD".*NUL/, "GOOD"],
+    ["non-string value", [{ name: "GOOD", value: 5 }], /"GOOD".*string/, "GOOD"],
+    ["duplicate name", [{ name: "DUP", value: secret }, { name: "DUP", value: "b" }], /"DUP" twice/, "DUP"],
+  ];
+  for (const [label, env, pattern, nameText] of cases) {
+    assert.throws(
+      () => buildLaunchPlan(withEnv(env), lock, planOptions),
+      (err) => {
+        assert.match(err.message, /bundle "mache"/, label);
+        assert.match(err.message, pattern, label);
+        if (nameText) assert.ok(err.message.includes(nameText), label);
+        assert.ok(!err.message.includes(secret), `${label}: message leaked the value`);
+        return true;
+      },
+    );
+  }
+});

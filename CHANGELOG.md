@@ -8,6 +8,23 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Declared environment reaches the microVM (`cloister-2af426`)
+
+- **Env is lowered into the plan.** A bundle's `[bundles.external]` `env`
+  entries (`name`, `value`) now appear in `cloister runtime plan` output as a
+  top-level `environment` array, in declaration order.
+- **No env, no key.** A bundle that declares none produces a plan
+  byte-identical to before.
+- **The host runtime sends it.** `LaunchPlan` carries `environment`, and the
+  execution request fills LLO's `public_environment` from it instead of
+  sending an empty map.
+- **Refusals before start.** The plan emitter and `LaunchPlan::validate` refuse
+  an empty name, `=` or NUL in a name, NUL in a value, a non-string value and a
+  duplicate name. The error names the bundle and the variable, never the value.
+  `KRUN_`-prefixed names are left to LLO's worker to refuse.
+- **Values are not secrets.** They are stored in the plan in clear. Credentials
+  go through vault slices.
+
 ### 2026-11 — LLO v0.30.0: rootfs manifest v2, exact argv (`cloister-2fcb8f`, `cloister-b74da4`)
 
 - **Pins.** Every ley-line-open channel moves to v0.30.0 (`de638aea`):

@@ -1,5 +1,5 @@
 use cloister_host_runtime::{
-    Artifact, Backend, Confinement, ExecutionMode, HostRuntime, LaunchPlan, RuntimeError,
+    Artifact, Backend, Confinement, EnvVar, ExecutionMode, HostRuntime, LaunchPlan, RuntimeError,
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -32,6 +32,7 @@ fn plan(mode: ExecutionMode) -> LaunchPlan {
         confinement: Confinement::default(),
         workspace: "/workspace".into(),
         control_socket: "/run/cloister/host.sock".into(),
+        environment: Vec::new(),
     }
 }
 
@@ -102,4 +103,43 @@ fn launch_plan_json_uses_manifest_compatible_camel_case_fields() {
         "api.openai.com"
     );
     assert!(json.get("control_socket").is_none());
+}
+
+fn var(name: &str, value: &str) -> EnvVar {
+    EnvVar {
+        name: name.into(),
+        value: value.into(),
+    }
+}
+
+#[test]
+fn validate_refuses_a_malformed_environment_by_name_and_never_value() {
+    let secret = "s3cret-value";
+    let cases: Vec<(&str, Vec<EnvVar>, &str)> = vec![
+        ("empty name", vec![var("", secret)], "must not be empty"),
+        ("name with =", vec![var("A=B", secret)], "A=B"),
+        ("NUL in name", vec![var("A\0B", secret)], "NUL"),
+        (
+            "NUL in value",
+            vec![var("GOOD", &format!("{secret}\0x"))],
+            "GOOD",
+        ),
+        (
+            "duplicate name",
+            vec![var("DUP", secret), var("DUP", "b")],
+            "declared twice",
+        ),
+    ];
+    for (label, environment, expect) in cases {
+        let mut p = plan(ExecutionMode::Microvm);
+        p.environment = environment;
+        let err = p.validate().expect_err(label);
+        assert!(matches!(err, RuntimeError::InvalidPlan(_)), "{label}");
+        let text = err.to_string();
+        assert!(text.contains(expect), "{label}: {text}");
+        assert!(!text.contains(secret), "{label}: leaked the value: {text}");
+    }
+    let mut ok = plan(ExecutionMode::Microvm);
+    ok.environment = vec![var("A", "1"), var("B", "")];
+    ok.validate().expect("a sound environment validates");
 }

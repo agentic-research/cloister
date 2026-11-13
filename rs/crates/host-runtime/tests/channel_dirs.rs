@@ -35,6 +35,7 @@ fn plan(grants: Vec<(&Path, &str)>) -> LaunchPlan {
         confinement,
         workspace: "/tmp/workspace".into(),
         control_socket: "/tmp/control.sock".into(),
+        environment: Vec::new(),
     }
 }
 
