@@ -25,8 +25,6 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - **Values are not secrets.** They are stored in the plan in clear. Credentials
   go through vault slices.
 
-||||||| 2dc5831
-
 ### 2026-11 — Generator fetch replaces its cache file atomically (`cloister-fb0616`)
 
 - `scripts/fetch-schema-bridge.mjs` wrote a downloaded generator straight to
