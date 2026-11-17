@@ -34,11 +34,13 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   by full path (`projects/P/locations/L/services/S`; the v1 binding type adds a
   `v1/` prefix) and the service keeps its short name. The two were compared as
   strings, so a state document reported no invokers at all.
-- **The fix.** The Google mapping marks those relations `resourcePath`, and the
-  join compares name, project and location. A bare name still joins, using the
-  binding's own project and location.
+- **The fix, with no identifier parsing.** A relation may now list several
+  target attributes to try, scope attributes that must agree, and a prefix to
+  strip. The Cloud Run bindings join on the service's full `id` first, then on
+  its `name` within the same project and location. All three options are
+  mapping data and work for any provider (ADR-0073 §3).
 - **Same-named services are not confused.** Two services called `api` in
-  different regions each get only their own bindings. When a bare name fits
+  different regions each get only their own bindings. When a short name fits
   several services and nothing says which, the relation stays unresolved.
 - A synthetic state fixture covers it: `test/fixtures/terraform/google-state.show.json`.
 

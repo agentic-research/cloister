@@ -54,7 +54,7 @@ export function validateMapping(mapping, spec) {
     for (const rel of entry.relations ?? []) {
       scalar(attributes, rel.attr, here);
       checkTarget(rel, attrsOf, `${here}${rel.attr}`);
-      if (rel.resourcePath !== undefined) checkResourcePath(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
+      checkScope(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
     }
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
@@ -68,27 +68,21 @@ export function validateMapping(mapping, spec) {
 }
 
 /**
- * A `resourcePath` names a collection and maps each path key to a scope
- * attribute. Every scope attribute must be a scalar on BOTH resource types, or
- * the join would compare against something the mapping never reads.
+ * `scope` attributes are compared on BOTH resources, so each must be a
+ * non-sensitive scalar on both types, or the join would compare against
+ * something the mapping never reads. `stripPrefix` is one literal string.
  */
-function checkResourcePath(rel, attributes, targetAttributes, from) {
-  const shape = rel.resourcePath;
-  const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-  const segment = (v) => typeof v === "string" && v !== "" && !v.includes("/");
-  if (!plain(shape) || !segment(shape.collection) || !plain(shape.scope)) {
-    throw new Error(`mapping: relation ${from} resourcePath needs a "collection" segment and a "scope" table`);
+function checkScope(rel, attributes, targetAttributes, from) {
+  if (rel.scope !== undefined) {
+    if (!Array.isArray(rel.scope) || rel.scope.length === 0) throw new Error(`mapping: relation ${from} "scope" must be a non-empty list of attributes`);
+    for (const attr of rel.scope) {
+      if (typeof attr !== "string") throw new Error(`mapping: relation ${from} "scope" must be a non-empty list of attributes`);
+      scalar(attributes, attr, `${from} scope `);
+      scalar(targetAttributes, attr, `${rel.toType} scope `);
+    }
   }
-  if (shape.version !== undefined && !segment(shape.version)) {
-    throw new Error(`mapping: relation ${from} resourcePath "version" must be one path segment`);
-  }
-  for (const key of Object.keys(shape)) {
-    if (!["version", "collection", "scope"].includes(key)) throw new Error(`mapping: relation ${from} resourcePath has unknown key "${key}"`);
-  }
-  for (const [key, attr] of Object.entries(shape.scope)) {
-    if (!segment(key) || typeof attr !== "string") throw new Error(`mapping: relation ${from} resourcePath scope "${key}" must map a path segment to an attribute`);
-    scalar(attributes, attr, `${from} resourcePath scope `);
-    scalar(targetAttributes, attr, `${rel.toType} resourcePath scope `);
+  if (rel.stripPrefix !== undefined && (typeof rel.stripPrefix !== "string" || rel.stripPrefix === "")) {
+    throw new Error(`mapping: relation ${from} "stripPrefix" must be a non-empty string`);
   }
 }
 
@@ -100,7 +94,10 @@ function checkTarget(rel, attrsOf, from) {
     throw new Error(`mapping: relation ${from} targets unknown type "${rel.toType}"`);
   }
   try {
-    scalar(attributes, rel.toAttr, `${rel.toType}.`);
+    // One attribute, or a list of alternatives tried in order.
+    const alternatives = Array.isArray(rel.toAttr) ? rel.toAttr : [rel.toAttr];
+    if (alternatives.length === 0) throw new Error("mapping: toAttr lists no attribute");
+    for (const toAttr of alternatives) scalar(attributes, toAttr, `${rel.toType}.`);
   } catch (error) {
     throw new Error(`mapping: relation ${from} targets bad attribute: ${error.message.replace(/^mapping: /, "")}`);
   }
