@@ -34,6 +34,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - A workspace-wide build turned `preserve_order` on and broke two `confinement_digest` tests; the published digest is unchanged.
 - One shared `cloister_cas::canonical_confinement_json` replaces three copies (test, example, dev-cert minter); it is native-only, so the wasm artifact is unchanged.
 - `task rs:verify` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
+- `cargo test -p cloister-cas` (in `task lint`) now builds serde_json with `preserve_order` on for tests, so the explicit sort is exercised in the fast gate too. Before, deleting the sort left that run green.
 
 ### 2026-11 — Declared environment reaches the microVM (`cloister-2af426`)
 

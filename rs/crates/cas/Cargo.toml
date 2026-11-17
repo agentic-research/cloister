@@ -114,3 +114,13 @@ ed25519-dalek = "3"
 rand = "0.8"
 sha2 = "0.11"
 base64 = "0.22"
+
+# Tests and examples build serde_json with `preserve_order` ON, so `Map` keeps
+# insertion order and `confinement_canonical`'s explicit key sort is the only
+# thing ordering the keys. Without this, `cargo test -p cloister-cas` runs with
+# an already-sorted map: the sort is a no-op there and deleting it passes. The
+# workspace-wide run in `task rs:verify` only covers it while some other crate
+# happens to enable the feature (cloister-d95ff5). Dev-only and native-only:
+# resolver 2 keeps it out of normal builds and out of the wasm graph.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }

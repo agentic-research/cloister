@@ -100,3 +100,37 @@ fn canonicalization_sorts_nested_and_array_contained_objects() {
         r#"{"a":[{"j":1,"k":2}],"z":{"b":{"a":0,"q":[{"m":1,"n":2},{"c":3,"d":4}]},"y":1}}"#;
     assert_eq!(canonicalize(descending), canonicalize(ascending));
 }
+
+#[test]
+fn canonical_bytes_are_exactly_the_sorted_two_space_form() {
+    // Exact bytes, not two inputs compared with each other: a canonicalizer
+    // that sorted nothing would still agree with itself on sorted input.
+    let canonical = canonicalize(r#"{"b":[{"d":1,"c":2}],"a":{"z":true,"y":"x"}}"#);
+    let expected = r#"{
+  "a": {
+    "y": "x",
+    "z": true
+  },
+  "b": [
+    {
+      "c": 2,
+      "d": 1
+    }
+  ]
+}"#;
+    assert_eq!(String::from_utf8(canonical).unwrap(), expected);
+}
+
+#[test]
+fn this_test_build_does_not_get_sorted_keys_for_free() {
+    // Guards the dev-dependency in Cargo.toml: these tests only exercise the
+    // explicit sort while serde_json keeps insertion order. If this fails, the
+    // feature was dropped and the tests above pass with the sort deleted.
+    let value: serde_json::Value = serde_json::from_str(r#"{"b":1,"a":2}"#).unwrap();
+    let keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+    assert_eq!(
+        keys,
+        ["b", "a"],
+        "serde_json's preserve_order is off in this test build"
+    );
+}
