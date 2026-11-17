@@ -230,3 +230,32 @@ test("buildLaunchPlan refuses a malformed environment by bundle and name, never 
     );
   }
 });
+
+// A shape other than { name, value } rows used to be coerced to an empty list
+// by the TOML layer, so the plan carried no environment and nothing said so.
+test("planFromToml refuses an env that is not { name, value } rows, never dropping it", async () => {
+  const secret = "s3cret-value";
+  const withExternal = (line) => CLUSTER_TOML.replace('executionMode = "microvm"', `executionMode = "microvm"\n${line}`);
+  const withTail = (tail) => CLUSTER_TOML.replace("[bundles.confinement.port]", `${tail}\n[bundles.confinement.port]`);
+  const cases = [
+    ["a KEY = value table", withTail(`[bundles.external.env]\nGREETING = "${secret}"\n`), /env must be a list of \{ name, value \} rows/],
+    ["a string", withExternal(`env = "GREETING=${secret}"`), /env must be a list of \{ name, value \} rows/],
+    ["a list of strings", withExternal(`env = ["GREETING=${secret}"]`), /env entry 0 is not a \{ name, value \} row/],
+    ["a numeric value", withTail(`[[bundles.external.env]]\nname = "PORT"\nvalue = 8080\n`), /env "PORT": value must be a string/],
+    ["a non-string name", withTail(`[[bundles.external.env]]\nname = 7\nvalue = "${secret}"\n`), /env entry 0: name must be a string/],
+  ];
+  for (const [label, toml, pattern] of cases) {
+    await assert.rejects(planFromToml(toml, lock, planOptions), (err) => {
+      assert.match(err.message, /bundle "mache"/, label);
+      assert.match(err.message, pattern, label);
+      assert.ok(!err.message.includes(secret), `${label}: message leaked the value`);
+      return true;
+    }, label);
+  }
+  const plan = await planFromToml(
+    withTail(`[[bundles.external.env]]\nname = "GREETING"\nvalue = "hi"\n\n[[bundles.external.env]]\nname = "EMPTY"\n`),
+    lock,
+    planOptions,
+  );
+  assert.deepEqual(plan.environment, [{ name: "GREETING", value: "hi" }, { name: "EMPTY", value: "" }]);
+});

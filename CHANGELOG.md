@@ -28,12 +28,38 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
   nothing else changes, and `ureq` stays at 3.3.0.
 
+### 2026-11 — `inspect --terraform`: Cloud Run invoker rows join from state (#308)
+
+- **The bug.** In a state document a Cloud Run IAM binding names its service
+  by full path (`projects/P/locations/L/services/S`; the v1 binding type adds a
+  `v1/` prefix) and the service keeps its short name. The two were compared as
+  strings, so a state document reported no invokers at all.
+- **The fix, with no identifier parsing.** A relation may now list several
+  target attributes to try, scope attributes that must agree, and a prefix to
+  strip. The Cloud Run bindings join on the service's full `id` first, then on
+  its `name` within the same project and location. All three options are
+  mapping data and work for any provider (ADR-0073 §3).
+- **Same-named services are not confused.** Two services called `api` in
+  different regions each get only their own bindings. When a short name fits
+  several services and nothing says which, the relation stays unresolved.
+- **Cloud Run jobs are read.** `google_cloud_run_v2_job` and its IAM member
+  rows are mapped, so jobs appear with their invokers instead of being counted
+  as skipped.
+- **Report sections are declared in the mapping.** A type's `report` block
+  names its section and the attributes to show; an `access` block says which
+  roles to show, under what label, and which principals mean "anyone". The
+  report names no Google type or role in code. The JSON report's `cloudRun`,
+  `databases` and `queues` keys are replaced by one `sections` list, and the
+  text says `(public)` where it said `(publicly invocable)`.
+- A synthetic state fixture covers it: `test/fixtures/terraform/google-state.show.json`.
+
 ### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)
 
 - The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.
 - A workspace-wide build turned `preserve_order` on and broke two `confinement_digest` tests; the published digest is unchanged.
 - One shared `cloister_cas::canonical_confinement_json` replaces three copies (test, example, dev-cert minter); it is native-only, so the wasm artifact is unchanged.
 - `task rs:verify` now also runs the whole workspace with `llo-execution`, so feature unification is covered by the gate.
+- `cargo test -p cloister-cas` (in `task lint`) now builds serde_json with `preserve_order` on for tests, so the explicit sort is exercised in the fast gate too. Before, deleting the sort left that run green.
 
 ### 2026-11 — Declared environment reaches the microVM (`cloister-2af426`)
 
@@ -51,6 +77,11 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `KRUN_`-prefixed names are left to LLO's worker to refuse.
 - **Values are not secrets.** They are stored in the plan in clear. Credentials
   go through vault slices.
+- **A mis-shaped `env` is refused, not dropped.** `cluster.toml` parsing used
+  to turn anything but a list into an empty list, so `[bundles.external.env]`
+  with `KEY = "value"` pairs parsed clean and the workload started without the
+  variables. That shape, a list of strings, and a non-string name or value are
+  now refused by bundle and variable name.
 
 ### 2026-11 — `cloister inspect` ignores an inherited git environment (`cloister-10804d`)
 

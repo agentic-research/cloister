@@ -872,6 +872,38 @@ function normalizeBundleDefaults(bundle) {
         );
       }
     }
+    // `env` is rows of { name, value }. Any other shape used to be coerced to
+    // [] below, so `[bundles.external.env]` with `KEY = "v"` pairs (the shape
+    // most TOML tools use) parsed clean and the workload started without the
+    // variables. Refused here, by bundle and variable name and never by value
+    // (cloister-2af426).
+    if (external.env !== undefined) {
+      const rows = `write one [[bundles.external.env]] row per variable, with name = "..." and value = "..."`;
+      if (!Array.isArray(external.env)) {
+        throw new Error(
+          `bundle "${bundle.name}" [bundles.external] env must be a list of { name, value } rows; ${rows}; ` +
+            `refusing rather than dropping it`,
+        );
+      }
+      external.env.forEach((row, index) => {
+        if (row === null || typeof row !== "object" || Array.isArray(row)) {
+          throw new Error(
+            `bundle "${bundle.name}" [bundles.external] env entry ${index} is not a { name, value } row; ${rows}`,
+          );
+        }
+        if (row.name !== undefined && typeof row.name !== "string") {
+          throw new Error(
+            `bundle "${bundle.name}" [bundles.external] env entry ${index}: name must be a string`,
+          );
+        }
+        if (row.value !== undefined && typeof row.value !== "string") {
+          throw new Error(
+            `bundle "${bundle.name}" [bundles.external] env ${JSON.stringify(row.name ?? "")}: ` +
+              `value must be a string (quote numbers and booleans)`,
+          );
+        }
+      });
+    }
     result = {
       ...result,
       kind: {
@@ -881,7 +913,7 @@ function normalizeBundleDefaults(bundle) {
           ipcSocket: typeof external.ipcSocket === "string" ? external.ipcSocket : "",
           httpPort:  typeof external.httpPort  === "number" ? external.httpPort  : 0,
           args:      Array.isArray(external.args) ? external.args : [],
-          env:       Array.isArray(external.env)  ? external.env  : [],
+          env:       external.env ?? [],
           entryPoint: typeof external.entryPoint === "string" ? external.entryPoint : "",
           executionMode: typeof external.executionMode === "string"
             ? external.executionMode

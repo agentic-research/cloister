@@ -54,7 +54,9 @@ export function validateMapping(mapping, spec) {
     for (const rel of entry.relations ?? []) {
       scalar(attributes, rel.attr, here);
       checkTarget(rel, attrsOf, `${here}${rel.attr}`);
+      checkScope(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
     }
+    checkReport(type, entry);
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
   const bindingAttrs = bindingList && resources.cloudflare_workers_script?.attributes.bindings?.attributes;
@@ -62,6 +64,72 @@ export function validateMapping(mapping, spec) {
     for (const rel of relations) {
       if (bindingAttrs) scalar(bindingAttrs, rel.attr, `binding(${bindingType}).`);
       checkTarget(rel, attrsOf, `binding(${bindingType}).${rel.attr}`);
+    }
+  }
+}
+
+/**
+ * `scope` attributes are compared on BOTH resources, so each must be a
+ * non-sensitive scalar on both types, or the join would compare against
+ * something the mapping never reads. `stripPrefix` is one literal string.
+ */
+function checkScope(rel, attributes, targetAttributes, from) {
+  if (rel.scope !== undefined) {
+    if (!Array.isArray(rel.scope) || rel.scope.length === 0) throw new Error(`mapping: relation ${from} "scope" must be a non-empty list of attributes`);
+    for (const attr of rel.scope) {
+      if (typeof attr !== "string") throw new Error(`mapping: relation ${from} "scope" must be a non-empty list of attributes`);
+      scalar(attributes, attr, `${from} scope `);
+      scalar(targetAttributes, attr, `${rel.toType} scope `);
+    }
+  }
+  if (rel.stripPrefix !== undefined && (typeof rel.stripPrefix !== "string" || rel.stripPrefix === "")) {
+    throw new Error(`mapping: relation ${from} "stripPrefix" must be a non-empty string`);
+  }
+}
+
+const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isText = (v) => typeof v === "string" && v !== "";
+function onlyKeys(table, allowed, where) {
+  for (const key of Object.keys(table)) {
+    if (!allowed.includes(key)) throw new Error(`mapping: ${where} has unknown key "${key}"`);
+  }
+}
+
+/**
+ * `report` and `access` say how a type appears in the inspect report. They may
+ * only name attributes the entry already lists under `read`, which the checks
+ * above hold to the provider spec: the report cannot show, or decide on,
+ * anything the importer was not allowed to read.
+ */
+function checkReport(type, entry) {
+  const read = entry.read ?? [];
+  if (entry.report !== undefined) {
+    const { report } = entry;
+    if (!isTable(report) || !isText(report.section) || !Array.isArray(report.show)) {
+      throw new Error(`mapping: ${type}.report needs a "section" title and a "show" list`);
+    }
+    onlyKeys(report, ["section", "show"], `${type}.report`);
+    for (const attr of report.show) {
+      if (!read.includes(attr)) throw new Error(`mapping: ${type}.report shows "${attr}", which is not in its "read" list`);
+    }
+  }
+  if (entry.access !== undefined) {
+    const { access } = entry;
+    if (!isTable(access) || !isTable(access.roles) || Object.keys(access.roles).length === 0) {
+      throw new Error(`mapping: ${type}.access needs "role", "principal" and a non-empty "roles" table`);
+    }
+    onlyKeys(access, ["role", "principal", "roles", "publicPrincipals"], `${type}.access`);
+    for (const key of ["role", "principal"]) {
+      if (!read.includes(access[key])) throw new Error(`mapping: ${type}.access ${key} "${access[key]}" is not in its "read" list`);
+    }
+    for (const [role, label] of Object.entries(access.roles)) {
+      if (!isText(label)) throw new Error(`mapping: ${type}.access role "${role}" needs a label`);
+    }
+    if (access.publicPrincipals !== undefined && !(Array.isArray(access.publicPrincipals) && access.publicPrincipals.every(isText))) {
+      throw new Error(`mapping: ${type}.access "publicPrincipals" must be a list of strings`);
+    }
+    if ((entry.relations ?? []).length === 0) {
+      throw new Error(`mapping: ${type}.access needs a relation: an access row belongs to the resource its relation resolves to`);
     }
   }
 }
@@ -74,7 +142,10 @@ function checkTarget(rel, attrsOf, from) {
     throw new Error(`mapping: relation ${from} targets unknown type "${rel.toType}"`);
   }
   try {
-    scalar(attributes, rel.toAttr, `${rel.toType}.`);
+    // One attribute, or a list of alternatives tried in order.
+    const alternatives = Array.isArray(rel.toAttr) ? rel.toAttr : [rel.toAttr];
+    if (alternatives.length === 0) throw new Error("mapping: toAttr lists no attribute");
+    for (const toAttr of alternatives) scalar(attributes, toAttr, `${rel.toType}.`);
   } catch (error) {
     throw new Error(`mapping: relation ${from} targets bad attribute: ${error.message.replace(/^mapping: /, "")}`);
   }

@@ -79,6 +79,40 @@ Relations are exact joins: a value equals a mapped attribute of another
 resource, or it matches nothing and is reported as "not in this document".
 Nothing is matched by guessing at a name.
 
+A provider often lets one attribute name its target in more than one
+spelling. The Google provider accepts a short name or a full resource path for
+an IAM binding's target and writes the full path back to state, while the
+target keeps its short `name`. Comparing the binding against `name` alone never
+matches in state.
+
+The answer is not to parse the identifier. Every provider already exposes a
+resource's full identifier as an attribute of that resource (`id`, `arn`), so
+the mapping lists the target attributes to compare against and each comparison
+stays plain equality. Three options, all data and none tied to a provider:
+
+- `toAttr` may be a list of alternatives, tried in order, most exact first.
+- `scope` lists attributes (a project, a region, an account) that must be
+  equal wherever both resources state them. A candidate is dropped only by a
+  stated difference.
+- `stripPrefix` removes one declared leading string from the value first.
+
+The first alternative with exactly one candidate wins. Several candidates for
+the same alternative leave the relation unresolved, so two resources with the
+same short name are never confused. An identifier that equals no target
+attribute is not taken apart and matched by its last segment.
+
+How a mapped type appears in the report is data too. A type with a `report`
+block is listed under the section it names, with the attributes it says to
+show. A type with an `access` block is a row that says who may do what: it
+names its role and principal attributes, the roles to show and their labels,
+and the principals that mean "anyone", and it belongs to the resource its
+relation resolves to. Both blocks may name only attributes the entry already
+lists under `read`. So adding a resource type, or another cloud, is a mapping
+entry and a regenerated spec, with no report code. Access rows are not
+authoritative: a resource with no row for a label is reported as "unknown",
+never as "none". The Cloudflare sections predate this and are still written by
+hand in the report.
+
 A plan document adds one more source for a join. A value that is unknown until
 apply (a route's `script`, a version's `worker_id`) is absent from
 `planned_values`, but `configuration` records which resources the expression
@@ -148,7 +182,7 @@ comparison is exact, not approximate. Under ADR-0072 this supplies the
 | §4 tracked-file refusal (Terraform document), synthetic-fixture test | built |
 | §5 `cloister inspect` report | built; wires only |
 | Declared connections (ADR-0069) in the comparison | not built |
-| Google types: Cloud Run services and invoker member rows, Cloud SQL, Cloud Tasks | built; own mapping and spec |
+| Google types: Cloud Run services and jobs with invoker member rows, Cloud SQL, Cloud Tasks | built; own mapping and spec; report sections declared in the mapping |
 | Plan `configuration` references as a relation source | built; root module only |
 | Invoker evidence listing (`publicly invocable`, or unknown) | built; member rows are non-authoritative |
 | Other providers | not built |

@@ -1,0 +1,233 @@
+{
+  "format_version": "1.0",
+  "terraform_version": "1.10.0",
+  "values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_service.api",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service",
+          "name": "api",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/us-central1/services/api",
+            "ingress": "INGRESS_TRAFFIC_ALL",
+            "location": "us-central1",
+            "name": "api",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service.api_eu",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service",
+          "name": "api_eu",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/europe-west1/services/api",
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "europe-west1",
+            "name": "api",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service.worker",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service",
+          "name": "worker",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/us-central1/services/worker",
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "worker",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.api_public",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service_iam_member",
+          "name": "api_public",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/us-central1/services/api/roles/run.invoker/allUsers",
+            "location": "us-central1",
+            "member": "allUsers",
+            "name": "projects/example-project/locations/us-central1/services/api",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.api_eu_ops",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service_iam_member",
+          "name": "api_eu_ops",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/europe-west1/services/api/roles/run.invoker/group:ops@example.com",
+            "location": "europe-west1",
+            "member": "group:ops@example.com",
+            "name": "projects/example-project/locations/europe-west1/services/api",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.worker_alice",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service_iam_member",
+          "name": "worker_alice",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/us-central1/services/worker/roles/run.invoker/user:alice@example.com",
+            "location": "us-central1",
+            "member": "user:alice@example.com",
+            "name": "projects/example-project/locations/us-central1/services/worker",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_service_iam_member.worker_batch",
+          "mode": "managed",
+          "type": "google_cloud_run_service_iam_member",
+          "name": "worker_batch",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "v1/projects/example-project/locations/us-central1/services/worker/roles/run.invoker/group:batch@example.com",
+            "location": "us-central1",
+            "member": "group:batch@example.com",
+            "project": "example-project",
+            "role": "roles/run.invoker",
+            "service": "v1/projects/example-project/locations/us-central1/services/worker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.other_project",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service_iam_member",
+          "name": "other_project",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/other-project/locations/us-central1/services/api/roles/run.invoker/user:mallory@example.com",
+            "location": "us-central1",
+            "member": "user:mallory@example.com",
+            "name": "projects/other-project/locations/us-central1/services/api",
+            "project": "other-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.ghost",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_service_iam_member",
+          "name": "ghost",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/us-central1/services/ghost/roles/run.invoker/user:nobody@example.com",
+            "location": "us-central1",
+            "member": "user:nobody@example.com",
+            "name": "projects/example-project/locations/us-central1/services/ghost",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_job.nightly",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_job",
+          "name": "nightly",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/us-central1/jobs/nightly",
+            "location": "us-central1",
+            "name": "nightly",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_job.api_job",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_job",
+          "name": "api_job",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/us-central1/jobs/api",
+            "location": "us-central1",
+            "name": "api",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_job.orphan",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_job",
+          "name": "orphan",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "id": "projects/example-project/locations/us-central1/jobs/orphan",
+            "location": "us-central1",
+            "name": "orphan",
+            "project": "example-project"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_job_iam_member.nightly_scheduler",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_job_iam_member",
+          "name": "nightly_scheduler",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/us-central1/jobs/nightly/roles/run.invoker/group:schedulers@example.com",
+            "location": "us-central1",
+            "member": "group:schedulers@example.com",
+            "name": "projects/example-project/locations/us-central1/jobs/nightly",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_cloud_run_v2_job_iam_member.api_job_ops",
+          "mode": "managed",
+          "type": "google_cloud_run_v2_job_iam_member",
+          "name": "api_job_ops",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "values": {
+            "etag": "BwXXXXXXXXX=",
+            "id": "projects/example-project/locations/us-central1/jobs/api/roles/run.invoker/group:ops@example.com",
+            "location": "us-central1",
+            "member": "group:ops@example.com",
+            "name": "projects/example-project/locations/us-central1/jobs/api",
+            "project": "example-project",
+            "role": "roles/run.invoker"
+          },
+          "sensitive_values": {}
+        }
+      ]
+    }
+  }
+}

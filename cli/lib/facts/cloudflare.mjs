@@ -13,7 +13,10 @@
 // itself marks sensitive.
 //
 // Relations are exact value equality on mapped join attributes. A value that
-// matches nothing resolves to null; nothing is guessed by name. In a PLAN
+// matches nothing resolves to null; nothing is guessed by name. A relation may
+// list several target attributes to try, scope attributes that must agree, and
+// a prefix to strip (see resolveScoped): all three are data, and none is
+// specific to a provider. In a PLAN
 // document only, a relation the values cannot resolve (the value is unknown
 // until apply) may resolve through the configuration's references, and only
 // when exactly one referenced address has the target type.
@@ -56,6 +59,8 @@ export const mappedType = (type) => {
   }
   return undefined;
 };
+/** Every `[type, entry]` across all mappings, in declaration order. */
+export const mappedEntries = () => MAPPINGS.flatMap((mapping) => Object.entries(mapping.types));
 /** Fact types that count as a Worker when a relation targets a Worker script. */
 const WORKER_FACT_TYPES = new Set([WORKER_TYPE, "wrangler_worker", "cloudflare_worker"]);
 /** Fact types whose NAME is the Worker's script name. */
@@ -168,6 +173,48 @@ function joinIndex(facts, relation) {
   return index;
 }
 
+/** A relation's target attributes, in the order they are tried. */
+const targetAttrs = (relation) => (Array.isArray(relation.toAttr) ? relation.toAttr : [relation.toAttr]);
+const isScoped = (relation) => Array.isArray(relation.toAttr) || relation.scope !== undefined || relation.stripPrefix !== undefined;
+
+/**
+ * Resolve a relation that declares alternatives, a scope, or a prefix.
+ *
+ * Providers let one attribute name its target in more than one spelling, and
+ * state often holds the target's full identifier where the target's own `name`
+ * is short. Every provider also exposes that full identifier as an attribute
+ * of the target (`id`, `arn`). So the mapping lists the target attributes to
+ * compare against, most exact first, and each comparison is plain equality.
+ * No identifier is parsed.
+ *
+ * - `toAttr` may be a list: each is tried in order.
+ * - `scope` lists attributes (a project, a region, an account) that must be
+ *   equal wherever BOTH resources state them. A candidate is dropped only by a
+ *   stated difference.
+ * - `stripPrefix` removes one declared leading string from the value first.
+ *
+ * The first attribute with exactly one candidate wins. Several candidates on
+ * the same attribute give null: one is never picked.
+ */
+function resolveScoped(value, fact, relation, facts) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  let wanted = value;
+  if (typeof wanted === "string" && relation.stripPrefix !== undefined && wanted.startsWith(relation.stripPrefix)) {
+    wanted = wanted.slice(relation.stripPrefix.length);
+  }
+  const scope = (relation.scope ?? []).map((attr) => [attr, joinValue(fact, attr)]).filter(([, stated]) => stated !== undefined);
+  const inScope = (target) => scope.every(([attr, stated]) => {
+    const theirs = joinValue(target, attr);
+    return theirs === undefined || theirs === stated;
+  });
+  for (const toAttr of targetAttrs(relation)) {
+    const candidates = facts.filter((target) => target.type === relation.toType && joinValue(target, toAttr) === wanted && inScope(target));
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) return null;
+  }
+  return null;
+}
+
 const ADDRESS_INDEXES = new WeakMap();
 function factAt(facts, address) {
   let index = ADDRESS_INDEXES.get(facts);
@@ -189,7 +236,8 @@ function resolveByReference(fact, relation, facts) {
 
 /**
  * Resolve a resource's mapped relations. Returns `[{attr, value, to: fact | null}]`;
- * `null` means "not in this document". Order: exact value equality; then, only
+ * `null` means "not in this document". Order: exact value equality (see
+ * resolveScoped for a relation with alternatives or a scope); then, only
  * when `kind` is "plan" and the value resolved nothing, the configuration's
  * references (see resolveByReference). A state document never uses references.
  */
@@ -197,7 +245,7 @@ export function resolveRelations(fact, facts, kind) {
   const entry = mappedType(fact.type);
   return (entry?.relations ?? []).map((relation) => {
     const value = joinValue(fact, relation.attr);
-    let to = resolveOne(value, relation, facts);
+    let to = isScoped(relation) ? resolveScoped(value, fact, relation, facts) : resolveOne(value, relation, facts);
     if (!to && kind === "plan") to = resolveByReference(fact, relation, facts);
     return { attr: relation.attr, value, to };
   });
