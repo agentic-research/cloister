@@ -7,16 +7,22 @@
       "ids": ["project"]
     },
     "google_cloud_run_service_iam_member": {
-      "read": ["role", "member", "service"],
+      "read": ["role", "member", "service", "location"],
       "ids": ["project"],
       "referenceAttrs": ["service"],
-      "relations": [{ "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": "name" }]
+      "relations": [{
+        "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": "name",
+        "resourcePath": { "version": "v1", "collection": "services", "scope": { "projects": "project", "locations": "location" } }
+      }]
     },
     "google_cloud_run_v2_service_iam_member": {
-      "read": ["role", "member", "name"],
+      "read": ["role", "member", "name", "location"],
       "ids": ["project"],
       "referenceAttrs": ["name"],
-      "relations": [{ "attr": "name", "toType": "google_cloud_run_v2_service", "toAttr": "name" }]
+      "relations": [{
+        "attr": "name", "toType": "google_cloud_run_v2_service", "toAttr": "name",
+        "resourcePath": { "collection": "services", "scope": { "projects": "project", "locations": "location" } }
+      }]
     },
     "google_sql_database_instance": {
       "name": "name",

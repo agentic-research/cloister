@@ -79,6 +79,18 @@ Relations are exact joins: a value equals a mapped attribute of another
 resource, or it matches nothing and is reported as "not in this document".
 Nothing is matched by guessing at a name.
 
+One kind of value is compared part by part instead of as one string. The
+Google provider accepts a short name or a full resource path for an IAM
+binding's target and writes the full path back to state
+(`projects/P/locations/L/services/S`, with a `v1/` prefix on the v1 binding
+type), while the service keeps its short name `S`. A relation the mapping
+marks `resourcePath` reads the path's name, project and location and joins on
+all of them. A part the path does not state is taken from the binding's own
+`project` or `location`. A candidate is dropped only by a stated difference,
+and zero or several remaining candidates leave the relation unresolved, so two
+services with the same short name are never confused. A value that is neither
+a bare name nor that path shape is not read.
+
 A plan document adds one more source for a join. A value that is unknown until
 apply (a route's `script`, a version's `worker_id`) is absent from
 `planned_values`, but `configuration` records which resources the expression

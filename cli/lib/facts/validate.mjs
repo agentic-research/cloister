@@ -54,6 +54,7 @@ export function validateMapping(mapping, spec) {
     for (const rel of entry.relations ?? []) {
       scalar(attributes, rel.attr, here);
       checkTarget(rel, attrsOf, `${here}${rel.attr}`);
+      if (rel.resourcePath !== undefined) checkResourcePath(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
     }
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
@@ -63,6 +64,31 @@ export function validateMapping(mapping, spec) {
       if (bindingAttrs) scalar(bindingAttrs, rel.attr, `binding(${bindingType}).`);
       checkTarget(rel, attrsOf, `binding(${bindingType}).${rel.attr}`);
     }
+  }
+}
+
+/**
+ * A `resourcePath` names a collection and maps each path key to a scope
+ * attribute. Every scope attribute must be a scalar on BOTH resource types, or
+ * the join would compare against something the mapping never reads.
+ */
+function checkResourcePath(rel, attributes, targetAttributes, from) {
+  const shape = rel.resourcePath;
+  const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const segment = (v) => typeof v === "string" && v !== "" && !v.includes("/");
+  if (!plain(shape) || !segment(shape.collection) || !plain(shape.scope)) {
+    throw new Error(`mapping: relation ${from} resourcePath needs a "collection" segment and a "scope" table`);
+  }
+  if (shape.version !== undefined && !segment(shape.version)) {
+    throw new Error(`mapping: relation ${from} resourcePath "version" must be one path segment`);
+  }
+  for (const key of Object.keys(shape)) {
+    if (!["version", "collection", "scope"].includes(key)) throw new Error(`mapping: relation ${from} resourcePath has unknown key "${key}"`);
+  }
+  for (const [key, attr] of Object.entries(shape.scope)) {
+    if (!segment(key) || typeof attr !== "string") throw new Error(`mapping: relation ${from} resourcePath scope "${key}" must map a path segment to an attribute`);
+    scalar(attributes, attr, `${from} resourcePath scope `);
+    scalar(targetAttributes, attr, `${rel.toType} resourcePath scope `);
   }
 }
 

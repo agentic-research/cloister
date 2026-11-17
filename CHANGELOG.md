@@ -28,6 +28,20 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
   nothing else changes, and `ureq` stays at 3.3.0.
 
+### 2026-11 — `inspect --terraform`: Cloud Run invoker rows join from state (#308)
+
+- **The bug.** In a state document a Cloud Run IAM binding names its service
+  by full path (`projects/P/locations/L/services/S`; the v1 binding type adds a
+  `v1/` prefix) and the service keeps its short name. The two were compared as
+  strings, so a state document reported no invokers at all.
+- **The fix.** The Google mapping marks those relations `resourcePath`, and the
+  join compares name, project and location. A bare name still joins, using the
+  binding's own project and location.
+- **Same-named services are not confused.** Two services called `api` in
+  different regions each get only their own bindings. When a bare name fits
+  several services and nothing says which, the relation stays unresolved.
+- A synthetic state fixture covers it: `test/fixtures/terraform/google-state.show.json`.
+
 ### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)
 
 - The §7 canonicalizer now sorts object keys explicitly instead of relying on serde_json's `Map` being a sorted `BTreeMap`, which only holds while `preserve_order` is off.

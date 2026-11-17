@@ -13,7 +13,9 @@
 // itself marks sensitive.
 //
 // Relations are exact value equality on mapped join attributes. A value that
-// matches nothing resolves to null; nothing is guessed by name. In a PLAN
+// matches nothing resolves to null; nothing is guessed by name. A relation the
+// mapping marks `resourcePath` compares a resource path part by part instead
+// (see resolveByPath). In a PLAN
 // document only, a relation the values cannot resolve (the value is unknown
 // until apply) may resolve through the configuration's references, and only
 // when exactly one referenced address has the target type.
@@ -168,6 +170,63 @@ function joinIndex(facts, relation) {
   return index;
 }
 
+/**
+ * Read a value the provider may spell as a bare name or as a resource path,
+ * `[<version>/]projects/P/locations/L/<collection>/<name>`. Returns the name
+ * and the scope the path states (`{project: P, location: L}`), or null when
+ * the value is neither form. Only the keys the mapping lists are understood;
+ * a path with any other key, a repeated key, an empty part, or the wrong
+ * collection is not read.
+ */
+export function parseResourcePath(value, shape) {
+  if (typeof value !== "string" || value === "") return null;
+  if (!value.includes("/")) return { name: value, scope: {} };
+  const parts = value.split("/");
+  if (shape.version !== undefined && parts[0] === shape.version) parts.shift();
+  if (parts.length < 2 || parts.length % 2 !== 0 || parts.some((part) => part === "")) return null;
+  const name = parts.pop();
+  if (parts.pop() !== shape.collection) return null;
+  const scope = {};
+  for (let i = 0; i < parts.length; i += 2) {
+    const attr = own(shape.scope, parts[i]);
+    if (attr === undefined || Object.hasOwn(scope, attr)) return null;
+    scope[attr] = parts[i + 1];
+  }
+  return { name, scope };
+}
+
+/**
+ * Resolve a relation whose value is a resource path (`relation.resourcePath`).
+ *
+ * The Google provider accepts a short name or a full path for such an
+ * attribute and writes the full path back to state, while the resource it
+ * names keeps its short name. Comparing the two strings never matches.
+ *
+ * The join is still exact, on the parts: the target's `toAttr` equals the
+ * path's name, and every scope attribute (project, location) that both sides
+ * state is equal. A scope attribute the path does not carry is taken from the
+ * referring resource's own attribute of that name. A candidate is dropped only
+ * by a stated difference; when that leaves zero or several, the answer is
+ * null. One is never picked.
+ */
+function resolveByPath(value, fact, relation, facts) {
+  const parsed = parseResourcePath(value, relation.resourcePath);
+  if (!parsed) return null;
+  const scope = {};
+  for (const attr of Object.values(relation.resourcePath.scope)) {
+    const stated = Object.hasOwn(parsed.scope, attr) ? parsed.scope[attr] : joinValue(fact, attr);
+    if (stated !== undefined) scope[attr] = stated;
+  }
+  const candidates = facts.filter((target) => {
+    if (target.type !== relation.toType || joinValue(target, relation.toAttr) !== parsed.name) return false;
+    return Object.entries(scope).every(([attr, stated]) => {
+      const theirs = joinValue(target, attr);
+      return theirs === undefined || theirs === stated;
+    });
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 const ADDRESS_INDEXES = new WeakMap();
 function factAt(facts, address) {
   let index = ADDRESS_INDEXES.get(facts);
@@ -189,7 +248,8 @@ function resolveByReference(fact, relation, facts) {
 
 /**
  * Resolve a resource's mapped relations. Returns `[{attr, value, to: fact | null}]`;
- * `null` means "not in this document". Order: exact value equality; then, only
+ * `null` means "not in this document". Order: exact value equality (part by
+ * part for a `resourcePath` relation); then, only
  * when `kind` is "plan" and the value resolved nothing, the configuration's
  * references (see resolveByReference). A state document never uses references.
  */
@@ -197,7 +257,7 @@ export function resolveRelations(fact, facts, kind) {
   const entry = mappedType(fact.type);
   return (entry?.relations ?? []).map((relation) => {
     const value = joinValue(fact, relation.attr);
-    let to = resolveOne(value, relation, facts);
+    let to = relation.resourcePath ? resolveByPath(value, fact, relation, facts) : resolveOne(value, relation, facts);
     if (!to && kind === "plan") to = resolveByReference(fact, relation, facts);
     return { attr: relation.attr, value, to };
   });

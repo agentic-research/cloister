@@ -760,3 +760,93 @@ test("the tracked-file check ignores an inherited git environment", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Issue #308. In STATE, a Cloud Run IAM binding names its service by full
+// resource path while the service keeps its short name, so comparing the two
+// strings never matched and every invoker edge was missing.
+const GOOGLE_STATE_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/google-state.show.json", import.meta.url));
+const googleState = () => JSON.parse(readFileSync(GOOGLE_STATE_FIXTURE, "utf8"));
+
+test("google state: a binding's full resource path joins the service's short name", () => {
+  const imported = importFacts(googleState());
+  assert.equal(imported.kind, "state");
+  const report = buildReport(imported, CLUSTER);
+  const invokers = Object.fromEntries(report.cloudRun.map((r) => [`${r.name}@${r.location}`, r.invokers.map((i) => i.member)]));
+  assert.deepEqual(invokers, {
+    // Two services share the short name "api": each gets only its own region's binding.
+    "api@us-central1": ["allUsers"],
+    "api@europe-west1": ["group:ops@example.com"],
+    // The v1 binding type spells the same path with a `v1/` prefix.
+    "worker@us-central1": ["group:batch@example.com", "user:alice@example.com"],
+  });
+  assert.equal(report.cloudRun.find((r) => r.location === "us-central1" && r.name === "api").invokers[0].public, true);
+  const text = renderReport(report);
+  assert.ok(!text.includes("mallory"), "a binding on another project's same-named service joins nothing here");
+  assert.ok(!text.includes("nobody@"), "a binding on a service outside the document joins nothing");
+  assert.ok(!text.includes("invoker: unknown"), "every service in the fixture has a member row");
+});
+
+test("google state fixture is synthetic: a reserved project and example.com members only", () => {
+  for (const resource of googleState().values.root_module.resources) {
+    assert.match(resource.values.project, /^(example|other)-project$/);
+    if (resource.values.member && resource.values.member !== "allUsers") assert.match(resource.values.member, /@example\.com$/);
+  }
+});
+
+test("a resource path is read part by part, and anything else is not read", async () => {
+  const { parseResourcePath } = await import("../../cli/lib/facts/cloudflare.mjs");
+  const v2 = { collection: "services", scope: { projects: "project", locations: "location" } };
+  const v1 = { ...v2, version: "v1" };
+  assert.deepEqual(parseResourcePath("api", v2), { name: "api", scope: {} });
+  assert.deepEqual(parseResourcePath("projects/p/locations/l/services/api", v2), { name: "api", scope: { project: "p", location: "l" } });
+  assert.deepEqual(parseResourcePath("v1/projects/p/locations/l/services/api", v1), { name: "api", scope: { project: "p", location: "l" } });
+  assert.deepEqual(parseResourcePath("projects/p/locations/l/services/api", v1), { name: "api", scope: { project: "p", location: "l" } });
+  for (const bad of [
+    "v1/projects/p/locations/l/services/api", // a version prefix this relation does not declare
+    "projects/p/locations/l/jobs/api", // another collection
+    "projects/p/regions/l/services/api", // a key the mapping does not list
+    "projects/p/projects/q/services/api", // a repeated key
+    "projects/p/locations/l/services/", // an empty name
+    "p/l/api", "/api", "", 7, null, undefined,
+  ]) assert.equal(parseResourcePath(bad, v2), null, String(bad));
+  // A document-supplied key must not find Object.prototype.
+  assert.equal(parseResourcePath("constructor/p/services/api", v2), null);
+});
+
+test("a bare service name joins only when exactly one candidate is not contradicted", () => {
+  const svc = (tf, name, location, project = "example-project") => ["google_cloud_run_v2_service", tf, { name, location, project }];
+  const member = (values) => ["google_cloud_run_v2_service_iam_member", "m", { role: "roles/run.invoker", member: "allUsers", ...values }];
+  const target = (resources) => {
+    const { facts, kind } = importFacts(docOf(resources));
+    const [relation] = resolveRelations(facts.find((f) => f.type.endsWith("_iam_member")), facts, kind);
+    return relation.to?.address ?? null;
+  };
+  // One service of that name: joined, as before.
+  assert.equal(target([svc("a", "api", "us-central1"), member({ name: "api" })]), "google_cloud_run_v2_service.a");
+  // Two of that name and the binding does not say which: never picked.
+  assert.equal(target([svc("a", "api", "us-central1"), svc("b", "api", "europe-west1"), member({ name: "api" })]), null);
+  // The binding's own location says which.
+  assert.equal(
+    target([svc("a", "api", "us-central1"), svc("b", "api", "europe-west1"), member({ name: "api", location: "europe-west1" })]),
+    "google_cloud_run_v2_service.b",
+  );
+  // The binding's own project contradicts the only candidate.
+  assert.equal(target([svc("a", "api", "us-central1"), member({ name: "api", project: "other-project" })]), null);
+  // The path's project wins over the binding's own attribute, and contradicts.
+  assert.equal(target([svc("a", "api", "us-central1"), member({ name: "projects/other-project/locations/us-central1/services/api" })]), null);
+});
+
+test("validateMapping refuses a resourcePath whose scope is not a scalar on both types", () => {
+  const withPath = (resourcePath) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    mapping.types.google_cloud_run_v2_service_iam_member.relations[0].resourcePath = resourcePath;
+    return mapping;
+  };
+  const ok = { collection: "services", scope: { projects: "project", locations: "location" } };
+  validateMapping(withPath(ok), GOOGLE_SPEC);
+  assert.throws(() => validateMapping(withPath({ ...ok, scope: { projects: "projekt" } }), GOOGLE_SPEC), /unknown attribute .*projekt/);
+  assert.throws(() => validateMapping(withPath({ ...ok, scope: { projects: "conditions" } }), GOOGLE_SPEC), /unknown attribute|not a scalar/);
+  assert.throws(() => validateMapping(withPath({ scope: ok.scope }), GOOGLE_SPEC), /needs a "collection"/);
+  assert.throws(() => validateMapping(withPath({ ...ok, collection: "a/b" }), GOOGLE_SPEC), /needs a "collection"/);
+  assert.throws(() => validateMapping(withPath({ ...ok, prefix: "v1" }), GOOGLE_SPEC), /unknown key "prefix"/);
+});
