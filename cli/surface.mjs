@@ -358,7 +358,7 @@ export const COMMANDS = [
       "published schema, and relations are exact joins. In a plan document, a relation " +
       "whose value is unknown until apply may resolve through the configuration's " +
       "references, only when exactly one referenced resource has the target type. " +
-      "Cloudflare resource types, Google Cloud Run services (with their invoker " +
+      "Cloudflare resource types, Google Cloud Run services and jobs (with their invoker " +
       "member rows) and Cloud SQL instances and Cloud Tasks queues, and " +
       "wrangler.toml / wrangler.json are read today. ADR-0073.",
     flags: [

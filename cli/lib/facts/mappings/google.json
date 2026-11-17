@@ -4,7 +4,8 @@
     "google_cloud_run_v2_service": {
       "name": "name",
       "read": ["location", "ingress"],
-      "ids": ["project", "id"]
+      "ids": ["project", "id"],
+      "report": { "section": "Cloud Run services", "show": ["location", "ingress"] }
     },
     "google_cloud_run_service_iam_member": {
       "read": ["role", "member", "service", "location"],
@@ -13,7 +14,12 @@
       "relations": [{
         "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
         "scope": ["project", "location"], "stripPrefix": "v1/"
-      }]
+      }],
+      "access": {
+        "role": "role", "principal": "member",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
     },
     "google_cloud_run_v2_service_iam_member": {
       "read": ["role", "member", "name", "location"],
@@ -22,17 +28,44 @@
       "relations": [{
         "attr": "name", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
         "scope": ["project", "location"]
-      }]
+      }],
+      "access": {
+        "role": "role", "principal": "member",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
+    },
+    "google_cloud_run_v2_job": {
+      "name": "name",
+      "read": ["location"],
+      "ids": ["project", "id"],
+      "report": { "section": "Cloud Run jobs", "show": ["location"] }
+    },
+    "google_cloud_run_v2_job_iam_member": {
+      "read": ["role", "member", "name", "location"],
+      "ids": ["project"],
+      "referenceAttrs": ["name"],
+      "relations": [{
+        "attr": "name", "toType": "google_cloud_run_v2_job", "toAttr": ["id", "name"],
+        "scope": ["project", "location"]
+      }],
+      "access": {
+        "role": "role", "principal": "member",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
     },
     "google_sql_database_instance": {
       "name": "name",
       "read": ["database_version", "region"],
-      "ids": ["project"]
+      "ids": ["project"],
+      "report": { "section": "Databases", "show": ["database_version", "region"] }
     },
     "google_cloud_tasks_queue": {
       "name": "name",
       "read": ["location"],
-      "ids": ["project"]
+      "ids": ["project"],
+      "report": { "section": "Queues", "show": ["location"] }
     }
   }
 }

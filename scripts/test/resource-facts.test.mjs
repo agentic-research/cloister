@@ -36,6 +36,8 @@ const SPEC_FILES = [
 ];
 const JSR_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/oss/jsr-plan.show.json", import.meta.url));
 const jsrDoc = () => JSON.parse(readFileSync(JSR_FIXTURE, "utf8"));
+/** One declared report section by title; a section with no resources is absent. */
+const sectionOf = (report, title) => report.sections.find((s) => s.title === title) ?? { title, accessLabels: [], resources: [] };
 const fixture = () => JSON.parse(readFileSync(FIXTURE, "utf8"));
 const CLUSTER = {
   bundles: [
@@ -570,12 +572,12 @@ test("jsr plan: the Cloud Run reference is listed as an observation, with no wir
 
 test("jsr plan: Cloud Run services, invokers, Cloud SQL, queues and R2 buckets", () => {
   const text = jsrText();
-  assert.equal(jsrReport().cloudRun.length, 2);
-  assert.match(text, /registry-api {2}us-central1 {2}INGRESS_TRAFFIC_ALL\n {4}invoker: allUsers {2}\(publicly invocable\)/);
+  assert.equal(sectionOf(jsrReport(), "Cloud Run services").resources.length, 2);
+  assert.match(text, /registry-api {2}us-central1 {2}INGRESS_TRAFFIC_ALL\n {4}invoker: allUsers {2}\(public\)/);
   assert.match(text, /registry-api-tasks {2}us-central1 {2}INGRESS_TRAFFIC_INTERNAL_ONLY\n {4}invoker: serviceAccount:task-dispatcher@[^\n]*\n/);
-  assert.ok(!/serviceAccount:[^\n]*publicly/.test(text));
+  assert.ok(!/serviceAccount:[^\n]*\(public\)/.test(text));
   assert.match(text, /Databases:\n {2}main-pg15 {2}POSTGRES_15 {2}us-central1/);
-  assert.equal(jsrReport().queues.length, 3);
+  assert.equal(sectionOf(jsrReport(), "Queues").resources.length, 3);
   for (const q of ["email-delivery", "npm-tarball-build-tasks2", "publishing-tasks"]) assert.match(text, new RegExp(`Queues:\\n(?:.*\\n)*? {2}${q} {2}us-central1`));
   assert.match(text, /Storage:\n(?: {2}.*\n)* {2}r2 {2}deno-registry3-staging-modules\n/);
   assert.equal(jsrReport().storage.filter((s) => s.kind === "r2").length, 5);
@@ -585,7 +587,7 @@ test("jsr plan: a service with no invoker row says unknown", () => {
   const doc = jsrDoc();
   doc.planned_values.root_module.resources = doc.planned_values.root_module.resources.filter((r) => !r.type.endsWith("_iam_member"));
   const text = renderReport(buildReport(importFacts(doc), CLUSTER));
-  assert.equal(text.split("invoker: unknown (no member row in this document; member rows are non-authoritative)").length - 1, 2);
+  assert.equal(text.split("invoker: unknown (no access row in this document; access rows are non-authoritative)").length - 1, 2);
 });
 
 test("jsr plan: no id-shaped string, project id or plain_text value in text or JSON", () => {
@@ -771,19 +773,31 @@ test("google state: a binding's full resource path joins the service's short nam
   const imported = importFacts(googleState());
   assert.equal(imported.kind, "state");
   const report = buildReport(imported, CLUSTER);
-  const invokers = Object.fromEntries(report.cloudRun.map((r) => [`${r.name}@${r.location}`, r.invokers.map((i) => i.member)]));
-  assert.deepEqual(invokers, {
+  const callers = (title) => Object.fromEntries(
+    sectionOf(report, title).resources.map((r) => [`${r.name}@${r.attrs.location}`, r.access.map((a) => `${a.label} ${a.principal}`)]),
+  );
+  assert.deepEqual(callers("Cloud Run services"), {
     // Two services share the short name "api": each gets only its own region's binding.
-    "api@us-central1": ["allUsers"],
-    "api@europe-west1": ["group:ops@example.com"],
+    "api@us-central1": ["invoker allUsers"],
+    "api@europe-west1": ["invoker group:ops@example.com"],
     // The v1 binding type spells the same path with a `v1/` prefix.
-    "worker@us-central1": ["group:batch@example.com", "user:alice@example.com"],
+    "worker@us-central1": ["invoker group:batch@example.com", "invoker user:alice@example.com"],
   });
-  assert.equal(report.cloudRun.find((r) => r.location === "us-central1" && r.name === "api").invokers[0].public, true);
+  // Jobs come from the same mechanism, by mapping data alone. A job that
+  // shares a service's short name takes none of the service's bindings.
+  assert.deepEqual(callers("Cloud Run jobs"), {
+    "nightly@us-central1": ["invoker group:schedulers@example.com"],
+    "api@us-central1": ["invoker group:ops@example.com"],
+    "orphan@us-central1": [],
+  });
+  assert.equal(sectionOf(report, "Cloud Run services").resources[0].access[0].public, true);
   const text = renderReport(report);
+  assert.match(text, /Cloud Run jobs:\n {2}nightly {2}us-central1\n {4}invoker: group:schedulers@example\.com\n/);
+  assert.match(text, / {2}orphan {2}us-central1\n {4}invoker: unknown \(no access row in this document; access rows are non-authoritative\)/);
   assert.ok(!text.includes("mallory"), "a binding on another project's same-named service joins nothing here");
   assert.ok(!text.includes("nobody@"), "a binding on a service outside the document joins nothing");
-  assert.ok(!text.includes("invoker: unknown"), "every service in the fixture has a member row");
+  assert.equal(text.split("invoker: unknown").length - 1, 1, "only the job with no row says unknown");
+  assert.equal(imported.skipped.google_cloud_run_v2_job, undefined, "jobs are read, not skipped");
 });
 
 test("google state fixture is synthetic: a reserved project and example.com members only", () => {
@@ -849,4 +863,37 @@ test("no relation mechanism is specific to one provider", () => {
   assert.throws(() => validateMapping(mapping, CLOUDFLARE_SPEC), /unknown attribute .*scope account_id/, "scope is checked on both types for any provider");
   mapping.types.cloudflare_workers_route.relations[0].scope = ["id"];
   validateMapping(mapping, CLOUDFLARE_SPEC);
+});
+
+test("report sections come from mapping data: no resource type is named in report.mjs", () => {
+  const source = readFileSync(fileURLToPath(new URL("../../cli/lib/facts/report.mjs", import.meta.url)), "utf8");
+  for (const type of Object.keys(GOOGLE_MAPPING.types)) assert.ok(!source.includes(type), `report.mjs names ${type}`);
+  assert.ok(!/roles\/|allUsers|google_/.test(source), "report.mjs names no role, principal or Google type");
+});
+
+test("validateMapping holds report and access blocks to the entry's own read list", () => {
+  const patched = (type, patch) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    Object.assign(mapping.types[type], patch);
+    return mapping;
+  };
+  const SERVICE = "google_cloud_run_v2_service";
+  const MEMBER = "google_cloud_run_v2_service_iam_member";
+  const access = GOOGLE_MAPPING.types[MEMBER].access;
+  assert.throws(() => validateMapping(patched(SERVICE, { report: { section: "X", show: ["uri"] } }), GOOGLE_SPEC), /shows "uri", which is not in its "read" list/);
+  assert.throws(() => validateMapping(patched(SERVICE, { report: { show: [] } }), GOOGLE_SPEC), /needs a "section" title/);
+  assert.throws(() => validateMapping(patched(SERVICE, { report: { section: "X", show: [], grant: true } }), GOOGLE_SPEC), /unknown key "grant"/);
+  assert.throws(() => validateMapping(patched(MEMBER, { access: { ...access, principal: "etag" } }), GOOGLE_SPEC), /principal "etag" is not in its "read" list/);
+  assert.throws(() => validateMapping(patched(MEMBER, { access: { ...access, roles: {} } }), GOOGLE_SPEC), /non-empty "roles" table/);
+  assert.throws(() => validateMapping(patched(MEMBER, { access: { ...access, publicPrincipals: "allUsers" } }), GOOGLE_SPEC), /must be a list of strings/);
+  assert.throws(() => validateMapping(patched(MEMBER, { relations: [] }), GOOGLE_SPEC), /access needs a relation/);
+});
+
+test("an access row's role is looked up by own property", () => {
+  const { facts, kind } = importFacts(docOf([
+    ["google_cloud_run_v2_service", "a", { name: "api", location: "us-central1", project: "example-project" }],
+    ["google_cloud_run_v2_service_iam_member", "m", { name: "api", role: "constructor", member: "user:alice@example.com" }],
+  ]));
+  const report = buildReport({ facts, kind, skipped: {}, formatVersion: "1.0" }, CLUSTER);
+  assert.deepEqual(sectionOf(report, "Cloud Run services").resources[0].access, []);
 });

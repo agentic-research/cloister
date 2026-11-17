@@ -59,6 +59,8 @@ export const mappedType = (type) => {
   }
   return undefined;
 };
+/** Every `[type, entry]` across all mappings, in declaration order. */
+export const mappedEntries = () => MAPPINGS.flatMap((mapping) => Object.entries(mapping.types));
 /** Fact types that count as a Worker when a relation targets a Worker script. */
 const WORKER_FACT_TYPES = new Set([WORKER_TYPE, "wrangler_worker", "cloudflare_worker"]);
 /** Fact types whose NAME is the Worker's script name. */

@@ -42,6 +42,15 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - **Same-named services are not confused.** Two services called `api` in
   different regions each get only their own bindings. When a short name fits
   several services and nothing says which, the relation stays unresolved.
+- **Cloud Run jobs are read.** `google_cloud_run_v2_job` and its IAM member
+  rows are mapped, so jobs appear with their invokers instead of being counted
+  as skipped.
+- **Report sections are declared in the mapping.** A type's `report` block
+  names its section and the attributes to show; an `access` block says which
+  roles to show, under what label, and which principals mean "anyone". The
+  report names no Google type or role in code. The JSON report's `cloudRun`,
+  `databases` and `queues` keys are replaced by one `sections` list, and the
+  text says `(public)` where it said `(publicly invocable)`.
 - A synthetic state fixture covers it: `test/fixtures/terraform/google-state.show.json`.
 
 ### 2026-11 — Confinement digest no longer depends on a serde_json feature (`cloister-d95ff5`)

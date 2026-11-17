@@ -33,6 +33,209 @@
         }
       }
     },
+    "google_cloud_run_v2_job": {
+      "attributes": {
+        "annotations": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "client": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "client_version": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "conditions": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "execution_reason": "string",
+                "last_transition_time": "string",
+                "message": "string",
+                "reason": "string",
+                "revision_reason": "string",
+                "severity": "string",
+                "state": "string",
+                "type": "string"
+              }
+            ]
+          ]
+        },
+        "create_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "creator": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "delete_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "deletion_protection": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "effective_annotations": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "effective_labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "execution_count": {
+          "sensitive": false,
+          "type": "number"
+        },
+        "expire_time": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "generation": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "last_modifier": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "latest_created_execution": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "completion_time": "string",
+                "create_time": "string",
+                "name": "string"
+              }
+            ]
+          ]
+        },
+        "launch_stage": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "observed_generation": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "reconciling": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "terminal_condition": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "execution_reason": "string",
+                "last_transition_time": "string",
+                "message": "string",
+                "reason": "string",
+                "revision_reason": "string",
+                "severity": "string",
+                "state": "string",
+                "type": "string"
+              }
+            ]
+          ]
+        },
+        "terraform_labels": {
+          "sensitive": false,
+          "type": [
+            "map",
+            "string"
+          ]
+        },
+        "uid": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "update_time": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
+    "google_cloud_run_v2_job_iam_member": {
+      "attributes": {
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "member": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
     "google_cloud_run_v2_service": {
       "attributes": {
         "annotations": {

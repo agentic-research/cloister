@@ -14,16 +14,57 @@
 // Every join here is exact equality on a mapped attribute. Nothing is matched
 // by guessing at a resource's name.
 
-import { bindingTarget, isWorkloadBinding, resolveBinding, resolveRelations } from "./cloudflare.mjs";
+import { bindingTarget, isWorkloadBinding, mappedEntries, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
 const WORKER = "cloudflare_worker";
 const VERSION = "cloudflare_worker_version";
-const RUN_SERVICE = "google_cloud_run_v2_service";
-const RUN_MEMBERS = ["google_cloud_run_service_iam_member", "google_cloud_run_v2_service_iam_member"];
-const INVOKER_ROLE = "roles/run.invoker";
-const PUBLIC_MEMBERS = new Set(["allUsers", "allAuthenticatedUsers"]);
+
+/**
+ * The sections a mapping declares, built from data alone. No resource type,
+ * role or provider is named in this file: a type with a `report` block is
+ * listed under its section with the attributes it says to show, and a type
+ * with an `access` block contributes rows ("who may do what") to the resource
+ * its relation resolves to. Adding a type, or a cloud, is a mapping entry.
+ *
+ * Access rows are read from the document and are NOT authoritative: a row
+ * elsewhere (another module, the console) is invisible here. So a resource
+ * with no row for a label says "unknown", never "none".
+ */
+function declaredSections(facts, kind) {
+  const byType = (type) => facts.filter((f) => f.type === type);
+  const entries = mappedEntries();
+  const sections = new Map();
+  for (const [type, entry] of entries) {
+    if (!entry.report) continue;
+    const accessTypes = entries.filter(([, e]) => e.access && (e.relations ?? []).some((r) => r.toType === type));
+    const labels = [...new Set(accessTypes.flatMap(([, e]) => Object.values(e.access.roles)))];
+    const resources = byType(type).map((fact) => {
+      const access = [];
+      for (const [accessType, { access: rule }] of accessTypes) {
+        for (const row of byType(accessType)) {
+          const role = row.attrs[rule.role];
+          const principal = row.attrs[rule.principal];
+          // Own property only: the role comes from the document.
+          if (typeof role !== "string" || !Object.hasOwn(rule.roles, role) || !principal) continue;
+          if (!resolveRelations(row, facts, kind).some((r) => r.to?.address === fact.address)) continue;
+          const label = rule.roles[role];
+          if (access.some((a) => a.label === label && a.principal === principal)) continue;
+          access.push({ label, principal, public: (rule.publicPrincipals ?? []).includes(principal) });
+        }
+      }
+      return { name: fact.name, attrs: Object.fromEntries(entry.report.show.map((attr) => [attr, fact.attrs[attr] ?? ""])), access };
+    });
+    if (resources.length === 0) continue;
+    const title = entry.report.section;
+    const section = sections.get(title) ?? { title, accessLabels: [], resources: [] };
+    for (const label of labels) if (!section.accessLabels.includes(label)) section.accessLabels.push(label);
+    section.resources.push(...resources.map((r) => ({ ...r, accessLabels: labels })));
+    sections.set(title, section);
+  }
+  return [...sections.values()];
+}
 
 /** A route pattern's host: the text before the first "/". Null when it holds a wildcard. */
 function routeHost(pattern) {
@@ -173,21 +214,7 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
       ...byType("cloudflare_d1_database").map((f) => ({ kind: "d1", name: f.name })),
       ...byType("cloudflare_r2_bucket").map((f) => ({ kind: "r2", name: f.name })),
     ],
-    cloudRun: byType(RUN_SERVICE).map((f) => {
-      // Invoker rows are read from the document and are NOT authoritative: a
-      // member row elsewhere (another module, the console) is invisible here.
-      const invokers = [];
-      for (const type of RUN_MEMBERS) {
-        for (const m of byType(type)) {
-          if (m.attrs.role !== INVOKER_ROLE || !m.attrs.member) continue;
-          const [relation] = resolveRelations(m, facts, kind);
-          if (relation?.to?.address === f.address && !invokers.includes(m.attrs.member)) invokers.push(m.attrs.member);
-        }
-      }
-      return { name: f.name, location: f.attrs.location ?? "", ingress: f.attrs.ingress ?? "", invokers: invokers.map((member) => ({ member, public: PUBLIC_MEMBERS.has(member) })) };
-    }),
-    databases: byType("google_sql_database_instance").map((f) => ({ name: f.name, databaseVersion: f.attrs.database_version ?? "", region: f.attrs.region ?? "" })),
-    queues: byType("google_cloud_tasks_queue").map((f) => ({ name: f.name, location: f.attrs.location ?? "" })),
+    sections: declaredSections(facts, kind),
     dns: byType("cloudflare_dns_record").map((f) => ({ name: f.name, type: f.attrs.type ?? "", proxied: f.attrs.proxied === true })),
     declared: wires.map((w) => ({ from: w.from, to: w.to, binding: w.binding })),
     findings,
@@ -247,16 +274,16 @@ export function renderReport(report) {
   }));
   list("Access applications:", report.access.map((a) => `${a.name}  ${a.domain}  (${a.type || "type not stated"}; ${a.policies.length} polic${a.policies.length === 1 ? "y" : "ies"})`));
   list("Storage:", report.storage.map((s) => `${s.kind}  ${s.name}`));
-  if (report.cloudRun.length) {
-    section("Cloud Run services:");
-    for (const r of report.cloudRun) {
-      lines.push(`  ${[r.name, r.location, r.ingress].filter(Boolean).join("  ")}`);
-      for (const i of r.invokers) lines.push(`    invoker: ${i.member}${i.public ? "  (publicly invocable)" : ""}`);
-      if (r.invokers.length === 0) lines.push("    invoker: unknown (no member row in this document; member rows are non-authoritative)");
+  for (const declared of report.sections) {
+    section(`${declared.title}:`);
+    for (const r of declared.resources) {
+      lines.push(`  ${[r.name, ...Object.values(r.attrs)].filter((v) => v !== "").join("  ")}`);
+      for (const a of r.access) lines.push(`    ${a.label}: ${a.principal}${a.public ? "  (public)" : ""}`);
+      for (const label of r.accessLabels) {
+        if (!r.access.some((a) => a.label === label)) lines.push(`    ${label}: unknown (no access row in this document; access rows are non-authoritative)`);
+      }
     }
   }
-  list("Databases:", report.databases.map((d) => [d.name, d.databaseVersion, d.region].filter(Boolean).join("  ")));
-  list("Queues:", report.queues.map((q) => [q.name, q.location].filter(Boolean).join("  ")));
   list("DNS names:", report.dns.map((d) => `${d.name}  ${d.type}${d.proxied ? "  proxied" : ""}`));
 
   section("Declared wires (cluster.toml):");
