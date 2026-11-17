@@ -23,6 +23,11 @@ import { parse as parseYaml } from "yaml";
 import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
 import { lockedRootfsRows } from "../../cli/lib/runtime/rootfs-lock.mjs";
 import { isSha256Digest } from "../../cli/lib/oci-artifact.mjs";
+import { tableAdmits } from "./fixtures/platform-admits-table.mjs";
+
+const ADMITS = tableAdmits({
+  "linux/arm64": { admitted: ["linux/arm64", "linux/arm64/v8"], overlapping: ["linux/arm64", "linux/arm64/v8"] },
+});
 
 const DEMO = join(import.meta.dirname, "../../tools/dolt-grpc-demo");
 const DEMOS = ["microvm", "microvm-published"];
@@ -55,7 +60,7 @@ for (const name of DEMOS) {
         env: "local",
         channelDir: "/tmp/ch",
         rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
-        guestPlatform: () => ARM,
+        guestPlatform: () => ARM, platformAdmits: ADMITS,
       });
       // The plan carries the row's rootfs, not the image digest.
       assert.notEqual(plan.artifact.digest, oci.digest);

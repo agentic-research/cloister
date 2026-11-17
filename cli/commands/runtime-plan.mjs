@@ -27,7 +27,7 @@ import {
   selectRootfs,
 } from "../lib/runtime/rootfs-lock.mjs";
 import { lazyRootfsInCas } from "../lib/runtime/cas-root.mjs";
-import { lazyGuestPlatform } from "../lib/runtime/guest-platform.mjs";
+import { lazyGuestPlatform, queryPlatformAdmits } from "../lib/runtime/guest-platform.mjs";
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
 import {
   DEFAULT_CHANNEL_DIR,
@@ -251,7 +251,8 @@ function lowerEnvironment(bundleName, env) {
  * PLATFORM, or a refusal naming the exact command that fixes it.
  * `options.guestPlatform()` names the platform the host runtime boots and
  * `options.rootfsInCas(hex)` answers whether the CAS holds a rootfs; both are
- * required, so a caller cannot skip either check (cloister-1c4ef5).
+ * and `options.platformAdmits` (`(platform, candidates) => {admitted, overlapping}`) answers platform admission
+ * (LLO's rule, via the host runtime); all are required, so a caller cannot skip either check (cloister-1c4ef5).
  */
 function microvmRootfs(lock, oci, options) {
   const bundle = options.bundle;
@@ -269,7 +270,7 @@ function microvmRootfs(lock, oci, options) {
     throw new Error("internal: buildLaunchPlan needs guestPlatform to select a microvm rootfs");
   }
   const platform = options.guestPlatform();
-  const recorded = selectRootfs(rows, platform, bundle);
+  const recorded = selectRootfs(rows, platform, bundle, options.platformAdmits);
   if (!recorded) {
     // The recorded rows' symlink policy carries into the remedy: an import
     // without it would fail, or build a different tree. Rows that disagree
@@ -360,6 +361,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       // the presence check — a detached volume is never read as "re-import".
       rootfsInCas: io.rootfsInCas ?? lazyRootfsInCas({ env: io.env ?? process.env, warn: error }),
       guestPlatform: io.guestPlatform ?? lazyGuestPlatform({ env: io.env ?? process.env }),
+      platformAdmits:
+        io.platformAdmits ?? ((p, c) => queryPlatformAdmits(p, c, { env: io.env ?? process.env })),
     });
     const json = `${JSON.stringify(plan, null, 2)}\n`;
     if (opts.output) {

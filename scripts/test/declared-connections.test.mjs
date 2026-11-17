@@ -19,6 +19,11 @@ import { parseTomlToCluster } from "../../cli/lib/cluster/toml-to-cluster.mjs";
 import { clusterToToml } from "../../cli/lib/cluster/cluster-to-toml.mjs";
 import { lowerChannelGrants } from "../../cli/lib/cluster/connections.mjs";
 import { parsePlanArgs, planFromToml } from "../../cli/commands/runtime-plan.mjs";
+import { tableAdmits } from "./fixtures/platform-admits-table.mjs";
+
+const ADMITS = tableAdmits({
+  "linux/arm64": { admitted: ["linux/arm64", "linux/arm64/v8"], overlapping: ["linux/arm64", "linux/arm64/v8"] },
+});
 
 const CH = "/tmp/cloister-host-runtime/ch";
 
@@ -91,7 +96,7 @@ const lock = {
 /** cluster.toml text → plan, through the full parseTomlToCluster pipeline. */
 function plan(toml, bundle, extra = {}) {
   return planFromToml(toml, lock, {
-    rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64",
+    rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
     bundle,
     workspace: "/workspace",
     controlSocket: `/tmp/${bundle}.sock`,
@@ -286,7 +291,7 @@ for (const bundle of ["dolt", "orders"]) {
   test(`emitted ${bundle} plan equals test/fixtures/runtime-plan/${bundle}.plan.json byte for byte`, async () => {
     const p = await planFromToml(fixtureToml(), lock, {
       ...FIXTURE_OPTS,
-      rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64",
+      rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
       bundle,
       controlSocket: `/tmp/cloister-host-runtime/${bundle}.sock`,
     });

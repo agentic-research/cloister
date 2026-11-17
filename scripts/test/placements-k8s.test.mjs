@@ -23,6 +23,11 @@ import { emitK8s } from "../../cli/lib/cluster/emit-k8s.mjs";
 import { meetStrength, strengthOf } from "../../cli/lib/cluster/connections.mjs";
 import { emitK8sDir } from "../../cli/commands/cluster.mjs";
 import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
+import { tableAdmits } from "./fixtures/platform-admits-table.mjs";
+
+const ADMITS = tableAdmits({
+  "linux/arm64": { admitted: ["linux/arm64", "linux/arm64/v8"], overlapping: ["linux/arm64", "linux/arm64/v8"] },
+});
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEMO = resolve(ROOT, "tools/dolt-grpc-demo/k8s");
@@ -324,7 +329,7 @@ const lock = {
 function plan(toml, bundle) {
   return planFromToml(toml, lock, {
     bundle, workspace: "/workspace", controlSocket: `/tmp/${bundle}.sock`, env: "local", channelDir: "/tmp/ch",
-    rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64",
+    rootfsInCas: () => ({ present: true, casRoot: "/cas" }), guestPlatform: () => "linux/arm64", platformAdmits: ADMITS,
   });
 }
 

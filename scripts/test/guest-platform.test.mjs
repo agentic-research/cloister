@@ -6,12 +6,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { formatPlatform, isPlatform, platformAdmits, platformsOverlap } from "../../cli/lib/runtime/platform.mjs";
-import { lazyGuestPlatform, probeGuestPlatform } from "../../cli/lib/runtime/guest-platform.mjs";
+import { formatPlatform, isPlatform } from "../../cli/lib/runtime/platform.mjs";
+import { lazyGuestPlatform, probeGuestPlatform, queryPlatformAdmits } from "../../cli/lib/runtime/guest-platform.mjs";
 
 test("formatPlatform renders LLO's Platform object exactly, variant included", () => {
   assert.equal(formatPlatform({ os: "linux", architecture: "arm64" }), "linux/arm64");
@@ -24,23 +24,6 @@ test("formatPlatform renders LLO's Platform object exactly, variant included", (
 test("isPlatform accepts os/architecture[/variant] only", () => {
   for (const ok of ["linux/amd64", "linux/arm/v7", "linux/arm64/v8"]) assert.equal(isPlatform(ok), true, ok);
   for (const bad of ["arm64", "linux/", "/arm64", "linux/arm64/v8/x", "", null]) assert.equal(isPlatform(bad), false, String(bad));
-});
-
-test("platformAdmits mirrors LLO's Platform::admits", () => {
-  const cases = [
-    ["linux/arm64", "linux/arm64", true],
-    ["linux/arm64", "linux/arm64/v8", true], // no host variant admits any
-    ["linux/arm64", "linux/amd64", false],
-    ["linux/arm64", "darwin/arm64", false],
-    ["linux/arm64/v8", "linux/arm64", true], // arm64 without a variant is v8
-    ["linux/arm64/v8", "linux/arm64/v9", false],
-    ["linux/arm/v7", "linux/arm/v6", false],
-    ["linux/arm/v7", "linux/arm", false],
-    ["nonsense", "linux/arm64", false],
-  ];
-  for (const [host, recorded, expected] of cases) {
-    assert.equal(platformAdmits(host, recorded), expected, `${host} admits ${recorded}`);
-  }
 });
 
 function fakeHostRuntime(t, stdout) {
@@ -75,11 +58,51 @@ test("a host runtime without the guest-platform verb gets the reinstall remedy",
   );
 });
 
-test("platformsOverlap is admits in either direction", () => {
-  assert.equal(platformsOverlap("linux/arm64", "linux/arm64/v8"), true);
-  assert.equal(platformsOverlap("linux/arm64/v8", "linux/arm64"), true);
-  assert.equal(platformsOverlap("linux/arm/v7", "linux/arm"), true);
-  assert.equal(platformsOverlap("linux/arm64/v8", "linux/arm64/v9"), false);
-  assert.equal(platformsOverlap("linux/arm/v6", "linux/arm/v7"), false);
-  assert.equal(platformsOverlap("linux/amd64", "linux/arm64"), false);
+test("queryPlatformAdmits with no candidates spawns nothing", () => {
+  const runJson = () => { throw new Error("must not be called"); };
+  assert.deepEqual(queryPlatformAdmits("linux/arm64", [], { runJson }), { admitted: [], overlapping: [] });
+});
+
+test("queryPlatformAdmits asks the platform-admits verb and returns its answer", () => {
+  let seen;
+  const runJson = (args) => {
+    seen = args;
+    return { data: { platform: "linux/arm64", admitted: ["linux/arm64"], overlapping: ["linux/arm64", "linux/arm64/v8"] } };
+  };
+  const got = queryPlatformAdmits("linux/arm64", ["linux/arm64", "linux/arm64/v8"], { runJson });
+  assert.deepEqual(seen, ["platform-admits", "--platform", "linux/arm64", "linux/arm64", "linux/arm64/v8"]);
+  assert.deepEqual(got, { admitted: ["linux/arm64"], overlapping: ["linux/arm64", "linux/arm64/v8"] });
+});
+
+test("queryPlatformAdmits refuses a reply naming a platform that was not a candidate", () => {
+  const runJson = () => ({ data: { admitted: ["linux/amd64"], overlapping: [] } });
+  assert.throws(() => queryPlatformAdmits("linux/arm64", ["linux/arm64"], { runJson }), /not two lists of the candidates/);
+  const notLists = () => ({ data: { admitted: "linux/arm64", overlapping: [] } });
+  assert.throws(() => queryPlatformAdmits("linux/arm64", ["linux/arm64"], { runJson: notLists }), /run cloister runtime install|Run: cloister runtime install/);
+});
+
+test("a host runtime without the platform-admits verb gets the reinstall remedy", () => {
+  const runJson = () => { throw new Error('exited with status 1: unknown command "platform-admits"'); };
+  assert.throws(
+    () => queryPlatformAdmits("linux/arm64", ["linux/arm64"], { runJson }),
+    /could not ask the host runtime which platforms linux\/arm64 admits \(.*unknown command "platform-admits"\)\. .*platform-admits. verb\.\nRun: cloister runtime install/,
+  );
+});
+
+// The rail that keeps the mirror from coming back: admission is LLO's rule,
+// answered by the host runtime; no JS under cli/ may define or call a copy.
+test("the shipped cli/ tree has no JS copy of platform admission", () => {
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (name.endsWith(".mjs") || name.endsWith(".js")) {
+        const text = readFileSync(path, "utf8");
+        if (text.includes("platformAdmits(") || text.includes("platformsOverlap(")) offenders.push(path);
+      }
+    }
+  };
+  walk(new URL("../../cli", import.meta.url).pathname);
+  assert.deepEqual(offenders, []);
 });

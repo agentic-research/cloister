@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Platform admission is answered by LLO, not mirrored (`cloister-b94b14`)
+
+- **New host-runtime verb.** `cloister-host-runtime platform-admits --platform <p> <candidate>...`
+  prints which candidates LLO's `Platform::admits` admits, and which overlap
+  (either admits the other).
+- **The JS mirror is gone.** `platformAdmits` and `platformsOverlap` are deleted
+  from `cli/lib/runtime/platform.mjs`; `selectRootfs` and `recordRootfs` take an
+  `admits` function, which the commands wire to the verb.
+- **Needs a current runtime.** An installed runtime that predates the verb is
+  refused with `Run: cloister runtime install`.
+- **A rail keeps it out.** A test fails if any file under `cli/` defines or calls
+  a platform-admission function.
+
 ### 2026-11 — quinn-udp 0.5.16 (`cloister-a0a6c0`)
 
 - RUSTSEC-2026-0538 (a receive loop can spin after a truncated datagram) is

@@ -5,6 +5,7 @@
 // Prints "UP EXIT <code>" and exits with that code.
 
 import { join } from "node:path";
+import { tableAdmits } from "../platform-admits-table.mjs";
 import { clusterUp } from "../../../../cli/lib/cluster/up.mjs";
 
 const fake = join(import.meta.dirname, "fake-host-runtime.mjs");
@@ -14,6 +15,9 @@ const code = await clusterUp({
   deps: {
     rootfsInCas: () => ({ present: true, casRoot: "/cas" }),
     guestPlatform: () => "linux/arm64",
+    platformAdmits: tableAdmits({
+      "linux/arm64": { admitted: ["linux/arm64"], overlapping: ["linux/arm64"] },
+    }),
     hostRuntime: { command: process.execPath, args: [fake], env: process.env },
     pollMs: 10,
   },

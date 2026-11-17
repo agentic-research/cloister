@@ -31,6 +31,40 @@ export function probeGuestPlatform({ env = process.env, runJson = runCompatibili
   return platform;
 }
 
+/**
+ * Ask the host runtime, which asks LLO's `Platform::admits`, which of
+ * `candidates` a host platform `platform` admits, and which overlap it (either
+ * admits the other). Nothing here states the rule (cloister-b94b14).
+ * @param {string} platform
+ * @param {string[]} candidates
+ * @param {{env?: object, runJson?: Function}} [o]
+ * @returns {{admitted: string[], overlapping: string[]}}
+ */
+export function queryPlatformAdmits(platform, candidates, { env = process.env, runJson = runCompatibilityJson } = {}) {
+  // No candidates: the answer cannot depend on the runtime, so do not spawn it.
+  if (candidates.length === 0) return { admitted: [], overlapping: [] };
+  const stale =
+    "An installed runtime from before cloister-b94b14 has no `platform-admits` verb.\n" +
+    "Run: cloister runtime install";
+  let data;
+  try {
+    data = runJson(["platform-admits", "--platform", platform, ...candidates], { env }).data;
+  } catch (error) {
+    throw new Error(
+      `could not ask the host runtime which platforms ${platform} admits (${error.message}). ${stale}`,
+    );
+  }
+  const subset = (list) =>
+    Array.isArray(list) && list.every((p) => typeof p === "string" && candidates.includes(p));
+  if (!subset(data?.admitted) || !subset(data?.overlapping)) {
+    throw new Error(
+      `the host runtime's platform-admits reply is not two lists of the candidates it was asked about ` +
+        `(${JSON.stringify(data)}). ${stale}`,
+    );
+  }
+  return { admitted: data.admitted, overlapping: data.overlapping };
+}
+
 /** A `() => platform` that asks the host runtime once, on first use. */
 export function lazyGuestPlatform(options = {}) {
   let platform = null;

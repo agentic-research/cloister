@@ -23,7 +23,7 @@
 // `platform` is never typed: `runtime import` records what LLO reports for the
 // image it imported (`image.platform`, from the digest-verified config), and
 // `runtime plan` / `cluster up` select the row this host's guest platform
-// admits (platform.mjs, guest-platform.mjs). Importing on one platform adds or replaces only
+// admits (the host runtime's `platform-admits`, guest-platform.mjs). Importing on one platform adds or replaces only
 // that platform's row.
 //
 // `image` binds a row to the image it came from by VALUE, not by position: a
@@ -43,7 +43,7 @@
 
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
-import { isPlatform, platformAdmits, platformsOverlap } from "./platform.mjs";
+import { isPlatform } from "./platform.mjs";
 
 export const ROOTFS_KEY = "rootfs";
 export const DEFAULT_SYMLINKS = "preserve";
@@ -175,8 +175,10 @@ export function lockedRootfsRows(lock, bundle, { dir } = {}) {
  * Refuses when more than one row is admitted (`linux/arm64` and
  * `linux/arm64/v8` both recorded): picking one would be a guess.
  */
-export function selectRootfs(rows, guestPlatform, bundle) {
-  const admitted = rows.filter((row) => platformAdmits(guestPlatform, row.platform));
+export function selectRootfs(rows, guestPlatform, bundle, admits) {
+  if (typeof admits !== "function") throw new Error("internal: selectRootfs needs admits");
+  const { admitted: names } = admits(guestPlatform, rows.map((r) => r.platform));
+  const admitted = rows.filter((r) => names.includes(r.platform));
   if (admitted.length > 1) {
     throw new Error(
       `bundle "${bundle}" records more than one rootfs this host's guest platform ` +
@@ -216,9 +218,11 @@ export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
  *
  * @param {string} lockText
  * @param {{bundle: string, image: string, rootfs: string, symlinks: string, platform: string}} rec
+ * @param {(platform: string, candidates: string[]) => {admitted: string[], overlapping: string[]}} admits
+ *   answers platform overlap (the host runtime's `platform-admits`); needed only to replace rows
  * @returns {{text: string, changed: boolean, previous: string|null}}
  */
-export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platform }) {
+export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platform }, admits) {
   const lock = parseToml(lockText);
   const oci = lockedOci(lock, bundle);
   if (!oci || typeof oci.digest !== "string" || oci.digest === "") {
@@ -256,7 +260,12 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
     return { text: stringifyToml(lock), changed: true, previous };
   }
   const rows = Array.isArray(oci[ROOTFS_KEY]) ? oci[ROOTFS_KEY] : [];
-  const replaced = rows.filter((r) => platformsOverlap(r?.platform, platform));
+  if (typeof admits !== "function") throw new Error("internal: recordRootfs needs admits");
+  const { overlapping } = admits(
+    platform,
+    rows.map((r) => r?.platform).filter((p) => typeof p === "string"),
+  );
+  const replaced = rows.filter((r) => overlapping.includes(r?.platform));
   const [only] = replaced;
   if (
     replaced.length === 1 &&

@@ -42,6 +42,7 @@ import {
   lockedOci,
   recordRootfs,
 } from "../lib/runtime/rootfs-lock.mjs";
+import { queryPlatformAdmits } from "../lib/runtime/guest-platform.mjs";
 import { formatPlatform } from "../lib/runtime/platform.mjs";
 
 export class ImportUsageError extends Error {}
@@ -162,7 +163,7 @@ export async function main(argv, deps = {}) {
       rootfs,
       symlinks: args.symlinks,
       platform,
-    });
+    }, deps.platformAdmits ?? ((p, c) => queryPlatformAdmits(p, c, { env })));
     if (result.changed) {
       writeGeneratedFile(lockPath, result.text);
       log(
