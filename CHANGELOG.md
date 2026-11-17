@@ -51,6 +51,11 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `KRUN_`-prefixed names are left to LLO's worker to refuse.
 - **Values are not secrets.** They are stored in the plan in clear. Credentials
   go through vault slices.
+- **A mis-shaped `env` is refused, not dropped.** `cluster.toml` parsing used
+  to turn anything but a list into an empty list, so `[bundles.external.env]`
+  with `KEY = "value"` pairs parsed clean and the workload started without the
+  variables. That shape, a list of strings, and a non-string name or value are
+  now refused by bundle and variable name.
 
 ### 2026-11 — `cloister inspect` ignores an inherited git environment (`cloister-10804d`)
 
