@@ -198,6 +198,7 @@ tasks:
       - dev/Taskfile.yml
       - cli/Taskfile.yml
       - src/Taskfile.yml
+      - tools/harness-sandbox/Taskfile.yml
       - cluster.toml
       - cluster.lock.toml
       - cloister.capnp

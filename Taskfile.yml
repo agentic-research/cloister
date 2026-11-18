@@ -13,7 +13,7 @@ includes:
     taskfile: ./tools/dolt-grpc-demo/Taskfile.yml
     dir: ./tools/dolt-grpc-demo
 
-  # lint/, gen/, dev/, cli/ and src/ own their tasks. The keys end in -tasks so none reads
+  # lint/, gen/, dev/, cli/, src/ and tools/harness-sandbox/ own their tasks. The keys end in -tasks so none reads
   # as a task name (`lint` and `dev` are tasks). `flatten` keeps every task's name as
   # it was (`task lint:doc-links`, `task manifest`, `task smoke`), so nothing
   # that calls a task changed when they moved out of this file.
@@ -31,6 +31,9 @@ includes:
     flatten: true
   src-tasks:
     taskfile: ./src/Taskfile.yml
+    flatten: true
+  harness-sandbox-tasks:
+    taskfile: ./tools/harness-sandbox/Taskfile.yml
     flatten: true
 
 vars:
@@ -54,27 +57,6 @@ tasks:
     generates:
       - node_modules/.modules.yaml
 
-  harness:sandbox:build:
-    desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
-    dir: tools/harness-sandbox
-    cmds:
-      - cargo build --release
-    sources:
-      - src/**/*.rs
-      - Cargo.toml
-      - Cargo.lock
-    generates:
-      - target/release/cloister-harness
-
-  # `spike:libkrun` + `spike:libkrun:mediated` lived here and are DELETED with
-  # tools/libkrun-spike (cloister-5624e8). They proved ADR-0044/0046's
-  # mediate-below-stock-libkrun thesis on demand, and that proof has moved: LLO
-  # embeds libkrun via FFI (ley-line-open-f839c1) rather than booting it from a
-  # shell script, and ley-line-open-984acf ships the entitled macOS worker.
-  # ADR-0049's 2026-07-31 amendment is the decision — cloister keeps policy,
-  # authorization, audit and the CLI; LLO owns the execution runtime. Do not
-  # re-add a spike here; extend LLO's backend and consume it over execution/v1.
-
   test:artifacts:
     desc: "ADR-0067 L1 — every registered artifact validates against its VENDORED schema and matches its committed golden. Portable: no sibling checkout needed, which is the point — the strongest confinement check before this was local-only and therefore absent from the machine where drift would go unnoticed."
     cmds:
@@ -96,16 +78,6 @@ tasks:
     desc: "Prove the documented first install and Linux confinement boundary in a cache-free image."
     cmds:
       - docker build --file test/install-image/Dockerfile --tag cloister-install-test:local .
-
-  test:harness-binary:
-    desc: "Kernel-confinement tests for the cloister-harness BINARY — the artifact that actually ships (cloister-e22a56). Distinct from `nono-isolation`, which drives the `nono` CLI: that is a different artifact at a different version, so it says nothing about the library pinned in tools/harness-sandbox/Cargo.toml. Measured: the installed CLI was 0.56.0 while the pin moved to 0.70, and the CLI suite stayed green throughout. DEPENDS on harness:sandbox:build so the binary exists — wiring this into `lint` instead would make it skip forever, because `lint` is ordered before the build."
-    deps: [harness:sandbox:build]
-    cmds:
-      - node --test tools/harness-sandbox/test/cloister-harness-binary.test.mjs
-    sources:
-      - tools/harness-sandbox/src/main.rs
-      - tools/harness-sandbox/Cargo.toml
-      - tools/harness-sandbox/test/cloister-harness-binary.test.mjs
 
   lint:
     desc: "Fast gate — tsc + worker tests + plugin tests + mermaid + paths + timing + bundle-isolation + tenant-docs + cluster-toml contracts + upstream-pin coherence (lint:upstream-pins) + cluster-zod runtime validation. Runs ≤2s. Use this in inner-loop dev. For Tier 1 integration (image builds + cluster boot), see `task cluster:test` (opt-in, slower)."

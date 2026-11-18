@@ -560,6 +560,6 @@ test("no file in lint/, gen/ or dev/ forwards to cli/", () => {
 // the three directories are included flat, and the root stays an index.
 test("each directory's Taskfile is included flat", () => {
   const files = flatTaskfiles(ROOT);
-  assert.deepEqual(files, ["Taskfile.yml", "lint/Taskfile.yml", "gen/Taskfile.yml", "dev/Taskfile.yml", "cli/Taskfile.yml", "src/Taskfile.yml"]);
+  assert.deepEqual(files, ["Taskfile.yml", "lint/Taskfile.yml", "gen/Taskfile.yml", "dev/Taskfile.yml", "cli/Taskfile.yml", "src/Taskfile.yml", "tools/harness-sandbox/Taskfile.yml"]);
   for (const file of files) assert.ok(existsSync(resolve(ROOT, file)), `${file} is included but missing`);
 });

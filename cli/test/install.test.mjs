@@ -42,6 +42,7 @@ const PROJECT_FILES = [
   "recipes/Taskfile.yml",
   "tools/dolt-grpc-demo/Taskfile.yml",
   "tools/harness-sandbox/Cargo.toml",
+  "tools/harness-sandbox/Taskfile.yml",
   "cluster.toml",
   "cloister.capnp",
   "manifest",

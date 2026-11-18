@@ -199,7 +199,8 @@ Taskfile and is pulled in:
 
 - `rs/Taskfile.yml` and `recipes/Taskfile.yml` are namespaced: `task rs:*`,
   `task recipes:*`.
-- `lint/`, `gen/`, `dev/`, `cli/` and `src/` each have a `Taskfile.yml`, included
+- `lint/`, `gen/`, `dev/`, `cli/`, `src/` and `tools/harness-sandbox/` each have a
+  `Taskfile.yml`, included
   with `flatten: true`, so their tasks keep the names they always had
   (`task lint:doc-links`, `task manifest`, `task smoke`, `task cluster:toml`,
   `task test`). A task in one may depend on a task in another by name.
