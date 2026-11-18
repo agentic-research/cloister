@@ -11,8 +11,8 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 ### 2026-11 — cluster.toml has a published JSON Schema
 
 - **The schema.** `schema/cluster.toml.schema.json`, generated from
-  `manifest/cluster.capnp` through the zod schema the parser already validates
-  against. An editor can complete and check a `cluster.toml` with it, and
+  `manifest/cluster.capnp` by LLO's schema-bridge (its JSON Schema output, now
+  pinned beside the zod and Go ones) and then reshaped for TOML. An editor can complete and check a `cluster.toml` with it, and
   another tool can read one without copying the parser. See
   `docs/reference/cluster-toml-schema.md`.
 - **It is written the way an operator writes TOML.** A union is `kind =
@@ -23,8 +23,8 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   vault proxy service, a skill, an edge, or under `[bundles.confinement.*]`
   parsed clean and was dropped. Each is now an error that names the key. This
   can refuse a file that was accepted before.
-- **Kept in step.** `task cluster:toml:schema` regenerates it, and
-  `cluster:toml:schema:check` in `task lint` fails on drift. A test holds every
+- **Kept in step.** `task cluster:jsonschema` and `task cluster:toml:schema`
+  regenerate it, and each has a drift check in `task lint`. A test holds every
   `cluster.toml` in the tree, and everything the writer emits, to it.
 - The repo's JSON Schema validator read a schema-valued
   `additionalProperties` as "anything goes". It now applies it.

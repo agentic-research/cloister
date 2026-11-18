@@ -1,470 +1,28 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/agentic-research/cloister/main/schema/cluster.toml.schema.json",
   "title": "cloister cluster.toml",
-  "description": "The operator's declaration of a cloister cluster. Generated from manifest/cluster.capnp by scripts/gen-cluster-toml-schema.mjs; do not edit by hand. A file that validates here has the right shape. The build still checks what a schema cannot: names that must match, ports that must exist, strengths that must be met.",
+  "description": "The operator's declaration of a cloister cluster. Generated from manifest/cluster.capnp by LLO's schema-bridge and scripts/gen-cluster-toml-schema.mjs; do not edit by hand. A file that validates here has the right shape. The build still checks what a schema cannot: names that must match, ports that must exist, strengths that must be met.",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "metadata": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "default": "",
-          "type": "string"
-        },
-        "version": {
-          "default": "",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "version"
-      ],
-      "additionalProperties": false
+      "$ref": "#/$defs/ClusterMetadata"
     },
     "bundles": {
-      "default": [],
       "type": "array",
       "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "name": {
-                "default": "",
-                "type": "string"
-              },
-              "description": {
-                "default": "",
-                "type": "string"
-              },
-              "tier": {
-                "default": "hypervisor",
-                "type": "string",
-                "enum": [
-                  "hypervisor",
-                  "cluster"
-                ]
-              },
-              "holdsCredential": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "workerdServiceName": {
-                "default": "",
-                "type": "string"
-              },
-              "hypervisorRationale": {
-                "default": "",
-                "type": "string"
-              },
-              "perTenant": {
-                "default": false,
-                "type": "boolean"
-              },
-              "confinement": {
-                "type": "object",
-                "properties": {
-                  "fs": {
-                    "type": "object",
-                    "properties": {
-                      "allow": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "path": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "mode": {
-                                  "default": "",
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "network": {
-                    "type": "object",
-                    "properties": {
-                      "allowHosts": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "port": {
-                    "type": "object",
-                    "properties": {
-                      "bind": {
-                        "default": 0,
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "address": {
-                        "default": "",
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "credentialSource": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              },
-              "ports": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "port": {
-                      "default": 0,
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "appProtocol": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "expose": {
-                      "default": "",
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "placements": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "env": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "kind": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "manifest": {
-                      "default": "",
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "kind": {
-                "const": "workerd"
-              },
-              "workerd": {
-                "type": "object",
-                "properties": {
-                  "entryPoint": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "name": {
-                "default": "",
-                "type": "string"
-              },
-              "description": {
-                "default": "",
-                "type": "string"
-              },
-              "tier": {
-                "default": "hypervisor",
-                "type": "string",
-                "enum": [
-                  "hypervisor",
-                  "cluster"
-                ]
-              },
-              "holdsCredential": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "workerdServiceName": {
-                "default": "",
-                "type": "string"
-              },
-              "hypervisorRationale": {
-                "default": "",
-                "type": "string"
-              },
-              "perTenant": {
-                "default": false,
-                "type": "boolean"
-              },
-              "confinement": {
-                "type": "object",
-                "properties": {
-                  "fs": {
-                    "type": "object",
-                    "properties": {
-                      "allow": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "path": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "mode": {
-                                  "default": "",
-                                  "type": "string"
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "network": {
-                    "type": "object",
-                    "properties": {
-                      "allowHosts": {
-                        "default": [],
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "port": {
-                    "type": "object",
-                    "properties": {
-                      "bind": {
-                        "default": 0,
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "address": {
-                        "default": "",
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  },
-                  "credentialSource": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              },
-              "ports": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "port": {
-                      "default": 0,
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "appProtocol": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "expose": {
-                      "default": "",
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "placements": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "env": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "kind": {
-                      "default": "",
-                      "type": "string"
-                    },
-                    "manifest": {
-                      "default": "",
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "kind": {
-                "const": "external"
-              },
-              "external": {
-                "type": "object",
-                "properties": {
-                  "image": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "ipcSocket": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "httpPort": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "args": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "env": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "name": {
-                          "default": "",
-                          "type": "string"
-                        },
-                        "value": {
-                          "default": "",
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  },
-                  "entryPoint": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "executionMode": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "executionModeRationale": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          }
-        ]
+        "$ref": "#/$defs/Bundle"
       }
     },
     "wires": {
-      "default": [],
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "default": "",
-            "type": "string"
-          },
-          "to": {
-            "default": "",
-            "type": "string"
-          },
-          "binding": {
-            "default": "",
-            "type": "string"
-          },
-          "transport": {
-            "type": "string",
-            "enum": [
-              "uds",
-              "leylineNet"
-            ]
-          }
-        },
-        "additionalProperties": false
+        "$ref": "#/$defs/Wire"
       }
     },
     "storage": {
-      "type": "object",
-      "properties": {
-        "doStoragePath": {
-          "default": "",
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/StoragePolicy"
     },
     "inputs": {
       "oneOf": [
@@ -472,1221 +30,1398 @@
           "type": "object",
           "properties": {},
           "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "ref": {
-                "default": "",
-                "type": "string"
-              },
-              "version": {
-                "default": "",
-                "type": "string"
-              },
-              "digest": {
-                "default": "",
-                "type": "string"
-              },
-              "from": {
-                "default": "",
-                "type": "string"
-              },
-              "provides": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "requires": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "urlBinding": {
-                "default": "",
-                "type": "string"
-              },
-              "serviceBinding": {
-                "default": "",
-                "type": "string"
-              },
-              "tenancy": {
-                "type": "object",
-                "properties": {
-                  "mode": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "workerdId": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "trustedTier": {
-                    "default": false,
-                    "type": "boolean"
-                  },
-                  "sharesWorkerdWith": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "additionalProperties": false
-              },
-              "requiresSessionRetired": {
-                "default": false,
-                "type": "boolean"
-              },
-              "connection": {
-                "type": "object",
-                "properties": {
-                  "socketPath": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "vaultSlice": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "transport": {
-                    "type": "string",
-                    "enum": [
-                      "unset",
-                      "uds"
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              },
-              "mutableTagReason": {
-                "default": "",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/$defs/InputSpecByName"
           }
         },
         {
-          "default": [],
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "default": "",
-                "type": "string"
-              },
-              "ref": {
-                "default": "",
-                "type": "string"
-              },
-              "version": {
-                "default": "",
-                "type": "string"
-              },
-              "digest": {
-                "default": "",
-                "type": "string"
-              },
-              "from": {
-                "default": "",
-                "type": "string"
-              },
-              "provides": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "requires": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "urlBinding": {
-                "default": "",
-                "type": "string"
-              },
-              "serviceBinding": {
-                "default": "",
-                "type": "string"
-              },
-              "tenancy": {
-                "type": "object",
-                "properties": {
-                  "mode": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "workerdId": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "trustedTier": {
-                    "default": false,
-                    "type": "boolean"
-                  },
-                  "sharesWorkerdWith": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "additionalProperties": false
-              },
-              "requiresSessionRetired": {
-                "default": false,
-                "type": "boolean"
-              },
-              "connection": {
-                "type": "object",
-                "properties": {
-                  "socketPath": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "vaultSlice": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "transport": {
-                    "type": "string",
-                    "enum": [
-                      "unset",
-                      "uds"
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              },
-              "mutableTagReason": {
-                "default": "",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/$defs/InputSpec"
           }
         }
       ]
     },
     "routes": {
-      "default": [],
       "type": "array",
       "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "health"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "mcp"
-              },
-              "mcp": {
-                "type": "object",
-                "properties": {
-                  "backends": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "oneOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "handlesPrefix": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "durableObject"
-                            },
-                            "durableObject": {
-                              "type": "object",
-                              "properties": {
-                                "binding": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "keyArg": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "tools": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "description": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "inputSchemaJson": {
-                                        "default": "",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "additionalProperties": false
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "handlesPrefix": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "serviceBinding"
-                            },
-                            "serviceBinding": {
-                              "type": "object",
-                              "properties": {
-                                "binding": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "tools": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "description": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "inputSchemaJson": {
-                                        "default": "",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "additionalProperties": false
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "handlesPrefix": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "udsForward"
-                            },
-                            "udsForward": {
-                              "type": "object",
-                              "properties": {
-                                "socketPath": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "tools": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "description": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "inputSchemaJson": {
-                                        "default": "",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "additionalProperties": false
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "handlesPrefix": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "leylineNet"
-                            },
-                            "leylineNet": {
-                              "type": "object",
-                              "properties": {
-                                "companionUrlBinding": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "upstreamId": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "tools": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "description": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "inputSchemaJson": {
-                                        "default": "",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "additionalProperties": false
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "kind"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "name": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "handlesPrefix": {
-                              "default": "",
-                              "type": "string"
-                            },
-                            "kind": {
-                              "const": "mcpProxy"
-                            },
-                            "mcpProxy": {
-                              "type": "object",
-                              "properties": {
-                                "urlBinding": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "tools": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "object",
-                                    "properties": {
-                                      "name": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "description": {
-                                        "default": "",
-                                        "type": "string"
-                                      },
-                                      "inputSchemaJson": {
-                                        "default": "",
-                                        "type": "string"
-                                      }
-                                    },
-                                    "additionalProperties": false
-                                  }
-                                },
-                                "dynamicTools": {
-                                  "default": false,
-                                  "type": "boolean"
-                                },
-                                "stripPrefix": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "requiresSession": {
-                                  "default": false,
-                                  "type": "boolean"
-                                },
-                                "protocolMode": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "serviceBinding": {
-                                  "default": "",
-                                  "type": "string"
-                                },
-                                "claims": {
-                                  "default": [],
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string"
-                                  }
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false,
-                          "required": [
-                            "kind"
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "serviceBindingProxy"
-              },
-              "serviceBindingProxy": {
-                "type": "object",
-                "properties": {
-                  "binding": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamHost": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "stripPrefix": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "httpProxy"
-              },
-              "httpProxy": {
-                "type": "object",
-                "properties": {
-                  "urlBinding": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "stripPrefix": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "wellKnownInterlace"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "disclosure"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "wellKnownIdentityBridge"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "ociRegistry"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "wellKnownMcpRegistry"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "caBundle"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "vaultProxy"
-              },
-              "vaultProxy": {
-                "type": "object",
-                "properties": {
-                  "bundleIdName": {
-                    "default": "",
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "path": {
-                "default": "",
-                "type": "string"
-              },
-              "kind": {
-                "const": "tenantDispatch"
-              },
-              "tenantDispatch": {
-                "type": "object",
-                "properties": {
-                  "tenants": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "name": {
-                          "default": "",
-                          "type": "string"
-                        },
-                        "mode": {
-                          "default": "",
-                          "type": "string"
-                        },
-                        "matchValue": {
-                          "default": "",
-                          "type": "string"
-                        },
-                        "binding": {
-                          "default": "",
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "kind"
-            ]
-          }
-        ]
+        "$ref": "#/$defs/Route"
       }
     },
     "gateway": {
-      "type": "object",
-      "properties": {
-        "metadata": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "default": "",
-              "type": "string"
-            },
-            "version": {
-              "default": "",
-              "type": "string"
-            },
-            "metaNamespace": {
-              "default": "",
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        "actor": {
-          "type": "object",
-          "properties": {
-            "fingerprint": {
-              "default": "",
-              "type": "string"
-            },
-            "algorithm": {
-              "default": "",
-              "type": "string"
-            },
-            "pubkeyBinding": {
-              "default": "",
-              "type": "string"
-            },
-            "attestationRepo": {
-              "default": "",
-              "type": "string"
-            },
-            "tunnelEndpoint": {
-              "default": "",
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        "policy": {
-          "type": "object",
-          "properties": {
-            "maxCertLifetimeSeconds": {
-              "default": 0,
-              "type": "integer",
-              "minimum": 0
-            },
-            "requireInterlock": {
-              "default": false,
-              "type": "boolean"
-            },
-            "minAlgorithm": {
-              "default": "",
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        "vaultProxyServices": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamBaseUrl": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "defaultAllowedSubs": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rateLimitPerMinute": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "injection": {
-                    "const": "authorizationBearer"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "injection"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamBaseUrl": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "defaultAllowedSubs": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rateLimitPerMinute": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "injection": {
-                    "const": "authorizationBasic"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "injection"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamBaseUrl": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "defaultAllowedSubs": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rateLimitPerMinute": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "injection": {
-                    "const": "headerNamed"
-                  },
-                  "headerNamed": {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "default": "",
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "injection"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamBaseUrl": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "defaultAllowedSubs": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rateLimitPerMinute": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "injection": {
-                    "const": "queryParam"
-                  },
-                  "queryParam": {
-                    "type": "object",
-                    "properties": {
-                      "name": {
-                        "default": "",
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "injection"
-                ]
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "upstreamBaseUrl": {
-                    "default": "",
-                    "type": "string"
-                  },
-                  "defaultAllowedSubs": {
-                    "default": [],
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "rateLimitPerMinute": {
-                    "default": 0,
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "injection": {
-                    "const": "bodyField"
-                  },
-                  "bodyField": {
-                    "type": "object",
-                    "properties": {
-                      "path": {
-                        "default": "",
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "injection"
-                ]
-              }
-            ]
-          }
-        },
-        "harnessTargets": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "default": "",
-                "type": "string"
-              },
-              "service": {
-                "default": "",
-                "type": "string"
-              },
-              "entryPoint": {
-                "default": "",
-                "type": "string"
-              },
-              "apiKeyEnv": {
-                "default": "",
-                "type": "string"
-              },
-              "baseUrlEnv": {
-                "default": "",
-                "type": "string"
-              },
-              "stripEnv": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "stateDirEnv": {
-                "default": "",
-                "type": "string"
-              },
-              "stateDir": {
-                "default": "",
-                "type": "string"
-              },
-              "authModes": {
-                "default": [],
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "provenance": {
-                "default": "",
-                "type": "string"
-              },
-              "executable": {
-                "default": "",
-                "type": "string"
-              },
-              "subscriptionTokenEnv": {
-                "default": "",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "skills": {
-          "default": [],
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "default": "",
-                "type": "string"
-              },
-              "digest": {
-                "default": "",
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/Gateway"
     },
     "edges": {
-      "default": [],
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "default": "",
-            "type": "string"
-          },
-          "to": {
-            "default": "",
-            "type": "string"
-          },
-          "appProtocol": {
-            "default": "",
-            "type": "string"
-          },
-          "transport": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
+        "$ref": "#/$defs/EdgeSpec"
       }
     },
     "connections": {
-      "default": [],
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "default": "",
-            "type": "string"
-          },
-          "name": {
-            "default": "",
-            "type": "string"
-          },
-          "appProtocol": {
-            "default": "",
-            "type": "string"
-          },
-          "targets": {
-            "default": [],
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "env": {
-                  "default": "",
-                  "type": "string"
-                },
-                "bundle": {
-                  "default": "",
-                  "type": "string"
-                },
-                "port": {
-                  "default": "",
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "minStrength": {
-            "default": "",
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
+        "$ref": "#/$defs/ConnectionSpec"
       }
     }
   },
   "required": [
     "metadata"
   ],
-  "additionalProperties": false
+  "$defs": {
+    "Tier": {
+      "type": "string",
+      "enum": [
+        "hypervisor",
+        "cluster"
+      ]
+    },
+    "ClusterMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    },
+    "Bundle": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "tier": {
+              "$ref": "#/$defs/Tier"
+            },
+            "holdsCredential": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "workerdServiceName": {
+              "type": "string"
+            },
+            "hypervisorRationale": {
+              "type": "string"
+            },
+            "perTenant": {
+              "type": "boolean"
+            },
+            "confinement": {
+              "$ref": "#/$defs/Confinement"
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PortSpec"
+              }
+            },
+            "placements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlacementSpec"
+              }
+            },
+            "kind": {
+              "const": "workerd"
+            },
+            "workerd": {
+              "$ref": "#/$defs/WorkerdBundle"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "tier": {
+              "$ref": "#/$defs/Tier"
+            },
+            "holdsCredential": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "workerdServiceName": {
+              "type": "string"
+            },
+            "hypervisorRationale": {
+              "type": "string"
+            },
+            "perTenant": {
+              "type": "boolean"
+            },
+            "confinement": {
+              "$ref": "#/$defs/Confinement"
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PortSpec"
+              }
+            },
+            "placements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlacementSpec"
+              }
+            },
+            "kind": {
+              "const": "external"
+            },
+            "external": {
+              "$ref": "#/$defs/ExternalBundle"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Wire": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "uds",
+            "leylineNet"
+          ]
+        }
+      }
+    },
+    "StoragePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doStoragePath": {
+          "type": "string"
+        }
+      }
+    },
+    "InputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "urlBinding": {
+          "type": "string"
+        },
+        "serviceBinding": {
+          "type": "string"
+        },
+        "tenancy": {
+          "$ref": "#/$defs/TenancySpec"
+        },
+        "requiresSessionRetired": {
+          "type": "boolean"
+        },
+        "connection": {
+          "$ref": "#/$defs/Connection"
+        },
+        "mutableTagReason": {
+          "type": "string"
+        }
+      }
+    },
+    "Route": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "health"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "mcp"
+            },
+            "mcp": {
+              "$ref": "#/$defs/McpRouteSpec"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "serviceBindingProxy"
+            },
+            "serviceBindingProxy": {
+              "$ref": "#/$defs/ServiceBindingProxySpec"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "httpProxy"
+            },
+            "httpProxy": {
+              "$ref": "#/$defs/HttpProxySpec"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "wellKnownInterlace"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "disclosure"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "wellKnownIdentityBridge"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "ociRegistry"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "wellKnownMcpRegistry"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "caBundle"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "vaultProxy"
+            },
+            "vaultProxy": {
+              "$ref": "#/$defs/VaultProxySpec"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "tenantDispatch"
+            },
+            "tenantDispatch": {
+              "$ref": "#/$defs/TenantDispatchSpec"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "Gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/GatewayMetadata"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "policy": {
+          "$ref": "#/$defs/InterlacePolicy"
+        },
+        "vaultProxyServices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VaultProxyService"
+          }
+        },
+        "harnessTargets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HarnessTarget"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SkillDeclaration"
+          }
+        }
+      }
+    },
+    "EdgeSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "appProtocol": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        }
+      }
+    },
+    "ConnectionSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "appProtocol": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConnectionTarget"
+          }
+        },
+        "minStrength": {
+          "type": "string"
+        }
+      }
+    },
+    "WorkerdBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryPoint": {
+          "type": "string"
+        }
+      }
+    },
+    "ExternalBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string"
+        },
+        "ipcSocket": {
+          "type": "string"
+        },
+        "httpPort": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvVar"
+          }
+        },
+        "entryPoint": {
+          "type": "string"
+        },
+        "executionMode": {
+          "type": "string"
+        },
+        "executionModeRationale": {
+          "type": "string"
+        }
+      }
+    },
+    "Confinement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fs": {
+          "$ref": "#/$defs/ConfinementFs"
+        },
+        "network": {
+          "$ref": "#/$defs/ConfinementNetwork"
+        },
+        "port": {
+          "$ref": "#/$defs/ConfinementPort"
+        },
+        "credentialSource": {
+          "type": "string"
+        }
+      }
+    },
+    "PortSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "appProtocol": {
+          "type": "string"
+        },
+        "expose": {
+          "type": "string"
+        }
+      }
+    },
+    "PlacementSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "manifest": {
+          "type": "string"
+        }
+      }
+    },
+    "ConfinementFs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/FsAllowEntry"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "ConfinementNetwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ConfinementPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "address": {
+          "type": "string"
+        }
+      }
+    },
+    "FsAllowEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        }
+      }
+    },
+    "EnvVar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "TenancySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "workerdId": {
+          "type": "string"
+        },
+        "trustedTier": {
+          "type": "boolean"
+        },
+        "sharesWorkerdWith": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Connection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "socketPath": {
+          "type": "string"
+        },
+        "vaultSlice": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "unset",
+            "uds"
+          ]
+        }
+      }
+    },
+    "McpRouteSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backends": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Backend"
+          }
+        }
+      }
+    },
+    "ServiceBindingProxySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "type": "string"
+        },
+        "upstreamHost": {
+          "type": "string"
+        },
+        "stripPrefix": {
+          "type": "string"
+        }
+      }
+    },
+    "HttpProxySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "urlBinding": {
+          "type": "string"
+        },
+        "stripPrefix": {
+          "type": "string"
+        }
+      }
+    },
+    "VaultProxySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bundleIdName": {
+          "type": "string"
+        }
+      }
+    },
+    "TenantDispatchSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TenantDispatchRow"
+          }
+        }
+      }
+    },
+    "Backend": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "handlesPrefix": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "durableObject"
+            },
+            "durableObject": {
+              "$ref": "#/$defs/DoBackend"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "handlesPrefix": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "serviceBinding"
+            },
+            "serviceBinding": {
+              "$ref": "#/$defs/ServiceBindingBackend"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "handlesPrefix": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "udsForward"
+            },
+            "udsForward": {
+              "$ref": "#/$defs/UdsForwardBackend"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "handlesPrefix": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "leylineNet"
+            },
+            "leylineNet": {
+              "$ref": "#/$defs/LeylineNetBackend"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "handlesPrefix": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "mcpProxy"
+            },
+            "mcpProxy": {
+              "$ref": "#/$defs/HttpForwardBackend"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "DoBackend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "type": "string"
+        },
+        "keyArg": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpTool"
+          }
+        }
+      }
+    },
+    "ServiceBindingBackend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpTool"
+          }
+        }
+      }
+    },
+    "UdsForwardBackend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "socketPath": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpTool"
+          }
+        }
+      }
+    },
+    "LeylineNetBackend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "companionUrlBinding": {
+          "type": "string"
+        },
+        "upstreamId": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpTool"
+          }
+        }
+      }
+    },
+    "HttpForwardBackend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "urlBinding": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpTool"
+          }
+        },
+        "dynamicTools": {
+          "type": "boolean"
+        },
+        "stripPrefix": {
+          "type": "string"
+        },
+        "requiresSession": {
+          "type": "boolean"
+        },
+        "protocolMode": {
+          "type": "string"
+        },
+        "serviceBinding": {
+          "type": "string"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "McpTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchemaJson": {
+          "type": "string"
+        }
+      }
+    },
+    "TenantDispatchRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "matchValue": {
+          "type": "string"
+        },
+        "binding": {
+          "type": "string"
+        }
+      }
+    },
+    "GatewayMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "metaNamespace": {
+          "type": "string"
+        }
+      }
+    },
+    "Actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        },
+        "pubkeyBinding": {
+          "type": "string"
+        },
+        "attestationRepo": {
+          "type": "string"
+        },
+        "tunnelEndpoint": {
+          "type": "string"
+        }
+      }
+    },
+    "InterlacePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxCertLifetimeSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requireInterlock": {
+          "type": "boolean"
+        },
+        "minAlgorithm": {
+          "type": "string"
+        }
+      }
+    },
+    "VaultProxyService": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "upstreamBaseUrl": {
+              "type": "string"
+            },
+            "defaultAllowedSubs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rateLimitPerMinute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "injection": {
+              "const": "authorizationBearer"
+            }
+          },
+          "required": [
+            "injection"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "upstreamBaseUrl": {
+              "type": "string"
+            },
+            "defaultAllowedSubs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rateLimitPerMinute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "injection": {
+              "const": "authorizationBasic"
+            }
+          },
+          "required": [
+            "injection"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "upstreamBaseUrl": {
+              "type": "string"
+            },
+            "defaultAllowedSubs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rateLimitPerMinute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "injection": {
+              "const": "headerNamed"
+            },
+            "headerNamed": {
+              "$ref": "#/$defs/HeaderNamedSpec"
+            }
+          },
+          "required": [
+            "injection"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "upstreamBaseUrl": {
+              "type": "string"
+            },
+            "defaultAllowedSubs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rateLimitPerMinute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "injection": {
+              "const": "queryParam"
+            },
+            "queryParam": {
+              "$ref": "#/$defs/QueryParamSpec"
+            }
+          },
+          "required": [
+            "injection"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "upstreamBaseUrl": {
+              "type": "string"
+            },
+            "defaultAllowedSubs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "rateLimitPerMinute": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "injection": {
+              "const": "bodyField"
+            },
+            "bodyField": {
+              "$ref": "#/$defs/BodyFieldSpec"
+            }
+          },
+          "required": [
+            "injection"
+          ]
+        }
+      ]
+    },
+    "HarnessTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "entryPoint": {
+          "type": "string"
+        },
+        "apiKeyEnv": {
+          "type": "string"
+        },
+        "baseUrlEnv": {
+          "type": "string"
+        },
+        "stripEnv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stateDirEnv": {
+          "type": "string"
+        },
+        "stateDir": {
+          "type": "string"
+        },
+        "authModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provenance": {
+          "type": "string"
+        },
+        "executable": {
+          "type": "string"
+        },
+        "subscriptionTokenEnv": {
+          "type": "string"
+        }
+      }
+    },
+    "SkillDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        }
+      }
+    },
+    "HeaderNamedSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "QueryParamSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "BodyFieldSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "ConnectionTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "bundle": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        }
+      }
+    },
+    "InputSpecByName": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "urlBinding": {
+          "type": "string"
+        },
+        "serviceBinding": {
+          "type": "string"
+        },
+        "tenancy": {
+          "$ref": "#/$defs/TenancySpec"
+        },
+        "requiresSessionRetired": {
+          "type": "boolean"
+        },
+        "connection": {
+          "$ref": "#/$defs/Connection"
+        },
+        "mutableTagReason": {
+          "type": "string"
+        }
+      }
+    }
+  }
 }

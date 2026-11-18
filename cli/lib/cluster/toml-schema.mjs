@@ -4,12 +4,12 @@
 // the one check the parser takes from it.
 //
 // schema/cluster.toml.schema.json is generated from manifest/cluster.capnp
-// (scripts/gen-cluster-toml-schema.mjs). It names every key a cluster.toml may
-// hold. toml-to-cluster.mjs rebuilds several tables field by field before it
-// validates, and a rebuild keeps only the fields it lists: a key it does not
-// list was DROPPED, so a typo parsed clean and the setting silently did not
-// apply. Each such table needed its own guard, and the ones without a guard
-// leaked.
+// (LLO's schema-bridge, then scripts/gen-cluster-toml-schema.mjs). It names
+// every key a cluster.toml may hold. toml-to-cluster.mjs rebuilds several
+// tables field by field before it validates, and a rebuild keeps only the
+// fields it lists: a key it does not list was DROPPED, so a typo parsed clean
+// and the setting silently did not apply. Each such table needed its own
+// guard, and the ones without a guard leaked.
 //
 // `undeclaredKeys` is the one guard for all of them: every key in the file the
 // operator wrote must be a key the schema defines. It reports paths, never
@@ -24,6 +24,21 @@ let cached;
 export function tomlSchema() {
   cached ??= JSON.parse(readFileSync(TOML_SCHEMA_URL, "utf8"));
   return cached;
+}
+
+const REF_PREFIX = "#/$defs/";
+
+/** Follow `$ref` to the definition it names. Only local definitions exist in this schema. */
+export function resolve(schema, root) {
+  let node = schema;
+  while (typeof node?.$ref === "string") {
+    const name = node.$ref.startsWith(REF_PREFIX) ? node.$ref.slice(REF_PREFIX.length) : null;
+    if (name === null || !Object.hasOwn(root.$defs ?? {}, name)) {
+      throw new Error(`the cluster.toml schema refers to ${node.$ref}, which it does not define`);
+    }
+    node = root.$defs[name];
+  }
+  return node;
 }
 
 const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -41,8 +56,8 @@ const fits = (schema, value) => {
  * is left alone: the schema validation before this has already refused it, or
  * will name it better than this could.
  */
-function branchFor(branches, value) {
-  const typed = branches.filter((b) => fits(b, value));
+function branchFor(branches, value, root) {
+  const typed = branches.map((b) => resolve(b, root)).filter((b) => fits(b, value));
   if (typed.length <= 1) return typed[0] ?? null;
   if (!isTable(value)) return null;
   const tagged = typed.filter((b) =>
@@ -51,28 +66,32 @@ function branchFor(branches, value) {
 }
 
 /**
- * Dotted paths of every key in `value` that `schema` does not define.
+ * Dotted paths of every key in `value` that the schema does not define.
  *
  * @param {unknown} value a parsed cluster.toml, or part of one
- * @param {object} [schema] defaults to the published schema
+ * @param {object} [root] defaults to the published schema
  * @returns {string[]} e.g. `["bundles[0].confinement.fs.alow"]`
  */
-export function undeclaredKeys(value, schema = tomlSchema(), path = "") {
-  if (Array.isArray(schema.oneOf)) {
-    const branch = branchFor(schema.oneOf, value);
-    return branch ? undeclaredKeys(value, branch, path) : [];
-  }
-  if (Array.isArray(value)) {
-    return schema.items ? value.flatMap((item, i) => undeclaredKeys(item, schema.items, `${path}[${i}]`)) : [];
-  }
-  if (!isTable(value)) return [];
-  const out = [];
-  for (const [key, inner] of Object.entries(value)) {
-    const at = path ? `${path}.${key}` : key;
-    const sub = Object.hasOwn(schema.properties ?? {}, key) ? schema.properties[key] : undefined;
-    if (sub !== undefined) out.push(...undeclaredKeys(inner, sub, at));
-    else if (isTable(schema.additionalProperties)) out.push(...undeclaredKeys(inner, schema.additionalProperties, at));
-    else if (schema.additionalProperties === false) out.push(at);
-  }
-  return out;
+export function undeclaredKeys(value, root = tomlSchema()) {
+  const walk = (inner, schemaNode, path) => {
+    const schema = resolve(schemaNode, root);
+    if (Array.isArray(schema.oneOf)) {
+      const branch = branchFor(schema.oneOf, inner, root);
+      return branch ? walk(inner, branch, path) : [];
+    }
+    if (Array.isArray(inner)) {
+      return schema.items ? inner.flatMap((item, i) => walk(item, schema.items, `${path}[${i}]`)) : [];
+    }
+    if (!isTable(inner)) return [];
+    const out = [];
+    for (const [key, child] of Object.entries(inner)) {
+      const at = path ? `${path}.${key}` : key;
+      const sub = Object.hasOwn(schema.properties ?? {}, key) ? schema.properties[key] : undefined;
+      if (sub !== undefined) out.push(...walk(child, sub, at));
+      else if (isTable(schema.additionalProperties)) out.push(...walk(child, schema.additionalProperties, at));
+      else if (schema.additionalProperties === false) out.push(at);
+    }
+    return out;
+  };
+  return walk(value, root, "");
 }

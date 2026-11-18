@@ -51,17 +51,25 @@ Those fields are plain strings in the schema.
 It is generated, never written by hand:
 
 ```
-manifest/cluster.capnp  →  src/generated/cluster.zod.ts  →  schema/cluster.toml.schema.json
+manifest/cluster.capnp
+  →  src/generated/cluster.schema.json     LLO's schema-bridge
+  →  schema/cluster.toml.schema.json       scripts/gen-cluster-toml-schema.mjs
 ```
 
 ```sh
-task cluster:toml:schema         # regenerate
-task cluster:toml:schema:check   # fail if the committed file differs (in `task lint`)
+task cluster:jsonschema          # step 1: capnp → JSON Schema, by LLO's generator
+task cluster:toml:schema         # step 2: reshape it for TOML
 ```
 
-The generator is `scripts/gen-cluster-toml-schema.mjs`. Two things differ
-between the TOML you write and the shape the capnp schema describes, and the
-generator applies both:
+Both steps have a drift check in `task lint`
+(`cluster:jsonschema:check-drift`, `cluster:toml:schema:check`).
+
+Step 1 is LLO's `capnpc-schema-bridge-jsonschema`, the same generator family
+that produces `cluster.zod.ts`, pinned by digest in `schema-bridge.lock.json`.
+Its output describes the capnp shape: one named definition per struct.
+
+Step 2 exists because a `cluster.toml` is not quite that shape. Three things
+differ, and the script applies each:
 
 | In the capnp schema | In cluster.toml | In the JSON Schema |
 |---|---|---|
@@ -69,8 +77,14 @@ generator applies both:
 | A union whose variants carry nothing: `transport: { uds: null }` | `transport = "uds"` | A string with an `enum` |
 | A list of inputs, each with a `name` | `[inputs.<name>]` | A table keyed by name, or the list form |
 
-capnp has no required fields, so the schema requires only what a hand-written
-file must state: `[metadata]` with a `name` and a `version`.
+capnp has no required fields: every field has a value on the wire, which is
+why LLO's output marks them all required. A hand-written file omits most of
+them, so the TOML schema requires only what such a file must state:
+`[metadata]` with a `name` and a `version`.
+
+The struct names survive as definitions (`#/$defs/Bundle`,
+`#/$defs/PortSpec`), so a tool can refer to one part of the schema. Types
+`cluster.capnp` declares for other files are left out.
 
 The schema uses only the keywords cloister's own validator implements
 (`scripts/lib/json-schema-subset.mjs`), so a test holds every `cluster.toml`
@@ -78,6 +92,9 @@ in the repository to it, along with everything cloister's writer emits.
 
 ## Known limits
 
-- **No field descriptions.** The capnp schema's comments do not reach the
-  generated zod schema (`ley-line-open-d554a0`), so they do not reach this one.
+- **No field descriptions yet.** LLO's generator turns a `$Doc("...")`
+  annotation into a `description`, and this schema passes descriptions
+  through. `cluster.capnp` documents its fields in `#` comments, which no
+  generator reads (`ley-line-open-d554a0`). Until its fields carry `$Doc`, or
+  LLO projects comments, an editor's hover text is empty.
 - **`cloister.capnp` has no schema here.** This covers `cluster.toml` only.

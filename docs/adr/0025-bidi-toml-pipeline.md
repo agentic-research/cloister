@@ -337,9 +337,11 @@ for what a cluster holds. It did not say what a `cluster.toml` *file* looks
 like to anything outside cloister, and the two are not the same shape: TOML
 has no unions, and inputs are keyed by name.
 
-`schema/cluster.toml.schema.json` is that statement. It is generated from the
-zod schema by `scripts/gen-cluster-toml-schema.mjs`, in the shape an operator
-writes, and `cluster:toml:schema:check` in `task lint` fails on drift.
+`schema/cluster.toml.schema.json` is that statement. LLO's schema-bridge
+writes the JSON Schema for `cluster.capnp`
+(`src/generated/cluster.schema.json`), and
+`scripts/gen-cluster-toml-schema.mjs` reshapes it into what an operator
+writes. Both steps have a drift check in `task lint`.
 
 The parser reads it too. A key the schema does not define is refused by name.
 Several tables were rebuilt field by field before validation, which dropped a
