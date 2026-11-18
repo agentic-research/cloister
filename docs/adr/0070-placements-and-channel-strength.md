@@ -173,10 +173,27 @@ declared connections.** This section says a forwarded manifest is parsed for
 "the name, ports and env var names". Until now only ports were read. A wrong
 service in an env var was found at runtime.
 
-`cluster k8s` now reads every literal string a container is started with, for
-`kubernetes` and `knative` placements alike: env values, `args` and `command`,
-in containers and init containers, of Pods, Deployments, StatefulSets,
-DaemonSets, ReplicaSets, Jobs, CronJobs and Knative Services.
+`cluster k8s` now reads the strings a container actually starts with, for
+`kubernetes` and `knative` placements alike: its environment, `args` and
+`command`, in containers and init containers, of Pods, Deployments,
+StatefulSets, DaemonSets, ReplicaSets, Jobs, CronJobs and Knative Services.
+
+The environment is resolved the way Kubernetes resolves it, because only the
+value that wins is one the container can dial:
+
+1. `envFrom` brings in every key of each ConfigMap or Secret, in order. A
+   later source overrides an earlier one.
+2. Each `env` entry overrides anything before it with the same name. An entry
+   is a literal `value`, or a `valueFrom` reference to one key of a ConfigMap
+   or Secret.
+3. A variable reference in an env value expands from the variables defined
+   before it. In `args` and `command` it expands from the whole result.
+
+A ConfigMap or Secret is read only when it is an object in the same manifest.
+A reference to one that is not there is reported as unread. It still
+overrides: an earlier value of that name is dropped, never reported as the one
+in effect. A Secret in the manifest is read for the address in it, and under
+the same rule as every other value: it is never printed.
 
 It reads addresses, not URLs. `http://orders.shop.svc`, a bare
 `dolt.dolt.svc.cluster.local:3306` and a DSN such as
@@ -195,12 +212,12 @@ what makes an edge.
 - A cluster DNS name that resolves to no placed bundle is reported and not
   checked. It may be a typo, or a service cloister does not place.
 - A declared connection that no value names is reported, not refused. The
-  address may come from a Secret, a ConfigMap or a file.
+  address may come from a ConfigMap or Secret outside the manifest, or a file.
 - A value is never printed. It may hold a password. Only the host and port
   that were recognised appear in a message.
 
-Not read: `valueFrom`, `envFrom`, ConfigMap and Secret contents, and files
-mounted into the container.
+Not read: a ConfigMap or Secret that is not in the manifest, and files mounted
+into the container.
 
 ### 3. Channel strength is a property of the placement, and it is ordered
 

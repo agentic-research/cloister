@@ -270,13 +270,15 @@ export function inspectKnative(bundle, objects, label) {
  * - A cluster DNS name that resolves to no handled bundle is reported and not
  *   checked: it may be a typo, or a service cloister does not place.
  * - A declared connection no value names is reported, not refused: the
- *   address may come from a Secret or a config file this does not read.
+ *   address may come from a ConfigMap or Secret outside the manifest (those
+ *   references are returned in `unread`) or from a file.
  *
  * @param {Array<{name, service, namespace, label, objects, ports}>} nodes
  * @param {Array<{name, from, to, port}>} edges this env's handled connections
  */
 function checkAddresses(nodes, edges, env) {
   const references = [];
+  const unread = [];
   const seen = new Set();
   const resolve = (source, address) => {
     const named = clusterService(address.host);
@@ -285,7 +287,9 @@ function checkAddresses(nodes, edges, env) {
     return { cluster: Boolean(named), targets: nodes.filter((n) => n.service === wanted.service && n.namespace === wanted.namespace) };
   };
   for (const source of nodes) {
-    for (const { container, where, value } of containerStrings(source.objects)) {
+    const resolved = containerStrings(source.objects);
+    for (const u of resolved.unread) unread.push({ bundle: source.name, ...u });
+    for (const { container, where, value } of resolved.strings) {
       for (const address of addressesIn(value)) {
         const { cluster, targets } = resolve(source, address);
         const shown = `${address.host}${address.port === null ? "" : `:${address.port}`}`;
@@ -323,7 +327,7 @@ function checkAddresses(nodes, edges, env) {
   }
   const named = new Set(references.flatMap((r) => r.connections.map((c) => `${r.bundle}\u0000${c}`)));
   const unreferenced = edges.filter((e) => !named.has(`${e.from}\u0000${e.name}`)).map((e) => ({ name: e.name, from: e.from, to: e.to }));
-  return { references, unreferenced };
+  return { references, unreferenced, unread };
 }
 
 /** `<service>.<namespace>`, or a bare `<service>` in the source's own namespace; else null. */
@@ -451,7 +455,7 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
   }
 
   const node = (b, info) => ({ name: b.name, service: info.service, namespace: info.namespace, ports: b.ports, ...manifests.get(b.name) });
-  const { references, unreferenced } = checkAddresses(
+  const { references, unreferenced, unread } = checkAddresses(
     [...placed.map((b) => node(b, inspected.get(b.name))), ...knative.map((b) => node(b, checked.find((k) => k.bundle === b.name)))],
     edges,
     env,
@@ -476,7 +480,7 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
     }
     files.push({ path: `${b.name}/20-networkpolicy.yaml`, content: yamlDocs(policies) });
   }
-  return { files, checked, references, unreferenced };
+  return { files, checked, references, unreferenced, unread };
 }
 
 /** The files `lowerK8s` writes, for callers that want only those. */

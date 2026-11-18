@@ -30,8 +30,13 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
 ### 2026-11 — `cluster k8s` holds a manifest's addresses to the declared connections (#311)
 
-- **What is read.** Every literal string a container is started with: env
-  values, `args` and `command`, for `kubernetes` and `knative` placements.
+- **What is read.** The strings a container actually starts with: its
+  environment, `args` and `command`, for `kubernetes` and `knative` placements.
+- **The environment is resolved, not just scanned.** `envFrom`, then `env`
+  with later entries overriding earlier ones, `valueFrom` keys of ConfigMaps
+  and Secrets in the manifest, and variable references expanded. Only the
+  value that wins counts. A reference to a ConfigMap or Secret outside the
+  manifest is reported as unread.
 - **Addresses, not URLs.** A URL, a bare `host:port` and a DSN all name a
   host. The cluster DNS name of a placed bundle's Service is recognised
   anywhere; a short name only in host position.

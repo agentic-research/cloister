@@ -133,7 +133,7 @@ export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
-  const { files, checked, references, unreferenced } = lowerK8s({
+  const { files, checked, references, unreferenced, unread } = lowerK8s({
     bundles: cluster.bundles.map(checkableBundle),
     connections: cluster.connections ?? [],
     env,
@@ -144,7 +144,7 @@ export async function emitK8sDir({ root, env, out }) {
   }
   // Only knative bundles: they are checked and nothing is written, so --out is
   // left exactly as it was.
-  if (files.length === 0) return { files: [], bundles: [], checked, references, unreferenced };
+  if (files.length === 0) return { files: [], bundles: [], checked, references, unreferenced, unread };
   const expected = new Set(files.map((f) => f.path));
   const stale = existsSync(out)
     ? readdirSync(out, { recursive: true, withFileTypes: true })
@@ -170,6 +170,7 @@ export async function emitK8sDir({ root, env, out }) {
     checked,
     references,
     unreferenced,
+    unread,
   };
 }
 
@@ -252,6 +253,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         const from = `"${r.bundle}" container ${JSON.stringify(r.container)} ${r.where}`;
         if (r.to) log(`cloister cluster k8s: ${from} names ${r.address}: ${r.connections.map((c) => `connection "${c}"`).join(", ")}`);
         else log(`cloister cluster k8s: ${from} names ${r.address}, which is no bundle placed here; not checked`);
+      }
+      for (const u of written.unread) {
+        log(`cloister cluster k8s: "${u.bundle}" container ${JSON.stringify(u.container)} ${u.where} comes from ${u.kind} ${JSON.stringify(u.name)}, which is not in this manifest; not read`);
       }
       for (const c of written.unreferenced) {
         log(`cloister cluster k8s: connection "${c.name}" from "${c.from}" to "${c.to}": no env, args or command value names it`);

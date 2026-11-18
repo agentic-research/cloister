@@ -11,8 +11,9 @@
 // It reads addresses, not URLs. `http://orders.shop.svc`, a bare
 // `dolt.dolt.svc.cluster.local:3306` and a DSN such as
 // `root@tcp(dolt.dolt.svc:3306)/shop` all name a host, and the scheme is not
-// what makes an edge. A value is never printed or returned whole: it may hold
-// a password. Only the host and port that were recognised leave this module.
+// what makes an edge. A value is never printed: it may hold a password, and a
+// Secret in the manifest is read here for the address in it. Only the host and
+// port that were recognised reach a message.
 
 /**
  * A Kubernetes object is identified by its API GROUP and kind, never by kind
@@ -46,32 +47,117 @@ export const WORKLOADS = Object.freeze([
 const at = (obj, path) => path.reduce((o, key) => (o && typeof o === "object" ? o[key] : undefined), obj);
 const list = (v) => (Array.isArray(v) ? v : []);
 
+const CONFIG_MAP = Object.freeze({ group: "", kind: "ConfigMap" });
+const SECRET = Object.freeze({ group: "", kind: "Secret" });
+const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** The string entries of a ConfigMap or Secret. A Secret's `stringData` wins over its base64 `data`, as it does in the API. */
+function entriesOf(obj) {
+  const out = new Map();
+  const put = (table, decode) => {
+    for (const [key, value] of Object.entries(isTable(table) ? table : {})) {
+      if (typeof value === "string") out.set(key, decode(value));
+    }
+  };
+  if (isObject(obj, SECRET)) {
+    put(obj.data, (v) => Buffer.from(v, "base64").toString("utf8"));
+    put(obj.stringData, (v) => v);
+  } else {
+    put(obj.data, (v) => v);
+  }
+  return out;
+}
+
+/** A variable reference: a dollar sign, an optional second one (the escape), then a parenthesised name. */
+const VARIABLE = /\$(\$?)\(([^)]+)\)/g;
+
+/** A reference expands from the variables defined so far. The escaped form is the literal reference. An unknown name is left as written. */
+function expand(text, env) {
+  return text.replace(VARIABLE, (whole, escaped, name) => {
+    if (escaped) return whole.slice(1);
+    return env.has(name) ? env.get(name).value : whole;
+  });
+}
+
 /**
- * Every literal string a container is started with: env values, args and
- * command, for containers and initContainers. An env entry with `valueFrom`
- * (a Secret, a ConfigMap, a field) has no literal here and is not read; nor
- * is `envFrom`.
+ * The strings a container actually starts with, resolved the way Kubernetes
+ * resolves them. Only the value that wins is one the container can dial, so
+ * the order matters:
  *
- * @returns {Array<{container: string, where: string, value: string}>}
+ *   1. `envFrom`: every key of each ConfigMap or Secret, in order, a later
+ *      source overriding an earlier one.
+ *   2. `env`: each entry overrides anything before it of the same name. An
+ *      entry is a literal `value`, or a `valueFrom` reference to one key of a
+ *      ConfigMap or Secret.
+ *   3. A variable reference in an env value expands from the variables
+ *      defined before it; in `args` and `command` it expands from the whole
+ *      result.
+ *
+ * A ConfigMap or Secret is read only if it is an object in the same manifest.
+ * A reference to one that is not there cannot be resolved: it is returned in
+ * `unread`, and it still overrides, so an earlier value of that name is
+ * dropped, never reported as the one in effect. A `valueFrom` that is not a
+ * ConfigMap or Secret key (a field, a resource) holds no address.
+ *
+ * @returns {{strings: Array<{container: string, where: string, value: string}>,
+ *            unread: Array<{container: string, where: string, kind: string, name: string}>}}
  */
 export function containerStrings(objects) {
-  const out = [];
+  const strings = [];
+  const unread = [];
+  const find = (id, name, namespace) =>
+    objects.find((o) => isObject(o, id) && o.metadata?.name === name
+      && (o.metadata?.namespace === undefined || namespace === undefined || o.metadata.namespace === namespace));
+
   for (const obj of objects) {
     const workload = WORKLOADS.find((id) => isObject(obj, id));
     if (!workload) continue;
     const pod = at(obj, workload.path);
+    const namespace = obj.metadata?.namespace;
     for (const c of [...list(pod?.initContainers), ...list(pod?.containers)]) {
-      if (!c || typeof c !== "object") continue;
+      if (!isTable(c)) continue;
       const container = typeof c.name === "string" ? c.name : "";
-      for (const e of list(c.env)) {
-        if (e && typeof e.name === "string" && typeof e.value === "string") out.push({ container, where: `env ${e.name}`, value: e.value });
+      const env = new Map();
+      const source = (ref, where) => {
+        const id = ref.kind === "Secret" ? SECRET : CONFIG_MAP;
+        const found = typeof ref.name === "string" ? find(id, ref.name, namespace) : undefined;
+        if (!found) unread.push({ container, where, kind: ref.kind, name: String(ref.name ?? "") });
+        return found ? entriesOf(found) : null;
+      };
+
+      for (const from of list(c.envFrom)) {
+        const ref = isTable(from?.secretRef) ? { kind: "Secret", name: from.secretRef.name }
+          : isTable(from?.configMapRef) ? { kind: "ConfigMap", name: from.configMapRef.name } : null;
+        if (!ref) continue;
+        const prefix = typeof from.prefix === "string" ? from.prefix : "";
+        for (const [key, value] of source(ref, "envFrom") ?? []) {
+          env.set(prefix + key, { value, where: `env ${prefix + key} (${ref.kind} ${JSON.stringify(ref.name)})` });
+        }
       }
+      for (const e of list(c.env)) {
+        if (!isTable(e) || typeof e.name !== "string") continue;
+        // Whatever this entry turns out to be, it replaces an earlier one.
+        env.delete(e.name);
+        if (typeof e.value === "string") {
+          env.set(e.name, { value: expand(e.value, env), where: `env ${e.name}` });
+          continue;
+        }
+        const keyRef = isTable(e.valueFrom?.secretKeyRef) ? { ...e.valueFrom.secretKeyRef, kind: "Secret" }
+          : isTable(e.valueFrom?.configMapKeyRef) ? { ...e.valueFrom.configMapKeyRef, kind: "ConfigMap" } : null;
+        if (!keyRef) continue;
+        const value = source(keyRef, `env ${e.name}`)?.get(keyRef.key);
+        if (typeof value === "string") {
+          env.set(e.name, { value, where: `env ${e.name} (${keyRef.kind} ${JSON.stringify(keyRef.name)} key ${JSON.stringify(keyRef.key)})` });
+        }
+      }
+
+      for (const { value, where } of env.values()) strings.push({ container, where, value });
       for (const key of ["command", "args"]) {
-        for (const value of list(c[key])) if (typeof value === "string") out.push({ container, where: key, value });
+        for (const value of list(c[key])) if (typeof value === "string") strings.push({ container, where: key, value: expand(value, env) });
       }
     }
   }
-  return out;
+  return { strings, unread };
 }
 
 /** The port a scheme means when the address states none. Others have no default here. */
