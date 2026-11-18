@@ -330,6 +330,24 @@ Summary of phases:
 10. **Phase 9 (PR + bead close)** — self-review, skeptic-agent gate,
     open PR, merge, close bead, comment on framing bead.
 
+## Amendment (2026-11-18): cluster.toml has a published schema
+
+The pipeline above made the generated zod schema the single source of truth
+for what a cluster holds. It did not say what a `cluster.toml` *file* looks
+like to anything outside cloister, and the two are not the same shape: TOML
+has no unions, and inputs are keyed by name.
+
+`schema/cluster.toml.schema.json` is that statement. It is generated from the
+zod schema by `scripts/gen-cluster-toml-schema.mjs`, in the shape an operator
+writes, and `cluster:toml:schema:check` in `task lint` fails on drift.
+
+The parser reads it too. A key the schema does not define is refused by name.
+Several tables were rebuilt field by field before validation, which dropped a
+key they did not list. One guard taken from the published schema replaces a
+guard per table.
+
+Reference: [`docs/reference/cluster-toml-schema.md`](../reference/cluster-toml-schema.md).
+
 ## Tracking
 
 - Bead: `cloister-ae06f3` (this ADR + impl).

@@ -150,6 +150,14 @@ export function validate(value, schema, { root = schema, path = "$" } = {}) {
         errors.push(...validate(v, sub, { root, path: `${path}.${k}` }));
       } else if (schema.additionalProperties === false) {
         errors.push(`${path}: unexpected property ${JSON.stringify(k)}`);
+      } else if (schema.additionalProperties !== undefined && schema.additionalProperties !== true) {
+        // A schema here applies to every property `properties` does not name.
+        // It used to be read as "anything goes", which is the ignored
+        // constraint this file exists to refuse: a map's values went unchecked.
+        if (schema.additionalProperties === null || typeof schema.additionalProperties !== "object" || Array.isArray(schema.additionalProperties)) {
+          throw new UnsupportedSchemaError(`schema at ${path} has an additionalProperties that is neither a boolean nor a schema`);
+        }
+        errors.push(...validate(v, schema.additionalProperties, { root, path: `${path}.${k}` }));
       }
     }
   }

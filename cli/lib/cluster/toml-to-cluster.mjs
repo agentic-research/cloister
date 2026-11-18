@@ -40,6 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { assertPortsAndConnections, checkableBundle } from "./connections.mjs";
+import { undeclaredKeys } from "./toml-schema.mjs";
 
 // Path constants — the repo-root cluster.toml (operator source) and
 // src/generated/cluster.ts (the sole generated output; the legacy
@@ -99,6 +100,21 @@ export async function parseTomlToCluster(tomlString) {
     validated = ClusterSchema.parse(transformed);
   } catch (e) {
     throw new Error(`cluster schema validation failed:\n${formatZodError(e)}`);
+  }
+
+  // 3b. Every key the operator wrote must be one the published schema defines
+  //     (schema/cluster.toml.schema.json). Several tables above are rebuilt
+  //     field by field, and a rebuild keeps only the fields it lists: a typo'd
+  //     key there was dropped, the strict schema then saw a clean object, and
+  //     the setting silently did not apply. Checked against the RAW file, after
+  //     validation, so a mistake the steps above already name keeps its message.
+  const undeclared = undeclaredKeys(raw);
+  if (undeclared.length > 0) {
+    throw new Error(
+      `cluster.toml declares ${undeclared.map((k) => JSON.stringify(k)).join(", ")}, which the cluster.toml ` +
+        `schema does not define (schema/cluster.toml.schema.json); refusing rather than dropping ` +
+        `${undeclared.length === 1 ? "it" : "them"}`,
+    );
   }
 
   // 4. Semantic checks the schema can't express:

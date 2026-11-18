@@ -117,6 +117,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:upstream-pins` | ONE ley-line-open version across all three hand-stated channels (input ref, Cargo deps, generator lock) + one rev across the Cargo pins | `cloister-9170d0` |
 | `cluster:emit:check-drift` | `cluster.compose.yaml` matches the emitter — it is generated, committed, and `lint:tenant-docs` READS it | `cloister-cb735c` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
+| `cluster:toml:schema:check` | `schema/cluster.toml.schema.json` (the published cluster.toml schema) matches its generator; the parser refuses any key it does not define | [`docs/reference/cluster-toml-schema.md`](docs/reference/cluster-toml-schema.md) |
 | `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
