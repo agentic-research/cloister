@@ -408,7 +408,10 @@ export const COMMANDS = [
       "wrangler.toml / wrangler.json are read today. With a cluster.toml, each " +
       "declared connection is also compared with what the inputs say a service " +
       "dials: evidenced, unknown, or undeclared, plus the services cluster.toml " +
-      "does not list. With --draft it prints a cluster.toml instead: one bundle per " +
+      "does not list. Each exposed port's `expose` is compared with what the inputs say " +
+      "about reaching the workload from outside its network (Cloud Run's ingress): " +
+      "evidenced, unknown, or contradicted when the two disagree. " +
+      "With --draft it prints a cluster.toml instead: one bundle per " +
       "workload and one connection per edge the inputs imply. A bundle carries what the " +
       "workload is started with: image, args, whether it is a service or a job, and env. " +
       "An env value is drafted as what it is: a literal, a binding to a connection (an " +

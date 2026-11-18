@@ -83,6 +83,8 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
     bundle.external = external;
 
     const ports = [];
+    // What the inputs say about reaching it from outside decides `expose`.
+    const exposed = w.bundle.exposure?.expose ?? "";
     for (const p of w.bundle.ports) {
       if (p.appProtocol === "") {
         notes.push(`"${w.name}": port ${p.port} is served as "${p.name}", which has no appProtocol here; it is not drafted`);
@@ -93,9 +95,17 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
         continue;
       }
       if (p.assumed) notes.push(`"${w.name}": declares no port; ${p.port} ("${p.name}") is this provider's default and was assumed, not read`);
-      ports.push({ name: p.name, port: p.port, appProtocol: p.appProtocol, expose: "cluster" });
+      ports.push({ name: p.name, port: p.port, appProtocol: p.appProtocol, expose: exposed === "edge" ? "edge" : "cluster" });
     }
     if (ports.length) bundle.ports = ports;
+    if (ports.length && w.bundle.exposure) {
+      const { attr, setting } = w.bundle.exposure;
+      if (exposed === "edge") {
+        notes.push(`"${w.name}": its ${attr} is ${setting}, so it can be reached from outside and is drafted expose = "edge". If that is not intended, fix the deployment. \`cluster k8s\` does not publish an edge port on kubernetes yet`);
+      } else if (exposed === "") {
+        notes.push(`"${w.name}": ${setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort`}, so whether it can be reached from outside is unknown. It is drafted expose = "cluster": check it`);
+      }
+    }
     bundle.placements = [{ env, kind: w.bundle.placement }];
     if (local) {
       // A job is not a Knative Service: it is a Kubernetes Job wherever it runs.

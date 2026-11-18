@@ -356,7 +356,8 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | Read a rendered Terraform plan or state | built (ADR-0073) |
 | Cloud Run services and jobs, their containers, env, args and ports | built |
 | Edges from addresses and from configuration references | built for Cloud Run |
-| Access rows (invoker) and `ingress` | read; not compared with intent |
+| `ingress` beside a port's `expose` | built (`inspect --terraform --dir`) |
+| Access rows (invoker) | read; not compared with intent |
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |
@@ -382,10 +383,15 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
   placement (§7). The scheme is not: a Cloud Run service is reached over
   `https` on 443 by its URL, and `https` to a Knative Service is refused
   today.
-- **Reachability as intent.** `expose` on a port is where an operator says
-  "internal only" once. It is now held to Knative's route visibility
-  (ADR-0070 amendment). It is not yet compared with Cloud Run's `ingress`,
-  which the importer reads.
+- **Reachability as intent: settled for what exists.** `expose` on a port is
+  where an operator says "internal only" once. It is held to Knative's route
+  visibility when a manifest is checked (ADR-0070 amendment), and compared
+  with the plan's own setting by `inspect` (Cloud Run's `ingress`): evidenced,
+  unknown, or `contradicted`. A provider mapping names the setting and sorts
+  its values into "cluster" and "edge" (`report.bundle.exposure`), so the
+  comparison names no provider. A draft takes `expose` from it. Still open:
+  `expose` is one word per port for every placement, so a service that is
+  public in production cannot yet be declared internal on a local cluster.
 - **Sub-files.** Whether `cluster.toml` may include other files, so a large
   graph's connections live apart. Not decided here.
 
