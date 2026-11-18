@@ -131,6 +131,16 @@ Service, cloister forwards it unchanged. Cloud Run accepts that format directly
 (`gcloud run services replace`), and so does Kubernetes with Knative installed.
 Otherwise a plain Deployment and Service overlay applies.
 
+*Status (2026-11-18): the Knative half of this is not built.* `cluster k8s`
+lowers a plain Deployment and core Service only. It identifies an object by API
+group and kind, and refuses a Knative Service (`serving.knative.dev`) by name.
+The `policy` strength of §3 is a pod-to-pod NetworkPolicy plus a default deny,
+and a Knative request reaches its pod through Knative's own ingress and
+activator: the policy would not describe that path and the default deny would
+cut it. Lowering Knative needs its own answer for what `policy` means there.
+Until this refusal, a Knative Service was read as a core Service because both
+have `kind: Service`, and was refused for having no `spec.selector`.
+
 ### 3. Channel strength is a property of the placement, and it is ordered
 
 ```
@@ -235,7 +245,8 @@ is an operator decision outside the plan (the host runtime's existing rule).
 - Edges across placements (microvm ↔ kubernetes) are legal in the graph and
   refused by both emitters, which name LLO's broker (`ley-line-open-e2c5ce`).
   `workerd` and `cloudRun` rows parse, and every emitter refuses them as not
-  lowered yet.
+  lowered yet. A Knative Service in a `kubernetes` manifest is refused the same
+  way (§2).
 - No env lowering. A connection's address does not reach the workload: the
   operator's manifest carries it by hand (the demo's `orders.yaml` passes
   `-db dolt.dolt.svc.cluster.local:3306`), and a launch plan carries no
