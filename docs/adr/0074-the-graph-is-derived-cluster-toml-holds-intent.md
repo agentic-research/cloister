@@ -140,19 +140,42 @@ In order, each useful without the next:
 
 ### 6. A placement that is only checked is still a placement
 
-A connection end must today be placed `microvm`, `kubernetes` or `knative`.
-A bundle placed `cloudRun` cannot be a connection end, so the production side
-of a Cloud Run deployment cannot be declared at all.
+ADR-0070 already sorts placements into two kinds. A **constructed** placement
+is one cloister builds and starts (`microvm`, `workerd`). A **forwarded**
+placement is one cloister does not own: it reads what the operator rendered
+and checks the edges.
 
-`cloudRun` should become a connection end that is checked and not lowered,
-the way `knative` is (ADR-0070 §2 amendment): its strength stays `none` until
-something enforces it, so a connection that demands more fails the build. The
-check for it is the plan comparison in step 1 above. *Not built; proposed
-here.*
+Today a connection end must be placed `microvm`, `kubernetes` or `knative`.
+That list is written out in code, and `cloudRun` is not on it, so the
+production side of a Cloud Run deployment cannot be declared at all. Adding
+`cloudRun` to the list would fix one provider and repeat the problem for the
+next. The rule is stated on the kind of placement instead:
 
-When Cloud Run is lowered, its strength is what ADR-0070 §3 already says:
-`policy`, from the invoker IAM row plus the ingress setting. Both are read
-today. Neither is compared with intent yet.
+1. **Any forwarded placement may be a connection end.** It is checked and not
+   lowered, the way `knative` is (ADR-0070 §2 amendment).
+2. **Its strength is `none` unless something cloister writes enforces it.**
+   For `kubernetes` that is the `NetworkPolicy`, so it is `policy`. A
+   connection that demands more than its ends provide fails the build.
+3. **What checks it is whichever reader has evidence.** A rendered manifest
+   for Kubernetes and Knative. A rendered plan for anything a provider mapping
+   describes (ADR-0073).
+4. **A provider mapping declares the placement kind its workloads satisfy.**
+   The mapping already says which resource types are workloads and what they
+   dial. It also names the kind. A new provider is then a new mapping file: no
+   change to cloister's code and none to the schema. A kind that is neither
+   built in nor declared by a loaded mapping is still refused by name.
+
+`kubernetes` and `knative` stay named in code. Cloister parses those manifests
+itself, and they are a format, not a vendor.
+
+*Not built; proposed here.* `cloudRun` is today a built-in kind that parses
+and that every emitter refuses. Under this section it becomes the first kind
+a mapping declares.
+
+When a forwarded placement gains enforcement, its strength is whatever
+ADR-0070 §3 says for it. For Cloud Run that is `policy`, from the invoker IAM
+row plus the ingress setting. Both are read today. Neither is compared with
+intent yet.
 
 ## Consequences
 
@@ -183,7 +206,7 @@ today. Neither is compared with intent yet.
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | not built |
 | §5.3 Lower addresses per placement | not built |
-| §6 `cloudRun` as a checked connection end | not built |
+| §6 Any forwarded placement as a checked connection end; kinds declared by a mapping | not built |
 | Nodes from Kubernetes resources declared in Terraform | not built |
 | Edges that arrive by a secret reference (`value_source`) | not read |
 

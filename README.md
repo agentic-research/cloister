@@ -328,5 +328,18 @@ Three ways to start the server locally: `task dev` (hot reload),
 code, different hosts. [GETTING-STARTED.md](GETTING-STARTED.md) has the details
 and the one macOS path caveat.
 
+Where things are:
+
+| Directory | Holds |
+|---|---|
+| `src/` | The router that runs on `workerd` (tests in `test/`) |
+| `cli/` | The `cloister` command (tests in `cli/test/`) |
+| `manifest/`, `schema/` | The `cluster.toml` schema and what is published from it |
+| `lint/` | The checks `task lint` runs |
+| `gen/` | Code generators and build steps |
+| `dev/` | Local launchers, smoke tests, benchmarks, git hooks |
+| `rs/` | Rust: wasm verifiers and the host runtime |
+| `recipes/` | Starter clusters for `cloister init` |
+
 Contributions: read [CLAUDE.md](CLAUDE.md) first. It is short, and it is the
 house style.
