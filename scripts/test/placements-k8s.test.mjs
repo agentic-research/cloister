@@ -262,7 +262,22 @@ const manifestRefusals = [
     /declares Namespace "databases", but bundle "dolt" lives in namespace "dolt"/],
   ["two Services",
     (m) => `${m}---\napiVersion: v1\nkind: Service\nmetadata:\n  name: dolt-headless\nspec:\n  selector:\n    app: dolt\n`,
-    /bundle "dolt" must declare exactly one Service \(found 2\)/],
+    /bundle "dolt" must declare exactly one core v1 Service \(found 2\)/],
+  // An object is identified by API group and kind. A Knative Service shares
+  // only the word "Service" with a core one: read as a core Service it was
+  // refused for having no selector, which a Knative Service never has.
+  ["a Knative Service beside the core Service",
+    (m) => `${m}---\napiVersion: serving.knative.dev/v1\nkind: Service\nmetadata:\n  name: dolt-kn\nspec:\n  template:\n    spec:\n      containers:\n        - image: example.com/dolt\n`,
+    /Knative Service "dolt-kn" \(serving\.knative\.dev\/v1\) is not lowered yet\..*give bundle "dolt" a Deployment and a core v1 Service/],
+  ["a Knative Service in place of the core Service",
+    (m) => m.replace("apiVersion: v1\nkind: Service", "apiVersion: serving.knative.dev/v1beta1\nkind: Service"),
+    /Knative Service "dolt" \(serving\.knative\.dev\/v1beta1\) is not lowered yet/],
+  ["a Service of an unknown API group in place of the core Service",
+    (m) => m.replace("apiVersion: v1\nkind: Service", "apiVersion: example.com/v1\nkind: Service"),
+    /bundle "dolt" must declare exactly one core v1 Service \(found 0\)/],
+  ["an object with no apiVersion",
+    (m) => `${m}---\nkind: ConfigMap\nmetadata:\n  name: settings\n`,
+    /every document must be a Kubernetes object with an apiVersion and a kind/],
   ["a Service with no selector",
     (m) => m.replace("spec:\n  selector:\n    app: dolt\n  ports:", "spec:\n  ports:"),
     /Service "dolt" has no spec.selector/],

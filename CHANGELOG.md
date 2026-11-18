@@ -28,6 +28,21 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
   nothing else changes, and `ureq` stays at 3.3.0.
 
+### 2026-11 — `cluster k8s` identifies objects by API group and kind (`cloister-991e65`)
+
+- **The bug.** The manifest reader matched `kind: Service` without looking at
+  `apiVersion`. A Knative Service has the same kind, so it was read as a core
+  Service and refused for having no `spec.selector`, which a Knative Service
+  never has. Beside a core Service it was counted as a second one.
+- **The fix.** An object is identified by API group and kind; the version is
+  not part of identity. Only a core `v1` Service and Namespace are read.
+- **Knative is refused by name.** A `serving.knative.dev` Service is not
+  lowered yet, and the refusal says why: its requests go through Knative's own
+  ingress and activator, which the NetworkPolicies this command writes do not
+  describe. ADR-0070 §2 said Knative was supported; it now records that it is
+  not built.
+- A document with no `apiVersion` is refused.
+
 ### 2026-11 — `inspect --terraform`: Cloud Run invoker rows join from state (#308)
 
 - **The bug.** In a state document a Cloud Run IAM binding names its service
