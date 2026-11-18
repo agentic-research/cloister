@@ -149,6 +149,12 @@ export function inspectManifest(bundle, objects, label) {
     if (isObject(obj, SERVICE)) services.push(obj);
   }
 
+  // A bundle that exposes no port (a job, a worker that only calls out) is
+  // reached by nothing, so it needs no Service. Its pods are every pod in its
+  // namespace: one namespace per bundle, so the empty selector means the same.
+  if (services.length === 0 && !bundle.ports.some(isExposed)) {
+    return { declaresNamespace, selector: {}, podPorts: new Map(), service: null, namespace: ns };
+  }
   if (services.length !== 1) {
     throw new Error(
       `${label}: bundle "${ns}" must declare exactly one core v1 Service (found ${services.length}); ` +

@@ -27,7 +27,7 @@
 // the multi-cluster case is a loop rather than a rewrite.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve, isAbsolute, join } from "node:path";
 import { renderCommandHelp } from "../surface.mjs";
 
@@ -75,7 +75,7 @@ function spawnSyncSafe(bin, args) {
 export function parseArgs(argv) {
   const out = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
-    env: null, out: null,
+    env: null, out: null, terraform: null, from: null, to: null, name: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -88,12 +88,12 @@ export function parseArgs(argv) {
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError("--dir requires a value");
       out.dir = v; i++; continue;
     }
-    if (a === "--env" || a === "--out") {
+    if (["--env", "--out", "--terraform", "--from", "--to", "--name"].includes(a)) {
       const v = argv[i + 1];
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError(`${a} requires a value`);
       out[a.slice(2)] = v; i++; continue;
     }
-    if (!out.sub && ["generate", "resolve", "up", "down", "k8s"].includes(a)) { out.sub = a; continue; }
+    if (!out.sub && ["generate", "resolve", "up", "down", "k8s", "lower"].includes(a)) { out.sub = a; continue; }
     if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
     throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
   }
@@ -129,6 +129,41 @@ export function clusterComposePath(dir) {
  * otherwise be applied by `kubectl apply -f`, so it is refused by name rather
  * than deleted or silently kept.
  */
+/**
+ * `cloister cluster lower`: read a rendered plan, and write a cluster.toml and
+ * one Kubernetes manifest per workload into `out` (ADR-0074 §5.3).
+ *
+ * `out` must be new or empty. These files are meant to be read, edited and
+ * committed, so a second run is never allowed to replace an edited one.
+ */
+export async function lowerPlanDir({ terraform, from, to, name, out, cwd, isGitTracked }) {
+  const need = (value, flag, what) => { if (!value) throw new ClusterUsageError(`${flag} is required: ${what}`); };
+  need(terraform, "--terraform <file>", "the output of `terraform show -json <planfile>`");
+  need(from, "--from <env>", "the environment the plan describes");
+  need(to, "--to <env>", "the environment the manifests are for");
+  need(out, "--out <dir>", "where the files are written");
+  const file = resolve(cwd, terraform);
+  if (!existsSync(file)) throw new ClusterUsageError(`no such file: ${terraform}`);
+  const inspect = await import("./inspect.mjs");
+  const tracked = isGitTracked ?? inspect.isGitTracked;
+  if (tracked(file) || tracked(realpathSync(file))) {
+    throw new ClusterUsageError(
+      `${terraform} is tracked by git. A rendered Terraform document prints secrets in plain text, ` +
+        "so it must not be committed. Pass an untracked copy.",
+    );
+  }
+  const outDir = resolve(cwd, out);
+  if (existsSync(outDir) && readdirSync(outDir).length > 0) {
+    throw new ClusterUsageError(`${out} is not empty. Lowered files are meant to be edited, so they are never overwritten: choose a new --out`);
+  }
+  const { importFacts } = await import("../lib/facts/import.mjs");
+  const { lowerCluster } = await import("../lib/facts/lower.mjs");
+  const lowered = lowerCluster(importFacts(JSON.parse(readFileSync(file, "utf8"))), { from, to, name });
+  mkdirSync(outDir, { recursive: true });
+  for (const [path, content] of Object.entries(lowered.files)) writeFileSync(join(outDir, path), content);
+  return { files: Object.keys(lowered.files).sort(), notes: lowered.notes, bundles: lowered.bundles, connections: lowered.connections };
+}
+
 export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
@@ -234,6 +269,26 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     } catch (error) {
       errLog(`cloister cluster resolve: ${error.message}`);
       return 1;
+    }
+  }
+
+  if (args.sub === "lower") {
+    try {
+      const written = await lowerPlanDir({
+        terraform: args.terraform, from: args.from, to: args.to, name: args.name ?? undefined,
+        out: args.out, cwd: process.cwd(), isGitTracked: deps.isGitTracked,
+      });
+      for (const f of written.files) log(`cloister cluster lower: wrote ${join(args.out, f)}`);
+      log(`cloister cluster lower: ${written.bundles} ${written.bundles === 1 ? "bundle" : "bundles"}, ${written.connections} ${written.connections === 1 ? "connection" : "connections"}, for env "${args.to}"`);
+      if (written.notes.length) {
+        log("cloister cluster lower: the plan did not hold everything. Each file says what it is missing:");
+        for (const note of written.notes) log(`  - ${note}`);
+      }
+      log(`  next: cloister cluster k8s --dir ${args.out} --env ${args.to} --out ${join(args.out, "k8s")}`);
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster lower: ${error.message}`);
+      return error instanceof ClusterUsageError ? 2 : 1;
     }
   }
 

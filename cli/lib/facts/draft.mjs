@@ -23,13 +23,15 @@ import { sectionsOf } from "./report.mjs";
 
 /**
  * @param {{facts: Array, skipped: Record<string, number>, kind: string|null}} imported
- * @param {{env: string, name?: string}} options `env` names the environment the
- *   placement rows and connection targets are written for.
- * @returns {{toml: string, bundles: number, connections: number, notes: string[]}}
+ * @param {{env: string, name?: string, local?: {env: string, kind: string, manifestOf: (bundle: string) => string}}} options
+ *   `env` names the environment the placement rows and connection targets are
+ *   written for. `local` adds a second placement and target for another
+ *   environment, whose manifests the caller is about to write (lowering).
+ * @returns {{toml: string, bundles: number, connections: number, notes: string[], drafted: Map, cluster: object}}
  */
-export function draftCluster(imported, { env, name = "drafted" }) {
+export function draftCluster(imported, { env, name = "drafted", local }) {
   const notes = [];
-  const workloads = sectionsOf(imported.facts, imported.kind)
+  const workloads = sectionsOf(imported.facts, imported.kind, { withRun: Boolean(local) })
     .flatMap((section) => section.resources.map((r) => ({ ...r, section: section.title })))
     .filter((r) => r.bundle);
 
@@ -71,7 +73,10 @@ export function draftCluster(imported, { env, name = "drafted" }) {
     }
     if (ports.length) bundle.ports = ports;
     bundle.placements = [{ env, kind: w.bundle.placement }];
-    if (w.withheld.length) {
+    if (local) bundle.placements.push({ env: local.env, kind: local.kind, manifest: local.manifestOf(w.name) });
+    // Lowering reads env from the configuration, so a withheld planned list
+    // hides nothing there and each variable is accounted for by name.
+    if (w.withheld.length && !local) {
       notes.push(`"${w.name}": its ${w.withheld.join(" and ")} ${w.withheld.length === 1 ? "is" : "are"} marked sensitive and ${w.withheld.length === 1 ? "was" : "were"} not read; an edge that is only in ${w.withheld.length === 1 ? "it" : "them"} is missing below`);
     }
     bundles.push(bundle);
@@ -96,7 +101,7 @@ export function draftCluster(imported, { env, name = "drafted" }) {
         from: w.name,
         name: dial.to,
         appProtocol: port.appProtocol,
-        targets: [{ env, bundle: dial.to, port: port.name }],
+        targets: [{ env, bundle: dial.to, port: port.name }, ...(local ? [{ env: local.env, bundle: dial.to, port: port.name }] : [])],
       });
     }
   }
@@ -105,21 +110,22 @@ export function draftCluster(imported, { env, name = "drafted" }) {
     notes.push(`${count} ${type} ${count === 1 ? "resource was" : "resources were"} not read: no mapping describes that type`);
   }
 
-  const body = stringifyToml({
+  const cluster = {
     metadata: { name, version: "0.0.0" },
     storage: {},
     bundles,
     ...(connections.length ? { connections } : {}),
-  });
+  };
+  const body = stringifyToml(cluster);
   const header = [
-    "# DRAFT. Written by `cloister inspect --draft` from a rendered " + (imported.kind ?? "document") + ".",
+    `# DRAFT. Written by \`cloister ${local ? "cluster lower" : "inspect --draft"}\` from a rendered ${imported.kind ?? "document"}.`,
     "# Read it before you commit it. Committing it is what makes it a declaration:",
     "# until then it is only what the inputs imply.",
     "#",
-    `# ${bundles.length} ${bundles.length === 1 ? "bundle" : "bundles"}, ${connections.length} ${connections.length === 1 ? "connection" : "connections"}, for env "${env}".`,
+    `# ${bundles.length} ${bundles.length === 1 ? "bundle" : "bundles"}, ${connections.length} ${connections.length === 1 ? "connection" : "connections"}, for env "${env}"${local ? ` and env "${local.env}"` : ""}.`,
     "# A connection has no minStrength: add one where an edge must be enforced.",
     ...(notes.length ? ["#", "# Read these first:", ...notes.map((n) => `#   - ${n}`)] : ["#", "# Nothing in the inputs was left out."]),
     "",
   ];
-  return { toml: `${header.join("\n")}\n${body}`, bundles: bundles.length, connections: connections.length, notes };
+  return { toml: `${header.join("\n")}\n${body}`, bundles: bundles.length, connections: connections.length, notes, drafted, cluster };
 }

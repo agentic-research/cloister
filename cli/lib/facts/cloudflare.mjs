@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { validateMapping } from "./validate.mjs";
-import { SITES } from "./terraform.mjs";
+import { SITES, configuredRows } from "./terraform.mjs";
 
 const readJson = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
 
@@ -118,7 +118,7 @@ function rowsAt(values, sensitive, segments) {
 }
 
 /** The ONE generic importer: a resource of a mapped type in, a fact out. */
-export function importResource(resource, entry, references) {
+export function importResource(resource, entry, references, expressions) {
   const { values, sensitive } = resource;
   const attrs = {};
   for (const path of entry.read ?? []) {
@@ -162,6 +162,17 @@ export function importResource(resource, entry, references) {
     if (Array.isArray(found) && found.length) sites[attr] = found.map(({ address, where }) => ({ address, where }));
   }
   if (Object.keys(sites).length) attrs.referenceSites = sites;
+  // What the configuration says about each row of a list the mapping names
+  // (plan documents). Read from the source as written, so it is there even
+  // when the planned list is withheld as sensitive.
+  if (expressions) {
+    const configured = {};
+    for (const list of entry.configLists ?? []) {
+      const rows = configuredRows(expressions, list.path, list.fields);
+      if (rows.length) configured[list.path.split(".").pop()] = rows;
+    }
+    if (Object.keys(configured).length) attrs.configured = configured;
+  }
   const named = entry.name === undefined ? undefined : pickPath(values, sensitive, entry.name);
   return makeFact({
     source: SOURCE_OF.get(entry) ?? "terraform:cloudflare",

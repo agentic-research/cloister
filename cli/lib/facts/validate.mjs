@@ -49,6 +49,19 @@ export function validateMapping(mapping, spec) {
     // A reference attribute only has to exist (and not be sensitive): it is
     // whatever the configuration wires into it, and only its references are read.
     for (const path of entry.referenceAttrs ?? []) lookup(attributes, path, `${here}referenceAttrs.`);
+    // A configured list is read from the plan's configuration: the same
+    // block, as the source wrote it. Every field must be a scalar the
+    // provider does not mark sensitive, so a constant copied from it is one
+    // the provider itself treats as public.
+    for (const list of entry.configLists ?? []) {
+      if (!isTable(list) || !isText(list.path) || !Array.isArray(list.fields) || list.fields.length === 0) {
+        throw new Error(`mapping: ${here}configLists needs a "path" and a non-empty "fields" list`);
+      }
+      onlyKeys(list, ["path", "fields"], `${here}configLists`);
+      const nested = lookup(attributes, list.path, here);
+      if (!nested.attributes) throw new Error(`mapping: configured list "${here}${list.path}" is not a nested attribute`);
+      for (const field of list.fields) scalar(nested.attributes, field, `${here}${list.path}.`);
+    }
     for (const list of entry.lists ?? []) {
       const nested = lookup(attributes, list.path, here);
       if (!nested.attributes) throw new Error(`mapping: list "${here}${list.path}" is not a nested attribute`);
@@ -164,7 +177,32 @@ function checkReport(type, entry) {
       if (!isTable(bundle) || !FORWARDED_KINDS.includes(bundle.placement)) {
         throw new Error(`mapping: ${where} needs a "placement" that is one of ${FORWARDED_KINDS.join(", ")}`);
       }
-      onlyKeys(bundle, ["placement", "image", "ports", "wires"], where);
+      onlyKeys(bundle, ["placement", "runs", "image", "args", "command", "env", "ports", "wires"], where);
+      // How the workload runs: until it is stopped, or to completion.
+      if (bundle.runs !== undefined && !["service", "job"].includes(bundle.runs)) {
+        throw new Error(`mapping: ${where} "runs" must be "service" or "job"`);
+      }
+      for (const key of ["args", "command"]) {
+        if (bundle[key] === undefined) continue;
+        onlyKeys(bundle[key], ["list", "strings"], `${where} ${key}`);
+        if (!isTable(bundle[key]) || !lists.has(bundle[key].list) || !(lists.get(bundle[key].list).strings ?? []).includes(bundle[key].strings)) {
+          throw new Error(`mapping: ${where} ${key} needs a "list" the entry reads and a "strings" attribute it reads from it`);
+        }
+      }
+      if (bundle.env !== undefined) {
+        const { env } = bundle;
+        onlyKeys(env, ["configured", "name", "value", "secret", "secretVersion"], `${where} env`);
+        const configured = (entry.configLists ?? []).find((list) => list.path.split(".").pop() === env.configured);
+        if (!isTable(env) || !configured) throw new Error(`mapping: ${where} env needs a "configured" list the entry declares in configLists`);
+        for (const key of ["name", "value", "secret", "secretVersion"]) {
+          if (key === "name" || key === "value" ? !isText(env[key]) : env[key] !== undefined && !isText(env[key])) {
+            throw new Error(`mapping: ${where} env needs "name" and "value" fields`);
+          }
+          if (env[key] !== undefined && !configured.fields.includes(env[key])) {
+            throw new Error(`mapping: ${where} env ${key} "${env[key]}" is not a field of configured list "${env.configured}"`);
+          }
+        }
+      }
       const readFrom = (ref, keys, what) => {
         if (!isTable(ref) || !lists.has(ref.list)) throw new Error(`mapping: ${where} ${what} needs a "list" the entry reads`);
         for (const key of keys) {

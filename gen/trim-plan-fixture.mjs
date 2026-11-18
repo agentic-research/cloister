@@ -95,6 +95,37 @@ function trimExpression(expression) {
   return out;
 }
 
+/** Copy the constants of a configured list's mapped fields into the trimmed expressions. */
+function keepConfigured(source, target, list) {
+  const walk = (from, to, segments) => {
+    if (!Array.isArray(from) || !Array.isArray(to)) return;
+    from.forEach((node, i) => {
+      if (!node || typeof node !== "object" || !to[i]) return;
+      if (segments.length === 0) {
+        for (const field of list.fields) {
+          const parts = field.split(".");
+          let a = node;
+          let b = to[i];
+          for (const part of parts.slice(0, -1)) {
+            a = Array.isArray(a?.[part]) ? a[part][0] : undefined;
+            if (!a) break;
+            b[part] = Array.isArray(b[part]) && b[part][0] ? b[part] : [{}];
+            b = b[part][0];
+          }
+          const leaf = a?.[parts.at(-1)];
+          if (leaf && Object.hasOwn(leaf, "constant_value") && ["string", "number", "boolean"].includes(typeof leaf.constant_value)) {
+            b[parts.at(-1)] = { constant_value: leaf.constant_value };
+          }
+        }
+        return;
+      }
+      walk(node[segments[0]], to[i][segments[0]], segments.slice(1));
+    });
+  };
+  const [top, ...rest] = list.path.split(".");
+  walk(source?.[top], target[top], rest);
+}
+
 export function trimPlan(plan) {
   const kept = new Set();
   const planned = [];
@@ -121,6 +152,8 @@ export function trimPlan(plan) {
         const trimmed = trimExpression(r.expressions?.[attr]);
         if (trimmed !== undefined && (Array.isArray(trimmed) ? trimmed.length : Object.keys(trimmed).length)) expressions[attr] = trimmed;
       }
+      // The fields the mapping reads from the configuration keep their constants.
+      for (const list of entry.configLists ?? []) keepConfigured(r.expressions, expressions, list);
       return { address: r.address, type: r.type, name: r.name, expressions };
     });
   return sortKeys({

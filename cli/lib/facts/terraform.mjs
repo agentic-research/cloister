@@ -46,7 +46,76 @@ export function readShowJson(document) {
     formatVersion: document.format_version,
     resources,
     references: document.configuration ? readReferences(document.configuration) : new Map(),
+    expressions: document.configuration ? readExpressions(document.configuration) : new Map(),
   };
+}
+
+/** Root-module resource address → its configuration expressions, as written. */
+function readExpressions(configuration) {
+  const out = new Map();
+  for (const resource of configuration.root_module?.resources ?? []) {
+    if (typeof resource?.address === "string" && resource.expressions && typeof resource.expressions === "object") {
+      out.set(resource.address, resource.expressions);
+    }
+  }
+  return out;
+}
+
+const CONSTANTS = new Set(["string", "number", "boolean"]);
+
+/**
+ * What the configuration says about one field of a row: a constant written in
+ * the source, or what the value is taken from. Never a planned value: this is
+ * how a row is read when the provider marks the whole list sensitive because
+ * one element of it is.
+ *
+ *   { constant }                  a literal in the configuration
+ *   { references, unresolved }    managed resources it is taken from, and
+ *                                 anything else it names (a variable, a local)
+ */
+function configuredField(expression) {
+  if (!expression || typeof expression !== "object" || Array.isArray(expression)) return undefined;
+  if (Object.hasOwn(expression, "constant_value")) {
+    return CONSTANTS.has(typeof expression.constant_value) ? { constant: expression.constant_value } : undefined;
+  }
+  if (!Array.isArray(expression.references)) return undefined;
+  const references = resourceReferences(expression.references);
+  // `google_x.y.uri` is listed beside `google_x.y`; only what is not a
+  // managed resource at all is "unresolved".
+  const unresolved = [...new Set(expression.references.filter((r) => typeof r === "string" && NOT_A_RESOURCE.some((p) => r.startsWith(p))))].sort();
+  return { references, unresolved };
+}
+
+/**
+ * The rows of the nested block list at `path` in a resource's configuration,
+ * each reduced to the named `fields`. A field is a dotted path through single
+ * nested blocks (`value_source.secret_key_ref.secret`).
+ */
+export function configuredRows(expressions, path, fields) {
+  let level = [expressions];
+  for (const segment of path.split(".")) {
+    level = level.flatMap((node) => {
+      const inner = node && typeof node === "object" && !Array.isArray(node) ? node[segment] : undefined;
+      return Array.isArray(inner) ? inner : [];
+    });
+  }
+  const rows = [];
+  for (const node of level) {
+    if (!node || typeof node !== "object") continue;
+    const row = {};
+    for (const field of fields) {
+      let at = node;
+      const segments = field.split(".");
+      for (const segment of segments.slice(0, -1)) {
+        const inner = at && typeof at === "object" && !Array.isArray(at) ? at[segment] : undefined;
+        at = Array.isArray(inner) ? inner[0] : undefined;
+      }
+      const value = configuredField(at && typeof at === "object" ? at[segments.at(-1)] : undefined);
+      if (value) row[field] = value;
+    }
+    if (Object.keys(row).length) rows.push(row);
+  }
+  return rows;
 }
 
 /** Prefixes of a `references` entry that is not a managed resource. */

@@ -354,6 +354,34 @@ export const COMMANDS = [
     seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
   },
   {
+    name: "cluster lower",
+    usage: "cloister cluster lower --terraform <file> --from <env> --to <env> --out <dir> [--name <name>]",
+    summary: "Write a cluster.toml and local Kubernetes manifests from a rendered plan",
+    detail:
+      "Reads the output of `terraform show -json <planfile>` and writes, into --out, a " +
+      "cluster.toml and one Kubernetes manifest per workload the plan describes: a " +
+      "Deployment and a Service for a service, a Job for a job. Each bundle gets two " +
+      "placements: the one the plan is for (--from) and `kubernetes` for --to. What " +
+      "carries over is written as the plan has it: image, args, command, and env " +
+      "values that are constants in the configuration. An env value taken from another " +
+      "workload is an address, and is rewritten to that workload's in-cluster name. A " +
+      "secret reference becomes a secretKeyRef to a Secret you create. A value taken " +
+      "from a variable, or anything else the plan does not resolve, is NOT written, and " +
+      "is listed at the top of the file it is missing from with where it comes from. " +
+      "Env is read from the plan's configuration, so it is found even when the provider " +
+      "marks the whole env block sensitive. Nothing is applied. --out must be new or " +
+      "empty. Then run `cluster k8s` on --out: it holds the addresses in these " +
+      "manifests to the declared connections and writes the NetworkPolicies. ADR-0074 §5.3.",
+    flags: [
+      { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output of a PLAN; must not be tracked by git" },
+      { flag: "--from", value: "<env>", summary: "the environment the plan describes" },
+      { flag: "--to", value: "<env>", summary: "the environment the Kubernetes manifests are for" },
+      { flag: "--out", value: "<dir>", summary: "where the files are written; must not exist, or be empty" },
+      { flag: "--name", value: "<name>", summary: "the cluster name in [metadata] (default: drafted)" },
+    ],
+    seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
+  },
+  {
     name: "inspect",
     usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",

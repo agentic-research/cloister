@@ -138,7 +138,7 @@ In order, each useful without the next:
 3. **Lower.** From the declared graph, write each workload's configuration
    for a placement: the addresses it should dial there. This is the env
    lowering ADR-0070 lists as not built, and it is what "runnable locally"
-   needs. *Not built.*
+   needs. *Built for Kubernetes: `cluster lower`. See §7.*
 
 ### 6. A placement that is only checked is still a placement
 
@@ -182,6 +182,70 @@ ADR-0070 §3 says for it. For Cloud Run that is `policy`, from the invoker IAM
 row plus the ingress setting. Both are read today. Neither is compared with
 intent yet.
 
+### 7. Lowering writes a workload, and says what it could not carry
+
+Most people have one description of their system: the one their deployment
+tool renders. Running it somewhere else means writing it again by hand, for
+Kubernetes or for Docker, and working out which parts change. That is the
+struggle this section is for, and it is not specific to any one cloud.
+
+`cloister cluster lower --terraform <plan> --from <env> --to <env> --out <dir>`
+writes a `cluster.toml` and one Kubernetes manifest per workload. A workload
+that runs until stopped becomes a Deployment and a Service. One that runs to
+completion becomes a Job.
+
+Everything a workload is started with is sorted into one of three kinds, and
+each manifest says at the top which is which:
+
+| Kind | What happens | Example |
+|---|---|---|
+| **Carried** | Written as the plan has it. | The image, args, command, an env value that is a constant in the configuration. |
+| **Rewritten** | Different in every placement, so written for this one. | An env value taken from another workload: its address. It becomes that workload's in-cluster name. |
+| **Not derivable** | Not written. Named, with where it comes from. | A value taken from a variable. The contents of a secret. |
+
+A secret reference is the one mixed case. The reference is carried, as a
+`secretKeyRef` to a Secret of the same name. The value is not in a plan and is
+never written, so the manifest says which Secret to create.
+
+**This changes a rule.** ADR-0070 §2 says cloister owns only the edges of a
+forwarded workload, never its spec. That stays true for a manifest the
+operator renders. Here there is no such manifest, and writing one is the
+point. So: cloister may write a workload's spec **as a file for the operator
+to read, edit and commit, when asked to**. It never applies one, and it never
+edits one it did not write. `--out` must be new or empty, so a second run
+cannot replace an edited file.
+
+**What it writes is checked like anything else.** The lowered manifests are
+ordinary input to `cluster k8s`, which holds the addresses in them to the
+declared connections and writes the NetworkPolicies. A rewritten address that
+did not match a declared connection would fail there, by the same rule an
+operator's manifest is held to.
+
+**Env is read from the plan's configuration, not its planned values.** A
+provider may mark a whole env block sensitive because one variable in it is.
+The planned values are then withheld, all of them. The configuration still
+says, per variable, whether the value is a constant, taken from another
+resource, or taken from a variable. Only a constant is copied, and only for a
+field the provider's schema does not mark sensitive
+([ADR-0073](0073-resource-facts-are-imported-never-granted.md) amendment). A
+state document has no configuration, so lowering needs a plan.
+
+**Who may call it is translated, not copied.** In the plan that is an access
+row: a principal with an invoker role. Locally it is a declared connection,
+which `cluster k8s` turns into a NetworkPolicy. Each manifest states both. A
+caller that authenticates with a cloud identity token will still fail
+locally: that is in the application, and no manifest changes it.
+
+What it does not do:
+
+- An address that the plan builds by appending a path (`"${uri}/sweep"`) is
+  rewritten to the bare address. The configuration lists what a value
+  references, not the text around it. Each rewritten variable says so.
+- It lowers to plain Kubernetes only. Knative and microVM are not written.
+- A probe, a resource limit, a volume, a service account: not read, not
+  written.
+- It has not been run against a live cluster.
+
 ## Consequences
 
 - **One source of truth for what exists.** The deployment tool's rendered
@@ -210,7 +274,8 @@ intent yet.
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |
-| §5.3 Lower addresses per placement | not built |
+| §5.3 Lower a plan to local Kubernetes manifests (`cluster lower`), §7 | built; not yet run against a live cluster |
+| §7 Lower to Knative, or to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | not built |

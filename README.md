@@ -33,6 +33,7 @@ you name, and nothing else.
 |---|---|---|
 | A Terraform or OpenTofu plan | To see which service calls which, and who may invoke it | `cloister inspect --terraform` |
 | A Terraform or OpenTofu plan | A first `cluster.toml` without writing it | `cloister inspect --terraform --draft` |
+| A Terraform or OpenTofu plan | The same services on a local cluster | `cloister cluster lower` |
 | That plan and a `cluster.toml` | To know where the two disagree | `cloister inspect --terraform --dir` |
 | Kubernetes or Knative manifests | Each service held to its declared connections, plus network policies | `cloister cluster k8s` |
 | A repository and a coding tool | The tool confined to that repository | `cloister run --harness` |
@@ -99,11 +100,34 @@ build.
 
 A Knative Service is checked the same way, and nothing is written for it.
 
+### Run the same services on a local cluster
+
+```sh
+cloister cluster lower --terraform plan.json --from prod --to local --out local
+cloister cluster k8s --dir local --env local --out local/k8s
+```
+
+The first command writes a `cluster.toml` and one Kubernetes manifest per
+service into `local/`. The second checks them and adds the network policies.
+Then `kubectl apply` each directory under `local/k8s`.
+
+Each manifest says at the top what happened to everything the service is
+started with:
+
+| | What happens | Example |
+|---|---|---|
+| Carried | Written as the plan has it | The image, args, a constant env value |
+| Rewritten | Written for this cluster | Another service's address |
+| Not in the plan | Not written, and named | A value from a variable; a secret's contents |
+
+A secret reference becomes a reference to a Kubernetes Secret you create.
+Nothing is applied for you, and `--out` must be a new directory.
+
 ### What is not built yet
 
-Writing each service's addresses for a local cluster is not built: the draft
-describes the deployment the plan is for, and a second placement for a local
-cluster is still added by hand. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
+Lowering writes plain Kubernetes only, and it has not been run against a live
+cluster. Probes, resource limits, volumes and service accounts are not
+carried. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
 
 ## Install

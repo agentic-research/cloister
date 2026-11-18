@@ -226,6 +226,26 @@
                         "value": {
                           "sensitive": false,
                           "type": "string"
+                        },
+                        "value_source": {
+                          "attributes": {
+                            "secret_key_ref": {
+                              "attributes": {
+                                "secret": {
+                                  "sensitive": false,
+                                  "type": "string"
+                                },
+                                "version": {
+                                  "sensitive": false,
+                                  "type": "string"
+                                }
+                              },
+                              "nesting_mode": "list",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
                         }
                       },
                       "nesting_mode": "set",
@@ -563,6 +583,26 @@
                     "value": {
                       "sensitive": false,
                       "type": "string"
+                    },
+                    "value_source": {
+                      "attributes": {
+                        "secret_key_ref": {
+                          "attributes": {
+                            "secret": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "version": {
+                              "sensitive": false,
+                              "type": "string"
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
                     }
                   },
                   "nesting_mode": "set",

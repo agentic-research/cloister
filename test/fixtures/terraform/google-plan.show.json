@@ -78,6 +78,9 @@
                       {
                         "name": {
                           "constant_value": "LOG_LEVEL"
+                        },
+                        "value": {
+                          "constant_value": "info"
                         }
                       },
                       {
@@ -89,6 +92,25 @@
                             "var.api_token"
                           ]
                         }
+                      },
+                      {
+                        "name": {
+                          "constant_value": "DB_PASSWORD"
+                        },
+                        "value_source": [
+                          {
+                            "secret_key_ref": [
+                              {
+                                "secret": {
+                                  "constant_value": "db-password"
+                                },
+                                "version": {
+                                  "constant_value": "latest"
+                                }
+                              }
+                            ]
+                          }
+                        ]
                       }
                     ]
                   }
@@ -257,6 +279,10 @@
                       {
                         "name": "API_TOKEN",
                         "value": "FIXTURE-SENSITIVE-VALUE"
+                      },
+                      {
+                        "name": "DB_PASSWORD",
+                        "value": ""
                       },
                       {
                         "name": "LOG_LEVEL",

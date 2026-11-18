@@ -15,7 +15,7 @@ import { readShowJson } from "./terraform.mjs";
  *   report can say what it did not look at instead of implying it saw everything.
  */
 export function importFacts(document) {
-  const { kind, formatVersion, resources, references } = readShowJson(document);
+  const { kind, formatVersion, resources, references, expressions } = readShowJson(document);
   const facts = [];
   const skipped = new Map(); // a Map, so a type named `toString` counts like any other
   for (const resource of resources) {
@@ -25,7 +25,8 @@ export function importFacts(document) {
       continue;
     }
     // Configuration references describe a PLAN: in a state document they are not read.
-    facts.push(importResource(resource, entry, kind === "plan" ? references.get(resource.address) : undefined));
+    const plan = kind === "plan";
+    facts.push(importResource(resource, entry, plan ? references.get(resource.address) : undefined, plan ? expressions.get(resource.address) : undefined));
   }
   return { kind, formatVersion, facts, skipped: Object.fromEntries(skipped) };
 }

@@ -33,6 +33,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up (compose, or microVMs with --env) |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister cluster k8s`](#cloister-cluster-k8s) | Lower kubernetes placements to manifests + NetworkPolicy; check knative ones |
+| [`cloister cluster lower`](#cloister-cluster-lower) | Write a cluster.toml and local Kubernetes manifests from a rendered plan |
 | [`cloister inspect`](#cloister-inspect) | Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
@@ -256,6 +257,24 @@ For each bundle placed "kubernetes" in --env, checks its rendered manifest's Ser
 | `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
 
 See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-placements-and-channel-strength.md)
+
+## cloister cluster lower
+
+```
+cloister cluster lower --terraform <file> --from <env> --to <env> --out <dir> [--name <name>]
+```
+
+Reads the output of `terraform show -json <planfile>` and writes, into --out, a cluster.toml and one Kubernetes manifest per workload the plan describes: a Deployment and a Service for a service, a Job for a job. Each bundle gets two placements: the one the plan is for (--from) and `kubernetes` for --to. What carries over is written as the plan has it: image, args, command, and env values that are constants in the configuration. An env value taken from another workload is an address, and is rewritten to that workload's in-cluster name. A secret reference becomes a secretKeyRef to a Secret you create. A value taken from a variable, or anything else the plan does not resolve, is NOT written, and is listed at the top of the file it is missing from with where it comes from. Env is read from the plan's configuration, so it is found even when the provider marks the whole env block sensitive. Nothing is applied. --out must be new or empty. Then run `cluster k8s` on --out: it holds the addresses in these manifests to the declared connections and writes the NetworkPolicies. ADR-0074 §5.3.
+
+| Flag | | |
+|---|---|---|
+| `--terraform` `<file>` |  | `terraform show -json` output of a PLAN; must not be tracked by git |
+| `--from` `<env>` |  | the environment the plan describes |
+| `--to` `<env>` |  | the environment the Kubernetes manifests are for |
+| `--out` `<dir>` |  | where the files are written; must not exist, or be empty |
+| `--name` `<name>` |  | the cluster name in [metadata] (default: drafted) |
+
+See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 
 ## cloister inspect
 
