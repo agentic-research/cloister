@@ -2,7 +2,7 @@
 
 How to wire cluster inputs by **capability** instead of by hand. Per
 [ADR-0027](../adr/0027-substrate-as-kernel-capability-matchmaker.md); the
-resolver lives at `scripts/capability-matchmaker.mjs` and runs as part of
+resolver lives at `cli/lib/cluster/capability-matchmaker.mjs` and runs as part of
 `task cluster:toml`.
 
 > **Status:** the resolution core (steps 1, 2, 4 of ADR-0027) ships and is
@@ -71,7 +71,7 @@ knowing:
   silently shadowed. Two implementations of one capability is a decision an
   operator must make explicitly.
 
-The list lives in `scripts/toml-to-cluster.mjs` (`SUBSTRATE_CAPABILITIES`). When
+The list lives in `cli/lib/cluster/toml-to-cluster.mjs` (`SUBSTRATE_CAPABILITIES`). When
 ADR-0027's `cloister-spec/cloister/<name>/v<n>/` directory convention lands, it
 should be derived from the filesystem instead of maintained by hand.
 

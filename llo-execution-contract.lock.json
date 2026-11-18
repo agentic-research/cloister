@@ -13,7 +13,7 @@
     "which is the question the pin exists to answer.",
     "",
     "REGENERATING (needs an LLO checkout; cloister CI deliberately has none):",
-    "  1. node scripts/fetch-schema-bridge.mjs capnpc-schema-bridge-tooldefs",
+    "  1. node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-tooldefs",
     "  2. from <llo>/rs/ll-core/schema-spec at the tag named by sourceCommit:",
     "     capnp compile -o<path-from-step-1>:<outdir> --src-prefix=. execution/v1/execution.capnp",
     "  3. copy <outdir>/execution.tools.json over `artifact`, update sha256.",

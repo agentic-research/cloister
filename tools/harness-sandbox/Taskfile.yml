@@ -1,0 +1,37 @@
+version: "3"
+
+# The native harness sandbox binary: build it, and test the built binary.
+# Included flat by the root Taskfile, so every task keeps its name
+# (`task harness:sandbox:build`) and runs from the repo root.
+
+tasks:
+  harness:sandbox:build:
+    desc: "Build the cloister-harness confinement binary (S1). Gate: a nono API bump or a bad edit fails here instead of silently breaking `SANDBOX=nono task harness:dev`. Builds the nono (Seatbelt/Landlock) + sigstore closure into ITS OWN target dir (tools/harness-sandbox/target) — NOT shared with rs/target's host-extras nono build, since cargo namespaces compiled artifacts per target dir. CI caches tools/harness-sandbox/target separately (ci.yml) so a warm run is fast; cold is ~4min. Wired into `verify:strict`."
+    dir: tools/harness-sandbox
+    cmds:
+      - cargo build --release
+    sources:
+      - src/**/*.rs
+      - Cargo.toml
+      - Cargo.lock
+    generates:
+      - target/release/cloister-harness
+
+  # `spike:libkrun` + `spike:libkrun:mediated` lived here and are DELETED with
+  # tools/libkrun-spike (cloister-5624e8). They proved ADR-0044/0046's
+  # mediate-below-stock-libkrun thesis on demand, and that proof has moved: LLO
+  # embeds libkrun via FFI (ley-line-open-f839c1) rather than booting it from a
+  # shell script, and ley-line-open-984acf ships the entitled macOS worker.
+  # ADR-0049's 2026-07-31 amendment is the decision — cloister keeps policy,
+  # authorization, audit and the CLI; LLO owns the execution runtime. Do not
+  # re-add a spike here; extend LLO's backend and consume it over execution/v1.
+
+  test:harness-binary:
+    desc: "Kernel-confinement tests for the cloister-harness BINARY — the artifact that actually ships (cloister-e22a56). Distinct from `nono-isolation`, which drives the `nono` CLI: that is a different artifact at a different version, so it says nothing about the library pinned in tools/harness-sandbox/Cargo.toml. Measured: the installed CLI was 0.56.0 while the pin moved to 0.70, and the CLI suite stayed green throughout. DEPENDS on harness:sandbox:build so the binary exists — wiring this into `lint` instead would make it skip forever, because `lint` is ordered before the build."
+    deps: [harness:sandbox:build]
+    cmds:
+      - node --test tools/harness-sandbox/test/cloister-harness-binary.test.mjs
+    sources:
+      - tools/harness-sandbox/src/main.rs
+      - tools/harness-sandbox/Cargo.toml
+      - tools/harness-sandbox/test/cloister-harness-binary.test.mjs

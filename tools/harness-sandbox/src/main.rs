@@ -4,7 +4,7 @@
 // cloister-harness — apply kernel confinement from a DECLARED, default-deny
 // capability manifest, then exec the harness. This is the "actual binary" that
 // replaces the hand-assembled `nono run -a … --block-net --open-port … -- claude`
-// CLI flags that used to live in scripts/harness-dev.mjs.
+// CLI flags that used to live in dev/harness-dev.mjs.
 //
 // Design commitments (each maps to a user requirement):
 //   - DON'T REINVENT: the filesystem/network capability format IS nono's own

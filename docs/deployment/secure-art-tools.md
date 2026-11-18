@@ -92,7 +92,7 @@ expects, `GET /internal/ca-bundle`, and returns a signed JSON
 ```sh
 CLUSTER_DEV_DIR_NOTME_IDENTITY="$PWD/test/fixtures/notme-ca-bundle-proof" \
 CLUSTER_DEV_INTERLACE_ROOT_PUBKEY='ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=' \
-node scripts/cluster-dev.mjs
+node dev/cluster-dev.mjs
 ```
 
 Then send signed requests with `test/helpers/signed-request.ts` using

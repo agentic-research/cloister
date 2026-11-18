@@ -738,7 +738,7 @@ export class TrustStore extends DurableObject {
   // ── OCI registry tag index (cloister-cabd57) ────────────────────────────
   //
   // Phase 1 (read-only pull path) — the RPC surface the OCI route relies
-  // on. Writes happen via the `scripts/import-image.mjs` import path
+  // on. Writes happen via the `dev/import-image.mjs` import path
   // (operator-driven, deploy-time); reads happen on every `docker pull`.
   // Schema lives in src/storage/registry-tags.ts; this class re-exports
   // the helpers as DO RPC methods so callers don't poke at the SQL

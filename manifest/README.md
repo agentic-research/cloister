@@ -21,7 +21,7 @@ and the runtime imports the result. **No parsing at runtime.**
 flowchart LR
     SRC["manifest/cloister.capnp<br/>(this directory)"]
     CONS["&lt;repo&gt;/cloister.capnp<br/>(consumer value)"]
-    EVAL["scripts/build-manifest.mjs<br/>capnp eval -o json"]
+    EVAL["gen/build-manifest.mjs<br/>capnp eval -o json"]
     GEN["src/generated/manifest.ts<br/>(typed JSON literal,<br/>gitignored, regenerated)"]
     TS["src/manifest/types.ts<br/>(hand-mirror TS types)"]
     RT["src/manifest/runtime.ts<br/>(instantiate(): EdgeRoute[])"]

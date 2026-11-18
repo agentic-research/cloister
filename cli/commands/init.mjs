@@ -370,7 +370,7 @@ function printHelp(log, recipesRoot) {
 /**
  * Accepts either:
  *   - `init --recipe X --out Y ...` (proper subcommand form), or
- *   - `--recipe X --out Y ...`      (legacy bare form, for `node scripts/cli-init.mjs`).
+ *   - `--recipe X --out Y ...`      (legacy bare form, for `node cli/commands/init.mjs`).
  *
  * Only one subcommand exists today (`init`). When future subcommands
  * land (`add`, `scaffold`, etc.) extend the dispatch below.

@@ -1,0 +1,112 @@
+version: "3"
+
+# The worker that runs on workerd: build, type-check, tests, local serve.
+# Included flat by the root Taskfile, so every task keeps its name
+# (`task test`) and runs from the repo root.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  build:
+    desc: Bundle Worker for Cloudflare / wrangler dev
+    deps: [manifest]
+    cmds:
+      - pnpm exec wrangler build
+    sources:
+      - src/**/*.ts
+      - tsconfig.json
+    generates:
+      - .wrangler/tmp/build-*/index.js
+
+  test:harness-shim:
+    desc: "harness-shim CertSource contract (cloister-f2338f) — node:test under tsx, NOT vitest: the shim is a host-side Node program and the vitest suite runs inside workerd, where node:http.createServer is not implemented."
+    cmds:
+      - "{{.NODE_TSX}} --test lint/test/harness-shim-cert-source.test.mjs"
+    sources:
+      - lint/test/harness-shim-cert-source.test.mjs
+      - src/harness-shim/index.ts
+      - src/harness-shim/lease-signer.ts
+
+  test:
+    # `llo:wasm` is required because src/wire/signet-verify.ts imports
+    # rs/target/llo-wasm/leyline_sign.wasm; without it vitest-pool-workers
+    # fails every test file at module init. It is LLO's published release
+    # asset, digest-pinned in schema-bridge.lock.json — no longer compiled
+    # here (cloister-dbe9c3).
+    #
+    # `rs:sign:host` runs the host-binary integration + adversarial test
+    # suites (cloister-99165e, ADR-0019). Wired into `task test` so the
+    # threat-model §15 adversarial tests (upstream in LLO at
+    # `rs/ll-open/sign/tests/host_adversarial.rs`) block CI when red.
+    # The tests pin invariants from the trust-root-friend pre-merge
+    # review (adversarial-cycle 2026-05-12); they are the spec of
+    # correct behavior. Without this wire-up, the failing tests don't
+    # gate the merge — which defeats the entire point of the gate.
+    desc: Run tests inside workerd (real DOs, real SQLite)
+    deps: [manifest, rs:test, llo:wasm]
+    cmds:
+      - pnpm exec vitest run
+    # Content-hash cache (Task `method: checksum`): skip the workerd suite when
+    # none of its inputs changed. The invalidation set is deliberately broad —
+    # the code under test, the tests, the vitest/miniflare config surface
+    # (vitest.config.ts reads wrangler.toml), the generated manifest (src/generated
+    # is under src/**), the capnp schema, and the wasm the suite loads at module
+    # init. Over-inclusive by design: a listed-but-irrelevant change just re-runs
+    # the suite; a real change is never missed. CI runs on a fresh checkout with a
+    # cold cache, so it always executes the full suite regardless (cloister-8e40ad).
+    #
+    # The dependency tree is part of the system under test, not just its build
+    # input: vitest-pool-workers runs the suite THROUGH miniflare, so a bump to
+    # miniflare or anything beneath it changes what the tests actually exercise.
+    # package.json alone misses that — pnpm 10 declares overrides in
+    # pnpm-workspace.yaml, and a transitive bump moves only the lockfile. Found
+    # by the CVE-2026-48779 ws override, which reported "up to date" and skipped
+    # the whole suite on the one change that most needed running (cloister-035655).
+    sources:
+      - src/**/*.ts
+      - test/**/*.ts
+      - vitest.config.ts
+      - wrangler.toml
+      - config.capnp
+      - tsconfig.json
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - manifest/**/*.capnp
+      - rs/target/llo-wasm/leyline_sign.wasm
+
+  test:watch:
+    desc: Watch mode
+    deps: [manifest, llo:wasm]
+    cmds:
+      - pnpm exec vitest
+
+  type-check:
+    desc: TypeScript type check (no emit)
+    deps: [manifest]
+    cmds:
+      - pnpm exec tsc --noEmit
+    # Content-hash cache (Task `method: checksum`, the v3 default): re-check only
+    # when a compiled input actually changes. tsc --noEmit follows tsconfig.json;
+    # the globs below are generous on purpose (over-inclusive is safe — it can
+    # only cause an unnecessary re-run, never a missed one). cloister-8e40ad.
+    #
+    # The resolved dependency tree is a compiled input: tsc reads .d.ts files out
+    # of node_modules, so a version bump changes the types being checked without
+    # touching a single source file. package.json alone does NOT capture that —
+    # pnpm 10 declares overrides in pnpm-workspace.yaml, and a transitive bump
+    # moves only the lockfile. Both are listed so a dependency-only change cannot
+    # pass this gate vacuously (cloister-035655).
+    sources:
+      - src/**/*.ts
+      - test/**/*.ts
+      - tsconfig.json
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+
+  serve:local:
+    desc: Run via workerd directly (requires build:local first)
+    cmds:
+      - npx workerd serve dist/config.capnp --experimental

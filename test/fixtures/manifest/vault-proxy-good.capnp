@@ -1,9 +1,9 @@
 # test/fixtures/manifest/vault-proxy-good.capnp — happy-path e2e fixture
 # for `vaultProxyServices` (cloister-8f57f0 / ADR-0024).
 #
-# All 5 injection variants exercised. `scripts/build-manifest.mjs` should
+# All 5 injection variants exercised. `gen/build-manifest.mjs` should
 # parse this cleanly + the runtime `buildServiceRegistry` should accept
-# every entry. Consumed by `scripts/test/e2e-manifest-pipeline.test.mjs`
+# every entry. Consumed by `gen/test/e2e-manifest-pipeline.test.mjs`
 # (cloister-8e40ad — Taskfile-as-source-of-truth audit).
 
 @0xa1c0157e1a1f8001;

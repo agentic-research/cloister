@@ -57,7 +57,7 @@ falling back to prefix matching, so dispatch is by exact upstream tool
 name, not by the shared prefix — sharing a prefix across claims-backed
 backends from the same input is safe (no ADR-0002 first-wins-shadow
 hazard). `src/manifest/runtime.ts`'s `validate()` and
-`scripts/build-manifest.mjs`'s build-time mirror both special-case this:
+`gen/build-manifest.mjs`'s build-time mirror both special-case this:
 the duplicate-prefix check only fires when a claims-less backend would
 be involved (that backend genuinely falls back to prefix matching and
 would collide).
@@ -71,7 +71,7 @@ start with the prefix, so it gets prefixed once for advertisement). But
 `handles()` checks the **advertised** name (`mache_find_callers`)
 against `claims`, which only holds the **bare** upstream name
 (`find_callers`) — without a `stripPrefix` to reconcile the two, the
-call never matches. `scripts/resolve-inputs.mjs:deriveStripPrefix`
+call never matches. `cli/lib/cluster/resolve-inputs.mjs:deriveStripPrefix`
 derives `stripPrefix = advertisedPrefix` per group whenever that
 group's `upstreamNames` are bare (don't already start with
 `advertisedPrefix`) — mirroring the same bare-vs-prefixed condition
@@ -86,7 +86,7 @@ error naming the group) rather than silently mis-stripped.
 *within one server.json's `groups[]`* (per
 `leyline-schema-spec/mcp-tool/v1/wire/meta-groups.md`), not across inputs.
 mache and llo both happen to name a group `lsp` and a group
-`lifecycle`. `scripts/build-manifest.mjs`'s `overlayLockfileBackends`
+`lifecycle`. `gen/build-manifest.mjs`'s `overlayLockfileBackends`
 detects this and qualifies the **second-processed** row as
 `${input}/${name}` (e.g. `mache/lsp`) so neither input's tools are
 silently dropped — see the emitted `src/generated/manifest.ts` for the

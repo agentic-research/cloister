@@ -4,7 +4,7 @@
 // (ADR-0030 §A4, cloister-0fa3d7).
 //
 // Lives under cli/lib so the build path (toml-to-cluster's port/connection
-// checks, cloister-991e65) and the lint (scripts/lint-app-protocol.mjs, which
+// checks, cloister-991e65) and the lint (lint/app-protocol.mjs, which
 // re-exports it) share one implementation. Do not write a second one.
 //
 // Per project convention (cloister-6f06cc resolution): NO REGEX. All

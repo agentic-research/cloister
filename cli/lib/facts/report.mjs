@@ -126,6 +126,9 @@ function declaredSections(facts, kind) {
         attrs: Object.fromEntries(entry.report.show.map((attr) => [attr, fact.attrs[attr] ?? ""])),
         access,
         dials: dialsOf(fact, entry, facts, kind, addressed),
+        // A type that declares what it dials is a workload: it can be the
+        // source of a connection.
+        dialer: Boolean(entry.report.dials),
         // A list the document marks sensitive is not read. Say so: "no edge
         // found" would otherwise read as "no edge".
         withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),
@@ -147,7 +150,74 @@ function routeHost(pattern) {
   return host === "" || host.includes("*") ? null : host;
 }
 
-export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
+/**
+ * Declared connections beside the edges the inputs imply.
+ *
+ * A bundle and a resource are the same thing when they have the same name,
+ * exactly. Nothing else joins them. Three findings, with the same meanings
+ * the wire findings have:
+ *
+ *   evidenced   a declared connection's source is started with something that
+ *               names its target.
+ *   unknown     no such thing was found in THESE inputs. That is absence of
+ *               evidence: the address may come from a secret, or a file.
+ *   undeclared  a declared bundle dials something, and cluster.toml declares
+ *               no connection for it. Reported, never adopted.
+ *
+ * `unlisted` is the workloads in the inputs that cluster.toml has no bundle
+ * for: with a hand-written cluster.toml, the services nobody added.
+ */
+function compareConnections(sections, cluster, env) {
+  const resources = sections.flatMap((s) => s.resources.map((r) => ({ ...r, section: s.title })));
+  const named = (name) => resources.filter((r) => r.name === name);
+  const bundles = new Set((cluster?.bundles ?? []).map((b) => b.name));
+  const declared = [];
+  for (const c of cluster?.connections ?? []) {
+    for (const t of c.targets ?? []) {
+      if (env === undefined || t.env === env) declared.push({ from: c.from, name: c.name, to: t.bundle, env: t.env });
+    }
+  }
+  const findings = [];
+  for (const connection of declared) {
+    const sources = named(connection.from).filter((r) => r.dialer);
+    const missing = sources.length === 0 ? connection.from : named(connection.to).length === 0 ? connection.to : null;
+    if (missing) {
+      findings.push({ kind: "unknown", connection, reason: `no resource named "${missing}" in these inputs` });
+      continue;
+    }
+    if (sources.length > 1) {
+      findings.push({ kind: "unknown", connection, reason: `more than one resource named "${connection.from}" in these inputs (${sources.map((r) => r.section).join(", ")})` });
+      continue;
+    }
+    const [source] = sources;
+    const dial = source.dials.find((d) => d.to === connection.to);
+    if (dial) {
+      findings.push({ kind: "evidenced", connection, dial: { section: dial.section, by: dial.by, where: dial.where } });
+    } else {
+      const withheld = source.withheld.length ? `; its ${source.withheld.join(" and ")} ${source.withheld.length === 1 ? "is" : "are"} marked sensitive and ${source.withheld.length === 1 ? "was" : "were"} not read` : "";
+      findings.push({ kind: "unknown", connection, reason: `nothing "${connection.from}" is started with names "${connection.to}" in these inputs${withheld}` });
+    }
+  }
+  for (const resource of resources) {
+    if (!resource.dialer || !bundles.has(resource.name)) continue;
+    for (const dial of resource.dials) {
+      if (declared.some((c) => c.from === resource.name && c.to === dial.to)) continue;
+      findings.push({
+        kind: "undeclared",
+        from: resource.name,
+        dial: { to: dial.to, section: dial.section, by: dial.by, where: dial.where },
+        reason: bundles.has(dial.to) ? "declares no such connection" : `has no bundle named "${dial.to}"`,
+      });
+    }
+  }
+  const unlisted = cluster ? resources.filter((r) => r.dialer && !bundles.has(r.name)).map((r) => ({ name: r.name, section: r.section })) : [];
+  return { declared, findings, unlisted };
+}
+
+/** How a dialled edge was found, in words. */
+const dialHow = (dial) => (dial.by === "address" ? dial.where : `referenced by configuration in ${dial.where}`);
+
+export function buildReport({ facts, skipped, kind, formatVersion }, cluster, { env } = {}) {
   const byType = (type) => facts.filter((f) => f.type === type);
 
   // Workers: Terraform scripts, Terraform Workers with their versions, and
@@ -247,6 +317,9 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
     }
   }
 
+  const sections = declaredSections(facts, kind);
+  const connections = compareConnections(sections, cluster, env);
+
   const workerNames = new Set(workers.map((w) => w.name));
   const routes = byType("cloudflare_workers_route").map((f) => {
     const script = f.attrs.script ?? "";
@@ -289,10 +362,12 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster) {
       ...byType("cloudflare_d1_database").map((f) => ({ kind: "d1", name: f.name })),
       ...byType("cloudflare_r2_bucket").map((f) => ({ kind: "r2", name: f.name })),
     ],
-    sections: declaredSections(facts, kind),
+    sections,
     dns: byType("cloudflare_dns_record").map((f) => ({ name: f.name, type: f.attrs.type ?? "", proxied: f.attrs.proxied === true })),
     declared: wires.map((w) => ({ from: w.from, to: w.to, binding: w.binding })),
-    findings,
+    declaredConnections: connections.declared,
+    unlisted: connections.unlisted,
+    findings: [...findings, ...connections.findings],
     skipped,
   };
 }
@@ -355,10 +430,7 @@ export function renderReport(report) {
       lines.push(`  ${[r.name, ...Object.values(r.attrs)].filter((v) => v !== "").join("  ")}`);
       for (const a of r.access) lines.push(`    ${a.label}: ${a.principal}${a.public ? "  (public)" : ""}`);
       for (const key of r.withheld) lines.push(`    ${key}: withheld (the document marks it sensitive, so it was not read)`);
-      for (const d of r.dials) {
-        const how = d.by === "address" ? d.where : `referenced by configuration in ${d.where}`;
-        lines.push(`    dials: ${d.to}  (${[d.section, how].filter(Boolean).join("; ")})`);
-      }
+      for (const d of r.dials) lines.push(`    dials: ${d.to}  (${[d.section, dialHow(d)].filter(Boolean).join("; ")})`);
       for (const label of r.accessLabels) {
         if (!r.access.some((a) => a.label === label)) lines.push(`    ${label}: unknown (no access row in this document; access rows are non-authoritative)`);
       }
@@ -370,10 +442,24 @@ export function renderReport(report) {
   if (report.declared.length === 0) lines.push("  (none, or no cluster.toml given)");
   for (const d of report.declared) lines.push(`  ${d.from} → ${d.to}  as ${d.binding}`);
 
+  if (report.declaredConnections.length) {
+    section("Declared connections (cluster.toml):");
+    for (const c of report.declaredConnections) lines.push(`  ${c.from} → ${c.to}  as ${c.name}  (env ${c.env})`);
+  }
+  if (report.unlisted.length) {
+    section("In these inputs, with no bundle in cluster.toml:");
+    for (const r of report.unlisted) lines.push(`  ${r.name}  (${r.section})`);
+  }
+
   section("Findings:");
   if (report.findings.length === 0) lines.push("  (none)");
   for (const f of report.findings) {
-    if (f.kind === "evidenced") {
+    if (f.connection) {
+      const edge = `${f.connection.from} → ${f.connection.to} (connection "${f.connection.name}", env ${f.connection.env})`;
+      lines.push(f.kind === "evidenced" ? `  evidenced   ${edge}: ${dialHow(f.dial)}` : `  unknown     ${edge}: ${f.reason}`);
+    } else if (f.kind === "undeclared" && f.dial) {
+      lines.push(`  undeclared  ${f.from} dials ${f.dial.to} (${[f.dial.section, dialHow(f.dial)].filter(Boolean).join("; ")}), and cluster.toml ${f.reason}`);
+    } else if (f.kind === "evidenced") {
       lines.push(`  evidenced   ${f.wire.from} → ${f.wire.to} (${f.wire.binding}): bound as ${f.binding.type}${f.binding.target ? ` → ${f.binding.target}` : ""}`);
     } else if (f.kind === "unknown" && f.unchecked) {
       lines.push(`  unknown: ${f.reason}`);

@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 //
 // Runtime half of the multi-tenant recipe bridge. The Node-side test at
-// scripts/test/recipe-multi-tenant-bridge.test.mjs parses and validates the
+// cli/test/cluster/recipe-multi-tenant-bridge.test.mjs parses and validates the
 // real recipe, then proves this portable fixture is byte-for-byte equivalent
 // to its Gateway projection. Keeping that Node-only parser out of workerd is
 // intentional: importing node:fs / tsx into a Worker isolate is not a product

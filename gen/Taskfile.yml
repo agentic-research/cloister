@@ -1,0 +1,487 @@
+version: "3"
+
+# Code generators and build steps, and the drift checks for what they write.
+# Included flat by the root Taskfile, so every task keeps its name
+# (`task manifest`) and runs from the repo root.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  tool-schemas:
+    desc: "Compile src/tool-schemas/*.ts (zod) → src/generated/tool-schemas.ts (cloister-7ca96c)"
+    run: once
+    cmds:
+      - "{{.NODE_TSX}} gen/build-tool-schemas.mjs"
+    sources:
+      - src/tool-schemas/**/*.ts
+      - gen/build-tool-schemas.mjs
+    generates:
+      - src/generated/tool-schemas.ts
+
+  manifest:
+    desc: Compile cloister.capnp → src/generated/manifest.ts (ADR-0004). Overlays zod-derived tool schemas (cloister-7ca96c).
+    deps: [tool-schemas]
+    run: once
+    cmds:
+      # `gen/build-manifest.mjs` dynamically `import()`s
+      # `src/generated/tool-schemas.ts` — a `.ts` file directly. Node 23+
+      # strips types natively (works locally), but the CI runner uses
+      # Cloister supports Node 22+, but generated TypeScript is still loaded
+      # through `tsx` so behavior does not depend on a particular Node minor's
+      # type-stripping support. If build-tool-schemas emits .mjs later, this
+      # loader can be removed deliberately.
+      - "{{.NODE_TSX}} gen/build-manifest.mjs"
+    sources:
+      - cloister.capnp
+      - manifest/cloister.capnp
+      - gen/build-manifest.mjs
+      # Build-time validation imports buildServiceRegistry from this
+      # pure module. Without listing it here, Task's checksum cache
+      # would skip `task manifest` after a validation-rule change
+      # (Copilot #8 on PR #36).
+      - src/manifest/vault-proxy-services.ts
+      - src/generated/tool-schemas.ts
+    generates:
+      - src/generated/manifest.ts
+
+  # NOTE: the legacy capnp→ts generator (`cluster:manifest` / build-cluster.mjs)
+  # was retired in cloister-ab8f21. src/generated/cluster.ts is generated
+  # solely from the operator-authoritative cluster.toml via `cluster:toml`
+  # (ADR-0025). The old leg read the hand-authored root cluster.capnp, which
+  # carries no `inputs` — so it would have regenerated cluster.ts WITHOUT the
+  # declared inputs, silently regressing them.
+
+  # schema-bridge tasks
+  #
+  # Build-time codegen pipeline that lowers capnp schemas into zod
+  # validators + matching TS/Go types. The plugin is LLO's
+  # `leyline-schema-bridge` crate (rs/ll-open/schema-bridge), consumed as
+  # a SHA-pinned git dep anchored in rs/crates/cas — cloister no longer
+  # vendors it (ADR-0036 Phase 2, LLO PR #222, bead cloister-a7346b).
+  #
+  # Intentionally NOT wired into `task verify` or `task lint` yet —
+  # this is a migration step. The output sits beside the existing
+  # capnp-eval pipeline (src/generated/cluster.ts) and the legacy file
+  # imports it as a side-effect to keep it in the dependency graph for
+  # `task lint`'s tsc pass.
+  llo:bump:
+    desc: "Move EVERY ley-line-open channel from one input — a release tag (cloister-464216). Usage: task llo:bump -- v0.16.0 [--dry-run] [--skip-revendor]. Derives the channel list from lint:upstream-pins rather than a second copy, so adding a channel updates checker and writer together. Refuses to write unless the tag resolves to a commit (`^{}` — a tag-object sha is a valid git object and an invalid cargo rev) AND a published release carries every generator binary (a tag can exist while the release does not; bumping there points schema-bridge.lock.json at 404s while git-resolved channels succeed — half-bumped and green). Re-vendors the generated execution/v1 artifact too, since a stale one silently relaxes lint:schema-claim."
+    cmds:
+      - node gen/llo-bump.mjs {{.CLI_ARGS | default "--help"}}
+
+  schema-bridge:build:
+    desc: "Fetch LLO's schema-bridge capnp plugins (zod + go + jsonschema) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."
+    cmds:
+      - node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod
+      - node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-go
+      - node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-jsonschema
+    sources:
+      - schema-bridge.lock.json
+      - gen/fetch-schema-bridge.mjs
+
+  llo:wasm:
+    desc: "Fetch LLO's wasm32 modules the Worker imports (leyline_sign.wasm) as DIGEST-PINNED release assets into rs/target/llo-wasm/ (cloister-dbe9c3). Replaces building LLO's crates for wasm32 in cloister: the digest lives in schema-bridge.lock.json beside the generator pins, at the SAME release version, so lint:upstream-pins and llo:bump cover it. Verified on every run; a warm cache needs no network."
+    cmds:
+      - node gen/fetch-schema-bridge.mjs --wasm leyline_sign.wasm
+    sources:
+      - schema-bridge.lock.json
+      - gen/fetch-schema-bridge.mjs
+    generates:
+      - rs/target/llo-wasm/leyline_sign.wasm
+
+  cluster:zod:
+    desc: "Regenerate src/generated/cluster.zod.ts via schema-bridge. Run after cluster.capnp schema edits; `cluster:zod:check-drift` (in `task lint`) fails if you forget."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # `capnp compile` exits 0 even when the plugin errors and
+        # writes nothing — its stderr carries the real diagnostic.
+        # Generate into a tmpdir + existence-check + atomic move into
+        # src/generated/. An in-place existence check is insufficient
+        # because cluster.zod.ts is already committed: a failing
+        # plugin run that writes nothing would leave the OLD file in
+        # tree and `[ -f … ]` would falsely pass. Same shape as
+        # :check-drift below.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/cluster.zod.ts" src/generated/cluster.zod.ts
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/cluster.zod.ts
+
+  cluster:zod:verify:
+    desc: "End-to-end semantic check — ClusterSchema (from cluster.zod.ts) must accept the real cluster const (from cluster.ts). Surfaced the union-shape bug during the initial schema-bridge wiring; lives here to lock that property in."
+    cmds:
+      - "{{.NODE_TSX}} gen/validate-cluster-zod.mjs"
+    sources:
+      - src/generated/cluster.ts
+      - src/generated/cluster.zod.ts
+      - gen/validate-cluster-zod.mjs
+
+  cluster:zod:check-drift:
+    desc: "Drift check — regenerate cluster.zod.ts into a temp file and diff against the committed copy. Fails if schema-bridge's output diverges from what's checked in. IN `task lint`. Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        # `capnp compile` exits 0 even when the plugin errors and
+        # writes nothing — its stderr carries the real diagnostic.
+        # Check that the output file actually landed before diffing,
+        # otherwise `diff` would fail on a missing file with a
+        # misleading "DRIFT" framing.
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cluster.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/cluster.zod.ts "$TMPDIR/cluster.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cluster.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cluster:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cluster.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+      - src/generated/cluster.zod.ts
+
+  cloister:zod:
+    desc: "Regenerate src/generated/cloister.zod.ts via schema-bridge. Run after manifest/cloister.capnp edits; `cloister:zod:check-drift` (in `task lint`) fails if you forget. This file is a DIFF TARGET, not a replacement for src/manifest/types.ts — see cloister-bfd981. types.ts stays hand-written until schema-bridge projects capnp doc comments (ley-line-open-d554a0), because the generated file carries none and deleting the hand copy would trade duplication for lost documentation."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same shape as cluster:zod — `capnp compile` exits 0 even when the
+        # plugin errors and writes nothing, so generate into a tmpdir and
+        # existence-check before the atomic move. An in-place check would
+        # falsely pass by leaving the previously-committed file in tree.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/cloister.zod.ts" src/generated/cloister.zod.ts
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/cloister.zod.ts
+
+  cloister:zod:check-drift:
+    desc: "Drift check for src/generated/cloister.zod.ts. IN `task lint`. Closes the gap that manifest/cloister.capnp was the only schema in the tree with NO generated projection and therefore no way to notice src/manifest/types.ts disagreeing with it (cloister-bfd981). Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/cloister.capnp
+        if [ ! -f "$TMPDIR/cloister.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no cloister.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/cloister.zod.ts "$TMPDIR/cloister.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cloister.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cloister:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cloister.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/cloister.capnp
+      - schema-bridge.lock.json
+      - src/generated/cloister.zod.ts
+
+  cluster:go:
+    desc: "Regenerate pkg/cluster/cluster.go via schema-bridge (Go emitter). Run after cluster.capnp schema edits; `cluster:go:check-drift` (in the cloister-schema-go workflow) fails if you forget. Requires `capnp` CLI + `gofmt`."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same atomic-move pattern as cluster:zod (the plugin can
+        # silently write nothing on stderr; existence-check first).
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.go" ]; then
+          echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        # Pipe through `gofmt -s` (simplify) for canonical formatting.
+        # The Rust emitter intentionally doesn't do column alignment;
+        # gofmt is the authoritative formatter for Go. Per
+        # cloister-76a9ea hand-off note.
+        gofmt -s "$TMPDIR/cluster.go" > pkg/cluster/cluster.go
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+    generates:
+      - pkg/cluster/cluster.go
+
+  cluster:go:check-drift:
+    desc: "Drift check — regenerate pkg/cluster/cluster.go into a temp file (gofmt'd) and diff against the committed copy. Fails if schema-bridge's Go output diverges from what's checked in. Runs in the cloister-schema-go workflow, which is where the Go toolchain lives — NOT in `task lint`/`verify`, whose CI jobs have no Go. Requires `capnp` + `gofmt`."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.go" ]; then
+          echo "FAIL — schema-bridge produced no cluster.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/cluster.go" > "$TMPDIR/cluster.gofmt.go"
+        if ! diff -u pkg/cluster/cluster.go "$TMPDIR/cluster.gofmt.go"; then
+          echo "" >&2
+          echo "DRIFT — committed pkg/cluster/cluster.go differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cluster:go\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — pkg/cluster/cluster.go matches the schema-bridge Go codegen output"
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+      - pkg/cluster/cluster.go
+
+  cluster:go:verify:
+    desc: "End-to-end Go round-trip — the cluster const (dumped from src/generated/cluster.ts) must unmarshal into the generated Go types and round-trip without loss. Parallel to cluster:zod:verify. Requires Go toolchain."
+    cmds:
+      - dev/verify-go.sh
+    sources:
+      - src/generated/cluster.ts
+      - pkg/cluster/cluster.go
+      - pkg/cluster/cluster_roundtrip_test.go
+      - dev/verify-go.sh
+
+  # identity:* — second schema for schema-bridge generalization proof
+  # (ADR-0036 Phase 1 piece E, cloister-77172d). manifest/identity.capnp
+  # is a vendored copy of notme's source-of-truth schema; these tasks
+  # regen + drift-check the generated artifacts. -I./wire adds the
+  # vendored go.capnp to capnp's import path (identity.capnp imports
+  # it for $Go.* annotations).
+  identity:zod:
+    desc: "Regenerate src/generated/identity.zod.ts via schema-bridge. NOT a verify gate yet; run manually after manifest/identity.capnp updates."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/identity.zod.ts" src/generated/identity.zod.ts
+    sources:
+      - manifest/identity.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/identity.zod.ts
+
+  identity:zod:check-drift:
+    desc: "Drift check for identity.zod.ts (parallel to cluster:zod:check-drift)."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-zod)":"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.zod.ts" ]; then
+          echo "FAIL — schema-bridge produced no identity.zod.ts; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/identity.zod.ts "$TMPDIR/identity.zod.ts"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/identity.zod.ts differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task identity:zod\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — identity.zod.ts matches the schema-bridge codegen output"
+    sources:
+      - manifest/identity.capnp
+      - schema-bridge.lock.json
+      - src/generated/identity.zod.ts
+
+  identity:go:
+    desc: "Regenerate pkg/identity/identity.go via schema-bridge (Go emitter). NOT a verify gate yet."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.go" ]; then
+          echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/identity.go" > pkg/identity/identity.go
+    sources:
+      - manifest/identity.capnp
+      - schema-bridge.lock.json
+    generates:
+      - pkg/identity/identity.go
+
+  identity:go:check-drift:
+    desc: "Drift check for pkg/identity/identity.go (parallel to cluster:go:check-drift)."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -I./wire -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-go)":"$TMPDIR" manifest/identity.capnp
+        if [ ! -f "$TMPDIR/identity.go" ]; then
+          echo "FAIL — schema-bridge produced no identity.go; check capnp stderr above" >&2
+          exit 1
+        fi
+        gofmt -s "$TMPDIR/identity.go" > "$TMPDIR/identity.gofmt.go"
+        if ! diff -u pkg/identity/identity.go "$TMPDIR/identity.gofmt.go"; then
+          echo "" >&2
+          echo "DRIFT — committed pkg/identity/identity.go differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task identity:go\` to" >&2
+          echo "regenerate, then commit." >&2
+          exit 1
+        fi
+        echo "OK — pkg/identity/identity.go matches the schema-bridge Go codegen output"
+    sources:
+      - manifest/identity.capnp
+      - schema-bridge.lock.json
+      - pkg/identity/identity.go
+
+  cluster:jsonschema:
+    desc: "Regenerate src/generated/cluster.schema.json, LLO schema-bridge's JSON Schema for cluster.capnp (the capnp shape). Run after cluster.capnp edits, then `task cluster:toml:schema`."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        # Same shape as cluster:zod: `capnp compile` exits 0 even when the
+        # plugin errors and writes nothing, so generate into a tmpdir and
+        # check the file landed before replacing the committed one.
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-jsonschema)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.schema.json" ]; then
+          echo "FAIL — schema-bridge produced no cluster.schema.json; check capnp stderr above" >&2
+          exit 1
+        fi
+        mv "$TMPDIR/cluster.schema.json" src/generated/cluster.schema.json
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+    generates:
+      - src/generated/cluster.schema.json
+
+  cluster:jsonschema:check-drift:
+    desc: "Drift check for src/generated/cluster.schema.json against LLO schema-bridge's output. IN `task lint`. Requires the `capnp` CLI. The published cluster.toml schema is built from this file, so a stale copy would publish a schema for last week's cluster.capnp."
+    deps: [schema-bridge:build]
+    cmds:
+      - |
+        set -eu
+        TMPDIR=$(mktemp -d)
+        trap 'rm -rf "$TMPDIR"' EXIT
+        capnp compile -o"$(node gen/fetch-schema-bridge.mjs capnpc-schema-bridge-jsonschema)":"$TMPDIR" manifest/cluster.capnp
+        if [ ! -f "$TMPDIR/cluster.schema.json" ]; then
+          echo "FAIL — schema-bridge produced no cluster.schema.json; check capnp stderr above" >&2
+          exit 1
+        fi
+        if ! diff -u src/generated/cluster.schema.json "$TMPDIR/cluster.schema.json"; then
+          echo "" >&2
+          echo "DRIFT — committed src/generated/cluster.schema.json differs from what" >&2
+          echo "schema-bridge would generate today. Run \`task cluster:jsonschema\` and" >&2
+          echo "\`task cluster:toml:schema\`, then commit." >&2
+          exit 1
+        fi
+        echo "OK — cluster.schema.json matches the schema-bridge codegen output"
+    sources:
+      - manifest/cluster.capnp
+      - schema-bridge.lock.json
+      - src/generated/cluster.schema.json
+
+  cluster:toml:schema:
+    desc: "Regenerate schema/cluster.toml.schema.json, the published JSON Schema for cluster.toml, from src/generated/cluster.schema.json. Run after `task cluster:jsonschema`."
+    cmds:
+      - node gen/cluster-toml-schema.mjs
+    sources:
+      - gen/cluster-toml-schema.mjs
+      - src/generated/cluster.schema.json
+    generates:
+      - schema/cluster.toml.schema.json
+
+  cluster:toml:schema:check:
+    desc: "Drift gate for schema/cluster.toml.schema.json. IN `task lint`. The schema is what editors and other tools read, and the parser refuses any key it does not define, so a stale copy would refuse a field the capnp schema just gained."
+    cmds:
+      - node gen/cluster-toml-schema.mjs --check
+    sources:
+      - gen/cluster-toml-schema.mjs
+      - src/generated/cluster.schema.json
+      - schema/cluster.toml.schema.json
+
+  artifacts:golden:
+    desc: "Regenerate ADR-0067 golden files from the artifact registry. Run this when an emitted artifact changes DELIBERATELY, then commit the diff — that diff is the review. A confinement change also moves the confinementDigest in every minted cert."
+    cmds:
+      - "{{.NODE_TSX}} -e 'import(\"./dev/artifact-registry.mjs\").then(async m => { const fs = await import(\"node:fs\"); for (const a of m.ARTIFACTS) fs.writeFileSync(a.golden, m.goldenBytes(a.produce())), console.log(\"wrote\", a.golden); })'"
+
+  wire:fixtures:
+    desc: Regenerate substrate-equivalence fixtures from wire/cross-check-fixtures.capnp (ADR-0005, cloister-5183bc 2D-codec.D)
+    cmds:
+      - node gen/wire-fixtures.mjs
+    sources:
+      - wire/cloister.capnp
+      - wire/cross-check-fixtures.capnp
+      - gen/wire-fixtures.mjs
+    generates:
+      - test/wire/fixtures/canonical.ts
+
+  cli:docs:
+    desc: "Regenerate docs/reference/cli.md from cli/surface.mjs — the single CLI surface declaration that also produces `cloister --help`."
+    cmds:
+      - node gen/cli-docs.mjs
+    sources:
+      - cli/surface.mjs
+      - gen/cli-docs.mjs
+
+  cli:docs:check:
+    desc: "Drift gate for docs/reference/cli.md. The command list used to be hardcoded in printHelp with no CLI page in docs/ at all, so cloister run shipped documented nowhere. Help and docs are now both projections of one declaration; this asserts the committed page still matches it."
+    cmds:
+      - node gen/cli-docs.mjs --check
+    sources:
+      - cli/surface.mjs
+      - gen/cli-docs.mjs
+      - docs/reference/cli.md
+
+  adr:index:
+    desc: "Generate docs/adr/INDEX.md from each ADR's own frontmatter — the ADR index is DERIVED, never hand-maintained (cloister-1d2e0e). Design-status comes from the ADR; impl-status lives in beads + git, not here. Replaces the per-ADR status lists STATUS/README/CLAUDE hand-copied and let drift."
+    cmds:
+      - node gen/adr-index.mjs
+    sources:
+      - docs/adr/*.md
+      - gen/adr-index.mjs
+    generates:
+      - docs/adr/INDEX.md
+
+  adr:index:check:
+    desc: "CI gate: fail if docs/adr/INDEX.md drifts from a fresh generation off the ADR frontmatter. Run `task adr:index` to regenerate. Replaces lint-doc-counts's ADR-count policing with generation."
+    cmds:
+      - node gen/adr-index.mjs --check

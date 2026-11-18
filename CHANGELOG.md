@@ -8,6 +8,20 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `inspect` compares a hand-written cluster.toml with the graph a plan implies
+
+- **Declared connections are checked.** With a `cluster.toml`, each declared
+  connection is `evidenced` (its source is started with something that names
+  its target) or `unknown`. An edge the plan implies from a declared bundle,
+  with no connection for it, is `undeclared`.
+- **Services nobody added are listed.** Workloads in the inputs that
+  `cluster.toml` has no bundle for.
+- **A bundle and a resource are the same thing when they have the same name**,
+  exactly. Nothing else joins them.
+- **`--env <name>`** narrows the comparison to one environment's targets.
+- ADR-0074 (Proposed) says where this is going: the graph is derived from
+  rendered output, and `cluster.toml` holds intent.
+
 ### 2026-11 — `inspect --terraform` reads what a Cloud Run container is started with, and what it dials
 
 - **Nested blocks are read.** A Cloud Run service's or job's containers, env,
@@ -1208,7 +1222,7 @@ substrate-property lint invariants.
 
 - **Lockfile-drift lint** (commits `33c140b` + `baacdd7`) — the
   forward-guard against another LLO-contract incident.
-  [`scripts/lint-lockfile-drift.mjs`](scripts/lint-lockfile-drift.mjs)
+  [`scripts/lint-lockfile-drift.mjs`](lint/lockfile-drift.mjs)
   parses `cluster.toml` + `cluster.lock.toml`, hashes each
   `file://`-resourced input on disk, and fails with a per-input fix
   hint (`run task cluster:resolve`) when the on-disk sha256 ≠ the
@@ -1224,7 +1238,7 @@ substrate-property lint invariants.
 - **Doc-links drift gate** (commit `fd1d905`) — forward-guard for the
   PR-#94 class of bug where deleting a doc leaves dangling
   `[foo](foo.md)` refs in sibling pages.
-  [`scripts/lint-doc-links.mjs`](scripts/lint-doc-links.mjs) walks
+  [`scripts/lint-doc-links.mjs`](lint/doc-links.mjs) walks
   `docs/**/*.md` + the canonical top-level docs and asserts every
   relative URL resolves to a real file. Strips fenced + inline code
   blocks before scanning so doc snippets showing example URLs

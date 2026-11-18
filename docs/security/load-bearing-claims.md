@@ -158,7 +158,7 @@ RPC boundary.
   9 attack scenarios including header-extraction probes, error-
   message leaks, credential-payload DoS (§15.6).
 - Bundle-isolation lint at
-  [`scripts/lint-bundle-isolation.mjs`](../../scripts/lint-bundle-isolation.mjs) —
+  [`lint/bundle-isolation.mjs`](../../lint/bundle-isolation.mjs) —
   5 substrate-property invariants on `cluster.capnp` + `config.capnp`.
 
 ### Honest caveats

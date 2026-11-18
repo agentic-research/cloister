@@ -122,7 +122,7 @@ export interface Env {
   /// separately-running `wrangler dev` sessions, so with notme's worker up the
   /// binding resolves locally (verified: `env.NOTME_JWT (notme-bot#JwtSigner)
   /// Worker local [connected]`). See DECLARED_ASYMMETRY in
-  /// scripts/lint-binding-parity.mjs. Absent binding means `/oauth/token`
+  /// lint/binding-parity.mjs. Absent binding means `/oauth/token`
   /// returns 503 — the correct fail-closed answer for "no signer reachable".
   ///
   /// The key is DELEGATED, deliberately not the Interlace/CA master. notme

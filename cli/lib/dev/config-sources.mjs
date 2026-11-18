@@ -242,3 +242,8 @@ export function main(_argv = [], deps = {}) {
   log("config:check: OK — no config-source shadowing or override conflicts.");
   return 0;
 }
+
+// `task config:check` runs this file. Imported, it does nothing.
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  process.exit(main(process.argv.slice(2)));
+}

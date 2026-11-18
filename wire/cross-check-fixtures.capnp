@@ -6,7 +6,7 @@
 #     wire/cross-check-fixtures.capnp <name> -b
 #
 # Compiled bytes for each const are saved as a TS Uint8Array literal in
-# test/wire/fixtures/canonical.ts via scripts/gen-wire-fixtures.mjs.
+# test/wire/fixtures/canonical.ts via gen/wire-fixtures.mjs.
 # Tests in test/wire/cross-check.test.ts decode those bytes with our hand-
 # rolled decoder; if values match, our reader interoperates with the
 # capnp reference encoder.

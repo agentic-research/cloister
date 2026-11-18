@@ -7,7 +7,7 @@
 - License: MIT. Copyright 2024 the JSR authors.
 - The plan was produced offline with placeholder credentials; nothing was
   applied and no account was contacted.
-- Trimmed with `node scripts/trim-plan-fixture.mjs <plan.show.json> <out.json>`:
+- Trimmed with `node gen/trim-plan-fixture.mjs <plan.show.json> <out.json>`:
   it keeps `format_version`, the `planned_values` resources of mapped types with
   only their mapped attributes (and matching `sensitive_values` entries), and the
   root-module `configuration` references for the mapped `referenceAttrs`. Output

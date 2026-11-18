@@ -1053,7 +1053,7 @@ still flows through Signet leases + per-tenant scopes (ADR-0007).
 | **Validator** | `lint-app-protocol` (`cloister-0fa3d7`) enforces the namespace shape (`art.*` blessed + `x-<v>-*` extensible; other shapes rejected) but does NOT make any access-control claim. A well-formed label is a NECESSARY but NOT SUFFICIENT condition for the edge to function. |
 | **Adversary capabilities** | A misconfigured operator who omits per-tenant Signet lease scope declarations would have only `app_protocol` labels as the cross-tenant boundary — which is no boundary at all. Substrate cannot detect this; it's an operator misconfiguration. |
 | **Residual risk** | Operators who treat `app_protocol` as a security boundary will be surprised. Doc states the property explicitly in ADR-0030 §A4 "What this is NOT" + this section. |
-| **Test ref** | app-protocol-validator's `scripts/test/lint-app-protocol.test.mjs` validates the NAMESPACE only; vault-1 integration tests assert that cross-tenant calls without a valid lease return 401 regardless of `app_protocol` value |
+| **Test ref** | app-protocol-validator's `lint/test/app-protocol.test.mjs` validates the NAMESPACE only; vault-1 integration tests assert that cross-tenant calls without a valid lease return 401 regardless of `app_protocol` value |
 
 ### 13.7.6 Pre-auth pipeline surface (router DoS + timing)
 
@@ -1076,7 +1076,7 @@ characteristics) a tenant-enumeration surface.
 ### 13.7.7 Hybrid-tier alignment (Inv 6 resolution gap)
 
 **Added 2026-06-22 from adversarial cycle** (cloister-93132f). The
-`scripts/lint-bundle-isolation.mjs` Invariant 6 (workerd-boundary
+`lint/bundle-isolation.mjs` Invariant 6 (workerd-boundary
 property) had a bypass: it only checked the explicit-workerdId-on-
 hypervisor case, not the transitively-resolved case via
 `sharesWorkerdWith` or the rung-3 gateway fallback.
@@ -1086,7 +1086,7 @@ hypervisor case, not the transitively-resolved case via
 | **Attack** | Operator declares `sharesWorkerdWith=["notme"]` (notme resolves to hypervisor) without explicit `workerdId` + without `trustedTier=true`. Pre-fix: Inv 6 passed because the explicit-workerdId branch was skipped. Cluster-tier tool code lands inside the trusted hypervisor workerd via the back-compat rung. |
 | **Mitigation (shipped)** | Inv 6 now runs the trustedTier-alignment check against the RESOLVED `workerd_id` from the three-rung resolver (explicit / same-name / sharesWorkerdWith-transitive). The narrow back-compat exemption is preserved ONLY for pure rung-3 gateway-fallback (empty workerdId + no same-name bundle + no sharesWorkerdWith) — that's the path pre-ADR-0030 cluster.toml used legitimately. Error message names the resolution rung so operators see WHICH lookup path led to the trust grant. Closed in `1d03ed9`. |
 | **Residual risk** | Pre-ADR-0030 deployments with empty `inputs[]` get no Inv 6 protection — acceptable, no cross-workerd dispatch is present in that shape, so there's no resolution-rung to bypass in the first place. **Made explicit per cloister-93d674 / C7-c:** the lint is a NO-OP on `cluster.inputs == []`, which is the correct behavior (nothing to check), but operators migrating an existing zero-input cluster.toml to ADR-0030 multi-workerd MUST re-run Inv 6 after adding the first `[inputs.*]` row. CI tracks this implicitly via `task lint` running on every PR; there is no manual reminder. |
-| **Test ref** | `scripts/test/lint-bundle-isolation.test.mjs` "Inv 6 (cloister-93132f / C2) — sharesWorkerdWith cluster-tier-on-hypervisor bypass is rejected" |
+| **Test ref** | `lint/test/bundle-isolation.test.mjs` "Inv 6 (cloister-93132f / C2) — sharesWorkerdWith cluster-tier-on-hypervisor bypass is rejected" |
 
 ### 13.7.8 Boot-time operator-config error channel (SNI dup-name + similar)
 
@@ -1899,7 +1899,7 @@ gate pass, not a skip. Dev key material (master, cert, seed) is regenerated per
 run and never committed; `lint:no-dev-mode` guarantees no committed config can
 turn a production deployment into a dev one.
 
-**Related:** ADR-0042; `scripts/lint-no-dev-mode.mjs`;
+**Related:** ADR-0042; `lint/no-dev-mode.mjs`;
 `test/routes/vault-proxy-dev-mode.test.ts`. Open: notme-minting `CertSource`
 (`cloister-c3c7b9`); prod credential-ingestion surface (own ADR).
 

@@ -1,0 +1,373 @@
+version: "3"
+
+# Local launchers, smoke tests, benchmarks and image builds. Included flat by
+# the root Taskfile, so every task keeps its name (`task smoke`) and runs from
+# the repo root.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  cluster:dev:
+    desc: "Mac dev launcher — spawns cluster bundles as native processes with UDS in /tmp (cloister-be0607c). CLUSTER_DEV_DRY_RUN=1 to preview without spawning."
+    # cluster.ts comes from the authoritative cluster.toml leg (ADR-0025); the
+    # legacy capnp→ts cluster:manifest was retired (cloister-ab8f21).
+    deps: [cluster:toml]
+    cmds:
+      # NODE_TSX: dynamically imports cluster.ts + cluster-types.ts (see cluster:emit).
+      - "{{.NODE_TSX}} dev/cluster-dev.mjs"
+    sources:
+      - src/generated/cluster.ts
+      - dev/cluster-dev.mjs
+
+  helper:start:
+    desc: "Start the leyline-sign-helper in the foreground on 127.0.0.1:8786 (cloister-99165e, ADR-0019). Builds first if needed."
+    deps: [rs:sign:helper]
+    cmds:
+      - rs/target/release/leyline-sign-helper --bind 127.0.0.1:8786 --foreground
+
+  helper:status:
+    desc: "Probe GET /healthz to confirm the leyline-sign-helper is reachable (cloister-99165e)."
+    cmds:
+      # curl -fsS is the real check (non-2xx / unreachable → non-zero). jq only
+      # pretty-prints; degrade to raw when it's absent so a missing jq doesn't
+      # break a probe that otherwise succeeded. (Convenience task, not a gate.)
+      - |
+        resp=$(curl -fsS http://127.0.0.1:8786/healthz) || exit 1
+        if command -v jq >/dev/null 2>&1; then printf '%s\n' "$resp" | jq .; else printf '%s\n' "$resp"; fi
+
+  wire:verify-roundtrip:
+    desc: Phase 2D-codec.E direction-2 substrate equivalence (our encode → capnp decode → capnp encode → our decode)
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - node dev/verify-wire-roundtrip.mjs
+    sources:
+      - src/wire/**/*.ts
+      - wire/cloister.capnp
+      - dev/verify-wire-roundtrip.mjs
+      - tsconfig.verify.json
+
+  companion:stub:
+    desc: Run a local stub of cloister-companion (ADR-0005). HTTP listener on :8385 that decodes capnp ToolCall and returns canned ToolResult — lets `task dev` exercise leylineNet backends without a real Rust companion.
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - 'echo "[task] stub-companion starting on :8385 (PORT=N to override, STUB_COMPANION_VERBOSE=1 for per-request logs)"'
+      - node dev/stub-companion.mjs
+    sources:
+      - src/wire/**/*.ts
+      - dev/stub-companion.mjs
+      - tsconfig.verify.json
+
+  smoke:leyline-stub:
+    desc: End-to-end wire smoke — production codec → real HTTP → stub-companion → real HTTP → production codec. Spawns + tears down the stub on an ephemeral port (default :18385).
+    cmds:
+      - pnpm exec tsc --project tsconfig.verify.json
+      - node dev/smoke-leyline-stub.mjs
+    sources:
+      - src/wire/**/*.ts
+      - dev/stub-companion.mjs
+      - dev/smoke-leyline-stub.mjs
+      - tsconfig.verify.json
+
+  build:local:
+    desc: Bundle Worker for local workerd (embeds into dist/)
+    deps: [manifest]
+    cmds:
+      # wrangler 3.x dropped the standalone `build` subcommand; `deploy
+      # --dry-run --outdir` is the supported equivalent (it runs the
+      # bundler + asset emit, then exits before pushing). Also surfaces
+      # any wrangler.toml binding misconfig at build time.
+      - pnpm exec wrangler deploy --dry-run --outdir dist
+      - node gen/emit-workerd-config.mjs
+    sources:
+      - src/**/*.ts
+    generates:
+      - dist/index.js
+      - dist/config.capnp
+
+  bench:lease:
+    desc: "Lease-pipeline microbenchmark (cloister-747d98). Excluded from `task lint`/`task test`. Writes results to stdout — paste into docs/perf/*.md."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/lease-pipeline.test.ts
+
+  bench:dispatch:
+    desc: "tools/call dispatch microbenchmark (cloister-e4daae surface 1). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/tools-call-dispatch.test.ts
+
+  bench:trust-store:
+    desc: "TrustStore RPC contention bench (cloister-e4daae surface 2). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/trust-store-contention.test.ts
+
+  bench:disclosure:
+    desc: "Disclosure endpoint throughput bench (cloister-e4daae surface 3). Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/disclosure-endpoint.test.ts
+
+  bench:registry:
+    desc: "OCI registry push/pull bench (cloister-3a3b0d). Monolithic + chunked upload, manifest PUT/GET, blob GET — small/medium/large sizes. Excluded from `task lint`/`task test`."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose test/perf/oci-registry.test.ts
+
+  bench:cold-start:
+    desc: "Cold-start cluster boot bench (cloister-e4daae surface 4). External probe — spawns wrangler dev, polls /health."
+    cmds:
+      - node dev/bench-cold-start.mjs
+
+  bench:all:
+    desc: "Run all perf benches (cloister-e4daae). Slow — opt-in. Writes results to stdout."
+    deps: [manifest]
+    cmds:
+      - pnpm exec vitest run --config vitest.bench.config.ts --reporter=verbose
+      - node dev/bench-cold-start.mjs
+
+  do:harden:
+    desc: "ADR-0039 Phase 0 — lock down the local Durable Object storage dir (chmod 700 + files 0600 + Time Machine exclusion). Zero-code at-rest hardening vs the same-UID / backup-exfil threat (threat-model §13.9). Honors CLOISTER_DO_PATH (default /data/do). Same-UID reads still possible until at-rest encryption lands (ADR-0039 Phase 1)."
+    cmds:
+      - |
+        set -eu
+        DIR="${CLOISTER_DO_PATH:-/data/do}"
+        mkdir -p "$DIR"
+        chmod 700 "$DIR"
+        find "$DIR" -type f -exec chmod 600 {} + 2>/dev/null || true
+        echo "do:harden: $DIR is now 0700 (files 0600) — ADR-0039 Phase 0."
+        echo "  same-UID reads still possible until at-rest encryption (ADR-0039 Phase 1)."
+        if command -v tmutil >/dev/null 2>&1; then
+          if tmutil addexclusion "$DIR" 2>/dev/null; then
+            echo "  added Time Machine exclusion for $DIR."
+          else
+            echo "  run 'sudo tmutil addexclusion $DIR' to exclude it from Time Machine."
+          fi
+        fi
+
+  dev:securevol:
+    desc: "ADR-0039 Phase 1 (macOS) — create/mount an ENCRYPTED APFS volume for local DO storage: passphrase held in Keychain, mounted at CLOISTER_DO_PATH. Idempotent (creates once, mounts thereafter), then composes do:harden. Linux: fscrypt/LUKS on the DO dir + a secret-tool passphrase (see docs/adr/0039). NOTE: writes to your Keychain + creates a disk image — review before first run."
+    env:
+      # Computed once so the mount path + the composed do:harden agree.
+      CLOISTER_DO_PATH:
+        sh: echo "${CLOISTER_DO_PATH:-$HOME/.local/share/cloister/do}"
+    cmds:
+      - |
+        set -eu
+        if [ "$(uname)" != "Darwin" ]; then
+          echo "dev:securevol is macOS-only (APFS). On Linux: fscrypt/LUKS on \$CLOISTER_DO_PATH + a secret-tool passphrase — see docs/adr/0039-local-do-sqlite-security.md." >&2
+          exit 1
+        fi
+        IMG="${CLOISTER_SECUREVOL:-$HOME/.local/share/cloister/cloister-do.sparsebundle}"
+        MOUNT="$CLOISTER_DO_PATH"
+        KC="cloister-do-volume"
+        mkdir -p "$(dirname "$IMG")"
+        # 1. Volume passphrase in Keychain (generate once, 256-bit).
+        if ! security find-generic-password -s "$KC" -a "$USER" >/dev/null 2>&1; then
+          security add-generic-password -s "$KC" -a "$USER" -w "$(openssl rand -base64 32)" -U
+          echo "dev:securevol: generated volume passphrase → Keychain (service=$KC)."
+        fi
+        PASS="$(security find-generic-password -s "$KC" -a "$USER" -w)"
+        # 2. Encrypted APFS sparsebundle (create once).
+        if [ ! -d "$IMG" ]; then
+          printf '%s' "$PASS" | hdiutil create -type SPARSEBUNDLE -fs APFS \
+            -encryption AES-256 -stdinpass -volname cloister-do -size 10g "$IMG" >/dev/null
+          echo "dev:securevol: created encrypted volume $IMG."
+        fi
+        # 3. Mount at CLOISTER_DO_PATH (idempotent).
+        if mount | grep -q " on $MOUNT "; then
+          echo "dev:securevol: already mounted at $MOUNT."
+        else
+          # Refuse to mount over existing DO data. Mounting the (empty) volume
+          # here would SHADOW it — the cluster would see an empty store and the
+          # old beads/blobs/trust/vault would be hidden under the mount (not
+          # deleted, but invisible). Migrate first: mount the volume at a temp
+          # dir, `cp -a "$MOUNT"/. <tmp>/`, unmount, move the plaintext dir
+          # aside, then re-run so the volume mounts onto an empty path.
+          if [ -d "$MOUNT" ] && [ -n "$(ls -A "$MOUNT" 2>/dev/null)" ]; then
+            echo "dev:securevol: REFUSING — $MOUNT is non-empty (existing DO data)." >&2
+            echo "  Mounting here would shadow it. Migrate the data into the volume" >&2
+            echo "  first (see the task comment) or point CLOISTER_DO_PATH at an empty" >&2
+            echo "  dir. Your data is NOT touched." >&2
+            exit 1
+          fi
+          mkdir -p "$MOUNT"
+          printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$MOUNT" -nobrowse "$IMG" >/dev/null
+          echo "dev:securevol: mounted (encrypted) at $MOUNT."
+        fi
+        # The sparsebundle IS the durable store — persistent on disk, never
+        # auto-deleted. Unmount/remount preserves all data; detach with
+        # `hdiutil detach $MOUNT`. Data survives cluster teardown + reboots.
+        echo "dev:securevol: export CLOISTER_DO_PATH=$MOUNT, then run task serve:local / task dev."
+        echo "dev:securevol: data persists in $IMG (unmount-safe); detach via hdiutil detach $MOUNT."
+      # Compose the Phase-0 permission lockdown onto the freshly-mounted volume.
+      - task: do:harden
+
+  do:migrate-securevol:
+    desc: "ADR-0039 Phase 1 — migrate an EXISTING populated DO dir into a fresh encrypted volume (macOS), NON-DESTRUCTIVELY. Copies CLOISTER_DO_PATH into the encrypted volume, verifies the file count, moves the plaintext dir aside as a *.plaintext-backup (never deletes), then mounts the encrypted volume in its place + composes do:harden. Idempotent: no-op if already mounted. NOTE: writes Keychain + creates a disk image + moves your DO dir — review before running; delete the plaintext backup yourself once you've confirmed."
+    env:
+      CLOISTER_DO_PATH:
+        sh: echo "${CLOISTER_DO_PATH:-$HOME/.local/share/cloister/do}"
+    cmds:
+      - |
+        set -eu
+        [ "$(uname)" = "Darwin" ] || { echo "do:migrate-securevol: macOS-only (APFS). Linux: fscrypt/LUKS migration — see docs/adr/0039." >&2; exit 1; }
+        IMG="${CLOISTER_SECUREVOL:-$HOME/.local/share/cloister/cloister-do.sparsebundle}"
+        DST="$CLOISTER_DO_PATH"
+        KC="cloister-do-volume"
+        if mount | grep -q " on $DST "; then echo "do:migrate-securevol: $DST already mounted — nothing to migrate."; exit 0; fi
+        if [ ! -d "$DST" ] || [ -z "$(ls -A "$DST" 2>/dev/null)" ]; then
+          echo "do:migrate-securevol: $DST is empty — run \`task dev:securevol\` instead (nothing to migrate)." >&2; exit 1
+        fi
+        BAK="${DST}.plaintext-backup"
+        [ -e "$BAK" ] && { echo "do:migrate-securevol: backup path $BAK already exists — move it aside first." >&2; exit 1; }
+        mkdir -p "$(dirname "$IMG")"
+        # 1. Passphrase in Keychain (generate once).
+        if ! security find-generic-password -s "$KC" -a "$USER" >/dev/null 2>&1; then
+          security add-generic-password -s "$KC" -a "$USER" -w "$(openssl rand -base64 32)" -U
+          echo "do:migrate-securevol: generated volume passphrase → Keychain."
+        fi
+        PASS="$(security find-generic-password -s "$KC" -a "$USER" -w)"
+        # 2. Encrypted sparsebundle (create once).
+        if [ ! -d "$IMG" ]; then
+          printf '%s' "$PASS" | hdiutil create -type SPARSEBUNDLE -fs APFS -encryption AES-256 -stdinpass -volname cloister-do -size 10g "$IMG" >/dev/null
+          echo "do:migrate-securevol: created encrypted volume $IMG."
+        fi
+        # 3. Mount at a temp point, copy the data in, verify, unmount.
+        TMP="$(mktemp -d)"
+        printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$TMP" -nobrowse "$IMG" >/dev/null
+        echo "do:migrate-securevol: copying $DST → encrypted volume ..."
+        cp -a "$DST"/. "$TMP"/
+        SRC_N=$(find "$DST" -type f | wc -l | tr -d ' '); DST_N=$(find "$TMP" -type f | wc -l | tr -d ' ')
+        hdiutil detach "$TMP" >/dev/null 2>&1; rmdir "$TMP" 2>/dev/null || true
+        if [ "$SRC_N" != "$DST_N" ]; then
+          echo "do:migrate-securevol: FILE-COUNT MISMATCH (plaintext $SRC_N vs volume $DST_N) — aborting; your data is untouched at $DST." >&2; exit 1
+        fi
+        # 4. Move plaintext aside (backup, NEVER deleted), mount encrypted in place.
+        mv "$DST" "$BAK"
+        mkdir -p "$DST"
+        printf '%s' "$PASS" | hdiutil attach -stdinpass -mountpoint "$DST" -nobrowse "$IMG" >/dev/null
+        echo "do:migrate-securevol: ✓ migrated $SRC_N files — $DST is now the ENCRYPTED volume."
+        echo "  plaintext backup at $BAK — verify the cluster reads fine, then: rm -rf '$BAK'"
+      - task: do:harden
+
+  mutate:
+    desc: "Targeted mutation testing (cloister-dab35a). OPT-IN — deliberately NOT a `task lint` dep: the inner-loop gate is content-hash cached at ~3s warm and must stay that way. Applies curated mutants to real files (reverting each in a finally, and refusing to run against a dirty tree) and asserts the suite NOTICES. A SURVIVOR is a missing test, not a style nit. `task mutate -- --only=src/` to filter."
+    cmds:
+      - node dev/mutation-probe.mjs {{.CLI_ARGS}}
+
+  done:
+    desc: "Pre-PR readiness gate (cloister-0d5e0f) — runs every drop-in rule under `done-rules/`. The drop-in layout is borrowed from mache's external smell rules; the severity vocabulary is NOT shared (`block|warn` defaulting to block here, `off|warn|error` defaulting to warn there — see cloister-2fb46a and lint:smell-rule-kinship). Block-severity failures exit 1; warns pass. Adding a check is one JSON file; no Taskfile edit needed. Set DONE_RULES_DIR to override the rules dir."
+    cmds:
+      - node dev/done-runner.mjs
+
+  smoke:
+    desc: End-to-end smoke — spins up leyline + cloister, exercises the full chain
+    cmds:
+      - bash dev/e2e-smoke.sh
+
+  # ── OCI packaging (melange + apko) ───────────────────────────────────────
+  #
+  # `task apk:keygen` once, then `task image` whenever you want to rebuild.
+  # Output: cloister.tar — an OCI image you can `docker load` or push.
+
+  apk:keygen:
+    desc: Generate the melange signing key (one-time setup)
+    cmds:
+      - melange keygen melange.rsa
+    status:
+      - test -f melange.rsa
+      - test -f melange.rsa.pub
+
+  apk:
+    desc: Build cloister APK via melange (release-style, signed)
+    deps: [apk:keygen]
+    cmds:
+      - mkdir -p ./packages
+      - |
+        melange build melange.yaml \
+          --signing-key melange.rsa \
+          --arch "$(uname -m | sed 's/aarch64/aarch64/;s/x86_64/x86_64/')" \
+          --out-dir ./packages
+
+  image:
+    desc: Compose the cloister OCI image via apko (depends on `task apk`)
+    deps: [apk]
+    vars:
+      # Default to the package version so `task cluster:up` (which references
+      # `cloister:0.1.0` in cluster.compose.yaml) finds the freshly-built
+      # image. Override with TAG=latest for ad-hoc local pushes.
+      TAG: '{{.TAG | default "0.1.0"}}'
+    cmds:
+      # `task apk` only builds the host arch; apko.yaml's `archs: [x86_64,
+      # aarch64]` is the release-shape declaration. Pass `--arch host` so
+      # apko narrows to whatever the local melange step produced — keeps
+      # local-dev images buildable without setting up cross-arch apks.
+      # Multi-arch publishes still use apko's release pipeline (CI).
+      - "apko build --arch \"$(uname -m | sed 's/arm64/aarch64/;s/amd64/x86_64/')\" apko.yaml cloister:{{.TAG}} cloister.tar --keyring-append melange.rsa.pub"
+      - 'echo "Built cloister.tar — run \"task image:load\" to load+retag in one step (or do it manually: docker load < cloister.tar && docker tag cloister:{{.TAG}}-<arch> cloister:{{.TAG}})"'
+
+  image:load:
+    desc: "Build, load, and retag the cloister image so cluster.compose.yaml's bare TAG resolves (cloister-280136)"
+    deps: [image]
+    vars:
+      TAG: '{{.TAG | default "0.1.0"}}'
+    cmds:
+      - "docker load < cloister.tar"
+      # apko's docker-tar output is tagged `<image>:<TAG>-<arch>` (e.g.
+      # `cloister:0.1.0-arm64`). cluster.compose.yaml references the
+      # bare `cloister:0.1.0` — retag so it resolves on both arm and
+      # x86 hosts without compose-file edits. Multi-arch publishes
+      # via CI do their own manifest-list tagging; this is local-dev only.
+      - |
+        ARCH_SUFFIX="$(uname -m | sed 's/arm64/arm64/;s/x86_64/amd64/;s/aarch64/arm64/')"
+        # apko's local-load tag uses the OS-arch convention, not Linux-arch
+        SOURCE_TAG="cloister:{{.TAG}}-${ARCH_SUFFIX}"
+        # Try common variants; the first one that exists wins.
+        for candidate in "cloister:{{.TAG}}-arm64" "cloister:{{.TAG}}-amd64" "cloister:{{.TAG}}-aarch64" "cloister:{{.TAG}}-x86_64"; do
+          if docker image inspect "$candidate" >/dev/null 2>&1; then
+            docker tag "$candidate" "cloister:{{.TAG}}"
+            echo "[image:load] tagged $candidate → cloister:{{.TAG}}"
+            exit 0
+          fi
+        done
+        echo "[image:load] FATAL: no arch-tagged cloister:{{.TAG}}-* image found after docker load" >&2
+        echo "[image:load] available cloister:* images:" >&2
+        docker images cloister --format '  {{`{{.Repository}}:{{.Tag}}`}}' >&2
+        exit 1
+
+  image:run:
+    desc: "Build, load, and run the cloister OCI image locally (cloister-a3681d). One-stop for `I want to validate it works in the container` — chains image → image:load → docker run with /data/do as a named volume + 8787 forwarded. Foreground; Ctrl+C stops it. Extra args via `task image:run -- -d` pass through to `docker run` (-d to detach, --name foo, etc.)."
+    deps: [image:load]
+    vars:
+      TAG: '{{.TAG | default "0.1.0"}}'
+    cmds:
+      # Foreground by default so operators see logs. The named volume
+      # (cloister-do) keeps DO storage across runs; --rm cleans the
+      # container itself. CLI_ARGS pass through to `docker run` so the
+      # user can add -d, --env, --name, etc. without editing the Taskfile.
+      - 'docker run --rm -p 8787:8787 -v cloister-do:/data/do {{.CLI_ARGS | default ""}} cloister:{{.TAG}}'
+
+  image:check:
+    desc: Validate melange.yaml + apko.yaml syntax without running a real build
+    deps: [apk:keygen]
+    cmds:
+      # melange has no `lint` for YAML — `compile` parses the recipe end-to-end
+      # and emits the resolved build script (--arch is required).
+      - melange compile melange.yaml --arch "$(uname -m)" >/dev/null
+      # apko equivalent: show-config resolves all packages + paths.
+      - apko show-config apko.yaml >/dev/null
+
+  registry:import:
+    desc: "Import an OCI image tarball into the cluster's in-cluster registry (cloister-cabd57 Phase 1). Use --dry-run via env CLOISTER_DRY_RUN=1 to validate without uploading."
+    cmds:
+      - |
+        if [ -z "${IMAGE:-}" ]; then
+          echo "registry:import — set IMAGE=path/to/image.tar (e.g. cloister.tar from \`task image\`)" >&2
+          exit 1
+        fi
+        DRY=""
+        if [ "${CLOISTER_DRY_RUN:-0}" = "1" ]; then DRY="--dry-run"; fi
+        REG="${CLOISTER_REGISTRY:-http://localhost:8787}"
+        node dev/import-image.mjs "$IMAGE" --registry "$REG" $DRY

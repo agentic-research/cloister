@@ -73,7 +73,8 @@
     }
   },
   "required": [
-    "metadata"
+    "metadata",
+    "storage"
   ],
   "$defs": {
     "Tier": {

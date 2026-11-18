@@ -19,7 +19,7 @@ Everything under `docs/` is one of these kinds:
 | [`reference/`](reference/) | Reference tables + models: `backend-kinds.md`, `bundle-topology.md`, `tenancy-model.md` (who may reach a tenant), `confinement-model.md` (what a confined harness/tool/pod may *touch*), and `task-done.md` (the shipped `task done` lifecycle checklist). |
 | [`mcp-seps/`](mcp-seps/) | Internal SEP drafts about the upstream MCP spec. **Not** submissions in flight — design notes for cloister's own framing. |
 | [`research/`](research/) | Design notes + surveys that inform decisions but aren't themselves decisions. |
-| [`tenants/`](tenants/) | Per-tenant docs (one page per backend: `bead-mcp.md`, `mache-mcp.md`, etc.). Drift-gated by `scripts/lint-tenant-docs.mjs`. |
+| [`tenants/`](tenants/) | Per-tenant docs (one page per backend: `bead-mcp.md`, `mache-mcp.md`, etc.). Drift-gated by `lint/tenant-docs.mjs`. |
 | [`glossary.md`](glossary.md) | Canonical definitions for terms that get conflated across cloister + sibling repos (e.g. `leyline` vs `leyline-sign` vs `signet-sign`). Add an entry when a name has shown up in more than one place with a different meaning. |
 | [`archive/`](archive/) | Frozen, dated, one-off docs kept for provenance — **not** current truth (old launch checklists, reality-check audits, resume prompts, speculative drafts). See [`archive/README.md`](archive/README.md). |
 

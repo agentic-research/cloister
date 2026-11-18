@@ -78,7 +78,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 ### Substrate-property lint invariants (lint:bundle-isolation)
 
-`scripts/lint-bundle-isolation.mjs` runs thirteen invariants per `task lint`:
+`lint/bundle-isolation.mjs` runs thirteen invariants per `task lint`:
 
 | Inv | What | ADR |
 |---|---|---|
@@ -168,17 +168,45 @@ run `task init -- --recipe multi-tenant-smoke`, and the CLI answered
 `unknown recipe` (`cloister-449f82` thread).
 
 The reconciliation is a property, not a comment:
-`scripts/test/gate-integrity.test.mjs` asserts every recipe with a README is
+`lint/test/gate-integrity.test.mjs` asserts every recipe with a README is
 instantiable by the CLI. Missing a compose file? `task recipes:compose --
 <name>`.
+
+## Where code goes
+
+There is no `scripts/` directory. A file lives in the directory named for what
+it is for, with its tests in that directory's `test/`:
+
+| Directory | Holds |
+|---|---|
+| `src/` (tests in `test/`) | The worker: router, routes, vault, trust state |
+| `cli/` | The `cloister` command. The only one of these that ships. `cli/lib/<area>` is tested in `cli/test/<area>` (cluster, facts, harness, runtime, dev) |
+| `lint/` | The rails `task lint` runs |
+| `gen/` | Code generators and build steps |
+| `dev/` | Local launchers, smoke tests, benchmarks, git hooks |
+
+`cli/` never imports from `lint/`, `gen/` or `dev/` (`cli/test/` may). A file
+in those three that only re-exports `cli/` code is refused. Both are railed in
+`cli/test/cli-boundary.test.mjs` and `lint/test/gate-integrity.test.mjs`. A
+`*.test.mjs` anywhere outside the four `test/` directories (and `cli/test/<area>/`) is never run, and
+`gate-integrity` fails on it.
 
 ## Taskfiles are hierarchical
 
 The root `Taskfile.yml` is an **index**: it wires `includes:` and owns
-cross-cutting gates. Work belonging to one directory lives in that
-directory's own Taskfile and is pulled in — `rs/Taskfile.yml` (Rust /
-wasm) and `recipes/Taskfile.yml` (recipe validation, compose emission,
-instantiability) today, invoked as `task rs:*` / `task recipes:*`.
+the cross-cutting gates (`lint`, `verify`, `ci`, `pre-push`). Work belonging to one directory lives in that directory's own
+Taskfile and is pulled in:
+
+- `rs/Taskfile.yml` and `recipes/Taskfile.yml` are namespaced: `task rs:*`,
+  `task recipes:*`.
+- `lint/`, `gen/`, `dev/`, `cli/`, `src/` and `tools/harness-sandbox/` each have a
+  `Taskfile.yml`, included
+  with `flatten: true`, so their tasks keep the names they always had
+  (`task lint:doc-links`, `task manifest`, `task smoke`, `task cluster:toml`,
+  `task test`). A task in one may depend on a task in another by name.
+
+A rail that reads Taskfile text must read all of them:
+`lint/lib/taskfiles.mjs` returns the root and every flat include as one text.
 
 Adding a directory-scoped task means adding it there, not growing the root.
 If a new area needs more than one task, give it a Taskfile and an
@@ -262,7 +290,7 @@ been. Decided once already on `cloister-aa6a71`.
   §11 row H.5.
 - **Inputs wire by capability, not by hand** — an input declares
   `provides` / `requires` (studs / anti-studs) and the matchmaker
-  (`scripts/capability-matchmaker.mjs`, ADR-0027) resolves them during
+  (`cli/lib/cluster/capability-matchmaker.mjs`, ADR-0027) resolves them during
   `task cluster:toml`. Unsatisfied, ambiguous, self-provided and cyclic
   declarations **fail the build** rather than resolving arbitrarily — that
   fail-closed property is the symbolic half of ADR-0054. Operator guide:

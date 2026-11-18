@@ -8,13 +8,13 @@ into the `Router`. This dir is the **TS half** of the manifest pipeline.
 root.** That dir holds the *Cap'n Proto schema* — the source-of-truth
 schema file (`manifest/cloister.capnp`) and its README. `src/manifest/`
 is the TS runtime that consumes the generated TS bindings produced from
-that schema by `scripts/build-manifest.mjs`.
+that schema by `gen/build-manifest.mjs`.
 
 ```mermaid
 flowchart LR
     SCH["manifest/cloister.capnp<br/>(schema, source of truth)"]
     CONS["&lt;repo&gt;/cloister.capnp<br/>(consumer value)"]
-    BLD["scripts/build-manifest.mjs"]
+    BLD["gen/build-manifest.mjs"]
     GEN["src/generated/manifest.ts<br/>(typed JSON, gitignored)"]
     TYP["src/manifest/types.ts<br/>(hand-mirror)"]
     RT["src/manifest/runtime.ts<br/>(instantiate)"]
@@ -33,7 +33,7 @@ flowchart LR
 | File | Responsibility |
 |------|----------------|
 | `types.ts` | Hand-mirrored TS types for `manifest/cloister.capnp` — `Gateway`, `Route`, `Backend` union, per-kind backend specs, `McpToolSpec`, `Actor`, `InterlacePolicy`. Source of truth for the TS side; the capnp schema is the source of truth for the wire. |
-| `cluster-types.ts` | Hand-mirrored TS types for the sibling `manifest/cluster.capnp` schema — `Cluster`, `Bundle`, `Wire`, `StoragePolicy`. Consumed by `scripts/emit-compose.mjs` + `scripts/cluster-dev.mjs`. Per [ADR-0009](../../docs/adr/0009-compute-substrate-portability.md) Phase 1. |
+| `cluster-types.ts` | Hand-mirrored TS types for the sibling `manifest/cluster.capnp` schema — `Cluster`, `Bundle`, `Wire`, `StoragePolicy`. Consumed by `cli/lib/cluster/emit-compose.mjs` + `dev/cluster-dev.mjs`. Per [ADR-0009](../../docs/adr/0009-compute-substrate-portability.md) Phase 1. |
 | `runtime.ts` | `instantiate(manifest, env)` — turns a typed `Gateway` into `EdgeRoute[]`. Three phases: re-validate (defense in depth), backend instantiation (kind→factory registry), route instantiation (`McpEdgeRoute` / `HealthRoute` / `NotmeIdentityRoute` / `HttpProxyRoute`). |
 | `spec.ts` | `McpToolSpec` → `McpTool` conversion. Parses `inputSchemaJson` (string in capnp) into `McpTool['inputSchema']` once at startup; throws cleanly on invalid JSON. |
 | `backends/` | The five backend kind implementations (`durableObject`, `mcpProxy`, `serviceBinding`, `udsForward`, `leylineNet`) — see [`backends/README.md`](backends/README.md) for the per-file map and [`docs/reference/backend-kinds.md`](../../docs/reference/backend-kinds.md) for the operator-facing reference. |
@@ -59,7 +59,7 @@ Then run `task manifest` to regenerate `src/generated/manifest.ts` and
   small enough to maintain by hand. See
   [ADR-0004](../../docs/adr/0004-capnp-manifest.md) "Negative
   consequences."
-- **Why instantiation re-validates** — `scripts/build-manifest.mjs`
+- **Why instantiation re-validates** — `gen/build-manifest.mjs`
   validates at build time. Re-validating here is defense in depth: if
   a manifest reaches the runtime through a path that bypassed the
   build (e.g. tests injecting raw structs), we surface the same

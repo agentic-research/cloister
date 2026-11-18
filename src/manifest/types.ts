@@ -51,7 +51,7 @@ export interface Gateway {
  * Runtime conversion to the route's `VaultProxyService` shape (which
  * uses a TS-discriminated-union injection) lives in
  * `./vault-proxy-services.ts`. Same pure module is invoked by
- * `src/manifest/runtime.ts` AND `scripts/build-manifest.mjs` — single
+ * `src/manifest/runtime.ts` AND `gen/build-manifest.mjs` — single
  * code path for build-time + boot-time validation.
  *
  * **`defaultAllowedSubs` is optional**: capnp's JSON encoding OMITS

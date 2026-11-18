@@ -116,7 +116,7 @@ describe("validateCluster — bundles", () => {
     // Inv 1/2/4 exemptions and must be justified explicitly. Empty
     // hypervisorRationale on a hypervisor-tier bundle is a validation
     // error at both the TS-side (validateCluster) and the lint-side
-    // (Inv 3, scripts/lint-bundle-isolation.mjs).
+    // (Inv 3, lint/bundle-isolation.mjs).
     expect(() => validateCluster(cluster({
       bundles: [bundle("hyper", { tier: "hypervisor", hypervisorRationale: "" })],
     }))).toThrow(/hypervisorRationale/);

@@ -107,7 +107,7 @@ function defaultProvisionCas(hostRuntime, stateDir) {
 }
 
 async function defaultFetchKrunWorker(root, target) {
-  const { ensureBinary } = await import(resolve(root, "scripts/fetch-schema-bridge.mjs"));
+  const { ensureBinary } = await import(resolve(root, "gen/fetch-schema-bridge.mjs"));
   return ensureBinary("leyline-krun-worker", { target });
 }
 

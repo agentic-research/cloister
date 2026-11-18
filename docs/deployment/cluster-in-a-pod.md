@@ -30,7 +30,7 @@ task cluster:dev   # spawns each bundle as a native process
 ```
 
 No container layer — same `cluster.capnp`, parsed by
-[`scripts/cluster-dev.mjs`](../../scripts/cluster-dev.mjs) and
+[`dev/cluster-dev.mjs`](../../dev/cluster-dev.mjs) and
 spawned as subprocesses with the wire bindings injected as env vars.
 Fast iteration; survives Ctrl-C cleanly (SIGTERM each child, SIGKILL
 stragglers after 5s). DO state persists in `$HOME/.cache/cloister-dev/`
@@ -82,7 +82,7 @@ need it.
 
 Per ADR-0030, `cluster.toml [inputs.*]` blocks carry an optional
 `tenancy` sub-table that classifies how each input is hosted. The
-compose emitter (`scripts/emit-compose.mjs`) walks resolved tenancy
+compose emitter (`cli/lib/cluster/emit-compose.mjs`) walks resolved tenancy
 declarations and annotates each service with a
 `cloister.colocated-inputs=<name>,<name>,...` label so operators can
 see at a glance which inputs share a workerd process.
@@ -183,7 +183,7 @@ matrix table at the end:
 
 Run it before cutting a release or after touching any of:
 
-- `cluster.capnp` / `scripts/emit-compose.mjs`
+- `cluster.capnp` / `cli/lib/cluster/emit-compose.mjs`
 - A sibling repo's apko / Dockerfile
 - The wire bindings in `cluster.compose.yaml`
 
@@ -471,7 +471,7 @@ require an `oci:pull` scope on reads if a private registry is wanted.
 ### What's NOT here yet
 
 - **Push** (`POST/PATCH/PUT /v2/<name>/blobs/uploads/*`) is deferred.
-  Phase-1 import uses an out-of-band loader (`scripts/import-image.mjs`,
+  Phase-1 import uses an out-of-band loader (`dev/import-image.mjs`,
   invoked via `task registry:import`).
 - The import script's live-upload path requires an admin-write seam
   on cloister-router that doesn't exist yet (filed as a follow-up bead
@@ -502,5 +502,5 @@ exist.
   + intra-cluster plain-capnp amendment
 - [`manifest/cluster.capnp`](../../manifest/cluster.capnp) — schema
 - [`cluster.capnp`](../../cluster.capnp) — default consumer manifest
-- [`scripts/emit-compose.mjs`](../../scripts/emit-compose.mjs) — the
+- [`cli/lib/cluster/emit-compose.mjs`](../../cli/lib/cluster/emit-compose.mjs) — the
   first emitter

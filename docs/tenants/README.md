@@ -8,7 +8,7 @@ without making them read 17 ADRs.
 
 The source of truth is [`cloister.capnp`](../../cloister.capnp) and
 [`cluster.compose.yaml`](../../cluster.compose.yaml). The CI gate
-`task lint:tenant-docs` (in [`scripts/lint-tenant-docs.mjs`](../../scripts/lint-tenant-docs.mjs))
+`task lint:tenant-docs` (in [`lint/tenant-docs.mjs`](../../lint/tenant-docs.mjs))
 fails if a tenant declared in either file lacks a matching page here.
 
 ## Matrix

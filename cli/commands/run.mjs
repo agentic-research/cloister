@@ -12,7 +12,7 @@
 // harness under nono (Seatbelt on macOS, Landlock on Linux) — lives in
 // cli/lib/harness/launch.mjs, and this file calls it IN-PROCESS.
 //
-// It used to spawn `node scripts/harness-dev.mjs` and hand its already-parsed
+// It used to spawn `node dev/harness-dev.mjs` and hand its already-parsed
 // flags over as environment variables. That round-trip is where orchestration
 // stops being first-party: every value crossing it becomes an untyped string,
 // and `--repo a --repo b` — the shape of the confinement — depended on a JSON
@@ -52,7 +52,7 @@
 //
 // The single-repo manifest is byte-identical to before, so its digest is
 // unchanged and the measurement above still holds. Asserted, not assumed:
-// see scripts/test/confinement-shape.test.mjs.
+// see cli/test/harness/confinement-shape.test.mjs.
 
 import { existsSync, statSync } from "node:fs";
 import { resolve, isAbsolute, dirname } from "node:path";

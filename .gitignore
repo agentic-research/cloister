@@ -12,8 +12,8 @@ dist/
 
 # generated typed TS modules — TRACKED in git (per cloister-0854b7).
 # These are deterministic codegen outputs:
-#   manifest.ts      from cloister.capnp via scripts/build-manifest.mjs
-#   tool-schemas.ts  from src/tool-schemas/*.ts via scripts/build-tool-schemas.mjs
+#   manifest.ts      from cloister.capnp via gen/build-manifest.mjs
+#   tool-schemas.ts  from src/tool-schemas/*.ts via gen/build-tool-schemas.mjs
 #   cluster.ts       from cluster.capnp via scripts/build-cluster.mjs
 # Tracking them lets cloister's OCI build (melange) skip the build-time
 # capnp dependency entirely (capnproto isn't in Wolfi). Drift between

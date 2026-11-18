@@ -23,7 +23,7 @@ import { decodeToolCall } from "../../src/wire/tool-call.js";
  *     companion unreachable, malformed capnp).
  *
  * End-to-end against a real UDS responder is covered separately by
- * `scripts/smoke-leyline-stub.mjs` (which spawns stub-companion + a UDS
+ * `dev/smoke-leyline-stub.mjs` (which spawns stub-companion + a UDS
  * responder out of process) — that lives in the smoke target rather than
  * vitest because workerd doesn't expose `node:net`.
  */

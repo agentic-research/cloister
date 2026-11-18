@@ -4,7 +4,7 @@
 // the one check the parser takes from it.
 //
 // schema/cluster.toml.schema.json is generated from manifest/cluster.capnp
-// (LLO's schema-bridge, then scripts/gen-cluster-toml-schema.mjs). It names
+// (LLO's schema-bridge, then gen/cluster-toml-schema.mjs). It names
 // every key a cluster.toml may hold. toml-to-cluster.mjs rebuilds several
 // tables field by field before it validates, and a rebuild keeps only the
 // fields it lists: a key it does not list was DROPPED, so a typo parsed clean

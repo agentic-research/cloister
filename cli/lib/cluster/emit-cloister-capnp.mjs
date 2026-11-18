@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/emit-cloister-capnp.mjs — generate cloister.capnp from
+ * cli/lib/cluster/emit-cloister-capnp.mjs — generate cloister.capnp from
  * cluster.toml (routes + gateway).
  *
  * Phase 2 (Commit 3, cloister-345ad1) seeded this with the routes
@@ -19,7 +19,7 @@
  * Layering note (load-bearing):
  *
  *   The lockfile → `[[generated_backends]]` overlay lives in
- *   `scripts/build-manifest.mjs:overlayLockfileBackends`. THAT path
+ *   `gen/build-manifest.mjs:overlayLockfileBackends`. THAT path
  *   is where lockfile rows merge into the /mcp route's backends list,
  *   producing `src/generated/manifest.ts`. Phase 2 does NOT move the
  *   overlay into `cloister.capnp`; if it did, build-manifest's
@@ -43,8 +43,8 @@
  *   when they regenerate.
  *
  * Usage:
- *   node scripts/emit-cloister-capnp.mjs                   # stdout
- *   node scripts/emit-cloister-capnp.mjs --write FILE      # write to file
+ *   node cli/lib/cluster/emit-cloister-capnp.mjs                   # stdout
+ *   node cli/lib/cluster/emit-cloister-capnp.mjs --write FILE      # write to file
  *
  * Env vars:
  *   CLUSTER_TOML       path to cluster.toml      (default: ./cluster.toml)
@@ -106,7 +106,7 @@ const DEFAULT_GATEWAY = {
  * Emit a canonical cloister.capnp text from the parsed cluster.
  *
  * The lockfile overlay (`[[generated_backends]]`) is NOT applied here —
- * see `scripts/build-manifest.mjs:overlayLockfileBackends` for the
+ * see `gen/build-manifest.mjs:overlayLockfileBackends` for the
  * downstream injection at `task manifest` time. Keeping the layers
  * separate avoids "this row exists in both files" collisions when
  * cloister.capnp is regenerated.
@@ -311,7 +311,7 @@ function renderCapnp(g) {
   lines.push("# When [gateway] is absent / all-empty, the emitter falls through to");
   lines.push("# the ART-default template (back-compat for pre-Phase-4a cluster.toml).");
   lines.push("# The cluster.lock.toml [[generated_backends]] overlay is applied");
-  lines.push("# DOWNSTREAM at `task manifest` time by scripts/build-manifest.mjs;");
+  lines.push("# DOWNSTREAM at `task manifest` time by gen/build-manifest.mjs;");
   lines.push("# this file carries only the cluster.toml-declared routes.");
   lines.push("#");
   lines.push("# Do NOT edit by hand — your edits will be overwritten on the next emitter run.");

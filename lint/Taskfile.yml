@@ -1,0 +1,278 @@
+version: "3"
+
+# The rails `task lint` runs. Included flat by the root Taskfile, so every
+# task keeps its name (`task lint:doc-links`) and runs from the repo root.
+# The aggregate `lint` task itself stays in the root: it is a cross-cutting gate.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  lint:origin-derivation:
+    desc: "ADR-0065 decision 3 — a Confidence is DERIVED, never declared (cloister-16f81c). The vocabulary lives only in src/wire/origin.ts; everywhere else calls deriveConfidence(). Same locality shape as lint:lease-gate-source."
+    cmds:
+      - node lint/origin-derivation.mjs
+    sources:
+      - lint/origin-derivation.mjs
+      - src/**/*.ts
+
+  config:check:
+    desc: "cloister-21f273 — preflight the config-source resolution: fail if a .env.local value would be SHADOWED under `wrangler dev` (because .dev.vars exists and wrangler ignores process env) or CONFLICTs with .dev.vars. No-op in CI (gitignored dev files absent). Values never printed."
+    cmds:
+      - node cli/lib/dev/config-sources.mjs
+
+  mermaid:lint:
+    desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
+    cmds:
+      - node lint/mermaid.mjs README.md docs/ARCHITECTURE.md
+    sources:
+      - README.md
+      - docs/ARCHITECTURE.md
+      - lint/mermaid.mjs
+
+  lint:paths:
+    desc: "Validate the do-storage path agrees across apko/config.capnp/cluster.capnp (cloister-7c12cc)"
+    cmds:
+      - node lint/paths.mjs
+    sources:
+      - apko.yaml
+      - config.capnp
+      - cluster.capnp
+      - lint/paths.mjs
+
+  lint:timing:
+    desc: "Validate security-affecting timing invariants (cloister-7ea4c4 / P1) — clock-skew, bundle refresh, retry backoff"
+    cmds:
+      - node lint/timing-invariants.mjs
+    sources:
+      - src/storage/ca-bundle-cache.ts
+      - src/routes/lease-middleware.ts
+      - src/storage/pending-attestations.ts
+      - lint/timing-invariants.mjs
+
+  lint:vault-id-source:
+    desc: "Forward-guard lint (cloister-93b0c2 / C6) — rejects `.newUniqueId(` calls in vault-touching source files. ADR-0021 mandates `idFromName(bundleIdName)` for vault DO id derivation; a drift to `newUniqueId()` would silently collapse every per-tenant KEK to the \"cluster\" fallback (see threat-model §13.7.3). No live violation today; defensive."
+    cmds:
+      - node lint/vault-id-source.mjs
+    sources:
+      - src/vault-store.ts
+      - src/routes/vault-do-credential-store.ts
+      - src/routes/vault-proxy.ts
+      - src/routes/vault-proxy-credential-store.ts
+      - lint/vault-id-source.mjs
+
+  lint:smell-rule-kinship:
+    desc: "Drift lint (cloister-2fb46a) — keeps the \"mache-smell-rules-shaped\" claim honest. cloister's done-runner accepts `block|warn` defaulting to block (fail-secure ship gate); mache's SmellRule accepts `off|warn|error` defaulting to warn (fail-open observability). Both postures are right for their tool, so this does NOT ask them to agree — it records both and fails when a live source stops matching the record. The mache half needs a checkout (MACHE_REPO, or a sibling ../mache); when absent it reports UNKNOWN and never `satisfied`, so the lint cannot pass by having had nothing to compare."
+    cmds:
+      - node lint/smell-rule-kinship.mjs
+    sources:
+      - dev/done-runner.mjs
+      - lint/smell-rule-kinship.mjs
+
+  lint:no-dev-mode:
+    desc: "ADR-0042 safety rail — fail if any committed config enables a dev-mode harness seam (CLOISTER_MODE=dev or a DEV_* binding with a value). Dev mode is runtime-only via `task harness:dev`; it must never ship in config.capnp / wrangler.toml / cluster.toml / generated runtime."
+    cmds:
+      - node lint/no-dev-mode.mjs
+    sources:
+      - config.capnp
+      - wrangler.toml
+      - cluster.toml
+      - cluster.lock.toml
+      - src/generated/cluster.ts
+      - src/generated/manifest.ts
+      - lint/no-dev-mode.mjs
+
+  lint:schema-claim:
+    desc: "ADR-0063 rail (cloister-3e86e8) — a leyline contract identifier written as a STRING LITERAL is a wire claim, and its field names are owned by ley-line-open. A file that makes the claim must import generated types rather than restate the shape. PR #260 shipped `{ schema: \"execution/v1\", ... }` over a hand-written ten-field list against an eleven-field canonical RunSpec sharing NONE of those names, and the full gate passed green — lint:spec-citation polices prose citations, type-duplication polices cluster.capnp only, and nothing looked at code-level claims. Prose in a comment DISCUSSES a contract; a literal SPEAKS it, so the rail strips comments before scanning."
+    cmds:
+      - node lint/schema-claim.mjs
+    sources:
+      - cli/**/*.mjs
+      - src/**/*.ts
+      - lint/schema-claim.mjs
+
+  lint:lease-gate-source:
+    desc: "ADR-0053 / cloister-220c9d single-source guard (cloister-bd7210 Phase 1) — the lease-gate trust anchor `env.INTERLACE_ROOT_PUBKEY` may only be read where the gate is resolved (src/routes/lease-gate.ts) or the CA bundle is (src/storage/ca-bundle-source.ts). Any other src/ file reading it is a re-scattered gate check; routes must go through resolveLeaseGate / leaseEnforced / gateAndVerify."
+    cmds:
+      - node lint/lease-gate-source.mjs
+    sources:
+      - src/**/*.ts
+      - lint/lease-gate-source.mjs
+
+  lint:silent-swallow:
+    desc: "cloister-bd7210 Phase 2 rail — a bare `catch {}` on the trust/IO surface (storage/wire/routes) that silently returns null/false/undefined DISCARDS the error (the cloister-3ad090 class). Each must surface it (log / typed error / rethrow) or carry an inline `lint-allow-silent: <reason>` justification."
+    cmds:
+      - node lint/silent-swallow.mjs
+    sources:
+      - src/**/*.ts
+      - lint/silent-swallow.mjs
+
+  lint:log-shape:
+    desc: "cloister-bd7e51 rail — an operational log on the trust/IO surface (storage/wire/routes + trust-store/vault-store) must be STRUCTURED (logEvent from src/obs/log.ts, or console.X(JSON.stringify(…))), never an ad-hoc string log (the cloister-3ad090 class: unqueryable + no redaction seam). Justify a real exception with an inline `lint-allow-string-log: <reason>`."
+    cmds:
+      - node lint/log-shape.mjs
+    sources:
+      - src/**/*.ts
+      - lint/log-shape.mjs
+
+  lint:trust-env-locality:
+    desc: "cloister-21e42e rail — each trust-secret env var (VAULT_KEK_SOURCE, RECEIPT_SIGNING_KEY, DEV_CA_MASTER, …) may be read only in its resolver. A scattered read is how an empty-value-means-off footgun hides (the emptiness semantics must live in one reviewable place). Generalizes lint:lease-gate-source to the whole trust-secret surface; INTERLACE_ROOT_PUBKEY stays owned by that rail."
+    cmds:
+      - node lint/trust-env-locality.mjs
+    sources:
+      - src/**/*.ts
+      - lint/trust-env-locality.mjs
+
+  lint:upstream-pins:
+    desc: "ONE ley-line-open version across every channel that states it: [inputs.llo] in cluster.toml, the Cargo git deps under rs/, and schema-bridge.lock.json. Each can be internally consistent and still disagree with the others, which is how 0.11.3 / 0.12.0 / 0.12.1 shipped together with nothing reporting it. Also asserts one rev across the Cargo pins: cargo cannot unify git deps across revs, so it silently compiles leyline-core twice (two BLAKE3 folds, two PARTITION_CONTEXT constants) while cargo check exits 0."
+    cmds:
+      - node lint/upstream-pins.mjs
+    sources:
+      - lint/upstream-pins.mjs
+      - rs/**/Cargo.toml
+
+  lint:structured-parse:
+    desc: "Do not hand-match a format that has a parser (cloister-2fb46a). Born from a real bug: lint-binding-parity regexed wrangler.toml, missed every inline-table DO binding, and reported four violations that did not exist. Flags .toml/.json/.yaml read-then-regex; .capnp is exempt (no parser without a capnp toolchain) as is prose. Escape hatch: lint-allow-rawparse: <reason>."
+    cmds:
+      - node lint/structured-parse.mjs
+    sources:
+      - lint/structured-parse.mjs
+      - lint/**/*.mjs
+      - gen/**/*.mjs
+      - dev/**/*.mjs
+      - src/**/*.ts
+
+  lint:conflict-markers:
+    desc: "No merge-conflict markers (<<<<<<< , ||||||| , =======, >>>>>>> ) at line start in any tracked text file (cloister-991e65). Two diff3 base markers reached CHANGELOG.md, one already on main, because nothing parses markdown."
+    cmds:
+      - node lint/conflict-markers.mjs
+
+  lint:binding-parity:
+    desc: "config.capnp and wrangler.toml must declare the same bindings for anything read in src/ (cloister-9aeb3f). CLAUDE.md called this a manual sync obligation and ADR-0001 recorded it as a known weakness; it had drifted — six trust-surface vars were CF-only, so the lease gate could not be exercised under workerd at all."
+    cmds:
+      - node lint/binding-parity.mjs
+    sources:
+      - lint/binding-parity.mjs
+      - config.capnp
+      - wrangler.toml
+
+  lint:spec-citation:
+    desc: "cloister-e83a33 rail — every `leyline-schema-spec/...` citation must resolve. That root is a declared ALIAS for ley-line-open's `rs/ll-core/schema-spec/`; no directory of that literal name exists anywhere. Two halves: the SHAPE check (every citation uses the declared root) runs everywhere; the EXISTENCE check needs an LLO checkout and skips without one, so it is a local cross-check rather than a CI-vacuous gate. A deliberate forward reference carries `lint-allow-unresolved: <reason>` on the preceding line."
+    cmds:
+      - node lint/spec-citation.mjs
+    sources:
+      - lint/spec-citation.mjs
+      - "src/**/*.ts"
+      - "docs/**/*.md"
+      - CLAUDE.md
+
+  lint:sibling-bead-refs:
+    desc: "cloister-4c057a rail — a sibling repo's ADR must not decide work we hold OPEN without us noticing. ley-line-open ADR-0035's Related block reads `cloister-043eb8 (multi-root — resolved by §4 below)`; the bead was open here, a cloister ADR arguing the WRONG answer got drafted, and nothing surfaced that LLO had already settled it with a third option neither side proposed. Second instance of the class — the first designed ADR-0045 work that had shipped in LLO a month earlier. A rule stated twice and violated twice is not a rule anyone is enforcing. Scans the sibling's ADRs (main tree + `.worktrees/*`, because a decision reaches us before it reaches their default branch) for `cloister-<hex>` and FAILS when one names an open bead. A referenced bead we never had is REPORTED, not fatal — that is the sibling's rot, and failing our gate on their typo trains people to bypass the gate. Skips with exit 0 when no LLO checkout, like lint:spec-citation."
+    cmds:
+      - node lint/sibling-bead-refs.mjs
+    sources:
+      - lint/sibling-bead-refs.mjs
+
+  lint:harness-target-literals:
+    desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."
+    cmds:
+      - node lint/harness-target-literals.mjs
+    sources:
+      - dev/harness-dev.mjs
+      - cli/commands/run.mjs
+      - cli/lib/harness/**/*
+      - lint/harness-target-literals.mjs
+      - src/harness-shim/index.ts
+
+  lint:dev-escape:
+    desc: "ADR-0026 rail — a committed cluster.toml must not carry an [inputs.*] `from` dev-escape. `from` wins over `ref`, so committing it silently overrides the durable content-addressed ref for every checkout (and an absolute file:/// path resolves on exactly one machine). manifest/cluster.capnp documented this rule; nothing enforced it until recipes/rosary-dev shipped one. Scoped to [inputs.*] — [[wires]] `from` is a bundle name and is legitimate."
+    cmds:
+      - node lint/dev-escape.mjs
+    sources:
+      - "**/cluster.toml"
+      - lint/dev-escape.mjs
+
+  lint:harness-types:
+    desc: "Type-check the product-owned harness launch pipeline under cli/lib/harness. The root worker tsconfig does not include Node CLI modules, so this keeps their JSDoc contracts enforced rather than decorative."
+    cmds:
+      - pnpm exec tsc -p cli/lib/harness/tsconfig.json
+    sources:
+      - cli/lib/harness/*.mjs
+      - cli/lib/harness/tsconfig.json
+
+  lint:shim:
+    desc: "Type-check the host-side harness lease shim (cloister-caab2d). Separate tsconfig: the shim is a Node program (lib DOM + node-shims.d.ts), outside the workers tsconfig, so `task type-check` never sees it. This keeps it honest."
+    cmds:
+      - pnpm exec tsc -p src/harness-shim/tsconfig.json
+    sources:
+      - src/harness-shim/*.ts
+      - src/harness-shim/node-shims.d.ts
+      - src/harness-shim/tsconfig.json
+
+  lint:bundle-isolation:
+    desc: "Validate ADR-0013 substrate invariants on src/generated/cluster.ts + config.capnp (cloister-ac30e7 + cloister-cf519b) — globalOutbound scope, credential bindings, bundle tiers, orphan bindings. Reads cluster.ts via tsx (the canonical derived artifact per ADR-0025)."
+    cmds:
+      - "{{.NODE_TSX}} lint/bundle-isolation.mjs"
+    sources:
+      - src/generated/cluster.ts
+      - config.capnp
+      - lint/bundle-isolation.mjs
+
+  lint:capability-scheme:
+    desc: "ADR-0028 §6 lane discipline — fails if any [inputs.*].provides/requires value isn't cloister/<name>/v<n> shape (cloister-308ea4). Catches lane-1 URN / lane-2 WIMSE leakage into lane-3 slots. Reads cluster.ts via tsx."
+    cmds:
+      - "{{.NODE_TSX}} lint/capability-scheme.mjs"
+    sources:
+      - src/generated/cluster.ts
+      - lint/capability-scheme.mjs
+
+  lint:app-protocol:
+    desc: "ADR-0030 §A4 hybrid namespace lint — fails if any cluster.toml [[edges]].appProtocol isn't substrate-blessed (art.*) or operator-extensible (x-<vendor>-*) shape (cloister-0fa3d7). Pattern mirrors lint:capability-scheme."
+    cmds:
+      - "{{.NODE_TSX}} lint/app-protocol.mjs"
+    sources:
+      - src/generated/cluster.ts
+      - lint/app-protocol.mjs
+
+  lint:tenant-docs:
+    desc: "Drift gate for docs/tenants/ (cloister-c9df61) — asserts every tenant in cloister.capnp + every non-substrate service in cluster.compose.yaml has a matching docs/tenants/<name>.md page."
+    cmds:
+      - node lint/tenant-docs.mjs
+    sources:
+      - cloister.capnp
+      - cluster.compose.yaml
+      - docs/tenants/*.md
+      - lint/tenant-docs.mjs
+
+  lint:lockfile-drift:
+    desc: "Drift gate for cluster.lock.toml — asserts every file:// input's committed sha256 still matches the bytes on disk. Catches the 2026-06-24 LLO-contract incident class where a vendored source advances but the lockfile stays pinned to the older digest, silently dropping advertised tools from src/generated/manifest.ts."
+    cmds:
+      - "{{.NODE_TSX}} lint/lockfile-drift.mjs"
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - lint/lockfile-drift.mjs
+
+  lint:doc-links:
+    desc: "Drift gate for markdown cross-references — asserts every relative link in docs/**/*.md + the canonical top-level docs (README, CHANGELOG, CLAUDE, AGENTS, GETTING-STARTED) resolves to an existing file. Skips code-block content (fenced + inline) so example snippets aren't false-flagged. Catches the PR-#94 class of bug where deleting a doc leaves dangling [foo](foo.md) refs in sibling pages."
+    cmds:
+      - node lint/doc-links.mjs
+    sources:
+      - "docs/**/*.md"
+      - README.md
+      - CHANGELOG.md
+      - CLAUDE.md
+      - AGENTS.md
+      - GETTING-STARTED.md
+      - lint/doc-links.mjs
+
+  lint:recipes:
+    desc: "Phase 1 recipe smoke validation (cloister-449f82) — each recipes/<name>/ has README.md + (cloister.capnp OR cluster.toml); READMEs link to docs/reference/{bundle-topology,backend-kinds}.md per the canonical-link convention. Phase 2 will add capnp/TOML parse validation; Phase 3 will add local boot smoke. Invoked via tsx because lint/recipes.mjs transitively dynamic-imports cluster.zod.ts at runtime (per toml-to-cluster.mjs ADR-0025 Phase 1); plain `node` can't load .ts."
+    cmds:
+      - "{{.NODE_TSX}} lint/recipes.mjs"
+    sources:
+      - recipes/**/*
+      - lint/recipes.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/**/*.mjs
+      - src/generated/cluster.zod.ts
