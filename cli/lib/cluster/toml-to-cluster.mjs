@@ -39,7 +39,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import { assertPortsAndConnections, checkableBundle } from "./connections.mjs";
+import { assertEnvBindings, assertPortsAndConnections, checkableBundle } from "./connections.mjs";
 import { undeclaredKeys } from "./toml-schema.mjs";
 
 // Path constants — the repo-root cluster.toml (operator source) and
@@ -195,6 +195,10 @@ export async function parseTomlToCluster(tomlString) {
     validated.bundles.map(checkableBundle),
     validated.connections ?? [],
   );
+  //    4c-1b. Env bindings and run mode (ADR-0074 §7): an env row takes its
+  //        value from exactly one place, and a connection binding names a
+  //        connection the bundle declares.
+  assertEnvBindings(validated.bundles, validated.connections ?? []);
 
   //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
   //        tables are the blind spot: smol-toml rejects a duplicate KEY inside
@@ -894,7 +898,7 @@ function normalizeBundleDefaults(bundle) {
     // variables. Refused here, by bundle and variable name and never by value
     // (cloister-2af426).
     if (external.env !== undefined) {
-      const rows = `write one [[bundles.external.env]] row per variable, with name = "..." and value = "..."`;
+      const rows = `write one [[bundles.external.env]] row per variable, with name = "..." and one of value, connection or secret`;
       if (!Array.isArray(external.env)) {
         throw new Error(
           `bundle "${bundle.name}" [bundles.external] env must be a list of { name, value } rows; ${rows}; ` +
@@ -917,6 +921,13 @@ function normalizeBundleDefaults(bundle) {
             `bundle "${bundle.name}" [bundles.external] env ${JSON.stringify(row.name ?? "")}: ` +
               `value must be a string (quote numbers and booleans)`,
           );
+        }
+        for (const key of ["connection", "path", "secret", "secretKey"]) {
+          if (row[key] !== undefined && typeof row[key] !== "string") {
+            throw new Error(
+              `bundle "${bundle.name}" [bundles.external] env ${JSON.stringify(row.name ?? "")}: ${key} must be a string`,
+            );
+          }
         }
       });
     }
@@ -948,6 +959,7 @@ function normalizeBundleDefaults(bundle) {
           executionModeRationale: typeof external.executionModeRationale === "string"
             ? external.executionModeRationale
             : "",
+          runs: typeof external.runs === "string" ? external.runs : "",
         },
       },
     };

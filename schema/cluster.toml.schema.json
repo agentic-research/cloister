@@ -611,6 +611,10 @@
         "executionModeRationale": {
           "type": "string",
           "description": "Why this bundle cannot be isolated. Required when executionMode is 'process'."
+        },
+        "runs": {
+          "type": "string",
+          "description": "'service' to run until stopped, or 'job' to run to completion. Empty means 'service'."
         }
       }
     },
@@ -748,7 +752,7 @@
     },
     "EnvVar": {
       "type": "object",
-      "description": "One environment variable.",
+      "description": "One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.",
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -757,7 +761,23 @@
         },
         "value": {
           "type": "string",
-          "description": "The variable's value. Stored in clear."
+          "description": "A literal value. Stored in clear. Leave empty when connection or secret is set."
+        },
+        "connection": {
+          "type": "string",
+          "description": "The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered."
+        },
+        "path": {
+          "type": "string",
+          "description": "Text appended to the connection's address, for example '/api'. Only with connection."
+        },
+        "secret": {
+          "type": "string",
+          "description": "The name of a secret the value is read from. The value itself is never stored here."
+        },
+        "secretKey": {
+          "type": "string",
+          "description": "The key or version inside the secret. Only with secret."
         }
       }
     },

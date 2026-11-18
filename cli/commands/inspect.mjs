@@ -34,6 +34,7 @@ export function parseArgs(argv) {
     else if (arg === "--json") opts.json = true;
     else if (arg === "--draft") opts.draft = true;
     else if (arg === "--name") opts.name = value();
+    else if (arg === "--local") opts.local = value();
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new InspectUsageError(`unknown argument: ${arg}`);
   }
@@ -46,8 +47,9 @@ export function parseArgs(argv) {
     if (!opts.terraform) throw new InspectUsageError("--draft needs --terraform <file>: a draft is written from a rendered plan or state");
     if (!opts.env) throw new InspectUsageError("--draft needs --env <name>: the environment its placements and connection targets are written for");
     if (opts.json) throw new InspectUsageError("--draft prints cluster.toml; it cannot be combined with --json");
-  } else if (opts.name) {
-    throw new InspectUsageError("--name is only used with --draft");
+    if (opts.local === opts.env) throw new InspectUsageError(`--local and --env are both "${opts.env}"; a second placement needs a second environment`);
+  } else if (opts.name || opts.local) {
+    throw new InspectUsageError(`${opts.name ? "--name" : "--local"} is only used with --draft`);
   }
   return opts;
 }
@@ -92,7 +94,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--name <cluster name>]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env>] [--name <cluster name>]");
     return 0;
   }
 
@@ -133,7 +135,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     if (opts.draft) {
       // The draft is printed, never written: the operator chooses where it
       // goes, and an existing cluster.toml is not read and cannot be replaced.
-      const draft = draftCluster(imported, { env: opts.env, name: opts.name });
+      const draft = draftCluster(imported, { env: opts.env, name: opts.name, local: opts.local });
       log(draft.toml);
       return 0;
     }

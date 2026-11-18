@@ -402,11 +402,36 @@ struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the
   #
   # Same shape and precedent as `hypervisorRationale` on Bundle (ADR-0011).
   executionModeRationale @7 :Text $Traits.doc("Why this bundle cannot be isolated. Required when executionMode is 'process'.");
+
+  # How long the workload runs (ADR-0074 §7). "service" runs until it is
+  # stopped and may be reached on its ports. "job" runs to completion.
+  # Empty means "service", which is what every bundle was before this field.
+  # A placement emitter picks the object from it: on Kubernetes a Deployment
+  # and a Service, or a Job.
+  runs @8 :Text $Traits.doc("'service' to run until stopped, or 'job' to run to completion. Empty means 'service'.");
 }
 
-struct EnvVar $Traits.doc("One environment variable.") {
+# One environment variable, whose value comes from exactly one of three
+# places (ADR-0074 §7). This is what lets one bundle be lowered to any
+# placement: only a literal is the same everywhere.
+#
+#   value       a literal. The same in every placement.
+#   connection  the address of one of this bundle's connections. Different in
+#               every placement (a cluster DNS name, a route, a socket), so
+#               the bundle holds the BINDING and each emitter writes the
+#               address for the placement it lowers.
+#   secret      a reference to a named secret. The reference is carried; the
+#               value is never in this file.
+#
+# toml-to-cluster refuses a row that sets more than one of them.
+struct EnvVar $Traits.doc("One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.") {
   name  @0 :Text $Traits.doc("The variable's name. Not empty, and without '=' or NUL.");
-  value @1 :Text $Traits.doc("The variable's value. Stored in clear.");
+  value @1 :Text $Traits.doc("A literal value. Stored in clear. Leave empty when connection or secret is set.");
+  connection @2 :Text $Traits.doc("The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered.");
+  # Appended to the address as written, e.g. "/sweep". Only with `connection`.
+  path @3 :Text $Traits.doc("Text appended to the connection's address, for example '/api'. Only with connection.");
+  secret @4 :Text $Traits.doc("The name of a secret the value is read from. The value itself is never stored here.");
+  secretKey @5 :Text $Traits.doc("The key or version inside the secret. Only with secret.");
 }
 
 # ── Confinement: cloister/confinement/v1 §1 ConfinementManifest ────────────

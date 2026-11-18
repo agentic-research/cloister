@@ -138,7 +138,7 @@ In order, each useful without the next:
 3. **Lower.** From the declared graph, write each workload's configuration
    for a placement: the addresses it should dial there. This is the env
    lowering ADR-0070 lists as not built, and it is what "runnable locally"
-   needs. *Not built.*
+   needs. *Built for Kubernetes: `cluster lower`. See §7.*
 
 ### 6. A placement that is only checked is still a placement
 
@@ -182,6 +182,119 @@ ADR-0070 §3 says for it. For Cloud Run that is `policy`, from the invoker IAM
 row plus the ingress setting. Both are read today. Neither is compared with
 intent yet.
 
+### 7. cluster.toml is what every placement is lowered from
+
+Most people have one description of their system: the one their deployment
+tool renders. Running it somewhere else means writing it again by hand, for
+Kubernetes or for Docker, and working out which parts change. That is the
+struggle this section is for, and it is not specific to any one cloud.
+
+There are two ways to build that. One is a converter per pair: plan to
+Kubernetes, plan to Knative, plan to a microVM, each re-deriving the workload
+from the plan. The other is one description in the middle that every placement
+is lowered from. `cluster.toml` is already that description for the microVM
+placement. This section makes it so for all of them:
+
+```
+rendered plan ──draft──▶ cluster.toml ──lower──▶ kubernetes manifest
+                          (a bundle)  ──lower──▶ (knative, microvm: same bundle)
+```
+
+- **Drafting** (`inspect --draft`) reads the plan and writes the bundle.
+- **Lowering** (`cluster lower`) reads only `cluster.toml`. It works the same
+  on a hand-written file as on a drafted one, and a new placement is a new
+  emitter over the same bundle, with nothing to re-derive.
+
+#### What a bundle had to gain
+
+A bundle already held an image, an entry point, arguments and a list of
+`name = value` env rows. Three things had nowhere to go. All three are
+appended fields; nothing existing changes meaning.
+
+**An env row takes its value from exactly one of three places:**
+
+| Field | Meaning | Same in every placement? |
+|---|---|---|
+| `value` | A literal. | Yes. |
+| `connection` (and `path`) | The address of one of this bundle's connections, with optional text appended. | No. A cluster DNS name on Kubernetes, a route on Knative, a socket in a microVM. The bundle holds the binding and each emitter writes the address. |
+| `secret` (and `secretKey`) | A reference to a named secret. | The reference, yes. The value is never in the file. |
+
+A row that sets more than one is refused, and so is a `connection` that names
+no connection the bundle declares.
+
+**`runs`** says whether a bundle runs until stopped (`service`, the default)
+or to completion (`job`). An emitter picks the object from it. A job may not
+expose a port: nothing can depend on reaching something that exits.
+
+#### What the draft does with a plan
+
+Everything a workload is started with is sorted by what it is:
+
+| In the plan | In the draft |
+|---|---|
+| Image, command, args | The bundle's image, entry point, args. |
+| An env value that is a constant in the configuration | An env row with `value`. |
+| An env value taken from another workload | An env row with `connection`. |
+| An env value from a secret reference | An env row with `secret`. |
+| An env value taken from a variable, or anything else unresolved | **Not drafted.** Named at the top of the draft, with where it comes from. |
+
+**Env is read from the plan's configuration, not its planned values.** A
+provider may mark a whole env block sensitive because one variable in it is.
+The planned values are then withheld, all of them. The configuration still
+says, per variable, whether the value is a constant, taken from another
+resource, or taken from a variable. Only a constant is copied, and only for a
+field the provider's schema does not mark sensitive
+([ADR-0073](0073-resource-facts-are-imported-never-granted.md) amendment). A
+state document has no configuration, so its env is not drafted.
+
+#### What lowering does
+
+`cloister cluster lower --env <name>` writes, for each bundle placed
+`kubernetes` in that environment, the manifest its placement row names: a
+Deployment and a Service, or a Job. A `connection` row becomes
+`<scheme>://<bundle>.<bundle>.svc.cluster.local:<port>` plus its path. A
+`secret` row becomes a `secretKeyRef`, and the manifest says which Secret to
+create.
+
+**This changes a rule.** ADR-0070 §2 says cloister owns only the edges of a
+forwarded workload, never its spec. That stays true for a manifest the
+operator renders. Where there is none, cloister may write one **as a file for
+the operator to read, edit and commit, when asked to**. It never applies one,
+and it never overwrites one: a manifest that exists is left alone, whoever
+wrote it.
+
+**What it writes is checked like anything else.** The lowered manifests are
+ordinary input to `cluster k8s`, which holds the addresses in them to the
+declared connections and writes the NetworkPolicies. An address that did not
+match a declared connection would fail there, by the rule an operator's
+manifest is held to.
+
+**Who may call it is translated, not copied.** In a plan that is an access
+row: a principal with an invoker role. Locally it is a declared connection,
+which `cluster k8s` turns into a NetworkPolicy. A caller that authenticates
+with a cloud identity token will still fail locally: that is in the
+application, and no manifest changes it.
+
+#### What it does not do
+
+- **Only the Kubernetes emitter is built.** The bundle is ready for the
+  others, and each has its own blocker:
+  - *Knative:* a Knative Service is dialled on port 80 whatever its container
+    listens on, and a bundle has one port number for all placements. That is
+    the "ports per placement" open question below, and it has to be answered
+    first.
+  - *microVM:* `runtime plan` refuses a `connection` or `secret` row by name.
+    Writing a socket address into a guest's environment is part of LLO's plan
+    contract.
+- **An address across placements is refused.** A Kubernetes bundle bound to a
+  connection whose target is placed elsewhere needs LLO's broker.
+- **A path the plan appends to an address is not read** (`"${uri}/sweep"`).
+  The configuration lists what a value references, not the text around it.
+  The draft says so for each such row, and `path` is where to put it back.
+- A probe, a resource limit, a volume, a service account: not in the bundle,
+  so not written.
+- It has not been run against a live cluster.
+
 ## Consequences
 
 - **One source of truth for what exists.** The deployment tool's rendered
@@ -210,7 +323,10 @@ intent yet.
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |
-| §5.3 Lower addresses per placement | not built |
+| §7 A bundle carries what a workload is started with: env as literal, connection binding or secret reference; `runs` | built |
+| §7 Draft fills it from a plan (`inspect --draft`, `--local`) | built |
+| §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; not yet run against a live cluster |
+| §7 Lower a bundle to Knative, or a binding to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | not built |

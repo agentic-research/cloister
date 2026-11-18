@@ -93,7 +93,7 @@ export function parseArgs(argv) {
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError(`${a} requires a value`);
       out[a.slice(2)] = v; i++; continue;
     }
-    if (!out.sub && ["generate", "resolve", "up", "down", "k8s"].includes(a)) { out.sub = a; continue; }
+    if (!out.sub && ["generate", "resolve", "up", "down", "k8s", "lower"].includes(a)) { out.sub = a; continue; }
     if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
     throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
   }
@@ -129,6 +129,40 @@ export function clusterComposePath(dir) {
  * otherwise be applied by `kubectl apply -f`, so it is refused by name rather
  * than deleted or silently kept.
  */
+/**
+ * `cloister cluster lower`: for each bundle placed "kubernetes" in `env`,
+ * write the manifest its placement row names, from the bundle as cluster.toml
+ * declares it (ADR-0074 §7).
+ *
+ * A manifest that already exists is left alone: it may be one the operator
+ * rendered, or a lowered one they have edited. Nothing is ever overwritten.
+ */
+export async function lowerDir({ root, env }) {
+  const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
+  const { placementFor } = await import("../lib/cluster/connections.mjs");
+  const { kubernetesWorkload } = await import("../lib/cluster/emit-workload.mjs");
+  const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
+  const bundles = cluster.bundles.map(checkableBundle);
+  const connections = cluster.connections ?? [];
+  const written = [];
+  const kept = [];
+  for (const bundle of cluster.bundles) {
+    const checkable = bundles.find((b) => b.name === bundle.name);
+    if (placementFor(checkable, env) !== "kubernetes") continue;
+    const manifest = checkable.placements.find((p) => p.env === env).manifest;
+    const dest = resolve(root, manifest);
+    if (existsSync(dest)) { kept.push(manifest); continue; }
+    const content = kubernetesWorkload(bundle, { bundles, connections, env });
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, content);
+    written.push(manifest);
+  }
+  if (written.length === 0 && kept.length === 0) {
+    throw new ClusterUsageError(`no bundle is placed "kubernetes" for env "${env}"; lowering writes kubernetes manifests only`);
+  }
+  return { written, kept };
+}
+
 export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
@@ -234,6 +268,20 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     } catch (error) {
       errLog(`cloister cluster resolve: ${error.message}`);
       return 1;
+    }
+  }
+
+  if (args.sub === "lower") {
+    try {
+      const env = args.env ?? "local";
+      const { written, kept } = await lowerDir({ root: selectedRoot, env });
+      for (const f of written) log(`cloister cluster lower: wrote ${join(args.dir, f)}`);
+      for (const f of kept) log(`cloister cluster lower: kept ${join(args.dir, f)} (it exists; a manifest is never overwritten)`);
+      log(`  next: cloister cluster k8s --dir ${args.dir} --env ${env} --out <dir>`);
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster lower: ${error.message}`);
+      return error instanceof ClusterUsageError ? 2 : 1;
     }
   }
 

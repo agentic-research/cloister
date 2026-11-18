@@ -51,6 +51,15 @@ resource "google_cloud_run_v2_service" "workqueue" {
         name  = "API_TOKEN"
         value = var.api_token
       }
+      env {
+        name = "DB_PASSWORD"
+        value_source {
+          secret_key_ref {
+            secret  = "db-password"
+            version = "latest"
+          }
+        }
+      }
     }
   }
 }

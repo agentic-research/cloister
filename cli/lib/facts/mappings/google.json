@@ -11,6 +11,7 @@
         { "path": "template.containers.env", "read": ["name", "value"] },
         { "path": "template.containers.ports", "read": ["name", "container_port"] }
       ],
+      "configLists": [{ "path": "template.containers.env", "fields": ["name", "value", "value_source.secret_key_ref.secret", "value_source.secret_key_ref.version"] }],
       "report": {
         "section": "Cloud Run services", "show": ["location", "ingress"],
         "address": "uri",
@@ -22,7 +23,11 @@
         "references": ["template"],
         "bundle": {
           "placement": "cloudRun",
+          "runs": "service",
           "image": { "list": "containers", "value": "image" },
+          "args": { "list": "containers", "strings": "args" },
+          "command": { "list": "containers", "strings": "command" },
+          "env": { "configured": "env", "name": "name", "value": "value", "secret": "value_source.secret_key_ref.secret", "secretVersion": "value_source.secret_key_ref.version" },
           "ports": { "list": "ports", "name": "name", "port": "container_port", "default": { "name": "http1", "port": 8080 } },
           "wires": { "http1": "art.http", "h2c": "art.http2" }
         }
@@ -66,6 +71,7 @@
         { "path": "template.template.containers.env", "read": ["name", "value"] },
         { "path": "template.template.containers.ports", "read": ["name", "container_port"] }
       ],
+      "configLists": [{ "path": "template.template.containers.env", "fields": ["name", "value", "value_source.secret_key_ref.secret", "value_source.secret_key_ref.version"] }],
       "report": {
         "section": "Cloud Run jobs", "show": ["location"],
         "dials": [
@@ -76,7 +82,11 @@
         "references": ["template"],
         "bundle": {
           "placement": "cloudRun",
-          "image": { "list": "containers", "value": "image" }
+          "runs": "job",
+          "image": { "list": "containers", "value": "image" },
+          "args": { "list": "containers", "strings": "args" },
+          "command": { "list": "containers", "strings": "command" },
+          "env": { "configured": "env", "name": "name", "value": "value", "secret": "value_source.secret_key_ref.secret", "secretVersion": "value_source.secret_key_ref.version" }
         }
       }
     },

@@ -97,7 +97,7 @@ function dialsOf(fact, entry, facts, kind, addressed) {
  * provider's default when the mapping states one, and that is recorded, so a
  * draft can say the port was assumed and not read.
  */
-function bundleOf(fact, rule) {
+function bundleOf(fact, rule, facts, withRun) {
   const image = rule.image ? (fact.attrs[rule.image.list] ?? []).map((row) => row[rule.image.value]).find((v) => typeof v === "string" && v !== "") ?? "" : "";
   const ports = [];
   if (rule.ports) {
@@ -113,13 +113,63 @@ function bundleOf(fact, rule) {
       ports.push({ name, port, appProtocol: rule.wires[name], assumed: true });
     }
   }
-  return { placement: rule.placement, image, ports };
+  const strings = (ref) => (ref ? (fact.attrs[ref.list] ?? []).flatMap((row) => row[ref.strings] ?? []) : []);
+  const bundle = { placement: rule.placement, runs: rule.runs ?? "service", image, ports };
+  // What it is started with is read only when a caller is going to write a
+  // manifest from it. The report never carries it: an argument or an env value
+  // may hold an address or worse, and the report is printed.
+  if (withRun) bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts) };
+  return bundle;
+}
+
+/**
+ * Each environment variable the configuration declares, sorted into what can
+ * be carried to another placement and what cannot (ADR-0074 §5.3):
+ *
+ *   constant   a literal in the configuration. Carried as written.
+ *   workload   taken from another workload: an address, which is different in
+ *              every placement and is what lowering rewrites.
+ *   secret     a reference to a named secret. The reference is carried; the
+ *              value is never in the document.
+ *   unknown    taken from something this document does not resolve (a
+ *              variable, a resource that is not a workload). Named, not guessed.
+ *
+ * Null when the mapping does not say where env is configured, or the document
+ * is not a plan: there is then nothing to sort.
+ */
+function envOf(fact, rule, facts) {
+  const rows = rule ? fact.attrs.configured?.[rule.configured] : undefined;
+  if (!rows) return null;
+  const out = [];
+  for (const row of rows) {
+    const name = row[rule.name]?.constant;
+    if (typeof name !== "string" || name === "") continue;
+    const secret = rule.secret ? row[rule.secret]?.constant : undefined;
+    const value = row[rule.value];
+    if (typeof secret === "string" && secret !== "") {
+      const version = rule.secretVersion ? row[rule.secretVersion]?.constant : undefined;
+      out.push({ name, kind: "secret", secret, version: typeof version === "string" ? version : "" });
+    } else if (value && Object.hasOwn(value, "constant")) {
+      out.push({ name, kind: "constant", value: String(value.constant) });
+    } else if (value) {
+      const targets = value.references.map((address) => facts.find((f) => f.address === address));
+      const workloads = targets.filter((f) => f && mappedType(f.type)?.report?.bundle);
+      if (workloads.length === 1 && targets.length === 1 && value.unresolved.length === 0) {
+        out.push({ name, kind: "workload", to: workloads[0].name, section: mappedType(workloads[0].type).report.section });
+      } else {
+        out.push({ name, kind: "unknown", from: [...value.references, ...value.unresolved] });
+      }
+    } else {
+      out.push({ name, kind: "unknown", from: [] });
+    }
+  }
+  return out;
 }
 
 /** The report's declared sections. Exported for the draft, which reads the same resources. */
-export const sectionsOf = (facts, kind) => declaredSections(facts, kind);
+export const sectionsOf = (facts, kind, options) => declaredSections(facts, kind, options);
 
-function declaredSections(facts, kind) {
+function declaredSections(facts, kind, { withRun = false } = {}) {
   const byType = (type) => facts.filter((f) => f.type === type);
   const entries = mappedEntries();
   const sections = new Map();
@@ -160,7 +210,7 @@ function declaredSections(facts, kind) {
         dialer: Boolean(entry.report.dials),
         // What a bundle drafted from this resource would hold (ADR-0074 §3),
         // for a type whose mapping says it is a workload.
-        bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle) : null,
+        bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle, facts, withRun) : null,
         // A list the document marks sensitive is not read. Say so: "no edge
         // found" would otherwise read as "no edge".
         withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),

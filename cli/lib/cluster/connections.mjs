@@ -425,6 +425,62 @@ export function assertPortsAndConnections(bundles, connections) {
   }
 }
 
+/** Where an env row's value comes from: "value", "connection" or "secret". */
+export function envSource(row) {
+  if (text(row?.connection) !== "") return "connection";
+  if (text(row?.secret) !== "") return "secret";
+  return "value";
+}
+
+export const RUNS = Object.freeze(["service", "job"]);
+
+/**
+ * Checks on a bundle's env bindings and run mode that capnp cannot express
+ * (ADR-0074 §7). An env row takes its value from exactly one place; a
+ * connection binding names a connection this bundle declares; a job is not
+ * something another bundle can reach.
+ *
+ * @param {Array} bundles validated bundles (the zod shape)
+ * @param {Array} connections normalized connections
+ */
+export function assertEnvBindings(bundles, connections) {
+  for (const b of bundles) {
+    const external = b?.kind?.external;
+    if (!external) continue;
+    const runs = text(external.runs);
+    if (runs !== "" && !RUNS.includes(runs)) {
+      throw new Error(`bundle "${b.name}": runs ${JSON.stringify(runs)} is not one of ${RUNS.join(", ")}`);
+    }
+    if (runs === "job") {
+      const exposed = (b.ports ?? []).find(isExposed);
+      if (exposed) {
+        throw new Error(`bundle "${b.name}" runs = "job" but exposes port "${exposed.name}": a job runs to completion, so nothing can depend on reaching it`);
+      }
+    }
+    for (const row of external.env ?? []) {
+      const where = `bundle "${b.name}" env ${JSON.stringify(text(row?.name))}`;
+      const set = [["value", row?.value], ["connection", row?.connection], ["secret", row?.secret]].filter(([, v]) => text(v) !== "").map(([k]) => k);
+      if (set.length > 1) {
+        throw new Error(`${where} sets ${set.join(" and ")}: a variable's value comes from exactly one of value, connection or secret`);
+      }
+      const source = envSource(row);
+      if (text(row?.path) !== "" && source !== "connection") {
+        throw new Error(`${where} sets path without connection: path is appended to a connection's address`);
+      }
+      if (text(row?.secretKey) !== "" && source !== "secret") {
+        throw new Error(`${where} sets secretKey without secret`);
+      }
+      if (source === "connection" && !connections.some((c) => c.from === b.name && c.name === row.connection)) {
+        const own = connections.filter((c) => c.from === b.name).map((c) => c.name);
+        throw new Error(
+          `${where} is bound to connection "${row.connection}", but bundle "${b.name}" declares no connection of that name` +
+            (own.length ? ` (it declares: ${own.join(", ")})` : " (it declares none)"),
+        );
+      }
+    }
+  }
+}
+
 /**
  * The fields the checks above read, from a validated Bundle (the zod shape:
  * `kind` is `{ external: {...} }` or `{ workerd: {...} }`).

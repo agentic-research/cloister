@@ -321,6 +321,8 @@ type ExternalBundle struct {
 	ExecutionMode string `json:"executionMode"`
 	// Why this bundle cannot be isolated. Required when executionMode is 'process'.
 	ExecutionModeRationale string `json:"executionModeRationale"`
+	// 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'.
+	Runs string `json:"runs"`
 }
 
 // What a bundle may touch. Every dimension denies by default.
@@ -385,12 +387,20 @@ type FsAllowEntry struct {
 	Mode string `json:"mode"`
 }
 
-// One environment variable.
+// One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.
 type EnvVar struct {
 	// The variable's name. Not empty, and without '=' or NUL.
 	Name string `json:"name"`
-	// The variable's value. Stored in clear.
+	// A literal value. Stored in clear. Leave empty when connection or secret is set.
 	Value string `json:"value"`
+	// The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered.
+	Connection string `json:"connection"`
+	// Text appended to the connection's address, for example '/api'. Only with connection.
+	Path string `json:"path"`
+	// The name of a secret the value is read from. The value itself is never stored here.
+	Secret string `json:"secret"`
+	// The key or version inside the secret. Only with secret.
+	SecretKey string `json:"secretKey"`
 }
 
 type TenancySpec struct {

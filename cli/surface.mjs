@@ -354,8 +354,30 @@ export const COMMANDS = [
     seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
   },
   {
+    name: "cluster lower",
+    usage: "cloister cluster lower [--env <name>] [--dir <path>]",
+    summary: "Write each kubernetes-placed bundle's manifest from cluster.toml",
+    detail:
+      "For each bundle placed \"kubernetes\" in --env, writes the manifest its placement " +
+      "row names, from the bundle as cluster.toml declares it: a Deployment and a Service, " +
+      "or a Job when the bundle has runs = \"job\". cluster.toml is the only input, so a " +
+      "hand-written file and one drafted by `inspect --draft` are lowered the same way. " +
+      "The image, entry point, args and literal env values are written as declared. An " +
+      "env row bound to a connection is set to that connection's address in this " +
+      "placement, plus its path. An env row bound to a secret becomes a secretKeyRef, and " +
+      "the manifest says which Secret to create. A manifest that already exists is never " +
+      "overwritten. Nothing is applied. Then run `cluster k8s`: it holds the addresses in " +
+      "these manifests to the declared connections and writes the NetworkPolicies. An " +
+      "address that crosses placements is refused. ADR-0074 §7.",
+    flags: [
+      { flag: "--env", value: "<name>", summary: "environment whose kubernetes placements are lowered (default: local)" },
+      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+    ],
+    seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
+  },
+  {
     name: "inspect",
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--name <name>]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--local <env>] [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -377,8 +399,14 @@ export const COMMANDS = [
       "declared connection is also compared with what the inputs say a service " +
       "dials: evidenced, unknown, or undeclared, plus the services cluster.toml " +
       "does not list. With --draft it prints a cluster.toml instead: one bundle per " +
-      "workload (name, image, ports and the placement kind the mapping names) and one " +
-      "connection per edge the inputs imply. The draft is printed, never written, and an " +
+      "workload and one connection per edge the inputs imply. A bundle carries what the " +
+      "workload is started with: image, args, whether it is a service or a job, and env. " +
+      "An env value is drafted as what it is: a literal, a binding to a connection (an " +
+      "address, which differs per placement), or a secret reference. A value taken from " +
+      "a variable is not drafted and is named in the header. From a plan, env is read " +
+      "from the configuration, so it is found even when the provider marks the whole " +
+      "block sensitive. --local <env> adds a kubernetes placement for a second " +
+      "environment, which `cluster lower` then writes manifests for. The draft is printed, never written, and an " +
       "existing cluster.toml is not read. Its header lists what the inputs did not show: " +
       "an env block marked sensitive, a port that was assumed, an edge whose target is " +
       "not a workload, a resource type no mapping reads. Committing the draft is what " +
@@ -390,6 +418,7 @@ export const COMMANDS = [
       { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON" },
       { flag: "--draft", summary: "print a cluster.toml drafted from --terraform, for you to review and commit; needs --env" },
+      { flag: "--local", value: "<env>", summary: "with --draft: also place every bundle kubernetes in this environment, for `cluster lower`" },
       { flag: "--name", value: "<name>", summary: "with --draft: the cluster name in [metadata] (default: drafted)" },
     ],
     seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",

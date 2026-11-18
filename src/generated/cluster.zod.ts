@@ -289,6 +289,8 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     executionMode: z.string().default(""),
     /** Why this bundle cannot be isolated. Required when executionMode is 'process'. */
     executionModeRationale: z.string().default(""),
+    /** 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'. */
+    runs: z.string().default(""),
   }).strict());
 
 export interface ExternalBundle {
@@ -300,6 +302,7 @@ export interface ExternalBundle {
   entryPoint: string;
   executionMode: string;
   executionModeRationale: string;
+  runs: string;
 }
 
 /** What a bundle may touch. Every dimension denies by default. */
@@ -409,18 +412,30 @@ export interface FsAllowEntry {
   mode: string;
 }
 
-/** One environment variable. */
+/** One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one. */
 export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
   z.object({
     /** The variable's name. Not empty, and without '=' or NUL. */
     name: z.string().default(""),
-    /** The variable's value. Stored in clear. */
+    /** A literal value. Stored in clear. Leave empty when connection or secret is set. */
     value: z.string().default(""),
+    /** The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered. */
+    connection: z.string().default(""),
+    /** Text appended to the connection's address, for example '/api'. Only with connection. */
+    path: z.string().default(""),
+    /** The name of a secret the value is read from. The value itself is never stored here. */
+    secret: z.string().default(""),
+    /** The key or version inside the secret. Only with secret. */
+    secretKey: z.string().default(""),
   }).strict());
 
 export interface EnvVar {
   name: string;
   value: string;
+  connection: string;
+  path: string;
+  secret: string;
+  secretKey: string;
 }
 
 export const TenancySpecSchema: z.ZodType<TenancySpec> = z.lazy(() =>

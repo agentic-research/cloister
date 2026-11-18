@@ -33,6 +33,8 @@ you name, and nothing else.
 |---|---|---|
 | A Terraform or OpenTofu plan | To see which service calls which, and who may invoke it | `cloister inspect --terraform` |
 | A Terraform or OpenTofu plan | A first `cluster.toml` without writing it | `cloister inspect --terraform --draft` |
+| A Terraform or OpenTofu plan | The same services on a local cluster | `inspect --draft --local`, then `cloister cluster lower` |
+| A `cluster.toml` | A Kubernetes manifest per service | `cloister cluster lower` |
 | That plan and a `cluster.toml` | To know where the two disagree | `cloister inspect --terraform --dir` |
 | Kubernetes or Knative manifests | Each service held to its declared connections, plus network policies | `cloister cluster k8s` |
 | A repository and a coding tool | The tool confined to that repository | `cloister run --harness` |
@@ -99,11 +101,50 @@ build.
 
 A Knative Service is checked the same way, and nothing is written for it.
 
+### Run the same services on a local cluster
+
+```sh
+cloister inspect --terraform plan.json --draft --env prod --local local > cluster.toml
+cloister cluster lower --env local
+cloister cluster k8s --env local --out k8s
+```
+
+1. **Draft.** `cluster.toml` now describes each service once: its image, args
+   and environment, placed `cloudRun` for `prod` and `kubernetes` for `local`.
+2. **Lower.** Writes one Kubernetes manifest per service from `cluster.toml`.
+3. **Check.** Holds those manifests to the declared connections and adds the
+   network policies. Then `kubectl apply` each directory under `k8s/`.
+
+`cluster.toml` is the only thing step 2 reads, so it works the same on a file
+you wrote by hand.
+
+An environment variable is declared as what it is, because only one kind is
+the same everywhere:
+
+```toml
+[[bundles.external.env]]
+name = "LOG_LEVEL"
+value = "info"              # a literal: the same in every placement
+
+[[bundles.external.env]]
+name = "PAYMENTS_URL"
+connection = "payments"     # an address: written per placement
+path = "/v1"
+
+[[bundles.external.env]]
+name = "DB_PASSWORD"
+secret = "orders-db"        # a reference: the value is never in this file
+```
+
+A value the plan takes from a variable cannot be drafted. It is listed at the
+top of the draft with where it comes from. Nothing is applied for you, and a
+manifest that already exists is never overwritten.
+
 ### What is not built yet
 
-Writing each service's addresses for a local cluster is not built: the draft
-describes the deployment the plan is for, and a second placement for a local
-cluster is still added by hand. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
+Lowering writes plain Kubernetes only, and it has not been run against a live
+cluster. Knative and microVM output are not built. Probes, resource limits,
+volumes and service accounts are not carried. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
 
 ## Install

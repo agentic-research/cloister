@@ -201,6 +201,30 @@ bindings are the same capability edges cloister declares as `wires`. So the
 comparison is exact, not approximate. Under ADR-0072 this supplies the
 `workerd` realizer's facts.
 
+**Amendment (2026-11-18): a mapped constant may be read from the plan's
+configuration.** A plan has two sections. `planned_values` holds values, with
+sensitivity marked. `configuration` holds the expressions as the source wrote
+them: a literal, or a list of what the value references.
+
+A mapping may name a nested block list and fields of its rows to read from
+the configuration (`configLists`). For each field cloister reads one of two
+things: the literal, when the expression is a constant, or the resources and
+variables it references. It never evaluates an expression.
+
+This is needed because a provider may mark an entire block sensitive when one
+element of it is. The planned values of every row are then withheld, although
+most rows are not secret. The configuration still tells them apart.
+
+The same limits hold as for any mapped attribute. Every field must be a
+scalar in the provider's published schema that the provider does not mark
+sensitive. A value the configuration takes from a variable is never read,
+whether or not the variable is sensitive: only its name is. The printed
+report does not carry these rows; they are read only when a `cluster.toml` is
+drafted ([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md)
+§7). A literal secret typed into the configuration would be copied into that
+draft as an env value. It is already in the operator's source, and the draft
+is theirs to review before it is committed.
+
 ## What exists today
 
 | Part | State |

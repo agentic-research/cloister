@@ -22,7 +22,7 @@ import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { resolveRelations } from "../../lib/facts/cloudflare.mjs";
 import { buildReport, renderReport } from "../../lib/facts/report.mjs";
-import { readShowJson, resourceReferences } from "../../lib/facts/terraform.mjs";
+import { configuredRows, readShowJson, resourceReferences } from "../../lib/facts/terraform.mjs";
 import { trimPlan } from "../../../gen/trim-plan-fixture.mjs";
 
 // A git hook exports GIT_DIR and GIT_INDEX_FILE. A `git add` here that
@@ -1206,8 +1206,8 @@ test("a drafted bundle carries what was read: image, port, wire and the placemen
 
 test("a draft says what the inputs did not show, and never prints a value", () => {
   const draft = draftOf(googlePlan());
-  // workqueue's env is marked sensitive in the fixture, and it declares no port.
-  assert.ok(draft.notes.some((n) => /"workqueue": its env is marked sensitive and was not read/.test(n)));
+  // workqueue takes one value from a variable, and it declares no port.
+  assert.ok(draft.notes.some((n) => n === '"workqueue": env API_TOKEN is not drafted: it is taken from var.api_token, which these inputs do not resolve'));
   assert.ok(draft.notes.some((n) => /"workqueue": declares no port; 8080 \("http1"\) is this provider's default and was assumed, not read/.test(n)));
   for (const note of draft.notes) assert.ok(draft.toml.includes(`#   - ${note}`), `note missing from the draft's header: ${note}`);
   assert.ok(!draft.toml.includes("FIXTURE-SENSITIVE-VALUE"));
@@ -1271,4 +1271,59 @@ test("a mapping's bundle block is held to what the entry reads and to forwarded 
   assert.throws(withBundle((b) => { b.wires.http1 = "http"; }), /bundle wires "http1": appProtocol /);
   assert.throws(withBundle((b) => { b.ports.default.name = "tcp"; }), /ports default needs a "port" number and a "name" that is one of its wires/);
   assert.throws(withBundle((b) => { b.extra = 1; }), /bundle has unknown key "extra"/);
+});
+
+test("a draft carries what a workload is started with, each env value as what it is", async () => {
+  const cluster = await parseTomlToCluster(draftOf(googlePlan()).toml);
+  const external = (name) => cluster.bundles.find((b) => b.name === name).kind.external;
+  // Read from the configuration: the provider marks this whole env block
+  // sensitive in the planned values, because one element of it is.
+  assert.deepEqual(external("workqueue").env.map((e) => [e.name, e.value, e.connection, e.secret, e.secretKey]), [
+    ["RECONCILER_URL", "", "reconciler", "", ""],
+    ["LOG_LEVEL", "info", "", "", ""],
+    ["DB_PASSWORD", "", "", "db-password", "latest"],
+  ]);
+  assert.deepEqual(external("workqueue").args, ["--workers", "4"]);
+  assert.equal(external("sweep").runs, "job");
+  assert.equal(external("reconciler").runs, "");
+  // The printed report never carries what a workload is started with.
+  const report = JSON.stringify(buildReport(importFacts(googlePlan()), undefined));
+  assert.ok(!report.includes('"run"') && !report.includes("--workers") && !report.includes("LOG_LEVEL"));
+});
+
+test("--local adds a kubernetes placement and a target for a second environment", async () => {
+  const cluster = await parseTomlToCluster(draftOf(googlePlan(), { env: "prod", local: "local" }).toml);
+  assert.deepEqual(cluster.bundles.map((b) => b.placements.map((p) => [p.env, p.kind, p.manifest])),
+    ["reconciler", "workqueue", "sweep"].map((n) => [["prod", "cloudRun", ""], ["local", "kubernetes", `${n}.yaml`]]));
+  assert.deepEqual(cluster.connections.map((c) => c.targets.map((t) => t.env)), [["prod", "local"], ["prod", "local"]]);
+  assert.throws(() => draftOf(googlePlan(), { env: "prod", local: "prod" }), /--local and --env are both "prod"/);
+});
+
+test("configuredRows reads constants and what a value is taken from, never a planned value", () => {
+  const expressions = { template: [{ containers: [{ env: [
+    { name: { constant_value: "A" }, value: { constant_value: "x" } },
+    { name: { constant_value: "B" }, value: { references: ["t.n.attr", "t.n", "var.v"] } },
+    { name: { constant_value: "C" }, value_source: [{ secret_key_ref: [{ secret: { constant_value: "s" } }] }] },
+    { name: { constant_value: "D" }, value: { constant_value: ["not", "a", "scalar"] } },
+  ] }] }] };
+  assert.deepEqual(configuredRows(expressions, "template.containers.env", ["name", "value", "value_source.secret_key_ref.secret"]), [
+    { name: { constant: "A" }, value: { constant: "x" } },
+    { name: { constant: "B" }, value: { references: ["t.n"], unresolved: ["var.v"] } },
+    { name: { constant: "C" }, "value_source.secret_key_ref.secret": { constant: "s" } },
+    { name: { constant: "D" } },
+  ]);
+  assert.deepEqual(configuredRows({}, "template.containers.env", ["name"]), []);
+});
+
+test("the mapping's configured fields and run keys are held to the provider spec", () => {
+  const edited = (edit) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    edit(mapping.types.google_cloud_run_v2_service);
+    return () => validateMapping(mapping, GOOGLE_SPEC);
+  };
+  edited(() => {})();
+  assert.throws(edited((e) => { e.configLists[0].fields.push("nope"); }), /unknown attribute "google_cloud_run_v2_service\.template\.containers\.env\.nope"/);
+  assert.throws(edited((e) => { e.report.bundle.runs = "daemon"; }), /"runs" must be "service" or "job"/);
+  assert.throws(edited((e) => { e.report.bundle.env.value = "other"; }), /env value "other" is not a field of configured list "env"/);
+  assert.throws(edited((e) => { e.report.bundle.args.strings = "image"; }), /bundle args needs a "list" the entry reads and a "strings" attribute/);
 });
