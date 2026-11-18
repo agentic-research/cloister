@@ -250,8 +250,8 @@ state document has no configuration, so its env is not drafted.
 #### What lowering does
 
 `cloister cluster lower --env <name>` writes, for each bundle placed
-`kubernetes` in that environment, the manifest its placement row names: a
-Deployment and a Service, or a Job. A `connection` row becomes
+`kubernetes` or `knative` in that environment, the manifest its placement row
+names: a Deployment and a Service, a Job, or a Knative Service. A `connection` row becomes
 `<scheme>://<bundle>.<bundle>.svc.cluster.local:<port>` plus its path. A
 `secret` row becomes a `secretKeyRef`, and the manifest says which Secret to
 create.
@@ -275,19 +275,53 @@ which `cluster k8s` turns into a NetworkPolicy. A caller that authenticates
 with a cloud identity token will still fail locally: that is in the
 application, and no manifest changes it.
 
+#### A port is listened on, and it is dialled
+
+A bundle's port had one number. That is two different facts that happen to be
+equal most of the time: the number the workload **listens** on, and the number
+a peer **dials**. Whatever sits in front of the workload decides the second. A
+Knative Service is dialled on 80 whatever its container binds. A Kubernetes
+Service maps a `port` to a `targetPort`.
+
+So a bundle's port is the number the workload listens on, and a placement row
+may say what it is dialled on there:
+
+```toml
+[[bundles.ports]]
+name = "http"
+port = 8080              # what the workload listens on, everywhere
+
+[[bundles.placements]]
+env = "local"
+kind = "knative"
+manifest = "payments.yaml"
+
+[[bundles.placements.ports]]
+name = "http"
+port = 80                # what a peer dials in this placement
+```
+
+A port with no row is dialled on its own number, so every existing file means
+what it meant. A row is allowed only on a forwarded placement: on a
+constructed one nothing sits in front of the workload. Every check that is
+about what a peer dials uses the dialled number: the address `cluster k8s`
+holds to a connection, the Service port, the Knative rule that it is 80. The
+NetworkPolicy uses the listened number, because it selects pods.
+
+This is what the Knative emitter needed. The same bundle lowers to a
+Deployment and Service (`port: 80, targetPort: 8080` when a row says so) or to
+a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
+--local <env> --local-kind knative` writes the row for each port.
+
 #### What it does not do
 
-- **Only the Kubernetes emitter is built.** The bundle is ready for the
-  others, and each has its own blocker:
-  - *Knative:* a Knative Service is dialled on port 80 whatever its container
-    listens on, and a bundle has one port number for all placements. That is
-    the "ports per placement" open question below, and it has to be answered
-    first.
-  - *microVM:* `runtime plan` refuses a `connection` or `secret` row by name.
-    Writing a socket address into a guest's environment is part of LLO's plan
-    contract.
-- **An address across placements is refused.** A Kubernetes bundle bound to a
-  connection whose target is placed elsewhere needs LLO's broker.
+- **The microVM emitter does not lower a binding.** `runtime plan` refuses a
+  `connection` or `secret` row by name. Writing a socket address into a
+  guest's environment is part of LLO's plan contract.
+- **An address into another network is refused.** `kubernetes` and `knative`
+  share a cluster network, so a bundle on one may be bound to a connection
+  into the other (a job is a Kubernetes Job wherever it runs, and may call a
+  Knative Service). A target placed anywhere else needs LLO's broker.
 - **A path the plan appends to an address is not read** (`"${uri}/sweep"`).
   The configuration lists what a value references, not the text around it.
   The draft says so for each such row, and `path` is where to put it back.
@@ -326,7 +360,9 @@ application, and no manifest changes it.
 | §7 A bundle carries what a workload is started with: env as literal, connection binding or secret reference; `runs` | built |
 | §7 Draft fills it from a plan (`inspect --draft`, `--local`) | built |
 | §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; not yet run against a live cluster |
-| §7 Lower a bundle to Knative, or a binding to a microVM | not built |
+| §7 A port's dialled number per placement (`[[bundles.placements.ports]]`) | built |
+| §7 Lower a bundle to a Knative Service | built; not yet run against a live cluster |
+| §7 Lower a binding to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | not built |
@@ -339,13 +375,14 @@ application, and no manifest changes it.
 - **What a draft does with an existing file.** Merge, or only ever write a
   new file beside it? Section 3 says the operator commits; it does not say how
   a re-draft meets hand edits.
-- **Ports and protocols.** A Cloud Run service is reached on 443 by its URL
-  and listens on a container port. A Knative Service is reached on 80. A
-  connection declares one port by name. Whether a bundle's port is per
-  placement is not settled, and `https` to a Knative Service is refused today.
-- **Reachability as intent.** How an operator says "internal only" once, so it
-  is checked against Cloud Run's `ingress` in one placement and Knative's
-  route visibility in another.
+- **Protocols per placement.** The number a port is dialled on is now per
+  placement (§7). The scheme is not: a Cloud Run service is reached over
+  `https` on 443 by its URL, and `https` to a Knative Service is refused
+  today.
+- **Reachability as intent.** `expose` on a port is where an operator says
+  "internal only" once. It is now held to Knative's route visibility
+  (ADR-0070 amendment). It is not yet compared with Cloud Run's `ingress`,
+  which the importer reads.
 - **Sub-files.** Whether `cluster.toml` may include other files, so a large
   graph's connections live apart. Not decided here.
 

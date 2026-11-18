@@ -35,7 +35,10 @@ import { addressesIn, clusterService, containerStrings, isObject } from "./manif
 import {
   isExposed,
   placementFor,
+  joinable,
+  KNATIVE_POD_LABEL,
   placementManifest,
+  portsFor,
   refuseCrossPlacement,
 } from "./connections.mjs";
 
@@ -50,6 +53,9 @@ const KNATIVE_SERVICE = Object.freeze({ group: "serving.knative.dev", kind: "Ser
 
 /** The port a Knative Service is reached on inside the cluster, whatever its container listens on. */
 const KNATIVE_PORT = 80;
+/** The label, and its value, that keeps a Knative Service off every external route. */
+export const KNATIVE_VISIBILITY_LABEL = "networking.knative.dev/visibility";
+export const KNATIVE_CLUSTER_LOCAL = "cluster-local";
 
 /**
  * Which Knative wire each blessed appProtocol label can run on. A Knative
@@ -248,18 +254,37 @@ export function inspectKnative(bundle, objects, label) {
   }
   for (const p of exposed) {
     const port = `${where}: port "${p.name}"`;
-    if (p.expose === "edge") {
+    // Whether it can be reached from outside the cluster is Knative's own
+    // route visibility, which the Service states with a label. `expose` says
+    // which is meant, and the manifest must agree (ADR-0070 §2 amendment).
+    const visibility = svc.metadata?.labels?.[KNATIVE_VISIBILITY_LABEL];
+    if (p.expose === "edge" && visibility === KNATIVE_CLUSTER_LOCAL) {
       throw new Error(
-        `${port} has expose = "edge", which is not checked for a knative placement: whether a ` +
-          `Knative Service is reachable from outside is its own route visibility, which this ` +
-          `command does not read. Use expose = "cluster".`,
+        `${port} has expose = "edge", but the Service is labelled ${KNATIVE_VISIBILITY_LABEL}: ${KNATIVE_CLUSTER_LOCAL}, ` +
+          `so it has no route from outside the cluster. Remove the label, or use expose = "cluster"`,
+      );
+    }
+    if (p.expose !== "edge" && visibility !== KNATIVE_CLUSTER_LOCAL) {
+      throw new Error(
+        `${port} has expose = "${p.expose}", but the Service is not labelled ` +
+          `${KNATIVE_VISIBILITY_LABEL}: ${KNATIVE_CLUSTER_LOCAL}. Without it Knative gives the Service a route from ` +
+          `outside the cluster. Add the label to its metadata.labels, or use expose = "edge" if that is intended`,
       );
     }
     if (p.port !== KNATIVE_PORT) {
       const container = typeof ports[0]?.containerPort === "number" ? ` (its container port ${ports[0].containerPort} is not what a peer dials)` : "";
       throw new Error(
-        `${port} is declared as ${p.port} in cluster.toml, but a Knative Service is reached on ` +
-          `port ${KNATIVE_PORT} inside the cluster${container}`,
+        `${port} is dialled on ${p.port} in cluster.toml, but a Knative Service is reached on ` +
+          `port ${KNATIVE_PORT} inside the cluster${container}. Add a [[bundles.placements.ports]] row ` +
+          `to this placement with name = "${p.name}" and port = ${KNATIVE_PORT}: the bundle's port stays what the workload listens on`,
+      );
+    }
+    // With the dialled number set apart, the bundle's own port is what the
+    // container listens on, and the manifest must agree when it says.
+    const listens = p.listen ?? p.port;
+    if (listens !== p.port && typeof ports[0]?.containerPort === "number" && ports[0].containerPort !== listens) {
+      throw new Error(
+        `${port} listens on ${listens} in cluster.toml, but the Service's container port is ${ports[0].containerPort}`,
       );
     }
     if (Object.hasOwn(KNATIVE_WIRES, p.appProtocol)) {
@@ -431,7 +456,11 @@ const HANDLED = Object.freeze(["kubernetes", "knative"]);
  *   file is written for one. `references` and `unreferenced` are what the
  *   containers' own strings say about the graph (see checkAddresses).
  */
-export function lowerK8s({ bundles, connections, env, readManifest }) {
+export function lowerK8s({ bundles: declared, connections, env, readManifest }) {
+  // Every check below is about what a PEER dials. A port's number here is the
+  // one dialled in this env, which a placement row may set apart from the
+  // number the workload listens on (ADR-0074 §7); `listen` keeps the latter.
+  const bundles = declared.map((b) => ({ ...b, ports: portsFor(b, env) }));
   const placed = bundles.filter((b) => placementFor(b, env) === "kubernetes");
   const knative = bundles.filter((b) => placementFor(b, env) === "knative");
 
@@ -454,7 +483,11 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
     }
     const toKind = placementFor(bundles.find((b) => b.name === target.bundle), env);
     if (!HANDLED.includes(fromKind) && !HANDLED.includes(toKind)) continue;
-    if (fromKind !== toKind) refuseCrossPlacement(c, c.from, fromKind, target.bundle, toKind, env);
+    // kubernetes and knative share a cluster network, so an edge between
+    // them is lowered here: a knative caller is admitted by the kubernetes
+    // target's policy, and a kubernetes caller reaches a knative target that
+    // has none (ADR-0070 §2 amendment).
+    if (!joinable(fromKind, toKind)) refuseCrossPlacement(c, c.from, fromKind, target.bundle, toKind, env);
     edges.push({ name: c.name, from: c.from, to: target.bundle, port: target.port });
   }
 
@@ -510,8 +543,21 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
     for (const c of connections) {
       const t = c.targets.find((x) => x.env === env);
       if (!t || t.bundle !== b.name) continue;
-      const source = inspected.get(c.from);
-      if (!source) continue; // not kubernetes-placed; refused above if it touched this bundle
+      // The caller's pods: a kubernetes bundle's by its Service selector, in
+      // its own namespace; a knative bundle's by the label Knative puts on
+      // every pod of the Service, in the namespace its manifest states.
+      let source = inspected.get(c.from);
+      const caller = checked.find((k) => k.bundle === c.from);
+      if (caller) {
+        if (caller.namespace === "") {
+          throw new Error(
+            `connection "${c.name}" (from "${c.from}") env "${env}": Knative Service "${caller.service}" states no ` +
+              `metadata.namespace, so no NetworkPolicy can name where its pods run. Set it, so "${b.name}" can admit them`,
+          );
+        }
+        source = { name: caller.namespace, selector: { [KNATIVE_POD_LABEL]: caller.service } };
+      }
+      if (!source) continue; // another placement; refused above if it touched this bundle
       policies.push(allowEdge(c, source, info, info.podPorts.get(t.port)));
     }
     files.push({ path: `${b.name}/20-networkpolicy.yaml`, content: yamlDocs(policies) });

@@ -400,6 +400,17 @@ export interface PlacementSpec {
    * for kubernetes and knative, refused on constructed kinds; never edited.
    */
   manifest: string;
+  /**
+   * Ports dialled on a different number in this placement than the workload
+   * listens on (a Knative Service is dialled on 80). Forwarded kinds only.
+   */
+  ports: readonly PlacementPort[];
+}
+
+/** The number one of the bundle's ports is dialled on in one placement. */
+export interface PlacementPort {
+  name: string;
+  port: number;
 }
 
 /** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */

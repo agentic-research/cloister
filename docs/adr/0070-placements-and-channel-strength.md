@@ -172,6 +172,39 @@ So:
 Not built: any enforcement for Knative. That needs its own answer for what
 `policy` means on Knative's request path.
 
+**Amendment (2026-11-18): what Knative does enforce, and edges between
+kubernetes and knative.** The amendment above says nothing is enforced for
+Knative. That ran two questions together.
+
+*Can it be reached from outside the cluster?* Knative answers this itself. A
+Service labelled `networking.knative.dev/visibility: cluster-local` gets no
+external route. That is what `expose = "cluster"` means on a port, so the two
+are held together: `cluster k8s` refuses a knative bundle whose port is
+`expose = "cluster"` and whose Service lacks the label, and one whose port is
+`expose = "edge"` and whose Service has it. `cluster lower` writes the label.
+`expose = "edge"` on a knative bundle was refused before; it is now checked.
+
+*Which in-cluster caller may reach it?* Plain Knative does not answer this. A
+request to a Knative Service passes through its ingress and often its
+activator, so the pod sees those as the source and a NetworkPolicy cannot tell
+callers apart. That needs identity on the request: a mesh. Cloister assumes
+none, so an edge INTO a knative bundle stays strength `none`.
+
+That reasoning is about requests into a Knative Service, and the earlier
+amendment applied it to every edge between the two kinds. It does not hold the
+other way, so both directions are now lowered:
+
+| Edge | What happens on the wire | Strength |
+|---|---|---|
+| kubernetes → knative | An ordinary in-cluster call, through Knative's ingress. Nothing restricts it. | `none` |
+| knative → kubernetes | A direct pod-to-pod call. The target's NetworkPolicy admits the caller's pods: namespace as the Knative Service states it, pods by `serving.knative.dev/service`, the label Knative puts on every pod of a Service. | `policy` |
+
+So an edge's strength is the weaker end's, except knative → kubernetes, which
+is `policy`: strength is about whether anything but a declared caller can
+reach the TARGET, and there the target is fenced. A Knative caller whose
+manifest states no namespace is refused by name, because no policy can say
+where its pods run.
+
 **Amendment (2026-11-18): cloister may write a workload's manifest when asked,
 and a bundle with no exposed port needs no Service.** §2 says cloister owns
 only the edges of a forwarded workload. That holds for a manifest the operator

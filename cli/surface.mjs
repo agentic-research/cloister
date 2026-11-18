@@ -332,12 +332,18 @@ export const COMMANDS = [
       "manifest unchanged, and adds an overlay in a namespace named after the " +
       "bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one " +
       "NetworkPolicy per declared connection into it. Apply each bundle's " +
-      "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. Edges to " +
-      "other placements are refused (they need LLO's broker). For each bundle " +
-      "placed \"knative\", checks its Knative Service against the declared " +
-      "port (80, the port a peer dials) and appProtocol (the http1 or h2c " +
-      "wire), and writes nothing: a knative placement has strength \"none\", " +
-      "so a connection that sets a higher minStrength fails the build. " +
+      "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. For each bundle " +
+      "placed \"knative\", checks its Knative Service and writes nothing for it: the " +
+      "port must be dialled on 80 (set with [[bundles.placements.ports]] when the " +
+      "workload listens elsewhere), the appProtocol must match the http1 or h2c wire, " +
+      "and `expose` must agree with the Service's route visibility. expose = " +
+      "\"cluster\" requires the label networking.knative.dev/visibility: cluster-local, " +
+      "and expose = \"edge\" requires it absent. An edge between a kubernetes and a " +
+      "knative bundle is lowered: a knative caller is admitted by the kubernetes " +
+      "target's NetworkPolicy (strength \"policy\"), and a kubernetes caller reaches a " +
+      "knative target that nothing fences from in-cluster callers (strength \"none\"). " +
+      "A connection that sets a higher minStrength than its edge has fails the build. " +
+      "Edges to any other placement are refused (they need LLO's broker). " +
       "For both kinds, the in-cluster addresses in each container's " +
       "environment (resolved through envFrom, env, valueFrom and variable " +
       "references, for ConfigMaps and Secrets in the manifest), args and " +
@@ -356,11 +362,15 @@ export const COMMANDS = [
   {
     name: "cluster lower",
     usage: "cloister cluster lower [--env <name>] [--dir <path>]",
-    summary: "Write each kubernetes-placed bundle's manifest from cluster.toml",
+    summary: "Write each kubernetes- or knative-placed bundle's manifest from cluster.toml",
     detail:
-      "For each bundle placed \"kubernetes\" in --env, writes the manifest its placement " +
-      "row names, from the bundle as cluster.toml declares it: a Deployment and a Service, " +
-      "or a Job when the bundle has runs = \"job\". cluster.toml is the only input, so a " +
+      "For each bundle placed \"kubernetes\" or \"knative\" in --env, writes the manifest " +
+      "its placement row names, from the bundle as cluster.toml declares it. On kubernetes: " +
+      "a Deployment and a Service, or a Job when the bundle has runs = \"job\". On knative: " +
+      "a Knative Service. A port is dialled on the number its placement row gives " +
+      "([[bundles.placements.ports]]) and listened on at the bundle's own number, so a " +
+      "Knative Service is dialled on 80 and a Kubernetes Service maps port to targetPort. " +
+      "If any bundle cannot be lowered, nothing is written. cluster.toml is the only input, so a " +
       "hand-written file and one drafted by `inspect --draft` are lowered the same way. " +
       "The image, entry point, args and literal env values are written as declared. An " +
       "env row bound to a connection is set to that connection's address in this " +
@@ -370,14 +380,14 @@ export const COMMANDS = [
       "these manifests to the declared connections and writes the NetworkPolicies. An " +
       "address that crosses placements is refused. ADR-0074 §7.",
     flags: [
-      { flag: "--env", value: "<name>", summary: "environment whose kubernetes placements are lowered (default: local)" },
+      { flag: "--env", value: "<name>", summary: "environment whose kubernetes and knative placements are lowered (default: local)" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
     ],
     seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
   },
   {
     name: "inspect",
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--local <env>] [--name <name>]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind <kind>]] [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -418,7 +428,8 @@ export const COMMANDS = [
       { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON" },
       { flag: "--draft", summary: "print a cluster.toml drafted from --terraform, for you to review and commit; needs --env" },
-      { flag: "--local", value: "<env>", summary: "with --draft: also place every bundle kubernetes in this environment, for `cluster lower`" },
+      { flag: "--local", value: "<env>", summary: "with --draft: also place every bundle in this environment, for `cluster lower`" },
+      { flag: "--local-kind", value: "<kind>", summary: "with --local: kubernetes (default) or knative. A job is always placed kubernetes" },
       { flag: "--name", value: "<name>", summary: "with --draft: the cluster name in [metadata] (default: drafted)" },
     ],
     seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",

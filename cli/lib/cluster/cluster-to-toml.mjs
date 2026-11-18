@@ -422,7 +422,11 @@ function pruneBundleScalarDefaults(scalars) {
   if (!Array.isArray(flat.placements) || flat.placements.length === 0) {
     delete flat.placements;
   } else {
-    flat.placements = flat.placements.map(pruneEmptyScalars);
+    // A placement with no dialled-port rows writes none.
+    flat.placements = flat.placements.map(pruneEmptyScalars).map((row) => {
+      if (Array.isArray(row.ports) && row.ports.length === 0) { const { ports: _ports, ...rest } = row; return rest; }
+      return row;
+    });
   }
   // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the

@@ -35,13 +35,15 @@ import { sectionsOf } from "./report.mjs";
 
 /**
  * @param {{facts: Array, skipped: Record<string, number>, kind: string|null}} imported
- * @param {{env: string, name?: string, local?: string}} options `env` names
+ * @param {{env: string, name?: string, local?: string, localKind?: string}} options `env` names
  *   the environment the inputs describe. `local` names a second environment:
- *   each bundle also gets a `kubernetes` placement there, with a manifest path
- *   that `cloister cluster lower` writes, and each connection a target there.
+ *   each bundle also gets a placement there (`localKind`: "kubernetes", the
+ *   default, or "knative"), with a manifest path that `cloister cluster lower`
+ *   writes, and each connection a target there.
  * @returns {{toml: string, bundles: number, connections: number, notes: string[]}}
  */
-export function draftCluster(imported, { env, name = "drafted", local }) {
+export function draftCluster(imported, { env, name = "drafted", local, localKind = "kubernetes" }) {
+  if (!["kubernetes", "knative"].includes(localKind)) throw new Error(`--local-kind "${localKind}" is not one of kubernetes, knative`);
   if (local !== undefined && local === env) throw new Error(`--local and --env are both "${env}"; a second placement needs a second environment`);
   const notes = [];
   const workloads = sectionsOf(imported.facts, imported.kind, { withRun: true })
@@ -95,7 +97,15 @@ export function draftCluster(imported, { env, name = "drafted", local }) {
     }
     if (ports.length) bundle.ports = ports;
     bundle.placements = [{ env, kind: w.bundle.placement }];
-    if (local) bundle.placements.push({ env: local, kind: "kubernetes", manifest: `${w.name}.yaml` });
+    if (local) {
+      // A job is not a Knative Service: it is a Kubernetes Job wherever it runs.
+      const kind = w.bundle.runs === "job" ? "kubernetes" : localKind;
+      const row = { env: local, kind, manifest: `${w.name}.yaml` };
+      // A Knative Service is dialled on 80 whatever its container listens on.
+      if (kind === "knative" && ports.some((p) => p.port !== 80)) row.ports = ports.filter((p) => p.port !== 80).map((p) => ({ name: p.name, port: 80 }));
+      bundle.placements.push(row);
+      if (kind !== localKind) notes.push(`"${w.name}": runs to completion, so it is placed "kubernetes" for "${local}", not "${localKind}"`);
+    }
     // Env rows are read from the configuration when there is one (a plan). A
     // state document has none, and its planned env may be withheld.
     if (run.env === null && w.withheld.length) {
