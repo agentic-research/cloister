@@ -23,6 +23,7 @@
 // being the Node 20 test-runner failure and `image:check` needing melange/apko).
 
 import { test } from "node:test";
+import { readFlatTaskfiles } from "../lib/taskfiles.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -52,7 +53,7 @@ function scriptsNeedingLoader(taskfile) {
 test("every Taskfile command running a TS-importing script uses the TS loader", () => {
   // lint-allow-rawparse: reads Taskfile TEXT because the assertion is about the
   // literal command string an invocation uses, which is what the shell runs.
-  const taskfile = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(ROOT);
   const needLoader = scriptsNeedingLoader(taskfile);
 
   assert.ok(

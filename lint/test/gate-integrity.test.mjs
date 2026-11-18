@@ -26,6 +26,7 @@
 // requiresSession; the properties catch the next one.
 
 import { test } from "node:test";
+import { flatTaskfiles, readFlatTaskfiles } from "../lib/taskfiles.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -463,7 +464,7 @@ test("PROPERTY: every check-shaped task is invoked by a gate, or declared opt-in
   // names appear in a deps array literally — a YAML parse would answer the
   // same, but this must keep working if deps move between inline and block
   // form, or into an included Taskfile.
-  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const src = readFlatTaskfiles(ROOT);
   const names = taskNames(src);
   const deps = dependedOn(src);
 
@@ -491,7 +492,7 @@ test("PROPERTY: every check-shaped task is invoked by a gate, or declared opt-in
 });
 
 test("PROPERTY: no declared opt-in is stale, and each states a reason", () => {
-  const src = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const src = readFlatTaskfiles(ROOT);
   const names = taskNames(src);
   const deps = dependedOn(src);
 
@@ -552,4 +553,13 @@ test("no file in lint/, gen/ or dev/ forwards to cli/", () => {
   };
   for (const dir of ["lint", "gen", "dev"]) walk(dir);
   assert.deepEqual(forwarders, []);
+});
+
+// The Taskfile is split: lint/, gen/ and dev/ own their tasks. The rails above
+// read every flat include, so this pins that the split is the one they read:
+// the three directories are included flat, and the root stays an index.
+test("lint/, gen/ and dev/ Taskfiles are included flat", () => {
+  const files = flatTaskfiles(ROOT);
+  assert.deepEqual(files, ["Taskfile.yml", "lint/Taskfile.yml", "gen/Taskfile.yml", "dev/Taskfile.yml"]);
+  for (const file of files) assert.ok(existsSync(resolve(ROOT, file)), `${file} is included but missing`);
 });

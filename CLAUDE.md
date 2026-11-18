@@ -194,10 +194,18 @@ in those three that only re-exports `cli/` code is refused. Both are railed in
 ## Taskfiles are hierarchical
 
 The root `Taskfile.yml` is an **index**: it wires `includes:` and owns
-cross-cutting gates. Work belonging to one directory lives in that
-directory's own Taskfile and is pulled in — `rs/Taskfile.yml` (Rust /
-wasm) and `recipes/Taskfile.yml` (recipe validation, compose emission,
-instantiability) today, invoked as `task rs:*` / `task recipes:*`.
+cross-cutting gates (`lint`, `test`, `verify`) and the operator aliases to
+the CLI. Work belonging to one directory lives in that directory's own
+Taskfile and is pulled in:
+
+- `rs/Taskfile.yml` and `recipes/Taskfile.yml` are namespaced: `task rs:*`,
+  `task recipes:*`.
+- `lint/Taskfile.yml`, `gen/Taskfile.yml` and `dev/Taskfile.yml` are included
+  with `flatten: true`, so their tasks keep the names they always had
+  (`task lint:doc-links`, `task manifest`, `task smoke`).
+
+A rail that reads Taskfile text must read all of them:
+`lint/lib/taskfiles.mjs` returns the root and every flat include as one text.
 
 Adding a directory-scoped task means adding it there, not growing the root.
 If a new area needs more than one task, give it a Taskfile and an
