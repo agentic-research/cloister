@@ -1,6 +1,6 @@
 // scripts/test/emit-cloister-capnp.test.mjs
 //
-// Phase 2 (Commit 3) contract tests for scripts/emit-cloister-capnp.mjs —
+// Phase 2 (Commit 3) contract tests for cli/lib/cluster/emit-cloister-capnp.mjs —
 // the cluster.toml + cluster.lock.toml → cloister.capnp emitter.
 //
 // Per cloister-345ad1 / ADR-0031.

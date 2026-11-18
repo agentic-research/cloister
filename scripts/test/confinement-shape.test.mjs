@@ -38,7 +38,7 @@ import { CREDENTIAL_SOURCE_SCHEMES } from "../lint-bundle-isolation.mjs";
 
 // NOT a provider name. The confinement shape is provider-independent — that is
 // the property, and hardcoding one harness's service here would both assert
-// less and put a provider literal outside scripts/harness-targets.mjs, which
+// less and put a provider literal outside cli/lib/harness/targets.mjs, which
 // `lint:harness-target-literals` exists to prevent ("a harness is a lattice
 // participant, not a special case"). The declared services are exercised
 // separately, below, against whatever cluster.toml actually declares.

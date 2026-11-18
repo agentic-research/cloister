@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/emit-cloister-capnp.mjs — generate cloister.capnp from
+ * cli/lib/cluster/emit-cloister-capnp.mjs — generate cloister.capnp from
  * cluster.toml (routes + gateway).
  *
  * Phase 2 (Commit 3, cloister-345ad1) seeded this with the routes
@@ -43,8 +43,8 @@
  *   when they regenerate.
  *
  * Usage:
- *   node scripts/emit-cloister-capnp.mjs                   # stdout
- *   node scripts/emit-cloister-capnp.mjs --write FILE      # write to file
+ *   node cli/lib/cluster/emit-cloister-capnp.mjs                   # stdout
+ *   node cli/lib/cluster/emit-cloister-capnp.mjs --write FILE      # write to file
  *
  * Env vars:
  *   CLUSTER_TOML       path to cluster.toml      (default: ./cluster.toml)

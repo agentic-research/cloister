@@ -57,7 +57,7 @@ const RECIPES_DIR = process.env.RECIPES_DIR
 let _parseTomlToCluster = null;
 async function getParseTomlToCluster() {
   if (_parseTomlToCluster === null) {
-    const mod = await import(resolve(HERE, "toml-to-cluster.mjs"));
+    const mod = await import(resolve(HERE, "../cli/lib/cluster/toml-to-cluster.mjs"));
     _parseTomlToCluster = mod.parseTomlToCluster;
   }
   return _parseTomlToCluster;
@@ -69,7 +69,7 @@ async function getParseTomlToCluster() {
 let _emitCloisterCapnp = null;
 async function getEmitCloisterCapnp() {
   if (_emitCloisterCapnp === null) {
-    const mod = await import(resolve(HERE, "emit-cloister-capnp.mjs"));
+    const mod = await import(resolve(HERE, "../cli/lib/cluster/emit-cloister-capnp.mjs"));
     _emitCloisterCapnp = mod.emitCloisterCapnp;
   }
   return _emitCloisterCapnp;

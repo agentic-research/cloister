@@ -15,7 +15,7 @@
 // exactly one machine, and it leaks that machine's layout into the repo.
 //
 // `from` is the dev-loop escape hatch: it wins over `ref` (see
-// scripts/resolve-inputs.mjs), so a committed `from` silently overrides the
+// cli/lib/cluster/resolve-inputs.mjs), so a committed `from` silently overrides the
 // durable, content-addressed `ref` for everyone who checks the tree out. That is
 // the same class as the empty-value footguns from cloister-21e42e: a value whose
 // presence quietly changes resolution, with no signal.

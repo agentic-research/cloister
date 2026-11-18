@@ -70,7 +70,7 @@ reached purely over HTTP via `urlBinding`, same as llo.
 
 canonical-hours' `server.json` originally declared only
 `_meta.art.cloister/v1.tenancy` (external/untrusted, no
-`shares_workerd_with`) — no `groups[]`. `scripts/resolve-inputs.mjs`
+`shares_workerd_with`) — no `groups[]`. `cli/lib/cluster/resolve-inputs.mjs`
 accepts that (the documented "single-backend fallback," a warning not
 an error) and emits a `generated_backends` row with empty
 `handlesPrefix` **and** empty `claims`. That row is what the resolver

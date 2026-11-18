@@ -46,9 +46,9 @@ tasks:
         TMP="$(mktemp -d)"
         trap 'rm -rf "$TMP"' EXIT
         CLUSTER_TOML="$D/cluster.toml" CLUSTER_OUTPUT="$TMP/cluster.ts" \
-          {{.NODE_TSX}} scripts/toml-to-cluster.mjs
+          {{.NODE_TSX}} cli/lib/cluster/toml-to-cluster.mjs
         CLUSTER_TS="$TMP/cluster.ts" COMPOSE_OUTPUT="$D/cluster.compose.yaml" \
-          node scripts/emit-compose.mjs
+          node cli/lib/cluster/emit-compose.mjs
 
   instantiable:
     desc: "Assert every recipe with a README can actually be instantiated by `task init` — the contract lint:recipes does not check."
@@ -57,4 +57,4 @@ tasks:
       - "{{.NODE_TSX}} --test scripts/test/gate-integrity.test.mjs"
     sources:
       - recipes/**/*
-      - scripts/cli-init.mjs
+      - cli/commands/init.mjs

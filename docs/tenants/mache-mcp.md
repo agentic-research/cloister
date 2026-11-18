@@ -71,7 +71,7 @@ start with the prefix, so it gets prefixed once for advertisement). But
 `handles()` checks the **advertised** name (`mache_find_callers`)
 against `claims`, which only holds the **bare** upstream name
 (`find_callers`) — without a `stripPrefix` to reconcile the two, the
-call never matches. `scripts/resolve-inputs.mjs:deriveStripPrefix`
+call never matches. `cli/lib/cluster/resolve-inputs.mjs:deriveStripPrefix`
 derives `stripPrefix = advertisedPrefix` per group whenever that
 group's `upstreamNames` are bare (don't already start with
 `advertisedPrefix`) — mirroring the same bare-vs-prefixed condition

@@ -82,7 +82,7 @@ need it.
 
 Per ADR-0030, `cluster.toml [inputs.*]` blocks carry an optional
 `tenancy` sub-table that classifies how each input is hosted. The
-compose emitter (`scripts/emit-compose.mjs`) walks resolved tenancy
+compose emitter (`cli/lib/cluster/emit-compose.mjs`) walks resolved tenancy
 declarations and annotates each service with a
 `cloister.colocated-inputs=<name>,<name>,...` label so operators can
 see at a glance which inputs share a workerd process.
@@ -183,7 +183,7 @@ matrix table at the end:
 
 Run it before cutting a release or after touching any of:
 
-- `cluster.capnp` / `scripts/emit-compose.mjs`
+- `cluster.capnp` / `cli/lib/cluster/emit-compose.mjs`
 - A sibling repo's apko / Dockerfile
 - The wire bindings in `cluster.compose.yaml`
 
@@ -502,5 +502,5 @@ exist.
   + intra-cluster plain-capnp amendment
 - [`manifest/cluster.capnp`](../../manifest/cluster.capnp) — schema
 - [`cluster.capnp`](../../cluster.capnp) — default consumer manifest
-- [`scripts/emit-compose.mjs`](../../scripts/emit-compose.mjs) — the
+- [`cli/lib/cluster/emit-compose.mjs`](../../cli/lib/cluster/emit-compose.mjs) — the
   first emitter

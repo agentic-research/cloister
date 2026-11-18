@@ -526,3 +526,15 @@ test("PROPERTY: an opt-in that cites a gate is cited correctly", () => {
     ([, e]) => e.gatedBy === null || typeof e.gatedBy === "string",
   );
 });
+
+// scripts/ once held 20 files whose whole body was `export * from "../cli/..."`:
+// the old names of code that had moved to cli/. Two paths to one module meant
+// docs, tests and Taskfiles each picked a different one. A forwarder is refused
+// here so the move cannot quietly be undone.
+test("no file in scripts/ forwards to cli/", () => {
+  const dir = new URL("..", import.meta.url);
+  const forwarders = readdirSync(dir)
+    .filter((name) => name.endsWith(".mjs"))
+    .filter((name) => /^export \* from "\.\.\/(cli|bin)\//m.test(readFileSync(new URL(name, dir), "utf8")));
+  assert.deepEqual(forwarders, []);
+});

@@ -134,7 +134,7 @@ function evalGateway() {
 // ── Compose YAML — extract the `services:` map keys ──────────────────────
 //
 // We don't depend on a YAML library; the compose file is auto-generated
-// by scripts/emit-compose.mjs with a stable two-space indent. Service
+// by cli/lib/cluster/emit-compose.mjs with a stable two-space indent. Service
 // names are the only thing this lint needs. Volumes / environment /
 // labels are not inspected here.
 function readComposeServices() {

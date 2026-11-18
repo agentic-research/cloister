@@ -7,7 +7,7 @@ source wins**, and which one should *own* each binding.
 
 Related: ADR-0053 (lease-gate authority resolution), ADR-0042 (dev-mode seams),
 ADR-0010 (vault slices as the eventual binding substrate). Enforcement:
-`task config:check` (`scripts/config-source-check.mjs`), part of `task lint`.
+`task config:check` (`cli/lib/dev/config-sources.mjs`), part of `task lint`.
 
 ## The sources
 

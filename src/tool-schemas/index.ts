@@ -21,7 +21,7 @@
 // `cloister.capnp` no longer asserts the `lsp_*` or `leyline-lifecycle`
 // (status / enrich / reparse) catalogs — they're generated from
 // `cluster.lock.toml` `[[generated_backends]]` rows produced by
-// scripts/resolve-inputs.mjs. The manifest emitter overlays them into
+// cli/lib/cluster/resolve-inputs.mjs. The manifest emitter overlays them into
 // the /mcp McpRouteSpec.backends list at `task manifest` time.
 //
 // The `lifecycle` schemas (reparse / enrich / status) STAY exported

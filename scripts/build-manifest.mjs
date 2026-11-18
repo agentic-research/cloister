@@ -30,7 +30,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { writeGeneratedFile } from "./write-generated.mjs";
+import { writeGeneratedFile } from "../cli/lib/atomic-write.mjs";
 import { dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -48,7 +48,7 @@ const OUTPUT_FILE   = process.env.CLOISTER_OUTPUT      ?? resolve(REPO, "src/gen
 // becomes either a parity check (must match) or empty (we inject).
 // Per cloister-7ca96c.
 const TOOL_SCHEMAS_FILE = process.env.CLOISTER_TOOL_SCHEMAS ?? resolve(REPO, "src/generated/tool-schemas.ts");
-// Lockfile produced by scripts/resolve-inputs.mjs. When present, its
+// Lockfile produced by cli/lib/cluster/resolve-inputs.mjs. When present, its
 // [[generated_backends]] rows are merged into the manifest's /mcp
 // McpRouteSpec.backends list by `overlayLockfileBackends()` below.
 // Phase 1 of the LLO arc (cloister-05334b); the lockfile is a no-op
@@ -410,7 +410,7 @@ function relPath(p) {
 //
 // Reads `cluster.lock.toml` (when present) + injects one mcpProxy backend
 // per [[generated_backends]] row into the /mcp route. The lockfile is
-// produced by `scripts/resolve-inputs.mjs` from cluster.toml's `[inputs.*]`
+// produced by `cli/lib/cluster/resolve-inputs.mjs` from cluster.toml's `[inputs.*]`
 // blocks; each input resolves to bytes + (optionally) an
 // `_meta.art.cloister/v1.groups[]` block. Each group becomes one
 // generated backend row.
@@ -556,7 +556,7 @@ async function overlayLockfileBackends(g) {
  * + logs a warning if the row is malformed (so a single bad row doesn't
  * tank the whole build).
  *
- * Row shape (per scripts/resolve-inputs.mjs `deriveGeneratedBackends`):
+ * Row shape (per cli/lib/cluster/resolve-inputs.mjs `deriveGeneratedBackends`):
  *
  *   { input, name, handlesPrefix, stripPrefix, claims, dynamicTools,
  *     urlBinding, serviceBinding }

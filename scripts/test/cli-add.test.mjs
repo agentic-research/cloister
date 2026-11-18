@@ -1,6 +1,6 @@
 // scripts/test/cli-add.test.mjs
 //
-// Contract tests for scripts/cli-add.mjs (cloister-66b6a6 / ADR-0026
+// Contract tests for cli/commands/add.mjs (cloister-66b6a6 / ADR-0026
 // Phase 2 subpiece 2).
 //
 // Run with:

@@ -1,6 +1,6 @@
 // scripts/test/resolve-inputs.test.mjs
 //
-// Contract tests for scripts/resolve-inputs.mjs — ADR-0026 Phase 1b
+// Contract tests for cli/lib/cluster/resolve-inputs.mjs — ADR-0026 Phase 1b
 // resolver + lockfile writer (cloister-cf7a3b).
 //
 // Run with:

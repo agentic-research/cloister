@@ -22,7 +22,7 @@
 // to itself.
 //
 // WHICH harness is a declared profile: `--target claude-code | codex` selects a
-// row in scripts/harness-targets.mjs, and every provider-specific value comes
+// row in cli/lib/harness/targets.mjs, and every provider-specific value comes
 // from that row. No provider literals here — `lint:harness-target-literals`
 // enforces it, so adding a third harness is a new row and no edit to this path.
 // Per cloister-742e19 + ADR-0057.

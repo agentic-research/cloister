@@ -31,7 +31,7 @@
 //   1 — schema compile failed
 
 import { mkdirSync } from "node:fs";
-import { writeGeneratedFile } from "./write-generated.mjs";
+import { writeGeneratedFile } from "../cli/lib/atomic-write.mjs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";

@@ -89,7 +89,7 @@
 // the only two binding-injection paths:
 //
 //   - scripts/emit-workerd-config.mjs (the runtime config emitter)
-//   - scripts/toml-to-cluster.mjs     (the cluster-manifest compiler — ADR-0025)
+//   - cli/lib/cluster/toml-to-cluster.mjs     (the cluster-manifest compiler — ADR-0025)
 //
 // (scripts/build-cluster.mjs is the legacy capnp-eval pipeline and still
 // produces an equivalent cluster.ts; the drift gate
@@ -123,7 +123,7 @@ import { parse as parseToml } from "smol-toml";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "./lib/canonical-path.mjs";
-import { resolveTenancy } from "./emit-compose.mjs";
+import { resolveTenancy } from "../cli/lib/cluster/emit-compose.mjs";
 
 const REPO = process.cwd();
 
@@ -1159,7 +1159,7 @@ function checkInvariant11(cluster, violations) {
  * ambient. Four of five bundles left it ambient: only mache said `microvm`.
  *
  * Left ambient it is not merely undocumented — it is a deferred hard failure.
- * `scripts/emit-host-launch-plan.mjs` REQUIRES "microvm" or "process" and
+ * `cli/commands/runtime-plan.mjs` REQUIRES "microvm" or "process" and
  * throws otherwise, so `task runtime:plan -- <bundle>` could not emit a plan
  * for any of the four, and nothing said so until someone tried. This is the
  * same shape as Inv 10 before cloister-cb735c: the check existed downstream,

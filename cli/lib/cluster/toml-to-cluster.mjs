@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/toml-to-cluster.mjs — TOML → JSON → zod-validate → cluster.ts.
+ * cli/lib/cluster/toml-to-cluster.mjs — TOML → JSON → zod-validate → cluster.ts.
  *
  * Forward leg of the bidi pipeline (ADR-0025, cloister-ae06f3). The
  * canonical operator surface is `cluster.toml` at the repo root; this
@@ -736,7 +736,7 @@ function normalizeInputDefaults(spec) {
   // "unspecified" shape per the schema's $comment.
   // `urlBinding` / `serviceBinding` (cloister-05334b, P1 of LLO arc)
   // thread through to the [[generated_backends]] rows the resolver
-  // writes — see scripts/resolve-inputs.mjs.
+  // writes — see cli/lib/cluster/resolve-inputs.mjs.
   // `tenancy` (ADR-0030 §A5, cloister-0e3004) defaults to all-empty
   // when absent → resolver inherits the input's server.json
   // `_meta.art.cloister/v1.tenancy` defaults (or "co-located" if the

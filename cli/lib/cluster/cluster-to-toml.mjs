@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/cluster-to-toml.mjs — cluster.ts → canonical TOML.
+ * cli/lib/cluster/cluster-to-toml.mjs — cluster.ts → canonical TOML.
  *
  * Reverse leg of the bidi pipeline (ADR-0025, cloister-ae06f3).
  * Loads the typed `cluster` const out of `src/generated/cluster.ts`,

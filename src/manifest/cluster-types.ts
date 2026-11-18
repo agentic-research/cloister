@@ -11,7 +11,7 @@
 //
 // Three deployment emitters live downstream of this:
 //
-//   scripts/emit-compose.mjs  → docker-compose.yaml
+//   cli/lib/cluster/emit-compose.mjs  → docker-compose.yaml
 //   scripts/emit-pod.mjs      → k8s Pod manifest
 //   scripts/emit-dev.mjs      → task dev:all launcher (mac native)
 
@@ -53,7 +53,7 @@ export interface Cluster {
    * All-empty value (the back-compat default for pre-Phase-4a
    * cluster.toml) signals the emitter to fall through to the
    * ART-default template + emit a warning to stderr; see
-   * `scripts/emit-cloister-capnp.mjs:emitCloisterCapnp`.
+   * `cli/lib/cluster/emit-cloister-capnp.mjs:emitCloisterCapnp`.
    */
   gateway:  Gateway;
   /**
@@ -508,7 +508,7 @@ export interface StoragePolicy {
  *   - empty bundle name / empty wire binding
  *   - bundle with unknown tier
  *
- * Called by `scripts/toml-to-cluster.mjs` BEFORE writing the TS output;
+ * Called by `cli/lib/cluster/toml-to-cluster.mjs` BEFORE writing the TS output;
  * also called by the emitters defensively.
  */
 export function validateCluster(c: Cluster): void {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Properties of the atomic generated-file write (scripts/write-generated.mjs).
+// Properties of the atomic generated-file write (cli/lib/atomic-write.mjs).
 //
 // The bug it fixes was a FLAKE: two test files spawning `task manifest` in
 // parallel raced on src/generated/tool-schemas.ts, and the failure surfaced as

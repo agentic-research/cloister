@@ -29,7 +29,7 @@
  *   docker compose up     (Docker Desktop / colima / docker)
  *
  * Usage:
- *   node scripts/emit-compose.mjs
+ *   node cli/lib/cluster/emit-compose.mjs
  *   → writes cluster.compose.yaml in the repo root.
  */
 

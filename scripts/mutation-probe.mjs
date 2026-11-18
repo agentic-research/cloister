@@ -141,7 +141,7 @@ const MUTANTS = [
   // ── build-leg validation.
   {
     id: "build/actor-fingerprint:never-throws",
-    file: "scripts/toml-to-cluster.mjs",
+    file: "cli/lib/cluster/toml-to-cluster.mjs",
     anchor: "export function assertActorFingerprint(fp) {",
     replace: "export function assertActorFingerprint(fp) {\n  return fp;",
     run: () => NODE_TEST("scripts/test/cluster-toml-roundtrip.test.mjs"),
@@ -150,7 +150,7 @@ const MUTANTS = [
 
   {
     id: "build/matchmaker:not-fail-closed",
-    file: "scripts/capability-matchmaker.mjs",
+    file: "cli/lib/cluster/capability-matchmaker.mjs",
     anchor: '        throw new MatchError(\n          "unsatisfied",',
     replace: '        bindings.push({ consumer: input.name, capability: cap, provider: null }); if (false) throw new MatchError(\n          "unsatisfied",',
     run: () => NODE_TEST("scripts/test/capability-matchmaker.test.mjs"),

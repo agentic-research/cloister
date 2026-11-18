@@ -12,8 +12,8 @@
 # This is the "Helm chart" of a cloister deployment: bundles + wires +
 # storage policy. Emitters that consume it include:
 #
-#   scripts/emit-compose.mjs        → docker-compose.yaml (nerdctl/podman/compose)
-#   scripts/emit-cloister-capnp.mjs → the generated cloister.capnp Gateway value
+#   cli/lib/cluster/emit-compose.mjs        → docker-compose.yaml (nerdctl/podman/compose)
+#   cli/lib/cluster/emit-cloister-capnp.mjs → the generated cloister.capnp Gateway value
 #   cli/commands/runtime-plan.mjs   → cloister/host-runtime/v1 launch plans
 #
 # Per cloister-be0607 / ADR-0009 amendment 2026-05-10. The other ADR-0009
@@ -1024,7 +1024,7 @@ struct McpTool {
 # ordinals; never renumber. An all-empty Gateway value (the back-compat
 # default for pre-Phase-4a cluster.toml) signals the emitter to fall
 # through to the ART-default template + emit a warning to stderr; see
-# scripts/emit-cloister-capnp.mjs for the fall-through rule.
+# cli/lib/cluster/emit-cloister-capnp.mjs for the fall-through rule.
 
 struct Gateway {
   # Logical manifest name + version. Distinct from `cluster.metadata`:

@@ -33,7 +33,7 @@ flowchart LR
 | File | Responsibility |
 |------|----------------|
 | `types.ts` | Hand-mirrored TS types for `manifest/cloister.capnp` — `Gateway`, `Route`, `Backend` union, per-kind backend specs, `McpToolSpec`, `Actor`, `InterlacePolicy`. Source of truth for the TS side; the capnp schema is the source of truth for the wire. |
-| `cluster-types.ts` | Hand-mirrored TS types for the sibling `manifest/cluster.capnp` schema — `Cluster`, `Bundle`, `Wire`, `StoragePolicy`. Consumed by `scripts/emit-compose.mjs` + `scripts/cluster-dev.mjs`. Per [ADR-0009](../../docs/adr/0009-compute-substrate-portability.md) Phase 1. |
+| `cluster-types.ts` | Hand-mirrored TS types for the sibling `manifest/cluster.capnp` schema — `Cluster`, `Bundle`, `Wire`, `StoragePolicy`. Consumed by `cli/lib/cluster/emit-compose.mjs` + `scripts/cluster-dev.mjs`. Per [ADR-0009](../../docs/adr/0009-compute-substrate-portability.md) Phase 1. |
 | `runtime.ts` | `instantiate(manifest, env)` — turns a typed `Gateway` into `EdgeRoute[]`. Three phases: re-validate (defense in depth), backend instantiation (kind→factory registry), route instantiation (`McpEdgeRoute` / `HealthRoute` / `NotmeIdentityRoute` / `HttpProxyRoute`). |
 | `spec.ts` | `McpToolSpec` → `McpTool` conversion. Parses `inputSchemaJson` (string in capnp) into `McpTool['inputSchema']` once at startup; throws cleanly on invalid JSON. |
 | `backends/` | The five backend kind implementations (`durableObject`, `mcpProxy`, `serviceBinding`, `udsForward`, `leylineNet`) — see [`backends/README.md`](backends/README.md) for the per-file map and [`docs/reference/backend-kinds.md`](../../docs/reference/backend-kinds.md) for the operator-facing reference. |

@@ -466,11 +466,11 @@ tasks:
   cluster:toml:export:
     desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
     cmds:
-      - "{{.NODE_TSX}} scripts/cluster-to-toml.mjs {{.CLI_ARGS}}"
+      - "{{.NODE_TSX}} cli/lib/cluster/cluster-to-toml.mjs {{.CLI_ARGS}}"
     sources:
       - src/generated/cluster.ts
       - cli/lib/cluster/cluster-to-toml.mjs
-      - scripts/cluster-to-toml.mjs
+      - cli/lib/cluster/cluster-to-toml.mjs
 
   cluster:toml:roundtrip:
     desc: "Compatibility name for the first-party no-write generation check. Verifies every committed projection matches cluster.toml."
@@ -892,7 +892,7 @@ tasks:
   config:check:
     desc: "cloister-21f273 — preflight the config-source resolution: fail if a .env.local value would be SHADOWED under `wrangler dev` (because .dev.vars exists and wrangler ignores process env) or CONFLICTs with .dev.vars. No-op in CI (gitignored dev files absent). Values never printed."
     cmds:
-      - node scripts/config-source-check.mjs
+      - node cli/lib/dev/config-sources.mjs
 
   serve:local:
     desc: Run via workerd directly (requires build:local first)
@@ -1336,7 +1336,7 @@ tasks:
     sources:
       - recipes/**/*
       - scripts/lint-recipes.mjs
-      - scripts/emit-cloister-capnp.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
       - cli/lib/cluster/**/*.mjs
       - src/generated/cluster.zod.ts
 

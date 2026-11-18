@@ -262,7 +262,7 @@ been. Decided once already on `cloister-aa6a71`.
   §11 row H.5.
 - **Inputs wire by capability, not by hand** — an input declares
   `provides` / `requires` (studs / anti-studs) and the matchmaker
-  (`scripts/capability-matchmaker.mjs`, ADR-0027) resolves them during
+  (`cli/lib/cluster/capability-matchmaker.mjs`, ADR-0027) resolves them during
   `task cluster:toml`. Unsatisfied, ambiguous, self-provided and cyclic
   declarations **fail the build** rather than resolving arbitrarily — that
   fail-closed property is the symbolic half of ADR-0054. Operator guide:
