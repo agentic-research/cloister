@@ -61,7 +61,7 @@ function branchFor(branches, value, root) {
   if (typed.length <= 1) return typed[0] ?? null;
   if (!isTable(value)) return null;
   const tagged = typed.filter((b) =>
-    Object.entries(b.properties ?? {}).every(([key, sub]) => sub.const === undefined || value[key] === sub.const));
+    Object.entries(b.properties ?? {}).every(([key, sub]) => sub?.const === undefined || value[key] === sub.const));
   return tagged.length === 1 ? tagged[0] : null;
 }
 
@@ -75,7 +75,10 @@ function branchFor(branches, value, root) {
 export function undeclaredKeys(value, root = tomlSchema()) {
   const walk = (inner, schemaNode, path) => {
     const schema = resolve(schemaNode, root);
-    if (Array.isArray(schema.oneOf)) {
+    // A `oneOf` beside `properties` only says which of the struct's own tables
+    // goes with which tag. The keys are all on the struct, so it is read as
+    // one. A `oneOf` on its own is a choice between shapes, and is followed.
+    if (Array.isArray(schema.oneOf) && !schema.properties) {
       const branch = branchFor(schema.oneOf, inner, root);
       return branch ? walk(inner, branch, path) : [];
     }

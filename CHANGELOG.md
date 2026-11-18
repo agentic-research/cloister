@@ -27,7 +27,15 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   regenerate it, and each has a drift check in `task lint`. A test holds every
   `cluster.toml` in the tree, and everything the writer emits, to it.
 - The repo's JSON Schema validator read a schema-valued
-  `additionalProperties` as "anything goes". It now applies it.
+  `additionalProperties` as "anything goes". It now applies it, and it reads a
+  boolean as a schema.
+- **Checked against Ajv and taplo.** Both accept every `cluster.toml` in the
+  tree. A typo'd key is named by taplo, which is why a union's tables sit on
+  the struct and not inside `oneOf` branches.
+- **`cluster k8s` reads manifests as they are exported.** A `kubectl get -o
+  yaml` List is unwrapped, and one file holding several Knative Services can be
+  shared by the bundles in it: each takes the Service with its name. Found by
+  running the upstream Knative samples through it.
 
 ### 2026-11 — Platform admission is answered by LLO, not mirrored (`cloister-b94b14`)
 

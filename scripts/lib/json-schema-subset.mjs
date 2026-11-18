@@ -88,6 +88,11 @@ function resolveRef(ref, root) {
  * responses: one means the document is wrong, the other means this file is.
  */
 export function validate(value, schema, { root = schema, path = "$" } = {}) {
+  // A boolean is a whole schema: `true` admits anything and `false` admits
+  // nothing. `false` is how a schema says "this property must not be here".
+  if (schema === true) return [];
+  if (schema === false) return [`${path}: not allowed here`];
+
   const errors = [];
 
   for (const key of Object.keys(schema)) {

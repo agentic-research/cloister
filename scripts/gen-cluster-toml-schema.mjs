@@ -20,9 +20,9 @@
 //
 //   1. A union. capnp says `kind: { external: {...} }`. TOML has no unions, so
 //      the operator writes `kind = "external"` beside a `[bundles.external]`
-//      table. Here that is a `oneOf` with one branch per tag, each fixing the
-//      tag with `const` and admitting only its own table. A union whose
-//      variants carry nothing is just a word, and becomes an `enum`.
+//      table. Here the tag is an `enum`, each variant's table is a field, and
+//      a `oneOf` forbids the tables of the variants not chosen. A union whose
+//      variants carry nothing is just a word, and is only the `enum`.
 //   2. `[inputs.<name>]`. capnp has a list of inputs that each carry a `name`;
 //      TOML keys the table by name.
 //   3. Required fields. capnp has none: every field has a value on the wire,
@@ -132,17 +132,33 @@ function structToToml(name, def) {
   if (tabled.length > 1) {
     throw new Error(`${name}: two unions with payloads on one struct (${tabled.map((u) => u.key).join(", ")}); write the cross product before emitting it`);
   }
-  // One branch per tag: the tag is fixed, and only that tag's table is admitted.
+  // The tag is a word, every variant's table is a known key, and a `oneOf`
+  // says which table goes with which word: each branch fixes the tag and
+  // forbids every other variant's table.
+  //
+  // The fields stay on the struct itself, outside the `oneOf`, on purpose. An
+  // earlier form put a whole copy of the struct in each branch. A typo'd key
+  // then failed every branch, and a validator could only say "valid under none
+  // of the schemas in oneOf" about the entire table, without naming the key.
+  // This way the struct's own `additionalProperties: false` names it.
   const [{ key, variants }] = tabled;
+  const tables = variants.filter((v) => !isVoid(v.payload));
+  for (const { tag, payload } of tables) {
+    if (Object.hasOwn(base.properties, tag) || tag === key) {
+      throw new Error(`${name}: union tag "${tag}" collides with a field of the same name`);
+    }
+    base.properties[tag] = payload;
+  }
+  base.properties[key] = { type: "string", enum: variants.map((v) => v.tag) };
   return {
-    oneOf: variants.map(({ tag, payload }) => {
-      if (Object.hasOwn(base.properties, tag) || tag === key) {
-        throw new Error(`${name}: union tag "${tag}" collides with a field of the same name`);
-      }
-      const properties = { ...base.properties, [key]: { const: tag } };
-      if (!isVoid(payload)) properties[tag] = payload;
-      return { ...base, properties, required: [...(base.required ?? []), key] };
-    }),
+    ...base,
+    required: [...(base.required ?? []), key],
+    oneOf: variants.map(({ tag }) => ({
+      properties: {
+        [key]: { const: tag },
+        ...Object.fromEntries(tables.filter((t) => t.tag !== tag).map((t) => [t.tag, false])),
+      },
+    })),
   };
 }
 

@@ -73,7 +73,7 @@ differ, and the script applies each:
 
 | In the capnp schema | In cluster.toml | In the JSON Schema |
 |---|---|---|
-| A union: `kind: { external: {...} }` | `kind = "external"` beside a `[bundles.external]` table | A `oneOf` with one branch per tag. Each fixes the tag with `const` and admits only its own table. |
+| A union: `kind: { external: {...} }` | `kind = "external"` beside a `[bundles.external]` table | The tag is an `enum` and each variant's table is a field. A `oneOf` forbids the tables of the variants not chosen. |
 | A union whose variants carry nothing: `transport: { uds: null }` | `transport = "uds"` | A string with an `enum` |
 | A list of inputs, each with a `name` | `[inputs.<name>]` | A table keyed by name, or the list form |
 
@@ -89,6 +89,28 @@ The struct names survive as definitions (`#/$defs/Bundle`,
 The schema uses only the keywords cloister's own validator implements
 (`scripts/lib/json-schema-subset.mjs`), so a test holds every `cluster.toml`
 in the repository to it, along with everything cloister's writer emits.
+
+## Checked against real tools
+
+Besides cloister's own validator, the schema was run through two tools that
+share no code with it:
+
+- **Ajv** (draft 2020-12, strict mode) compiles it and agrees with cloister's
+  validator on every `cluster.toml` in the repository and on each rejected
+  mistake tried.
+- **taplo** (`taplo lint`, the engine behind the "Even Better TOML" editor
+  extension) accepts every `cluster.toml` in the repository, resolves the
+  `#:schema` directive from a relative path, and names a typo'd key:
+  `Additional properties are not allowed ('tire' was unexpected)`.
+
+Neither is a dependency or part of `task lint`. The union layout above exists
+because of taplo: with a full copy of the struct in each `oneOf` branch, a
+typo failed every branch and the message could only say the whole table was
+"not valid under any of the schemas".
+
+One message is still vague: a table for a variant the bundle is not (a
+`[bundles.workerd]` on an `external` bundle) is reported as a `oneOf` failure
+on the whole bundle.
 
 ## Known limits
 

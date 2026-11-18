@@ -91,114 +91,81 @@
       ]
     },
     "Bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tier": {
+          "$ref": "#/$defs/Tier"
+        },
+        "holdsCredential": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workerdServiceName": {
+          "type": "string"
+        },
+        "hypervisorRationale": {
+          "type": "string"
+        },
+        "perTenant": {
+          "type": "boolean"
+        },
+        "confinement": {
+          "$ref": "#/$defs/Confinement"
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PortSpec"
+          }
+        },
+        "placements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlacementSpec"
+          }
+        },
+        "workerd": {
+          "$ref": "#/$defs/WorkerdBundle"
+        },
+        "external": {
+          "$ref": "#/$defs/ExternalBundle"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "workerd",
+            "external"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
       "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            },
-            "tier": {
-              "$ref": "#/$defs/Tier"
-            },
-            "holdsCredential": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "workerdServiceName": {
-              "type": "string"
-            },
-            "hypervisorRationale": {
-              "type": "string"
-            },
-            "perTenant": {
-              "type": "boolean"
-            },
-            "confinement": {
-              "$ref": "#/$defs/Confinement"
-            },
-            "ports": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/PortSpec"
-              }
-            },
-            "placements": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/PlacementSpec"
-              }
-            },
             "kind": {
               "const": "workerd"
             },
-            "workerd": {
-              "$ref": "#/$defs/WorkerdBundle"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "external": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            },
-            "tier": {
-              "$ref": "#/$defs/Tier"
-            },
-            "holdsCredential": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "workerdServiceName": {
-              "type": "string"
-            },
-            "hypervisorRationale": {
-              "type": "string"
-            },
-            "perTenant": {
-              "type": "boolean"
-            },
-            "confinement": {
-              "$ref": "#/$defs/Confinement"
-            },
-            "ports": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/PortSpec"
-              }
-            },
-            "placements": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/PlacementSpec"
-              }
-            },
             "kind": {
               "const": "external"
             },
-            "external": {
-              "$ref": "#/$defs/ExternalBundle"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "workerd": false
+          }
         }
       ]
     },
@@ -285,201 +252,187 @@
       }
     },
     "Route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "mcp": {
+          "$ref": "#/$defs/McpRouteSpec"
+        },
+        "serviceBindingProxy": {
+          "$ref": "#/$defs/ServiceBindingProxySpec"
+        },
+        "httpProxy": {
+          "$ref": "#/$defs/HttpProxySpec"
+        },
+        "vaultProxy": {
+          "$ref": "#/$defs/VaultProxySpec"
+        },
+        "tenantDispatch": {
+          "$ref": "#/$defs/TenantDispatchSpec"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "health",
+            "mcp",
+            "serviceBindingProxy",
+            "httpProxy",
+            "wellKnownInterlace",
+            "disclosure",
+            "wellKnownIdentityBridge",
+            "ociRegistry",
+            "wellKnownMcpRegistry",
+            "caBundle",
+            "vaultProxy",
+            "tenantDispatch"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
       "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "health"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "mcp"
             },
-            "mcp": {
-              "$ref": "#/$defs/McpRouteSpec"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "serviceBindingProxy"
             },
-            "serviceBindingProxy": {
-              "$ref": "#/$defs/ServiceBindingProxySpec"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "mcp": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "httpProxy"
             },
-            "httpProxy": {
-              "$ref": "#/$defs/HttpProxySpec"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "wellKnownInterlace"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "disclosure"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "wellKnownIdentityBridge"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "ociRegistry"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "wellKnownMcpRegistry"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "caBundle"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            },
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "vaultProxy"
             },
-            "vaultProxy": {
-              "$ref": "#/$defs/VaultProxySpec"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "tenantDispatch": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "path": {
-              "type": "string"
-            },
             "kind": {
               "const": "tenantDispatch"
             },
-            "tenantDispatch": {
-              "$ref": "#/$defs/TenantDispatchSpec"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "mcp": false,
+            "serviceBindingProxy": false,
+            "httpProxy": false,
+            "vaultProxy": false
+          }
         }
       ]
     },
@@ -825,111 +778,99 @@
       }
     },
     "Backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "handlesPrefix": {
+          "type": "string"
+        },
+        "durableObject": {
+          "$ref": "#/$defs/DoBackend"
+        },
+        "serviceBinding": {
+          "$ref": "#/$defs/ServiceBindingBackend"
+        },
+        "udsForward": {
+          "$ref": "#/$defs/UdsForwardBackend"
+        },
+        "leylineNet": {
+          "$ref": "#/$defs/LeylineNetBackend"
+        },
+        "mcpProxy": {
+          "$ref": "#/$defs/HttpForwardBackend"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "durableObject",
+            "serviceBinding",
+            "udsForward",
+            "leylineNet",
+            "mcpProxy"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
       "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "handlesPrefix": {
-              "type": "string"
-            },
             "kind": {
               "const": "durableObject"
             },
-            "durableObject": {
-              "$ref": "#/$defs/DoBackend"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "serviceBinding": false,
+            "udsForward": false,
+            "leylineNet": false,
+            "mcpProxy": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "handlesPrefix": {
-              "type": "string"
-            },
             "kind": {
               "const": "serviceBinding"
             },
-            "serviceBinding": {
-              "$ref": "#/$defs/ServiceBindingBackend"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "durableObject": false,
+            "udsForward": false,
+            "leylineNet": false,
+            "mcpProxy": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "handlesPrefix": {
-              "type": "string"
-            },
             "kind": {
               "const": "udsForward"
             },
-            "udsForward": {
-              "$ref": "#/$defs/UdsForwardBackend"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "durableObject": false,
+            "serviceBinding": false,
+            "leylineNet": false,
+            "mcpProxy": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "handlesPrefix": {
-              "type": "string"
-            },
             "kind": {
               "const": "leylineNet"
             },
-            "leylineNet": {
-              "$ref": "#/$defs/LeylineNetBackend"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "durableObject": false,
+            "serviceBinding": false,
+            "udsForward": false,
+            "mcpProxy": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "handlesPrefix": {
-              "type": "string"
-            },
             "kind": {
               "const": "mcpProxy"
             },
-            "mcpProxy": {
-              "$ref": "#/$defs/HttpForwardBackend"
-            }
-          },
-          "required": [
-            "kind"
-          ]
+            "durableObject": false,
+            "serviceBinding": false,
+            "udsForward": false,
+            "leylineNet": false
+          }
         }
       ]
     },
@@ -1121,155 +1062,95 @@
       }
     },
     "VaultProxyService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "upstreamBaseUrl": {
+          "type": "string"
+        },
+        "defaultAllowedSubs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rateLimitPerMinute": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "headerNamed": {
+          "$ref": "#/$defs/HeaderNamedSpec"
+        },
+        "queryParam": {
+          "$ref": "#/$defs/QueryParamSpec"
+        },
+        "bodyField": {
+          "$ref": "#/$defs/BodyFieldSpec"
+        },
+        "injection": {
+          "type": "string",
+          "enum": [
+            "authorizationBearer",
+            "authorizationBasic",
+            "headerNamed",
+            "queryParam",
+            "bodyField"
+          ]
+        }
+      },
+      "required": [
+        "injection"
+      ],
       "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "upstreamBaseUrl": {
-              "type": "string"
-            },
-            "defaultAllowedSubs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rateLimitPerMinute": {
-              "type": "integer",
-              "minimum": 0
-            },
             "injection": {
               "const": "authorizationBearer"
-            }
-          },
-          "required": [
-            "injection"
-          ]
+            },
+            "headerNamed": false,
+            "queryParam": false,
+            "bodyField": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "upstreamBaseUrl": {
-              "type": "string"
-            },
-            "defaultAllowedSubs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rateLimitPerMinute": {
-              "type": "integer",
-              "minimum": 0
-            },
             "injection": {
               "const": "authorizationBasic"
-            }
-          },
-          "required": [
-            "injection"
-          ]
+            },
+            "headerNamed": false,
+            "queryParam": false,
+            "bodyField": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "upstreamBaseUrl": {
-              "type": "string"
-            },
-            "defaultAllowedSubs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rateLimitPerMinute": {
-              "type": "integer",
-              "minimum": 0
-            },
             "injection": {
               "const": "headerNamed"
             },
-            "headerNamed": {
-              "$ref": "#/$defs/HeaderNamedSpec"
-            }
-          },
-          "required": [
-            "injection"
-          ]
+            "queryParam": false,
+            "bodyField": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "upstreamBaseUrl": {
-              "type": "string"
-            },
-            "defaultAllowedSubs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rateLimitPerMinute": {
-              "type": "integer",
-              "minimum": 0
-            },
             "injection": {
               "const": "queryParam"
             },
-            "queryParam": {
-              "$ref": "#/$defs/QueryParamSpec"
-            }
-          },
-          "required": [
-            "injection"
-          ]
+            "headerNamed": false,
+            "bodyField": false
+          }
         },
         {
-          "type": "object",
-          "additionalProperties": false,
           "properties": {
-            "name": {
-              "type": "string"
-            },
-            "upstreamBaseUrl": {
-              "type": "string"
-            },
-            "defaultAllowedSubs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "rateLimitPerMinute": {
-              "type": "integer",
-              "minimum": 0
-            },
             "injection": {
               "const": "bodyField"
             },
-            "bodyField": {
-              "$ref": "#/$defs/BodyFieldSpec"
-            }
-          },
-          "required": [
-            "injection"
-          ]
+            "headerNamed": false,
+            "queryParam": false
+          }
         }
       ]
     },

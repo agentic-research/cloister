@@ -135,13 +135,18 @@ test("the TOML-only shapes are written the way an operator writes them", () => {
   // A union with a table: one branch per tag, the tag fixed and required.
   assert.deepEqual(schema.properties.bundles.items, { $ref: "#/$defs/Bundle" });
   const bundle = def("Bundle");
-  assert.deepEqual(bundle.oneOf.map((b) => b.properties.kind.const).sort(), ["external", "workerd"]);
-  for (const branch of bundle.oneOf) {
-    assert.ok(branch.required.includes("kind"));
-    assert.equal(branch.additionalProperties, false);
-    const other = branch.properties.kind.const === "external" ? "workerd" : "external";
-    assert.equal(Object.hasOwn(branch.properties, other), false, "the other variant's table is not admitted");
-  }
+  assert.deepEqual(bundle.properties.kind, { type: "string", enum: ["workerd", "external"] });
+  assert.ok(bundle.required.includes("kind"));
+  assert.equal(bundle.additionalProperties, false);
+  // Both variants' tables are fields of the struct, so a typo'd key is named
+  // by the struct's own additionalProperties and not lost inside a branch.
+  assert.deepEqual(bundle.properties.external, { $ref: "#/$defs/ExternalBundle" });
+  assert.deepEqual(bundle.properties.workerd, { $ref: "#/$defs/WorkerdBundle" });
+  // The oneOf only pairs a tag with its table: each branch forbids the other's.
+  assert.deepEqual(bundle.oneOf, [
+    { properties: { kind: { const: "workerd" }, external: false } },
+    { properties: { kind: { const: "external" }, workerd: false } },
+  ]);
   // A union that carries nothing is a word.
   assert.deepEqual(def("Wire").properties.transport, { type: "string", enum: ["uds", "leylineNet"] });
   // [inputs.<name>]: keyed by name, and the row has no `name` of its own.
@@ -155,16 +160,28 @@ test("the TOML-only shapes are written the way an operator writes them", () => {
   assert.deepEqual(def("ClusterMetadata").required, ["name", "version"]);
   for (const [name, d] of Object.entries(schema.$defs)) {
     if (name !== "ClusterMetadata" && !d.oneOf) assert.equal(d.required, undefined, `${name} requires nothing`);
+    // A struct with a union requires its tag and nothing else.
+    if (d.oneOf) assert.deepEqual(d.required.length, 1, `${name} requires only its tag`);
   }
 });
 
 test("a route's variants and a vault service's injection are unions too", () => {
-  const routeKinds = def("Route").oneOf.map((b) => b.properties.kind.const);
+  const routeKinds = def("Route").properties.kind.enum;
   assert.ok(routeKinds.includes("health") && routeKinds.includes("mcp"), routeKinds.join(", "));
+  assert.equal(Object.hasOwn(def("Route").properties, "health"), false, "a variant that carries nothing has no table");
+  assert.ok(Object.hasOwn(def("Route").properties, "mcp"));
   const health = def("Route").oneOf.find((b) => b.properties.kind.const === "health");
-  assert.equal(Object.hasOwn(health.properties, "health"), false, "a variant that carries nothing has no table");
-  const injections = def("VaultProxyService").oneOf.map((b) => b.properties.injection.const);
+  assert.equal(health.properties.mcp, false, "choosing a variant with no table forbids every table");
+  const injections = def("VaultProxyService").properties.injection.enum;
   assert.ok(injections.includes("authorizationBearer") && injections.includes("headerNamed"), injections.join(", "));
+});
+
+test("a typo'd key inside a bundle is named, not lost in a oneOf", () => {
+  const errors = errorsFor(BASE.replace('tier = "cluster"', 'tier = "cluster"\ntire = "cluster"'));
+  assert.deepEqual(errors, ['$.bundles[0]: unexpected property "tire"']);
+  // The wrong variant's table is refused, at the bundle.
+  const wrong = errorsFor(BASE.replace("[bundles.confinement.fs]", '[bundles.workerd]\nentryPoint = "src/x.ts"\n\n[bundles.confinement.fs]'));
+  assert.ok(wrong.length >= 1 && wrong.every((e) => e.startsWith("$.bundles[0]")), wrong.join("; "));
 });
 
 test("the schema comes from LLO's generator, and holds only what a cluster.toml can reach", () => {
