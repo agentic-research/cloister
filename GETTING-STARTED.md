@@ -567,7 +567,7 @@ whenever you want a single-command "is the chain wired?" check.
 task smoke
 ```
 
-The script (`scripts/e2e-smoke.sh`) is dev-mode — it talks to leyline
+The script (`dev/e2e-smoke.sh`) is dev-mode — it talks to leyline
 directly rather than going through `notme-proxy`, since notme-proxy
 requires a real bridge cert pair. From cloister's perspective the
 behavior is identical; only the transport differs.

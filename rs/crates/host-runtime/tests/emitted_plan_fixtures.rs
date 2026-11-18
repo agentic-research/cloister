@@ -2,7 +2,7 @@
 //
 // cloister-991e65 (S5): one fixture, two parsers. test/fixtures/runtime-plan/
 // holds the exact plans `cloister runtime plan` emits for the dolt/orders
-// fixture; scripts/test/declared-connections.test.mjs asserts the JS emitter
+// fixture; cli/test/declared-connections.test.mjs asserts the JS emitter
 // still produces them byte for byte. Here the Rust side loads the SAME files,
 // so a drift between emitter and parser fails a test on one side or the other.
 

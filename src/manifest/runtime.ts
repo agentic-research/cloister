@@ -4,7 +4,7 @@
  *
  * Three phases:
  *
- *   1. Static validation — done in `scripts/build-manifest.mjs` at build
+ *   1. Static validation — done in `gen/build-manifest.mjs` at build
  *      time (duplicate paths, prefixes, tool names; valid JSON schemas).
  *      We re-validate here as a defense-in-depth check; the same
  *      diagnostics surface as TypeError at instantiation.
@@ -171,7 +171,7 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     // is converted from the capnp object-with-single-key shape into
     // the route's TS discriminated-union shape via `buildServiceRegistry`
     // imported from `./vault-proxy-services.ts` (the pure module that
-    // both runtime AND `scripts/build-manifest.mjs` import).
+    // both runtime AND `gen/build-manifest.mjs` import).
     //
     // Credential store stays defaulted to in-memory (production wires
     // a vault-DO-backed impl via the composition root; separate bead).
@@ -223,7 +223,7 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
 // ── VaultProxyService conversion lives in ./vault-proxy-services.ts ──────
 //
 // Imported above. Pure module so the build-time validator
-// (scripts/build-manifest.mjs) can use the same code path without
+// (gen/build-manifest.mjs) can use the same code path without
 // pulling in cloudflare:workers. Single source of truth — same
 // `buildServiceRegistry` runs at build time AND at boot time.
 // Per cloister-8f57f0 + the Copilot review on PR #36.

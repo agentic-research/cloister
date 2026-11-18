@@ -72,7 +72,7 @@ shipped 2026-06-24) lets one bundle declare itself tenant-scoped and
 emit-compose Phase 2 (deferred) will spawn the per-tenant containers
 automatically. See [`docs/reference/tenancy-model.md`](../../docs/reference/tenancy-model.md)
 for the operator model + worked example. Lint Invariants 8 + 9
-(`scripts/lint-bundle-isolation.mjs`) enforce the chain at
+(`lint/bundle-isolation.mjs`) enforce the chain at
 `task lint` time:
 
 | Inv | What it catches |

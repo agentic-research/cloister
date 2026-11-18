@@ -8,7 +8,7 @@ Vendored, byte-for-byte, from ley-line-open. **Do not edit these files.**
 | `test-vectors/run-id.json` | same dir | `VECTORS.sha256` — run-identity derivation, added by LLO PR #312 |
 | `test-vectors/oci-resources.json` | same dir | `VECTORS.sha256` — OCI `linux.resources` ceilings on three tiers, added in LLO v0.21.0 (PR #495). Sparse: absent fields are Cap'n Proto defaults, which the vector test fills from the schema before validating |
 | `test-vectors/rootfs-manifest.json` | same dir | `VECTORS.sha256` — rootfs manifest v1, added in LLO v0.29.0 |
-| `VECTORS.sha256` | same dir | it IS the manifest; `scripts/test/llo-execution-vector.test.mjs` derives its case list from it |
+| `VECTORS.sha256` | same dir | it IS the manifest; `cli/test/llo-execution-vector.test.mjs` derives its case list from it |
 
 ## Why a copy rather than a checkout
 
@@ -26,7 +26,7 @@ statement of that contract is `src/generated/llo-execution-tools.json`, pinned
 separately by `llo-execution-contract.lock.json`.
 
 Those two artifacts are published independently and cloister pins them
-independently, so they can disagree. `scripts/test/llo-execution-vector.test.mjs`
+independently, so they can disagree. `cli/test/llo-execution-vector.test.mjs`
 feeds this vector through cloister's *production* request validator to prove
 they do not. That check is what was missing when PR #260 shipped a hand-written
 ten-field RunSpec sharing zero names with the canonical eleven-field struct and

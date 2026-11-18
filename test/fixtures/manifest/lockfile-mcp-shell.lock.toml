@@ -1,4 +1,4 @@
-_comment = "Fixture lockfile paired with lockfile-mcp-shell.capnp (cloister-05334b). Consumed by scripts/test/e2e-manifest-pipeline.test.mjs to assert the build-manifest emitter wires [[generated_backends]] rows into McpRouteSpec.backends."
+_comment = "Fixture lockfile paired with lockfile-mcp-shell.capnp (cloister-05334b). Consumed by gen/test/e2e-manifest-pipeline.test.mjs to assert the build-manifest emitter wires [[generated_backends]] rows into McpRouteSpec.backends."
 schema = "cloister/lockfile/v1"
 cluster = "lockfile-e2e"
 version = "0.0.0"

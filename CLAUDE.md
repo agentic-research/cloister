@@ -78,7 +78,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 ### Substrate-property lint invariants (lint:bundle-isolation)
 
-`scripts/lint-bundle-isolation.mjs` runs thirteen invariants per `task lint`:
+`lint/bundle-isolation.mjs` runs thirteen invariants per `task lint`:
 
 | Inv | What | ADR |
 |---|---|---|
@@ -168,9 +168,28 @@ run `task init -- --recipe multi-tenant-smoke`, and the CLI answered
 `unknown recipe` (`cloister-449f82` thread).
 
 The reconciliation is a property, not a comment:
-`scripts/test/gate-integrity.test.mjs` asserts every recipe with a README is
+`lint/test/gate-integrity.test.mjs` asserts every recipe with a README is
 instantiable by the CLI. Missing a compose file? `task recipes:compose --
 <name>`.
+
+## Where code goes
+
+There is no `scripts/` directory. A file lives in the directory named for what
+it is for, with its tests in that directory's `test/`:
+
+| Directory | Holds |
+|---|---|
+| `src/` (tests in `test/`) | The worker: router, routes, vault, trust state |
+| `cli/` | The `cloister` command. The only one of these that ships |
+| `lint/` | The rails `task lint` runs |
+| `gen/` | Code generators and build steps |
+| `dev/` | Local launchers, smoke tests, benchmarks, git hooks |
+
+`cli/` never imports from `lint/`, `gen/` or `dev/` (`cli/test/` may). A file
+in those three that only re-exports `cli/` code is refused. Both are railed in
+`cli/test/cli-boundary.test.mjs` and `lint/test/gate-integrity.test.mjs`. A
+`*.test.mjs` anywhere outside the four `test/` directories is never run, and
+`gate-integrity` fails on it.
 
 ## Taskfiles are hierarchical
 

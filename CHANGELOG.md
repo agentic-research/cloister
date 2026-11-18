@@ -1222,7 +1222,7 @@ substrate-property lint invariants.
 
 - **Lockfile-drift lint** (commits `33c140b` + `baacdd7`) — the
   forward-guard against another LLO-contract incident.
-  [`scripts/lint-lockfile-drift.mjs`](scripts/lint-lockfile-drift.mjs)
+  [`scripts/lint-lockfile-drift.mjs`](lint/lockfile-drift.mjs)
   parses `cluster.toml` + `cluster.lock.toml`, hashes each
   `file://`-resourced input on disk, and fails with a per-input fix
   hint (`run task cluster:resolve`) when the on-disk sha256 ≠ the
@@ -1238,7 +1238,7 @@ substrate-property lint invariants.
 - **Doc-links drift gate** (commit `fd1d905`) — forward-guard for the
   PR-#94 class of bug where deleting a doc leaves dangling
   `[foo](foo.md)` refs in sibling pages.
-  [`scripts/lint-doc-links.mjs`](scripts/lint-doc-links.mjs) walks
+  [`scripts/lint-doc-links.mjs`](lint/doc-links.mjs) walks
   `docs/**/*.md` + the canonical top-level docs and asserts every
   relative URL resolves to a real file. Strips fenced + inline code
   blocks before scanning so doc snippets showing example URLs

@@ -8,11 +8,11 @@
 //
 // ── Why this is a library and not a script ────────────────────────────────
 //
-// It used to be the top level of `scripts/harness-dev.mjs`: a sequence of
+// It used to be the top level of `dev/harness-dev.mjs`: a sequence of
 // statements reading process.argv and process.env, calling process.exit, and
 // spawning children. `cloister run` therefore could not USE it — only re-launch
 // it — so it serialized its already-parsed flags back into environment
-// variables, spawned `node scripts/harness-dev.mjs`, and let that process parse
+// variables, spawned `node dev/harness-dev.mjs`, and let that process parse
 // the environment it had just constructed.
 //
 // That round-trip is where orchestration stops being first-party. Every value
@@ -136,7 +136,7 @@ const SYMBOLIC_ROOT = "/run/cloister/";
  *
  * The one-root case emits exactly `workspace`, byte-identical to the manifest
  * that predates multi-root — so its digest is unchanged. Asserted in
- * scripts/test/confinement-shape.test.mjs, because "unchanged" is the kind of
+ * cli/test/confinement-shape.test.mjs, because "unchanged" is the kind of
  * claim that stops being true without anyone noticing.
  *
  * Takes no `service`, and that is the point: the boundary is identical for every

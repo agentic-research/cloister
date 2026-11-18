@@ -245,5 +245,5 @@ export function main(_argv = [], deps = {}) {
 
 // `task config:check` runs this file. Imported, it does nothing.
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exit(main(process.argv.slice(2)));
 }

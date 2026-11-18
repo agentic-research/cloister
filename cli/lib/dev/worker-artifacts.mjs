@@ -8,7 +8,7 @@
 // told to follow — install, runtime install, dev serve, run — skipped that, so
 // the documented path worked only on a machine where a developer had already
 // run the test gate. This module is the one place that provides them, and
-// `scripts/test/worker-artifacts.test.mjs` asserts that every `.wasm` import
+// `cli/test/worker-artifacts.test.mjs` asserts that every `.wasm` import
 // under src/ is one of WORKER_WASM, so a new import cannot repeat the gap.
 
 import { spawnSync as nodeSpawnSync } from "node:child_process";
@@ -60,7 +60,7 @@ export async function ensureWorkerArtifacts({
   if (!root) throw new LocalDevError("a Cloister checkout directory is required");
   const checkout = resolve(root);
   const fetchWasm = ensureWasm
-    ?? (await import(resolve(checkout, "scripts/fetch-schema-bridge.mjs"))).ensureWasm;
+    ?? (await import(resolve(checkout, "gen/fetch-schema-bridge.mjs"))).ensureWasm;
 
   for (const m of WORKER_WASM) {
     if (m.source === "llo") {

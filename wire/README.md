@@ -41,8 +41,8 @@ flowchart LR
     M["src/wire/manifest.ts"]
     TC["src/wire/tool-call.ts"]
     TR["src/wire/tool-result.ts"]
-    GEN["scripts/gen-wire-fixtures.mjs<br/>capnp eval -b"]
-    VERIFY["scripts/verify-wire-roundtrip.mjs<br/>our → capnp → our"]
+    GEN["gen/wire-fixtures.mjs<br/>capnp eval -b"]
+    VERIFY["dev/verify-wire-roundtrip.mjs<br/>our → capnp → our"]
     CANON["test/wire/fixtures/canonical.ts<br/>(byte fixtures, gitignored)"]
 
     SCHEMA -.->|"implemented by"| CODEC
@@ -76,7 +76,7 @@ Documented in `cloister.capnp:34-46` and ADR-0005:
   with zero npm deps and exact byte control.
 - Substrate equivalence is proven both directions:
   - **Direction 1** (capnp emits, we decode): `test/wire/cross-check.test.ts`
-  - **Direction 2** (we emit, capnp decodes): `scripts/verify-wire-roundtrip.mjs`
+  - **Direction 2** (we emit, capnp decodes): `dev/verify-wire-roundtrip.mjs`
 
 ## When to edit
 

@@ -53,7 +53,7 @@ It is generated, never written by hand:
 ```
 manifest/cluster.capnp
   →  src/generated/cluster.schema.json     LLO's schema-bridge
-  →  schema/cluster.toml.schema.json       scripts/gen-cluster-toml-schema.mjs
+  →  schema/cluster.toml.schema.json       gen/cluster-toml-schema.mjs
 ```
 
 ```sh
@@ -87,7 +87,7 @@ The struct names survive as definitions (`#/$defs/Bundle`,
 `cluster.capnp` declares for other files are left out.
 
 The schema uses only the keywords cloister's own validator implements
-(`scripts/lib/json-schema-subset.mjs`), so a test holds every `cluster.toml`
+(`gen/lib/json-schema-subset.mjs`), so a test holds every `cluster.toml`
 in the repository to it, along with everything cloister's writer emits.
 
 ## Checked against real tools

@@ -601,7 +601,7 @@ Per `cloister-de4c78`.
 
 | | |
 |---|---|
-| `scripts/lib/harness/launch.mjs` | the orchestration — plan, setup, launch |
+| `cli/lib/harness/launch.mjs` | the orchestration — plan, setup, launch |
 | `cli/commands/run.mjs` | `cloister run`, calls `launch()` in-process |
 | `tools/harness-sandbox/` | the Rust binary that applies the policy and execs |
 | `src/harness-shim/` | the localhost endpoint the tool is allowed to reach |

@@ -93,7 +93,7 @@ serde_json = "1"
 #
 # The plugins now come from ley-line-open's published releases, pinned BY
 # DIGEST in schema-bridge.lock.json and fetched by
-# scripts/fetch-schema-bridge.mjs. Re-adding a cargo dep here would restore a
+# gen/fetch-schema-bridge.mjs. Re-adding a cargo dep here would restore a
 # second, weaker pin for the same artifact — and a version that can disagree
 # with the lockfile, which it already had (this said 0.12.0 while the binaries
 # were v0.12.1).

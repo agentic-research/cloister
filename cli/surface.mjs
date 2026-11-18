@@ -44,7 +44,7 @@
  * CLI SETS a variable cannot notice the consumer stopped reading it.
  *
  * Declared here so both sides reference one definition, and railed by
- * scripts/test/cli-surface.test.mjs asserting the consumer still honours it.
+ * cli/test/cli-surface.test.mjs asserting the consumer still honours it.
  * The process boundary between them is a separate concern (cloister-d8599e);
  * this is the part that drifts silently.
  */
@@ -179,7 +179,7 @@ export const COMMANDS = [
     usage: "cloister dev test [--dir <checkout>]",
     summary: "Run every repository Node test discovered by convention",
     detail:
-      "Finds every scripts/test/*.test.mjs file plus the nono harness checks, " +
+      "Finds every *.test.mjs file under cli/test, lint/test, gen/test and dev/test, plus the nono harness checks, " +
       "sorts them, and runs them once. Adding a test does not require editing " +
       "the Taskfile or another filename list.",
     flags: [

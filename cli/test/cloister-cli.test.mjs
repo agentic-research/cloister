@@ -1,0 +1,264 @@
+// Contract tests for the package-level `cloister` command dispatcher.
+
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PassThrough } from "node:stream";
+
+import { main as cliMain } from "../index.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, "..", "..");
+const PACKAGE = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"));
+const CLI = resolve(REPO_ROOT, PACKAGE.bin.cloister);
+
+test("the installed command enters through the product-owned CLI tree", () => {
+  assert.equal(PACKAGE.bin.cloister, "./bin/cloister.mjs");
+  assert.match(
+    readFileSync(resolve(REPO_ROOT, "bin/cloister.mjs"), "utf8"),
+    /\.\.\/cli\/index\.mjs/,
+  );
+});
+
+function run(args, env = {}) {
+  return spawnSync("node", [CLI, ...args], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+}
+
+function fakeRuntimeSource() {
+  return `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+writeFileSync(process.env.RUNTIME_ARGV_RECORD, JSON.stringify(argv));
+const storage = {
+  schema: "cloister/runtime-storage-status/v1",
+  provider: "compatibility",
+  maturity: "experimental",
+  state: "notPrepared",
+  backend: "krunvmCompatibility",
+  storageVolume: "/Volumes/krunvm",
+  capacity: null,
+  trackedRuns: 0,
+  runningRuns: 0,
+};
+if (argv[0] === "status") console.log(JSON.stringify(storage));
+if (argv[0] === "doctor") console.log(JSON.stringify({
+  schema: "cloister/host-runtime/doctor/v1",
+  process: { available: false },
+  microvm: { available: false, krunvm: false, buildah: false },
+  storage,
+}));
+`;
+}
+
+test("top-level help names the real command surface", () => {
+  const r = run(["--help"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /cloister init/);
+  assert.match(r.stdout, /cloister add/);
+  assert.match(r.stdout, /cloister artifacts pull/);
+  assert.match(r.stdout, /cloister runtime plan/);
+  assert.match(r.stdout, /cloister runtime storage init/);
+  assert.match(r.stdout, /--color <auto\|always\|never>/);
+  assert.match(r.stdout, /--no-color/);
+});
+
+test("LLO storage init provisions over UDS without invoking the krunvm helper", async () => {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const output = [];
+  stdout.on("data", (chunk) => output.push(chunk.toString()));
+  const status = await cliMain(
+    ["runtime", "storage", "init", "--backend", "microVm", "--idempotency-key", "p-1"],
+    {
+      env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+      stdout,
+      stderr,
+      lloProvision: async (...args) => {
+        assert.deepEqual(args.slice(0, 3), ["/run/llo.sock", "microVm", "p-1"]);
+        // A shape the generated ProvisionOutput accepts (v0.29.0 adds casRoot).
+        return { provisioned: true, backendId: "libkrun/1", casRoot: "/state/leyline/cas-volume/mnt/cas" };
+      },
+    },
+  );
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(output.join("")), {
+    provisioned: true,
+    backendId: "libkrun/1",
+    casRoot: "/state/leyline/cas-volume/mnt/cas",
+  });
+});
+
+test("LLO runtime run waits for and verifies terminal receipt", async () => {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const output = [];
+  stdout.on("data", (chunk) => output.push(chunk.toString()));
+  const receipt = { marker: "verified-by-test" };
+  const status = await cliMain(["runtime", "run", "/tmp/envelope.json"], {
+    env: { CLOISTER_LLO_CONTROL_SOCKET: "/run/llo.sock" },
+    stdout,
+    stderr,
+    runLloEnvelope: async () => ({ runId: "run-1", state: "running" }),
+    lloInspect: async () => ({ runId: "run-1", state: "succeeded", events: [] }),
+    lloCollect: async () => ({ outputs: [], receipt }),
+    verifyExecutionReceipt: async (value) => {
+      assert.equal(value, receipt);
+      return value;
+    },
+    runtimePollMs: 0,
+  });
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(output.join("")), { outputs: [], receipt });
+});
+
+test("invalid global color values fail with usage before command dispatch", () => {
+  const r = run(["skills", "--color", "sometimes", "list"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--color requires one of: auto, always, never/);
+});
+
+test("global color mode applies after the command name", () => {
+  const colored = run(["artifacts", "--color", "always", "pull", "--print"]);
+  assert.equal(colored.status, 0, colored.stderr);
+  assert.match(colored.stdout, /\x1b\[/);
+
+  const plain = run(["artifacts", "--color", "never", "pull", "--print"]);
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.doesNotMatch(plain.stdout, /\x1b\[/);
+});
+
+test("runtime operator commands delegate exact arguments to one Rust seam", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-cli-"));
+  const record = resolve(temp, "argv.json");
+  const fake = resolve(temp, "fake-runtime.mjs");
+  writeFileSync(fake, fakeRuntimeSource());
+  chmodSync(fake, 0o755);
+  const env = {
+    CLOISTER_HOST_RUNTIME_BIN: fake,
+    RUNTIME_ARGV_RECORD: record,
+  };
+  const cases = [
+    [["runtime", "run", "/tmp/plan.json"], ["run", "/tmp/plan.json"]],
+    [["runtime", "doctor"], ["doctor"]],
+    [
+      ["runtime", "import", "--layout", "/l", "--image", "sha256:abc", "--symlinks", "resolve"],
+      ["import-oci", "--layout", "/l", "--image", "sha256:abc", "--symlinks", "resolve"],
+    ],
+  ];
+  for (const [args, expected] of cases) {
+    const result = run(args, env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), expected);
+  }
+});
+
+test("runtime command never falls back when the configured binary is missing", () => {
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_HOST_RUNTIME_BIN: "/missing/cloister-host-runtime",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /CLOISTER_HOST_RUNTIME_BIN/);
+});
+
+test("runtime command names the first-party install command when no provider exists", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-missing-"));
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /The execution runtime is not installed/);
+  assert.match(result.stderr, /cloister runtime install/);
+  assert.doesNotMatch(result.stderr, /task |runtime:build|rs\/target/);
+});
+
+test("runtime help is available before the provider is installed", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-help-"));
+  const result = run(["runtime", "doctor", "--help"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Usage: cloister runtime doctor/);
+  assert.doesNotMatch(result.stderr, /runtime install|not installed/i);
+});
+
+test("runtime command executes the digest-verified provider artifact", () => {
+  const temp = mkdtempSync(resolve(tmpdir(), "cloister-runtime-provider-"));
+  const record = resolve(temp, "argv.json");
+  const fake = resolve(temp, "cloister-host-runtime");
+  writeFileSync(fake, fakeRuntimeSource());
+  chmodSync(fake, 0o755);
+  const digest = createHash("sha256").update(readFileSync(fake)).digest("hex");
+  mkdirSync(temp, { recursive: true });
+  writeFileSync(resolve(temp, "runtime-provider.json"), JSON.stringify({
+    schema: "cloister/runtime-provider/v1",
+    provider: "compatibility",
+    maturity: "experimental",
+    transport: "subprocess",
+    apiVersion: "cloister/compatibility-runtime/v1",
+    backends: ["nativeNonoCompatibility", "krunvmCompatibility"],
+    artifacts: {
+      nativeHelper: { file: "cloister-host-runtime", sha256: digest },
+      hostRuntime: { file: "cloister-host-runtime", sha256: digest },
+    },
+  }));
+
+  const result = run(["runtime", "doctor"], {
+    CLOISTER_LIBEXEC_DIR: temp,
+    CLOISTER_HOST_RUNTIME_BIN: "",
+    RUNTIME_ARGV_RECORD: record,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(record, "utf8")), ["doctor"]);
+});
+
+// cloister-a4e446: the compatibility provider has no storage step. The krunvm
+// sparsebundle this used to create is read by nothing since cloister-17e502,
+// so the command refuses and names what does create the store, rather than
+// provisioning something no runtime reads.
+test("runtime storage init without the LLO provider refuses and names runtime install", () => {
+  const r = run(["runtime", "storage", "init"]);
+  assert.equal(r.status, 2, r.stdout);
+  assert.match(r.stderr, /only the LLO provider has a storage step/);
+  assert.match(r.stderr, /cloister runtime install/);
+});
+
+test("runtime storage gc is gone: run lifecycle belongs to LLO", () => {
+  const r = run(["runtime", "storage", "gc"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown command/);
+});
+
+test("unknown top-level command fails with usage", () => {
+  const r = run(["surprise"]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown command/);
+});
+
+test("artifacts pull dispatches to the lockfile-backed preview", () => {
+  const r = run(["artifacts", "pull", "--print"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Artifacts requested by cluster\.lock\.toml/);
+  assert.match(r.stdout, /mache.*sha256:/);
+});
+
+test("runtime plan refuses Mache until its pinned image is imported, naming the command", () => {
+  // The repo's lock pins Mache's OCI image (sha256) but records no imported
+  // rootfs, and a microvm plan never carries the sha256 image — the host
+  // runtime cannot run it (cloister-991e65). This used to assert a sha256
+  // plan, i.e. that the emitter produced a plan no runtime would accept.
+  const r = run(["runtime", "plan", "mache", "--workspace", REPO_ROOT]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /bundle "mache" is a microvm bundle with no imported rootfs in cluster\.lock\.toml/);
+  assert.match(r.stderr, /cloister runtime import --bundle mache( --dir \S+)? \[--layout <oci-layout-dir>\]/);
+});

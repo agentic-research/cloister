@@ -6,7 +6,7 @@
 # When [gateway] is absent / all-empty, the emitter falls through to
 # the ART-default template (back-compat for pre-Phase-4a cluster.toml).
 # The cluster.lock.toml [[generated_backends]] overlay is applied
-# DOWNSTREAM at `task manifest` time by scripts/build-manifest.mjs;
+# DOWNSTREAM at `task manifest` time by gen/build-manifest.mjs;
 # this file carries only the cluster.toml-declared routes.
 #
 # Do NOT edit by hand — your edits will be overwritten on the next emitter run.

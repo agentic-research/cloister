@@ -588,7 +588,7 @@ struct InputSpec $Traits.doc("An external tool, skill or bundle the cluster comp
   # When this input resolves to an MCP server.json with
   # `_meta.art.cloister/v1.groups[]`, the resolver writes one
   # `[[generated_backends]]` row per group into `cluster.lock.toml`.
-  # The downstream manifest emitter (`scripts/build-manifest.mjs`) reads
+  # The downstream manifest emitter (`gen/build-manifest.mjs`) reads
   # those rows + injects them into the appropriate `McpRouteSpec.backends`.
   #
   # `urlBinding` names the env-var binding that holds the upstream URL
@@ -776,7 +776,7 @@ struct EdgeSpec {
 # arc, cloister-345ad1 / ADR-0031) ────────────────────────────────────────
 #
 # Mirrors the Route struct + per-kind specs from `manifest/cloister.capnp`.
-# The cluster manifest pipeline (`scripts/build-manifest.mjs` emitter
+# The cluster manifest pipeline (`gen/build-manifest.mjs` emitter
 # extension in Phase 2) lifts these Route declarations into the generated
 # `cloister.capnp` Gateway value at build time.
 #
@@ -1055,7 +1055,7 @@ struct Gateway {
   # Harness profiles (cloister-742e19, ADR-0057). A harness is a lattice
   # PARTICIPANT, not a target the substrate special-cases: Claude Code and
   # Codex are two rows here, and adding a third is an operator writing TOML,
-  # never an edit to `scripts/harness-dev.mjs`.
+  # never an edit to `dev/harness-dev.mjs`.
   #
   # Declared here rather than in a script for the same reason as
   # vaultProxyServices above — `cluster.toml` is the operator source of truth.

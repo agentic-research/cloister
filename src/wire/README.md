@@ -71,7 +71,7 @@ flowchart TB
 
 - `test/wire/cross-check.test.ts` — capnp CLI → our decoder
   (Direction 1).
-- `scripts/verify-wire-roundtrip.mjs` — our encoder → capnp CLI → our
+- `dev/verify-wire-roundtrip.mjs` — our encoder → capnp CLI → our
   decoder (Direction 2).
 - `clients/go/cloister-schema/` — the Go-side decoder, exercised by
   `mache` against the same fixtures.

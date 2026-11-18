@@ -16,7 +16,7 @@ in neither direction ([`cloister-2fb46a`](../../)):
 
 Each default is right for its tool, so this is a deliberate divergence
 rather than a defect. It is kept honest by
-`scripts/lint-smell-rule-kinship.mjs`, which records both vocabularies
+`lint/smell-rule-kinship.mjs`, which records both vocabularies
 and fails when either side's source stops matching the record. The mache
 half needs a checkout (`MACHE_REPO`, or a sibling `../mache`); when
 absent it reports `UNKNOWN` and never `satisfied`, so the lint cannot

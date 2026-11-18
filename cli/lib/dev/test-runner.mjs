@@ -15,13 +15,16 @@ function discoverIn(root, directory, accepts) {
 /**
  * Discover the repository's Node test suites by convention.
  *
- * The general script tests all live in scripts/test. The nono checks stay next
+ * Each area keeps its tests beside it, in its own `test/` directory. The nono checks stay next
  * to the native harness they exercise and use a `nono-` prefix. The separately
  * built harness-binary test is intentionally owned by `task harness:binary:test`.
  */
+/** Where Node test suites live: one `test/` per area, beside the code it tests. */
+export const NODE_TEST_DIRS = Object.freeze(["cli/test", "lint/test", "gen/test", "dev/test"]);
+
 export function discoverNodeTests(root = process.cwd()) {
   return [
-    ...discoverIn(root, "scripts/test", (name) => name.endsWith(".test.mjs")),
+    ...NODE_TEST_DIRS.flatMap((dir) => discoverIn(root, dir, (name) => name.endsWith(".test.mjs"))),
     ...discoverIn(
       root,
       "tools/harness-sandbox/test",

@@ -98,7 +98,7 @@ The substrate enforces this composition via `lint:bundle-isolation`
 > as the row's `name`. Mismatches surface at lint time, not at
 > request time.
 
-(Invariants 1-6 are documented in `scripts/lint-bundle-isolation.mjs`;
+(Invariants 1-6 are documented in `lint/bundle-isolation.mjs`;
 Inv 7 extends the existing tenancy-resolution machinery without
 introducing a new concept.)
 
@@ -301,5 +301,5 @@ emit-compose.
 - [`docs/security/threat-model.md`](../security/threat-model.md) §13.7 — per-tenant security properties enforced by this model
 - [`docs/reference/bundle-topology.md`](bundle-topology.md) — the bundle classification this composes with
 - [`recipes/multi-tenant-smoke/`](../../recipes/multi-tenant-smoke/) — minimal multi-tenant recipe demonstrating `tenantDispatch`
-- `scripts/lint-bundle-isolation.mjs` — the lint enforcing Inv 1-7
+- `lint/bundle-isolation.mjs` — the lint enforcing Inv 1-7
 - Tracking beads: `cloister-ce936e` (this doc + Inv 7) — closed, `cloister-cedcf3` (perTenant Phase 1 + Inv 8 + Inv 9 + Phase 2 piece 2 first-cut all shipped; per-tenant socket / DO-volume / wire-env-rewrite are Phase 3 follow-ups), `cloister-cbfd7f` (ADR-0034 tracker) — closed

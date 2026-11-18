@@ -7,13 +7,13 @@
 // state — and a partially-written TypeScript module does not throw a helpful
 // error, it fails whatever assertion happens to depend on its contents.
 //
-// The measured failure. `scripts/test/build-manifest-row-shape.test.mjs` and
-// `scripts/test/e2e-manifest-pipeline.test.mjs` both spawn `task manifest`,
+// The measured failure. `gen/test/build-manifest-row-shape.test.mjs` and
+// `gen/test/e2e-manifest-pipeline.test.mjs` both spawn `task manifest`,
 // node:test runs test FILES in parallel, and `task manifest` depends on `task
 // tool-schemas` — so two processes wrote src/generated/tool-schemas.ts while a
 // third imported it. The observable result was:
 //
-//     task: [manifest] node --import tsx scripts/build-manifest.mjs
+//     task: [manifest] node --import tsx gen/build-manifest.mjs
 //     build-manifest: validation failed — src/generated/tool-schemas.ts must
 //                     export `toolSchemas` as an object
 //     build-tool-schemas: wrote src/generated/tool-schemas.ts   ← after the read

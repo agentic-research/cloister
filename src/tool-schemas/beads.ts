@@ -2,7 +2,7 @@
 //
 // MCP tool input schemas for the bead_* family. Source of truth is here
 // (zod) — the JSON Schema shipped to MCP clients via `tools/list` is
-// codegenned from these by `scripts/build-tool-schemas.mjs`. Closes
+// codegenned from these by `gen/build-tool-schemas.mjs`. Closes
 // cloister-7ca96c (manifest↔handler schema drift class).
 //
 // Why zod and not raw JSON Schema:

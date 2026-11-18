@@ -3,7 +3,7 @@
 // Tool schemas registry — single source of truth for every MCP tool's
 // input shape. Per cloister-7ca96c.
 //
-// `scripts/build-tool-schemas.mjs` reads this module's exports at
+// `gen/build-tool-schemas.mjs` reads this module's exports at
 // build time, emits JSON Schema for each tool via zod-to-json-schema,
 // and merges the result into `src/generated/manifest.ts` so the wire
 // surface to MCP clients (tools/list) stays compatible.

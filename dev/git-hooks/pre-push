@@ -1,0 +1,101 @@
+#!/bin/sh
+# dev/git-hooks/pre-push — runs `task pre-push` to catch CI failures before push.
+#
+# Installed into `.git/hooks/pre-push` by `task install-hooks`.
+# Per cloister-8e40ad — preventing the "task lint green locally but
+# CI red on push" trap caused by Taskfile mtime caching.
+#
+# To bypass once (e.g. emergency push), use: git push --no-verify
+#
+# We rely on Task's content-hash cache (`method: checksum`, the v3 default)
+# instead of `--force`. The historical "green locally, red on CI" bug was an
+# *mtime*-caching artifact (sources touched but content unchanged, or vice
+# versa); checksum caching keys on file CONTENT, so an unchanged tree is a
+# genuine no-op and any real edit re-runs the affected task. Every task in the
+# verify chain declares its `sources` (over-inclusively — see Taskfile), and CI
+# runs the whole gate on a fresh cold-cache checkout, so a locally-cached pass
+# can never let a real failure reach main. cloister-8e40ad.
+#
+# The package-manager check below keeps local hooks aligned with CI: the
+# gate must run under the pinned pnpm, not whatever a local shell happens
+# to expose. Note pnpm >= 10 reads `package.json#packageManager` itself
+# and transparently delegates to the pinned version, so an ambient pnpm
+# 11.x reports (and behaves as) 10.30.3 once we are inside the repo —
+# that delegation satisfies the requirement on its own. Prefer an
+# already-matching pnpm; fall back to Corepack when available; otherwise
+# fail with a direct diagnostic. When a matching pnpm is found later on
+# PATH, expose it through a tiny temp shim directory so selecting pnpm
+# does not also change which `task`, `node`, or other tools the hook
+# resolves.
+#
+# That shim must be a WRAPPER, not a symlink: the standalone pnpm
+# launcher locates its payload via `dirname "$0"`, so a symlink into a
+# temp dir resolves to a non-existent `.tools/pnpm/<ver>/...` path and
+# the launcher dies before printing a version — which surfaced as the
+# baffling `expected pnpm@10.30.3 after activation, got pnpm ` (empty).
+# Exec'ing the absolute path keeps `$0` pointing at the real install.
+
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+PACKAGE_MANAGER="$(node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager || ""; if (!p.startsWith("pnpm@")) { console.error(`pre-push: expected packageManager to start with pnpm@, got ${p || "<empty>"}`); process.exit(1); } process.stdout.write(p);')"
+EXPECTED_PNPM_VERSION="${PACKAGE_MANAGER#pnpm@}"
+
+pnpm_version() {
+  "$1" --version 2>/dev/null | tail -n 1
+}
+
+find_matching_pnpm() {
+  old_ifs="$IFS"
+  IFS=:
+  for dir in $PATH; do
+    if [ -z "$dir" ]; then
+      dir="."
+    fi
+    candidate="$dir/pnpm"
+    if [ -x "$candidate" ] && [ "$(pnpm_version "$candidate")" = "$EXPECTED_PNPM_VERSION" ]; then
+      IFS="$old_ifs"
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
+PNPM_BIN="$(find_matching_pnpm || true)"
+if [ -n "$PNPM_BIN" ]; then
+  PNPM_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cloister-pre-push-pnpm.XXXXXX")"
+  trap 'rm -rf "$PNPM_SHIM_DIR"' EXIT INT TERM
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$PNPM_BIN" > "$PNPM_SHIM_DIR/pnpm"
+  chmod +x "$PNPM_SHIM_DIR/pnpm"
+  export PATH="$PNPM_SHIM_DIR:$PATH"
+  hash -r 2>/dev/null || true
+elif command -v corepack >/dev/null 2>&1; then
+  echo "▸ pre-push: activating $PACKAGE_MANAGER via corepack..."
+  corepack enable >/dev/null
+  corepack prepare "$PACKAGE_MANAGER" --activate >/dev/null
+else
+  FOUND_PNPM="$(command -v pnpm || true)"
+  FOUND_VERSION="<missing>"
+  if [ -n "$FOUND_PNPM" ]; then
+    FOUND_VERSION="$(pnpm_version "$FOUND_PNPM")"
+  fi
+  cat >&2 <<EOF
+pre-push: expected $PACKAGE_MANAGER, but PATH resolves pnpm ${FOUND_VERSION} (${FOUND_PNPM:-not found}).
+Install/activate the pinned package manager first:
+  corepack enable && corepack prepare $PACKAGE_MANAGER --activate
+or put a pnpm $EXPECTED_PNPM_VERSION binary earlier on PATH.
+EOF
+  exit 1
+fi
+
+ACTUAL_PNPM_VERSION="$(pnpm --version 2>/dev/null | tail -n 1)"
+if [ "$ACTUAL_PNPM_VERSION" != "$EXPECTED_PNPM_VERSION" ]; then
+  echo "pre-push: expected $PACKAGE_MANAGER after activation, got pnpm $ACTUAL_PNPM_VERSION" >&2
+  exit 1
+fi
+
+echo "▸ pre-push: using pnpm $ACTUAL_PNPM_VERSION from $(command -v pnpm)"
+echo "▸ pre-push: running task pre-push (content-hash cache; unchanged tree is a no-op)..."
+task pre-push

@@ -90,7 +90,7 @@ a `confinement` block requires a valid, digest-committing cert — there is no
 opt-out once it's declared. A policy *without* the block runs the harness
 confined but un-attested: that is a deliberate deployment choice (dev / legacy),
 the same **deployment-binding granularity** the lease gate uses with
-`INTERLACE_ROOT_PUBKEY` — NOT a per-request bypass. `scripts/harness-dev.mjs`
+`INTERLACE_ROOT_PUBKEY` — NOT a per-request bypass. `dev/harness-dev.mjs`
 always emits the block, so `task harness:dev` is attested end-to-end. A
 per-bundle "digest mandatory in non-dev mode" knob is a future ADR concern
 (multi-bundle confinement), not this wiring.

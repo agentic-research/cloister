@@ -25,7 +25,7 @@ worker compile + DO init.
 - Node: v25.9.0
 - pnpm: v9.x (resolves wrangler via local node_modules)
 - wrangler: pinned in package.json (`task dev` uses this)
-- Probe: `scripts/bench-cold-start.mjs`, N=5 runs, 10ms poll interval,
+- Probe: `dev/bench-cold-start.mjs`, N=5 runs, 10ms poll interval,
   30s timeout per run
 - Manifest, tool-schemas already built (no schema compile in this
   measurement)
@@ -48,7 +48,7 @@ on demand; we can't observe the FIRST boot from inside it. We measure
 the `task dev` UX, not the embedded miniflare boot.
 
 Reproduce: `task bench:cold-start`. Source in
-[`scripts/bench-cold-start.mjs`](../../scripts/bench-cold-start.mjs).
+[`dev/bench-cold-start.mjs`](../../dev/bench-cold-start.mjs).
 
 ## Results
 
@@ -161,4 +161,4 @@ follow-up if the cold-start budget ever becomes contentious.
   [`src/trust-store.ts`](../../src/trust-store.ts),
   [`src/blob-store.ts`](../../src/blob-store.ts),
   [`src/vault-store.ts`](../../src/vault-store.ts).
-- Bench script: [`scripts/bench-cold-start.mjs`](../../scripts/bench-cold-start.mjs).
+- Bench script: [`dev/bench-cold-start.mjs`](../../dev/bench-cold-start.mjs).

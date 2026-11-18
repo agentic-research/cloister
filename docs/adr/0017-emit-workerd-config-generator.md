@@ -41,7 +41,7 @@ content-hashed wasm names cannot be committed there because they
 drift with every Rust source change.
 
 A small build-time generator —
-[`scripts/emit-workerd-config.mjs`](../../scripts/emit-workerd-config.mjs) —
+[`scripts/emit-workerd-config.mjs`](../../gen/emit-workerd-config.mjs) —
 copies the template into `dist/`, injects one `wasm = embed "..."`
 entry per `*.wasm` file wrangler emitted, and rewrites `dist/`-
 prefixed embed paths to be dist-relative. `task build:local` invokes

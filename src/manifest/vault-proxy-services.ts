@@ -3,7 +3,7 @@
 // (cloister-8f57f0).
 //
 // Lives in its own module (separate from `runtime.ts`) so the
-// build-time validator (`scripts/build-manifest.mjs`) can import it
+// build-time validator (`gen/build-manifest.mjs`) can import it
 // without pulling in `cloudflare:workers` (which `runtime.ts` does
 // via the route classes). Single source of truth — same `buildServiceRegistry`
 // runs at build time AND at boot time. Per cloister-8f57f0 + the
