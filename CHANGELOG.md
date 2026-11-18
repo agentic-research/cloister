@@ -8,6 +8,24 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a port is listened on and dialled; Knative lowering
+
+- **`[[bundles.placements.ports]]`** sets the number a port is DIALLED on in
+  one placement, when it is not the number the workload listens on. A Knative
+  Service is dialled on 80 whatever its container binds. A port with no row is
+  dialled on its own number, so existing files are unchanged. Forwarded
+  placements only.
+- **`cluster lower` writes a Knative Service** for a bundle placed `knative`,
+  from the same bundle a Kubernetes manifest is written from. On Kubernetes a
+  dialled port becomes the Service `port` and the bundle's port the
+  `targetPort`.
+- **`inspect --draft --local <env> --local-kind knative`** places services on
+  Knative with the dialled port set. A job stays a Kubernetes Job.
+- **`cluster lower` is all-or-nothing.** If one bundle cannot be lowered, no
+  manifest is written.
+- `cluster k8s` on a Knative bundle whose port is not dialled on 80 now says
+  which row to add.
+
 ### 2026-11 — one description, lowered to each placement
 
 - **`cluster.toml` carries what a workload is started with.** An env row takes

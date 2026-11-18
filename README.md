@@ -142,8 +142,9 @@ manifest that already exists is never overwritten.
 
 ### What is not built yet
 
-Lowering writes plain Kubernetes only, and it has not been run against a live
-cluster. Knative and microVM output are not built. Probes, resource limits,
+Lowering writes Kubernetes and Knative manifests, and it has not been run
+against a live cluster. microVM output for an address or a secret is not
+built. Probes, resource limits,
 volumes and service accounts are not carried. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
 
@@ -261,7 +262,7 @@ A connection is only as strong as the weaker of its two ends. If you set
 |---|---|---|
 | `microvm` | The service has only the sockets it was granted | `capability` |
 | `kubernetes` | A `NetworkPolicy` per connection | `policy` |
-| `knative` | Checked against the manifest; nothing enforces it | `none` |
+| `knative` | Checked against the manifest; nothing enforces it. Dialled on port 80 | `none` |
 | `cloudRun` | Checked against a plan by `inspect`; nothing enforces it | `none` |
 | `workerd` | Service bindings inside the router | not a connection end |
 

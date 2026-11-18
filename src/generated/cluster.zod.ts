@@ -354,12 +354,15 @@ export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
     kind: z.string().default(""),
     /** Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'. */
     manifest: z.string().default(""),
+    /** Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only. */
+    ports: z.array(PlacementPortSchema).readonly().default([]),
   }).strict());
 
 export interface PlacementSpec {
   env: string;
   kind: string;
   manifest: string;
+  ports: readonly PlacementPort[];
 }
 
 /** Filesystem paths the bundle may use. */
@@ -410,6 +413,20 @@ export const FsAllowEntrySchema: z.ZodType<FsAllowEntry> = z.lazy(() =>
 export interface FsAllowEntry {
   path: string;
   mode: string;
+}
+
+/** The number one port is dialled on in one placement. */
+export const PlacementPortSchema: z.ZodType<PlacementPort> = z.lazy(() =>
+  z.object({
+    /** The name of one of the bundle's ports. */
+    name: z.string().default(""),
+    /** The number a peer dials in this placement. The workload still listens on the bundle port's own number. */
+    port: z.number().int().nonnegative().default(0),
+  }).strict());
+
+export interface PlacementPort {
+  name: string;
+  port: number;
 }
 
 /** One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one. */

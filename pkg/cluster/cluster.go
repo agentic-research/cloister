@@ -357,6 +357,8 @@ type PlacementSpec struct {
 	Kind string `json:"kind"`
 	// Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.
 	Manifest string `json:"manifest"`
+	// Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only.
+	Ports []PlacementPort `json:"ports"`
 }
 
 // Filesystem paths the bundle may use.
@@ -385,6 +387,14 @@ type FsAllowEntry struct {
 	Path string `json:"path"`
 	// Empty for read-only, 'rw' for read and write.
 	Mode string `json:"mode"`
+}
+
+// The number one port is dialled on in one placement.
+type PlacementPort struct {
+	// The name of one of the bundle's ports.
+	Name string `json:"name"`
+	// The number a peer dials in this placement. The workload still listens on the bundle port's own number.
+	Port uint16 `json:"port"`
 }
 
 // One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.

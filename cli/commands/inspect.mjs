@@ -35,6 +35,7 @@ export function parseArgs(argv) {
     else if (arg === "--draft") opts.draft = true;
     else if (arg === "--name") opts.name = value();
     else if (arg === "--local") opts.local = value();
+    else if (arg === "--local-kind") opts.localKind = value();
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new InspectUsageError(`unknown argument: ${arg}`);
   }
@@ -48,8 +49,10 @@ export function parseArgs(argv) {
     if (!opts.env) throw new InspectUsageError("--draft needs --env <name>: the environment its placements and connection targets are written for");
     if (opts.json) throw new InspectUsageError("--draft prints cluster.toml; it cannot be combined with --json");
     if (opts.local === opts.env) throw new InspectUsageError(`--local and --env are both "${opts.env}"; a second placement needs a second environment`);
-  } else if (opts.name || opts.local) {
-    throw new InspectUsageError(`${opts.name ? "--name" : "--local"} is only used with --draft`);
+    if (opts.localKind && !opts.local) throw new InspectUsageError("--local-kind needs --local <env>");
+    if (opts.localKind && !["kubernetes", "knative"].includes(opts.localKind)) throw new InspectUsageError(`--local-kind "${opts.localKind}" is not one of kubernetes, knative`);
+  } else if (opts.name || opts.local || opts.localKind) {
+    throw new InspectUsageError(`${opts.name ? "--name" : opts.local ? "--local" : "--local-kind"} is only used with --draft`);
   }
   return opts;
 }
@@ -94,7 +97,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env>] [--name <cluster name>]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind kubernetes|knative]] [--name <cluster name>]");
     return 0;
   }
 
@@ -135,7 +138,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     if (opts.draft) {
       // The draft is printed, never written: the operator chooses where it
       // goes, and an existing cluster.toml is not read and cannot be replaced.
-      const draft = draftCluster(imported, { env: opts.env, name: opts.name, local: opts.local });
+      const draft = draftCluster(imported, { env: opts.env, name: opts.name, local: opts.local, localKind: opts.localKind });
       log(draft.toml);
       return 0;
     }

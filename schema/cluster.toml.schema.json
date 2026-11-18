@@ -681,6 +681,13 @@
         "manifest": {
           "type": "string",
           "description": "Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'."
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlacementPort"
+          },
+          "description": "Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only."
         }
       }
     },
@@ -747,6 +754,22 @@
         "mode": {
           "type": "string",
           "description": "Empty for read-only, 'rw' for read and write."
+        }
+      }
+    },
+    "PlacementPort": {
+      "type": "object",
+      "description": "The number one port is dialled on in one placement.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of one of the bundle's ports."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The number a peer dials in this placement. The workload still listens on the bundle port's own number."
         }
       }
     },

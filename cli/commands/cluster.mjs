@@ -130,7 +130,7 @@ export function clusterComposePath(dir) {
  * than deleted or silently kept.
  */
 /**
- * `cloister cluster lower`: for each bundle placed "kubernetes" in `env`,
+ * `cloister cluster lower`: for each bundle placed "kubernetes" or "knative" in `env`,
  * write the manifest its placement row names, from the bundle as cluster.toml
  * declares it (ADR-0074 §7).
  *
@@ -140,25 +140,31 @@ export function clusterComposePath(dir) {
 export async function lowerDir({ root, env }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { placementFor } = await import("../lib/cluster/connections.mjs");
-  const { kubernetesWorkload } = await import("../lib/cluster/emit-workload.mjs");
+  const { kubernetesWorkload, knativeWorkload, LOWERED_KINDS } = await import("../lib/cluster/emit-workload.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
   const bundles = cluster.bundles.map(checkableBundle);
   const connections = cluster.connections ?? [];
   const written = [];
   const kept = [];
+  const pending = [];
   for (const bundle of cluster.bundles) {
     const checkable = bundles.find((b) => b.name === bundle.name);
-    if (placementFor(checkable, env) !== "kubernetes") continue;
+    const kind = placementFor(checkable, env);
+    if (!LOWERED_KINDS.includes(kind)) continue;
     const manifest = checkable.placements.find((p) => p.env === env).manifest;
     const dest = resolve(root, manifest);
     if (existsSync(dest)) { kept.push(manifest); continue; }
-    const content = kubernetesWorkload(bundle, { bundles, connections, env });
+    pending.push({ manifest, dest, content: (kind === "knative" ? knativeWorkload : kubernetesWorkload)(bundle, { bundles, connections, env }) });
+  }
+  // Every manifest is worked out before any is written: a bundle that cannot
+  // be lowered stops the run with nothing half-done on disk.
+  for (const { manifest, dest, content } of pending) {
     mkdirSync(dirname(dest), { recursive: true });
     writeFileSync(dest, content);
     written.push(manifest);
   }
   if (written.length === 0 && kept.length === 0) {
-    throw new ClusterUsageError(`no bundle is placed "kubernetes" for env "${env}"; lowering writes kubernetes manifests only`);
+    throw new ClusterUsageError(`no bundle is placed "kubernetes" or "knative" for env "${env}"; those are the placements lowering writes a manifest for`);
   }
   return { written, kept };
 }

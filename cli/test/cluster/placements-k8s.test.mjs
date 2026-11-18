@@ -92,7 +92,7 @@ test("meetStrength is the weaker of the two ends", () => {
 test("the demo (kubernetes ↔ kubernetes, minStrength policy) builds", async () => {
   const c = await parseTomlToCluster(DEMO_TOML);
   assert.equal(c.connections[0].minStrength, "policy");
-  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml" }]);
+  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml", ports: [] }]);
 });
 
 test("kubernetes ↔ kubernetes does not meet minStrength capability, naming both placements", async () => {
@@ -515,7 +515,7 @@ test("several knative bundles may share a namespace: the one-per-bundle rule is 
 const knativeRefusals = [
   ["a declared port that is not the port a peer dials",
     knToml({ reconciler: { port: 8080 } }), KN_MANIFESTS,
-    /Knative Service "reconciler": port "http" is declared as 8080 in cluster.toml, but a Knative Service is reached on port 80 inside the cluster \(its container port 8080 is not what a peer dials\)/],
+    /Knative Service "reconciler": port "http" is dialled on 8080 in cluster.toml, but a Knative Service is reached on port 80 inside the cluster \(its container port 8080 is not what a peer dials\)/],
   ["gRPC declared on a Service that serves http1",
     knToml({ appProtocol: "art.grpc" }), KN_MANIFESTS,
     /port "http" has appProtocol "art.grpc", which needs the container port named "h2c", but the Service serves http1 \(an unnamed container port is http1\)/],

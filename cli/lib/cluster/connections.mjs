@@ -65,7 +65,12 @@ export function normalizeConnections(raw) {
 /** Normalize `[[bundles.placements]]` rows to the PlacementSpec shape. */
 export function normalizePlacements(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.map((p) => ({ env: text(p?.env), kind: text(p?.kind), manifest: text(p?.manifest) }));
+  return raw.map((p) => ({
+    env: text(p?.env),
+    kind: text(p?.kind),
+    manifest: text(p?.manifest),
+    ports: Array.isArray(p?.ports) ? p.ports.map((x) => ({ name: text(x?.name), port: x?.port })) : [],
+  }));
 }
 
 // ── Placements and channel strength (ADR-0070 §2–3) ──────────────────────
@@ -174,7 +179,47 @@ function assertPlacements(b) {
         throw new Error(`${where}: manifest ${JSON.stringify(p.manifest)} ${problem}; it must be relative to the cluster directory`);
       }
     }
+    // The number a port is dialled on here, when it is not the one the
+    // workload listens on (ADR-0074 §7).
+    const dialled = new Set();
+    for (const row of p.ports ?? []) {
+      if (!FORWARDED_KINDS.includes(p.kind)) {
+        throw new Error(
+          `${where}: kind "${p.kind}" takes no ports rows. A port is dialled on another number only ` +
+            `where something sits in front of the workload (forwarded kinds: ${FORWARDED_KINDS.join(", ")})`,
+        );
+      }
+      const declared = (b.ports ?? []).find((x) => x.name === row.name);
+      if (!declared) {
+        throw new Error(`${where}: ports row names "${row.name}", which is not a port of bundle "${b.name}" (it declares: ${(b.ports ?? []).map((x) => x.name).join(", ") || "none"})`);
+      }
+      if (dialled.has(row.name)) throw new Error(`${where}: ports row for "${row.name}" appears more than once`);
+      dialled.add(row.name);
+      if (!Number.isInteger(row.port) || row.port < 1 || row.port > 65535) {
+        throw new Error(`${where}: port "${row.name}" is dialled on ${JSON.stringify(row.port)}, which is not a port number (1-65535)`);
+      }
+    }
+    const numbers = new Map();
+    for (const port of portsFor(b, p.env)) {
+      if (numbers.has(port.port)) {
+        throw new Error(`${where}: ports "${numbers.get(port.port)}" and "${port.name}" are both dialled on ${port.port}`);
+      }
+      numbers.set(port.port, port.name);
+    }
   }
+}
+
+/**
+ * A bundle's ports as a peer in `env` sees them: `port` is the number that is
+ * DIALLED there, and `listen` is the number the workload binds. They differ
+ * only where the env's placement row says so (ADR-0074 §7).
+ */
+export function portsFor(b, env) {
+  const row = (b.placements ?? []).find((p) => p.env === env);
+  return (b.ports ?? []).map((port) => {
+    const override = (row?.ports ?? []).find((x) => x.name === port.name);
+    return { ...port, listen: port.port, port: override ? override.port : port.port };
+  });
 }
 
 /** True when a port is reachable by anything other than its own bundle. */

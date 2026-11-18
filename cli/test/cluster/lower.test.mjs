@@ -115,7 +115,7 @@ port = "http"
 `;
 
 const objectsOf = (yaml) => parseAllDocuments(yaml).map((d) => d.toJS());
-const containerOf = (yaml) => objectsOf(yaml).find((o) => o.kind !== "Service").spec.template.spec.containers[0];
+const containerOf = (yaml) => objectsOf(yaml).find((o) => o.spec?.template).spec.template.spec.containers[0];
 
 function inDir(toml, run) {
   const dir = mkdtempSync(join(tmpdir(), "cluster-lower-"));
@@ -223,7 +223,7 @@ test("lowering refuses what it cannot write, by name", async () => {
     await assert.rejects(lowerDir({ root: dir, env: "local" }), /secret "Orders_DB" key "latest" cannot name a Kubernetes Secret and key/);
   });
   await inDir(HAND, async (dir) => {
-    await assert.rejects(lowerDir({ root: dir, env: "prod" }), /no bundle is placed "kubernetes" for env "prod"/);
+    await assert.rejects(lowerDir({ root: dir, env: "prod" }), /no bundle is placed "kubernetes" or "knative" for env "prod"/);
   });
 });
 
@@ -259,4 +259,91 @@ test("plan to running manifests in three commands, on the plan the real tool wro
       if (String(file).endsWith(".yaml") || String(file).endsWith(".toml")) assert.ok(!readFileSync(join(dir, String(file)), "utf8").includes("FIXTURE-SENSITIVE-VALUE"), String(file));
     }
   });
+});
+
+// ── Ports per placement, and the Knative emitter (ADR-0074 §7) ───────────────
+
+// The same bundles, placed on Knative: a Knative Service is dialled on 80
+// whatever its container listens on, so the placement row says so.
+const KNATIVE = HAND
+  .replace('[[bundles.placements]]\nenv = "local"\nkind = "kubernetes"\nmanifest = "orders.yaml"', '[[bundles.ports]]\nname = "http"\nport = 9090\nappProtocol = "art.http"\nexpose = "cluster"\n\n[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "orders.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80')
+  .replace('[[bundles.placements]]\nenv = "local"\nkind = "kubernetes"\nmanifest = "payments.yaml"', '[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80')
+  .replace('minStrength = "policy"\n', "")
+  // The job is left out: it is a Kubernetes Job, and its edge would cross placements.
+  .replace(/\[\[bundles\]\]\nname = "nightly"[\s\S]*?manifest = "jobs\/nightly.yaml"\n/, "")
+  .replace(/\[\[connections\]\]\nfrom = "nightly"[\s\S]*$/, "");
+
+test("the same bundle lowers to a Knative Service: dialled on 80, listening on its own port", async () => {
+  await inDir(KNATIVE, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual(written, ["orders.yaml", "payments.yaml"]);
+    const [payments] = objectsOf(readFileSync(join(dir, "payments.yaml"), "utf8"));
+    assert.deepEqual([payments.apiVersion, payments.kind, payments.metadata.namespace], ["serving.knative.dev/v1", "Service", "payments"]);
+    assert.deepEqual(payments.spec.template.spec.containers[0].ports, [{ name: "http1", containerPort: 8080 }]);
+    // The address is the dialled one: port 80, which http implies.
+    assert.deepEqual(containerOf(readFileSync(join(dir, "orders.yaml"), "utf8")).env[0], { name: "PAYMENTS_URL", value: "http://payments.payments.svc.cluster.local/v1" });
+    assert.match(readFileSync(join(dir, "payments.yaml"), "utf8"), /# Peers dial it on port 80; its container listens on 8080\.\n# Nothing enforces who may call it/);
+    // And the existing Knative check accepts it, tying the address to its connection.
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(checked.files, []);
+    assert.deepEqual(checked.checked.map((k) => [k.bundle, k.port, k.wire]), [["orders", 80, "http1"], ["payments", 80, "http1"]]);
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.to, r.connections]), [["orders", "payments", ["payments"]]]);
+  });
+});
+
+test("on Kubernetes a dialled port becomes the Service port, and the bundle's port the targetPort", async () => {
+  const mapped = HAND.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80');
+  await inDir(mapped, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const objects = objectsOf(readFileSync(join(dir, "payments.yaml"), "utf8"));
+    assert.deepEqual(objects[1].spec.ports, [{ name: "http", port: 80, targetPort: 8080, appProtocol: "art.http" }]);
+    assert.deepEqual(objects[0].spec.template.spec.containers[0].ports, [{ name: "http", containerPort: 8080 }]);
+    assert.equal(containerOf(readFileSync(join(dir, "orders.yaml"), "utf8")).env[0].value, "http://payments.payments.svc.cluster.local/v1");
+    const written = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(written.references.map((r) => [r.bundle, r.to]), [["orders", "payments"], ["nightly", "payments"]]);
+    // The NetworkPolicy admits the pod-side port, which is the targetPort.
+    assert.match(readFileSync(join(dir, "k8s/payments/20-networkpolicy.yaml"), "utf8"), /port: 8080/);
+  });
+});
+
+const portRefusals = [
+  ["a dialled port on a constructed placement", (t) => t.replace('kind = "kubernetes"\nmanifest = "payments.yaml"', 'kind = "workerd"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80').replace(/\[\[connections\]\][\s\S]*$/, "").replace(/\[\[bundles.external.env\]\]\nname = "(PAYMENTS_URL|TARGET)"\nconnection = "payments"\n(path = "\/v1"\n)?/g, ""),
+    /bundle "payments" placement env "local": kind "workerd" takes no ports rows/],
+  ["a dialled port for a port the bundle does not have", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "grpc"\nport = 80'),
+    /ports row names "grpc", which is not a port of bundle "payments" \(it declares: http\)/],
+  ["a dialled port that is not a port number", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 0'),
+    /port "http" is dialled on 0, which is not a port number/],
+  ["the same port dialled twice", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80\n\n[[bundles.placements.ports]]\nname = "http"\nport = 81'),
+    /ports row for "http" appears more than once/],
+];
+for (const [label, edit, pattern] of portRefusals) {
+  test(`cluster.toml refuses by name: ${label}`, async () => {
+    await assert.rejects(parseTomlToCluster(edit(HAND)), pattern);
+  });
+}
+
+test("Knative lowering refuses what a Knative Service cannot be, and writes nothing when one bundle fails", async () => {
+  // A job, placed knative by hand.
+  const job = KNATIVE + '\n[[bundles]]\nname = "nightly"\nkind = "external"\ntier = "cluster"\n\n[bundles.external]\nimage = "example.com/nightly:1"\nruns = "job"\n\n[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "nightly.yaml"\n';
+  await inDir(job, async (dir) => {
+    await assert.rejects(lowerDir({ root: dir, env: "local" }), /bundle "nightly" runs = "job", and a Knative Service runs to serve requests/);
+    // orders and payments come first and are fine, but nothing is half-written.
+    assert.deepEqual(readdirSync(dir), ["cluster.toml"]);
+  });
+  await inDir(KNATIVE.replace('[[bundles.placements.ports]]\nname = "http"\nport = 80\n\n[[bundles]]\nname = "payments"', '[[bundles]]\nname = "payments"'), async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    // Lowered as declared; the existing check then says what is missing.
+    await assert.rejects(emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") }), /port "http" is dialled on 9090 in cluster\.toml, but a Knative Service is reached on port 80.*Add a \[\[bundles\.placements\.ports\]\] row/);
+  });
+});
+
+test("a draft placed on Knative sets each port's dialled number, and keeps a job on Kubernetes", async () => {
+  const PLAN = fileURLToPath(new URL("../../../test/fixtures/terraform/google-plan.show.json", import.meta.url));
+  const draft = draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "knative" });
+  const cluster = await parseTomlToCluster(draft.toml);
+  const local = (name) => cluster.bundles.find((b) => b.name === name).placements.find((p) => p.env === "local");
+  assert.deepEqual([local("reconciler").kind, local("reconciler").ports], ["knative", [{ name: "h2c", port: 80 }]]);
+  assert.deepEqual([local("sweep").kind, local("sweep").ports], ["kubernetes", []]);
+  assert.ok(draft.notes.some((n) => /"sweep": runs to completion, so it is placed "kubernetes" for "local", not "knative"/.test(n)));
+  assert.throws(() => draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "nomad" }), /--local-kind "nomad" is not one of kubernetes, knative/);
 });

@@ -280,6 +280,18 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # kubernetes manifest is also copied unchanged. It never edits the
   # operator's objects.
   manifest @2 :Text $Traits.doc("Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.");
+  # The number a peer DIALS a port on in this placement, when it is not the
+  # number the workload listens on (ADR-0074 §7). A bundle's port is what the
+  # process binds. Some placements put something in front of it: a Knative
+  # Service is dialled on 80 whatever its container listens on, and a
+  # Kubernetes Service may map any port to a targetPort. Forwarded kinds
+  # only. A port with no row here is dialled on its own number.
+  ports @3 :List(PlacementPort) $Traits.doc("Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only.");
+}
+
+struct PlacementPort $Traits.doc("The number one port is dialled on in one placement.") {
+  name @0 :Text $Traits.doc("The name of one of the bundle's ports.");
+  port @1 :UInt16 $Traits.doc("The number a peer dials in this placement. The workload still listens on the bundle port's own number.");
 }
 
 # ── PortSpec (ADR-0069 §1 / cloister-991e65) ─────────────────────────────

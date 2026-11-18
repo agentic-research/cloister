@@ -36,6 +36,7 @@ import {
   isExposed,
   placementFor,
   placementManifest,
+  portsFor,
   refuseCrossPlacement,
 } from "./connections.mjs";
 
@@ -258,8 +259,17 @@ export function inspectKnative(bundle, objects, label) {
     if (p.port !== KNATIVE_PORT) {
       const container = typeof ports[0]?.containerPort === "number" ? ` (its container port ${ports[0].containerPort} is not what a peer dials)` : "";
       throw new Error(
-        `${port} is declared as ${p.port} in cluster.toml, but a Knative Service is reached on ` +
-          `port ${KNATIVE_PORT} inside the cluster${container}`,
+        `${port} is dialled on ${p.port} in cluster.toml, but a Knative Service is reached on ` +
+          `port ${KNATIVE_PORT} inside the cluster${container}. Add a [[bundles.placements.ports]] row ` +
+          `to this placement with name = "${p.name}" and port = ${KNATIVE_PORT}: the bundle's port stays what the workload listens on`,
+      );
+    }
+    // With the dialled number set apart, the bundle's own port is what the
+    // container listens on, and the manifest must agree when it says.
+    const listens = p.listen ?? p.port;
+    if (listens !== p.port && typeof ports[0]?.containerPort === "number" && ports[0].containerPort !== listens) {
+      throw new Error(
+        `${port} listens on ${listens} in cluster.toml, but the Service's container port is ${ports[0].containerPort}`,
       );
     }
     if (Object.hasOwn(KNATIVE_WIRES, p.appProtocol)) {
@@ -431,7 +441,11 @@ const HANDLED = Object.freeze(["kubernetes", "knative"]);
  *   file is written for one. `references` and `unreferenced` are what the
  *   containers' own strings say about the graph (see checkAddresses).
  */
-export function lowerK8s({ bundles, connections, env, readManifest }) {
+export function lowerK8s({ bundles: declared, connections, env, readManifest }) {
+  // Every check below is about what a PEER dials. A port's number here is the
+  // one dialled in this env, which a placement row may set apart from the
+  // number the workload listens on (ADR-0074 §7); `listen` keeps the latter.
+  const bundles = declared.map((b) => ({ ...b, ports: portsFor(b, env) }));
   const placed = bundles.filter((b) => placementFor(b, env) === "kubernetes");
   const knative = bundles.filter((b) => placementFor(b, env) === "knative");
 
