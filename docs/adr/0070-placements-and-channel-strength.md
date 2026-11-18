@@ -108,7 +108,7 @@ Placements come in two classes, and the class decides what cloister owns.
 | Class | Placements | Cloister owns |
 |---|---|---|
 | **constructed** | `workerd`, `microvm` | the node: artifact → rootfs → start, and its channels |
-| **forwarded** | `kubernetes` (plain or Knative), `cloudRun` | only the edges: the env overlay and policy, never the workload spec |
+| **forwarded** | `kubernetes`, `knative`, `cloudRun` | only the edges: the env overlay and policy, never the workload spec |
 
 **Forwarded placements parse; they do not own.** A forwarded bundle names
 manifests the operator already has. Cloister parses only the name, ports and
@@ -131,15 +131,44 @@ Service, cloister forwards it unchanged. Cloud Run accepts that format directly
 (`gcloud run services replace`), and so does Kubernetes with Knative installed.
 Otherwise a plain Deployment and Service overlay applies.
 
-*Status (2026-11-18): the Knative half of this is not built.* `cluster k8s`
-lowers a plain Deployment and core Service only. It identifies an object by API
-group and kind, and refuses a Knative Service (`serving.knative.dev`) by name.
-The `policy` strength of §3 is a pod-to-pod NetworkPolicy plus a default deny,
-and a Knative request reaches its pod through Knative's own ingress and
-activator: the policy would not describe that path and the default deny would
-cut it. Lowering Knative needs its own answer for what `policy` means there.
-Until this refusal, a Knative Service was read as a core Service because both
-have `kind: Service`, and was refused for having no `spec.selector`.
+**Amendment (2026-11-18): Knative is its own placement kind, `knative`, and
+it is checked, not lowered.** The paragraph above treated a Knative Service as
+one more manifest a `kubernetes` placement may name. It cannot be, because of
+§3: strength is a property of the placement, computed from the kind before any
+manifest is read. `kubernetes` is `policy` because of a pod-to-pod
+NetworkPolicy plus a default deny. A Knative request reaches its pod through
+Knative's own ingress and activator, so that policy would not describe its
+path and the default deny would cut it. A Knative Service under a `kubernetes`
+placement would therefore be reported as `policy` while nothing enforced it.
+
+So:
+
+- `kind = "knative"` is a forwarded placement whose strength is `none`. A
+  connection that sets `minStrength` above `none` on a knative end fails the
+  build by name, through the existing rail.
+- `cluster k8s` checks a knative bundle's manifest and writes nothing for it:
+  no copy, no namespace, no policy.
+  - The manifest holds exactly one Knative Service (`serving.knative.dev`).
+  - The bundle declares at most one exposed port, and its number is 80, the
+    port a peer dials inside the cluster. The container port is not that.
+  - The declared `appProtocol` fits the wire the Service serves, `http1` (the
+    default) or `h2c`, by a table that covers every blessed label. A label
+    that is not HTTP is refused. A vendor label is not checked.
+  - `expose = "edge"` is refused: reachability from outside is the Service's
+    own route visibility, which is not read.
+- "One namespace per bundle, named after it" does not apply. That rule exists
+  because the kubernetes overlay writes policy per namespace. Several knative
+  bundles may share one.
+- A Knative Service in a `kubernetes` placement's manifest is refused by name
+  and pointed here. An edge between a `kubernetes` and a `knative` bundle is
+  refused: the kubernetes side's default deny would not admit it.
+- An object is identified by API group and kind. Before this, a Knative
+  Service was read as a core Service because both have `kind: Service`.
+
+Not built: any enforcement for Knative. That needs its own answer for what
+`policy` means on Knative's request path. Also not built: reading the env var
+names §2 mentions, which is what would catch a URL that names the wrong
+service.
 
 ### 3. Channel strength is a property of the placement, and it is ordered
 
@@ -151,7 +180,7 @@ capability  ⊐  policy  ⊐  none
 |---|---|---|
 | `capability` | the workload holds nothing to dial | `workerd` (bindings), `microvm` with hijacking off (§6 vsock only) |
 | `policy` | a reachable peer is refused | `kubernetes` (NetworkPolicy; kind ≥ v0.24 enforces it), `cloudRun` (IAM invoker + ingress), `microvm` with hijacking on |
-| `none` | nothing enforces it | any placement without an enforcing mechanism (e.g. a CNI that ignores NetworkPolicy) |
+| `none` | nothing enforces it | `knative` (§2 amendment), and any placement without an enforcing mechanism (e.g. a CNI that ignores NetworkPolicy) |
 
 The strength of an edge is the **meet** of its two ends' placements, in the
 same lattice style as [ADR-0068](0068-confinement-is-a-lattice.md). A bundle
@@ -245,8 +274,8 @@ is an operator decision outside the plan (the host runtime's existing rule).
 - Edges across placements (microvm ↔ kubernetes) are legal in the graph and
   refused by both emitters, which name LLO's broker (`ley-line-open-e2c5ce`).
   `workerd` and `cloudRun` rows parse, and every emitter refuses them as not
-  lowered yet. A Knative Service in a `kubernetes` manifest is refused the same
-  way (§2).
+  lowered yet. A `knative` placement is checked by `cluster k8s` and never
+  lowered (§2 amendment).
 - No env lowering. A connection's address does not reach the workload: the
   operator's manifest carries it by hand (the demo's `orders.yaml` passes
   `-db dolt.dolt.svc.cluster.local:3306`), and a launch plan carries no

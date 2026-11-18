@@ -22,6 +22,10 @@
 //
 // No env vars are emitted. Env lowering is a later slice; until then the
 // operator's manifest carries the address itself.
+//
+// A `knative` placement is CHECKED here and never lowered (ADR-0070 §2–3,
+// issue #311). Its strength is "none": the declared port and appProtocol are
+// held to the Knative Service, and no file, namespace or policy is written.
 
 import { basename } from "node:path";
 import { parseAllDocuments, stringify } from "yaml";
@@ -51,23 +55,30 @@ const isObject = (obj, id) => obj.kind === id.kind && groupOf(obj.apiVersion) ==
 const NAMESPACE = Object.freeze({ group: "", kind: "Namespace" });
 const SERVICE = Object.freeze({ group: "", kind: "Service" });
 
+const KNATIVE_SERVICE = Object.freeze({ group: "serving.knative.dev", kind: "Service" });
+
+/** The port a Knative Service is reached on inside the cluster, whatever its container listens on. */
+const KNATIVE_PORT = 80;
+
 /**
- * Objects that are a workload's network face in another model. Cloister knows
- * what they are and does not lower them yet. They are refused by name, so one
- * is never read as a core Service and never forwarded with policies written
- * for a different request path.
+ * Which Knative wire each blessed appProtocol label can run on. A Knative
+ * Service serves HTTP on one port, and names that port `http1` (the default)
+ * or `h2c`. A label mapped to `[]` is not HTTP and cannot be a Knative port at
+ * all. A test holds this table to the blessed set, so a new label must be
+ * placed here before it can be declared on a knative bundle. Vendor (`x-`)
+ * labels are not in it: what they need is unknown, so they are not checked.
  */
-const NOT_LOWERED = Object.freeze([
-  Object.freeze({
-    group: "serving.knative.dev",
-    kind: "Service",
-    name: "Knative Service",
-    why:
-      "Knative routes a request through its own ingress and activator, so the pod-to-pod " +
-      "NetworkPolicies this command writes would not describe the path, and the default-deny " +
-      "policy would cut it",
-  }),
-]);
+export const KNATIVE_WIRES = Object.freeze({
+  "art.http": ["http1"],
+  "art.http2": ["h2c"],
+  "art.grpc": ["h2c"],
+  "art.mcp-jsonrpc": ["http1", "h2c"],
+  "art.interlace-capnp": [],
+  "art.capnp-uds": [],
+  "art.tcp": [],
+  "art.tls": [],
+  "art.mysql": [],
+});
 
 /** Parse a multi-document YAML manifest into plain objects, failing by name. */
 export function parseManifest(text, label) {
@@ -103,11 +114,15 @@ export function inspectManifest(bundle, objects, label) {
   const services = [];
   for (const obj of objects) {
     const name = obj.metadata?.name ?? "<unnamed>";
-    const unlowered = NOT_LOWERED.find((id) => isObject(obj, id));
-    if (unlowered) {
+    if (isObject(obj, KNATIVE_SERVICE)) {
+      // Never read as a core Service, and never fenced with policies written
+      // for a different request path.
       throw new Error(
-        `${label}: ${unlowered.name} "${name}" (${obj.apiVersion}) is not lowered yet. ${unlowered.why}. ` +
-          `For a kubernetes placement, give bundle "${ns}" a Deployment and a core v1 Service.`,
+        `${label}: Knative Service "${name}" (${obj.apiVersion}) cannot be a "kubernetes" placement. ` +
+          `Knative routes a request through its own ingress and activator, so the pod-to-pod ` +
+          `NetworkPolicies this command writes would not describe the path, and the default-deny ` +
+          `policy would cut it. Place bundle "${ns}" kind = "knative": its connections are checked ` +
+          `and nothing is enforced (strength "none"). Or give it a Deployment and a core v1 Service.`,
       );
     }
     if (isObject(obj, NAMESPACE)) {
@@ -176,6 +191,78 @@ export function inspectManifest(bundle, objects, label) {
   return { declaresNamespace, selector, podPorts };
 }
 
+/**
+ * Check one knative-placed bundle's manifest against its declarations. Nothing
+ * is lowered for it: a knative placement has strength "none" (ADR-0070 §3), so
+ * there is no policy to write and no namespace this command owns. Returns what
+ * a peer dials, for the report.
+ */
+export function inspectKnative(bundle, objects, label) {
+  const services = objects.filter((obj) => isObject(obj, KNATIVE_SERVICE));
+  if (services.length !== 1) {
+    const core = objects.some((obj) => isObject(obj, SERVICE));
+    throw new Error(
+      `${label}: bundle "${bundle.name}" is placed "knative" and must declare exactly one Knative ` +
+        `Service (serving.knative.dev; found ${services.length})` +
+        (services.length === 0 && core ? `. It declares a core v1 Service: place it kind = "kubernetes"` : ""),
+    );
+  }
+  const svc = services[0];
+  const name = svc.metadata?.name ?? "<unnamed>";
+  const where = `${label}: Knative Service "${name}"`;
+
+  const containers = svc.spec?.template?.spec?.containers;
+  const ports = (Array.isArray(containers) ? containers : []).flatMap((c) => (Array.isArray(c?.ports) ? c.ports : []));
+  if (ports.length > 1) {
+    throw new Error(`${where} declares ${ports.length} container ports; a Knative Service serves exactly one`);
+  }
+  const portName = ports[0]?.name ?? "";
+  if (!["", "http1", "h2c"].includes(portName)) {
+    throw new Error(`${where} names its container port ${JSON.stringify(portName)}; Knative reads only "http1" or "h2c" there`);
+  }
+  const wire = portName === "h2c" ? "h2c" : "http1";
+
+  const exposed = bundle.ports.filter(isExposed);
+  if (exposed.length > 1) {
+    throw new Error(
+      `${where}: bundle "${bundle.name}" declares ${exposed.length} exposed ports ` +
+        `(${exposed.map((p) => p.name).join(", ")}); a Knative Service serves exactly one`,
+    );
+  }
+  for (const p of exposed) {
+    const port = `${where}: port "${p.name}"`;
+    if (p.expose === "edge") {
+      throw new Error(
+        `${port} has expose = "edge", which is not checked for a knative placement: whether a ` +
+          `Knative Service is reachable from outside is its own route visibility, which this ` +
+          `command does not read. Use expose = "cluster".`,
+      );
+    }
+    if (p.port !== KNATIVE_PORT) {
+      const container = typeof ports[0]?.containerPort === "number" ? ` (its container port ${ports[0].containerPort} is not what a peer dials)` : "";
+      throw new Error(
+        `${port} is declared as ${p.port} in cluster.toml, but a Knative Service is reached on ` +
+          `port ${KNATIVE_PORT} inside the cluster${container}`,
+      );
+    }
+    if (Object.hasOwn(KNATIVE_WIRES, p.appProtocol)) {
+      const wires = KNATIVE_WIRES[p.appProtocol];
+      if (wires.length === 0) {
+        throw new Error(`${port} has appProtocol "${p.appProtocol}", which is not HTTP; a Knative Service serves HTTP only`);
+      }
+      if (!wires.includes(wire)) {
+        throw new Error(
+          `${port} has appProtocol "${p.appProtocol}", which needs the container port named ` +
+            `${wires.map((w) => `"${w}"`).join(" or ")}, but the Service serves ${wire}` +
+            (portName === "" ? " (an unnamed container port is http1)" : ""),
+        );
+      }
+    }
+  }
+  const namespace = typeof svc.metadata?.namespace === "string" ? svc.metadata.namespace : "";
+  return { service: name, namespace, wire, port: KNATIVE_PORT };
+}
+
 function namespaceObject(ns) {
   return { apiVersion: "v1", kind: "Namespace", metadata: { name: ns, labels: { ...MANAGED_BY } } };
 }
@@ -220,30 +307,39 @@ function yamlDocs(objects) {
   return HEADER + objects.map((o) => stringify(o, { lineWidth: 0 })).join("---\n");
 }
 
+/** The placement kinds this command handles: one it lowers, one it checks. */
+const HANDLED = Object.freeze(["kubernetes", "knative"]);
+
 /**
- * Lower every kubernetes-placed bundle for `env`.
+ * Lower every kubernetes-placed bundle for `env`, and check every
+ * knative-placed one.
  *
  * @param {object} opts
  * @param {Array} opts.bundles   checkable bundles (name, ports, placements, executionMode)
  * @param {Array} opts.connections normalized connections
  * @param {string} opts.env
  * @param {(path: string) => string} opts.readManifest reads a cluster-dir-relative path
- * @returns {Array<{path: string, content: string}>} deterministic: bundles in
- *   declaration order, files `<bundle>/00-namespace.yaml` (when needed),
- *   `<bundle>/10-<manifest basename>`, `<bundle>/20-networkpolicy.yaml`.
+ * @returns {{files: Array<{path: string, content: string}>, checked: Array}}
+ *   `files` is deterministic: kubernetes bundles in declaration order, files
+ *   `<bundle>/00-namespace.yaml` (when needed), `<bundle>/10-<manifest
+ *   basename>`, `<bundle>/20-networkpolicy.yaml`. `checked` lists each knative
+ *   bundle with what a peer dials and the connections into and out of it; no
+ *   file is written for one.
  */
-export function emitK8s({ bundles, connections, env, readManifest }) {
+export function lowerK8s({ bundles, connections, env, readManifest }) {
   const placed = bundles.filter((b) => placementFor(b, env) === "kubernetes");
+  const knative = bundles.filter((b) => placementFor(b, env) === "knative");
 
-  // Edges that touch a kubernetes bundle: both ends must be kubernetes here.
-  // An edge into or out of another placement is legal in the graph and
-  // refused by every emitter until LLO's broker exists.
+  // Edges that touch a bundle this command handles: both ends must have the
+  // same kind here. An edge into or out of another placement is legal in the
+  // graph and refused by every emitter until something joins the two.
+  const edges = [];
   for (const c of connections) {
     const from = bundles.find((b) => b.name === c.from);
     const fromKind = placementFor(from, env);
     const target = c.targets.find((t) => t.env === env);
     if (!target) {
-      if (fromKind === "kubernetes") {
+      if (HANDLED.includes(fromKind)) {
         throw new Error(
           `connection "${c.name}" (from "${c.from}") declares no target for env "${env}" ` +
             `(declared: ${c.targets.map((t) => t.env).join(", ")})`,
@@ -252,9 +348,21 @@ export function emitK8s({ bundles, connections, env, readManifest }) {
       continue;
     }
     const toKind = placementFor(bundles.find((b) => b.name === target.bundle), env);
-    if (fromKind !== "kubernetes" && toKind !== "kubernetes") continue;
+    if (!HANDLED.includes(fromKind) && !HANDLED.includes(toKind)) continue;
     if (fromKind !== toKind) refuseCrossPlacement(c, c.from, fromKind, target.bundle, toKind, env);
+    edges.push({ name: c.name, from: c.from, to: target.bundle, port: target.port });
   }
+
+  const checked = knative.map((b) => {
+    const path = placementManifest(b, env);
+    const label = `bundle "${b.name}" manifest ${path}`;
+    return {
+      bundle: b.name,
+      ...inspectKnative(b, parseManifest(readManifest(path), label), label),
+      connectionsIn: edges.filter((e) => e.to === b.name).map((e) => ({ name: e.name, from: e.from })),
+      connectionsOut: edges.filter((e) => e.from === b.name).map((e) => ({ name: e.name, to: e.to })),
+    };
+  });
 
   const inspected = new Map();
   const texts = new Map();
@@ -285,5 +393,10 @@ export function emitK8s({ bundles, connections, env, readManifest }) {
     }
     files.push({ path: `${b.name}/20-networkpolicy.yaml`, content: yamlDocs(policies) });
   }
-  return files;
+  return { files, checked };
+}
+
+/** The files `lowerK8s` writes, for callers that want only those. */
+export function emitK8s(opts) {
+  return lowerK8s(opts).files;
 }

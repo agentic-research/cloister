@@ -72,7 +72,7 @@ export function normalizePlacements(raw) {
 
 /** Constructed: cloister builds the node. Forwarded: it owns only the edges. */
 export const CONSTRUCTED_KINDS = Object.freeze(["microvm", "workerd"]);
-export const FORWARDED_KINDS = Object.freeze(["kubernetes", "cloudRun"]);
+export const FORWARDED_KINDS = Object.freeze(["kubernetes", "knative", "cloudRun"]);
 export const PLACEMENT_KINDS = Object.freeze([...CONSTRUCTED_KINDS, ...FORWARDED_KINDS]);
 
 /** Ordered weakest → strongest; the meet of two is the earlier one. */
@@ -87,6 +87,13 @@ export const STRENGTHS = Object.freeze(["none", "policy", "capability"]);
  * `policy` here. kubernetes is `policy` (NetworkPolicy, which the cluster's CNI
  * must enforce). Every other kind is `none` until it is lowered with a
  * mechanism that enforces anything — never an optimistic default.
+ *
+ * knative is `none` on purpose, and is its own kind for that reason. A Knative
+ * Service runs on Kubernetes, but a request reaches it through Knative's
+ * ingress and activator, not pod to pod, so the NetworkPolicies that make
+ * `kubernetes` a `policy` placement do not describe its path. Cloister checks
+ * a knative bundle's ports and writes nothing. If it were a `kubernetes`
+ * placement, this function would report `policy` for an edge nothing enforces.
  */
 export function strengthOf(kind) {
   if (kind === "microvm") return "capability";
@@ -117,6 +124,12 @@ export function placementFor(bundle, env) {
 export function placementManifest(bundle, env) {
   return (bundle?.placements ?? []).find((p) => p.env === env)?.manifest ?? "";
 }
+
+/** Forwarded kinds whose manifest cloister reads, so a row must name one. */
+const MANIFEST_KINDS = Object.freeze(["kubernetes", "knative"]);
+
+/** "a", "a or b", "a, b or c". */
+const oneOf = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`);
 
 /** Cluster-dir-relative path: no leading "/", no "." / ".." / empty segment. */
 function relativePathProblem(path) {
@@ -152,8 +165,8 @@ function assertPlacements(b) {
           `(manifest is for forwarded kinds: ${FORWARDED_KINDS.join(", ")})`,
       );
     }
-    if (p.kind === "kubernetes" && p.manifest === "") {
-      throw new Error(`${where}: kind "kubernetes" requires a manifest (a rendered YAML path)`);
+    if (MANIFEST_KINDS.includes(p.kind) && p.manifest === "") {
+      throw new Error(`${where}: kind "${p.kind}" requires a manifest (a rendered YAML path)`);
     }
     if (p.manifest !== "") {
       const problem = relativePathProblem(p.manifest);
@@ -215,8 +228,11 @@ export function dnsLabelProblem(name) {
  * SQL-wire connection from one outright (ADR-0033). An external `process`
  * bundle has no way to be handed the channel at all.
  */
-/** Placement kinds a channel end may have: the two that are lowered. */
-const CHANNEL_KINDS = ["microvm", "kubernetes"];
+/**
+ * Placement kinds a channel end may have: the two that are lowered, and
+ * knative, whose ends are checked against its manifest and not lowered.
+ */
+const CHANNEL_KINDS = ["microvm", "kubernetes", "knative"];
 
 /**
  * Why bundle `b` cannot hold a channel end — in `env` when given (a
@@ -237,7 +253,7 @@ function endpointProblem(b, env) {
   if (rows.length === 0 && b.executionMode !== "microvm") {
     return `has executionMode ${JSON.stringify(b.executionMode)} and no placements; channels ` +
       `are lowered only for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, ` +
-      `LLO) or bundles placed "kubernetes"`;
+      `LLO) or bundles placed "kubernetes" or "knative"`;
   }
   if (env !== undefined) {
     const kind = placementFor(b, env);
@@ -247,13 +263,13 @@ function endpointProblem(b, env) {
     }
     if (!CHANNEL_KINDS.includes(kind)) {
       return `is placed "${kind}" for env "${env}"; a channel end must be placed ` +
-        `${CHANNEL_KINDS.join(" or ")}, the kinds ADR-0070 §4 lowers today`;
+        `${oneOf(CHANNEL_KINDS)}, the kinds ADR-0070 §4 lowers or checks today`;
     }
     return null;
   }
   const kinds = rows.length === 0 ? ["microvm"] : rows.map((r) => r.kind);
   if (!kinds.some((k) => CHANNEL_KINDS.includes(k))) {
-    return `has no placement of kind ${CHANNEL_KINDS.join(" or ")} (declared: ` +
+    return `has no placement of kind ${oneOf(CHANNEL_KINDS)} (declared: ` +
       `${kinds.join(", ")}), so nothing would lower its channel`;
   }
   return null;
@@ -424,6 +440,9 @@ export function refuseNonMicrovm(label, kind, env) {
   if (kind === "kubernetes") {
     throw new Error(`${label} is placed "kubernetes" for env "${env}"; lower it with \`cloister cluster k8s\`, not \`runtime plan\``);
   }
+  if (kind === "knative") {
+    throw new Error(`${label} is placed "knative" for env "${env}"; check it with \`cloister cluster k8s\`. A knative placement is checked, never lowered or started`);
+  }
   throw new Error(`${label} is placed "${kind}" for env "${env}", which is not lowered yet (ADR-0070 §4)`);
 }
 
@@ -441,6 +460,14 @@ export function refuseCrossPlacement(c, fromName, fromKind, toName, toKind, env)
           `placed "${kind}", which is not lowered yet (ADR-0070 §4)`,
       );
     }
+  }
+  if ([fromKind, toKind].includes("kubernetes") && [fromKind, toKind].includes("knative")) {
+    throw new Error(
+      `connection "${c.name}" (from "${fromName}") env "${env}" joins "${fromName}" ` +
+        `(${fromKind}) to "${toName}" (${toKind}): a kubernetes bundle is fenced by ` +
+        `NetworkPolicies that select pods, and a Knative request does not travel pod to ` +
+        `pod, so no policy this emitter writes would admit this edge and nothing else`,
+    );
   }
   throw new Error(
     `connection "${c.name}" (from "${fromName}") env "${env}" joins "${fromName}" ` +

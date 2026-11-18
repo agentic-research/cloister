@@ -131,17 +131,20 @@ export function clusterComposePath(dir) {
  */
 export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
-  const { emitK8s } = await import("../lib/cluster/emit-k8s.mjs");
+  const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
-  const files = emitK8s({
+  const { files, checked } = lowerK8s({
     bundles: cluster.bundles.map(checkableBundle),
     connections: cluster.connections ?? [],
     env,
     readManifest: (path) => readFileSync(resolve(root, path), "utf8"),
   });
-  if (files.length === 0) {
-    throw new ClusterUsageError(`no bundle is placed "kubernetes" for env "${env}"`);
+  if (files.length === 0 && checked.length === 0) {
+    throw new ClusterUsageError(`no bundle is placed "kubernetes" or "knative" for env "${env}"`);
   }
+  // Only knative bundles: they are checked and nothing is written, so --out is
+  // left exactly as it was.
+  if (files.length === 0) return { files: [], bundles: [], checked };
   const expected = new Set(files.map((f) => f.path));
   const stale = existsSync(out)
     ? readdirSync(out, { recursive: true, withFileTypes: true })
@@ -164,6 +167,7 @@ export async function emitK8sDir({ root, env, out }) {
   return {
     files: files.map((f) => f.path),
     bundles: [...new Set(files.map((f) => f.path.split("/")[0]))],
+    checked,
   };
 }
 
@@ -236,6 +240,11 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       const written = await emitK8sDir({ root: selectedRoot, env: args.env ?? "local", out: resolve(process.cwd(), outDir) });
       for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
       for (const b of written.bundles) log(`  kubectl apply -n ${b} -f ${join(outDir, b)}`);
+      for (const k of written.checked) {
+        const address = `${k.service}${k.namespace ? `.${k.namespace}.svc` : ""}:${k.port}`;
+        log(`cloister cluster k8s: checked "${k.bundle}" (knative, strength "none"): reached at ${address} (${k.wire}); nothing written`);
+        for (const c of k.connectionsIn) log(`  connection "${c.name}" from "${c.from}": checked, not enforced`);
+      }
       return 0;
     } catch (error) {
       errLog(`cloister cluster k8s: ${error.message}`);

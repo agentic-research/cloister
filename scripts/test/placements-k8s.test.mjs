@@ -19,9 +19,10 @@ import { parseAllDocuments } from "yaml";
 
 import { parseTomlToCluster, checkableBundle } from "../../cli/lib/cluster/toml-to-cluster.mjs";
 import { clusterToToml } from "../../cli/lib/cluster/cluster-to-toml.mjs";
-import { emitK8s } from "../../cli/lib/cluster/emit-k8s.mjs";
+import { emitK8s, KNATIVE_WIRES, lowerK8s } from "../../cli/lib/cluster/emit-k8s.mjs";
+import { BLESSED_LABELS } from "../../cli/lib/app-protocol.mjs";
 import { meetStrength, strengthOf } from "../../cli/lib/cluster/connections.mjs";
-import { emitK8sDir } from "../../cli/commands/cluster.mjs";
+import { emitK8sDir, main as clusterMain } from "../../cli/commands/cluster.mjs";
 import { planFromToml } from "../../cli/commands/runtime-plan.mjs";
 import { tableAdmits } from "./fixtures/platform-admits-table.mjs";
 
@@ -140,7 +141,7 @@ const placementRefusals = [
     /bundle "dolt" declares a placement for env "local" more than once/],
   ["unknown kind",
     (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "nomad"\n`),
-    /kind "nomad" is not one of microvm, workerd, kubernetes, cloudRun/],
+    /kind "nomad" is not one of microvm, workerd, kubernetes, knative, cloudRun/],
   ["microvm without executionMode microvm",
     (t) => placeAs(t, "dolt.yaml", MICROVM()),
     /kind "microvm" requires executionMode = "microvm" \(the bundle declares ""\) — the two must agree/],
@@ -268,10 +269,10 @@ const manifestRefusals = [
   // refused for having no selector, which a Knative Service never has.
   ["a Knative Service beside the core Service",
     (m) => `${m}---\napiVersion: serving.knative.dev/v1\nkind: Service\nmetadata:\n  name: dolt-kn\nspec:\n  template:\n    spec:\n      containers:\n        - image: example.com/dolt\n`,
-    /Knative Service "dolt-kn" \(serving\.knative\.dev\/v1\) is not lowered yet\..*give bundle "dolt" a Deployment and a core v1 Service/],
+    /Knative Service "dolt-kn" \(serving\.knative\.dev\/v1\) cannot be a "kubernetes" placement\..*Place bundle "dolt" kind = "knative".*Or give it a Deployment and a core v1 Service/],
   ["a Knative Service in place of the core Service",
     (m) => m.replace("apiVersion: v1\nkind: Service", "apiVersion: serving.knative.dev/v1beta1\nkind: Service"),
-    /Knative Service "dolt" \(serving\.knative\.dev\/v1beta1\) is not lowered yet/],
+    /Knative Service "dolt" \(serving\.knative\.dev\/v1beta1\) cannot be a "kubernetes" placement/],
   ["a Service of an unknown API group in place of the core Service",
     (m) => m.replace("apiVersion: v1\nkind: Service", "apiVersion: example.com/v1\nkind: Service"),
     /bundle "dolt" must declare exactly one core v1 Service \(found 0\)/],
@@ -302,7 +303,7 @@ test("a connection end placed cloudRun fails the BUILD: a channel end must be mi
   ).replace('minStrength = "policy"', 'minStrength = ""');
   await assert.rejects(
     parseTomlToCluster(t),
-    /bundle "dolt" is the target of connection "orders-db" but is placed "cloudRun" for env "local"; a channel end must be placed microvm or kubernetes/,
+    /bundle "dolt" is the target of connection "orders-db" but is placed "cloudRun" for env "local"; a channel end must be placed microvm, kubernetes or knative/,
   );
 });
 
@@ -310,7 +311,7 @@ test("an exposed port on a bundle with no microvm or kubernetes placement fails 
   const t = placeAs(DEMO_TOML, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n`);
   await assert.rejects(
     parseTomlToCluster(t),
-    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm or kubernetes \(declared: cloudRun\)/,
+    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes or knative \(declared: cloudRun\)/,
   );
 });
 
@@ -389,7 +390,7 @@ test("cluster k8s writes the files, re-runs into the same --out, and refuses sta
 test("cluster k8s with no kubernetes placement for the env says so", async () => {
   const out = mkdtempSync(join(tmpdir(), "cloister-k8s-"));
   try {
-    await assert.rejects(emitK8sDir({ root: DEMO, env: "gcp", out }), /no bundle is placed "kubernetes" for env "gcp"/);
+    await assert.rejects(emitK8sDir({ root: DEMO, env: "gcp", out }), /no bundle is placed "kubernetes" or "knative" for env "gcp"/);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
@@ -402,4 +403,182 @@ test("cluster k8s refuses expose = \"edge\" by name: publishing outside the clus
     emit(toml),
     /bundle "dolt" port "mysql" has expose = "edge", which `cluster k8s` does not lower yet \(a NodePort plus kind extraPortMappings; tracked with cloister-55424e\)/,
   );
+});
+
+// ── knative placement: checked, never lowered (issue #311) ───────────────
+//
+// A workqueue and the reconciler it calls, both Knative Services sharing one
+// namespace. Strength belongs to the placement: knative is "none", so nothing
+// is written for it, and an edge that demands more fails the build.
+
+const KN_HEAD = DEMO_TOML.slice(0, DEMO_TOML.indexOf("[[bundles]]"));
+const knBundle = (name, { port = 80, appProtocol = "art.http", expose = "cluster", kind = "knative", extraPorts = "" } = {}) => `
+[[bundles]]
+name = "${name}"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "example.com/${name}:1"
+
+[[bundles.ports]]
+name = "http"
+port = ${port}
+appProtocol = "${appProtocol}"
+expose = "${expose}"
+${extraPorts}
+[[bundles.placements]]
+env = "local"
+kind = "${kind}"
+manifest = "${name}.yaml"
+`;
+const knConnection = (minStrength, appProtocol = "art.http") => `
+[[connections]]
+from = "workqueue"
+name = "reconcile"
+appProtocol = "${appProtocol}"
+${minStrength === null ? "" : `minStrength = "${minStrength}"\n`}
+[[connections.targets]]
+env = "local"
+bundle = "reconciler"
+port = "http"
+`;
+const knToml = ({ minStrength = "none", reconciler = {}, workqueue = {}, appProtocol = "art.http" } = {}) =>
+  KN_HEAD + knBundle("workqueue", workqueue) + knBundle("reconciler", { appProtocol, ...reconciler }) + knConnection(minStrength, appProtocol);
+const ksvc = (name, { portName, containerPort = 8080, namespace = "platform", ports } = {}) => {
+  const rows = ports ?? [`- containerPort: ${containerPort}${portName ? `\n              name: ${portName}` : ""}`];
+  return `apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: ${name}
+${namespace ? `  namespace: ${namespace}\n` : ""}spec:
+  template:
+    spec:
+      containers:
+        - image: example.com/${name}:1
+          ports:
+            ${rows.join("\n            ")}
+`;
+};
+const KN_MANIFESTS = { "workqueue.yaml": ksvc("workqueue"), "reconciler.yaml": ksvc("reconciler") };
+async function lowerKn(toml = knToml(), manifests = KN_MANIFESTS) {
+  const cluster = await parseTomlToCluster(toml);
+  return lowerK8s({
+    bundles: cluster.bundles.map(checkableBundle),
+    connections: cluster.connections,
+    env: "local",
+    readManifest: (p) => manifests[p],
+  });
+}
+
+test("strengthOf: knative is none, so its edges never report a strength nothing enforces", () => {
+  assert.equal(strengthOf("knative"), "none");
+  assert.equal(meetStrength(strengthOf("knative"), strengthOf("kubernetes")), "none");
+});
+
+test("knative ↔ knative at minStrength none (or unset): checked, and nothing is written", async () => {
+  for (const minStrength of ["none", null]) {
+    const { files, checked } = await lowerKn(knToml({ minStrength }));
+    assert.deepEqual(files, [], "no file, namespace or policy for a knative placement");
+    assert.deepEqual(checked, [
+      { bundle: "workqueue", service: "workqueue", namespace: "platform", wire: "http1", port: 80,
+        connectionsIn: [], connectionsOut: [{ name: "reconcile", to: "reconciler" }] },
+      { bundle: "reconciler", service: "reconciler", namespace: "platform", wire: "http1", port: 80,
+        connectionsIn: [{ name: "reconcile", from: "workqueue" }], connectionsOut: [] },
+    ]);
+  }
+});
+
+test("a knative edge that demands policy fails the BUILD by name", async () => {
+  await assert.rejects(
+    parseTomlToCluster(knToml({ minStrength: "policy" })),
+    /connection "reconcile" \(from "workqueue"\) env "local": minStrength "policy" is not met — "workqueue" is placed "knative" and "reconciler" is placed "knative", so the edge's strength is "none"/,
+  );
+});
+
+test("several knative bundles may share a namespace: the one-per-bundle rule is about where policy is written", async () => {
+  const { checked } = await lowerKn();
+  assert.deepEqual(checked.map((c) => c.namespace), ["platform", "platform"]);
+  const bare = await lowerKn(knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { namespace: "" }) });
+  assert.equal(bare.checked[1].namespace, "");
+});
+
+const knativeRefusals = [
+  ["a declared port that is not the port a peer dials",
+    knToml({ reconciler: { port: 8080 } }), KN_MANIFESTS,
+    /Knative Service "reconciler": port "http" is declared as 8080 in cluster.toml, but a Knative Service is reached on port 80 inside the cluster \(its container port 8080 is not what a peer dials\)/],
+  ["gRPC declared on a Service that serves http1",
+    knToml({ appProtocol: "art.grpc" }), KN_MANIFESTS,
+    /port "http" has appProtocol "art.grpc", which needs the container port named "h2c", but the Service serves http1 \(an unnamed container port is http1\)/],
+  ["plain HTTP declared on a Service that serves h2c",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { portName: "h2c" }) },
+    /port "http" has appProtocol "art.http", which needs the container port named "http1", but the Service serves h2c/],
+  ["a protocol that is not HTTP",
+    knToml({ appProtocol: "art.mysql" }), KN_MANIFESTS,
+    /port "http" has appProtocol "art.mysql", which is not HTTP; a Knative Service serves HTTP only/],
+  ["expose = edge",
+    knToml({ workqueue: { expose: "edge" } }), KN_MANIFESTS,
+    /Knative Service "workqueue": port "http" has expose = "edge", which is not checked for a knative placement/],
+  ["two exposed ports",
+    knToml({ workqueue: { extraPorts: `\n[[bundles.ports]]\nname = "admin"\nport = 9090\nappProtocol = "art.http"\nexpose = "cluster"\n` } }), KN_MANIFESTS,
+    /bundle "workqueue" declares 2 exposed ports \(http, admin\); a Knative Service serves exactly one/],
+  ["a Knative Service with two container ports",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { ports: ["- containerPort: 8080", "- containerPort: 9090"] }) },
+    /Knative Service "reconciler" declares 2 container ports; a Knative Service serves exactly one/],
+  ["a container port name Knative does not read",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { portName: "grpc" }) },
+    /names its container port "grpc"; Knative reads only "http1" or "h2c" there/],
+  ["a core Service under a knative placement",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": `apiVersion: v1\nkind: Service\nmetadata:\n  name: reconciler\nspec:\n  selector:\n    app: reconciler\n` },
+    /bundle "reconciler" is placed "knative" and must declare exactly one Knative Service \(serving\.knative\.dev; found 0\)\. It declares a core v1 Service: place it kind = "kubernetes"/],
+  ["two Knative Services in one bundle's manifest",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": `${ksvc("reconciler")}---\n${ksvc("reconciler-b")}` },
+    /must declare exactly one Knative Service \(serving\.knative\.dev; found 2\)/],
+];
+for (const [label, toml, manifests, pattern] of knativeRefusals) {
+  test(`cluster k8s refuses a knative bundle by name: ${label}`, async () => {
+    await assert.rejects(lowerKn(toml, manifests), pattern);
+  });
+}
+
+test("the right wire passes: gRPC on h2c, and a vendor label is not checked", async () => {
+  await lowerKn(knToml({ appProtocol: "art.grpc" }), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { portName: "h2c" }) });
+  await lowerKn(knToml({ appProtocol: "x-example-rpc" }), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { portName: "h2c" }) });
+});
+
+test("every blessed appProtocol label is placed in the Knative wire table", () => {
+  assert.deepEqual(Object.keys(KNATIVE_WIRES).sort(), [...BLESSED_LABELS].sort());
+});
+
+test("a knative placement needs a manifest, and an edge between knative and kubernetes is refused", async () => {
+  await assert.rejects(
+    parseTomlToCluster(knToml().replace('manifest = "reconciler.yaml"\n', "")),
+    /bundle "reconciler" placement env "local": kind "knative" requires a manifest/,
+  );
+  const mixed = KN_HEAD + knBundle("workqueue") + knBundle("reconciler", { kind: "kubernetes" }) + knConnection("none");
+  const core = `apiVersion: v1\nkind: Service\nmetadata:\n  name: reconciler\nspec:\n  selector:\n    app: reconciler\n  ports:\n    - name: http\n      port: 80\n      appProtocol: art.http\n`;
+  await assert.rejects(
+    lowerKn(mixed, { ...KN_MANIFESTS, "reconciler.yaml": core }),
+    /connection "reconcile" \(from "workqueue"\) env "local" joins "workqueue" \(knative\) to "reconciler" \(kubernetes\): a kubernetes bundle is fenced by NetworkPolicies that select pods/,
+  );
+});
+
+test("cluster k8s on a knative-only cluster reports the check and leaves --out untouched", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cloister-kn-"));
+  try {
+    writeFileSync(join(root, "cluster.toml"), knToml());
+    for (const [name, text] of Object.entries(KN_MANIFESTS)) writeFileSync(join(root, name), text);
+    const out = join(root, "out");
+    const lines = [];
+    const code = await clusterMain(["k8s", "--dir", root, "--env", "local", "--out", out], { log: (l) => lines.push(l), errLog: (l) => lines.push(l) });
+    assert.equal(code, 0, lines.join("\n"));
+    assert.equal(existsSync(out), false, "nothing is written for a knative placement");
+    assert.deepEqual(lines, [
+      'cloister cluster k8s: checked "workqueue" (knative, strength "none"): reached at workqueue.platform.svc:80 (http1); nothing written',
+      'cloister cluster k8s: checked "reconciler" (knative, strength "none"): reached at reconciler.platform.svc:80 (http1); nothing written',
+      '  connection "reconcile" from "workqueue": checked, not enforced',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
