@@ -260,10 +260,10 @@ See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-place
 ## cloister inspect
 
 ```
-cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]
+cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--name <name>]
 ```
 
-Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and/or wrangler configs (where a Worker's bindings live), and lists the workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. The attributes read are a data mapping validated against the provider's published schema, and relations are exact joins. In a plan document, a relation whose value is unknown until apply may resolve through the configuration's references, only when exactly one referenced resource has the target type. Cloudflare resource types, Google Cloud Run services and jobs (with their invoker member rows, and what each one dials, read from its containers' env and args) and Cloud SQL instances and Cloud Tasks queues, and wrangler.toml / wrangler.json are read today. With a cluster.toml, each declared connection is also compared with what the inputs say a service dials: evidenced, unknown, or undeclared, plus the services cluster.toml does not list. ADR-0073, ADR-0074.
+Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and/or wrangler configs (where a Worker's bindings live), and lists the workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. The attributes read are a data mapping validated against the provider's published schema, and relations are exact joins. In a plan document, a relation whose value is unknown until apply may resolve through the configuration's references, only when exactly one referenced resource has the target type. Cloudflare resource types, Google Cloud Run services and jobs (with their invoker member rows, and what each one dials, read from its containers' env and args) and Cloud SQL instances and Cloud Tasks queues, and wrangler.toml / wrangler.json are read today. With a cluster.toml, each declared connection is also compared with what the inputs say a service dials: evidenced, unknown, or undeclared, plus the services cluster.toml does not list. With --draft it prints a cluster.toml instead: one bundle per workload (name, image, ports and the placement kind the mapping names) and one connection per edge the inputs imply. The draft is printed, never written, and an existing cluster.toml is not read. Its header lists what the inputs did not show: an env block marked sensitive, a port that was assumed, an edge whose target is not a workload, a resource type no mapping reads. Committing the draft is what makes it a declaration. ADR-0073, ADR-0074.
 
 | Flag | | |
 |---|---|---|
@@ -272,8 +272,10 @@ Reads the output of `terraform show -json` (or `tofu show -json`), state or plan
 | `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory, if it has one) |
 | `--env` `<name>` |  | the environment these inputs describe; declared connections are compared for that environment only (default: every environment) |
 | `--json` |  | print the report as JSON |
+| `--draft` |  | print a cluster.toml drafted from --terraform, for you to review and commit; needs --env |
+| `--name` `<name>` |  | with --draft: the cluster name in [metadata] (default: drafted) |
 
-See also: [`docs/adr/0073-resource-facts-are-imported-never-granted.md`](../adr/0073-resource-facts-are-imported-never-granted.md)
+See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 
 ## cloister artifacts pull
 

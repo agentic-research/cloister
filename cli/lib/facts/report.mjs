@@ -90,6 +90,35 @@ function dialsOf(fact, entry, facts, kind, addressed) {
   return out.map(({ address: _address, ...dial }) => dial);
 }
 
+/**
+ * The bundle a workload would be drafted as: its placement kind, image and
+ * ports, as the mapping says to read them. A port carries the app_protocol
+ * label its wire maps to. A workload that declares no port is given the
+ * provider's default when the mapping states one, and that is recorded, so a
+ * draft can say the port was assumed and not read.
+ */
+function bundleOf(fact, rule) {
+  const image = rule.image ? (fact.attrs[rule.image.list] ?? []).map((row) => row[rule.image.value]).find((v) => typeof v === "string" && v !== "") ?? "" : "";
+  const ports = [];
+  if (rule.ports) {
+    for (const row of fact.attrs[rule.ports.list] ?? []) {
+      const port = row[rule.ports.port];
+      if (!Number.isInteger(port)) continue;
+      // An unnamed port is served the provider's default way.
+      const wire = typeof row[rule.ports.name] === "string" && row[rule.ports.name] !== "" ? row[rule.ports.name] : rule.ports.default?.name ?? "";
+      ports.push({ name: wire, port, appProtocol: Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "", assumed: false });
+    }
+    if (ports.length === 0 && rule.ports.default) {
+      const { name, port } = rule.ports.default;
+      ports.push({ name, port, appProtocol: rule.wires[name], assumed: true });
+    }
+  }
+  return { placement: rule.placement, image, ports };
+}
+
+/** The report's declared sections. Exported for the draft, which reads the same resources. */
+export const sectionsOf = (facts, kind) => declaredSections(facts, kind);
+
 function declaredSections(facts, kind) {
   const byType = (type) => facts.filter((f) => f.type === type);
   const entries = mappedEntries();
@@ -129,6 +158,9 @@ function declaredSections(facts, kind) {
         // A type that declares what it dials is a workload: it can be the
         // source of a connection.
         dialer: Boolean(entry.report.dials),
+        // What a bundle drafted from this resource would hold (ADR-0074 §3),
+        // for a type whose mapping says it is a workload.
+        bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle) : null,
         // A list the document marks sensitive is not read. Say so: "no edge
         // found" would otherwise read as "no edge".
         withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),

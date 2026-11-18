@@ -229,17 +229,22 @@ export function dnsLabelProblem(name) {
  * bundle has no way to be handed the channel at all.
  */
 /**
- * Placement kinds a channel end may have: the two that are lowered, and
- * knative, whose ends are checked against its manifest and not lowered.
+ * Placement kinds a channel end may have (ADR-0074 §6): `microvm`, which is
+ * lowered, and every forwarded kind. A forwarded end is checked against what
+ * the operator rendered (a manifest for kubernetes and knative, a plan for
+ * anything a provider mapping describes) and its strength is "none" unless an
+ * emitter writes something that enforces it, as `cluster k8s` does for
+ * kubernetes. The rule is on the category: a new forwarded kind is a
+ * connection end without an edit here.
  */
-const CHANNEL_KINDS = ["microvm", "kubernetes", "knative"];
+export const CHANNEL_KINDS = Object.freeze(["microvm", ...FORWARDED_KINDS]);
 
 /**
  * Why bundle `b` cannot hold a channel end — in `env` when given (a
  * connection end), or in any env (an exposed port) — or null if it can.
  *
  * Placements generalise #283's "external microvm only" rule: an end must be
- * placed `microvm` or `kubernetes`, the two kinds an emitter lowers. A bundle
+ * placed `microvm` or a forwarded kind (CHANNEL_KINDS). A bundle
  * with no placement rows is placed implicitly only if it is an external
  * microvm bundle, so for it the old rule and message stand.
  */
@@ -253,7 +258,7 @@ function endpointProblem(b, env) {
   if (rows.length === 0 && b.executionMode !== "microvm") {
     return `has executionMode ${JSON.stringify(b.executionMode)} and no placements; channels ` +
       `are lowered only for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, ` +
-      `LLO) or bundles placed "kubernetes" or "knative"`;
+      `LLO) or bundles with a forwarded placement (${FORWARDED_KINDS.join(", ")})`;
   }
   if (env !== undefined) {
     const kind = placementFor(b, env);
@@ -263,14 +268,14 @@ function endpointProblem(b, env) {
     }
     if (!CHANNEL_KINDS.includes(kind)) {
       return `is placed "${kind}" for env "${env}"; a channel end must be placed ` +
-        `${oneOf(CHANNEL_KINDS)}, the kinds ADR-0070 §4 lowers or checks today`;
+        `${oneOf(CHANNEL_KINDS)}, the kinds that are lowered or checked (ADR-0074 §6)`;
     }
     return null;
   }
   const kinds = rows.length === 0 ? ["microvm"] : rows.map((r) => r.kind);
   if (!kinds.some((k) => CHANNEL_KINDS.includes(k))) {
     return `has no placement of kind ${oneOf(CHANNEL_KINDS)} (declared: ` +
-      `${kinds.join(", ")}), so nothing would lower its channel`;
+      `${kinds.join(", ")}), so nothing would lower or check its channel`;
   }
   return null;
 }

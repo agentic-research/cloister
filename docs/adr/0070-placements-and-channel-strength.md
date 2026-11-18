@@ -172,6 +172,19 @@ So:
 Not built: any enforcement for Knative. That needs its own answer for what
 `policy` means on Knative's request path.
 
+**Amendment (2026-11-18): any forwarded placement may be a connection end.**
+The rule that a connection end must be `microvm`, `kubernetes` or `knative`
+was a list of kinds. It is now stated on the category
+([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md) §6): an
+end may be `microvm` or any forwarded kind. A forwarded end that nothing
+cloister writes enforces has strength `none`, so `cloudRun` is `none` today
+and a connection that sets a higher `minStrength` on it fails the build. A
+`cloudRun` end is checked against a rendered plan by `cloister inspect`; no
+emitter lowers it, and an edge that joins it to another placement is refused
+by `cluster k8s` as before. §3's table gives `cloudRun` strength `policy` once
+its invoker row and ingress setting are compared with intent, which they are
+not yet.
+
 **Amendment (2026-11-18): the addresses a manifest dials are held to the
 declared connections.** This section says a forwarded manifest is parsed for
 "the name, ports and env var names". Until now only ports were read. A wrong

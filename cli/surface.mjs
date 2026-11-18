@@ -355,7 +355,7 @@ export const COMMANDS = [
   },
   {
     name: "inspect",
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -376,15 +376,23 @@ export const COMMANDS = [
       "wrangler.toml / wrangler.json are read today. With a cluster.toml, each " +
       "declared connection is also compared with what the inputs say a service " +
       "dials: evidenced, unknown, or undeclared, plus the services cluster.toml " +
-      "does not list. ADR-0073, ADR-0074.",
+      "does not list. With --draft it prints a cluster.toml instead: one bundle per " +
+      "workload (name, image, ports and the placement kind the mapping names) and one " +
+      "connection per edge the inputs imply. The draft is printed, never written, and an " +
+      "existing cluster.toml is not read. Its header lists what the inputs did not show: " +
+      "an env block marked sensitive, a port that was assumed, an edge whose target is " +
+      "not a workload, a resource type no mapping reads. Committing the draft is what " +
+      "makes it a declaration. ADR-0073, ADR-0074.",
     flags: [
       { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
       { flag: "--wrangler", value: "<file>", summary: "a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required)" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory, if it has one)" },
       { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON" },
+      { flag: "--draft", summary: "print a cluster.toml drafted from --terraform, for you to review and commit; needs --env" },
+      { flag: "--name", value: "<name>", summary: "with --draft: the cluster name in [metadata] (default: drafted)" },
     ],
-    seeAlso: "docs/adr/0073-resource-facts-are-imported-never-granted.md",
+    seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
   },
   { name: "artifacts pull", usage: "cloister artifacts pull [options]",
     summary: "Acquire lockfile-pinned OCI artifacts" },

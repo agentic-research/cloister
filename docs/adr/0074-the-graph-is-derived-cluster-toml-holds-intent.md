@@ -132,7 +132,9 @@ In order, each useful without the next:
    each declared connection is evidenced or unknown, each derived edge is
    declared or undeclared, and workloads with no bundle are listed. *Built.*
 2. **Draft.** Write a `cluster.toml` from the derived graph for the operator
-   to review. *Not built.*
+   to review. *Built: `inspect --terraform <file> --draft --env <name>` prints
+   one. It is never written to disk, and an existing `cluster.toml` is not
+   read. Its header lists what the inputs did not show.*
 3. **Lower.** From the declared graph, write each workload's configuration
    for a placement: the addresses it should dial there. This is the env
    lowering ADR-0070 lists as not built, and it is what "runnable locally"
@@ -168,9 +170,12 @@ next. The rule is stated on the kind of placement instead:
 `kubernetes` and `knative` stay named in code. Cloister parses those manifests
 itself, and they are a format, not a vendor.
 
-*Not built; proposed here.* `cloudRun` is today a built-in kind that parses
-and that every emitter refuses. Under this section it becomes the first kind
-a mapping declares.
+*Partly built.* Points 1 to 3 are built: every forwarded kind may be a
+connection end, with strength `none` unless an emitter enforces it. Of point
+4, the mapping now declares the placement kind its workloads satisfy
+(`report.bundle.placement`), and that is what a draft writes. The list of
+kinds is still closed in code: a mapping may only name a forwarded kind
+cloister already knows, so a new provider still needs one line there.
 
 When a forwarded placement gains enforcement, its strength is whatever
 ADR-0070 §3 says for it. For Cloud Run that is `policy`, from the invoker IAM
@@ -204,9 +209,10 @@ intent yet.
 | Access rows (invoker) and `ingress` | read; not compared with intent |
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
-| §5.2 Draft a `cluster.toml` | not built |
+| §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |
 | §5.3 Lower addresses per placement | not built |
-| §6 Any forwarded placement as a checked connection end; kinds declared by a mapping | not built |
+| §6 Any forwarded placement as a checked connection end | built |
+| §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | not built |
 | Edges that arrive by a secret reference (`value_source`) | not read |
 

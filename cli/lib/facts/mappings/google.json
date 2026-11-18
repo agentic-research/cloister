@@ -19,7 +19,13 @@
           { "list": "containers", "strings": "args", "prefix": "args" },
           { "list": "containers", "strings": "command", "prefix": "command" }
         ],
-        "references": ["template"]
+        "references": ["template"],
+        "bundle": {
+          "placement": "cloudRun",
+          "image": { "list": "containers", "value": "image" },
+          "ports": { "list": "ports", "name": "name", "port": "container_port", "default": { "name": "http1", "port": 8080 } },
+          "wires": { "http1": "art.http", "h2c": "art.http2" }
+        }
       }
     },
     "google_cloud_run_service_iam_member": {
@@ -67,7 +73,11 @@
           { "list": "containers", "strings": "args", "prefix": "args" },
           { "list": "containers", "strings": "command", "prefix": "command" }
         ],
-        "references": ["template"]
+        "references": ["template"],
+        "bundle": {
+          "placement": "cloudRun",
+          "image": { "list": "containers", "value": "image" }
+        }
       }
     },
     "google_cloud_run_v2_job_iam_member": {

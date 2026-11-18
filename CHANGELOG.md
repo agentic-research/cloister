@@ -8,6 +8,24 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `inspect --draft` writes a first cluster.toml from a plan
+
+- **`cloister inspect --terraform <file> --draft --env <name>`** prints a
+  `cluster.toml`: one bundle per workload (name, image, ports, placement) and
+  one connection per edge the plan implies. It is printed, never written, and
+  an existing `cluster.toml` is not read.
+- **The draft says what it could not see**, at the top: an env block marked
+  sensitive, a port that was assumed from the provider's default, an edge
+  whose target is not a workload, a resource type no mapping reads.
+- **Any forwarded placement may be a connection end** (ADR-0074 §6), with
+  strength `none` unless an emitter enforces it. Before, a bundle placed
+  `cloudRun` could not be one, so a Cloud Run deployment could not be
+  declared. A `minStrength` above what the two ends provide still fails the
+  build.
+- **A provider mapping declares how its workloads become bundles**
+  (`report.bundle`: placement kind, image, ports, and which `appProtocol` each
+  wire maps to). The draft names no provider.
+
 ### 2026-11 — `inspect` compares a hand-written cluster.toml with the graph a plan implies
 
 - **Declared connections are checked.** With a `cluster.toml`, each declared

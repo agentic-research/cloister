@@ -269,8 +269,10 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # "kubernetes" | "knative" | "cloudRun" (forwarded: cloister owns only the
   # edges). Lowered today: microvm (`cloister runtime plan`) and kubernetes
   # (`cloister cluster k8s`). knative is CHECKED by `cloister cluster k8s` and
-  # never lowered: its strength is "none". workerd and cloudRun parse, and
-  # every emitter refuses them by name.
+  # never lowered: its strength is "none". cloudRun is CHECKED against a
+  # rendered plan by `cloister inspect` and never lowered: strength "none".
+  # Any forwarded kind may be a connection end (ADR-0074 §6). workerd parses,
+  # and every emitter refuses it by name.
   kind @1 :Text $Traits.doc("How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.");
   # Path, relative to the cluster directory, to the operator's RENDERED
   # manifest. Forwarded kinds only: required for kubernetes and knative,

@@ -10,6 +10,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
+import { draftCluster } from "../lib/facts/draft.mjs";
 import { importFacts } from "../lib/facts/import.mjs";
 import { buildReport, renderReport } from "../lib/facts/report.mjs";
 import { importWrangler } from "../lib/facts/wrangler.mjs";
@@ -31,6 +32,8 @@ export function parseArgs(argv) {
     else if (arg === "--dir") opts.dir = value();
     else if (arg === "--env") opts.env = value();
     else if (arg === "--json") opts.json = true;
+    else if (arg === "--draft") opts.draft = true;
+    else if (arg === "--name") opts.name = value();
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new InspectUsageError(`unknown argument: ${arg}`);
   }
@@ -38,6 +41,13 @@ export function parseArgs(argv) {
     throw new InspectUsageError(
       "--terraform <file> (the output of `terraform show -json`) or --wrangler <file> is required",
     );
+  }
+  if (opts.draft) {
+    if (!opts.terraform) throw new InspectUsageError("--draft needs --terraform <file>: a draft is written from a rendered plan or state");
+    if (!opts.env) throw new InspectUsageError("--draft needs --env <name>: the environment its placements and connection targets are written for");
+    if (opts.json) throw new InspectUsageError("--draft prints cluster.toml; it cannot be combined with --json");
+  } else if (opts.name) {
+    throw new InspectUsageError("--name is only used with --draft");
   }
   return opts;
 }
@@ -82,7 +92,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--name <cluster name>]");
     return 0;
   }
 
@@ -120,6 +130,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       ? importFacts(JSON.parse(readFileSync(file, "utf8")))
       : { kind: null, formatVersion: null, facts: [], skipped: {} };
     for (const wranglerFile of wranglerFiles) imported.facts.push(importWrangler(wranglerFile));
+    if (opts.draft) {
+      // The draft is printed, never written: the operator chooses where it
+      // goes, and an existing cluster.toml is not read and cannot be replaced.
+      const draft = draftCluster(imported, { env: opts.env, name: opts.name });
+      log(draft.toml);
+      return 0;
+    }
     let cluster;
     const dir = resolve(opts.dir ?? ".");
     const clusterPath = join(dir, "cluster.toml");
