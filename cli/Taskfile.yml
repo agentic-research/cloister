@@ -1,0 +1,244 @@
+version: "3"
+
+# The `cloister` command: the operator aliases that delegate to it, and its
+# tests. Included flat by the root Taskfile, so every task keeps its name
+# (`task cluster:toml`) and runs from the repo root.
+
+vars:
+  NODE_TSX: node --import tsx
+
+tasks:
+  cluster:emit:
+    desc: "Generate every committed cluster artifact from cluster.toml through the Cloister CLI."
+    cmds:
+      - node bin/cloister.mjs cluster generate --dir .
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
+    generates:
+      - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
+
+  # ── cluster.toml source of truth (ADR-0025, cloister-ae06f3) ──────────────
+  #
+  # `cloister cluster generate` owns the forward transaction: it reads and
+  # validates cluster.toml once, then atomically updates every committed
+  # projection. Task targets are aliases, not an independent pipeline.
+  #
+  # `cluster:toml:export` is a repository-only reverse export for migration
+  # and diagnosis. It is not part of ordinary generation.
+  cluster:toml:
+    desc: "Operator workflow alias — generate canonical cluster.toml and every projection through the Cloister CLI."
+    cmds:
+      - node bin/cloister.mjs cluster generate --dir .
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - cli/lib/cluster/**/*.mjs
+      - src/generated/cluster.zod.ts
+    generates:
+      - src/generated/cluster.ts
+      - cloister.capnp
+      - cluster.compose.yaml
+
+  cluster:toml:export:
+    desc: "Reverse leg — render canonical TOML from src/generated/cluster.ts. Writes to stdout; pass `-- --write <path>` to land at a file."
+    cmds:
+      - "{{.NODE_TSX}} cli/lib/cluster/cluster-to-toml.mjs {{.CLI_ARGS}}"
+    sources:
+      - src/generated/cluster.ts
+      - cli/lib/cluster/cluster-to-toml.mjs
+      - cli/lib/cluster/cluster-to-toml.mjs
+
+  cluster:toml:roundtrip:
+    desc: "Compatibility name for the first-party no-write generation check. Verifies every committed projection matches cluster.toml."
+    cmds:
+      - node bin/cloister.mjs cluster generate --check --dir .
+
+  test:cluster-toml:
+    desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the product cluster library can import src/generated/cluster.zod.ts."
+    cmds:
+      - "{{.NODE_TSX}} --test cli/test/cluster/cluster-toml-roundtrip.test.mjs"
+    sources:
+      - cli/test/cluster/cluster-toml-roundtrip.test.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
+      - cli/lib/cluster/cluster-to-toml.mjs
+      - src/generated/cluster.zod.ts
+
+  emit:cloister-capnp:
+    desc: "Compatibility alias — generate cloister.capnp and the other cluster.toml projections through the Cloister CLI."
+    cmds:
+      - node bin/cloister.mjs cluster generate --dir .
+    sources:
+      - cluster.toml
+      - cluster.lock.toml
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
+    generates:
+      - cloister.capnp
+
+  emit:cloister-capnp:drift:
+    desc: "Compatibility name for the first-party no-write generation check. Verifies cloister.capnp and the other cluster.toml projections."
+    cmds:
+      - node bin/cloister.mjs cluster generate --check --dir .
+
+  test:emit-cloister-capnp:
+    desc: "Phase 2 of cloister-345ad1 — contract tests for the product-owned capnp renderer."
+    cmds:
+      - "{{.NODE_TSX}} --test cli/test/cluster/emit-cloister-capnp.test.mjs"
+    sources:
+      - cli/test/cluster/emit-cloister-capnp.test.mjs
+      - cli/lib/cluster/emit-cloister-capnp.mjs
+      - cli/lib/cluster/toml-to-cluster.mjs
+
+  cluster:resolve:
+    desc: "ADR-0026 Phase 1b — resolve cluster.toml [inputs.*] refs (file://, https://) + write cluster.lock.toml with content-addressed digests. Operator runs this after editing cluster.toml; commits both files. Per cloister-cf7a3b."
+    cmds:
+      - node bin/cloister.mjs cluster resolve --dir .
+    sources:
+      - cluster.toml
+      - cli/lib/cluster/resolve-inputs.mjs
+    generates:
+      - cluster.lock.toml
+
+  inputs:pull:
+    desc: "ADR-0026 Phase 1c — preview and explicitly acquire the OCI images pinned by cluster.lock.toml. Interactive runs ask confirmation; automation passes --yes. Mutable refs are rejected unless --allow-unpinned is separately acknowledged. `task inputs:pull -- --print` previews without pulling."
+    cmds:
+      - node bin/cloister.mjs artifacts pull {{.CLI_ARGS}}
+    sources:
+      - cluster.lock.toml
+      - cli/commands/artifacts-pull.mjs
+      - cli/lib/oci-artifact.mjs
+
+  cluster:up:
+    desc: "Run the cluster locally via nerdctl/podman/docker compose. Delegates to `cloister cluster up` — the SAME verb a scaffolded cluster uses, so this repo's cluster and one you own behave identically. Runtime detection and COMPOSE_CMD live in the CLI, not here."
+    deps: [cluster:emit]
+    cmds:
+      - node bin/cloister.mjs cluster up --dir . {{.CLI_ARGS}}
+
+  cluster:down:
+    desc: "Tear down the local cluster (preserves volumes — pass `-- --destroy` to also remove them). Delegates to `cloister cluster down`; DESTROY=1 still works via the shim below for muscle memory."
+    cmds:
+      - |
+        ARGS="{{.CLI_ARGS}}"
+        # DESTROY=1 predates the flag and is kept working rather than broken:
+        # an operator who learned it should not discover the change by having a
+        # teardown silently NOT destroy what they expected.
+        if [ "${DESTROY:-0}" = "1" ]; then ARGS="$ARGS --destroy"; fi
+        exec node bin/cloister.mjs cluster down --dir . $ARGS
+
+  install:
+    desc: "Install Cloister, its locked Node dependencies, and the experimental compatibility runtime through the first-party CLI."
+    cmds:
+      - node bin/cloister.mjs install
+
+  uninstall:
+    desc: "Remove only this checkout's installed Cloister command. Keeps runtime files for safety."
+    cmds:
+      - node bin/cloister.mjs uninstall
+
+  dev:bootstrap:
+    desc: "Alias for `cloister dev bootstrap`. Generates the gitignored local development environment."
+    cmds:
+      - node bin/cloister.mjs dev bootstrap
+
+  dev:
+    desc: "Alias for `cloister dev serve`. Starts the local Worker on :8787."
+    cmds:
+      - node bin/cloister.mjs dev serve
+
+  harness:dev:
+    desc: "Compatibility alias for `cloister run --repo $PWD`. Prefer `--harness`; `--target` remains accepted with a warning."
+    cmds:
+      - node bin/cloister.mjs run --repo "$PWD" {{.CLI_ARGS}}
+
+  harness:dev:setup:
+    desc: "Compatibility alias for setup-only `cloister run`."
+    cmds:
+      - node bin/cloister.mjs run --repo "$PWD" --setup-only {{.CLI_ARGS}}
+
+  cluster:emit:check-drift:
+    desc: "First-party no-write generation check for cluster.compose.yaml and every other committed cluster.toml projection."
+    cmds:
+      - node bin/cloister.mjs cluster generate --check --dir .
+
+  test:lint-scripts:
+    desc: "Run node:test suites for lint + CLI scripts (cloister-ac30e7, cloister-ca1dab, cloister-addcdd, cloister-0d5e0f, cloister-9bfbf6, cloister-cf7a3b). Each area keeps its tests beside it (cli/test, lint/test, gen/test, dev/test) — node-native, NOT vitest (these tests shell out via child_process which workerd doesn't have). Also runs the nono harness-isolation suite (cloister-24717d; self-skips when the nono CLI is not installed) plus its outer-sandbox contract (cloister-6f7e77), which pins that an unwritable $HOME degrades to a scoped skip instead of taking the whole file down."
+    cmds:
+      - node bin/cloister.mjs dev test --dir .
+    # Content-hash cache. This suite tests the CLI, rails and generators + their fixtures + several
+    # committed surfaces the tests read directly (git-hooks.test reads Taskfile.yml
+    # + the hook; gen-adr-index reads docs/adr; lint-recipes reads recipes;
+    # resolve/lockfile tests read cluster.toml/.lock; e2e reads the capnp schema).
+    # Over-inclusive on purpose — a src/-only change skips this whole suite; any
+    # change under a listed path re-runs it. CI cold-checkout always runs it.
+    sources:
+      - cli/**/*.mjs
+      - lint/**/*.mjs
+      - gen/**/*.mjs
+      - dev/**/*.mjs
+      - test/fixtures/**
+      - tools/harness-sandbox/test/**/*.mjs
+      # The demo's cluster.toml + committed cluster.lock.toml (cloister-2af014),
+      # which cluster-up and demo-locks tests read.
+      - tools/dolt-grpc-demo/**/*.toml
+      - tools/dolt-grpc-demo/**/*.sh
+      - tools/dolt-grpc-demo/microvm/apko-*.yaml
+      - tools/dolt-grpc-demo/k8s/*.yaml
+      - docs/adr/**/*.md
+      - recipes/**
+      - dev/git-hooks/**
+      - src/generated/llo-execution-tools.json
+      - llo-execution-contract.lock.json
+      - Taskfile.yml
+      - lint/Taskfile.yml
+      - gen/Taskfile.yml
+      - dev/Taskfile.yml
+      - cli/Taskfile.yml
+      - src/Taskfile.yml
+      - cluster.toml
+      - cluster.lock.toml
+      - cloister.capnp
+      - manifest/**/*.capnp
+
+  init:
+    desc: "Scaffold a starter cluster from a recipe (cloister-ca1dab). Usage: task init -- --recipe <name> --out <dir> [--port N]. Without args, prints --help."
+    cmds:
+      - node bin/cloister.mjs init {{.CLI_ARGS | default "--help"}}
+
+  add:
+    desc: "Add an input to cluster.toml + resolve it into cluster.lock.toml (cloister-66b6a6 / ADR-0026 Phase 2). Usage: task add -- <ref> [--name N] [--version V] [--provides cap]... [--requires cap].... Supports file://, https://, github://owner/repo[/path]@<git-ref>."
+    cmds:
+      - "node bin/cloister.mjs add {{.CLI_ARGS | default \"--help\"}}"
+
+  runtime:plan:
+    desc: "Emit a digest-pinned cloister/host-runtime/v1 plan for one external bundle. Usage: task runtime:plan -- <bundle> --workspace /absolute/path [--output /absolute/plan.json]."
+    cmds:
+      - "node bin/cloister.mjs runtime plan {{.CLI_ARGS | default \"--help\"}}"
+
+  runtime:build:
+    desc: "Compatibility alias: install the named, digest-checked experimental execution runtime."
+    cmds:
+      - node bin/cloister.mjs runtime install
+
+  runtime:doctor:
+    desc: "Report the selected runtime provider, its maturity, prerequisites, and storage health without installing or changing anything."
+    cmds:
+      - "node bin/cloister.mjs runtime doctor {{.CLI_ARGS}}"
+
+  runtime:run:
+    desc: "Run a digest-pinned host plan through the selected runtime provider. Usage: task runtime:run -- /absolute/plan.json."
+    cmds:
+      - "node bin/cloister.mjs runtime run {{.CLI_ARGS}}"
+
+  runtime:storage:init:
+    desc: "Provision execution storage through the LLO provider (needs CLOISTER_LLO_CONTROL_SOCKET). The compatibility provider has no storage step: `cloister runtime install` creates its microVM store."
+    cmds:
+      - "node bin/cloister.mjs runtime storage init {{.CLI_ARGS | default \"--help\"}}"
+
+  runtime:storage:status:
+    desc: "Read the selected provider's storage readiness without changing it."
+    cmds:
+      - "node bin/cloister.mjs runtime storage status {{.CLI_ARGS}}"

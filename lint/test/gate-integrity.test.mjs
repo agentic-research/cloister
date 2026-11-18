@@ -103,7 +103,7 @@ test("PROPERTY: discovered tests are sorted, unique, and present", () => {
 test("PROPERTY: Taskfile delegates the script suite to one first-party command", () => {
   // lint-allow-rawparse: this assertion is deliberately about the command a
   // contributor sees and Task executes, not Task's parsed data model.
-  const taskfile = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(ROOT);
   const block = taskfile.match(/\n  test:lint-scripts:\n([\s\S]*?)(?=\n  [\w:-]+:\n)/)?.[1] ?? "";
   assert.match(block, /node bin\/cloister\.mjs dev test/);
   assert.doesNotMatch(block, /\.test\.mjs/);
@@ -555,11 +555,11 @@ test("no file in lint/, gen/ or dev/ forwards to cli/", () => {
   assert.deepEqual(forwarders, []);
 });
 
-// The Taskfile is split: lint/, gen/ and dev/ own their tasks. The rails above
+// The Taskfile is split: lint/, gen/, dev/, cli/ and src/ own their tasks. The rails above
 // read every flat include, so this pins that the split is the one they read:
 // the three directories are included flat, and the root stays an index.
-test("lint/, gen/ and dev/ Taskfiles are included flat", () => {
+test("each directory's Taskfile is included flat", () => {
   const files = flatTaskfiles(ROOT);
-  assert.deepEqual(files, ["Taskfile.yml", "lint/Taskfile.yml", "gen/Taskfile.yml", "dev/Taskfile.yml"]);
+  assert.deepEqual(files, ["Taskfile.yml", "lint/Taskfile.yml", "gen/Taskfile.yml", "dev/Taskfile.yml", "cli/Taskfile.yml", "src/Taskfile.yml"]);
   for (const file of files) assert.ok(existsSync(resolve(ROOT, file)), `${file} is included but missing`);
 });

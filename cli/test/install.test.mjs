@@ -5,6 +5,7 @@
 // dependencies, invokes the real root Taskfile, and then executes the CLI
 // through the installed symlink.
 
+import { readFlatTaskfiles } from "../../lint/lib/taskfiles.mjs";
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import {
@@ -115,7 +116,7 @@ chmodSync(path, 0o755);
 test("Task install is only an alias for the first-party installer", () => {
   // lint-allow-rawparse: command ownership is a literal Taskfile property; a
   // YAML parser would discard the shell/block shape this regression checks.
-  const taskfile = readFileSync(join(REPO_ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(REPO_ROOT);
   const block = taskfile.match(/^  install:\n([\s\S]*?)(?=^  [\w:-]+:|^\S)/m)?.[1] ?? "";
   assert.match(block, /cmds:\n\s+- node bin\/cloister\.mjs install\n/);
   assert.doesNotMatch(block, /deps:|ln -s|pnpm|cargo/);

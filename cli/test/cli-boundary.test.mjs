@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { readFlatTaskfiles } from "../../lint/lib/taskfiles.mjs";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
@@ -66,7 +67,7 @@ function sourceFiles(directory) {
 }
 
 test("operator Taskfile commands are aliases to the first-party CLI", () => {
-  const taskfile = readFileSync(resolve(ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(ROOT);
   const failures = [];
   for (const name of OPERATOR_TASKS) {
     const body = taskBody(taskfile, name);

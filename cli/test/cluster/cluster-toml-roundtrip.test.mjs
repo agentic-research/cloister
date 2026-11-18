@@ -15,6 +15,7 @@
 // compatibility wrappers under scripts/ are covered only where preserving an
 // older repository workflow is itself the contract.
 
+import { readFlatTaskfiles } from "../../../lint/lib/taskfiles.mjs";
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { parse as parseToml } from "smol-toml";
@@ -700,7 +701,7 @@ test("Taskfile cluster:toml delegates the whole transaction to the product CLI",
   // only an alias, so there cannot be a second shell-authored generation order.
   // lint-allow-rawparse: extracts a task block WITH its comments and indentation.
   // A YAML parser discards exactly the formatting this assertion is about.
-  const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(REPO_ROOT);
 
   // Extract the cluster:toml: block (up to the next top-level entry).
   // Match from `  cluster:toml:` (indented) through the next blank line
@@ -724,7 +725,7 @@ test("Taskfile cluster:toml delegates the whole transaction to the product CLI",
 test("Taskfile cluster drift gates delegate to the CLI's no-write check", () => {
   // lint-allow-rawparse: this asserts the literal command ownership and cannot
   // be expressed through a YAML parser, which intentionally discards layout.
-  const taskfile = readFileSync(resolve(REPO_ROOT, "Taskfile.yml"), "utf8");
+  const taskfile = readFlatTaskfiles(REPO_ROOT);
 
   for (const taskName of [
     "cluster:toml:roundtrip",

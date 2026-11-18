@@ -194,15 +194,15 @@ in those three that only re-exports `cli/` code is refused. Both are railed in
 ## Taskfiles are hierarchical
 
 The root `Taskfile.yml` is an **index**: it wires `includes:` and owns
-cross-cutting gates (`lint`, `test`, `verify`) and the operator aliases to
-the CLI. Work belonging to one directory lives in that directory's own
+the cross-cutting gates (`lint`, `verify`, `ci`, `pre-push`). Work belonging to one directory lives in that directory's own
 Taskfile and is pulled in:
 
 - `rs/Taskfile.yml` and `recipes/Taskfile.yml` are namespaced: `task rs:*`,
   `task recipes:*`.
-- `lint/Taskfile.yml`, `gen/Taskfile.yml` and `dev/Taskfile.yml` are included
+- `lint/`, `gen/`, `dev/`, `cli/` and `src/` each have a `Taskfile.yml`, included
   with `flatten: true`, so their tasks keep the names they always had
-  (`task lint:doc-links`, `task manifest`, `task smoke`).
+  (`task lint:doc-links`, `task manifest`, `task smoke`, `task cluster:toml`,
+  `task test`). A task in one may depend on a task in another by name.
 
 A rail that reads Taskfile text must read all of them:
 `lint/lib/taskfiles.mjs` returns the root and every flat include as one text.
