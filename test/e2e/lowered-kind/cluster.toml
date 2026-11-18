@@ -1,0 +1,113 @@
+# The input to `task smoke:lowered-kind` (dev/lowered-kind.sh): a small graph
+# that is lowered, applied to a real kind cluster, and then exercised.
+#
+# Hand-written on purpose. Lowering reads only cluster.toml, so this is the
+# whole input: no plan, no rendered manifest. Every image is one public test
+# image from the Kubernetes project that can serve HTTP, open a TCP connection,
+# or do nothing, depending on its arguments.
+#
+#   caller   ──▶ server     declared: must work
+#   probe    ──▶ server     declared: a Job that must run to completion
+#   stranger  ✗  server     NOT declared: must be refused by the cluster
+
+[metadata]
+name = "lowered-kind"
+version = "0.0.1"
+
+[storage]
+
+[[bundles]]
+name = "server"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["netexec", "--http-port=8080"]
+
+[[bundles.ports]]
+name = "http"
+port = 8080
+appProtocol = "art.http"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "server.yaml"
+
+[[bundles]]
+name = "caller"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["pause"]
+
+# The address is not written here. `cluster lower` writes it for the placement.
+[[bundles.external.env]]
+name = "SERVER_URL"
+connection = "server"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "caller.yaml"
+
+[[bundles]]
+name = "probe"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+# A literal address in an argument. `cluster k8s` holds it to the connection
+# declared below, the same as one in an env value.
+args = ["connect", "--timeout=20s", "server.server.svc.cluster.local:8080"]
+runs = "job"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "probe.yaml"
+
+[[bundles]]
+name = "stranger"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["pause"]
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "stranger.yaml"
+
+[[connections]]
+from = "caller"
+name = "server"
+appProtocol = "art.http"
+minStrength = "policy"
+
+[[connections.targets]]
+env = "local"
+bundle = "server"
+port = "http"
+
+[[connections]]
+from = "probe"
+name = "server"
+appProtocol = "art.http"
+minStrength = "policy"
+
+[[connections.targets]]
+env = "local"
+bundle = "server"
+port = "http"

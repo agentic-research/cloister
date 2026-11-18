@@ -8,6 +8,16 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — lowered manifests are applied to a real cluster in CI
+
+- **`task smoke:lowered-kind`**, and a CI job of the same name, lowers
+  `test/e2e/lowered-kind/cluster.toml`, applies the result to a kind cluster,
+  and observes three things: a declared caller reaches the server at the
+  address lowering wrote, a declared Job runs to completion, and an undeclared
+  pod is refused. The refusal is the point: it is the first time strength
+  `policy` is seen and not asserted. The job fails if the cluster does not
+  enforce NetworkPolicy.
+
 ### 2026-11 — a port is listened on and dialled; Knative lowering
 
 - **`[[bundles.placements.ports]]`** sets the number a port is DIALLED on in

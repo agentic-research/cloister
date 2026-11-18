@@ -376,3 +376,26 @@ test("a Knative bundle exposed at the edge is lowered with a route from outside,
     await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
   });
 });
+
+// The input of the kind smoke (dev/lowered-kind.sh, its own CI job). That job
+// needs a cluster and so does not run in `task lint`; this keeps its input
+// from rotting where a cluster-less gate can see it.
+test("the kind smoke's cluster.toml lowers and passes cluster k8s, with the graph the smoke observes", async () => {
+  const input = readFileSync(fileURLToPath(new URL("../../../test/e2e/lowered-kind/cluster.toml", import.meta.url)), "utf8");
+  await inDir(input, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual(written, ["server.yaml", "caller.yaml", "probe.yaml", "stranger.yaml"]);
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    // caller by an env binding, probe by a literal address in an argument.
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.where, r.to]), [["caller", "env SERVER_URL", "server"], ["probe", "args", "server"]]);
+    // The smoke's two claims, as policy: caller and probe are admitted, and stranger is not.
+    const policy = readFileSync(join(dir, "k8s/server/20-networkpolicy.yaml"), "utf8");
+    assert.deepEqual([...policy.matchAll(/kubernetes\.io\/metadata\.name: (\S+)/g)].map((m) => m[1]), ["caller", "probe"]);
+    assert.ok(!policy.includes("stranger"));
+    // The smoke reads the caller's address back from this field.
+    assert.equal(containerOf(readFileSync(join(dir, "caller.yaml"), "utf8")).env[0].value, "http://server.server.svc.cluster.local:8080");
+    // And the script names the same bundles this file declares.
+    const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
+    for (const bundle of ["server", "caller", "stranger", "probe"]) assert.ok(script.includes(bundle), `dev/lowered-kind.sh does not mention "${bundle}"`);
+  });
+});

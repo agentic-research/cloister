@@ -327,7 +327,10 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
   The draft says so for each such row, and `path` is where to put it back.
 - A probe, a resource limit, a volume, a service account: not in the bundle,
   so not written.
-- It has not been run against a live cluster.
+- The Kubernetes lowering is run on a real cluster in CI (`lowered-kind`):
+  a declared caller reaches the server, a declared Job completes, and an
+  undeclared pod is refused. The Knative lowering is not: that needs Knative
+  installed in the cluster.
 
 ## Consequences
 
@@ -359,9 +362,9 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |
 | §7 A bundle carries what a workload is started with: env as literal, connection binding or secret reference; `runs` | built |
 | §7 Draft fills it from a plan (`inspect --draft`, `--local`) | built |
-| §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; not yet run against a live cluster |
+| §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; applied to a kind cluster in CI (`task smoke:lowered-kind`) |
 | §7 A port's dialled number per placement (`[[bundles.placements.ports]]`) | built |
-| §7 Lower a bundle to a Knative Service | built; not yet run against a live cluster |
+| §7 Lower a bundle to a Knative Service | built; not run against a live cluster |
 | §7 Lower a binding to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
