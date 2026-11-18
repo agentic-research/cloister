@@ -390,13 +390,14 @@ export interface PlacementSpec {
   /** Environment name; unique per bundle. */
   env: string;
   /**
-   * `"microvm"` | `"workerd"` (constructed) or `"kubernetes"` | `"cloudRun"`
-   * (forwarded). Only microvm and kubernetes are lowered today.
+   * `"microvm"` | `"workerd"` (constructed) or `"kubernetes"` | `"knative"` |
+   * `"cloudRun"` (forwarded). Only microvm and kubernetes are lowered today;
+   * knative is checked and never lowered (its strength is "none").
    */
   kind: string;
   /**
    * Cluster-dir-relative path to the operator's rendered manifest. Required
-   * for kubernetes, refused on constructed kinds; copied, never edited.
+   * for kubernetes and knative, refused on constructed kinds; never edited.
    */
   manifest: string;
 }

@@ -28,6 +28,25 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
   nothing else changes, and `ureq` stays at 3.3.0.
 
+### 2026-11 — `knative` placement: connections checked, nothing lowered (#311)
+
+- **A new placement kind, `knative`.** Its strength is `none`. A connection
+  that sets `minStrength` above `none` on a knative end fails the build by
+  name; one that does not is checked.
+- **Why a kind and not a mode of `kubernetes`.** An edge's strength is computed
+  from the placement kind before any manifest is read. A Knative Service under
+  a `kubernetes` placement would be reported as `policy` with nothing
+  enforcing it.
+- **What `cluster k8s` checks for it.** Exactly one Knative Service in the
+  manifest; the declared port is 80, the port a peer dials; the declared
+  `appProtocol` fits the wire the Service serves (`http1` or `h2c`).
+- **What it writes for it: nothing.** No copy, no namespace, no policy. A
+  cluster of only knative bundles leaves `--out` untouched and prints what was
+  checked and the address each bundle is reached at.
+- Several knative bundles may share a namespace. An edge between a
+  `kubernetes` and a `knative` bundle is refused.
+- ADR-0070 §2 carries the amendment.
+
 ### 2026-11 — `cluster k8s` identifies objects by API group and kind (`cloister-991e65`)
 
 - **The bug.** The manifest reader matched `kind: Service` without looking at

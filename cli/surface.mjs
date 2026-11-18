@@ -325,7 +325,7 @@ export const COMMANDS = [
   {
     name: "cluster k8s",
     usage: "cloister cluster k8s --out <dir> [--env <name>] [--dir <path>]",
-    summary: "Lower kubernetes placements to manifests + NetworkPolicy",
+    summary: "Lower kubernetes placements to manifests + NetworkPolicy; check knative ones",
     detail:
       "For each bundle placed \"kubernetes\" in --env, checks its rendered " +
       "manifest's Service against the ports cluster.toml declares, copies the " +
@@ -333,7 +333,12 @@ export const COMMANDS = [
       "bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one " +
       "NetworkPolicy per declared connection into it. Apply each bundle's " +
       "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. Edges to " +
-      "other placements are refused (they need LLO's broker). ADR-0070 §4.",
+      "other placements are refused (they need LLO's broker). For each bundle " +
+      "placed \"knative\", checks its Knative Service against the declared " +
+      "port (80, the port a peer dials) and appProtocol (the http1 or h2c " +
+      "wire), and writes nothing: a knative placement has strength \"none\", " +
+      "so a connection that sets a higher minStrength fails the build. " +
+      "ADR-0070 §2-4.",
     flags: [
       { flag: "--out", value: "<dir>", required: true, summary: "output directory (may exist, but only with files this run writes)" },
       { flag: "--env", value: "<name>", summary: "environment whose placements and targets are lowered (default: local)" },
