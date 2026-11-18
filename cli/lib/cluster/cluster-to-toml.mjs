@@ -485,6 +485,18 @@ function canonicalizeBundleKindPayload(tag, payload) {
   if (pruned.httpPort === 0) delete pruned.httpPort;
   if (Array.isArray(pruned.args) && pruned.args.length === 0) delete pruned.args;
   if (Array.isArray(pruned.env) && pruned.env.length === 0) delete pruned.env;
+  // An env row states the one place its value comes from. The fields it does
+  // not use are empty, and an empty one was never written by the operator.
+  if (Array.isArray(pruned.env)) {
+    pruned.env = pruned.env.map((row) => {
+      const kept = { ...row };
+      for (const key of ["connection", "path", "secret", "secretKey"]) if (kept[key] === "") delete kept[key];
+      // A literal keeps its value even when it is "": that is a real setting.
+      if (kept.value === "" && (kept.connection !== undefined || kept.secret !== undefined)) delete kept.value;
+      return kept;
+    });
+  }
+  if (pruned.runs === "") delete pruned.runs;
   if (pruned.entryPoint === "") delete pruned.entryPoint;
   if (pruned.executionMode === "") delete pruned.executionMode;
   // Same pruning rule: an empty rationale is the "not applicable" case (any

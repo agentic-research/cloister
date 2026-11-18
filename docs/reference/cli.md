@@ -33,7 +33,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up (compose, or microVMs with --env) |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister cluster k8s`](#cloister-cluster-k8s) | Lower kubernetes placements to manifests + NetworkPolicy; check knative ones |
-| [`cloister cluster lower`](#cloister-cluster-lower) | Write a cluster.toml and local Kubernetes manifests from a rendered plan |
+| [`cloister cluster lower`](#cloister-cluster-lower) | Write each kubernetes-placed bundle's manifest from cluster.toml |
 | [`cloister inspect`](#cloister-inspect) | Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
 | [`cloister runtime plan`](#cloister-runtime-plan) | Emit a fail-closed host launch plan |
@@ -261,28 +261,25 @@ See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-place
 ## cloister cluster lower
 
 ```
-cloister cluster lower --terraform <file> --from <env> --to <env> --out <dir> [--name <name>]
+cloister cluster lower [--env <name>] [--dir <path>]
 ```
 
-Reads the output of `terraform show -json <planfile>` and writes, into --out, a cluster.toml and one Kubernetes manifest per workload the plan describes: a Deployment and a Service for a service, a Job for a job. Each bundle gets two placements: the one the plan is for (--from) and `kubernetes` for --to. What carries over is written as the plan has it: image, args, command, and env values that are constants in the configuration. An env value taken from another workload is an address, and is rewritten to that workload's in-cluster name. A secret reference becomes a secretKeyRef to a Secret you create. A value taken from a variable, or anything else the plan does not resolve, is NOT written, and is listed at the top of the file it is missing from with where it comes from. Env is read from the plan's configuration, so it is found even when the provider marks the whole env block sensitive. Nothing is applied. --out must be new or empty. Then run `cluster k8s` on --out: it holds the addresses in these manifests to the declared connections and writes the NetworkPolicies. ADR-0074 §5.3.
+For each bundle placed "kubernetes" in --env, writes the manifest its placement row names, from the bundle as cluster.toml declares it: a Deployment and a Service, or a Job when the bundle has runs = "job". cluster.toml is the only input, so a hand-written file and one drafted by `inspect --draft` are lowered the same way. The image, entry point, args and literal env values are written as declared. An env row bound to a connection is set to that connection's address in this placement, plus its path. An env row bound to a secret becomes a secretKeyRef, and the manifest says which Secret to create. A manifest that already exists is never overwritten. Nothing is applied. Then run `cluster k8s`: it holds the addresses in these manifests to the declared connections and writes the NetworkPolicies. An address that crosses placements is refused. ADR-0074 §7.
 
 | Flag | | |
 |---|---|---|
-| `--terraform` `<file>` |  | `terraform show -json` output of a PLAN; must not be tracked by git |
-| `--from` `<env>` |  | the environment the plan describes |
-| `--to` `<env>` |  | the environment the Kubernetes manifests are for |
-| `--out` `<dir>` |  | where the files are written; must not exist, or be empty |
-| `--name` `<name>` |  | the cluster name in [metadata] (default: drafted) |
+| `--env` `<name>` |  | environment whose kubernetes placements are lowered (default: local) |
+| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
 
 See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 
 ## cloister inspect
 
 ```
-cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--name <name>]
+cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--local <env>] [--name <name>]
 ```
 
-Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and/or wrangler configs (where a Worker's bindings live), and lists the workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. The attributes read are a data mapping validated against the provider's published schema, and relations are exact joins. In a plan document, a relation whose value is unknown until apply may resolve through the configuration's references, only when exactly one referenced resource has the target type. Cloudflare resource types, Google Cloud Run services and jobs (with their invoker member rows, and what each one dials, read from its containers' env and args) and Cloud SQL instances and Cloud Tasks queues, and wrangler.toml / wrangler.json are read today. With a cluster.toml, each declared connection is also compared with what the inputs say a service dials: evidenced, unknown, or undeclared, plus the services cluster.toml does not list. With --draft it prints a cluster.toml instead: one bundle per workload (name, image, ports and the placement kind the mapping names) and one connection per edge the inputs imply. The draft is printed, never written, and an existing cluster.toml is not read. Its header lists what the inputs did not show: an env block marked sensitive, a port that was assumed, an edge whose target is not a workload, a resource type no mapping reads. Committing the draft is what makes it a declaration. ADR-0073, ADR-0074.
+Reads the output of `terraform show -json` (or `tofu show -json`), state or plan, and/or wrangler configs (where a Worker's bindings live), and lists the workloads, bindings, routes, tunnels and storage they describe. With a cluster.toml it also reports, for each declared wire, whether the document shows a matching binding, and lists bindings between workloads that cluster.toml does not declare. Read-only: it runs no tool and writes nothing. Discovered resources are facts, never grants. Only an allowlist of non-secret attributes is read, and a file tracked by git is refused, because a rendered document prints secrets in plain text. The attributes read are a data mapping validated against the provider's published schema, and relations are exact joins. In a plan document, a relation whose value is unknown until apply may resolve through the configuration's references, only when exactly one referenced resource has the target type. Cloudflare resource types, Google Cloud Run services and jobs (with their invoker member rows, and what each one dials, read from its containers' env and args) and Cloud SQL instances and Cloud Tasks queues, and wrangler.toml / wrangler.json are read today. With a cluster.toml, each declared connection is also compared with what the inputs say a service dials: evidenced, unknown, or undeclared, plus the services cluster.toml does not list. With --draft it prints a cluster.toml instead: one bundle per workload and one connection per edge the inputs imply. A bundle carries what the workload is started with: image, args, whether it is a service or a job, and env. An env value is drafted as what it is: a literal, a binding to a connection (an address, which differs per placement), or a secret reference. A value taken from a variable is not drafted and is named in the header. From a plan, env is read from the configuration, so it is found even when the provider marks the whole block sensitive. --local <env> adds a kubernetes placement for a second environment, which `cluster lower` then writes manifests for. The draft is printed, never written, and an existing cluster.toml is not read. Its header lists what the inputs did not show: an env block marked sensitive, a port that was assumed, an edge whose target is not a workload, a resource type no mapping reads. Committing the draft is what makes it a declaration. ADR-0073, ADR-0074.
 
 | Flag | | |
 |---|---|---|
@@ -292,6 +289,7 @@ Reads the output of `terraform show -json` (or `tofu show -json`), state or plan
 | `--env` `<name>` |  | the environment these inputs describe; declared connections are compared for that environment only (default: every environment) |
 | `--json` |  | print the report as JSON |
 | `--draft` |  | print a cluster.toml drafted from --terraform, for you to review and commit; needs --env |
+| `--local` `<env>` |  | with --draft: also place every bundle kubernetes in this environment, for `cluster lower` |
 | `--name` `<name>` |  | with --draft: the cluster name in [metadata] (default: drafted) |
 
 See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)

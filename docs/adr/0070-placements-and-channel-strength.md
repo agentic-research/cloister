@@ -177,7 +177,8 @@ and a bundle with no exposed port needs no Service.** §2 says cloister owns
 only the edges of a forwarded workload. That holds for a manifest the operator
 renders. `cluster lower`
 ([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md) §7) writes
-a manifest where none exists, as a file to review. It applies nothing, and
+a manifest from the bundle where none exists, as a file to review. It applies
+nothing, never overwrites one, and
 `cluster k8s` still copies a manifest unchanged whoever wrote it. Separately,
 `cluster k8s` required exactly one Service per kubernetes bundle. A bundle
 that exposes no port (a job, a worker that only calls out) is reached by

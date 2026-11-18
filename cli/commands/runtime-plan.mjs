@@ -216,12 +216,23 @@ export function buildLaunchPlan(cluster, lock, options) {
  * order. Refusals name the bundle and the variable, never the value: values
  * are stored in the plan and are not secrets, but an error is logged.
  */
-function lowerEnvironment(bundleName, env) {
+export function lowerEnvironment(bundleName, env) {
   if (env === undefined || env === null) return [];
   const bundleText = JSON.stringify(bundleName);
   const seen = new Set();
   return env.map((entry) => {
     const { name, value } = entry ?? {};
+    // A binding is lowered per placement (ADR-0074 §7). The microVM lowering
+    // of an address or a secret is not built, and starting the workload
+    // without the variable would be the silent version of that.
+    for (const key of ["connection", "secret"]) {
+      if (typeof entry?.[key] === "string" && entry[key] !== "") {
+        throw new Error(
+          `bundle ${bundleText} environment variable ${JSON.stringify(name)} is bound to ${key} ${JSON.stringify(entry[key])}; ` +
+            `\`runtime plan\` does not lower a ${key} binding for a microVM yet. Use a literal value for this bundle`,
+        );
+      }
+    }
     if (typeof name !== "string" || name === "") {
       throw new Error(`bundle ${bundleText} declares an environment variable with an empty or non-string name`);
     }

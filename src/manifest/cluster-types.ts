@@ -454,11 +454,27 @@ export interface ExternalBundle {
    * peer of it. Per ADR-0062.
    */
   executionModeRationale: string;
+  /**
+   * "service" (runs until stopped) or "job" (runs to completion). Empty means
+   * "service". A placement emitter picks the object from it. ADR-0074 §7.
+   */
+  runs: string;
 }
 
+/**
+ * One environment variable. Its value is a literal (`value`), the address of
+ * one of the bundle's connections (`connection`, plus an optional `path`), or
+ * a reference to a named secret (`secret`, `secretKey`): exactly one. Only a
+ * literal is the same in every placement, which is why the other two are
+ * bindings and not text (ADR-0074 §7).
+ */
 export interface EnvVar {
   name:  string;
   value: string;
+  connection: string;
+  path: string;
+  secret: string;
+  secretKey: string;
 }
 
 /**

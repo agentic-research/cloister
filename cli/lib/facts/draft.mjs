@@ -1,20 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Draft a cluster.toml from what a rendered plan or state describes
-// (ADR-0074 §3, §5.2).
+// (ADR-0074 §3, §5.2, §7).
 //
 // A workload becomes a bundle and an implied edge becomes a connection. The
 // draft is text for the operator to read and commit: committing is what turns
 // an observation into a declaration. Nothing here is adopted on its own, and
 // nothing is written to disk.
 //
+// cluster.toml is the one description every placement is lowered from, so the
+// draft carries everything a workload is started with that the inputs hold:
+// its image, arguments, run mode, and environment. An env value is drafted as
+// what it IS, not as text:
+//
+//   a constant in the configuration   → a literal `value`
+//   taken from another workload       → a `connection` binding. The address
+//                                       differs in every placement, so each
+//                                       emitter writes it.
+//   a secret reference                → a `secret` reference. Never a value.
+//   anything else (a variable)        → not drafted, and named at the top.
+//
 // What the inputs did not show is said, at the top of the draft. A draft that
-// stayed quiet about a sensitive env block or an unread resource type would
-// pass for the whole graph when it is part of one.
+// stayed quiet about an unresolved variable or an unread resource type would
+// pass for the whole system when it is part of one.
 //
 // Nothing here names a provider. Which resource types are workloads, where
-// their image and ports are, and which placement kind they satisfy all come
-// from the mapping (`report.bundle`).
+// their image, ports and env are, and which placement kind they satisfy all
+// come from the mapping (`report.bundle`).
 
 import { stringify as stringifyToml } from "smol-toml";
 
@@ -23,15 +35,16 @@ import { sectionsOf } from "./report.mjs";
 
 /**
  * @param {{facts: Array, skipped: Record<string, number>, kind: string|null}} imported
- * @param {{env: string, name?: string, local?: {env: string, kind: string, manifestOf: (bundle: string) => string}}} options
- *   `env` names the environment the placement rows and connection targets are
- *   written for. `local` adds a second placement and target for another
- *   environment, whose manifests the caller is about to write (lowering).
- * @returns {{toml: string, bundles: number, connections: number, notes: string[], drafted: Map, cluster: object}}
+ * @param {{env: string, name?: string, local?: string}} options `env` names
+ *   the environment the inputs describe. `local` names a second environment:
+ *   each bundle also gets a `kubernetes` placement there, with a manifest path
+ *   that `cloister cluster lower` writes, and each connection a target there.
+ * @returns {{toml: string, bundles: number, connections: number, notes: string[]}}
  */
 export function draftCluster(imported, { env, name = "drafted", local }) {
+  if (local !== undefined && local === env) throw new Error(`--local and --env are both "${env}"; a second placement needs a second environment`);
   const notes = [];
-  const workloads = sectionsOf(imported.facts, imported.kind, { withRun: Boolean(local) })
+  const workloads = sectionsOf(imported.facts, imported.kind, { withRun: true })
     .flatMap((section) => section.resources.map((r) => ({ ...r, section: section.title })))
     .filter((r) => r.bundle);
 
@@ -55,9 +68,18 @@ export function draftCluster(imported, { env, name = "drafted", local }) {
 
   const bundles = [];
   for (const w of drafted.values()) {
+    const { run } = w.bundle;
     const bundle = { name: w.name, kind: "external", tier: "cluster" };
-    if (w.bundle.image) bundle.external = { image: w.bundle.image };
+    const external = {};
+    if (w.bundle.image) external.image = w.bundle.image;
     else notes.push(`"${w.name}": no image was read; add [bundles.external] image by hand`);
+    // The first word of a command is the binary; the rest are its arguments.
+    if (run.command.length) external.entryPoint = run.command[0];
+    const args = [...run.command.slice(1), ...run.args];
+    if (args.length) external.args = args;
+    if (w.bundle.runs === "job") external.runs = "job";
+    bundle.external = external;
+
     const ports = [];
     for (const p of w.bundle.ports) {
       if (p.appProtocol === "") {
@@ -73,14 +95,16 @@ export function draftCluster(imported, { env, name = "drafted", local }) {
     }
     if (ports.length) bundle.ports = ports;
     bundle.placements = [{ env, kind: w.bundle.placement }];
-    if (local) bundle.placements.push({ env: local.env, kind: local.kind, manifest: local.manifestOf(w.name) });
-    // Lowering reads env from the configuration, so a withheld planned list
-    // hides nothing there and each variable is accounted for by name.
-    if (w.withheld.length && !local) {
-      notes.push(`"${w.name}": its ${w.withheld.join(" and ")} ${w.withheld.length === 1 ? "is" : "are"} marked sensitive and ${w.withheld.length === 1 ? "was" : "were"} not read; an edge that is only in ${w.withheld.length === 1 ? "it" : "them"} is missing below`);
+    if (local) bundle.placements.push({ env: local, kind: "kubernetes", manifest: `${w.name}.yaml` });
+    // Env rows are read from the configuration when there is one (a plan). A
+    // state document has none, and its planned env may be withheld.
+    if (run.env === null && w.withheld.length) {
+      const one = w.withheld.length === 1;
+      notes.push(`"${w.name}": its ${w.withheld.join(" and ")} ${one ? "is" : "are"} marked sensitive and ${one ? "was" : "were"} not read; an edge that is only in ${one ? "it" : "them"} is missing below`);
     }
     bundles.push(bundle);
   }
+  const bundleNamed = (bundleName) => bundles.find((b) => b.name === bundleName);
 
   const connections = [];
   for (const w of drafted.values()) {
@@ -92,7 +116,7 @@ export function draftCluster(imported, { env, name = "drafted", local }) {
         notes.push(`${edge} is not drafted: "${dial.to}" (${dial.section}) is not a drafted bundle, and a connection's target must be one`);
         continue;
       }
-      const port = bundles.find((b) => b.name === target.name).ports?.[0];
+      const port = bundleNamed(target.name).ports?.[0];
       if (!port) {
         notes.push(`${edge} is not drafted: "${dial.to}" has no drafted port for it to reach`);
         continue;
@@ -101,31 +125,54 @@ export function draftCluster(imported, { env, name = "drafted", local }) {
         from: w.name,
         name: dial.to,
         appProtocol: port.appProtocol,
-        targets: [{ env, bundle: dial.to, port: port.name }, ...(local ? [{ env: local.env, bundle: dial.to, port: port.name }] : [])],
+        targets: [{ env, bundle: dial.to, port: port.name }, ...(local ? [{ env: local, bundle: dial.to, port: port.name }] : [])],
       });
     }
+  }
+
+  // Env, once the connections exist: an address is drafted as a binding to one.
+  for (const w of drafted.values()) {
+    const rows = [];
+    for (const entry of w.bundle.run.env ?? []) {
+      if (entry.kind === "constant") {
+        rows.push({ name: entry.name, value: entry.value });
+      } else if (entry.kind === "workload") {
+        if (connections.some((c) => c.from === w.name && c.name === entry.to)) {
+          rows.push({ name: entry.name, connection: entry.to });
+          notes.push(`"${w.name}": env ${entry.name} is the address of "${entry.to}". If the inputs append a path to it, add \`path = "..."\` to that row`);
+        } else {
+          notes.push(`"${w.name}": env ${entry.name} is not drafted: it is the address of "${entry.to}" (${entry.section}), which has no drafted connection to bind it to`);
+        }
+      } else if (entry.kind === "secret") {
+        rows.push({ name: entry.name, secret: entry.secret, ...(entry.version ? { secretKey: entry.version } : {}) });
+      } else {
+        notes.push(`"${w.name}": env ${entry.name} is not drafted: it is taken from ${entry.from.length ? entry.from.join(", ") : "something the configuration does not name"}, which these inputs do not resolve`);
+      }
+    }
+    if (rows.length) bundleNamed(w.name).external.env = rows;
   }
 
   for (const [type, count] of Object.entries(imported.skipped ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
     notes.push(`${count} ${type} ${count === 1 ? "resource was" : "resources were"} not read: no mapping describes that type`);
   }
 
-  const cluster = {
+  const body = stringifyToml({
     metadata: { name, version: "0.0.0" },
     storage: {},
     bundles,
     ...(connections.length ? { connections } : {}),
-  };
-  const body = stringifyToml(cluster);
+  });
+  const count = (n, word) => `${n} ${n === 1 ? word : `${word}s`}`;
   const header = [
-    `# DRAFT. Written by \`cloister ${local ? "cluster lower" : "inspect --draft"}\` from a rendered ${imported.kind ?? "document"}.`,
+    `# DRAFT. Written by \`cloister inspect --draft\` from a rendered ${imported.kind ?? "document"}.`,
     "# Read it before you commit it. Committing it is what makes it a declaration:",
     "# until then it is only what the inputs imply.",
     "#",
-    `# ${bundles.length} ${bundles.length === 1 ? "bundle" : "bundles"}, ${connections.length} ${connections.length === 1 ? "connection" : "connections"}, for env "${env}"${local ? ` and env "${local.env}"` : ""}.`,
+    `# ${count(bundles.length, "bundle")}, ${count(connections.length, "connection")}, for env "${env}"${local ? ` and env "${local}"` : ""}.`,
     "# A connection has no minStrength: add one where an edge must be enforced.",
+    ...(local ? [`# Next: \`cloister cluster lower --env ${local}\` writes each bundle's manifest for "${local}".`] : []),
     ...(notes.length ? ["#", "# Read these first:", ...notes.map((n) => `#   - ${n}`)] : ["#", "# Nothing in the inputs was left out."]),
     "",
   ];
-  return { toml: `${header.join("\n")}\n${body}`, bundles: bundles.length, connections: connections.length, notes, drafted, cluster };
+  return { toml: `${header.join("\n")}\n${body}`, bundles: bundles.length, connections: connections.length, notes };
 }

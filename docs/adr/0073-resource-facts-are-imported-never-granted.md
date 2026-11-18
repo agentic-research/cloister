@@ -219,11 +219,11 @@ The same limits hold as for any mapped attribute. Every field must be a
 scalar in the provider's published schema that the provider does not mark
 sensitive. A value the configuration takes from a variable is never read,
 whether or not the variable is sensitive: only its name is. The printed
-report does not carry these rows; they are read only when lowering writes a
-manifest ([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md)
+report does not carry these rows; they are read only when a `cluster.toml` is
+drafted ([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 §7). A literal secret typed into the configuration would be copied into that
-manifest. It is already in the operator's source, and the manifest is a local
-file, not output.
+draft as an env value. It is already in the operator's source, and the draft
+is theirs to review before it is committed.
 
 ## What exists today
 

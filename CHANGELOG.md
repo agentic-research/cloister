@@ -8,24 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
-### 2026-11 — `cluster lower` writes local Kubernetes manifests from a plan
+### 2026-11 — one description, lowered to each placement
 
-- **`cloister cluster lower --terraform <plan> --from <env> --to <env> --out <dir>`**
-  writes a `cluster.toml` and one manifest per workload: a Deployment and a
-  Service for a service, a Job for a job. Each bundle gets both placements.
-- **Every field is sorted, and each manifest says which is which.** Carried
-  as the plan has it (image, args, constant env). Rewritten for this cluster
-  (another workload's address). Not in the plan, so not written and named (a
-  value from a variable, a secret's contents).
-- **A secret reference becomes a `secretKeyRef`.** The manifest says which
-  Secret to create. The value is never read.
+- **`cluster.toml` carries what a workload is started with.** An env row takes
+  its value from exactly one of `value` (a literal), `connection` (the address
+  of one of the bundle's connections, with an optional `path`) or `secret` (a
+  reference, with an optional `secretKey`). `[bundles.external] runs` is
+  `service` or `job`. All appended fields; existing files are unchanged.
+- **`cloister cluster lower --env <name>`** writes each kubernetes-placed
+  bundle's manifest from `cluster.toml`: a Deployment and a Service, or a Job.
+  A `connection` row is set to that connection's address in this placement. A
+  `secret` row becomes a `secretKeyRef`. It reads nothing but `cluster.toml`,
+  never overwrites a manifest, and applies nothing.
+- **`inspect --draft` fills the bundle from a plan**, and `--local <env>` adds
+  a kubernetes placement for a second environment. A value taken from a
+  variable is not drafted and is named at the top.
 - **Env is read from the plan's configuration.** A provider may mark a whole
-  env block sensitive because one variable is, which withheld every row.
-  The configuration still tells a constant from an address from a variable.
-- **`cluster k8s` accepts a bundle with no exposed port and no Service** (a
-  job). Run on the lowered directory, it holds the rewritten addresses to the
-  declared connections like any other manifest.
-- Nothing is applied, and `--out` must be new or empty.
+  env block sensitive because one variable is, which withheld every row. The
+  configuration still tells a constant from an address from a variable.
+- **`cluster k8s` accepts a bundle with no exposed port and no Service.**
+- **`runtime plan` refuses a `connection` or `secret` env row by name.** The
+  microVM lowering of a binding is not built.
 
 ### 2026-11 — `inspect --draft` writes a first cluster.toml from a plan
 
