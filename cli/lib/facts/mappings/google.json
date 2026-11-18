@@ -29,7 +29,12 @@
           "command": { "list": "containers", "strings": "command" },
           "env": { "configured": "env", "name": "name", "value": "value", "secret": "value_source.secret_key_ref.secret", "secretVersion": "value_source.secret_key_ref.version" },
           "ports": { "list": "ports", "name": "name", "port": "container_port", "default": { "name": "http1", "port": 8080 } },
-          "wires": { "http1": "art.http", "h2c": "art.http2" }
+          "wires": { "http1": "art.http", "h2c": "art.http2" },
+          "exposure": {
+            "attr": "ingress",
+            "cluster": ["INGRESS_TRAFFIC_INTERNAL_ONLY"],
+            "edge": ["INGRESS_TRAFFIC_ALL", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"]
+          }
         }
       }
     },

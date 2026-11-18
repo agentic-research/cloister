@@ -8,6 +8,20 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `inspect` compares a port's `expose` with the plan
+
+- **`expose` is checked against what the plan says about reaching a workload
+  from outside.** For Cloud Run that is `ingress`. Each exposed port of a
+  bundle is `evidenced`, `unknown` (the plan does not state the setting, or
+  states a value the mapping does not sort), or **`contradicted`**: the two
+  disagree. A port declared `expose = "cluster"` on a service whose `ingress`
+  admits outside traffic is the case this exists for.
+- **A draft takes `expose` from the plan.** A service that can be reached from
+  outside is drafted `expose = "edge"`, and the draft says so. When the plan
+  does not say, it is drafted `cluster` and flagged to check.
+- A provider mapping names the setting and sorts its values
+  (`report.bundle.exposure`). The comparison names no provider.
+
 ### 2026-11 — lowered manifests are applied to a real cluster in CI
 
 - **`task smoke:lowered-kind`**, and a CI job of the same name, lowers

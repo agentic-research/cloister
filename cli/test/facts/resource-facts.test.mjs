@@ -1327,3 +1327,71 @@ test("the mapping's configured fields and run keys are held to the provider spec
   assert.throws(edited((e) => { e.report.bundle.env.value = "other"; }), /env value "other" is not a field of configured list "env"/);
   assert.throws(edited((e) => { e.report.bundle.args.strings = "image"; }), /bundle args needs a "list" the entry reads and a "strings" attribute/);
 });
+
+// ── expose beside what the plan says about reaching a workload (ADR-0074) ────
+
+const exposureFindings = (report) => report.findings.filter((f) => f.exposure).map((f) => [f.kind, f.exposure.bundle, f.exposure.port, f.exposure.expose, f.setting ?? f.reason]);
+const withIngress = (name, ingress) => {
+  const doc = googlePlan();
+  const service = doc.planned_values.root_module.resources.find((r) => r.address === `google_cloud_run_v2_service.${name}`);
+  if (ingress === undefined) delete service.values.ingress;
+  else service.values.ingress = ingress;
+  return doc;
+};
+const draftedCluster = async (doc = googlePlan()) => parseTomlToCluster(draftOf(doc).toml);
+
+test("a port's expose is evidenced when the plan agrees about reaching it from outside", async () => {
+  const report = buildReport(importFacts(googlePlan()), await draftedCluster(), { env: "prod" });
+  assert.deepEqual(exposureFindings(report), [
+    ["evidenced", "reconciler", "h2c", "cluster", "ingress INGRESS_TRAFFIC_INTERNAL_ONLY"],
+    ["evidenced", "workqueue", "http1", "cluster", "ingress INGRESS_TRAFFIC_INTERNAL_ONLY"],
+  ]);
+  assert.match(renderReport(report), / {2}evidenced {3}reconciler port "h2c" expose = "cluster": ingress INGRESS_TRAFFIC_INTERNAL_ONLY\n/);
+});
+
+test("expose is contradicted when cluster.toml says internal and the plan can be reached from outside, and the other way round", async () => {
+  // cluster.toml was drafted from an internal-only plan; the plan then opens up.
+  const internal = await draftedCluster();
+  for (const open of ["INGRESS_TRAFFIC_ALL", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"]) {
+    const report = buildReport(importFacts(withIngress("reconciler", open)), internal, { env: "prod" });
+    assert.deepEqual(exposureFindings(report)[0], ["contradicted", "reconciler", "h2c", "cluster", `its ingress is ${open}, so it can be reached from outside`]);
+    assert.match(renderReport(report), new RegExp(` {2}contradicted reconciler port "h2c" expose = "cluster": its ingress is ${open}, so it can be reached from outside\n`));
+  }
+  // And a cluster.toml that says edge, against a plan that is internal only.
+  const edge = await draftedCluster(withIngress("reconciler", "INGRESS_TRAFFIC_ALL"));
+  const report = buildReport(importFacts(googlePlan()), edge, { env: "prod" });
+  assert.deepEqual(exposureFindings(report)[0], ["contradicted", "reconciler", "h2c", "edge", "its ingress is INGRESS_TRAFFIC_INTERNAL_ONLY, so it cannot be reached from outside"]);
+});
+
+test("expose is unknown, never assumed, when the plan does not state the setting or states one the mapping does not sort", async () => {
+  const internal = await draftedCluster();
+  const absent = buildReport(importFacts(withIngress("reconciler", undefined)), internal, { env: "prod" });
+  assert.deepEqual(exposureFindings(absent)[0], ["unknown", "reconciler", "h2c", "cluster", "these inputs do not state its ingress"]);
+  const novel = buildReport(importFacts(withIngress("reconciler", "INGRESS_TRAFFIC_SOMETHING_NEW")), internal, { env: "prod" });
+  assert.deepEqual(exposureFindings(novel)[0], ["unknown", "reconciler", "h2c", "cluster", "its ingress is INGRESS_TRAFFIC_SOMETHING_NEW, which the mapping does not sort"]);
+});
+
+test("a draft takes expose from the plan, and says so when that is edge or unknown", async () => {
+  const exposeOf = (cluster, name) => cluster.bundles.find((b) => b.name === name).ports[0].expose;
+  const open = draftOf(withIngress("reconciler", "INGRESS_TRAFFIC_ALL"));
+  assert.equal(exposeOf(await parseTomlToCluster(open.toml), "reconciler"), "edge");
+  assert.ok(open.notes.some((n) => /^"reconciler": its ingress is INGRESS_TRAFFIC_ALL, so it can be reached from outside and is drafted expose = "edge"/.test(n)));
+  const unstated = draftOf(withIngress("reconciler", undefined));
+  assert.equal(exposeOf(await parseTomlToCluster(unstated.toml), "reconciler"), "cluster");
+  assert.ok(unstated.notes.some((n) => /^"reconciler": these inputs do not state its ingress, so whether it can be reached from outside is unknown\. It is drafted expose = "cluster": check it/.test(n)));
+  // Internal only: drafted cluster, with nothing to say.
+  assert.ok(!draftOf(googlePlan()).notes.some((n) => /ingress/.test(n)));
+});
+
+test("a mapping's exposure block names a read attribute and sorts each value once", () => {
+  const edited = (edit) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    edit(mapping.types.google_cloud_run_v2_service.report.bundle.exposure);
+    return () => validateMapping(mapping, GOOGLE_SPEC);
+  };
+  edited(() => {})();
+  assert.throws(edited((e) => { e.attr = "uri_scheme"; }), /exposure needs an "attr" that is in the entry's "read" list/);
+  assert.throws(edited((e) => { e.edge = []; }), /exposure needs a non-empty "edge" list of values/);
+  assert.throws(edited((e) => { e.edge.push("INGRESS_TRAFFIC_INTERNAL_ONLY"); }), /exposure lists one value as both "cluster" and "edge"/);
+  assert.throws(edited((e) => { e.other = 1; }), /exposure has unknown key "other"/);
+});

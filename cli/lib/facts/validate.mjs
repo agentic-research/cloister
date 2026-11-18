@@ -177,7 +177,27 @@ function checkReport(type, entry) {
       if (!isTable(bundle) || !FORWARDED_KINDS.includes(bundle.placement)) {
         throw new Error(`mapping: ${where} needs a "placement" that is one of ${FORWARDED_KINDS.join(", ")}`);
       }
-      onlyKeys(bundle, ["placement", "runs", "image", "args", "command", "env", "ports", "wires"], where);
+      onlyKeys(bundle, ["placement", "runs", "image", "args", "command", "env", "ports", "wires", "exposure"], where);
+      // `exposure`: the attribute that says whether the workload can be
+      // reached from outside its network, and which of its values mean which.
+      // It is what a port's `expose` is compared with (ADR-0074).
+      if (bundle.exposure !== undefined) {
+        const { exposure } = bundle;
+        onlyKeys(exposure, ["attr", "cluster", "edge"], `${where} exposure`);
+        if (!isTable(exposure) || !read.includes(exposure.attr)) {
+          throw new Error(`mapping: ${where} exposure needs an "attr" that is in the entry's "read" list`);
+        }
+        const values = [];
+        for (const key of ["cluster", "edge"]) {
+          if (!Array.isArray(exposure[key]) || exposure[key].length === 0 || !exposure[key].every(isText)) {
+            throw new Error(`mapping: ${where} exposure needs a non-empty "${key}" list of values`);
+          }
+          values.push(...exposure[key]);
+        }
+        if (new Set(values).size !== values.length) {
+          throw new Error(`mapping: ${where} exposure lists one value as both "cluster" and "edge"`);
+        }
+      }
       // How the workload runs: until it is stopped, or to completion.
       if (bundle.runs !== undefined && !["service", "job"].includes(bundle.runs)) {
         throw new Error(`mapping: ${where} "runs" must be "service" or "job"`);

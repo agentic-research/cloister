@@ -67,6 +67,8 @@ cloister inspect --terraform plan.json --dir . --env prod
 
 Each declared connection is reported as `evidenced` or `unknown`. An edge the
 plan implies with no connection declared for it is reported as `undeclared`.
+A port you declared internal on a service the plan leaves reachable from
+outside is reported as `contradicted`.
 
 You do not have to write that `cluster.toml` yourself. `--draft` prints one
 from the plan:

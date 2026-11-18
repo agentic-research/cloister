@@ -114,12 +114,28 @@ function bundleOf(fact, rule, facts, withRun) {
     }
   }
   const strings = (ref) => (ref ? (fact.attrs[ref.list] ?? []).flatMap((row) => row[ref.strings] ?? []) : []);
-  const bundle = { placement: rule.placement, runs: rule.runs ?? "service", image, ports };
+  const bundle = { placement: rule.placement, runs: rule.runs ?? "service", image, ports, exposure: exposureOf(fact, rule.exposure) };
   // What it is started with is read only when a caller is going to write a
   // manifest from it. The report never carries it: an argument or an env value
   // may hold an address or worse, and the report is printed.
   if (withRun) bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts) };
   return bundle;
+}
+
+/**
+ * Whether the inputs say the workload can be reached from outside its network.
+ *
+ * `expose` is "cluster" or "edge", the word a port's `expose` uses, when the
+ * provider's setting is one the mapping sorts. It is "" when the setting is
+ * not in the document, or holds a value the mapping does not list: that is
+ * unknown, never a default. Null when the mapping names no such setting.
+ */
+function exposureOf(fact, rule) {
+  if (!rule) return null;
+  const value = fact.attrs[rule.attr];
+  const setting = typeof value === "string" ? value : "";
+  const expose = rule.cluster.includes(setting) ? "cluster" : rule.edge.includes(setting) ? "edge" : "";
+  return { attr: rule.attr, setting, expose };
 }
 
 /**
@@ -246,6 +262,10 @@ function routeHost(pattern) {
  *   undeclared  a declared bundle dials something, and cluster.toml declares
  *               no connection for it. Reported, never adopted.
  *
+ * A port's `expose` is compared the same way with what the inputs say about
+ * reaching the workload from outside its network, where a mapping names that
+ * setting: evidenced, unknown, or `contradicted` when the two disagree.
+ *
  * `unlisted` is the workloads in the inputs that cluster.toml has no bundle
  * for: with a hand-written cluster.toml, the services nobody added.
  */
@@ -290,6 +310,29 @@ function compareConnections(sections, cluster, env) {
         dial: { to: dial.to, section: dial.section, by: dial.by, where: dial.where },
         reason: bundles.has(dial.to) ? "declares no such connection" : `has no bundle named "${dial.to}"`,
       });
+    }
+  }
+  // A port's `expose` beside what the inputs say about reaching the workload
+  // from outside. Same name, same thing; same three-way answer.
+  for (const b of cluster?.bundles ?? []) {
+    const same = named(b.name).filter((r) => r.bundle?.exposure);
+    if (same.length !== 1) continue;
+    const { attr, setting, expose } = same[0].bundle.exposure;
+    for (const port of (b.ports ?? []).filter((p) => p.expose === "cluster" || p.expose === "edge")) {
+      const exposure = { bundle: b.name, port: port.name, expose: port.expose, section: same[0].section };
+      if (expose === "") {
+        findings.push({ kind: "unknown", exposure, reason: setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort` });
+      } else if (expose === port.expose) {
+        findings.push({ kind: "evidenced", exposure, setting: `${attr} ${setting}` });
+      } else {
+        findings.push({
+          kind: "contradicted",
+          exposure,
+          reason: expose === "edge"
+            ? `its ${attr} is ${setting}, so it can be reached from outside`
+            : `its ${attr} is ${setting}, so it cannot be reached from outside`,
+        });
+      }
     }
   }
   const unlisted = cluster ? resources.filter((r) => r.dialer && !bundles.has(r.name)).map((r) => ({ name: r.name, section: r.section })) : [];
@@ -536,7 +579,10 @@ export function renderReport(report) {
   section("Findings:");
   if (report.findings.length === 0) lines.push("  (none)");
   for (const f of report.findings) {
-    if (f.connection) {
+    if (f.exposure) {
+      const what = `${f.exposure.bundle} port "${f.exposure.port}" expose = "${f.exposure.expose}"`;
+      lines.push(f.kind === "evidenced" ? `  evidenced   ${what}: ${f.setting}` : `  ${f.kind.padEnd(11)} ${what}: ${f.reason}`);
+    } else if (f.connection) {
       const edge = `${f.connection.from} → ${f.connection.to} (connection "${f.connection.name}", env ${f.connection.env})`;
       lines.push(f.kind === "evidenced" ? `  evidenced   ${edge}: ${dialHow(f.dial)}` : `  unknown     ${edge}: ${f.reason}`);
     } else if (f.kind === "undeclared" && f.dial) {
