@@ -355,7 +355,7 @@ test("PROPERTY: bootstrap and the runtime derive the same fingerprint", async ()
 //
 // The pattern this exists for, seven instances in one session:
 //
-//   1. cli/test/oci-artifact.test.mjs — on disk, in no test list (#189→#223)
+//   1. cli/test/runtime/oci-artifact.test.mjs — on disk, in no test list (#189→#223)
 //   2. CI verify path filter — enumerated substrate paths, skipped the rest
 //   3. config.capnp ↔ wrangler.toml — "must stay in sync", nothing checked
 //   4. identity:zod:check-drift — existed, in no gate (found #224)

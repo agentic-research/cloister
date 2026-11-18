@@ -52,7 +52,7 @@
 //
 // The single-repo manifest is byte-identical to before, so its digest is
 // unchanged and the measurement above still holds. Asserted, not assumed:
-// see cli/test/confinement-shape.test.mjs.
+// see cli/test/harness/confinement-shape.test.mjs.
 
 import { existsSync, statSync } from "node:fs";
 import { resolve, isAbsolute, dirname } from "node:path";

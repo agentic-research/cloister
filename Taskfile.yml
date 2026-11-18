@@ -548,9 +548,9 @@ tasks:
   test:cluster-toml:
     desc: "Bidi TOML pipeline contract tests (cloister-ae06f3) — node:test under tsx loader so the product cluster library can import src/generated/cluster.zod.ts."
     cmds:
-      - "{{.NODE_TSX}} --test cli/test/cluster-toml-roundtrip.test.mjs"
+      - "{{.NODE_TSX}} --test cli/test/cluster/cluster-toml-roundtrip.test.mjs"
     sources:
-      - cli/test/cluster-toml-roundtrip.test.mjs
+      - cli/test/cluster/cluster-toml-roundtrip.test.mjs
       - cli/lib/cluster/toml-to-cluster.mjs
       - cli/lib/cluster/cluster-to-toml.mjs
       - src/generated/cluster.zod.ts
@@ -609,9 +609,9 @@ tasks:
   test:emit-cloister-capnp:
     desc: "Phase 2 of cloister-345ad1 — contract tests for the product-owned capnp renderer."
     cmds:
-      - "{{.NODE_TSX}} --test cli/test/emit-cloister-capnp.test.mjs"
+      - "{{.NODE_TSX}} --test cli/test/cluster/emit-cloister-capnp.test.mjs"
     sources:
-      - cli/test/emit-cloister-capnp.test.mjs
+      - cli/test/cluster/emit-cloister-capnp.test.mjs
       - cli/lib/cluster/emit-cloister-capnp.mjs
       - cli/lib/cluster/toml-to-cluster.mjs
 

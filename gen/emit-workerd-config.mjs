@@ -42,9 +42,9 @@
 //
 // Naming detail (load-bearing, do not change without re-testing):
 //   The bundled JS imports as `import x from "./<filename>"`, but
-//   workerd's module resolver normalizes the `./` away when the
+//   workerd's module resolver normalizes the `.` away when the
 //   importer (`worker`) has no path prefix of its own. The module must
-//   be registered with the bare name (no `./`) — registering as
+//   be registered with the bare name (no `.`) — registering as
 //   `./<filename>` results in workerd erroring with `No such module
 //   "<filename>"` at first request. Confirmed empirically against
 //   workerd 1.20250718 + 1.20260424.

@@ -12,10 +12,21 @@ function discoverIn(root, directory, accepts) {
     .map((entry) => `${directory}/${entry.name}`);
 }
 
+/** As discoverIn, and one level of area subdirectories (cli/test/<area>/). */
+function discoverWithAreas(root, directory, accepts) {
+  const absolute = resolve(root, directory);
+  if (!existsSync(absolute)) return [];
+  const areas = readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== "fixtures")
+    .map((entry) => `${directory}/${entry.name}`);
+  return [directory, ...areas].flatMap((dir) => discoverIn(root, dir, accepts));
+}
+
 /**
  * Discover the repository's Node test suites by convention.
  *
- * Each area keeps its tests beside it, in its own `test/` directory. The nono checks stay next
+ * Each area keeps its tests beside it, in its own `test/` directory; cli/test is
+ * grouped once more by the part of the CLI under test. The nono checks stay next
  * to the native harness they exercise and use a `nono-` prefix. The separately
  * built harness-binary test is intentionally owned by `task harness:binary:test`.
  */
@@ -24,7 +35,7 @@ export const NODE_TEST_DIRS = Object.freeze(["cli/test", "lint/test", "gen/test"
 
 export function discoverNodeTests(root = process.cwd()) {
   return [
-    ...NODE_TEST_DIRS.flatMap((dir) => discoverIn(root, dir, (name) => name.endsWith(".test.mjs"))),
+    ...NODE_TEST_DIRS.flatMap((dir) => discoverWithAreas(root, dir, (name) => name.endsWith(".test.mjs"))),
     ...discoverIn(
       root,
       "tools/harness-sandbox/test",

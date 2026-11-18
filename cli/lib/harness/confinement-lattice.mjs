@@ -395,7 +395,7 @@ export function leq(a, b) {
  * through wasm, which this layer must not require to compare two objects. The
  * digest remains that file's to own — nothing here hashes anything, so the two
  * cannot disagree about a digest, only about key order, which
- * `cli/test/confinement-lattice.test.mjs` pins against it.
+ * `cli/test/harness/confinement-lattice.test.mjs` pins against it.
  *
  * @param {unknown} value
  * @returns {string}

@@ -136,7 +136,7 @@ const SYMBOLIC_ROOT = "/run/cloister/";
  *
  * The one-root case emits exactly `workspace`, byte-identical to the manifest
  * that predates multi-root — so its digest is unchanged. Asserted in
- * cli/test/confinement-shape.test.mjs, because "unchanged" is the kind of
+ * cli/test/harness/confinement-shape.test.mjs, because "unchanged" is the kind of
  * claim that stops being true without anyone noticing.
  *
  * Takes no `service`, and that is the point: the boundary is identical for every

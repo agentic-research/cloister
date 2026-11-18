@@ -144,7 +144,7 @@ const MUTANTS = [
     file: "cli/lib/cluster/toml-to-cluster.mjs",
     anchor: "export function assertActorFingerprint(fp) {",
     replace: "export function assertActorFingerprint(fp) {\n  return fp;",
-    run: () => NODE_TEST("cli/test/cluster-toml-roundtrip.test.mjs"),
+    run: () => NODE_TEST("cli/test/cluster/cluster-toml-roundtrip.test.mjs"),
     why: "a non-empty fingerprint is PUBLISHED on /.well-known — accepting a malformed one advertises a fabricated identity",
   },
 
@@ -153,7 +153,7 @@ const MUTANTS = [
     file: "cli/lib/cluster/capability-matchmaker.mjs",
     anchor: '        throw new MatchError(\n          "unsatisfied",',
     replace: '        bindings.push({ consumer: input.name, capability: cap, provider: null }); if (false) throw new MatchError(\n          "unsatisfied",',
-    run: () => NODE_TEST("cli/test/capability-matchmaker.test.mjs"),
+    run: () => NODE_TEST("cli/test/cluster/capability-matchmaker.test.mjs"),
     why: "ADR-0054's whole claim is that an unsatisfiable request is REJECTED, not approximated — silently binding null is the failure mode the neural experiment had",
   },
 

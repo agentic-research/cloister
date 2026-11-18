@@ -180,7 +180,7 @@ it is for, with its tests in that directory's `test/`:
 | Directory | Holds |
 |---|---|
 | `src/` (tests in `test/`) | The worker: router, routes, vault, trust state |
-| `cli/` | The `cloister` command. The only one of these that ships |
+| `cli/` | The `cloister` command. The only one of these that ships. `cli/lib/<area>` is tested in `cli/test/<area>` (cluster, facts, harness, runtime, dev) |
 | `lint/` | The rails `task lint` runs |
 | `gen/` | Code generators and build steps |
 | `dev/` | Local launchers, smoke tests, benchmarks, git hooks |
@@ -188,7 +188,7 @@ it is for, with its tests in that directory's `test/`:
 `cli/` never imports from `lint/`, `gen/` or `dev/` (`cli/test/` may). A file
 in those three that only re-exports `cli/` code is refused. Both are railed in
 `cli/test/cli-boundary.test.mjs` and `lint/test/gate-integrity.test.mjs`. A
-`*.test.mjs` anywhere outside the four `test/` directories is never run, and
+`*.test.mjs` anywhere outside the four `test/` directories (and `cli/test/<area>/`) is never run, and
 `gate-integrity` fails on it.
 
 ## Taskfiles are hierarchical

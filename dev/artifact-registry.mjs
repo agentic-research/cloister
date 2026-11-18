@@ -50,7 +50,7 @@ import { confinementManifest } from "../cli/lib/harness/launch.mjs";
 export const ARTIFACTS = [
   // One-root and multi-root are separate entries rather than one parameterised
   // case, because the ROOT COUNT is the only thing that legitimately changes the
-  // digest (cli/test/confinement-shape.test.mjs pins that). Two goldens make
+  // digest (cli/test/harness/confinement-shape.test.mjs pins that). Two goldens make
   // a change to either shape visible on its own line.
   {
     id: "confinement-harness-1root",
