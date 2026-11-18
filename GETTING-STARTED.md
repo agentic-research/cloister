@@ -14,7 +14,7 @@ For the *why* and *how it's shaped*, read [README.md](README.md) →
 
 | Tool       | Why                                              |
 | ---------- | ------------------------------------------------ |
-| `node 18+` | runs the worker bundle (via wrangler) and the CC plugin's hook script |
+| `node 22+` | runs the worker bundle (via wrangler) and the CC plugin's hook script |
 | `pnpm 10`  | package manager (locked in `package.json`)       |
 | `task`     | optional, runs Taskfile.yml entries              |
 

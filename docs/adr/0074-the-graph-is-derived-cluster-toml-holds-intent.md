@@ -19,6 +19,12 @@ Tracking bead: `cloister-ca2582`. Builds on
 
 ## Context
 
+Most people who try cloister already have infrastructure that works. They did
+not come looking for a new place to describe it. So the first thing cloister
+asks of them cannot be "write your system down again in our format". It has to
+be useful on what they already have, and ask for more only where that buys
+something.
+
 Picture a monorepo with many services that call each other. Nobody wrote the
 graph down. It is implied: one service's environment holds another's address,
 and an IAM row says who may invoke whom. The services are deployed to a cloud
