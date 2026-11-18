@@ -49,6 +49,12 @@
       "linux-amd64": "5fa06ec4fccf3d148f1baf49548d2166618e25f979f28c7597b756c5033488ec",
       "linux-arm64": "f5c0139bc8d1d475331920e62402e004ee0d28cd762c85c30698bd15e1f0ce80"
     },
+    "capnpc-schema-bridge-jsonschema": {
+      "darwin-amd64": "4936cb35c9ae3afd681b40a74f74127a33512ba64da8c14152aed5bd8b20bc06",
+      "darwin-arm64": "76e130462c6158efa1e4bcd9e35e3168f47c14c20d3007a8dfc5f1e1224175e2",
+      "linux-amd64": "0985ffd88ccc14723dffde7f4f8ed63cdb1e34abc1e4dfd5ff625f901765d872",
+      "linux-arm64": "1c1884e258f78b017b0b8d48d9b5702017ecb67710ad891417405110412e487e"
+    },
     "capnpc-schema-bridge-tooldefs": {
       "darwin-amd64": "e961c175f32258193b9c4ef5514b6a7a923270209df66b5b0e1d3ab3eb84c946",
       "darwin-arm64": "c48b712acbbe8011c4d8e64390c3956d432b5771fd73183ebff42c6a47dc4926",

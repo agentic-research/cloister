@@ -117,6 +117,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:upstream-pins` | ONE ley-line-open version across all three hand-stated channels (input ref, Cargo deps, generator lock) + one rev across the Cargo pins | `cloister-9170d0` |
 | `cluster:emit:check-drift` | `cluster.compose.yaml` matches the emitter — it is generated, committed, and `lint:tenant-docs` READS it | `cloister-cb735c` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
+| `cluster:jsonschema:check-drift` + `cluster:toml:schema:check` | `schema/cluster.toml.schema.json` (the published cluster.toml schema) matches LLO schema-bridge's output for `cluster.capnp`, reshaped for TOML; the parser refuses any key it does not define | [`docs/reference/cluster-toml-schema.md`](docs/reference/cluster-toml-schema.md) |
 | `lint:structured-parse` | a format with a parser is parsed, not hand-matched (`.capnp` + prose exempt) | `cloister-2fb46a` |
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
@@ -145,6 +146,13 @@ duplication for lost documentation. Tracked upstream as
 
 Until then `lint`'s `type-duplication` rail asserts the two do not DIVERGE —
 the real risk being silent disagreement, not duplication itself.
+
+A one-line description that SHOULD reach generated files is written as
+`$Traits.doc("...")` on the struct or field in `cluster.capnp` (the vocabulary
+is LLO's, vendored at `manifest/_traits.capnp`). schema-bridge carries it into
+`cluster.zod.ts`, `pkg/cluster/cluster.go` and the published cluster.toml
+schema, where an editor shows it on hover. The `#` comments still say why;
+the annotation says what the field is.
 
 Also: both schemas declare `McpTool` and `VaultProxyService`. The `*Spec` /
 `*Config` suffixes in the hand files disambiguate them; they are not

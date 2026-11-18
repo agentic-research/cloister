@@ -28,21 +28,36 @@
 
 @0x801fbcc157921d1a;
 
+# `$Traits.doc("...")` is the one-line description of a struct or field. LLO's
+# schema-bridge carries it into every generated file: the `description` in the
+# published cluster.toml schema (which is what an editor shows on hover), and a
+# doc comment in cluster.zod.ts. The `#` comments in this file are for readers
+# of this file and reach no generated output, so the two are not duplicates: a
+# `$Traits.doc` says what the field IS in a sentence an operator can use, and
+# the comment says why it is that way.
+#
+# `_traits.capnp` is LLO's annotation vocabulary
+# (ley-line-open rs/ll-core/schema-spec/_traits.capnp), vendored unchanged
+# beside this file so `capnp compile` resolves the import without an LLO
+# checkout. schema-bridge recognises an annotation by its id, so the copy must
+# keep LLO's ids.
+using Traits = import "_traits.capnp";
+
 # ── Top-level Cluster value ───────────────────────────────────────────────
 #
 # A consumer manifest declares one `Cluster` value. The cluster's name +
 # version are mostly informational; bundles are the substantive payload.
-struct Cluster {
-  metadata @0 :ClusterMetadata;
-  bundles  @1 :List(Bundle);
-  wires    @2 :List(Wire);
-  storage  @3 :StoragePolicy;
+struct Cluster $Traits.doc("A cloister cluster: its bundles, how they connect, and the gateway in front of them.") {
+  metadata @0 :ClusterMetadata $Traits.doc("The cluster's name and version.");
+  bundles  @1 :List(Bundle) $Traits.doc("The processes that make up the cluster.");
+  wires    @2 :List(Wire) $Traits.doc("Service bindings between bundles: one bundle reaches another through a named binding.");
+  storage  @3 :StoragePolicy $Traits.doc("Where durable state is mounted.");
   # Per ADR-0026 / cloister-cf7a3b Phase 1a — composable inputs
   # (tools / skills / agent defs / bundles). Operator names the input
   # by `ref = "..."` + `version = "..."`; cloister resolves at compose
   # time. Empty list = no external inputs (back-compat with pre-Phase-1
   # cluster.toml). Resolver lands in Phase 1b (cloister-cf7a3b).
-  inputs   @4 :List(InputSpec);
+  inputs   @4 :List(InputSpec) $Traits.doc("External tools, skills and bundles the cluster composes, each pinned by reference and version.");
   # ── Routes (Phase 2 of "cloister.capnp as build artifact" arc,
   # cloister-345ad1 / ADR-0031) ──────────────────────────────────────────
   #
@@ -53,7 +68,7 @@ struct Cluster {
   # routes into the Gateway schema at build time. Empty list = no routes
   # declared (back-compat with pre-Phase-2 cluster.toml that left route
   # declarations in hand-edited `cloister.capnp` shells).
-  routes   @5 :List(Route);
+  routes   @5 :List(Route) $Traits.doc("The HTTP routes the gateway serves.");
   # ── Gateway (Phase 4a of "cloister.capnp as build artifact" arc,
   # cloister-c919d7 / ADR-0031) ──────────────────────────────────────────
   #
@@ -73,7 +88,7 @@ struct Cluster {
   # ART-default template + emits a warning to stderr.
   #
   # Append-only ordinal per ADR-0004.
-  gateway  @6 :Gateway;
+  gateway  @6 :Gateway $Traits.doc("The gateway's own identity and policy, and its vault proxy services, harness targets and skills.");
   # ── Edges (Phase A of ADR-0030 multi-workerd substrate,
   # cloister-f289c8 / cloister-0e3004) ──────────────────────────────
   #
@@ -85,7 +100,7 @@ struct Cluster {
   # the back-compat default; pre-ADR-0030 cluster.toml has no edges).
   #
   # Append-only ordinal per ADR-0004.
-  edges    @7 :List(EdgeSpec);
+  edges    @7 :List(EdgeSpec) $Traits.doc("Cross-tenant edges: which tenant may reach which, and for what protocol.");
   # ── Connections (ADR-0069 §1, outbound; cloister-991e65) ─────────────────
   #
   # Declared outbound connections: bundle `from` dials the name `name`, and
@@ -96,12 +111,12 @@ struct Cluster {
   # Empty list = no declared connections (back-compat default).
   #
   # Append-only ordinal per ADR-0004.
-  connections @8 :List(ConnectionSpec);
+  connections @8 :List(ConnectionSpec) $Traits.doc("Declared outbound connections: which bundle dials which bundle's port, per environment.");
 }
 
-struct ClusterMetadata {
-  name    @0 :Text;   # e.g. "art-default" — visible in container labels
-  version @1 :Text;   # e.g. "0.1.0" — pinned at deploy time
+struct ClusterMetadata $Traits.doc("Names the cluster.") {
+  name    @0 :Text $Traits.doc("The cluster's name. Required. Appears in container labels.");   # e.g. "art-default" — visible in container labels
+  version @1 :Text $Traits.doc("The cluster's version, pinned at deploy time. Required.");   # e.g. "0.1.0" — pinned at deploy time
 }
 
 # ── Bundle: a process within the cluster ──────────────────────────────────
@@ -121,9 +136,9 @@ struct ClusterMetadata {
 #              for Go/Rust binaries (mache, rosary) that can't compile
 #              to v8 isolates. Wire is capnp-over-UDS to a socket
 #              mounted in a shared volume.
-struct Bundle {
-  name        @0 :Text;            # e.g. "cloister-router", "mache", "rosary"
-  description @1 :Text;            # one-line; surfaces in container labels
+struct Bundle $Traits.doc("One unit of deployment in the cluster.") {
+  name        @0 :Text $Traits.doc("The bundle's name. Unique in the cluster. A bundle that a connection touches must be named as a DNS label.");            # e.g. "cloister-router", "mache", "rosary"
+  description @1 :Text $Traits.doc("One line describing the bundle. Appears in container labels.");            # one-line; surfaces in container labels
 
   kind :union {
     workerd  @2 :WorkerdBundle;    # in-process v8 isolate
@@ -138,7 +153,7 @@ struct Bundle {
   #
   # The emitters treat both tiers identically at the runtime layer — the
   # classification is documentation + audit, not a runtime gate.
-  tier @4 :Tier;
+  tier @4 :Tier $Traits.doc("'hypervisor' for a bundle that mediates between other bundles or to the outside, 'cluster' for a tool bundle. Documentation and audit, not a runtime gate.");
 
   # Credential bindings this bundle is allowed to hold. Each entry is a
   # workerd binding NAME (e.g. "VAULT_KEK_SOURCE", "VAULT_STORE",
@@ -158,7 +173,7 @@ struct Bundle {
   # Empty list (the common case) means this bundle holds no credentials.
   # Hypervisor-tier bundles that DO hold credentials list them here;
   # cluster-tier bundles MUST leave it empty (the lint enforces both).
-  holdsCredential @5 :List(Text);
+  holdsCredential @5 :List(Text) $Traits.doc("The credential bindings this bundle may hold, by binding name. Empty means it holds none. A cluster-tier bundle must leave it empty.");
 
   # Workerd service name — the `services[].name` in config.capnp that
   # corresponds to this bundle. Used by the bundle-isolation lint as
@@ -173,7 +188,7 @@ struct Bundle {
   # corresponding workerd service (external-only bundle like mache or
   # rosary that doesn't run inside cloister-router's workerd), leave
   # this empty; the lint won't try to match it.
-  workerdServiceName @6 :Text;
+  workerdServiceName @6 :Text $Traits.doc("The workerd service this bundle corresponds to, when its name there differs. Empty for a bundle that does not run inside the router's workerd.");
 
   # Free-form text rationale that explains WHY this bundle is hypervisor-
   # tier (per ADR-0011's three-criterion test: mediates trust, multi-
@@ -189,7 +204,7 @@ struct Bundle {
   #
   # Cluster-tier bundles may leave this empty; the field is required
   # only on the promotion path.
-  hypervisorRationale @7 :Text;
+  hypervisorRationale @7 :Text $Traits.doc("Why this bundle is hypervisor tier. Required when tier is 'hypervisor'.");
 
   # ── perTenant (ADR-0034 / cloister-cedcf3 Phase 1, foundational) ─────
   #
@@ -209,7 +224,7 @@ struct Bundle {
   # until emit-compose grows the awareness.
   #
   # Append-only ordinal per ADR-0004.
-  perTenant @8 :Bool;
+  perTenant @8 :Bool $Traits.doc("When true, one instance of the bundle is produced per tenant. Requires a tenantDispatch route.");
 
   # ── confinement (cloister-a34edc / cloister/confinement/v1) ─────────────
   #
@@ -223,7 +238,7 @@ struct Bundle {
   # time (cloister-c80953); enforce-time drift-rejection against the enforced
   # manifest is the compute-substrate runner's job (ADR-0044). This facet
   # declares + attests. Omitted = no confinement declared.
-  confinement @9 :Confinement;
+  confinement @9 :Confinement $Traits.doc("What the bundle may touch: filesystem paths, egress hosts, one listener port, a credential source. Anything not allowed is denied.");
 
   # ── ports (ADR-0069 §1, inbound; cloister-991e65) ───────────────────────
   #
@@ -233,7 +248,7 @@ struct Bundle {
   # `guestPort = port` (ADR-0070 §4). Empty list = no declared ports.
   #
   # Append-only ordinal per ADR-0004.
-  ports @10 :List(PortSpec);
+  ports @10 :List(PortSpec) $Traits.doc("The bundle's named inbound ports. A connection refers to a port by name.");
 
   # ── placements (ADR-0070 §2; cloister-991e65) ───────────────────────────
   #
@@ -241,46 +256,46 @@ struct Bundle {
   # executionMode "microvm" is implicitly placed "microvm" in every env (the
   # pre-placement behaviour); any other bundle a connection names in an env
   # must declare a row for it. Append-only ordinal per ADR-0004.
-  placements @11 :List(PlacementSpec);
+  placements @11 :List(PlacementSpec) $Traits.doc("Where the bundle runs, one row per environment.");
 }
 
 # ── PlacementSpec (ADR-0070 §2 / cloister-991e65) ─────────────────────────
 #
 # A list keyed by `env`, not ADR-0070's original `placement.<env>` table,
 # because capnp has no maps (same reason as ConnectionSpec.targets).
-struct PlacementSpec {
-  env @0 :Text;   # unique per bundle
+struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
+  env @0 :Text $Traits.doc("The environment this row applies to, for example 'local'. Unique per bundle.");   # unique per bundle
   # "microvm" | "workerd" (constructed: cloister builds the node)
   # "kubernetes" | "knative" | "cloudRun" (forwarded: cloister owns only the
   # edges). Lowered today: microvm (`cloister runtime plan`) and kubernetes
   # (`cloister cluster k8s`). knative is CHECKED by `cloister cluster k8s` and
   # never lowered: its strength is "none". workerd and cloudRun parse, and
   # every emitter refuses them by name.
-  kind @1 :Text;
+  kind @1 :Text $Traits.doc("How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.");
   # Path, relative to the cluster directory, to the operator's RENDERED
   # manifest. Forwarded kinds only: required for kubernetes and knative,
   # refused on constructed kinds. Cloister parses it to check edges; a
   # kubernetes manifest is also copied unchanged. It never edits the
   # operator's objects.
-  manifest @2 :Text;
+  manifest @2 :Text $Traits.doc("Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.");
 }
 
 # ── PortSpec (ADR-0069 §1 / cloister-991e65) ─────────────────────────────
 #
 # One named inbound port. Names are unique per bundle, numbers are unique per
 # bundle and non-zero — checked by toml-to-cluster, since capnp cannot.
-struct PortSpec {
-  name @0 :Text;
-  port @1 :UInt16;
+struct PortSpec $Traits.doc("One named inbound port.") {
+  name @0 :Text $Traits.doc("The port's name. Unique per bundle. Connections refer to it.");
+  port @1 :UInt16 $Traits.doc("The port number. Unique per bundle, and not zero.");
   # ADR-0030 §A4 label (`art.*` blessed set or `x-<vendor>-*`). A connection to
   # this port must declare the same label.
-  appProtocol @2 :Text;
+  appProtocol @2 :Text $Traits.doc("What is spoken on the port: a blessed 'art.*' label such as 'art.http' or 'art.grpc', or a vendor 'x-' label. A connection to this port must declare the same label.");
   # Who may reach it: "none" | "cluster" | "edge". "" means "none" (ADR-0069
   # §2 defines them). "none": no channel, not a connection target. "cluster":
   # reachable only through declared connections. "edge": that, plus from
   # outside — on microvm, `cluster up` publishes it on the host at
   # 127.0.0.1:<port> (loopback only); `cluster k8s` refuses it, not lowered.
-  expose @3 :Text;
+  expose @3 :Text $Traits.doc("Who may reach the port. 'none': nobody, and it cannot be a connection target. 'cluster': only through declared connections. 'edge': also from outside. Empty means 'none'.");
 }
 
 # ── ConnectionSpec (ADR-0069 §1 / cloister-991e65) ───────────────────────
@@ -292,25 +307,25 @@ struct PortSpec {
 # (from, name) is unique; `targets` holds one row per environment. ADR-0069
 # sketched `[connections.target.<env>]` tables; capnp has no maps, so the
 # surface is a list keyed by `env`.
-struct ConnectionSpec {
-  from @0 :Text;          # the dialling bundle
-  name @1 :Text;          # the connection's name, unique per `from`
-  appProtocol @2 :Text;   # must equal the target port's appProtocol
-  targets @3 :List(ConnectionTarget);
+struct ConnectionSpec $Traits.doc("One declared outbound connection from a bundle to another bundle's port.") {
+  from @0 :Text $Traits.doc("The bundle that dials.");          # the dialling bundle
+  name @1 :Text $Traits.doc("The connection's name. Unique per from bundle.");          # the connection's name, unique per `from`
+  appProtocol @2 :Text $Traits.doc("What is spoken. Must equal the target port's appProtocol.");   # must equal the target port's appProtocol
+  targets @3 :List(ConnectionTarget) $Traits.doc("Which bundle port answers, one row per environment.");
   # ADR-0070 §3: "" (no floor) | "none" | "policy" | "capability". An edge's
   # strength in an env is the meet of its two ends' placements (microvm =
   # capability, kubernetes = policy, knative and all else = none); below this floor the build
   # fails by name. Append-only ordinal per ADR-0004.
-  minStrength @4 :Text;
+  minStrength @4 :Text $Traits.doc("The weakest enforcement this edge may have: 'none', 'policy' or 'capability'. The build fails if the two ends' placements deliver less. Empty means no floor.");
 }
 
 # One environment's answer to a connection. This slice declares only the
 # bundle target kind; cloudRun / cloudSql targets (ADR-0069 §1, §3) arrive
 # later as appended fields.
-struct ConnectionTarget {
-  env @0 :Text;      # e.g. "local"; unique within a connection
-  bundle @1 :Text;   # a declared bundle, never the connection's `from`
-  port @2 :Text;     # a port NAME on `bundle`, whose expose is not "none"
+struct ConnectionTarget $Traits.doc("The bundle port that answers a connection in one environment.") {
+  env @0 :Text $Traits.doc("The environment, for example 'local'. Unique within a connection.");      # e.g. "local"; unique within a connection
+  bundle @1 :Text $Traits.doc("The target bundle. Never the connection's own from bundle.");   # a declared bundle, never the connection's `from`
+  port @2 :Text $Traits.doc("The name of a port on the target bundle whose expose is not 'none'.");     # a port NAME on `bundle`, whose expose is not "none"
 }
 
 enum Tier {
@@ -326,43 +341,43 @@ enum Tier {
 # tool bundles written in TS go here.
 #
 # The schema is present so the emitters can already account for them.
-struct WorkerdBundle {
+struct WorkerdBundle $Traits.doc("A bundle that runs as a v8 isolate inside the router's workerd.") {
   # Path to the bundle's entry point, relative to the cloister source
   # tree. Compiled into the cloister-router workerd image.
-  entryPoint @0 :Text;     # e.g. "src/bundles/my-tool/index.ts"
+  entryPoint @0 :Text $Traits.doc("Path to the bundle's entry point, relative to the cloister source tree.");     # e.g. "src/bundles/my-tool/index.ts"
 }
 
 # ── ExternalBundle: subprocess container ──────────────────────────────────
 #
 # Most bundles in Phase 1 are external: cloister-router, mache, rosary,
 # notme. Each ships as its own OCI image, runs as its own container.
-struct ExternalBundle {
+struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the router's workerd.") {
   # OCI image reference, e.g. "cloister:0.1.0" or
   # "ghcr.io/agentic-research/mache:0.8.0". Resolved by the runtime's
   # image pull; not validated at compile time.
-  image @0 :Text;
+  image @0 :Text $Traits.doc("The OCI image reference.");
 
   # UDS socket path the bundle listens on for capnp ToolCall traffic.
   # Bundles MUST share a volume mount that includes this path so wires
   # can reach across container boundaries. Convention: /run/cloister-uds/.
-  ipcSocket @1 :Text;      # e.g. "/run/cloister-uds/mache.sock"
+  ipcSocket @1 :Text $Traits.doc("The unix socket path the bundle listens on for tool calls.");      # e.g. "/run/cloister-uds/mache.sock"
 
   # Optional TCP port — for bundles that ALSO want to be reachable over
   # HTTP (e.g. cloister-router itself exposes /mcp on a TCP port for
   # external clients). Bundles that are UDS-only set this to "" / 0.
-  httpPort @2 :UInt16;     # 0 = no TCP listener
+  httpPort @2 :UInt16 $Traits.doc("A TCP port the bundle also serves HTTP on. 0 means none.");     # 0 = no TCP listener
 
   # Container-startup command-line args. Emitters splice these into the
   # entrypoint. Most bundles need at minimum the `--ipc-socket <path>`
   # flag; declaring it here keeps the manifest self-describing.
-  args @3 :List(Text);
+  args @3 :List(Text) $Traits.doc("Command-line arguments, passed to the entry point exactly as written.");
 
   # Environment variables to set inside the container. KV pairs.
-  env @4 :List(EnvVar);
+  env @4 :List(EnvVar) $Traits.doc("Environment variables to set for the bundle. Stored in clear, so not for secrets.");
 
   # Absolute binary path inside the guest rootfs. Host-runtime launch-plan
   # emission refuses to guess this from a bundle name or mutable image tag.
-  entryPoint @5 :Text;
+  entryPoint @5 :Text $Traits.doc("Absolute path of the binary inside the image. Required for a microvm bundle.");
 
   # Enforcement backend requested by the operator. Current values are
   # "microvm" and "process"; the host runtime selects exactly and never
@@ -372,7 +387,7 @@ struct ExternalBundle {
   # They are not peers: one isolates, the other does not, and a schema that
   # presents them as equal choices is how four of five bundles ended up
   # unisolated without anyone deciding to.
-  executionMode @6 :Text;
+  executionMode @6 :Text $Traits.doc("'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale.");
 
   # Why this bundle cannot be isolated. Required whenever executionMode is
   # "process"; ignored otherwise. Per ADR-0062.
@@ -384,12 +399,12 @@ struct ExternalBundle {
   # nobody had decided rather than that anybody had.
   #
   # Same shape and precedent as `hypervisorRationale` on Bundle (ADR-0011).
-  executionModeRationale @7 :Text;
+  executionModeRationale @7 :Text $Traits.doc("Why this bundle cannot be isolated. Required when executionMode is 'process'.");
 }
 
-struct EnvVar {
-  name  @0 :Text;
-  value @1 :Text;
+struct EnvVar $Traits.doc("One environment variable.") {
+  name  @0 :Text $Traits.doc("The variable's name. Not empty, and without '=' or NUL.");
+  value @1 :Text $Traits.doc("The variable's value. Stored in clear.");
 }
 
 # ── Confinement: cloister/confinement/v1 §1 ConfinementManifest ────────────
@@ -415,36 +430,36 @@ struct EnvVar {
 # declaration cannot drift from the tree again. It sat at v0.7.3 through nine
 # minor releases, during which the spec gained §6 and renumbered §6→§7→§8→§9
 # underneath ~20 citations that all silently became wrong.
-struct Confinement {
-  fs               @0 :ConfinementFs;
-  network          @1 :ConfinementNetwork;
-  port             @2 :ConfinementPort;
+struct Confinement $Traits.doc("What a bundle may touch. Every dimension denies by default.") {
+  fs               @0 :ConfinementFs $Traits.doc("Filesystem access.");
+  network          @1 :ConfinementNetwork $Traits.doc("Outbound network access.");
+  port             @2 :ConfinementPort $Traits.doc("The one port the bundle may listen on.");
   # §5 credentialSource: the vault backend URL (e.g. "keychain://…") validated
   # before nono::keystore::load_secret_by_ref. "" = no credential vending.
-  credentialSource @3 :Text;
+  credentialSource @3 :Text $Traits.doc("The vault backend the bundle's credentials come from, for example 'keychain://...'. Empty means none.");
 }
 
 # §2 fs.allow — path prefixes at directory boundaries. mode "" = read-only,
 # "rw" = read-write. Empty/omitted list = deny all filesystem access.
-struct ConfinementFs {
-  allow @0 :List(FsAllowEntry);
+struct ConfinementFs $Traits.doc("Filesystem paths the bundle may use.") {
+  allow @0 :List(FsAllowEntry) $Traits.doc("Path prefixes the bundle may use. In cluster.toml an entry is a bare path (read-only) or a table with path and mode. Empty denies all filesystem access.");
 }
-struct FsAllowEntry {
-  path @0 :Text;
-  mode @1 :Text;   # "" (read-only) | "rw"
+struct FsAllowEntry $Traits.doc("One allowed path.") {
+  path @0 :Text $Traits.doc("The path prefix.");
+  mode @1 :Text $Traits.doc("Empty for read-only, 'rw' for read and write.");   # "" (read-only) | "rw"
 }
 
 # §3 network.allowHosts — egress hostname allow-list ("*." wildcard prefix
 # permitted; other wildcards rejected). Empty/omitted = no egress at all.
-struct ConfinementNetwork {
-  allowHosts @0 :List(Text);
+struct ConfinementNetwork $Traits.doc("Hosts the bundle may connect to.") {
+  allowHosts @0 :List(Text) $Traits.doc("Hostnames the bundle may reach. A leading '*.' matches subdomains. Empty denies all egress.");
 }
 
 # §4 port.bind — a single listener port the bundle may bind (1024-65535; 0 = no
 # listener) + optional bind address (default 127.0.0.1).
-struct ConfinementPort {
-  bind    @0 :UInt16;
-  address @1 :Text;
+struct ConfinementPort $Traits.doc("The listener the bundle may bind.") {
+  bind    @0 :UInt16 $Traits.doc("The port, 1024 to 65535. 0 means no listener.");
+  address @1 :Text $Traits.doc("The address to bind. Empty means 127.0.0.1.");
 }
 
 # ── Wire: service-binding relationship between bundles ────────────────────
@@ -459,10 +474,10 @@ struct ConfinementPort {
 #     declared bundles
 #
 # Wires are directional. Bidirectional comms = two wires.
-struct Wire {
-  from    @0 :Text;        # source bundle name
-  to      @1 :Text;        # target bundle name
-  binding @2 :Text;        # env var name on `from`'s container
+struct Wire $Traits.doc("A service binding from one bundle to another.") {
+  from    @0 :Text $Traits.doc("The source bundle.");        # source bundle name
+  to      @1 :Text $Traits.doc("The target bundle.");        # target bundle name
+  binding @2 :Text $Traits.doc("The binding name the source uses to reach the target.");        # env var name on `from`'s container
 
   # Transport kind. Intra-cluster is plain capnp over UDS (per ADR-0005
   # amendment 2026-04-30: no AEAD inside the trust boundary). The
@@ -487,12 +502,12 @@ struct Wire {
 #
 # Don't change the path without updating apko.yaml + config.capnp in
 # the same commit.
-struct StoragePolicy {
+struct StoragePolicy $Traits.doc("Where durable state is mounted.") {
   # Host path where DO storage is mounted. Default `/data/do` matches
   # the apko image's pre-created directory + workerd's localDisk service.
   # Operators MAY override per deployment (e.g. k8s PVC mounted elsewhere)
   # but the override has to match all three places.
-  doStoragePath @0 :Text;
+  doStoragePath @0 :Text $Traits.doc("The path where Durable Object storage is mounted. Must match the image and the workerd config. Usually '/data/do'.");
 }
 
 # ── InputSpec: composable tool / skill / agent-def inputs ────────────────
@@ -510,32 +525,32 @@ struct StoragePolicy {
 # Phase 2 adds registry resolution; Phase 3 adds signature verification.
 # See `docs/adr/0026-tool-composition-model.md`.
 
-struct InputSpec {
+struct InputSpec $Traits.doc("An external tool, skill or bundle the cluster composes.") {
   # Logical name used as the inputs-block key in cluster.toml. Must be
   # unique within the cluster. e.g. "rosary", "mache", "python-tools".
-  name @0 :Text;
+  name @0 :Text $Traits.doc("The input's name. Unique in the cluster. In cluster.toml it is the key of the [inputs.<name>] table.");
 
   # Addressable reference. Resolver picks the scheme:
   #   - "file:///abs/path" — local filesystem (dev escape hatch)
   #   - "https://host/path" — direct HTTPS fetch (Phase 1b)
   #   - "io.github.org/repo" — registry-resolved (Phase 2)
-  ref @1 :Text;
+  ref @1 :Text $Traits.doc("Where the input comes from: a registry name, an https URL, or a file URL.");
 
   # Semver range OR exact version (no range = exact match).
   # Empty string = no constraint (resolver picks latest, NOT recommended).
-  version @2 :Text;
+  version @2 :Text $Traits.doc("The version, or a semver range. Empty picks the latest, which is not recommended.");
 
   # Optional: pre-resolved digest. When present, the resolver MUST
   # verify the fetched bytes match this digest (defense against
   # registry / network tamper). Format: "sha256:<hex>".
   # Empty string = no pin; resolver writes one to cluster.lock.toml.
-  digest @3 :Text;
+  digest @3 :Text $Traits.doc("The expected digest, as 'sha256:<hex>'. The fetched bytes must match it. Empty means the resolver pins one in cluster.lock.toml.");
 
   # Optional: dev-loop override pointing at a local checkout.
   # Format: "file:///abs/path". CI rejects manifests with non-empty
   # `from` (per ADR-0026 §"Why filesystem from = ... is the dev-loop
   # escape only"). Empty string = use `ref` resolution.
-  from @4 :Text;
+  from @4 :Text $Traits.doc("A local checkout to use while developing, as a file URL. It overrides ref, so it must not be committed.");
 
 
   # ── Lego-blocks capability declarations (ADR-0027 forward-compat) ──
@@ -561,12 +576,12 @@ struct InputSpec {
   # Capabilities this input PROVIDES (studs out). The substrate matches
   # these against routes / bindings / other inputs declaring matching
   # `requires`.
-  provides @5 :List(Text);
+  provides @5 :List(Text) $Traits.doc("Capabilities this input offers, for example 'cloister/mcp-tool/v1'.");
 
   # Capabilities this input REQUIRES (anti-studs in). Resolver picks
   # other inputs in the cluster that `provides` the matching capability;
   # surfaces an error if no input satisfies a `requires`.
-  requires @6 :List(Text);
+  requires @6 :List(Text) $Traits.doc("Capabilities this input needs another input to provide.");
 
   # ── Transport binding hints (cloister-05334b, P1 of LLO arc) ─────
   #
@@ -591,8 +606,8 @@ struct InputSpec {
   # row AND a hand-shell with the same backend name exist, the emitter
   # warns + prefers the generated row (so operators can stage the
   # migration upstream by upstream).
-  urlBinding @7 :Text;
-  serviceBinding @8 :Text;
+  urlBinding @7 :Text $Traits.doc("The binding that holds the input's upstream URL.");
+  serviceBinding @8 :Text $Traits.doc("The workerd service binding that reaches the input, used in preference to urlBinding when set.");
 
   # ── Tenancy declaration (ADR-0030 §A5, cloister-0e3004) ──────────
   #

@@ -34,7 +34,7 @@ function stubFetch(bytes, ok = true, status = 200) {
 
 test("every generator cloister uses is pinned for every published target", () => {
   const targets = ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"];
-  for (const name of ["capnpc-schema-bridge-zod", "capnpc-schema-bridge-go"]) {
+  for (const name of ["capnpc-schema-bridge-zod", "capnpc-schema-bridge-go", "capnpc-schema-bridge-jsonschema"]) {
     for (const t of targets) {
       const d = LOCK.binaries?.[name]?.[t];
       assert.ok(/^[0-9a-f]{64}$/.test(d ?? ""), `${name}/${t} needs a sha256, got ${d}`);
@@ -88,7 +88,9 @@ test("a download failure is an error, not a silent skip", async () => {
 
 test("a binary with no pinned digest is refused rather than fetched unverified", async () => {
   await assert.rejects(
-    () => ensureBinary("capnpc-schema-bridge-jsonschema", {
+    // A generator the lock does not pin. This used to name the jsonschema
+    // output, which is pinned now that the cluster.toml schema is built from it.
+    () => ensureBinary("capnpc-schema-bridge-not-pinned", {
       lock: LOCK,
       target: "linux-amd64",
       fetchImpl: stubFetch(Buffer.from("x")),

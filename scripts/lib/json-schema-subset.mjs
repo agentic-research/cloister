@@ -88,6 +88,11 @@ function resolveRef(ref, root) {
  * responses: one means the document is wrong, the other means this file is.
  */
 export function validate(value, schema, { root = schema, path = "$" } = {}) {
+  // A boolean is a whole schema: `true` admits anything and `false` admits
+  // nothing. `false` is how a schema says "this property must not be here".
+  if (schema === true) return [];
+  if (schema === false) return [`${path}: not allowed here`];
+
   const errors = [];
 
   for (const key of Object.keys(schema)) {
@@ -150,6 +155,14 @@ export function validate(value, schema, { root = schema, path = "$" } = {}) {
         errors.push(...validate(v, sub, { root, path: `${path}.${k}` }));
       } else if (schema.additionalProperties === false) {
         errors.push(`${path}: unexpected property ${JSON.stringify(k)}`);
+      } else if (schema.additionalProperties !== undefined && schema.additionalProperties !== true) {
+        // A schema here applies to every property `properties` does not name.
+        // It used to be read as "anything goes", which is the ignored
+        // constraint this file exists to refuse: a map's values went unchecked.
+        if (schema.additionalProperties === null || typeof schema.additionalProperties !== "object" || Array.isArray(schema.additionalProperties)) {
+          throw new UnsupportedSchemaError(`schema at ${path} has an additionalProperties that is neither a boolean nor a schema`);
+        }
+        errors.push(...validate(v, schema.additionalProperties, { root, path: `${path}.${k}` }));
       }
     }
   }

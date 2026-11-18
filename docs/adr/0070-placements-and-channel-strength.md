@@ -156,6 +156,10 @@ So:
     that is not HTTP is refused. A vendor label is not checked.
   - `expose = "edge"` is refused: reachability from outside is the Service's
     own route visibility, which is not read.
+- A manifest may be a `kubectl get -o yaml` export: a core `v1` List is
+  unwrapped. One file may hold a whole stack and be named by several bundles.
+  A bundle's Service is then the Knative Service with the bundle's name, and
+  the other Services' containers are not read as its own.
 - "One namespace per bundle, named after it" does not apply. That rule exists
   because the kubernetes overlay writes policy per namespace. Several knative
   bundles may share one.

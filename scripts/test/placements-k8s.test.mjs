@@ -534,9 +534,11 @@ const knativeRefusals = [
   ["a core Service under a knative placement",
     knToml(), { ...KN_MANIFESTS, "reconciler.yaml": `apiVersion: v1\nkind: Service\nmetadata:\n  name: reconciler\nspec:\n  selector:\n    app: reconciler\n` },
     /bundle "reconciler" is placed "knative" and must declare exactly one Knative Service \(serving\.knative\.dev; found 0\)\. It declares a core v1 Service: place it kind = "kubernetes"/],
-  ["two Knative Services in one bundle's manifest",
-    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": `${ksvc("reconciler")}---\n${ksvc("reconciler-b")}` },
-    /must declare exactly one Knative Service \(serving\.knative\.dev; found 2\)/],
+  // Two Services where one carries the bundle's name is a shared file, and is
+  // read (see the shared-manifest tests below). Two with the SAME name is not.
+  ["two Knative Services with the bundle's name in one manifest",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": `${ksvc("reconciler")}---\n${ksvc("reconciler", { namespace: "other" })}` },
+    /must declare exactly one Knative Service \(serving\.knative\.dev; found 2\)\. With several in one manifest, the one named "reconciler" is used, and more than one is/],
 ];
 for (const [label, toml, manifests, pattern] of knativeRefusals) {
   test(`cluster k8s refuses a knative bundle by name: ${label}`, async () => {
@@ -871,4 +873,55 @@ test("cluster k8s prints what the manifests' addresses say", async () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ── manifests as they really arrive (found by running real ones) ─────────
+//
+// `kubectl get ksvc -o yaml` wraps what it finds in a `v1` List, and one
+// exported file usually holds a whole stack. Neither was read at first.
+
+const asList = (...docs) => {
+  const items = docs.flatMap((text) => parseAllDocuments(text).map((d) => d.toJS()).filter(Boolean));
+  return `apiVersion: v1\nkind: List\nmetadata:\n  resourceVersion: ""\nitems: ${JSON.stringify(items)}\n`;
+};
+const shared = (file) => knToml().replaceAll('manifest = "workqueue.yaml"', `manifest = "${file}"`).replaceAll('manifest = "reconciler.yaml"', `manifest = "${file}"`);
+
+test("a kubectl List export is unwrapped, and bundles sharing one file each take the Service with their name", async () => {
+  const stack = asList(ksvc("workqueue", { env: [["RECONCILER_URL", lit("http://reconciler.platform.svc")]] }), ksvc("reconciler"));
+  const { checked, references, unreferenced } = await lowerKn(shared("stack.yaml"), { "stack.yaml": stack });
+  assert.deepEqual(checked.map((c) => `${c.bundle}=${c.service}`), ["workqueue=workqueue", "reconciler=reconciler"]);
+  // The address is in workqueue's container. It is not also read as reconciler's
+  // own, which would be reconciler naming itself and say nothing.
+  assert.deepEqual(references.map((r) => `${r.bundle} -> ${r.to}`), ["workqueue -> reconciler"]);
+  assert.deepEqual(unreferenced, []);
+  // The same two services as plain documents in one file.
+  const plain = await lowerKn(shared("stack.yaml"), { "stack.yaml": `${ksvc("workqueue")}---\n${ksvc("reconciler")}` });
+  assert.deepEqual(plain.checked.map((c) => c.service), ["workqueue", "reconciler"]);
+});
+
+test("another bundle's container in a shared file is not read as this bundle's", async () => {
+  // reconciler's container names workqueue. No connection is declared that
+  // way round, so it is refused as reconciler's, not blamed on workqueue.
+  const stack = `${ksvc("workqueue")}---\n${ksvc("reconciler", { env: [["CALLBACK", lit("http://workqueue.platform.svc")]] })}`;
+  await assert.rejects(
+    lowerKn(shared("stack.yaml"), { "stack.yaml": stack }),
+    /bundle "reconciler" manifest stack.yaml: container "app" env CALLBACK names workqueue\.platform\.svc:80 \(bundle "workqueue"\), but cluster.toml declares no connection from "reconciler" to "workqueue"/,
+  );
+});
+
+test("several Knative Services and none named after the bundle is refused, naming what is there", async () => {
+  const stack = `${ksvc("workqueue")}---\n${ksvc("recon")}`;
+  await assert.rejects(
+    lowerKn(shared("stack.yaml"), { "stack.yaml": stack }),
+    /bundle "reconciler" is placed "knative" and must declare exactly one Knative Service \(serving\.knative\.dev; found 2\)\. With several in one manifest, the one named "reconciler" is used, and none is \(found: "workqueue", "recon"\)/,
+  );
+  await assert.rejects(lowerKn(knToml(), { ...KN_MANIFESTS, "reconciler.yaml": "apiVersion: v1\nkind: List\n" }), /a List with no items/);
+});
+
+test("a kubernetes placement reads a List export too", async () => {
+  const cluster = await parseTomlToCluster(DEMO_TOML);
+  const wrapped = { "dolt.yaml": asList(MANIFESTS["dolt.yaml"]), "orders.yaml": asList(MANIFESTS["orders.yaml"]) };
+  const { files, references } = lowerK8s({ bundles: cluster.bundles.map(checkableBundle), connections: cluster.connections, env: "local", readManifest: (p) => wrapped[p] });
+  assert.equal(files.length, 6);
+  assert.deepEqual(references.map((r) => r.connections), [["orders-db"]]);
 });

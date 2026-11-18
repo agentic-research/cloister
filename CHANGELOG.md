@@ -8,6 +8,41 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cluster.toml has a published JSON Schema
+
+- **The schema.** `schema/cluster.toml.schema.json`, generated from
+  `manifest/cluster.capnp` by LLO's schema-bridge (its JSON Schema output, now
+  pinned beside the zod and Go ones) and then reshaped for TOML. An editor can complete and check a `cluster.toml` with it, and
+  another tool can read one without copying the parser. See
+  `docs/reference/cluster-toml-schema.md`.
+- **Fields have descriptions.** `cluster.capnp` now carries a one-line
+  `$Traits.doc("...")` on the structs and fields an operator writes most (88
+  of them). LLO's generator turns each into a `description` in the schema,
+  which an editor shows on hover, and into a doc comment in `cluster.zod.ts`
+  and `pkg/cluster/cluster.go`. LLO's annotation file is vendored unchanged at
+  `manifest/_traits.capnp`.
+- **It is written the way an operator writes TOML.** A union is `kind =
+  "external"` beside a `[bundles.external]` table, and inputs are keyed by
+  name.
+- **The parser now refuses any key the schema does not define.** Several
+  tables were rebuilt field by field, so a typo'd key in `[gateway.policy]`, a
+  vault proxy service, a skill, an edge, or under `[bundles.confinement.*]`
+  parsed clean and was dropped. Each is now an error that names the key. This
+  can refuse a file that was accepted before.
+- **Kept in step.** `task cluster:jsonschema` and `task cluster:toml:schema`
+  regenerate it, and each has a drift check in `task lint`. A test holds every
+  `cluster.toml` in the tree, and everything the writer emits, to it.
+- The repo's JSON Schema validator read a schema-valued
+  `additionalProperties` as "anything goes". It now applies it, and it reads a
+  boolean as a schema.
+- **Checked against Ajv and taplo.** Both accept every `cluster.toml` in the
+  tree. A typo'd key is named by taplo, which is why a union's tables sit on
+  the struct and not inside `oneOf` branches.
+- **`cluster k8s` reads manifests as they are exported.** A `kubectl get -o
+  yaml` List is unwrapped, and one file holding several Knative Services can be
+  shared by the bundles in it: each takes the Service with its name. Found by
+  running the upstream Knative samples through it.
+
 ### 2026-11 — Platform admission is answered by LLO, not mirrored (`cloister-b94b14`)
 
 - **New host-runtime verb.** `cloister-host-runtime platform-admits --platform <p> <candidate>...`

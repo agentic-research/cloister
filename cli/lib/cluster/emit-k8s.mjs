@@ -81,12 +81,25 @@ export function parseManifest(text, label) {
     }
     const obj = doc.toJS();
     if (obj === null || obj === undefined) continue; // empty document
-    if (typeof obj !== "object" || Array.isArray(obj) || typeof obj.kind !== "string" || typeof obj.apiVersion !== "string") {
-      throw new Error(`${label}: every document must be a Kubernetes object with an apiVersion and a kind`);
-    }
-    objects.push(obj);
+    collect(obj, objects, label);
   }
   return objects;
+}
+
+/** `kubectl get <kind> -o yaml` wraps what it finds in one of these. */
+const LIST = Object.freeze({ group: "", kind: "List" });
+
+/** Add `obj` to `objects`, or the objects it wraps when it is a core `v1` List. */
+function collect(obj, objects, label) {
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj) || typeof obj.kind !== "string" || typeof obj.apiVersion !== "string") {
+    throw new Error(`${label}: every document must be a Kubernetes object with an apiVersion and a kind`);
+  }
+  if (!isObject(obj, LIST)) {
+    objects.push(obj);
+    return;
+  }
+  if (!Array.isArray(obj.items)) throw new Error(`${label}: a List with no items`);
+  for (const item of obj.items) collect(item, objects, label);
 }
 
 function isLabelMap(v) {
@@ -189,13 +202,20 @@ export function inspectManifest(bundle, objects, label) {
  * a peer dials, for the report.
  */
 export function inspectKnative(bundle, objects, label) {
-  const services = objects.filter((obj) => isObject(obj, KNATIVE_SERVICE));
+  const all = objects.filter((obj) => isObject(obj, KNATIVE_SERVICE));
+  // One Knative Service is the bundle's, whatever it is called. A file with
+  // several is one export of a whole stack, shared by the bundles in it: the
+  // bundle's Service is then the one with its name, and nothing is guessed.
+  const services = all.length > 1 ? all.filter((obj) => obj.metadata?.name === bundle.name) : all;
   if (services.length !== 1) {
     const core = objects.some((obj) => isObject(obj, SERVICE));
+    const names = all.map((obj) => JSON.stringify(obj.metadata?.name ?? "<unnamed>")).join(", ");
     throw new Error(
       `${label}: bundle "${bundle.name}" is placed "knative" and must declare exactly one Knative ` +
-        `Service (serving.knative.dev; found ${services.length})` +
-        (services.length === 0 && core ? `. It declares a core v1 Service: place it kind = "kubernetes"` : ""),
+        `Service (serving.knative.dev; found ${all.length})` +
+        (all.length === 0 && core ? `. It declares a core v1 Service: place it kind = "kubernetes"` : "") +
+        (all.length > 1 ? `. With several in one manifest, the one named "${bundle.name}" is used, and ` +
+          `${services.length === 0 ? "none is" : "more than one is"} (found: ${names})` : ""),
     );
   }
   const svc = services[0];
@@ -251,7 +271,10 @@ export function inspectKnative(bundle, objects, label) {
     }
   }
   const namespace = typeof svc.metadata?.namespace === "string" ? svc.metadata.namespace : "";
-  return { service: name, namespace, wire, port: KNATIVE_PORT };
+  // The other Knative Services in a shared file are other bundles: their
+  // containers are not this bundle's, so their strings are not read as its own.
+  const own = objects.filter((obj) => obj === svc || !isObject(obj, KNATIVE_SERVICE));
+  return { service: name, namespace, wire, port: KNATIVE_PORT, objects: own };
 }
 
 /**
@@ -438,11 +461,14 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
     manifests.set(b.name, { path, label, text, objects: parseManifest(text, label) });
   }
 
+  const ownObjects = new Map();
   const checked = knative.map((b) => {
     const { label, objects } = manifests.get(b.name);
+    const { objects: own, ...found } = inspectKnative(b, objects, label);
+    ownObjects.set(b.name, own);
     return {
       bundle: b.name,
-      ...inspectKnative(b, objects, label),
+      ...found,
       connectionsIn: edges.filter((e) => e.to === b.name).map((e) => ({ name: e.name, from: e.from })),
       connectionsOut: edges.filter((e) => e.from === b.name).map((e) => ({ name: e.name, to: e.to })),
     };
@@ -454,7 +480,11 @@ export function lowerK8s({ bundles, connections, env, readManifest }) {
     inspected.set(b.name, { name: b.name, ...inspectManifest(b, objects, label) });
   }
 
-  const node = (b, info) => ({ name: b.name, service: info.service, namespace: info.namespace, ports: b.ports, ...manifests.get(b.name) });
+  const node = (b, info) => ({
+    name: b.name, service: info.service, namespace: info.namespace, ports: b.ports,
+    ...manifests.get(b.name),
+    ...(ownObjects.has(b.name) ? { objects: ownObjects.get(b.name) } : {}),
+  });
   const { references, unreferenced, unread } = checkAddresses(
     [...placed.map((b) => node(b, inspected.get(b.name))), ...knative.map((b) => node(b, checked.find((k) => k.bundle === b.name)))],
     edges,

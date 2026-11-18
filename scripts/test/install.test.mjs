@@ -44,6 +44,9 @@ const PROJECT_FILES = [
   "cluster.toml",
   "cloister.capnp",
   "manifest",
+  // The published cluster.toml schema: the parser reads it to refuse a key it
+  // does not define, so a checkout without it cannot parse cluster.toml.
+  "schema",
   "scripts",
   "src",
 ];

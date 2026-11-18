@@ -10,9 +10,12 @@ import { z } from "zod";
 export const TierSchema = z.enum(["hypervisor", "cluster"]);
 export type Tier = "hypervisor" | "cluster";
 
+/** Names the cluster. */
 export const ClusterMetadataSchema: z.ZodType<ClusterMetadata> = z.lazy(() =>
   z.object({
+    /** The cluster's name. Required. Appears in container labels. */
     name: z.string().default(""),
+    /** The cluster's version, pinned at deploy time. Required. */
     version: z.string().default(""),
   }).strict());
 
@@ -21,17 +24,28 @@ export interface ClusterMetadata {
   version: string;
 }
 
+/** One unit of deployment in the cluster. */
 export const BundleSchema: z.ZodType<Bundle> = z.lazy(() =>
   z.object({
+    /** The bundle's name. Unique in the cluster. A bundle that a connection touches must be named as a DNS label. */
     name: z.string().default(""),
+    /** One line describing the bundle. Appears in container labels. */
     description: z.string().default(""),
+    /** 'hypervisor' for a bundle that mediates between other bundles or to the outside, 'cluster' for a tool bundle. Documentation and audit, not a runtime gate. */
     tier: TierSchema.default("hypervisor"),
+    /** The credential bindings this bundle may hold, by binding name. Empty means it holds none. A cluster-tier bundle must leave it empty. */
     holdsCredential: z.array(z.string()).readonly().default([]),
+    /** The workerd service this bundle corresponds to, when its name there differs. Empty for a bundle that does not run inside the router's workerd. */
     workerdServiceName: z.string().default(""),
+    /** Why this bundle is hypervisor tier. Required when tier is 'hypervisor'. */
     hypervisorRationale: z.string().default(""),
+    /** When true, one instance of the bundle is produced per tenant. Requires a tenantDispatch route. */
     perTenant: z.boolean().default(false),
+    /** What the bundle may touch: filesystem paths, egress hosts, one listener port, a credential source. Anything not allowed is denied. */
     confinement: ConfinementSchema,
+    /** The bundle's named inbound ports. A connection refers to a port by name. */
     ports: z.array(PortSpecSchema).readonly().default([]),
+    /** Where the bundle runs, one row per environment. */
     placements: z.array(PlacementSpecSchema).readonly().default([]),
     kind: z.union([
       z.object({ workerd: WorkerdBundleSchema }).strict(),
@@ -53,10 +67,14 @@ export interface Bundle {
   kind: { workerd: WorkerdBundle } | { external: ExternalBundle };
 }
 
+/** A service binding from one bundle to another. */
 export const WireSchema: z.ZodType<Wire> = z.lazy(() =>
   z.object({
+    /** The source bundle. */
     from: z.string().default(""),
+    /** The target bundle. */
     to: z.string().default(""),
+    /** The binding name the source uses to reach the target. */
     binding: z.string().default(""),
     transport: z.union([
       z.object({ uds: z.null() }).strict(),
@@ -71,8 +89,10 @@ export interface Wire {
   transport: { uds: null } | { leylineNet: null };
 }
 
+/** Where durable state is mounted. */
 export const StoragePolicySchema: z.ZodType<StoragePolicy> = z.lazy(() =>
   z.object({
+    /** The path where Durable Object storage is mounted. Must match the image and the workerd config. Usually '/data/do'. */
     doStoragePath: z.string().default(""),
   }).strict());
 
@@ -80,16 +100,26 @@ export interface StoragePolicy {
   doStoragePath: string;
 }
 
+/** An external tool, skill or bundle the cluster composes. */
 export const InputSpecSchema: z.ZodType<InputSpec> = z.lazy(() =>
   z.object({
+    /** The input's name. Unique in the cluster. In cluster.toml it is the key of the [inputs.<name>] table. */
     name: z.string().default(""),
+    /** Where the input comes from: a registry name, an https URL, or a file URL. */
     ref: z.string().default(""),
+    /** The version, or a semver range. Empty picks the latest, which is not recommended. */
     version: z.string().default(""),
+    /** The expected digest, as 'sha256:<hex>'. The fetched bytes must match it. Empty means the resolver pins one in cluster.lock.toml. */
     digest: z.string().default(""),
+    /** A local checkout to use while developing, as a file URL. It overrides ref, so it must not be committed. */
     from: z.string().default(""),
+    /** Capabilities this input offers, for example 'cloister/mcp-tool/v1'. */
     provides: z.array(z.string()).readonly().default([]),
+    /** Capabilities this input needs another input to provide. */
     requires: z.array(z.string()).readonly().default([]),
+    /** The binding that holds the input's upstream URL. */
     urlBinding: z.string().default(""),
+    /** The workerd service binding that reaches the input, used in preference to urlBinding when set. */
     serviceBinding: z.string().default(""),
     tenancy: TenancySpecSchema,
     requiresSessionRetired: z.boolean().default(false),
@@ -171,12 +201,18 @@ export interface EdgeSpec {
   transport: string;
 }
 
+/** One declared outbound connection from a bundle to another bundle's port. */
 export const ConnectionSpecSchema: z.ZodType<ConnectionSpec> = z.lazy(() =>
   z.object({
+    /** The bundle that dials. */
     from: z.string().default(""),
+    /** The connection's name. Unique per from bundle. */
     name: z.string().default(""),
+    /** What is spoken. Must equal the target port's appProtocol. */
     appProtocol: z.string().default(""),
+    /** Which bundle port answers, one row per environment. */
     targets: z.array(ConnectionTargetSchema).readonly().default([]),
+    /** The weakest enforcement this edge may have: 'none', 'policy' or 'capability'. The build fails if the two ends' placements deliver less. Empty means no floor. */
     minStrength: z.string().default(""),
   }).strict());
 
@@ -188,16 +224,26 @@ export interface ConnectionSpec {
   minStrength: string;
 }
 
+/** A cloister cluster: its bundles, how they connect, and the gateway in front of them. */
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
+    /** The cluster's name and version. */
     metadata: ClusterMetadataSchema,
+    /** The processes that make up the cluster. */
     bundles: z.array(BundleSchema).readonly().default([]),
+    /** Service bindings between bundles: one bundle reaches another through a named binding. */
     wires: z.array(WireSchema).readonly().default([]),
+    /** Where durable state is mounted. */
     storage: StoragePolicySchema,
+    /** External tools, skills and bundles the cluster composes, each pinned by reference and version. */
     inputs: z.array(InputSpecSchema).readonly().default([]),
+    /** The HTTP routes the gateway serves. */
     routes: z.array(RouteSchema).readonly().default([]),
+    /** The gateway's own identity and policy, and its vault proxy services, harness targets and skills. */
     gateway: GatewaySchema,
+    /** Cross-tenant edges: which tenant may reach which, and for what protocol. */
     edges: z.array(EdgeSpecSchema).readonly().default([]),
+    /** Declared outbound connections: which bundle dials which bundle's port, per environment. */
     connections: z.array(ConnectionSpecSchema).readonly().default([]),
   }).strict());
 
@@ -213,8 +259,10 @@ export interface Cluster {
   connections: readonly ConnectionSpec[];
 }
 
+/** A bundle that runs as a v8 isolate inside the router's workerd. */
 export const WorkerdBundleSchema: z.ZodType<WorkerdBundle> = z.lazy(() =>
   z.object({
+    /** Path to the bundle's entry point, relative to the cloister source tree. */
     entryPoint: z.string().default(""),
   }).strict());
 
@@ -222,15 +270,24 @@ export interface WorkerdBundle {
   entryPoint: string;
 }
 
+/** A bundle that runs its own image, outside the router's workerd. */
 export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
   z.object({
+    /** The OCI image reference. */
     image: z.string().default(""),
+    /** The unix socket path the bundle listens on for tool calls. */
     ipcSocket: z.string().default(""),
+    /** A TCP port the bundle also serves HTTP on. 0 means none. */
     httpPort: z.number().int().nonnegative().default(0),
+    /** Command-line arguments, passed to the entry point exactly as written. */
     args: z.array(z.string()).readonly().default([]),
+    /** Environment variables to set for the bundle. Stored in clear, so not for secrets. */
     env: z.array(EnvVarSchema).readonly().default([]),
+    /** Absolute path of the binary inside the image. Required for a microvm bundle. */
     entryPoint: z.string().default(""),
+    /** 'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale. */
     executionMode: z.string().default(""),
+    /** Why this bundle cannot be isolated. Required when executionMode is 'process'. */
     executionModeRationale: z.string().default(""),
   }).strict());
 
@@ -245,11 +302,16 @@ export interface ExternalBundle {
   executionModeRationale: string;
 }
 
+/** What a bundle may touch. Every dimension denies by default. */
 export const ConfinementSchema: z.ZodType<Confinement> = z.lazy(() =>
   z.object({
+    /** Filesystem access. */
     fs: ConfinementFsSchema,
+    /** Outbound network access. */
     network: ConfinementNetworkSchema,
+    /** The one port the bundle may listen on. */
     port: ConfinementPortSchema,
+    /** The vault backend the bundle's credentials come from, for example 'keychain://...'. Empty means none. */
     credentialSource: z.string().default(""),
   }).strict());
 
@@ -260,11 +322,16 @@ export interface Confinement {
   credentialSource: string;
 }
 
+/** One named inbound port. */
 export const PortSpecSchema: z.ZodType<PortSpec> = z.lazy(() =>
   z.object({
+    /** The port's name. Unique per bundle. Connections refer to it. */
     name: z.string().default(""),
+    /** The port number. Unique per bundle, and not zero. */
     port: z.number().int().nonnegative().default(0),
+    /** What is spoken on the port: a blessed 'art.*' label such as 'art.http' or 'art.grpc', or a vendor 'x-' label. A connection to this port must declare the same label. */
     appProtocol: z.string().default(""),
+    /** Who may reach the port. 'none': nobody, and it cannot be a connection target. 'cluster': only through declared connections. 'edge': also from outside. Empty means 'none'. */
     expose: z.string().default(""),
   }).strict());
 
@@ -275,10 +342,14 @@ export interface PortSpec {
   expose: string;
 }
 
+/** Where a bundle runs in one environment. */
 export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
   z.object({
+    /** The environment this row applies to, for example 'local'. Unique per bundle. */
     env: z.string().default(""),
+    /** How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own. */
     kind: z.string().default(""),
+    /** Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'. */
     manifest: z.string().default(""),
   }).strict());
 
@@ -288,8 +359,10 @@ export interface PlacementSpec {
   manifest: string;
 }
 
+/** Filesystem paths the bundle may use. */
 export const ConfinementFsSchema: z.ZodType<ConfinementFs> = z.lazy(() =>
   z.object({
+    /** Path prefixes the bundle may use. In cluster.toml an entry is a bare path (read-only) or a table with path and mode. Empty denies all filesystem access. */
     allow: z.array(FsAllowEntrySchema).readonly().default([]),
   }).strict());
 
@@ -297,8 +370,10 @@ export interface ConfinementFs {
   allow: readonly FsAllowEntry[];
 }
 
+/** Hosts the bundle may connect to. */
 export const ConfinementNetworkSchema: z.ZodType<ConfinementNetwork> = z.lazy(() =>
   z.object({
+    /** Hostnames the bundle may reach. A leading '*.' matches subdomains. Empty denies all egress. */
     allowHosts: z.array(z.string()).readonly().default([]),
   }).strict());
 
@@ -306,9 +381,12 @@ export interface ConfinementNetwork {
   allowHosts: readonly string[];
 }
 
+/** The listener the bundle may bind. */
 export const ConfinementPortSchema: z.ZodType<ConfinementPort> = z.lazy(() =>
   z.object({
+    /** The port, 1024 to 65535. 0 means no listener. */
     bind: z.number().int().nonnegative().default(0),
+    /** The address to bind. Empty means 127.0.0.1. */
     address: z.string().default(""),
   }).strict());
 
@@ -317,9 +395,12 @@ export interface ConfinementPort {
   address: string;
 }
 
+/** One allowed path. */
 export const FsAllowEntrySchema: z.ZodType<FsAllowEntry> = z.lazy(() =>
   z.object({
+    /** The path prefix. */
     path: z.string().default(""),
+    /** Empty for read-only, 'rw' for read and write. */
     mode: z.string().default(""),
   }).strict());
 
@@ -328,9 +409,12 @@ export interface FsAllowEntry {
   mode: string;
 }
 
+/** One environment variable. */
 export const EnvVarSchema: z.ZodType<EnvVar> = z.lazy(() =>
   z.object({
+    /** The variable's name. Not empty, and without '=' or NUL. */
     name: z.string().default(""),
+    /** The variable's value. Stored in clear. */
     value: z.string().default(""),
   }).strict());
 
@@ -674,10 +758,14 @@ export interface BodyFieldSpec {
   path: string;
 }
 
+/** The bundle port that answers a connection in one environment. */
 export const ConnectionTargetSchema: z.ZodType<ConnectionTarget> = z.lazy(() =>
   z.object({
+    /** The environment, for example 'local'. Unique within a connection. */
     env: z.string().default(""),
+    /** The target bundle. Never the connection's own from bundle. */
     bundle: z.string().default(""),
+    /** The name of a port on the target bundle whose expose is not 'none'. */
     port: z.string().default(""),
   }).strict());
 
