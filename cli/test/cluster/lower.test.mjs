@@ -465,3 +465,27 @@ test("a placement cannot open a port the bundle keeps to itself, and the fields 
   assert.match(canonical, /\[\[bundles\.placements\.ports\]\]\nexpose = "edge"\nname = "http"\n/);
   assert.ok(!/\nport = 0\n/.test(canonical));
 });
+
+// The input of the Knative kind smoke (`dev/lowered-kind.sh knative`, its own
+// CI job), kept from rotting where no cluster is available.
+test("the Knative smoke's cluster.toml lowers and passes cluster k8s, with the graph the smoke observes", async () => {
+  const input = readFileSync(fileURLToPath(new URL("../../../test/e2e/lowered-knative/cluster.toml", import.meta.url)), "utf8");
+  await inDir(input, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual(written, ["web.yaml", "api.yaml", "client.yaml", "outsider.yaml"]);
+    const [web] = objectsOf(readFileSync(join(dir, "web.yaml"), "utf8"));
+    assert.deepEqual([web.apiVersion, web.metadata.namespace, web.metadata.labels["networking.knative.dev/visibility"]], ["serving.knative.dev/v1", "web", "cluster-local"]);
+    // The two addresses the smoke reads back: kubernetes → knative on 80, knative → kubernetes on 8080.
+    assert.equal(containerOf(readFileSync(join(dir, "client.yaml"), "utf8")).env[0].value, "http://web.web.svc.cluster.local");
+    assert.equal(web.spec.template.spec.containers[0].env[0].value, "http://api.api.svc.cluster.local:8080");
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.to]).sort(), [["client", "web"], ["web", "api"]]);
+    // api admits web's Knative pods and nothing else; nothing is written for web itself.
+    const policy = readFileSync(join(dir, "k8s/api/20-networkpolicy.yaml"), "utf8");
+    assert.match(policy, /kubernetes\.io\/metadata\.name: web\n\s+podSelector:\n\s+matchLabels:\n\s+serving\.knative\.dev\/service: web/);
+    assert.ok(!policy.includes("outsider") && !policy.includes("client"));
+    assert.ok(!checked.files.some((f) => f.startsWith("web/")));
+  });
+  const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
+  for (const name of ["web", "api", "client", "outsider", "test/e2e/lowered-knative/cluster.toml"]) assert.ok(script.includes(name), `dev/lowered-kind.sh does not mention "${name}"`);
+});

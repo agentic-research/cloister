@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the Knative lowering is applied to a real cluster in CI
+
+- **`task smoke:lowered-knative`**, and a CI job of the same name, installs
+  Knative Serving and Kourier on a kind cluster (pinned by release and by
+  digest), lowers `test/e2e/lowered-knative/cluster.toml`, applies it, and
+  observes: the Knative Service has no route from outside; a kubernetes pod
+  gets an HTTP answer from it through Knative's ingress; its own pod reaches a
+  kubernetes Service; and an undeclared pod is refused there.
+- `dev/lowered-kind.sh` takes the scenario as its argument (`kubernetes` or
+  `knative`).
+
 ### 2026-11 — `expose` per placement
 
 - **A placement row may set a port's `expose` for that placement only**

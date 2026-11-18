@@ -380,6 +380,53 @@ jobs:
       - name: Lower, apply to kind, and observe the graph
         run: task smoke:lowered-kind
 
+  # The same, for the Knative lowering and for edges between the two
+  # placements a cluster can hold. Separate from lowered-kind on purpose:
+  # installing Knative is minutes of setup with its own ways to fail, and the
+  # kubernetes check should not be held up by them.
+  lowered-knative:
+    name: lowered-knative (apply lowered manifests to a cluster with Knative)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pnpm store
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install Node dependencies
+        run: task deps:node
+
+      - name: Show the cluster tooling
+        run: |
+          kind version
+          kubectl version --client
+
+      - name: Install Knative, lower, apply, and observe the graph
+        run: task smoke:lowered-knative
+
   # Full-stack end-to-end: real ley-line-open daemon + real mache + real
   # cloister, exercising cloister's dispatch layer against live upstreams.
   #
