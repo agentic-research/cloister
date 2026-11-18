@@ -1395,3 +1395,13 @@ test("a mapping's exposure block names a read attribute and sorts each value onc
   assert.throws(edited((e) => { e.edge.push("INGRESS_TRAFFIC_INTERNAL_ONLY"); }), /exposure lists one value as both "cluster" and "edge"/);
   assert.throws(edited((e) => { e.other = 1; }), /exposure has unknown key "other"/);
 });
+
+test("with --env, expose is compared as that environment's placement declares it", async () => {
+  const open = withIngress("reconciler", "INGRESS_TRAFFIC_ALL");
+  const cluster = await parseTomlToCluster(draftOf(open, { env: "prod", local: "local" }).toml);
+  // prod: edge, as the plan says. local: the placement row makes it cluster.
+  const prod = buildReport(importFacts(open), cluster, { env: "prod" });
+  assert.deepEqual(exposureFindings(prod)[0], ["evidenced", "reconciler", "h2c", "edge", "ingress INGRESS_TRAFFIC_ALL"]);
+  const local = buildReport(importFacts(open), cluster, { env: "local" });
+  assert.deepEqual(exposureFindings(local)[0], ["contradicted", "reconciler", "h2c", "cluster", "its ingress is INGRESS_TRAFFIC_ALL, so it can be reached from outside"]);
+});

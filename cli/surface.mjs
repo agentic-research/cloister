@@ -370,6 +370,8 @@ export const COMMANDS = [
       "a Knative Service. A port is dialled on the number its placement row gives " +
       "([[bundles.placements.ports]]) and listened on at the bundle's own number, so a " +
       "Knative Service is dialled on 80 and a Kubernetes Service maps port to targetPort. " +
+      "The same row may set expose for that placement only, so a port that is \"edge\" " +
+      "as deployed can be \"cluster\" on a local cluster. " +
       "If any bundle cannot be lowered, nothing is written. cluster.toml is the only input, so a " +
       "hand-written file and one drafted by `inspect --draft` are lowered the same way. " +
       "The image, entry point, args and literal env values are written as declared. An " +

@@ -69,7 +69,7 @@ export function normalizePlacements(raw) {
     env: text(p?.env),
     kind: text(p?.kind),
     manifest: text(p?.manifest),
-    ports: Array.isArray(p?.ports) ? p.ports.map((x) => ({ name: text(x?.name), port: x?.port })) : [],
+    ports: Array.isArray(p?.ports) ? p.ports.map((x) => ({ name: text(x?.name), port: x?.port ?? 0, expose: text(x?.expose) })) : [],
   }));
 }
 
@@ -218,8 +218,20 @@ function assertPlacements(b) {
       }
       if (dialled.has(row.name)) throw new Error(`${where}: ports row for "${row.name}" appears more than once`);
       dialled.add(row.name);
-      if (!Number.isInteger(row.port) || row.port < 1 || row.port > 65535) {
+      const number = row.port ?? 0;
+      const expose = text(row.expose);
+      if (number === 0 && expose === "") {
+        throw new Error(`${where}: ports row for "${row.name}" sets neither port nor expose, so it says nothing`);
+      }
+      if (!Number.isInteger(number) || number < 0 || number > 65535) {
         throw new Error(`${where}: port "${row.name}" is dialled on ${JSON.stringify(row.port)}, which is not a port number (1-65535)`);
+      }
+      if (expose !== "" && !PLACEMENT_EXPOSE.includes(expose)) {
+        throw new Error(`${where}: port "${row.name}" expose ${JSON.stringify(expose)} is not one of ${PLACEMENT_EXPOSE.join(", ")}`);
+      }
+      // Only a port that is reachable at all can be reachable differently here.
+      if (expose !== "" && !isExposed(declared)) {
+        throw new Error(`${where}: port "${row.name}" has expose = "${declared.expose || "none"}" on the bundle, so no placement can open it; set the bundle port's expose first`);
       }
     }
     const numbers = new Map();
@@ -234,16 +246,26 @@ function assertPlacements(b) {
 
 /**
  * A bundle's ports as a peer in `env` sees them: `port` is the number that is
- * DIALLED there, and `listen` is the number the workload binds. They differ
- * only where the env's placement row says so (ADR-0074 §7).
+ * DIALLED there, `listen` is the number the workload binds, and `expose` is
+ * whether it can be reached from outside there. They differ from the bundle's
+ * own only where the env's placement row says so (ADR-0074 §7).
  */
 export function portsFor(b, env) {
   const row = (b.placements ?? []).find((p) => p.env === env);
   return (b.ports ?? []).map((port) => {
     const override = (row?.ports ?? []).find((x) => x.name === port.name);
-    return { ...port, listen: port.port, port: override ? override.port : port.port };
+    return {
+      ...port,
+      listen: port.port,
+      port: override?.port ? override.port : port.port,
+      // Whether it can be reached from outside in this placement.
+      expose: override?.expose ? override.expose : port.expose,
+    };
   });
 }
+
+/** What a placement row may say a port's expose is there. */
+export const PLACEMENT_EXPOSE = Object.freeze(["cluster", "edge"]);
 
 /** True when a port is reachable by anything other than its own bundle. */
 export function isExposed(port) {

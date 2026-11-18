@@ -265,12 +265,13 @@
     },
     "PlacementPort": {
       "type": "object",
-      "description": "The number one port is dialled on in one placement.",
+      "description": "What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both.",
       "properties": {
         "name": { "type": "string", "description": "The name of one of the bundle's ports." },
-        "port": { "type": "integer", "minimum": 0, "description": "The number a peer dials in this placement. The workload still listens on the bundle port's own number." }
+        "port": { "type": "integer", "minimum": 0, "description": "The number a peer dials in this placement. The workload still listens on the bundle port's own number. 0 means the same number." },
+        "expose": { "type": "string", "description": "'cluster' or 'edge' for this placement only. Empty means as the bundle's port says." }
       },
-      "required": ["name", "port"],
+      "required": ["name", "port", "expose"],
       "additionalProperties": false
     },
     "EnvVar": {

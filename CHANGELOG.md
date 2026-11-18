@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `expose` per placement
+
+- **A placement row may set a port's `expose` for that placement only**
+  (`[[bundles.placements.ports]]` gains `expose`; `port` is now optional).
+  A service that is public in production can be declared internal on a local
+  cluster. A row may not open a port the bundle keeps to itself.
+- **`inspect --draft --local <env>` writes that row** when the plan says a
+  service can be reached from outside. Without it, such a draft could not be
+  lowered: Cloud Run's default `ingress` admits outside traffic, the draft
+  says `edge`, and `cluster k8s` does not publish an edge port on Kubernetes.
+- `inspect --env <name>` compares the plan with the port as that
+  environment's placement declares it.
+
 ### 2026-11 — `inspect` compares a port's `expose` with the plan
 
 - **`expose` is checked against what the plan says about reaching a workload

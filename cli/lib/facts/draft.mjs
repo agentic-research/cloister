@@ -101,7 +101,7 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
     if (ports.length && w.bundle.exposure) {
       const { attr, setting } = w.bundle.exposure;
       if (exposed === "edge") {
-        notes.push(`"${w.name}": its ${attr} is ${setting}, so it can be reached from outside and is drafted expose = "edge". If that is not intended, fix the deployment. \`cluster k8s\` does not publish an edge port on kubernetes yet`);
+        notes.push(`"${w.name}": its ${attr} is ${setting}, so it can be reached from outside and is drafted expose = "edge". If that is not intended, fix the deployment${local ? `. For "${local}" it is drafted expose = "cluster": internal there` : ""}`);
       } else if (exposed === "") {
         notes.push(`"${w.name}": ${setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort`}, so whether it can be reached from outside is unknown. It is drafted expose = "cluster": check it`);
       }
@@ -111,8 +111,18 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
       // A job is not a Knative Service: it is a Kubernetes Job wherever it runs.
       const kind = w.bundle.runs === "job" ? "kubernetes" : localKind;
       const row = { env: local, kind, manifest: `${w.name}.yaml` };
-      // A Knative Service is dialled on 80 whatever its container listens on.
-      if (kind === "knative" && ports.some((p) => p.port !== 80)) row.ports = ports.filter((p) => p.port !== 80).map((p) => ({ name: p.name, port: 80 }));
+      // What differs in the second placement, per port. A Knative Service is
+      // dialled on 80 whatever its container listens on. And a service that
+      // can be reached from outside where the inputs describe it is internal
+      // on a second cluster unless someone says otherwise.
+      const rows = ports
+        .map((p) => ({
+          name: p.name,
+          ...(kind === "knative" && p.port !== 80 ? { port: 80 } : {}),
+          ...(p.expose === "edge" ? { expose: "cluster" } : {}),
+        }))
+        .filter((r) => Object.keys(r).length > 1);
+      if (rows.length) row.ports = rows;
       bundle.placements.push(row);
       if (kind !== localKind) notes.push(`"${w.name}": runs to completion, so it is placed "kubernetes" for "${local}", not "${localKind}"`);
     }

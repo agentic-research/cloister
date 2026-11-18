@@ -289,9 +289,14 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   ports @3 :List(PlacementPort) $Traits.doc("Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only.");
 }
 
-struct PlacementPort $Traits.doc("The number one port is dialled on in one placement.") {
+struct PlacementPort $Traits.doc("What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both.") {
   name @0 :Text $Traits.doc("The name of one of the bundle's ports.");
-  port @1 :UInt16 $Traits.doc("The number a peer dials in this placement. The workload still listens on the bundle port's own number.");
+  port @1 :UInt16 $Traits.doc("The number a peer dials in this placement. The workload still listens on the bundle port's own number. 0 means the same number.");
+  # Whether the port can be reached from outside in THIS placement, when that
+  # differs from the bundle's port. A service that is public in production is
+  # usually internal on a developer's cluster: the bundle's port says "edge",
+  # and the local placement's row says "cluster". Empty means as the port says.
+  expose @2 :Text $Traits.doc("'cluster' or 'edge' for this placement only. Empty means as the bundle's port says.");
 }
 
 # ── PortSpec (ADR-0069 §1 / cloister-991e65) ─────────────────────────────
