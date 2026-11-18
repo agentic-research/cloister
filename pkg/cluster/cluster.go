@@ -389,12 +389,14 @@ type FsAllowEntry struct {
 	Mode string `json:"mode"`
 }
 
-// The number one port is dialled on in one placement.
+// What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both.
 type PlacementPort struct {
 	// The name of one of the bundle's ports.
 	Name string `json:"name"`
-	// The number a peer dials in this placement. The workload still listens on the bundle port's own number.
+	// The number a peer dials in this placement. The workload still listens on the bundle port's own number. 0 means the same number.
 	Port uint16 `json:"port"`
+	// 'cluster' or 'edge' for this placement only. Empty means as the bundle's port says.
+	Expose string `json:"expose"`
 }
 
 // One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.

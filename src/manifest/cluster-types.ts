@@ -410,7 +410,10 @@ export interface PlacementSpec {
 /** The number one of the bundle's ports is dialled on in one placement. */
 export interface PlacementPort {
   name: string;
+  /** The number dialled in this placement; 0 means the bundle port's own. */
   port: number;
+  /** "cluster" or "edge" for this placement only; "" means as the port says. */
+  expose: string;
 }
 
 /** cloister/confinement/v1 §1 ConfinementManifest — see manifest/cluster.capnp. */

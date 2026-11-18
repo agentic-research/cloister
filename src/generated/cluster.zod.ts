@@ -415,18 +415,21 @@ export interface FsAllowEntry {
   mode: string;
 }
 
-/** The number one port is dialled on in one placement. */
+/** What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both. */
 export const PlacementPortSchema: z.ZodType<PlacementPort> = z.lazy(() =>
   z.object({
     /** The name of one of the bundle's ports. */
     name: z.string().default(""),
-    /** The number a peer dials in this placement. The workload still listens on the bundle port's own number. */
+    /** The number a peer dials in this placement. The workload still listens on the bundle port's own number. 0 means the same number. */
     port: z.number().int().nonnegative().default(0),
+    /** 'cluster' or 'edge' for this placement only. Empty means as the bundle's port says. */
+    expose: z.string().default(""),
   }).strict());
 
 export interface PlacementPort {
   name: string;
   port: number;
+  expose: string;
 }
 
 /** One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one. */

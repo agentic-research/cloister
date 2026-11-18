@@ -308,6 +308,36 @@ about what a peer dials uses the dialled number: the address `cluster k8s`
 holds to a connection, the Service port, the Knative rule that it is 80. The
 NetworkPolicy uses the listened number, because it selects pods.
 
+**The same row says whether the port can be reached from outside there.** A
+service that is public in production is usually internal on a developer's
+cluster. `expose` on the bundle's port is one word for every placement, so
+that could not be said: a port drafted `edge` from a public deployment was
+refused by the local Kubernetes step. A placement row may now set `expose`
+for that placement only:
+
+```toml
+[[bundles.ports]]
+name = "http"
+port = 8080
+expose = "edge"          # as deployed: reachable from outside
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "payments.yaml"
+
+[[bundles.placements.ports]]
+name = "http"
+expose = "cluster"       # on this cluster: internal
+```
+
+A row may set the number, the exposure, or both. It may not open a port the
+bundle keeps to itself (`expose = "none"`): a placement narrows or widens how
+a reachable port is reached, and does not make one. `inspect --env <name>`
+compares the plan with the port as that environment's placement declares it.
+`inspect --draft --local <env>` writes the row when the plan says a service
+can be reached from outside.
+
 This is what the Knative emitter needed. The same bundle lowers to a
 Deployment and Service (`port: 80, targetPort: 8080` when a row says so) or to
 a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
@@ -364,7 +394,7 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §7 A bundle carries what a workload is started with: env as literal, connection binding or secret reference; `runs` | built |
 | §7 Draft fills it from a plan (`inspect --draft`, `--local`) | built |
 | §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; applied to a kind cluster in CI (`task smoke:lowered-kind`) |
-| §7 A port's dialled number per placement (`[[bundles.placements.ports]]`) | built |
+| §7 A port's dialled number and `expose` per placement (`[[bundles.placements.ports]]`) | built |
 | §7 Lower a bundle to a Knative Service | built; not run against a live cluster |
 | §7 Lower a binding to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
@@ -389,9 +419,9 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
   with the plan's own setting by `inspect` (Cloud Run's `ingress`): evidenced,
   unknown, or `contradicted`. A provider mapping names the setting and sorts
   its values into "cluster" and "edge" (`report.bundle.exposure`), so the
-  comparison names no provider. A draft takes `expose` from it. Still open:
-  `expose` is one word per port for every placement, so a service that is
-  public in production cannot yet be declared internal on a local cluster.
+  comparison names no provider. A draft takes `expose` from it, and a
+  placement row may set `expose` for one placement (§7), so a service that is
+  public in production can be declared internal on a local cluster.
 - **Sub-files.** Whether `cluster.toml` may include other files, so a large
   graph's connections live apart. Not decided here.
 

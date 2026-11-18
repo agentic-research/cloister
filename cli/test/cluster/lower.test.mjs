@@ -314,7 +314,7 @@ const portRefusals = [
   ["a dialled port for a port the bundle does not have", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "grpc"\nport = 80'),
     /ports row names "grpc", which is not a port of bundle "payments" \(it declares: http\)/],
   ["a dialled port that is not a port number", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 0'),
-    /port "http" is dialled on 0, which is not a port number/],
+    /ports row for "http" sets neither port nor expose, so it says nothing/],
   ["the same port dialled twice", (t) => t.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nport = 80\n\n[[bundles.placements.ports]]\nname = "http"\nport = 81'),
     /ports row for "http" appears more than once/],
 ];
@@ -344,7 +344,7 @@ test("a draft placed on Knative sets each port's dialled number, and keeps a job
   const draft = draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "knative" });
   const cluster = await parseTomlToCluster(draft.toml);
   const local = (name) => cluster.bundles.find((b) => b.name === name).placements.find((p) => p.env === "local");
-  assert.deepEqual([local("reconciler").kind, local("reconciler").ports], ["knative", [{ name: "h2c", port: 80 }]]);
+  assert.deepEqual([local("reconciler").kind, local("reconciler").ports], ["knative", [{ name: "h2c", port: 80, expose: "" }]]);
   assert.deepEqual([local("sweep").kind, local("sweep").ports], ["kubernetes", []]);
   assert.ok(draft.notes.some((n) => n === '"sweep": runs to completion, so it is placed "kubernetes" for "local", not "knative"'));
   assert.throws(() => draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "nomad" }), /--local-kind "nomad" is not one of kubernetes, knative/);
@@ -398,4 +398,70 @@ test("the kind smoke's cluster.toml lowers and passes cluster k8s, with the grap
     const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
     for (const bundle of ["server", "caller", "stranger", "probe"]) assert.ok(script.includes(bundle), `dev/lowered-kind.sh does not mention "${bundle}"`);
   });
+});
+
+// ── expose per placement (ADR-0074 §7) ───────────────────────────────────────
+
+const OPEN_PLAN = () => {
+  const doc = JSON.parse(readFileSync(fileURLToPath(new URL("../../../test/fixtures/terraform/google-plan.show.json", import.meta.url)), "utf8"));
+  // Cloud Run's default: reachable from outside.
+  for (const r of doc.planned_values.root_module.resources) if (r.type === "google_cloud_run_v2_service") r.values.ingress = "INGRESS_TRAFFIC_ALL";
+  return doc;
+};
+
+test("a service that is public in the plan is drafted edge there and cluster on the second cluster, and lowers", async () => {
+  const draft = draftCluster(importFacts(OPEN_PLAN()), { env: "prod", local: "local" });
+  const cluster = await parseTomlToCluster(draft.toml);
+  const reconciler = cluster.bundles.find((b) => b.name === "reconciler");
+  assert.equal(reconciler.ports[0].expose, "edge");
+  assert.deepEqual(reconciler.placements.find((p) => p.env === "local").ports, [{ name: "h2c", port: 0, expose: "cluster" }]);
+  assert.ok(draft.notes.some((n) => /"reconciler": its ingress is INGRESS_TRAFFIC_ALL.*For "local" it is drafted expose = "cluster": internal there$/.test(n)), draft.notes.join("\n"));
+  // The whole flow, which an edge port on kubernetes would have stopped.
+  await inDir(draft.toml, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const written = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(written.unreferenced, []);
+    assert.ok(written.files.includes("reconciler/20-networkpolicy.yaml"));
+  });
+});
+
+test("without the placement row, an edge port on kubernetes is still refused, and says what to add", async () => {
+  const draft = draftCluster(importFacts(OPEN_PLAN()), { env: "prod", local: "local" });
+  const bare = draft.toml.replaceAll('\n[[bundles.placements.ports]]\nname = "h2c"\nexpose = "cluster"\n', "\n").replaceAll('\n[[bundles.placements.ports]]\nname = "http1"\nexpose = "cluster"\n', "\n");
+  assert.notEqual(bare, draft.toml);
+  await inDir(bare, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    await assert.rejects(emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") }), /has expose = "edge", which `cluster k8s` does\s+not lower yet/);
+  });
+});
+
+test("on Knative the placement's expose decides the visibility label", async () => {
+  const draft = draftCluster(importFacts(OPEN_PLAN()), { env: "prod", local: "local", localKind: "knative" });
+  await inDir(draft.toml, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const [service] = objectsOf(readFileSync(join(dir, "reconciler.yaml"), "utf8"));
+    // Public in the plan, internal here: the label that keeps it off outside routes.
+    assert.equal(service.metadata.labels["networking.knative.dev/visibility"], "cluster-local");
+    await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+  });
+});
+
+const exposeRefusals = [
+  ["a placement expose that is not one", 'expose = "public"', /port "http" expose "public" is not one of cluster, edge/],
+  ["a placement expose of none", 'expose = "none"', /port "http" expose "none" is not one of cluster, edge/],
+];
+for (const [label, row, pattern] of exposeRefusals) {
+  test(`cluster.toml refuses by name: ${label}`, async () => {
+    await assert.rejects(parseTomlToCluster(HAND.replace('manifest = "payments.yaml"', `manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\n${row}`)), pattern);
+  });
+}
+
+test("a placement cannot open a port the bundle keeps to itself, and the fields a row does not set are not written", async () => {
+  const closed = HAND.replace('expose = "cluster"', 'expose = "none"').replace(/\[\[connections\]\][\s\S]*$/, "").replace(/\[\[bundles.external.env\]\]\nname = "(PAYMENTS_URL|TARGET)"\nconnection = "payments"\n(path = "\/v1"\n)?/g, "")
+    .replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nexpose = "edge"');
+  await assert.rejects(parseTomlToCluster(closed), /port "http" has expose = "none" on the bundle, so no placement can open it/);
+  const both = HAND.replace('manifest = "payments.yaml"', 'manifest = "payments.yaml"\n\n[[bundles.placements.ports]]\nname = "http"\nexpose = "edge"');
+  const canonical = clusterToToml(await parseTomlToCluster(both));
+  assert.match(canonical, /\[\[bundles\.placements\.ports\]\]\nexpose = "edge"\nname = "http"\n/);
+  assert.ok(!/\nport = 0\n/.test(canonical));
 });

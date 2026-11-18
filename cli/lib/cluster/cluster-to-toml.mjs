@@ -425,6 +425,8 @@ function pruneBundleScalarDefaults(scalars) {
     // A placement with no dialled-port rows writes none.
     flat.placements = flat.placements.map(pruneEmptyScalars).map((row) => {
       if (Array.isArray(row.ports) && row.ports.length === 0) { const { ports: _ports, ...rest } = row; return rest; }
+      // A port row states only what differs: an unset number or expose is not written.
+      if (Array.isArray(row.ports)) return { ...row, ports: row.ports.map(pruneEmptyScalars) };
       return row;
     });
   }

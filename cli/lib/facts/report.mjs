@@ -14,6 +14,7 @@
 // Every join here is exact equality on a mapped attribute. Nothing is matched
 // by guessing at a resource's name.
 
+import { checkableBundle, portsFor } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
 import { bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
@@ -318,7 +319,9 @@ function compareConnections(sections, cluster, env) {
     const same = named(b.name).filter((r) => r.bundle?.exposure);
     if (same.length !== 1) continue;
     const { attr, setting, expose } = same[0].bundle.exposure;
-    for (const port of (b.ports ?? []).filter((p) => p.expose === "cluster" || p.expose === "edge")) {
+    // With --env, the port as that environment's placement declares it.
+    const ports = env === undefined ? b.ports ?? [] : portsFor(checkableBundle(b), env);
+    for (const port of ports.filter((p) => p.expose === "cluster" || p.expose === "edge")) {
       const exposure = { bundle: b.name, port: port.name, expose: port.expose, section: same[0].section };
       if (expose === "") {
         findings.push({ kind: "unknown", exposure, reason: setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort` });
