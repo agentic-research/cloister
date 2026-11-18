@@ -28,6 +28,26 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   runtime and its sigstore dependencies. Both lockfiles move to 0.5.16;
   nothing else changes, and `ureq` stays at 3.3.0.
 
+### 2026-11 — `cluster k8s` holds a manifest's addresses to the declared connections (#311)
+
+- **What is read.** The strings a container actually starts with: its
+  environment, `args` and `command`, for `kubernetes` and `knative` placements.
+- **The environment is resolved, not just scanned.** `envFrom`, then `env`
+  with later entries overriding earlier ones, `valueFrom` keys of ConfigMaps
+  and Secrets in the manifest, and variable references expanded. Only the
+  value that wins counts. A reference to a ConfigMap or Secret outside the
+  manifest is reported as unread.
+- **Addresses, not URLs.** A URL, a bare `host:port` and a DSN all name a
+  host. The cluster DNS name of a placed bundle's Service is recognised
+  anywhere; a short name only in host position.
+- **Refused by name.** An address naming another bundle that `cluster.toml`
+  declares no connection to, and an address on a port no declared connection
+  reaches. This can refuse a manifest that was accepted before.
+- **Reported, not refused.** A cluster DNS name that is no placed bundle, and
+  a declared connection that no value names.
+- A value is never printed, only the host and port recognised in it.
+- ADR-0070 §2 carries the amendment.
+
 ### 2026-11 — `knative` placement: connections checked, nothing lowered (#311)
 
 - **A new placement kind, `knative`.** Its strength is `none`. A connection

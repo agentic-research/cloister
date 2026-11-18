@@ -20,6 +20,7 @@ import { parseAllDocuments } from "yaml";
 import { parseTomlToCluster, checkableBundle } from "../../cli/lib/cluster/toml-to-cluster.mjs";
 import { clusterToToml } from "../../cli/lib/cluster/cluster-to-toml.mjs";
 import { emitK8s, KNATIVE_WIRES, lowerK8s } from "../../cli/lib/cluster/emit-k8s.mjs";
+import { addressesIn, clusterService, containerStrings, WORKLOADS } from "../../cli/lib/cluster/manifest-addresses.mjs";
 import { BLESSED_LABELS } from "../../cli/lib/app-protocol.mjs";
 import { meetStrength, strengthOf } from "../../cli/lib/cluster/connections.mjs";
 import { emitK8sDir, main as clusterMain } from "../../cli/commands/cluster.mjs";
@@ -445,7 +446,8 @@ port = "http"
 `;
 const knToml = ({ minStrength = "none", reconciler = {}, workqueue = {}, appProtocol = "art.http" } = {}) =>
   KN_HEAD + knBundle("workqueue", workqueue) + knBundle("reconciler", { appProtocol, ...reconciler }) + knConnection(minStrength, appProtocol);
-const ksvc = (name, { portName, containerPort = 8080, namespace = "platform", ports } = {}) => {
+const ksvc = (name, { portName, containerPort = 8080, namespace = "platform", ports, env = [] } = {}) => {
+  const envRows = env.length ? `\n          env:\n${env.map(([k, v]) => `            - name: ${k}\n              ${v}`).join("\n")}` : "";
   const rows = ports ?? [`- containerPort: ${containerPort}${portName ? `\n              name: ${portName}` : ""}`];
   return `apiVersion: serving.knative.dev/v1
 kind: Service
@@ -456,6 +458,7 @@ ${namespace ? `  namespace: ${namespace}\n` : ""}spec:
     spec:
       containers:
         - image: example.com/${name}:1
+          name: app${envRows}
           ports:
             ${rows.join("\n            ")}
 `;
@@ -577,6 +580,293 @@ test("cluster k8s on a knative-only cluster reports the check and leaves --out u
       'cloister cluster k8s: checked "workqueue" (knative, strength "none"): reached at workqueue.platform.svc:80 (http1); nothing written',
       'cloister cluster k8s: checked "reconciler" (knative, strength "none"): reached at reconciler.platform.svc:80 (http1); nothing written',
       '  connection "reconcile" from "workqueue": checked, not enforced',
+      'cloister cluster k8s: connection "reconcile" from "workqueue" to "reconciler": no env, args or command value names it',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ── addresses a manifest's containers are told to dial (issue #311) ──────
+//
+// The strings an operator wrote into env, args and command are the manifest's
+// own claim about the graph. They are held to the declared connections. The
+// check reads addresses, not URLs: a DSN and a bare host:port count the same.
+
+const withEnv = (...env) => ({ ...KN_MANIFESTS, "workqueue.yaml": ksvc("workqueue", { env }) });
+const lit = (v) => `value: ${JSON.stringify(v)}`;
+
+test("addressesIn finds a host in a URL, a bare host:port and a DSN, and never a password", () => {
+  const hosts = (v) => addressesIn(v).filter((a) => a.hostPosition).map((a) => `${a.host}${a.port === null ? "" : `:${a.port}`}`);
+  assert.deepEqual(hosts("http://reconciler.platform.svc"), ["reconciler.platform.svc:80"]);
+  assert.deepEqual(hosts("https://reconciler.platform.svc.cluster.local/v1/run"), ["reconciler.platform.svc.cluster.local:443"]);
+  assert.deepEqual(hosts("grpc://orders.shop.svc:50051"), ["orders.shop.svc:50051"]);
+  assert.deepEqual(hosts("dns:///orders.shop.svc:50051"), ["orders.shop.svc:50051"]);
+  assert.deepEqual(hosts("dolt.dolt.svc.cluster.local:3306"), ["dolt.dolt.svc.cluster.local:3306"]);
+  assert.deepEqual(hosts("root:hunter2@tcp(dolt.dolt.svc:3306)/shop?parseTime=true"), ["dolt.dolt.svc:3306"]);
+  assert.deepEqual(hosts("postgres://app:1234@db.data.svc:5432/app"), ["db.data.svc:5432"], "a number before @ is a password, not a port");
+  assert.deepEqual(hosts("redis://cache"), ["cache"]);
+  assert.deepEqual(hosts("HTTP://Reconciler.Platform.SVC"), ["reconciler.platform.svc:80"], "DNS names compare without case");
+  // Not in host position: a plain word is not an address.
+  assert.deepEqual(hosts("orders"), []);
+  assert.deepEqual(hosts("--log-level=debug"), []);
+  assert.deepEqual(clusterService("dolt.dolt.svc.cluster.local"), { service: "dolt", namespace: "dolt" });
+  assert.deepEqual(clusterService("dolt.dolt.svc"), { service: "dolt", namespace: "dolt" });
+  for (const host of ["dolt.dolt", "dolt.svc", "a.b.c.svc", "example.com", ".dolt.svc"]) assert.equal(clusterService(host), null, host);
+});
+
+test("containerStrings reads literal env, args and command from every workload kind, and nothing from valueFrom", () => {
+  const pod = { initContainers: [{ name: "init", command: ["sh", "-c", "wait init.x.svc:1"] }], containers: [{ name: "app", args: ["--to", "a.x.svc:2"], env: [{ name: "LIT", value: "b.x.svc:3" }, { name: "SECRET", valueFrom: { secretKeyRef: { name: "s", key: "k" } } }, { name: "NUM", value: 5 }] }] };
+  const nest = (path) => path.reduceRight((inner, key) => ({ [key]: inner }), pod);
+  for (const w of WORKLOADS) {
+    const obj = { apiVersion: w.group ? `${w.group}/v1` : "v1", kind: w.kind, ...nest(w.path) };
+    const { strings, unread } = containerStrings([obj]);
+    assert.deepEqual(
+      strings.map((x) => `${x.container} ${x.where} ${x.value}`),
+      ["init command sh", "init command -c", "init command wait init.x.svc:1", "app env LIT b.x.svc:3", "app args --to", "app args a.x.svc:2"],
+      `${w.group}/${w.kind}`,
+    );
+    assert.deepEqual(unread, [{ container: "app", where: "env SECRET", kind: "Secret", name: "s" }], `${w.group}/${w.kind}`);
+  }
+  // An object of the same kind in another API group is not a workload.
+  assert.deepEqual(containerStrings([{ apiVersion: "example.com/v1", kind: "Deployment", spec: { template: { spec: pod } } }]).strings, []);
+});
+
+// The environment is resolved in layers, and only the value that wins is one
+// the container can dial.
+const REF = (name) => "$" + `(${name})`;
+const deployment = (container, extra = []) => [
+  { apiVersion: "apps/v1", kind: "Deployment", metadata: { name: "app" }, spec: { template: { spec: { containers: [{ name: "app", ...container }] } } } },
+  ...extra,
+];
+const configMap = (name, data) => ({ apiVersion: "v1", kind: "ConfigMap", metadata: { name }, data });
+const secret = (name, fields) => ({ apiVersion: "v1", kind: "Secret", metadata: { name }, ...fields });
+const b64 = (text) => Buffer.from(text).toString("base64");
+const resolved = (objects) => {
+  const { strings, unread } = containerStrings(objects);
+  return { strings: strings.map((x) => `${x.where} = ${x.value}`), unread: unread.map((u) => `${u.where} <- ${u.kind} ${u.name}`) };
+};
+
+test("env resolution: envFrom, then env, a later entry overriding an earlier one", () => {
+  const out = resolved(deployment(
+    {
+      envFrom: [{ configMapRef: { name: "base" } }, { prefix: "DB_", secretRef: { name: "creds" } }, { configMapRef: { name: "override" } }],
+      env: [{ name: "B", value: "from-env" }, { name: "D", value: "first" }, { name: "D", value: "second" }],
+    },
+    [configMap("base", { A: "base-a", B: "base-b", C: "base-c" }), configMap("override", { C: "override-c" }), secret("creds", { stringData: { HOST: "db.data.svc:5432" } })],
+  ));
+  assert.deepEqual(out.strings.sort(), [
+    'env A (ConfigMap "base") = base-a',
+    "env B = from-env",
+    'env C (ConfigMap "override") = override-c',
+    "env D = second",
+    'env DB_HOST (Secret "creds") = db.data.svc:5432',
+  ]);
+  assert.deepEqual(out.unread, []);
+});
+
+test("env resolution: valueFrom reads one key of a ConfigMap or Secret in the manifest", () => {
+  const out = resolved(deployment(
+    {
+      env: [
+        { name: "FROM_CM", valueFrom: { configMapKeyRef: { name: "urls", key: "reconciler" } } },
+        { name: "FROM_SECRET", valueFrom: { secretKeyRef: { name: "creds", key: "dsn" } } },
+        { name: "PLAIN_WINS", valueFrom: { secretKeyRef: { name: "both", key: "k" } } },
+        { name: "MISSING_KEY", valueFrom: { configMapKeyRef: { name: "urls", key: "absent" } } },
+        { name: "POD_IP", valueFrom: { fieldRef: { fieldPath: "status.podIP" } } },
+      ],
+    },
+    [
+      configMap("urls", { reconciler: "http://reconciler.platform.svc" }),
+      secret("creds", { data: { dsn: b64("app:pw@tcp(dolt.dolt.svc:3306)/shop") } }),
+      secret("both", { data: { k: b64("encoded") }, stringData: { k: "plain" } }),
+    ],
+  ));
+  assert.deepEqual(out.strings, [
+    'env FROM_CM (ConfigMap "urls" key "reconciler") = http://reconciler.platform.svc',
+    'env FROM_SECRET (Secret "creds" key "dsn") = app:pw@tcp(dolt.dolt.svc:3306)/shop',
+    'env PLAIN_WINS (Secret "both" key "k") = plain',
+  ]);
+  assert.deepEqual(out.unread, [], "a key that is absent, and a field reference, hold no address and are not unread sources");
+});
+
+test("env resolution: a reference outside the manifest is unread, and still overrides", () => {
+  const out = resolved(deployment(
+    {
+      envFrom: [{ configMapRef: { name: "base" } }, { secretRef: { name: "elsewhere" } }],
+      env: [{ name: "URL", valueFrom: { secretKeyRef: { name: "vault", key: "url" } } }],
+    },
+    [configMap("base", { URL: "http://stale.platform.svc", KEEP: "kept" })],
+  ));
+  // URL's real value is in a Secret this cannot see. The ConfigMap's URL is
+  // NOT what the container gets, so it must not be reported as in effect.
+  assert.deepEqual(out.strings, ['env KEEP (ConfigMap "base") = kept']);
+  assert.deepEqual(out.unread, ["envFrom <- Secret elsewhere", "env URL <- Secret vault"]);
+});
+
+test("env resolution: a variable reference expands from what is defined before it, and into args and command", () => {
+  const out = resolved(deployment(
+    {
+      envFrom: [{ configMapRef: { name: "base" } }],
+      env: [
+        { name: "EARLY", value: `http://${REF("HOST")}:${REF("LATER")}` },
+        { name: "LATER", value: "8080" },
+        { name: "URL", value: `http://${REF("HOST")}:${REF("LATER")}/run` },
+        { name: "ESCAPED", value: `$${REF("HOST")}` },
+        { name: "UNKNOWN", value: `http://${REF("NOPE")}` },
+      ],
+      command: ["serve", `--peer=${REF("URL")}`],
+      args: [`--db=${REF("HOST")}:3306`],
+    },
+    [configMap("base", { HOST: "reconciler.platform.svc" })],
+  ));
+  assert.deepEqual(out.strings, [
+    'env HOST (ConfigMap "base") = reconciler.platform.svc',
+    `env EARLY = http://reconciler.platform.svc:${REF("LATER")}`,
+    "env LATER = 8080",
+    "env URL = http://reconciler.platform.svc:8080/run",
+    `env ESCAPED = ${REF("HOST")}`,
+    `env UNKNOWN = http://${REF("NOPE")}`,
+    "command = serve",
+    "command = --peer=http://reconciler.platform.svc:8080/run",
+    "args = --db=reconciler.platform.svc:3306",
+  ]);
+});
+
+test("an address that arrives through a ConfigMap, a Secret or an expansion is held to the declarations like a literal", async () => {
+  const viaConfigMap = `${ksvc("workqueue", { env: [["RECONCILER_URL", "valueFrom:\n                configMapKeyRef:\n                  name: urls\n                  key: reconciler"]] })}---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: urls\n  namespace: platform\ndata:\n  reconciler: http://reconciler.platform.svc\n`;
+  const good = await lowerKn(knToml(), { ...KN_MANIFESTS, "workqueue.yaml": viaConfigMap });
+  assert.deepEqual(good.references, [
+    { bundle: "workqueue", container: "app", where: 'env RECONCILER_URL (ConfigMap "urls" key "reconciler")', address: "reconciler.platform.svc:80", to: "reconciler", connections: ["reconcile"] },
+  ]);
+  assert.deepEqual(good.unreferenced, []);
+
+  // The same reference, with the Secret holding the wrong port: refused, and the value is not printed.
+  const viaSecret = `${ksvc("workqueue", { env: [["DSN", "valueFrom:\n                secretKeyRef:\n                  name: creds\n                  key: dsn"]] })}---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: creds\n  namespace: platform\ndata:\n  dsn: ${b64("app:s3cret-value@tcp(reconciler.platform.svc:3306)/db")}\n`;
+  await assert.rejects(lowerKn(knToml(), { ...KN_MANIFESTS, "workqueue.yaml": viaSecret }), (err) => {
+    assert.match(err.message, /container "app" env DSN \(Secret "creds" key "dsn"\) names reconciler\.platform\.svc:3306 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/);
+    assert.ok(!err.message.includes("s3cret-value"));
+    return true;
+  });
+
+  // A literal that an env entry overrides is not what the container dials.
+  const overridden = ksvc("workqueue", { env: [["URL", lit("http://datastore.platform.svc")], ["URL", lit("http://reconciler.platform.svc")]] });
+  const three = await lowerKn(threeToml(), { ...KN_MANIFESTS, "workqueue.yaml": overridden, "datastore.yaml": ksvc("datastore") });
+  assert.deepEqual(three.references.map((r) => r.to), ["reconciler"]);
+});
+
+test("a reference to a Secret outside the manifest is reported as unread, not as a missing address", async () => {
+  const { unread, unreferenced } = await lowerKn(knToml(), withEnv(["RECONCILER_URL", "valueFrom:\n                secretKeyRef:\n                  name: urls\n                  key: reconciler"]));
+  assert.deepEqual(unread, [{ bundle: "workqueue", container: "app", where: "env RECONCILER_URL", kind: "Secret", name: "urls" }]);
+  assert.deepEqual(unreferenced, [{ name: "reconcile", from: "workqueue", to: "reconciler" }]);
+});
+
+test("an address that names a declared connection's target is evidence, in any spelling", async () => {
+  for (const value of [
+    "http://reconciler.platform.svc",
+    "http://reconciler.platform.svc.cluster.local:80/run",
+    "reconciler.platform.svc:80",
+    "http://reconciler.platform",
+    "http://reconciler",
+    "reconciler:80",
+    "user:pw@tcp(reconciler.platform.svc:80)/x",
+  ]) {
+    const { references, unreferenced } = await lowerKn(knToml(), withEnv(["RECONCILER_URL", lit(value)]));
+    assert.equal(references.length, 1, value);
+    assert.deepEqual({ ...references[0], address: undefined }, { bundle: "workqueue", container: "app", where: "env RECONCILER_URL", address: undefined, to: "reconciler", connections: ["reconcile"] }, value);
+    assert.deepEqual(unreferenced, [], value);
+  }
+});
+
+const DATASTORE = knBundle("datastore");
+const threeToml = () => KN_HEAD + knBundle("workqueue") + knBundle("reconciler") + DATASTORE + knConnection("none");
+const three = (...env) => ({ ...withEnv(...env), "datastore.yaml": ksvc("datastore") });
+
+const addressRefusals = [
+  ["an address naming a bundle with no declared connection (the wrong service)",
+    threeToml(), three(["RECONCILER_URL", lit("http://datastore.platform.svc")]),
+    /bundle "workqueue" manifest workqueue.yaml: container "app" env RECONCILER_URL names datastore\.platform\.svc:80 \(bundle "datastore"\), but cluster.toml declares no connection from "workqueue" to "datastore" for env "local"/],
+  ["the wrong service by its short name",
+    threeToml(), three(["RECONCILER_URL", lit("http://datastore")]),
+    /env RECONCILER_URL names datastore:80 \(bundle "datastore"\), but cluster.toml declares no connection/],
+  ["the right service on the wrong port",
+    knToml(), withEnv(["RECONCILER_URL", lit("http://reconciler.platform.svc:8080")]),
+    /env RECONCILER_URL names reconciler\.platform\.svc:8080 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
+  ["a non-HTTP address on the wrong port",
+    knToml(), withEnv(["DSN", lit("app:s3cret-value@tcp(reconciler.platform.svc:3306)/db")]),
+    /env DSN names reconciler\.platform\.svc:3306 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
+  ["https, whose default port is not the declared one",
+    knToml(), withEnv(["RECONCILER_URL", lit("https://reconciler.platform.svc")]),
+    /names reconciler\.platform\.svc:443 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
+  ["a connection declared only in the other direction",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { env: [["CALLBACK", lit("http://workqueue.platform.svc")]] }) },
+    /bundle "reconciler" manifest reconciler.yaml: container "app" env CALLBACK names workqueue\.platform\.svc:80 \(bundle "workqueue"\), but cluster.toml declares no connection from "reconciler" to "workqueue"/],
+];
+for (const [label, toml, manifests, pattern] of addressRefusals) {
+  test(`cluster k8s refuses by name: ${label}`, async () => {
+    await assert.rejects(lowerKn(toml, manifests), (err) => {
+      assert.match(err.message, pattern);
+      assert.ok(!err.message.includes("s3cret-value"), "the value is never printed, only the host and port");
+      return true;
+    });
+  });
+}
+
+test("a cluster name that is no placed bundle is reported and not refused; a secret reference is not read", async () => {
+  const { references, unreferenced } = await lowerKn(knToml(), withEnv(
+    ["RECONCILER_URL", lit("http://reconcilr.platform.svc")],
+    ["METRICS", lit("http://prometheus.monitoring.svc:9090")],
+    ["FROM_SECRET", "valueFrom:\n                secretKeyRef:\n                  name: urls\n                  key: datastore"],
+    ["PUBLIC", lit("https://example.com/api")],
+    ["SELF", lit("http://workqueue.platform.svc")],
+    ["NAME", lit("reconciler")],
+  ));
+  assert.deepEqual(references, [
+    { bundle: "workqueue", container: "app", where: "env RECONCILER_URL", address: "reconcilr.platform.svc:80", to: null, connections: [] },
+    { bundle: "workqueue", container: "app", where: "env METRICS", address: "prometheus.monitoring.svc:9090", to: null, connections: [] },
+  ]);
+  // The typo means nothing named the declared target: both facts are reported.
+  assert.deepEqual(unreferenced, [{ name: "reconcile", from: "workqueue", to: "reconciler" }]);
+});
+
+test("a short name resolves only in the source's own namespace", async () => {
+  const elsewhere = { ...withEnv(["URL", lit("http://reconciler")]), "reconciler.yaml": ksvc("reconciler", { namespace: "other" }) };
+  const { references } = await lowerKn(knToml(), elsewhere);
+  assert.deepEqual(references, [], "reconciler lives in another namespace, so the bare name is not it");
+});
+
+test("the kubernetes demo: its args name the database, which is the declared connection", async () => {
+  const cluster = await parseTomlToCluster(DEMO_TOML);
+  const opts = { bundles: cluster.bundles.map(checkableBundle), connections: cluster.connections, env: "local" };
+  const { references, unreferenced } = lowerK8s({ ...opts, readManifest: (p) => MANIFESTS[p] });
+  assert.deepEqual(references, [
+    { bundle: "orders", container: "orders", where: "args", address: "dolt.dolt.svc.cluster.local:3306", to: "dolt", connections: ["orders-db"] },
+  ]);
+  assert.deepEqual(unreferenced, []);
+  // The wrong port in the same argument fails the build; so does a peer with no declared edge.
+  const edit = (from, to) => ({ ...MANIFESTS, "orders.yaml": MANIFESTS["orders.yaml"].replace(from, to) });
+  assert.throws(
+    () => lowerK8s({ ...opts, readManifest: (p) => edit("svc.cluster.local:3306", "svc.cluster.local:3307")[p] }),
+    /bundle "orders" manifest orders.yaml: container "orders" args names dolt\.dolt\.svc\.cluster\.local:3307 \(bundle "dolt"\), but the declared connection "orders-db" reaches port 3306/,
+  );
+  assert.throws(
+    () => lowerK8s({ ...opts, readManifest: (p) => ({ ...MANIFESTS, "dolt.yaml": MANIFESTS["dolt.yaml"].replace('value: "%"', 'value: "orders.orders.svc:50051"') })[p] }),
+    /bundle "dolt" manifest dolt.yaml: container "dolt" env DOLT_ROOT_HOST names orders\.orders\.svc:50051 \(bundle "orders"\), but cluster.toml declares no connection from "dolt" to "orders"/,
+  );
+});
+
+test("cluster k8s prints what the manifests' addresses say", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cloister-kn-"));
+  try {
+    writeFileSync(join(root, "cluster.toml"), knToml());
+    const manifests = withEnv(["RECONCILER_URL", lit("http://reconciler.platform.svc")], ["METRICS", lit("http://prometheus.monitoring.svc:9090")]);
+    for (const [name, text] of Object.entries(manifests)) writeFileSync(join(root, name), text);
+    const lines = [];
+    const code = await clusterMain(["k8s", "--dir", root, "--env", "local", "--out", join(root, "out")], { log: (l) => lines.push(l), errLog: (l) => lines.push(l) });
+    assert.equal(code, 0, lines.join("\n"));
+    assert.deepEqual(lines.slice(3), [
+      'cloister cluster k8s: "workqueue" container "app" env RECONCILER_URL names reconciler.platform.svc:80: connection "reconcile"',
+      'cloister cluster k8s: "workqueue" container "app" env METRICS names prometheus.monitoring.svc:9090, which is no bundle placed here; not checked',
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
