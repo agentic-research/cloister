@@ -56,7 +56,7 @@ const ROOT = "Cluster";
  *   defaults both to "", so a cluster would otherwise build unnamed.
  */
 const REQUIRED = Object.freeze({
-  Cluster: ["metadata"],
+  Cluster: ["metadata", "storage"],
   ClusterMetadata: ["name", "version"],
 });
 

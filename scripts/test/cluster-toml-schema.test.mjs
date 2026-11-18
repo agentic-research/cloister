@@ -95,6 +95,7 @@ const shapeMistakes = [
   ["a tier that is no tier", (t) => t.replace('tier = "cluster"', 'tier = "edge"')],
   ["no metadata name", (t) => t.replace('name = "schema-fixture"\n', "")],
   ["no metadata at all", (t) => t.replace('[metadata]\nname = "schema-fixture"\nversion = "0.0.1"\n', "")],
+  ["no storage table", (t) => t.replace('[storage]\ndoStoragePath = "/data/do"\n', "")],
   ["an unknown key in an [inputs.<name>] table", (t) => `${t}\n[inputs.rosary]\nref = "ghcr.io/x/rosary"\nurlBindingg = "TYPO"\n`],
   // The rest sit in tables the parser rebuilds field by field. Before the
   // schema was the guard, each of these parsed clean and the key was dropped.
@@ -156,7 +157,7 @@ test("the TOML-only shapes are written the way an operator writes them", () => {
   assert.deepEqual(asList.items, { $ref: "#/$defs/InputSpec" });
   assert.ok(Object.hasOwn(def("InputSpec").properties, "name"));
   // Nothing is required but what a hand-written file must state.
-  assert.deepEqual(schema.required, ["metadata"]);
+  assert.deepEqual(schema.required, ["metadata", "storage"]);
   assert.deepEqual(def("ClusterMetadata").required, ["name", "version"]);
   for (const [name, d] of Object.entries(schema.$defs)) {
     if (name !== "ClusterMetadata" && !d.oneOf) assert.equal(d.required, undefined, `${name} requires nothing`);
