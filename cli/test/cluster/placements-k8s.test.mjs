@@ -22,7 +22,7 @@ import { clusterToToml } from "../../lib/cluster/cluster-to-toml.mjs";
 import { emitK8s, KNATIVE_WIRES, lowerK8s } from "../../lib/cluster/emit-k8s.mjs";
 import { addressesIn, clusterService, containerStrings, WORKLOADS } from "../../lib/cluster/manifest-addresses.mjs";
 import { BLESSED_LABELS } from "../../lib/app-protocol.mjs";
-import { meetStrength, strengthOf } from "../../lib/cluster/connections.mjs";
+import { assertPortsAndConnections, meetStrength, strengthOf } from "../../lib/cluster/connections.mjs";
 import { emitK8sDir, main as clusterMain } from "../../commands/cluster.mjs";
 import { planFromToml } from "../../commands/runtime-plan.mjs";
 import { tableAdmits } from "../fixtures/platform-admits-table.mjs";
@@ -294,25 +294,31 @@ for (const [label, edit, pattern] of manifestRefusals) {
   });
 }
 
-test("a connection end placed cloudRun fails the BUILD: a channel end must be microvm or kubernetes", async () => {
-  // dolt keeps a kubernetes row (staging) so its exposed port is legal; in
-  // env "local" it is placed cloudRun, which no emitter lowers.
-  const t = placeAs(
-    DEMO_TOML,
-    "dolt.yaml",
-    `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n\n[[bundles.placements]]\nenv = "staging"\nkind = "kubernetes"\nmanifest = "dolt.yaml"\n`,
-  ).replace('minStrength = "policy"', 'minStrength = ""');
+// ADR-0074 §6: any forwarded placement may be a connection end. It is checked,
+// not lowered, and its strength is "none" unless an emitter enforces it.
+test("a connection end placed cloudRun is accepted, with strength none", async () => {
+  const cloudRunLocal =
+    `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n\n[[bundles.placements]]\nenv = "staging"\nkind = "kubernetes"\nmanifest = "dolt.yaml"\n`;
+  const unfloored = placeAs(DEMO_TOML, "dolt.yaml", cloudRunLocal).replace('minStrength = "policy"', 'minStrength = ""');
+  await parseTomlToCluster(unfloored);
+  // The floor still holds: nothing enforces a cloudRun end, so "policy" is not met.
   await assert.rejects(
-    parseTomlToCluster(t),
-    /bundle "dolt" is the target of connection "orders-db" but is placed "cloudRun" for env "local"; a channel end must be placed microvm, kubernetes or knative/,
+    parseTomlToCluster(placeAs(DEMO_TOML, "dolt.yaml", cloudRunLocal)),
+    /minStrength "policy" is not met — "orders" is placed "kubernetes" and "dolt" is placed "cloudRun", so the edge's strength is "none"/,
   );
 });
 
-test("an exposed port on a bundle with no microvm or kubernetes placement fails the build", async () => {
-  const t = placeAs(DEMO_TOML, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n`);
-  await assert.rejects(
-    parseTomlToCluster(t),
-    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes or knative \(declared: cloudRun\)/,
+test("an exposed port on a bundle placed only cloudRun is accepted", async () => {
+  const t = placeAs(DEMO_TOML, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "cloudRun"\n`)
+    .replace('minStrength = "policy"', 'minStrength = ""');
+  await parseTomlToCluster(t);
+});
+
+test("an exposed port on a bundle with no placement that lowers or checks it fails the build", () => {
+  const bundles = [{ name: "dolt", kind: "external", executionMode: "", ports: [{ name: "mysql", port: 3306, appProtocol: "art.mysql", expose: "cluster" }], placements: [{ env: "local", kind: "workerd", manifest: "" }] }];
+  assert.throws(
+    () => assertPortsAndConnections(bundles, []),
+    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes, knative or cloudRun \(declared: workerd\)/,
   );
 });
 

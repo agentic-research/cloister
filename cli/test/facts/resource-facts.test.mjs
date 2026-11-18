@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -17,6 +17,8 @@ import { validateMapping, validateWranglerKeys } from "../../lib/facts/validate.
 import { WRANGLER_MAPPING, importWrangler } from "../../lib/facts/wrangler.mjs";
 import { projectSpec, renderSpec } from "../../../gen/facts-spec.mjs";
 import { FACT_KEYS, isMarkedSensitive, makeFact, pickPublic } from "../../lib/facts/facts.mjs";
+import { parseTomlToCluster } from "../../lib/cluster/toml-to-cluster.mjs";
+import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { resolveRelations } from "../../lib/facts/cloudflare.mjs";
 import { buildReport, renderReport } from "../../lib/facts/report.mjs";
@@ -1171,4 +1173,102 @@ test("inspect --env is passed through, and a hand-written cluster.toml is compar
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── Drafting a cluster.toml from a plan (ADR-0074 §5.2) ──────────────────────
+
+const draftOf = (doc, options = { env: "prod", name: "fixture" }) => draftCluster(importFacts(doc), options);
+
+test("a draft from the real plan parses, and compared with that plan every edge is evidenced", async () => {
+  const draft = draftOf(googlePlan());
+  // The loop the draft exists for: what it writes is a cluster.toml the parser
+  // accepts, and checking it against the same inputs leaves nothing over.
+  const cluster = await parseTomlToCluster(draft.toml);
+  assert.deepEqual(cluster.bundles.map((b) => b.name).sort(), ["reconciler", "sweep", "workqueue"]);
+  const report = buildReport(importFacts(googlePlan()), cluster, { env: "prod" });
+  assert.deepEqual(report.unlisted, []);
+  assert.deepEqual(connectionFindings(report).map((f) => f.kind), ["evidenced", "evidenced"]);
+  assert.equal(draft.bundles, 3);
+  assert.equal(draft.connections, 2);
+});
+
+test("a drafted bundle carries what was read: image, port, wire and the placement the mapping names", async () => {
+  const cluster = await parseTomlToCluster(draftOf(googlePlan()).toml);
+  const reconciler = cluster.bundles.find((b) => b.name === "reconciler");
+  assert.equal(reconciler.kind.external.image, "example.com/reconciler:1");
+  assert.deepEqual(reconciler.ports.map((p) => [p.name, p.port, p.appProtocol]), [["h2c", 8080, "art.http2"]]);
+  assert.deepEqual(reconciler.placements.map((p) => [p.env, p.kind]), [["prod", "cloudRun"]]);
+  // A job listens on nothing, so it has no port and can only be a source.
+  assert.deepEqual(cluster.bundles.find((b) => b.name === "sweep").ports, []);
+  assert.deepEqual(cluster.connections.map((c) => [c.from, c.targets[0].bundle, c.targets[0].port, c.minStrength]),
+    [["workqueue", "reconciler", "h2c", ""], ["sweep", "reconciler", "h2c", ""]]);
+});
+
+test("a draft says what the inputs did not show, and never prints a value", () => {
+  const draft = draftOf(googlePlan());
+  // workqueue's env is marked sensitive in the fixture, and it declares no port.
+  assert.ok(draft.notes.some((n) => /"workqueue": its env is marked sensitive and was not read/.test(n)));
+  assert.ok(draft.notes.some((n) => /"workqueue": declares no port; 8080 \("http1"\) is this provider's default and was assumed, not read/.test(n)));
+  for (const note of draft.notes) assert.ok(draft.toml.includes(`#   - ${note}`), `note missing from the draft's header: ${note}`);
+  assert.ok(!draft.toml.includes("FIXTURE-SENSITIVE-VALUE"));
+  assert.match(draft.toml, /^# DRAFT\. Written by `cloister inspect --draft` from a rendered plan\./);
+});
+
+test("an edge to something that is not a workload is noted, not drafted", () => {
+  const doc = googlePlan();
+  // Point sweep's reference at a resource the draft does not make a bundle of.
+  const resources = doc.planned_values.root_module.resources;
+  resources.push({ address: "google_sql_database_instance.ledger", mode: "managed", type: "google_sql_database_instance", name: "ledger", values: { name: "ledger", database_version: "POSTGRES_15", region: "us-central1" }, sensitive_values: {} });
+  const sweep = doc.configuration.root_module.resources.find((r) => r.address === "google_cloud_run_v2_job.sweep");
+  const text = JSON.stringify(sweep).replaceAll("google_cloud_run_v2_service.reconciler", "google_sql_database_instance.ledger");
+  Object.assign(sweep, JSON.parse(text));
+  doc.configuration.root_module.resources.push({ address: "google_sql_database_instance.ledger", mode: "managed", type: "google_sql_database_instance", name: "ledger", expressions: {} });
+  const draft = draftOf(doc);
+  assert.ok(draft.notes.some((n) => /^sweep → ledger \(.*\) is not drafted: "ledger" \(Databases\) is not a drafted bundle/.test(n)), draft.notes.join("\n"));
+  assert.equal(draft.connections, 1);
+});
+
+test("two workloads with one name are both left out, by name", () => {
+  const doc = googlePlan();
+  const job = doc.planned_values.root_module.resources.find((r) => r.address === "google_cloud_run_v2_job.sweep");
+  job.values.name = "reconciler";
+  const draft = draftOf(doc);
+  assert.ok(draft.notes.some((n) => /^"reconciler" is the name of 2 workloads \(.*\); none is drafted/.test(n)), draft.notes.join("\n"));
+  assert.ok(!/name = "reconciler"/.test(draft.toml));
+});
+
+test("inspect --draft prints the draft and writes nothing; it needs --terraform and --env", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-draft-"));
+  try {
+    cpSync(GOOGLE_PLAN_FIXTURE, join(dir, "plan.json"));
+    const run = async (args) => {
+      const lines = [];
+      const code = await inspectMain(args, { log: (l) => lines.push(l), errLog: (l) => lines.push(l), isGitTracked: () => false });
+      return { code, text: lines.join("\n") };
+    };
+    const ok = await run(["--terraform", join(dir, "plan.json"), "--draft", "--env", "prod", "--name", "fixture"]);
+    assert.equal(ok.code, 0, ok.text);
+    await parseTomlToCluster(ok.text);
+    assert.deepEqual(readdirSync(dir), ["plan.json"]);
+    assert.match((await run(["--terraform", join(dir, "plan.json"), "--draft"])).text, /--draft needs --env <name>/);
+    assert.match((await run(["--wrangler", "x.toml", "--draft", "--env", "prod"])).text, /--draft needs --terraform <file>/);
+    assert.match((await run(["--terraform", join(dir, "plan.json"), "--draft", "--env", "prod", "--json"])).text, /cannot be combined with --json/);
+    assert.match((await run(["--terraform", join(dir, "plan.json"), "--name", "x"])).text, /--name is only used with --draft/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a mapping's bundle block is held to what the entry reads and to forwarded kinds", () => {
+  const withBundle = (edit) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    edit(mapping.types.google_cloud_run_v2_service.report.bundle);
+    return () => validateMapping(mapping, GOOGLE_SPEC);
+  };
+  withBundle(() => {})();
+  assert.throws(withBundle((b) => { b.placement = "microvm"; }), /bundle needs a "placement" that is one of kubernetes, knative, cloudRun/);
+  assert.throws(withBundle((b) => { b.image.value = "digest"; }), /bundle image value "digest" is not read from list "containers"/);
+  assert.throws(withBundle((b) => { b.wires.http1 = "http"; }), /bundle wires "http1": appProtocol /);
+  assert.throws(withBundle((b) => { b.ports.default.name = "tcp"; }), /ports default needs a "port" number and a "name" that is one of its wires/);
+  assert.throws(withBundle((b) => { b.extra = 1; }), /bundle has unknown key "extra"/);
 });

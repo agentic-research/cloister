@@ -4,6 +4,9 @@
 // (ADR-0073 §3). The attribute set is data; the spec is what keeps that data
 // honest: a typo'd attribute, a secret, or a non-scalar cannot be mapped.
 
+import { validateAppProtocol } from "../app-protocol.mjs";
+import { FORWARDED_KINDS } from "../cluster/connections.mjs";
+
 const SCALARS = new Set(["string", "number", "bool"]);
 
 /** Walk a dotted attribute path through a spec attribute map; returns the leaf entry. */
@@ -117,7 +120,7 @@ function checkReport(type, entry) {
     if (!isTable(report) || !isText(report.section) || !Array.isArray(report.show)) {
       throw new Error(`mapping: ${type}.report needs a "section" title and a "show" list`);
     }
-    onlyKeys(report, ["section", "show", "address", "dials", "references"], `${type}.report`);
+    onlyKeys(report, ["section", "show", "address", "dials", "references", "bundle"], `${type}.report`);
     for (const attr of report.show) {
       if (!read.includes(attr)) throw new Error(`mapping: ${type}.report shows "${attr}", which is not in its "read" list`);
     }
@@ -149,6 +152,50 @@ function checkReport(type, entry) {
     for (const attr of report.references ?? []) {
       if (!(entry.referenceAttrs ?? []).includes(attr)) {
         throw new Error(`mapping: ${type}.report references "${attr}", which is not in its "referenceAttrs"`);
+      }
+    }
+    // `bundle`: this type is a workload, and how one is drafted as a bundle
+    // (ADR-0074 §3, §6). The mapping names the placement kind its workloads
+    // satisfy, so a provider is added here and not in cloister's code. Only a
+    // forwarded kind may be named: cloister does not build these.
+    if (report.bundle !== undefined) {
+      const { bundle } = report;
+      const where = `${type}.report bundle`;
+      if (!isTable(bundle) || !FORWARDED_KINDS.includes(bundle.placement)) {
+        throw new Error(`mapping: ${where} needs a "placement" that is one of ${FORWARDED_KINDS.join(", ")}`);
+      }
+      onlyKeys(bundle, ["placement", "image", "ports", "wires"], where);
+      const readFrom = (ref, keys, what) => {
+        if (!isTable(ref) || !lists.has(ref.list)) throw new Error(`mapping: ${where} ${what} needs a "list" the entry reads`);
+        for (const key of keys) {
+          if (!(lists.get(ref.list).read ?? []).includes(ref[key])) {
+            throw new Error(`mapping: ${where} ${what} ${key} "${ref[key]}" is not read from list "${ref.list}"`);
+          }
+        }
+      };
+      if (bundle.image !== undefined) {
+        onlyKeys(bundle.image, ["list", "value"], `${where} image`);
+        readFrom(bundle.image, ["value"], "image");
+      }
+      // A wire is the provider's name for how a port is served; its value is
+      // the app_protocol label a drafted port carries.
+      const wires = bundle.wires ?? {};
+      if (!isTable(wires)) throw new Error(`mapping: ${where} wires must be a table`);
+      for (const [wire, label] of Object.entries(wires)) {
+        const problem = validateAppProtocol(label);
+        if (problem) throw new Error(`mapping: ${where} wires "${wire}": appProtocol ${problem}`);
+      }
+      if (bundle.ports !== undefined) {
+        onlyKeys(bundle.ports, ["list", "name", "port", "default"], `${where} ports`);
+        readFrom(bundle.ports, ["name", "port"], "ports");
+        const fallback = bundle.ports.default;
+        if (fallback !== undefined) {
+          onlyKeys(fallback, ["name", "port"], `${where} ports default`);
+          if (!Number.isInteger(fallback.port) || fallback.port < 1 || !Object.hasOwn(wires, fallback.name)) {
+            throw new Error(`mapping: ${where} ports default needs a "port" number and a "name" that is one of its wires`);
+          }
+        }
+        if (Object.keys(wires).length === 0) throw new Error(`mapping: ${where} declares ports and no "wires"`);
       }
     }
   }

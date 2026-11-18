@@ -32,6 +32,7 @@ you name, and nothing else.
 | You have | You want | Command |
 |---|---|---|
 | A Terraform or OpenTofu plan | To see which service calls which, and who may invoke it | `cloister inspect --terraform` |
+| A Terraform or OpenTofu plan | A first `cluster.toml` without writing it | `cloister inspect --terraform --draft` |
 | That plan and a `cluster.toml` | To know where the two disagree | `cloister inspect --terraform --dir` |
 | Kubernetes or Knative manifests | Each service held to its declared connections, plus network policies | `cloister cluster k8s` |
 | A repository and a coding tool | The tool confined to that repository | `cloister run --harness` |
@@ -65,6 +66,17 @@ cloister inspect --terraform plan.json --dir . --env prod
 Each declared connection is reported as `evidenced` or `unknown`. An edge the
 plan implies with no connection declared for it is reported as `undeclared`.
 
+You do not have to write that `cluster.toml` yourself. `--draft` prints one
+from the plan:
+
+```sh
+cloister inspect --terraform plan.json --draft --env prod > cluster.toml
+```
+
+Each service becomes a bundle and each edge becomes a connection. The top of
+the draft lists what the plan did not show, so read that first. Nothing is
+adopted until you commit the file.
+
 What it reads today: Cloud Run services and jobs, their IAM invoker rows, and
 Cloudflare resources. A resource type it does not read is listed as skipped.
 An address that arrives through a secret reference is not in the plan, so that
@@ -89,9 +101,9 @@ A Knative Service is checked the same way, and nothing is written for it.
 
 ### What is not built yet
 
-You still write `cluster.toml` by hand. Drafting it from a plan is the next
-step, and writing each service's addresses for a local cluster comes after
-that. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
+Writing each service's addresses for a local cluster is not built: the draft
+describes the deployment the plan is for, and a second placement for a local
+cluster is still added by hand. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
 
 ## Install
@@ -209,7 +221,7 @@ A connection is only as strong as the weaker of its two ends. If you set
 | `microvm` | The service has only the sockets it was granted | `capability` |
 | `kubernetes` | A `NetworkPolicy` per connection | `policy` |
 | `knative` | Checked against the manifest; nothing enforces it | `none` |
-| `cloudRun` | Read by `inspect`; cannot be a connection end yet | `none` |
+| `cloudRun` | Checked against a plan by `inspect`; nothing enforces it | `none` |
 | `workerd` | Service bindings inside the router | not a connection end |
 
 ### Commands
