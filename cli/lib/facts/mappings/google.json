@@ -3,9 +3,24 @@
   "types": {
     "google_cloud_run_v2_service": {
       "name": "name",
-      "read": ["location", "ingress"],
+      "read": ["location", "ingress", "uri"],
       "ids": ["project", "id"],
-      "report": { "section": "Cloud Run services", "show": ["location", "ingress"] }
+      "referenceAttrs": ["template"],
+      "lists": [
+        { "path": "template.containers", "read": ["name", "image"], "strings": ["args", "command"] },
+        { "path": "template.containers.env", "read": ["name", "value"] },
+        { "path": "template.containers.ports", "read": ["name", "container_port"] }
+      ],
+      "report": {
+        "section": "Cloud Run services", "show": ["location", "ingress"],
+        "address": "uri",
+        "dials": [
+          { "list": "env", "value": "value", "label": "name", "prefix": "env" },
+          { "list": "containers", "strings": "args", "prefix": "args" },
+          { "list": "containers", "strings": "command", "prefix": "command" }
+        ],
+        "references": ["template"]
+      }
     },
     "google_cloud_run_service_iam_member": {
       "read": ["role", "member", "service", "location"],
@@ -39,7 +54,21 @@
       "name": "name",
       "read": ["location"],
       "ids": ["project", "id"],
-      "report": { "section": "Cloud Run jobs", "show": ["location"] }
+      "referenceAttrs": ["template"],
+      "lists": [
+        { "path": "template.template.containers", "read": ["name", "image"], "strings": ["args", "command"] },
+        { "path": "template.template.containers.env", "read": ["name", "value"] },
+        { "path": "template.template.containers.ports", "read": ["name", "container_port"] }
+      ],
+      "report": {
+        "section": "Cloud Run jobs", "show": ["location"],
+        "dials": [
+          { "list": "env", "value": "value", "label": "name", "prefix": "env" },
+          { "list": "containers", "strings": "args", "prefix": "args" },
+          { "list": "containers", "strings": "command", "prefix": "command" }
+        ],
+        "references": ["template"]
+      }
     },
     "google_cloud_run_v2_job_iam_member": {
       "read": ["role", "member", "name", "location"],

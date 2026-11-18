@@ -371,7 +371,8 @@ export const COMMANDS = [
       "whose value is unknown until apply may resolve through the configuration's " +
       "references, only when exactly one referenced resource has the target type. " +
       "Cloudflare resource types, Google Cloud Run services and jobs (with their invoker " +
-      "member rows) and Cloud SQL instances and Cloud Tasks queues, and " +
+      "member rows, and what each one dials, read from its containers' env and args) " +
+      "and Cloud SQL instances and Cloud Tasks queues, and " +
       "wrangler.toml / wrangler.json are read today. ADR-0073.",
     flags: [
       { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },

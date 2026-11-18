@@ -168,6 +168,131 @@
           "sensitive": false,
           "type": "bool"
         },
+        "template": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "parallelism": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "task_count": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "template": {
+              "attributes": {
+                "containers": {
+                  "attributes": {
+                    "args": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "command": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "depends_on": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "env": {
+                      "attributes": {
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "value": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "set",
+                      "sensitive": false
+                    },
+                    "image": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "ports": {
+                      "attributes": {
+                        "container_port": {
+                          "sensitive": false,
+                          "type": "number"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "working_dir": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "encryption_key": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "execution_environment": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "gpu_zonal_redundancy_disabled": {
+                  "sensitive": false,
+                  "type": "bool"
+                },
+                "max_retries": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "service_account": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "timeout": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
         "terminal_condition": {
           "sensitive": false,
           "type": [
@@ -379,6 +504,142 @@
         "reconciling": {
           "sensitive": false,
           "type": "bool"
+        },
+        "template": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "containers": {
+              "attributes": {
+                "args": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "base_image_uri": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "build_info": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    [
+                      "object",
+                      {
+                        "function_target": "string",
+                        "source_location": "string"
+                      }
+                    ]
+                  ]
+                },
+                "command": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "depends_on": {
+                  "sensitive": false,
+                  "type": [
+                    "list",
+                    "string"
+                  ]
+                },
+                "env": {
+                  "attributes": {
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "value": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "set",
+                  "sensitive": false
+                },
+                "image": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "ports": {
+                  "attributes": {
+                    "container_port": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "working_dir": {
+                  "sensitive": false,
+                  "type": "string"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            },
+            "encryption_key": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "execution_environment": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "gpu_zonal_redundancy_disabled": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "max_instance_request_concurrency": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "revision": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "service_account": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "session_affinity": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "timeout": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
         },
         "terminal_condition": {
           "sensitive": false,

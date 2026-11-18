@@ -8,6 +8,25 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `inspect --terraform` reads what a Cloud Run container is started with, and what it dials
+
+- **Nested blocks are read.** A Cloud Run service's or job's containers, env,
+  args, command and ports sit in nested blocks. A mapping's `lists` path may
+  now walk through blocks and through lists of lists. The spec projection
+  includes a block only where a mapped path goes through it.
+- **The report shows what each service or job dials.** In a state document, a
+  string that holds another service's address. In a plan, where the address is
+  unknown until apply, what the configuration says the value is taken from,
+  named by env var: `dials: reconciler (Cloud Run services; referenced by
+  configuration in env RECONCILER_URL)`.
+- **Sensitive values are not read, and the report says when a list was
+  withheld.** Terraform marks a whole env set sensitive when one value is.
+  The edge is still found from the configuration.
+- **Tested on a document the real tool wrote.**
+  `test/fixtures/terraform/google-plan.show.json` is `tofu plan` and `tofu
+  show -json` output for `google-plan.tf`, produced offline and trimmed.
+- ADR-0073 §3 describes it.
+
 ### 2026-11 — cluster.toml has a published JSON Schema
 
 - **The schema.** `schema/cluster.toml.schema.json`, generated from

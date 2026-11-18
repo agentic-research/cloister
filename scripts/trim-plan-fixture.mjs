@@ -49,10 +49,48 @@ function reduce(source, entry) {
     const v = getPath(source, path);
     if (v !== undefined && (typeof v !== "object" || v === null)) setPath(out, path, v);
   }
+  // Lists may nest (a block inside a block), so every mapped list's fields are
+  // gathered per path first, and the structure is then copied down to them.
+  const keep = new Map();
   for (const list of entry.lists ?? []) {
-    const rows = getPath(source, list.path);
-    if (rows === undefined) continue;
-    setPath(out, list.path, Array.isArray(rows) ? rows.map((row) => pick(row, list.read)) : rows);
+    keep.set(list.path, [...(keep.get(list.path) ?? []), ...(list.read ?? []), ...(list.strings ?? [])]);
+  }
+  for (const top of new Set([...keep.keys()].map((path) => path.split(".")[0]))) {
+    const copied = copyLists(source[top], top, keep);
+    if (copied !== undefined) out[top] = copied;
+  }
+  return out;
+}
+
+/** Copy `value` at `path`, keeping only mapped list fields and the containers that lead to them. */
+function copyLists(value, path, keep) {
+  if (value === undefined) return undefined;
+  // A marker such as `true` (a whole list is sensitive) is not a container: keep it as it is.
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => copyLists(item, path, keep));
+  const out = keep.has(path) ? pick(value, keep.get(path)) : {};
+  for (const next of keep.keys()) {
+    if (!next.startsWith(`${path}.`)) continue;
+    const key = next.slice(path.length + 1).split(".")[0];
+    if (Object.hasOwn(out, key) && keep.has(`${path}.${key}`) === false) continue;
+    const copied = copyLists(value[key], `${path}.${key}`, keep);
+    if (copied !== undefined) out[key] = copied;
+  }
+  return out;
+}
+
+/** An expression reduced to what the importer reads: `references`, and the constant `name` of a row. */
+function trimExpression(expression) {
+  if (Array.isArray(expression)) return expression.map(trimExpression);
+  if (!expression || typeof expression !== "object") return undefined;
+  if (Array.isArray(expression.references)) return { references: expression.references };
+  const out = {};
+  for (const [key, value] of Object.entries(expression)) {
+    if (key === "name" && typeof value?.constant_value === "string") out.name = { constant_value: value.constant_value };
+    else if (key !== "constant_value") {
+      const inner = trimExpression(value);
+      if (inner !== undefined && (Array.isArray(inner) ? inner.length : Object.keys(inner).length)) out[key] = inner;
+    }
   }
   return out;
 }
@@ -80,8 +118,8 @@ export function trimPlan(plan) {
       const entry = entryOf(r.type);
       const expressions = {};
       for (const attr of entry.referenceAttrs ?? []) {
-        const refs = r.expressions?.[attr]?.references;
-        if (Array.isArray(refs)) expressions[attr] = { references: refs };
+        const trimmed = trimExpression(r.expressions?.[attr]);
+        if (trimmed !== undefined && (Array.isArray(trimmed) ? trimmed.length : Object.keys(trimmed).length)) expressions[attr] = trimmed;
       }
       return { address: r.address, type: r.type, name: r.name, expressions };
     });

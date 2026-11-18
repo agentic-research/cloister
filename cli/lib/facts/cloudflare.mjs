@@ -23,8 +23,9 @@
 
 import { readFileSync } from "node:fs";
 
-import { makeFact, pickPublic } from "./facts.mjs";
+import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { validateMapping } from "./validate.mjs";
+import { SITES } from "./terraform.mjs";
 
 const readJson = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
 
@@ -76,6 +77,46 @@ function pickPath(values, sensitive, path) {
   return pickPublic(v, s, [key])[key];
 }
 
+/**
+ * The rows of a list at `segments`, each with its own sensitivity marker.
+ *
+ * A path may pass THROUGH lists on the way: a Cloud Run service's
+ * `template.containers.env` is a list (`template`) of lists (`containers`) of
+ * rows (`env`), and every container's rows are wanted. The values and the
+ * document's `sensitive_values` are walked side by side, because a marker
+ * means something only at the same position as its value.
+ *
+ * A well-formed document gives a list either no marker, or an array with one
+ * marker per element. `true` means the whole list is sensitive. Any other
+ * shape is malformed and is treated the same way. An element with no marker
+ * of its own (a marker array shorter than the list) is not known to be public.
+ * In each of those cases the rows are withheld and the caller is told.
+ */
+function rowsAt(values, sensitive, segments) {
+  let level = [{ value: values, marker: sensitive }];
+  let withheld = false;
+  for (const segment of segments) {
+    const next = [];
+    for (const { value, marker } of level) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const inner = value[segment];
+      const innerMarker = marker && typeof marker === "object" && !Array.isArray(marker) ? marker[segment] : marker === undefined ? undefined : null;
+      if (innerMarker === null) { withheld = true; continue; }
+      if (!Array.isArray(inner)) {
+        if (inner !== undefined && inner !== null) next.push({ value: inner, marker: innerMarker });
+        continue;
+      }
+      if (innerMarker !== undefined && !Array.isArray(innerMarker)) { withheld = true; continue; }
+      inner.forEach((item, index) => {
+        if (Array.isArray(innerMarker) && index >= innerMarker.length) { withheld = true; return; }
+        next.push({ value: item, marker: Array.isArray(innerMarker) ? innerMarker[index] : undefined });
+      });
+    }
+    level = next;
+  }
+  return { rows: level.map(({ value, marker }) => ({ row: value, marker })), withheld };
+}
+
 /** The ONE generic importer: a resource of a mapped type in, a fact out. */
 export function importResource(resource, entry, references) {
   const { values, sensitive } = resource;
@@ -91,30 +132,21 @@ export function importResource(resource, entry, references) {
   }
   for (const list of entry.lists ?? []) {
     const key = list.path.split(".").pop();
-    const rows = getPath(values, list.path);
-    const markers = getPath(sensitive, list.path);
+    const { rows, withheld } = rowsAt(values, sensitive, list.path.split("."));
     attrs[key] = [];
-    if (!Array.isArray(rows)) continue;
-    // A well-formed document gives a list either no marker or an array with
-    // one marker per row. `true` means the whole list is sensitive. Any other
-    // shape is malformed, and is treated the same way: the list is withheld
-    // and the report says so.
-    if (markers !== undefined && !Array.isArray(markers)) {
-      attrs[`${key}Withheld`] = true;
-      continue;
-    }
-    rows.forEach((row, index) => {
-      if (!row || typeof row !== "object") return;
-      let marker;
-      if (Array.isArray(markers)) {
-        // A row with no marker of its own (a marker list shorter than the
-        // rows) is not known to be public, so it is withheld.
-        if (index >= markers.length) { attrs[`${key}Withheld`] = true; return; }
-        marker = markers[index];
+    if (withheld) attrs[`${key}Withheld`] = true;
+    for (const { row, marker } of rows) {
+      if (!row || typeof row !== "object") continue;
+      const picked = pickPublic(row, marker, list.read ?? []);
+      for (const name of list.strings ?? []) {
+        // A list of strings is read whole or not at all: any marker on it
+        // other than "nothing here is sensitive" withholds it.
+        if (!Array.isArray(row[name]) || isMarkedSensitive(marker?.[name])) continue;
+        const strings = row[name].filter((item) => typeof item === "string");
+        if (strings.length > 0) picked[name] = strings;
       }
-      const picked = pickPublic(row, marker, list.read);
       if (Object.keys(picked).length > 0) attrs[key].push(picked);
-    });
+    }
   }
   // Configuration references (plan documents), for the attributes the mapping names only.
   const kept = {};
@@ -123,6 +155,13 @@ export function importResource(resource, entry, references) {
     if (Array.isArray(addresses) && addresses.length) kept[attr] = addresses;
   }
   if (Object.keys(kept).length) attrs.references = kept;
+  // Where inside a nested block each kept reference is written ("env X").
+  const sites = {};
+  for (const attr of Object.keys(kept)) {
+    const found = references?.[SITES]?.[attr];
+    if (Array.isArray(found) && found.length) sites[attr] = found.map(({ address, where }) => ({ address, where }));
+  }
+  if (Object.keys(sites).length) attrs.referenceSites = sites;
   const named = entry.name === undefined ? undefined : pickPath(values, sensitive, entry.name);
   return makeFact({
     source: SOURCE_OF.get(entry) ?? "terraform:cloudflare",
