@@ -113,6 +113,36 @@ authoritative: a resource with no row for a label is reported as "unknown",
 never as "none". The Cloudflare sections predate this and are still written by
 hand in the report.
 
+**Nested blocks, and the edges nobody declared (2026-11-18).** A resource's
+structure is not only attributes. A Cloud Run service keeps its containers,
+their env, args and ports in nested blocks (`template` → `containers` →
+`env`). A mapping's `lists` path may now walk through such blocks, and through
+a list on the way to another list. The spec projection includes a block only
+when a mapped path goes through it. The values and the document's
+`sensitive_values` are walked side by side, and a list whose marker is `true`,
+malformed or too short is withheld and reported as withheld. Terraform marks a
+whole set sensitive when one element is, so one secret env value withholds the
+container's whole env.
+
+Those strings are where the graph nobody declared is written. A reported type
+may declare an `address` (the attribute holding where it is reached) and
+`dials` (which of its own strings may name another resource's address). The
+report then lists what each resource dials, from two exact sources, and says
+which:
+
+- **By address.** A string the resource starts with holds the host of another
+  resource's address. This is the usual source in a state document, where
+  addresses are concrete. A host that is the address of two resources resolves
+  to neither.
+- **By configuration.** In a plan, an address is often unknown until apply,
+  but `configuration` records that the value is taken from another resource.
+  The reference is found inside the nested block, and the row's own constant
+  name says where: `env RECONCILER_URL`. This works even when the env values
+  themselves are withheld.
+
+A dialled edge is an observation, like every fact. Values are never printed:
+only the target and where the string was.
+
 A plan document adds one more source for a join. A value that is unknown until
 apply (a route's `script`, a version's `worker_id`) is absent from
 `planned_values`, but `configuration` records which resources the expression

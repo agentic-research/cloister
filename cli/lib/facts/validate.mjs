@@ -50,6 +50,15 @@ export function validateMapping(mapping, spec) {
       const nested = lookup(attributes, list.path, here);
       if (!nested.attributes) throw new Error(`mapping: list "${here}${list.path}" is not a nested attribute`);
       for (const path of list.read ?? []) scalar(nested.attributes, path, `${here}${list.path}.`);
+      // `strings` names attributes of a row that are themselves lists of
+      // strings (a container's `args`), read whole.
+      for (const path of list.strings ?? []) {
+        const leaf = lookup(nested.attributes, path, `${here}${list.path}.`);
+        const [collection, element] = Array.isArray(leaf.type) ? leaf.type : [];
+        if (!["list", "set"].includes(collection) || element !== "string") {
+          throw new Error(`mapping: "${here}${list.path}.${path}" is not a list of strings`);
+        }
+      }
     }
     for (const rel of entry.relations ?? []) {
       scalar(attributes, rel.attr, here);
@@ -108,9 +117,39 @@ function checkReport(type, entry) {
     if (!isTable(report) || !isText(report.section) || !Array.isArray(report.show)) {
       throw new Error(`mapping: ${type}.report needs a "section" title and a "show" list`);
     }
-    onlyKeys(report, ["section", "show"], `${type}.report`);
+    onlyKeys(report, ["section", "show", "address", "dials", "references"], `${type}.report`);
     for (const attr of report.show) {
       if (!read.includes(attr)) throw new Error(`mapping: ${type}.report shows "${attr}", which is not in its "read" list`);
+    }
+    // `address`: the attribute holding where this resource is reached.
+    if (report.address !== undefined && !read.includes(report.address)) {
+      throw new Error(`mapping: ${type}.report address "${report.address}" is not in its "read" list`);
+    }
+    // `dials`: where this resource's own strings may name another resource's
+    // address. Each names one of the entry's lists and a field that list reads.
+    const lists = new Map((entry.lists ?? []).map((list) => [list.path.split(".").pop(), list]));
+    for (const dial of report.dials ?? []) {
+      if (!isTable(dial) || !isText(dial.prefix) || !lists.has(dial.list)) {
+        throw new Error(`mapping: ${type}.report dials needs a "prefix" and a "list" the entry reads`);
+      }
+      onlyKeys(dial, ["list", "value", "label", "strings", "prefix"], `${type}.report dials`);
+      const list = lists.get(dial.list);
+      for (const key of ["value", "label"]) {
+        if (dial[key] !== undefined && !(list.read ?? []).includes(dial[key])) {
+          throw new Error(`mapping: ${type}.report dials ${key} "${dial[key]}" is not read from list "${dial.list}"`);
+        }
+      }
+      if (dial.strings !== undefined && !(list.strings ?? []).includes(dial.strings)) {
+        throw new Error(`mapping: ${type}.report dials strings "${dial.strings}" is not read from list "${dial.list}"`);
+      }
+      if ((dial.value === undefined) === (dial.strings === undefined)) {
+        throw new Error(`mapping: ${type}.report dials on list "${dial.list}" needs exactly one of "value" or "strings"`);
+      }
+    }
+    for (const attr of report.references ?? []) {
+      if (!(entry.referenceAttrs ?? []).includes(attr)) {
+        throw new Error(`mapping: ${type}.report references "${attr}", which is not in its "referenceAttrs"`);
+      }
     }
   }
   if (entry.access !== undefined) {

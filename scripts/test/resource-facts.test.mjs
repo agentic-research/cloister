@@ -880,7 +880,7 @@ test("validateMapping holds report and access blocks to the entry's own read lis
   const SERVICE = "google_cloud_run_v2_service";
   const MEMBER = "google_cloud_run_v2_service_iam_member";
   const access = GOOGLE_MAPPING.types[MEMBER].access;
-  assert.throws(() => validateMapping(patched(SERVICE, { report: { section: "X", show: ["uri"] } }), GOOGLE_SPEC), /shows "uri", which is not in its "read" list/);
+  assert.throws(() => validateMapping(patched(SERVICE, { report: { section: "X", show: ["etag"] } }), GOOGLE_SPEC), /shows "etag", which is not in its "read" list/);
   assert.throws(() => validateMapping(patched(SERVICE, { report: { show: [] } }), GOOGLE_SPEC), /needs a "section" title/);
   assert.throws(() => validateMapping(patched(SERVICE, { report: { section: "X", show: [], grant: true } }), GOOGLE_SPEC), /unknown key "grant"/);
   assert.throws(() => validateMapping(patched(MEMBER, { access: { ...access, principal: "etag" } }), GOOGLE_SPEC), /principal "etag" is not in its "read" list/);
@@ -896,4 +896,186 @@ test("an access row's role is looked up by own property", () => {
   ]));
   const report = buildReport({ facts, kind, skipped: {}, formatVersion: "1.0" }, CLUSTER);
   assert.deepEqual(sectionOf(report, "Cloud Run services").resources[0].access, []);
+});
+
+// ── nested blocks: what a Cloud Run container is started with ────────────
+//
+// A service's env, args and ports sit in nested blocks
+// (template → containers → env). Read from the rendered document, they are
+// where the graph nobody declared is written down.
+
+const RUN = "google_cloud_run_v2_service";
+const JOB = "google_cloud_run_v2_job";
+const container = (extra = {}) => ({ name: "app", image: "example.com/app:1", ...extra });
+const runService = (tf, name, containers, extra = {}) => [RUN, tf, {
+  name, location: "us-central1", project: "example-project", ingress: "INGRESS_TRAFFIC_INTERNAL_ONLY",
+  uri: `https://${name}-0000000000-uc.a.run.app`, template: [{ containers }], ...extra,
+}];
+const runJob = (tf, name, containers) => [JOB, tf, { name, location: "us-central1", project: "example-project", template: [{ template: [{ containers }] }] }];
+const sectionResource = (report, title, name) => sectionOf(report, title).resources.find((r) => r.name === name);
+
+test("nested blocks: containers, env, args and ports are read through lists of lists", () => {
+  const { facts } = importFacts(docOf([
+    runService("api", "api", [
+      container({ args: ["--listen", ":8080"], env: [{ name: "A", value: "1" }, { name: "B", value: "2" }], ports: [{ name: "h2c", container_port: 8080 }] }),
+      container({ name: "sidecar", image: "example.com/sidecar:1", command: ["/bin/proxy"], env: [{ name: "C", value: "3" }] }),
+    ]),
+    runJob("nightly", "nightly", [container({ env: [{ name: "D", value: "4" }] })]),
+  ]));
+  const [api, nightly] = facts;
+  assert.deepEqual(api.attrs.containers, [
+    { name: "app", image: "example.com/app:1", args: ["--listen", ":8080"] },
+    { name: "sidecar", image: "example.com/sidecar:1", command: ["/bin/proxy"] },
+  ]);
+  assert.deepEqual(api.attrs.env, [{ name: "A", value: "1" }, { name: "B", value: "2" }, { name: "C", value: "3" }]);
+  assert.deepEqual(api.attrs.ports, [{ name: "h2c", container_port: 8080 }]);
+  // A job nests its containers one template deeper.
+  assert.deepEqual(nightly.attrs.env, [{ name: "D", value: "4" }]);
+});
+
+test("nested blocks: a sensitive env value is dropped, and a marker that cannot be trusted withholds the list", () => {
+  const doc = docOf([runService("api", "api", [container({ env: [{ name: "TOKEN", value: "s3cret-value" }, { name: "PLAIN", value: "ok" }], args: ["--key", "s3cret-value"] })])]);
+  const resource = doc.values.root_module.resources[0];
+  // The document marks one env value and the whole args list sensitive.
+  resource.sensitive_values = { template: [{ containers: [{ env: [{ value: true }, {}], args: true }] }] };
+  let [fact] = importFacts(doc).facts;
+  assert.deepEqual(fact.attrs.env, [{ name: "TOKEN" }, { name: "PLAIN", value: "ok" }]);
+  assert.equal(Object.hasOwn(fact.attrs.containers[0], "args"), false);
+  assert.ok(!strings(fact).includes("s3cret-value"));
+  // A marker list shorter than the rows: the unmarked row is not known to be public.
+  resource.sensitive_values = { template: [{ containers: [{ env: [{}] }] }] };
+  [fact] = importFacts(doc).facts;
+  assert.deepEqual(fact.attrs.env, [{ name: "TOKEN", value: "s3cret-value" }]);
+  assert.equal(fact.attrs.envWithheld, true);
+  // The whole template marked sensitive: nothing under it is read.
+  resource.sensitive_values = { template: true };
+  [fact] = importFacts(doc).facts;
+  assert.deepEqual([fact.attrs.containers, fact.attrs.env, fact.attrs.ports], [[], [], []]);
+  assert.equal(fact.attrs.envWithheld, true);
+  assert.ok(!strings(fact).includes("s3cret-value"));
+});
+
+test("state: a service that holds another's address in its env or args dials it, and values are never printed", () => {
+  const imported = importFacts(docOf([
+    runService("workqueue", "workqueue", [container({
+      env: [
+        { name: "RECONCILER_URL", value: "https://reconciler-0000000000-uc.a.run.app/run?token=s3cret-value" },
+        { name: "SELF", value: "https://workqueue-0000000000-uc.a.run.app" },
+        { name: "ELSEWHERE", value: "https://api.example.com" },
+      ],
+      args: ["--datastore", "datastore-0000000000-uc.a.run.app:443"],
+    })]),
+    runService("reconciler", "reconciler", [container()]),
+    runService("datastore", "datastore", [container()]),
+    runJob("sweep", "sweep", [container({ env: [{ name: "TARGET", value: "https://datastore-0000000000-uc.a.run.app" }] })]),
+  ]));
+  const report = buildReport(imported, CLUSTER);
+  assert.deepEqual(sectionResource(report, "Cloud Run services", "workqueue").dials, [
+    { to: "reconciler", section: "Cloud Run services", by: "address", where: "env RECONCILER_URL" },
+    { to: "datastore", section: "Cloud Run services", by: "address", where: "args" },
+  ]);
+  assert.deepEqual(sectionResource(report, "Cloud Run services", "reconciler").dials, []);
+  assert.deepEqual(sectionResource(report, "Cloud Run jobs", "sweep").dials, [
+    { to: "datastore", section: "Cloud Run services", by: "address", where: "env TARGET" },
+  ]);
+  const text = renderReport(report);
+  assert.match(text, / {2}workqueue {2}us-central1 {2}INGRESS_TRAFFIC_INTERNAL_ONLY\n {4}dials: reconciler {2}\(Cloud Run services; env RECONCILER_URL\)\n {4}dials: datastore {2}\(Cloud Run services; args\)\n/);
+  assert.ok(!`${text}${JSON.stringify(report)}`.includes("s3cret-value"), "an env value is never printed");
+  assert.ok(!`${text}${JSON.stringify(report)}`.includes("run.app"), "an address is used to match and is not printed");
+});
+
+test("plan: an address unknown until apply resolves through the configuration's references", () => {
+  const doc = docOf([
+    // `uri` is computed, so a plan has no value for it; and the env value that
+    // is taken from it is unknown too, so it is absent from the planned values.
+    [RUN, "workqueue", { name: "workqueue", location: "us-central1", project: "example-project", template: [{ containers: [container({ env: [{ name: "RECONCILER_URL" }] })] }] }],
+    [RUN, "reconciler", { name: "reconciler", location: "us-central1", project: "example-project", template: [{ containers: [container()] }] }],
+    ["google_sql_database_instance", "main", { name: "main", database_version: "POSTGRES_15", region: "us-central1", project: "example-project" }],
+  ]);
+  doc.planned_values = doc.values;
+  delete doc.values;
+  doc.configuration = { root_module: { resources: [{
+    address: `${RUN}.workqueue`, type: RUN, name: "workqueue",
+    expressions: { name: { constant_value: "workqueue" }, template: [{ containers: [{ env: [
+      { name: { constant_value: "RECONCILER_URL" }, value: { references: [`${RUN}.reconciler.uri`, `${RUN}.reconciler`] } },
+      { name: { constant_value: "DB" }, value: { references: ["google_sql_database_instance.main.connection_name", "google_sql_database_instance.main", "var.region"] } },
+    ] }] }] },
+  }] } };
+  const imported = importFacts(doc);
+  assert.equal(imported.kind, "plan");
+  const report = buildReport(imported, CLUSTER);
+  assert.deepEqual(sectionResource(report, "Cloud Run services", "workqueue").dials, [
+    // In the order the configuration's references sort: by resource address.
+    // The row's own constant name says where: the env var, never its value.
+    { to: "reconciler", section: "Cloud Run services", by: "configuration", where: "env RECONCILER_URL" },
+    { to: "main", section: "Databases", by: "configuration", where: "env DB" },
+  ]);
+  assert.match(renderReport(report), / {4}dials: reconciler {2}\(Cloud Run services; referenced by configuration in env RECONCILER_URL\)\n/);
+  // The same document read as STATE never uses references.
+  doc.values = doc.planned_values;
+  delete doc.planned_values;
+  assert.deepEqual(sectionResource(buildReport(importFacts(doc), CLUSTER), "Cloud Run services", "workqueue").dials, []);
+});
+
+test("an address two resources share resolves to neither", () => {
+  const twin = (tf, name) => runService(tf, name, [container()], { uri: "https://shared-0000000000-uc.a.run.app" });
+  const imported = importFacts(docOf([
+    runService("caller", "caller", [container({ env: [{ name: "URL", value: "https://shared-0000000000-uc.a.run.app" }] })]),
+    twin("a", "a"), twin("b", "b"),
+  ]));
+  assert.deepEqual(sectionResource(buildReport(imported, CLUSTER), "Cloud Run services", "caller").dials, []);
+});
+
+test("validateMapping holds dials, address and references to what the entry reads", () => {
+  const withReport = (patch) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    Object.assign(mapping.types[RUN].report, patch);
+    return mapping;
+  };
+  validateMapping(withReport({}), GOOGLE_SPEC);
+  assert.throws(() => validateMapping(withReport({ address: "etag" }), GOOGLE_SPEC), /address "etag" is not in its "read" list/);
+  assert.throws(() => validateMapping(withReport({ dials: [{ list: "volumes", value: "name", prefix: "x" }] }), GOOGLE_SPEC), /needs a "prefix" and a "list" the entry reads/);
+  assert.throws(() => validateMapping(withReport({ dials: [{ list: "env", value: "secret", prefix: "env" }] }), GOOGLE_SPEC), /value "secret" is not read from list "env"/);
+  assert.throws(() => validateMapping(withReport({ dials: [{ list: "containers", strings: "image", prefix: "x" }] }), GOOGLE_SPEC), /strings "image" is not read from list "containers"/);
+  assert.throws(() => validateMapping(withReport({ dials: [{ list: "env", prefix: "env" }] }), GOOGLE_SPEC), /needs exactly one of "value" or "strings"/);
+  assert.throws(() => validateMapping(withReport({ references: ["ingress"] }), GOOGLE_SPEC), /references "ingress", which is not in its "referenceAttrs"/);
+  // A list of strings must really be one in the provider's schema.
+  const mapping = structuredClone(GOOGLE_MAPPING);
+  mapping.types[RUN].lists[0].strings = ["image"];
+  assert.throws(() => validateMapping(mapping, GOOGLE_SPEC), /template\.containers\.image" is not a list of strings/);
+});
+
+// A plan document written by the real tool: `tofu plan` + `tofu show -json` on
+// test/fixtures/terraform/google-plan.tf, offline, with a placeholder token,
+// then trimmed. The hand-built documents above say what the reader does; this
+// says the real document has the shape they assume.
+const GOOGLE_PLAN_FIXTURE = fileURLToPath(new URL("../../test/fixtures/terraform/google-plan.show.json", import.meta.url));
+const googlePlan = () => JSON.parse(readFileSync(GOOGLE_PLAN_FIXTURE, "utf8"));
+
+test("real plan: edges come from the configuration, by env var name, with the env values withheld", () => {
+  const imported = importFacts(googlePlan());
+  assert.equal(imported.kind, "plan");
+  const report = buildReport(imported, CLUSTER);
+  const workqueue = sectionResource(report, "Cloud Run services", "workqueue");
+  // One env value in this container is sensitive, and Terraform marks the
+  // whole env SET sensitive for it. So no env row is read at all...
+  assert.deepEqual(workqueue.withheld, ["env"]);
+  // ...and the edge is still found, from what the configuration references.
+  assert.deepEqual(workqueue.dials, [{ to: "reconciler", section: "Cloud Run services", by: "configuration", where: "env RECONCILER_URL" }]);
+  assert.deepEqual(sectionResource(report, "Cloud Run jobs", "sweep").dials, [
+    { to: "reconciler", section: "Cloud Run services", by: "configuration", where: "env TARGET" },
+  ]);
+  // The invoker row names the service by a reference that is known at plan time.
+  assert.deepEqual(sectionResource(report, "Cloud Run services", "reconciler").access.map((a) => a.principal), [
+    "serviceAccount:workqueue@example-project.iam.gserviceaccount.com",
+  ]);
+  const text = renderReport(report);
+  assert.match(text, / {2}workqueue {2}us-central1 {2}INGRESS_TRAFFIC_INTERNAL_ONLY\n {4}env: withheld \(the document marks it sensitive, so it was not read\)\n {4}dials: reconciler/);
+  // The fixture does hold the sensitive value, as a real plan does. It is never read.
+  assert.ok(readFileSync(GOOGLE_PLAN_FIXTURE, "utf8").includes("FIXTURE-SENSITIVE-VALUE"));
+  assert.ok(!`${text}${JSON.stringify(report)}${JSON.stringify(imported.facts)}`.includes("FIXTURE-SENSITIVE-VALUE"));
+});
+
+test("real plan: the trimmed fixture is what the trimmer produces from itself", () => {
+  assert.equal(JSON.stringify(trimPlan(googlePlan())), JSON.stringify(googlePlan()));
 });

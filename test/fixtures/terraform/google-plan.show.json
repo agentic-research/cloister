@@ -1,0 +1,294 @@
+{
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_job.sweep",
+          "expressions": {
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "env": [
+                          {
+                            "name": {
+                              "constant_value": "TARGET"
+                            },
+                            "value": {
+                              "references": [
+                                "google_cloud_run_v2_service.reconciler.uri",
+                                "google_cloud_run_v2_service.reconciler"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "sweep",
+          "type": "google_cloud_run_v2_job"
+        },
+        {
+          "address": "google_cloud_run_v2_service.reconciler",
+          "expressions": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "ports": [
+                      {
+                        "name": {
+                          "constant_value": "h2c"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "reconciler",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_run_v2_service.workqueue",
+          "expressions": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": {
+                          "constant_value": "RECONCILER_URL"
+                        },
+                        "value": {
+                          "references": [
+                            "google_cloud_run_v2_service.reconciler.uri",
+                            "google_cloud_run_v2_service.reconciler"
+                          ]
+                        }
+                      },
+                      {
+                        "name": {
+                          "constant_value": "LOG_LEVEL"
+                        }
+                      },
+                      {
+                        "name": {
+                          "constant_value": "API_TOKEN"
+                        },
+                        "value": {
+                          "references": [
+                            "var.api_token"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "workqueue",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.workqueue_calls_reconciler",
+          "expressions": {
+            "name": {
+              "references": [
+                "google_cloud_run_v2_service.reconciler.name",
+                "google_cloud_run_v2_service.reconciler"
+              ]
+            }
+          },
+          "name": "workqueue_calls_reconciler",
+          "type": "google_cloud_run_v2_service_iam_member"
+        }
+      ]
+    }
+  },
+  "format_version": "1.2",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_job.sweep",
+          "mode": "managed",
+          "name": "sweep",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "env": [
+                          {}
+                        ],
+                        "ports": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_job",
+          "values": {
+            "location": "us-central1",
+            "name": "sweep",
+            "project": "example-project",
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "args": null,
+                        "command": null,
+                        "env": [
+                          {
+                            "name": "TARGET"
+                          }
+                        ],
+                        "image": "example.com/sweep:1",
+                        "name": null,
+                        "ports": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.reconciler",
+          "mode": "managed",
+          "name": "reconciler",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "env": [],
+                    "ports": [
+                      {}
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "reconciler",
+            "project": "example-project",
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": null,
+                    "command": null,
+                    "env": [],
+                    "image": "example.com/reconciler:1",
+                    "name": null,
+                    "ports": [
+                      {
+                        "container_port": 8080,
+                        "name": "h2c"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.workqueue",
+          "mode": "managed",
+          "name": "workqueue",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      false,
+                      false
+                    ],
+                    "env": true,
+                    "ports": []
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "workqueue",
+            "project": "example-project",
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      "--workers",
+                      "4"
+                    ],
+                    "command": null,
+                    "env": [
+                      {
+                        "name": "API_TOKEN",
+                        "value": "FIXTURE-SENSITIVE-VALUE"
+                      },
+                      {
+                        "name": "LOG_LEVEL",
+                        "value": "info"
+                      },
+                      {
+                        "name": "RECONCILER_URL"
+                      }
+                    ],
+                    "image": "example.com/workqueue:1",
+                    "name": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service_iam_member.workqueue_calls_reconciler",
+          "mode": "managed",
+          "name": "workqueue_calls_reconciler",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {},
+          "type": "google_cloud_run_v2_service_iam_member",
+          "values": {
+            "location": "us-central1",
+            "member": "serviceAccount:workqueue@example-project.iam.gserviceaccount.com",
+            "name": "reconciler",
+            "role": "roles/run.invoker"
+          }
+        }
+      ]
+    }
+  }
+}

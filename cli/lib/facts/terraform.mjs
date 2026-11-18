@@ -77,14 +77,57 @@ function readReferences(configuration) {
     // No mode check: a data source's address starts with `data.` and no fact has it.
     if (typeof resource?.address !== "string") continue;
     const byAttr = {};
+    const sites = {};
     for (const [attr, expression] of Object.entries(resource.expressions ?? {})) {
-      const refs = resourceReferences(expression?.references);
-      if (refs.length) byAttr[attr] = refs;
+      const found = deepReferences(expression, attr);
+      const refs = resourceReferences(found.flatMap((site) => site.references));
+      if (refs.length === 0) continue;
+      byAttr[attr] = refs;
+      // Where each one is written, for a reference inside a nested block.
+      sites[attr] = found.flatMap((site) => resourceReferences(site.references).map((address) => ({ address, where: site.where })));
     }
+    // Not enumerable: `byAttr` stays exactly the attr → addresses table it was.
+    Object.defineProperty(byAttr, SITES, { value: sites });
     out.set(resource.address, byAttr);
   }
   return out;
 }
+
+/**
+ * Every `references` entry under one top-level expression, with where it sits.
+ *
+ * A plain attribute's expression is `{ references: [...] }`. A nested block's
+ * is a list of objects that hold more expressions (a Cloud Run service's
+ * `template` holds `containers`, which hold `env`, whose `value` is the
+ * expression that references another resource). All of them belong to the
+ * top-level attribute they sit under.
+ */
+function deepReferences(expression, key, out = [], list = key) {
+  if (Array.isArray(expression)) {
+    // The rows of the list named `key`.
+    for (const item of expression) deepReferences(item, key, out, key);
+    return out;
+  }
+  if (!expression || typeof expression !== "object") return out;
+  if (Array.isArray(expression.references)) {
+    out.push({ references: expression.references, where: key });
+    return out;
+  }
+  // A row that states its own name as a constant (`env { name = "X" }`) lends
+  // it to the references in its other fields: "env X", never the value.
+  const named = typeof expression.name?.constant_value === "string" ? `${list} ${expression.name.constant_value}` : null;
+  for (const [inner, value] of Object.entries(expression)) {
+    const before = out.length;
+    deepReferences(value, inner, out, inner);
+    if (named && value && typeof value === "object" && Array.isArray(value.references)) {
+      for (const site of out.slice(before)) site.where = named;
+    }
+  }
+  return out;
+}
+
+/** The key under which a resource's reference table carries where each reference is written. */
+export const SITES = Symbol("reference sites");
 
 function collect(module, out) {
   for (const resource of module.resources ?? []) {

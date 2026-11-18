@@ -14,7 +14,8 @@
 // Every join here is exact equality on a mapped attribute. Nothing is matched
 // by guessing at a resource's name.
 
-import { bindingTarget, isWorkloadBinding, mappedEntries, resolveBinding, resolveRelations } from "./cloudflare.mjs";
+import { addressesIn } from "../cluster/manifest-addresses.mjs";
+import { bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
@@ -32,10 +33,76 @@ const VERSION = "cloudflare_worker_version";
  * elsewhere (another module, the console) is invisible here. So a resource
  * with no row for a label says "unknown", never "none".
  */
+/** The host a resource's address attribute names, or null. */
+function hostOf(value) {
+  if (typeof value !== "string") return null;
+  return addressesIn(value).find((a) => a.hostPosition)?.host ?? null;
+}
+
+/**
+ * What a resource's own strings say it calls: the edges of the graph that
+ * nobody declared and the document implies.
+ *
+ * Two sources, both exact, and the report says which:
+ *
+ * - `address`: a string the resource starts with (an env value, an argument)
+ *   holds the host of another reported resource's address. In a state
+ *   document the address is concrete, so this is the usual source there.
+ * - `configuration`: in a PLAN, the address is often unknown until apply, but
+ *   the configuration records that the value is taken from another resource.
+ *
+ * A host that is the address of two resources resolves to neither. Values are
+ * never returned: only the target, and where the string was (an env var's
+ * name, or "args").
+ */
+function dialsOf(fact, entry, facts, kind, addressed) {
+  const out = [];
+  const add = (target, by, where) => {
+    if (!target || target.address === fact.address) return;
+    const existing = out.find((d) => d.address === target.address);
+    // The value itself is better evidence than the reference it was built from.
+    if (existing) { if (existing.by === "configuration" && by === "address") Object.assign(existing, { by, where }); return; }
+    out.push({ address: target.address, to: target.name, section: mappedType(target.type)?.report?.section ?? "", by, where });
+  };
+  for (const dial of entry.report.dials ?? []) {
+    for (const row of fact.attrs[dial.list] ?? []) {
+      const strings = dial.strings ? (row[dial.strings] ?? []) : [row[dial.value]];
+      const where = dial.label && typeof row[dial.label] === "string" ? `${dial.prefix} ${row[dial.label]}` : dial.prefix;
+      for (const value of strings) {
+        if (typeof value !== "string") continue;
+        for (const { host } of addressesIn(value)) {
+          const targets = addressed.get(host) ?? [];
+          if (targets.length === 1) add(targets[0], "address", where);
+        }
+      }
+    }
+  }
+  if (kind === "plan") {
+    for (const attr of entry.report.references ?? []) {
+      for (const address of fact.attrs.references?.[attr] ?? []) {
+        const target = facts.find((f) => f.address === address);
+        // Where in the block the reference is written, when the configuration says.
+        const site = (fact.attrs.referenceSites?.[attr] ?? []).find((s) => s.address === address);
+        if (target && mappedType(target.type)?.report) add(target, "configuration", site?.where ?? attr);
+      }
+    }
+  }
+  return out.map(({ address: _address, ...dial }) => dial);
+}
+
 function declaredSections(facts, kind) {
   const byType = (type) => facts.filter((f) => f.type === type);
   const entries = mappedEntries();
   const sections = new Map();
+  // host → the resources reached there, for every type that declares an address.
+  const addressed = new Map();
+  for (const [type, entry] of entries) {
+    if (!entry.report?.address) continue;
+    for (const fact of byType(type)) {
+      const host = hostOf(fact.attrs[entry.report.address]);
+      if (host) addressed.set(host, [...(addressed.get(host) ?? []), fact]);
+    }
+  }
   for (const [type, entry] of entries) {
     if (!entry.report) continue;
     const accessTypes = entries.filter(([, e]) => e.access && (e.relations ?? []).some((r) => r.toType === type));
@@ -54,7 +121,15 @@ function declaredSections(facts, kind) {
           access.push({ label, principal, public: (rule.publicPrincipals ?? []).includes(principal) });
         }
       }
-      return { name: fact.name, attrs: Object.fromEntries(entry.report.show.map((attr) => [attr, fact.attrs[attr] ?? ""])), access };
+      return {
+        name: fact.name,
+        attrs: Object.fromEntries(entry.report.show.map((attr) => [attr, fact.attrs[attr] ?? ""])),
+        access,
+        dials: dialsOf(fact, entry, facts, kind, addressed),
+        // A list the document marks sensitive is not read. Say so: "no edge
+        // found" would otherwise read as "no edge".
+        withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),
+      };
     });
     if (resources.length === 0) continue;
     const title = entry.report.section;
@@ -279,6 +354,11 @@ export function renderReport(report) {
     for (const r of declared.resources) {
       lines.push(`  ${[r.name, ...Object.values(r.attrs)].filter((v) => v !== "").join("  ")}`);
       for (const a of r.access) lines.push(`    ${a.label}: ${a.principal}${a.public ? "  (public)" : ""}`);
+      for (const key of r.withheld) lines.push(`    ${key}: withheld (the document marks it sensitive, so it was not read)`);
+      for (const d of r.dials) {
+        const how = d.by === "address" ? d.where : `referenced by configuration in ${d.where}`;
+        lines.push(`    dials: ${d.to}  (${[d.section, how].filter(Boolean).join("; ")})`);
+      }
       for (const label of r.accessLabels) {
         if (!r.access.some((a) => a.label === label)) lines.push(`    ${label}: unknown (no access row in this document; access rows are non-authoritative)`);
       }

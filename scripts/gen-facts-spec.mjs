@@ -31,6 +31,41 @@ function projectAttributes(attributes) {
   return out;
 }
 
+/** Every dotted path a mapping entry names, each as its segments. */
+function mappedPaths(entry) {
+  const paths = [entry.name, ...(entry.read ?? []), ...(entry.ids ?? []), ...(entry.referenceAttrs ?? [])];
+  for (const list of entry.lists ?? []) paths.push(list.path);
+  for (const relation of entry.relations ?? []) paths.push(relation.attr);
+  return paths.filter((p) => typeof p === "string").map((p) => p.split("."));
+}
+
+/**
+ * A block's attributes, plus the nested BLOCKS a mapped path walks through.
+ *
+ * A provider declares structure two ways. A nested attribute
+ * (`nested_type`) sits among the attributes and is always projected. A nested
+ * block (`block_types`: a Cloud Run service's `template`, its `containers`,
+ * their `env`) sits beside them, and a resource can have dozens. Only the
+ * blocks on a path the mapping names are projected, each with all of its
+ * attributes, so the spec holds what the mapping can read and not the whole
+ * resource. A block is written like a nested attribute, which is how the
+ * mapping validator already walks one.
+ */
+function projectBlock(block, paths) {
+  const out = projectAttributes(block.attributes);
+  for (const [name, nested] of Object.entries(block.block_types ?? {})) {
+    const through = paths.filter((p) => p[0] === name);
+    if (through.length === 0) continue;
+    if (Object.hasOwn(out, name)) throw new Error(`"${name}" is both an attribute and a block`);
+    out[name] = {
+      sensitive: false,
+      nesting_mode: nested.nesting_mode,
+      attributes: projectBlock(nested.block, through.map((p) => p.slice(1)).filter((p) => p.length > 0)),
+    };
+  }
+  return out;
+}
+
 function sortKeys(value) {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value && typeof value === "object") {
@@ -45,10 +80,10 @@ export function projectSpec(providersSchema, version, mapping, providerSuffix = 
   const provider = providersSchema.provider_schemas?.[providerKey];
   if (!provider) throw new Error(`providers schema has no ${providerKey}`);
   const resources = {};
-  for (const type of Object.keys(mapping.types)) {
+  for (const [type, entry] of Object.entries(mapping.types)) {
     const schema = provider.resource_schemas?.[type];
     if (!schema) throw new Error(`provider schema has no resource type "${type}"`);
-    resources[type] = { attributes: projectAttributes(schema.block.attributes) };
+    resources[type] = { attributes: projectBlock(schema.block, mappedPaths(entry)) };
   }
   return sortKeys({ provider: mapping.provider, version, resources });
 }
