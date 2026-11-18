@@ -15,6 +15,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   pinned beside the zod and Go ones) and then reshaped for TOML. An editor can complete and check a `cluster.toml` with it, and
   another tool can read one without copying the parser. See
   `docs/reference/cluster-toml-schema.md`.
+- **Fields have descriptions.** `cluster.capnp` now carries a one-line
+  `$Traits.doc("...")` on the structs and fields an operator writes most (88
+  of them). LLO's generator turns each into a `description` in the schema,
+  which an editor shows on hover, and into a doc comment in `cluster.zod.ts`
+  and `pkg/cluster/cluster.go`. LLO's annotation file is vendored unchanged at
+  `manifest/_traits.capnp`.
 - **It is written the way an operator writes TOML.** A union is `kind =
   "external"` beside a `[bundles.external]` table, and inputs are keyed by
   name.

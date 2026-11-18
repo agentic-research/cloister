@@ -147,6 +147,13 @@ duplication for lost documentation. Tracked upstream as
 Until then `lint`'s `type-duplication` rail asserts the two do not DIVERGE —
 the real risk being silent disagreement, not duplication itself.
 
+A one-line description that SHOULD reach generated files is written as
+`$Traits.doc("...")` on the struct or field in `cluster.capnp` (the vocabulary
+is LLO's, vendored at `manifest/_traits.capnp`). schema-bridge carries it into
+`cluster.zod.ts`, `pkg/cluster/cluster.go` and the published cluster.toml
+schema, where an editor shows it on hover. The `#` comments still say why;
+the annotation says what the field is.
+
 Also: both schemas declare `McpTool` and `VaultProxyService`. The `*Spec` /
 `*Config` suffixes in the hand files disambiguate them; they are not
 accidental renames to be reconciled.

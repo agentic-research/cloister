@@ -199,3 +199,24 @@ test("the schema comes from LLO's generator, and holds only what a cluster.toml 
   assert.ok(refs.length > 20);
   for (const ref of refs) assert.ok(Object.hasOwn(schema.$defs, ref.replace("#/$defs/", "")), ref);
 });
+
+test("the schema carries the descriptions written on cluster.capnp", () => {
+  // `$Traits.doc("...")` on a struct or field becomes `description` here, which
+  // is what an editor shows on hover. schema-bridge recognises the annotation
+  // by id, so this also holds the vendored manifest/_traits.capnp to LLO's ids:
+  // with the wrong id the descriptions would simply be absent.
+  assert.match(def("PortSpec").properties.expose.description, /^Who may reach the port\./);
+  assert.match(def("PlacementSpec").description, /^Where a bundle runs/);
+  assert.match(def("Bundle").description, /^One unit of deployment/);
+  assert.match(schema.properties.connections.description, /^Declared outbound connections/);
+  // The TOML-only rewrites keep them.
+  assert.match(def("ConfinementFs").properties.allow.description, /bare path/);
+  assert.match(def("InputSpecByName").description, /^An external tool/);
+  // Every field an operator writes for a bundle, a port, a placement or a connection has one.
+  for (const name of ["Bundle", "ExternalBundle", "PortSpec", "PlacementSpec", "ConnectionSpec", "ConnectionTarget", "Confinement", "EnvVar"]) {
+    for (const [field, sub] of Object.entries(def(name).properties)) {
+      if (sub.$ref || sub.items?.$ref || def(name).oneOf?.some((b) => Object.hasOwn(b.properties, field))) continue;
+      assert.ok(typeof sub.description === "string" && sub.description.length > 10, `${name}.${field} has no description`);
+    }
+  }
+});

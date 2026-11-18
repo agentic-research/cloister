@@ -16,8 +16,11 @@ const (
 	TierCluster    Tier = "cluster"
 )
 
+// Names the cluster.
 type ClusterMetadata struct {
-	Name    string `json:"name"`
+	// The cluster's name. Required. Appears in container labels.
+	Name string `json:"name"`
+	// The cluster's version, pinned at deploy time. Required.
 	Version string `json:"version"`
 }
 
@@ -26,18 +29,29 @@ type BundleKindUnion struct {
 	External *ExternalBundle `json:"external,omitempty"`
 }
 
+// One unit of deployment in the cluster.
 type Bundle struct {
-	Name                string          `json:"name"`
-	Description         string          `json:"description"`
-	Tier                Tier            `json:"tier"`
-	HoldsCredential     []string        `json:"holdsCredential"`
-	WorkerdServiceName  string          `json:"workerdServiceName"`
-	HypervisorRationale string          `json:"hypervisorRationale"`
-	PerTenant           bool            `json:"perTenant"`
-	Confinement         Confinement     `json:"confinement"`
-	Ports               []PortSpec      `json:"ports"`
-	Placements          []PlacementSpec `json:"placements"`
-	Kind                BundleKindUnion `json:"kind"`
+	// The bundle's name. Unique in the cluster. A bundle that a connection touches must be named as a DNS label.
+	Name string `json:"name"`
+	// One line describing the bundle. Appears in container labels.
+	Description string `json:"description"`
+	// 'hypervisor' for a bundle that mediates between other bundles or to the outside, 'cluster' for a tool bundle. Documentation and audit, not a runtime gate.
+	Tier Tier `json:"tier"`
+	// The credential bindings this bundle may hold, by binding name. Empty means it holds none. A cluster-tier bundle must leave it empty.
+	HoldsCredential []string `json:"holdsCredential"`
+	// The workerd service this bundle corresponds to, when its name there differs. Empty for a bundle that does not run inside the router's workerd.
+	WorkerdServiceName string `json:"workerdServiceName"`
+	// Why this bundle is hypervisor tier. Required when tier is 'hypervisor'.
+	HypervisorRationale string `json:"hypervisorRationale"`
+	// When true, one instance of the bundle is produced per tenant. Requires a tenantDispatch route.
+	PerTenant bool `json:"perTenant"`
+	// What the bundle may touch: filesystem paths, egress hosts, one listener port, a credential source. Anything not allowed is denied.
+	Confinement Confinement `json:"confinement"`
+	// The bundle's named inbound ports. A connection refers to a port by name.
+	Ports []PortSpec `json:"ports"`
+	// Where the bundle runs, one row per environment.
+	Placements []PlacementSpec `json:"placements"`
+	Kind       BundleKindUnion `json:"kind"`
 }
 
 type WireTransportUnion struct {
@@ -69,26 +83,42 @@ func (u *WireTransportUnion) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// A service binding from one bundle to another.
 type Wire struct {
-	From      string             `json:"from"`
-	To        string             `json:"to"`
+	// The source bundle.
+	From string `json:"from"`
+	// The target bundle.
+	To string `json:"to"`
+	// The binding name the source uses to reach the target.
 	Binding   string             `json:"binding"`
 	Transport WireTransportUnion `json:"transport"`
 }
 
+// Where durable state is mounted.
 type StoragePolicy struct {
+	// The path where Durable Object storage is mounted. Must match the image and the workerd config. Usually '/data/do'.
 	DoStoragePath string `json:"doStoragePath"`
 }
 
+// An external tool, skill or bundle the cluster composes.
 type InputSpec struct {
-	Name                   string      `json:"name"`
-	Ref                    string      `json:"ref"`
-	Version                string      `json:"version"`
-	Digest                 string      `json:"digest"`
-	From                   string      `json:"from"`
-	Provides               []string    `json:"provides"`
-	Requires               []string    `json:"requires"`
-	UrlBinding             string      `json:"urlBinding"`
+	// The input's name. Unique in the cluster. In cluster.toml it is the key of the [inputs.<name>] table.
+	Name string `json:"name"`
+	// Where the input comes from: a registry name, an https URL, or a file URL.
+	Ref string `json:"ref"`
+	// The version, or a semver range. Empty picks the latest, which is not recommended.
+	Version string `json:"version"`
+	// The expected digest, as 'sha256:<hex>'. The fetched bytes must match it. Empty means the resolver pins one in cluster.lock.toml.
+	Digest string `json:"digest"`
+	// A local checkout to use while developing, as a file URL. It overrides ref, so it must not be committed.
+	From string `json:"from"`
+	// Capabilities this input offers, for example 'cloister/mcp-tool/v1'.
+	Provides []string `json:"provides"`
+	// Capabilities this input needs another input to provide.
+	Requires []string `json:"requires"`
+	// The binding that holds the input's upstream URL.
+	UrlBinding string `json:"urlBinding"`
+	// The workerd service binding that reaches the input, used in preference to urlBinding when set.
 	ServiceBinding         string      `json:"serviceBinding"`
 	Tenancy                TenancySpec `json:"tenancy"`
 	RequiresSessionRetired bool        `json:"requiresSessionRetired"`
@@ -231,81 +261,135 @@ type EdgeSpec struct {
 	Transport   string `json:"transport"`
 }
 
+// One declared outbound connection from a bundle to another bundle's port.
 type ConnectionSpec struct {
-	From        string             `json:"from"`
-	Name        string             `json:"name"`
-	AppProtocol string             `json:"appProtocol"`
-	Targets     []ConnectionTarget `json:"targets"`
-	MinStrength string             `json:"minStrength"`
+	// The bundle that dials.
+	From string `json:"from"`
+	// The connection's name. Unique per from bundle.
+	Name string `json:"name"`
+	// What is spoken. Must equal the target port's appProtocol.
+	AppProtocol string `json:"appProtocol"`
+	// Which bundle port answers, one row per environment.
+	Targets []ConnectionTarget `json:"targets"`
+	// The weakest enforcement this edge may have: 'none', 'policy' or 'capability'. The build fails if the two ends' placements deliver less. Empty means no floor.
+	MinStrength string `json:"minStrength"`
 }
 
+// A cloister cluster: its bundles, how they connect, and the gateway in front of them.
 type Cluster struct {
-	Metadata    ClusterMetadata  `json:"metadata"`
-	Bundles     []Bundle         `json:"bundles"`
-	Wires       []Wire           `json:"wires"`
-	Storage     StoragePolicy    `json:"storage"`
-	Inputs      []InputSpec      `json:"inputs"`
-	Routes      []Route          `json:"routes"`
-	Gateway     Gateway          `json:"gateway"`
-	Edges       []EdgeSpec       `json:"edges"`
+	// The cluster's name and version.
+	Metadata ClusterMetadata `json:"metadata"`
+	// The processes that make up the cluster.
+	Bundles []Bundle `json:"bundles"`
+	// Service bindings between bundles: one bundle reaches another through a named binding.
+	Wires []Wire `json:"wires"`
+	// Where durable state is mounted.
+	Storage StoragePolicy `json:"storage"`
+	// External tools, skills and bundles the cluster composes, each pinned by reference and version.
+	Inputs []InputSpec `json:"inputs"`
+	// The HTTP routes the gateway serves.
+	Routes []Route `json:"routes"`
+	// The gateway's own identity and policy, and its vault proxy services, harness targets and skills.
+	Gateway Gateway `json:"gateway"`
+	// Cross-tenant edges: which tenant may reach which, and for what protocol.
+	Edges []EdgeSpec `json:"edges"`
+	// Declared outbound connections: which bundle dials which bundle's port, per environment.
 	Connections []ConnectionSpec `json:"connections"`
 }
 
+// A bundle that runs as a v8 isolate inside the router's workerd.
 type WorkerdBundle struct {
+	// Path to the bundle's entry point, relative to the cloister source tree.
 	EntryPoint string `json:"entryPoint"`
 }
 
+// A bundle that runs its own image, outside the router's workerd.
 type ExternalBundle struct {
-	Image                  string   `json:"image"`
-	IpcSocket              string   `json:"ipcSocket"`
-	HttpPort               uint16   `json:"httpPort"`
-	Args                   []string `json:"args"`
-	Env                    []EnvVar `json:"env"`
-	EntryPoint             string   `json:"entryPoint"`
-	ExecutionMode          string   `json:"executionMode"`
-	ExecutionModeRationale string   `json:"executionModeRationale"`
+	// The OCI image reference.
+	Image string `json:"image"`
+	// The unix socket path the bundle listens on for tool calls.
+	IpcSocket string `json:"ipcSocket"`
+	// A TCP port the bundle also serves HTTP on. 0 means none.
+	HttpPort uint16 `json:"httpPort"`
+	// Command-line arguments, passed to the entry point exactly as written.
+	Args []string `json:"args"`
+	// Environment variables to set for the bundle. Stored in clear, so not for secrets.
+	Env []EnvVar `json:"env"`
+	// Absolute path of the binary inside the image. Required for a microvm bundle.
+	EntryPoint string `json:"entryPoint"`
+	// 'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale.
+	ExecutionMode string `json:"executionMode"`
+	// Why this bundle cannot be isolated. Required when executionMode is 'process'.
+	ExecutionModeRationale string `json:"executionModeRationale"`
 }
 
+// What a bundle may touch. Every dimension denies by default.
 type Confinement struct {
-	Fs               ConfinementFs      `json:"fs"`
-	Network          ConfinementNetwork `json:"network"`
-	Port             ConfinementPort    `json:"port"`
-	CredentialSource string             `json:"credentialSource"`
+	// Filesystem access.
+	Fs ConfinementFs `json:"fs"`
+	// Outbound network access.
+	Network ConfinementNetwork `json:"network"`
+	// The one port the bundle may listen on.
+	Port ConfinementPort `json:"port"`
+	// The vault backend the bundle's credentials come from, for example 'keychain://...'. Empty means none.
+	CredentialSource string `json:"credentialSource"`
 }
 
+// One named inbound port.
 type PortSpec struct {
-	Name        string `json:"name"`
-	Port        uint16 `json:"port"`
+	// The port's name. Unique per bundle. Connections refer to it.
+	Name string `json:"name"`
+	// The port number. Unique per bundle, and not zero.
+	Port uint16 `json:"port"`
+	// What is spoken on the port: a blessed 'art.*' label such as 'art.http' or 'art.grpc', or a vendor 'x-' label. A connection to this port must declare the same label.
 	AppProtocol string `json:"appProtocol"`
-	Expose      string `json:"expose"`
+	// Who may reach the port. 'none': nobody, and it cannot be a connection target. 'cluster': only through declared connections. 'edge': also from outside. Empty means 'none'.
+	Expose string `json:"expose"`
 }
 
+// Where a bundle runs in one environment.
 type PlacementSpec struct {
-	Env      string `json:"env"`
-	Kind     string `json:"kind"`
+	// The environment this row applies to, for example 'local'. Unique per bundle.
+	Env string `json:"env"`
+	// How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.
+	Kind string `json:"kind"`
+	// Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.
 	Manifest string `json:"manifest"`
 }
 
+// Filesystem paths the bundle may use.
 type ConfinementFs struct {
+	// Path prefixes the bundle may use. In cluster.toml an entry is a bare path (read-only) or a table with path and mode. Empty denies all filesystem access.
 	Allow []FsAllowEntry `json:"allow"`
 }
 
+// Hosts the bundle may connect to.
 type ConfinementNetwork struct {
+	// Hostnames the bundle may reach. A leading '*.' matches subdomains. Empty denies all egress.
 	AllowHosts []string `json:"allowHosts"`
 }
 
+// The listener the bundle may bind.
 type ConfinementPort struct {
-	Bind    uint16 `json:"bind"`
+	// The port, 1024 to 65535. 0 means no listener.
+	Bind uint16 `json:"bind"`
+	// The address to bind. Empty means 127.0.0.1.
 	Address string `json:"address"`
 }
 
+// One allowed path.
 type FsAllowEntry struct {
+	// The path prefix.
 	Path string `json:"path"`
+	// Empty for read-only, 'rw' for read and write.
 	Mode string `json:"mode"`
 }
 
+// One environment variable.
 type EnvVar struct {
-	Name  string `json:"name"`
+	// The variable's name. Not empty, and without '=' or NUL.
+	Name string `json:"name"`
+	// The variable's value. Stored in clear.
 	Value string `json:"value"`
 }
 
@@ -553,10 +637,14 @@ type BodyFieldSpec struct {
 	Path string `json:"path"`
 }
 
+// The bundle port that answers a connection in one environment.
 type ConnectionTarget struct {
-	Env    string `json:"env"`
+	// The environment, for example 'local'. Unique within a connection.
+	Env string `json:"env"`
+	// The target bundle. Never the connection's own from bundle.
 	Bundle string `json:"bundle"`
-	Port   string `json:"port"`
+	// The name of a port on the target bundle whose expose is not 'none'.
+	Port string `json:"port"`
 }
 
 type GeneratedBackend struct {

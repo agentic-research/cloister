@@ -2,27 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/agentic-research/cloister/main/schema/cluster.toml.schema.json",
   "title": "cloister cluster.toml",
-  "description": "The operator's declaration of a cloister cluster. Generated from manifest/cluster.capnp by LLO's schema-bridge and scripts/gen-cluster-toml-schema.mjs; do not edit by hand. A file that validates here has the right shape. The build still checks what a schema cannot: names that must match, ports that must exist, strengths that must be met.",
+  "description": "A cloister cluster: its bundles, how they connect, and the gateway in front of them.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "metadata": {
-      "$ref": "#/$defs/ClusterMetadata"
+      "$ref": "#/$defs/ClusterMetadata",
+      "description": "The cluster's name and version."
     },
     "bundles": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/Bundle"
-      }
+      },
+      "description": "The processes that make up the cluster."
     },
     "wires": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/Wire"
-      }
+      },
+      "description": "Service bindings between bundles: one bundle reaches another through a named binding."
     },
     "storage": {
-      "$ref": "#/$defs/StoragePolicy"
+      "$ref": "#/$defs/StoragePolicy",
+      "description": "Where durable state is mounted."
     },
     "inputs": {
       "oneOf": [
@@ -37,7 +41,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/InputSpec"
-          }
+          },
+          "description": "External tools, skills and bundles the cluster composes, each pinned by reference and version."
         }
       ]
     },
@@ -45,22 +50,26 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/Route"
-      }
+      },
+      "description": "The HTTP routes the gateway serves."
     },
     "gateway": {
-      "$ref": "#/$defs/Gateway"
+      "$ref": "#/$defs/Gateway",
+      "description": "The gateway's own identity and policy, and its vault proxy services, harness targets and skills."
     },
     "edges": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/EdgeSpec"
-      }
+      },
+      "description": "Cross-tenant edges: which tenant may reach which, and for what protocol."
     },
     "connections": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/ConnectionSpec"
-      }
+      },
+      "description": "Declared outbound connections: which bundle dials which bundle's port, per environment."
     }
   },
   "required": [
@@ -76,13 +85,16 @@
     },
     "ClusterMetadata": {
       "type": "object",
+      "description": "Names the cluster.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The cluster's name. Required. Appears in container labels."
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "description": "The cluster's version, pinned at deploy time. Required."
         }
       },
       "required": [
@@ -92,46 +104,57 @@
     },
     "Bundle": {
       "type": "object",
+      "description": "One unit of deployment in the cluster.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The bundle's name. Unique in the cluster. A bundle that a connection touches must be named as a DNS label."
         },
         "description": {
-          "type": "string"
+          "type": "string",
+          "description": "One line describing the bundle. Appears in container labels."
         },
         "tier": {
-          "$ref": "#/$defs/Tier"
+          "$ref": "#/$defs/Tier",
+          "description": "'hypervisor' for a bundle that mediates between other bundles or to the outside, 'cluster' for a tool bundle. Documentation and audit, not a runtime gate."
         },
         "holdsCredential": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "The credential bindings this bundle may hold, by binding name. Empty means it holds none. A cluster-tier bundle must leave it empty."
         },
         "workerdServiceName": {
-          "type": "string"
+          "type": "string",
+          "description": "The workerd service this bundle corresponds to, when its name there differs. Empty for a bundle that does not run inside the router's workerd."
         },
         "hypervisorRationale": {
-          "type": "string"
+          "type": "string",
+          "description": "Why this bundle is hypervisor tier. Required when tier is 'hypervisor'."
         },
         "perTenant": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "When true, one instance of the bundle is produced per tenant. Requires a tenantDispatch route."
         },
         "confinement": {
-          "$ref": "#/$defs/Confinement"
+          "$ref": "#/$defs/Confinement",
+          "description": "What the bundle may touch: filesystem paths, egress hosts, one listener port, a credential source. Anything not allowed is denied."
         },
         "ports": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/PortSpec"
-          }
+          },
+          "description": "The bundle's named inbound ports. A connection refers to a port by name."
         },
         "placements": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/PlacementSpec"
-          }
+          },
+          "description": "Where the bundle runs, one row per environment."
         },
         "workerd": {
           "$ref": "#/$defs/WorkerdBundle"
@@ -171,16 +194,20 @@
     },
     "Wire": {
       "type": "object",
+      "description": "A service binding from one bundle to another.",
       "additionalProperties": false,
       "properties": {
         "from": {
-          "type": "string"
+          "type": "string",
+          "description": "The source bundle."
         },
         "to": {
-          "type": "string"
+          "type": "string",
+          "description": "The target bundle."
         },
         "binding": {
-          "type": "string"
+          "type": "string",
+          "description": "The binding name the source uses to reach the target."
         },
         "transport": {
           "type": "string",
@@ -193,49 +220,61 @@
     },
     "StoragePolicy": {
       "type": "object",
+      "description": "Where durable state is mounted.",
       "additionalProperties": false,
       "properties": {
         "doStoragePath": {
-          "type": "string"
+          "type": "string",
+          "description": "The path where Durable Object storage is mounted. Must match the image and the workerd config. Usually '/data/do'."
         }
       }
     },
     "InputSpec": {
       "type": "object",
+      "description": "An external tool, skill or bundle the cluster composes.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The input's name. Unique in the cluster. In cluster.toml it is the key of the [inputs.<name>] table."
         },
         "ref": {
-          "type": "string"
+          "type": "string",
+          "description": "Where the input comes from: a registry name, an https URL, or a file URL."
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "description": "The version, or a semver range. Empty picks the latest, which is not recommended."
         },
         "digest": {
-          "type": "string"
+          "type": "string",
+          "description": "The expected digest, as 'sha256:<hex>'. The fetched bytes must match it. Empty means the resolver pins one in cluster.lock.toml."
         },
         "from": {
-          "type": "string"
+          "type": "string",
+          "description": "A local checkout to use while developing, as a file URL. It overrides ref, so it must not be committed."
         },
         "provides": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Capabilities this input offers, for example 'cloister/mcp-tool/v1'."
         },
         "requires": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Capabilities this input needs another input to provide."
         },
         "urlBinding": {
-          "type": "string"
+          "type": "string",
+          "description": "The binding that holds the input's upstream URL."
         },
         "serviceBinding": {
-          "type": "string"
+          "type": "string",
+          "description": "The workerd service binding that reaches the input, used in preference to urlBinding when set."
         },
         "tenancy": {
           "$ref": "#/$defs/TenancySpec"
@@ -489,128 +528,160 @@
     },
     "ConnectionSpec": {
       "type": "object",
+      "description": "One declared outbound connection from a bundle to another bundle's port.",
       "additionalProperties": false,
       "properties": {
         "from": {
-          "type": "string"
+          "type": "string",
+          "description": "The bundle that dials."
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The connection's name. Unique per from bundle."
         },
         "appProtocol": {
-          "type": "string"
+          "type": "string",
+          "description": "What is spoken. Must equal the target port's appProtocol."
         },
         "targets": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/ConnectionTarget"
-          }
+          },
+          "description": "Which bundle port answers, one row per environment."
         },
         "minStrength": {
-          "type": "string"
+          "type": "string",
+          "description": "The weakest enforcement this edge may have: 'none', 'policy' or 'capability'. The build fails if the two ends' placements deliver less. Empty means no floor."
         }
       }
     },
     "WorkerdBundle": {
       "type": "object",
+      "description": "A bundle that runs as a v8 isolate inside the router's workerd.",
       "additionalProperties": false,
       "properties": {
         "entryPoint": {
-          "type": "string"
+          "type": "string",
+          "description": "Path to the bundle's entry point, relative to the cloister source tree."
         }
       }
     },
     "ExternalBundle": {
       "type": "object",
+      "description": "A bundle that runs its own image, outside the router's workerd.",
       "additionalProperties": false,
       "properties": {
         "image": {
-          "type": "string"
+          "type": "string",
+          "description": "The OCI image reference."
         },
         "ipcSocket": {
-          "type": "string"
+          "type": "string",
+          "description": "The unix socket path the bundle listens on for tool calls."
         },
         "httpPort": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "A TCP port the bundle also serves HTTP on. 0 means none."
         },
         "args": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Command-line arguments, passed to the entry point exactly as written."
         },
         "env": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVar"
-          }
+          },
+          "description": "Environment variables to set for the bundle. Stored in clear, so not for secrets."
         },
         "entryPoint": {
-          "type": "string"
+          "type": "string",
+          "description": "Absolute path of the binary inside the image. Required for a microvm bundle."
         },
         "executionMode": {
-          "type": "string"
+          "type": "string",
+          "description": "'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale."
         },
         "executionModeRationale": {
-          "type": "string"
+          "type": "string",
+          "description": "Why this bundle cannot be isolated. Required when executionMode is 'process'."
         }
       }
     },
     "Confinement": {
       "type": "object",
+      "description": "What a bundle may touch. Every dimension denies by default.",
       "additionalProperties": false,
       "properties": {
         "fs": {
-          "$ref": "#/$defs/ConfinementFs"
+          "$ref": "#/$defs/ConfinementFs",
+          "description": "Filesystem access."
         },
         "network": {
-          "$ref": "#/$defs/ConfinementNetwork"
+          "$ref": "#/$defs/ConfinementNetwork",
+          "description": "Outbound network access."
         },
         "port": {
-          "$ref": "#/$defs/ConfinementPort"
+          "$ref": "#/$defs/ConfinementPort",
+          "description": "The one port the bundle may listen on."
         },
         "credentialSource": {
-          "type": "string"
+          "type": "string",
+          "description": "The vault backend the bundle's credentials come from, for example 'keychain://...'. Empty means none."
         }
       }
     },
     "PortSpec": {
       "type": "object",
+      "description": "One named inbound port.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The port's name. Unique per bundle. Connections refer to it."
         },
         "port": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The port number. Unique per bundle, and not zero."
         },
         "appProtocol": {
-          "type": "string"
+          "type": "string",
+          "description": "What is spoken on the port: a blessed 'art.*' label such as 'art.http' or 'art.grpc', or a vendor 'x-' label. A connection to this port must declare the same label."
         },
         "expose": {
-          "type": "string"
+          "type": "string",
+          "description": "Who may reach the port. 'none': nobody, and it cannot be a connection target. 'cluster': only through declared connections. 'edge': also from outside. Empty means 'none'."
         }
       }
     },
     "PlacementSpec": {
       "type": "object",
+      "description": "Where a bundle runs in one environment.",
       "additionalProperties": false,
       "properties": {
         "env": {
-          "type": "string"
+          "type": "string",
+          "description": "The environment this row applies to, for example 'local'. Unique per bundle."
         },
         "kind": {
-          "type": "string"
+          "type": "string",
+          "description": "How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own."
         },
         "manifest": {
-          "type": "string"
+          "type": "string",
+          "description": "Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'."
         }
       }
     },
     "ConfinementFs": {
       "type": "object",
+      "description": "Filesystem paths the bundle may use.",
       "additionalProperties": false,
       "properties": {
         "allow": {
@@ -624,56 +695,68 @@
                 "$ref": "#/$defs/FsAllowEntry"
               }
             ]
-          }
+          },
+          "description": "Path prefixes the bundle may use. In cluster.toml an entry is a bare path (read-only) or a table with path and mode. Empty denies all filesystem access."
         }
       }
     },
     "ConfinementNetwork": {
       "type": "object",
+      "description": "Hosts the bundle may connect to.",
       "additionalProperties": false,
       "properties": {
         "allowHosts": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Hostnames the bundle may reach. A leading '*.' matches subdomains. Empty denies all egress."
         }
       }
     },
     "ConfinementPort": {
       "type": "object",
+      "description": "The listener the bundle may bind.",
       "additionalProperties": false,
       "properties": {
         "bind": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The port, 1024 to 65535. 0 means no listener."
         },
         "address": {
-          "type": "string"
+          "type": "string",
+          "description": "The address to bind. Empty means 127.0.0.1."
         }
       }
     },
     "FsAllowEntry": {
       "type": "object",
+      "description": "One allowed path.",
       "additionalProperties": false,
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "description": "The path prefix."
         },
         "mode": {
-          "type": "string"
+          "type": "string",
+          "description": "Empty for read-only, 'rw' for read and write."
         }
       }
     },
     "EnvVar": {
       "type": "object",
+      "description": "One environment variable.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "The variable's name. Not empty, and without '=' or NUL."
         },
         "value": {
-          "type": "string"
+          "type": "string",
+          "description": "The variable's value. Stored in clear."
         }
       }
     },
@@ -1243,52 +1326,65 @@
     },
     "ConnectionTarget": {
       "type": "object",
+      "description": "The bundle port that answers a connection in one environment.",
       "additionalProperties": false,
       "properties": {
         "env": {
-          "type": "string"
+          "type": "string",
+          "description": "The environment, for example 'local'. Unique within a connection."
         },
         "bundle": {
-          "type": "string"
+          "type": "string",
+          "description": "The target bundle. Never the connection's own from bundle."
         },
         "port": {
-          "type": "string"
+          "type": "string",
+          "description": "The name of a port on the target bundle whose expose is not 'none'."
         }
       }
     },
     "InputSpecByName": {
       "type": "object",
+      "description": "An external tool, skill or bundle the cluster composes.",
       "additionalProperties": false,
       "properties": {
         "ref": {
-          "type": "string"
+          "type": "string",
+          "description": "Where the input comes from: a registry name, an https URL, or a file URL."
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "description": "The version, or a semver range. Empty picks the latest, which is not recommended."
         },
         "digest": {
-          "type": "string"
+          "type": "string",
+          "description": "The expected digest, as 'sha256:<hex>'. The fetched bytes must match it. Empty means the resolver pins one in cluster.lock.toml."
         },
         "from": {
-          "type": "string"
+          "type": "string",
+          "description": "A local checkout to use while developing, as a file URL. It overrides ref, so it must not be committed."
         },
         "provides": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Capabilities this input offers, for example 'cloister/mcp-tool/v1'."
         },
         "requires": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Capabilities this input needs another input to provide."
         },
         "urlBinding": {
-          "type": "string"
+          "type": "string",
+          "description": "The binding that holds the input's upstream URL."
         },
         "serviceBinding": {
-          "type": "string"
+          "type": "string",
+          "description": "The workerd service binding that reaches the input, used in preference to urlBinding when set."
         },
         "tenancy": {
           "$ref": "#/$defs/TenancySpec"

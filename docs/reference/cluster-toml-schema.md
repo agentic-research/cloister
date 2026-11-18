@@ -114,9 +114,13 @@ on the whole bundle.
 
 ## Known limits
 
-- **No field descriptions yet.** LLO's generator turns a `$Doc("...")`
-  annotation into a `description`, and this schema passes descriptions
-  through. `cluster.capnp` documents its fields in `#` comments, which no
-  generator reads (`ley-line-open-d554a0`). Until its fields carry `$Doc`, or
-  LLO projects comments, an editor's hover text is empty.
+- **Descriptions cover the structs an operator writes most, not all of
+  them.** A description is a `$Traits.doc("...")` annotation on a struct or
+  field in `cluster.capnp`. LLO's generator turns it into `description`, which
+  is what an editor shows on hover. The cluster, bundles, ports, placements,
+  connections, confinement, wires, storage and the main input fields have
+  one. Routes, the gateway, harness targets, tenancy and edges do not yet.
+  The `#` comments in `cluster.capnp` reach no generated file
+  (`ley-line-open-d554a0`), so a description has to be written as an
+  annotation.
 - **`cloister.capnp` has no schema here.** This covers `cluster.toml` only.
