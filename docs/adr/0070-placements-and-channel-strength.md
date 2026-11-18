@@ -166,9 +166,41 @@ So:
   Service was read as a core Service because both have `kind: Service`.
 
 Not built: any enforcement for Knative. That needs its own answer for what
-`policy` means on Knative's request path. Also not built: reading the env var
-names §2 mentions, which is what would catch a URL that names the wrong
-service.
+`policy` means on Knative's request path.
+
+**Amendment (2026-11-18): the addresses a manifest dials are held to the
+declared connections.** This section says a forwarded manifest is parsed for
+"the name, ports and env var names". Until now only ports were read. A wrong
+service in an env var was found at runtime.
+
+`cluster k8s` now reads every literal string a container is started with, for
+`kubernetes` and `knative` placements alike: env values, `args` and `command`,
+in containers and init containers, of Pods, Deployments, StatefulSets,
+DaemonSets, ReplicaSets, Jobs, CronJobs and Knative Services.
+
+It reads addresses, not URLs. `http://orders.shop.svc`, a bare
+`dolt.dolt.svc.cluster.local:3306` and a DSN such as
+`root@tcp(dolt.dolt.svc:3306)/shop` each name a host, and the scheme is not
+what makes an edge.
+
+- An address resolves to a bundle only by exact match on that bundle's Service
+  name and namespace. The cluster DNS name counts anywhere in a value, with or
+  without `.cluster.local`. `<service>.<namespace>` and a bare `<service>`
+  count only where the value puts them in host position (after a scheme or an
+  `@`, or before a `:port`), and a bare name only in the source's own
+  namespace.
+- An address that resolves to another bundle needs a declared connection to it
+  in that env. Its port, when stated or implied by `http`/`https`, must be one
+  a declared connection reaches. Otherwise the build fails by name.
+- A cluster DNS name that resolves to no placed bundle is reported and not
+  checked. It may be a typo, or a service cloister does not place.
+- A declared connection that no value names is reported, not refused. The
+  address may come from a Secret, a ConfigMap or a file.
+- A value is never printed. It may hold a password. Only the host and port
+  that were recognised appear in a message.
+
+Not read: `valueFrom`, `envFrom`, ConfigMap and Secret contents, and files
+mounted into the container.
 
 ### 3. Channel strength is a property of the placement, and it is ordered
 

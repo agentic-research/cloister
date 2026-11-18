@@ -338,7 +338,12 @@ export const COMMANDS = [
       "port (80, the port a peer dials) and appProtocol (the http1 or h2c " +
       "wire), and writes nothing: a knative placement has strength \"none\", " +
       "so a connection that sets a higher minStrength fails the build. " +
-      "ADR-0070 §2-4.",
+      "For both kinds, the in-cluster addresses in each container's env " +
+      "values, args and command are held to the declared connections: an " +
+      "address naming another bundle with no declared connection, or on a " +
+      "port no declared connection reaches, fails the build. An address is " +
+      "any host, in a URL, a DSN or a bare host:port; values are never " +
+      "printed. ADR-0070 §2-4.",
     flags: [
       { flag: "--out", value: "<dir>", required: true, summary: "output directory (may exist, but only with files this run writes)" },
       { flag: "--env", value: "<name>", summary: "environment whose placements and targets are lowered (default: local)" },

@@ -133,7 +133,7 @@ export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
-  const { files, checked } = lowerK8s({
+  const { files, checked, references, unreferenced } = lowerK8s({
     bundles: cluster.bundles.map(checkableBundle),
     connections: cluster.connections ?? [],
     env,
@@ -144,7 +144,7 @@ export async function emitK8sDir({ root, env, out }) {
   }
   // Only knative bundles: they are checked and nothing is written, so --out is
   // left exactly as it was.
-  if (files.length === 0) return { files: [], bundles: [], checked };
+  if (files.length === 0) return { files: [], bundles: [], checked, references, unreferenced };
   const expected = new Set(files.map((f) => f.path));
   const stale = existsSync(out)
     ? readdirSync(out, { recursive: true, withFileTypes: true })
@@ -168,6 +168,8 @@ export async function emitK8sDir({ root, env, out }) {
     files: files.map((f) => f.path),
     bundles: [...new Set(files.map((f) => f.path.split("/")[0]))],
     checked,
+    references,
+    unreferenced,
   };
 }
 
@@ -244,6 +246,15 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         const address = `${k.service}${k.namespace ? `.${k.namespace}.svc` : ""}:${k.port}`;
         log(`cloister cluster k8s: checked "${k.bundle}" (knative, strength "none"): reached at ${address} (${k.wire}); nothing written`);
         for (const c of k.connectionsIn) log(`  connection "${c.name}" from "${c.from}": checked, not enforced`);
+      }
+      // What the containers' own env, args and command say about the graph.
+      for (const r of written.references) {
+        const from = `"${r.bundle}" container ${JSON.stringify(r.container)} ${r.where}`;
+        if (r.to) log(`cloister cluster k8s: ${from} names ${r.address}: ${r.connections.map((c) => `connection "${c}"`).join(", ")}`);
+        else log(`cloister cluster k8s: ${from} names ${r.address}, which is no bundle placed here; not checked`);
+      }
+      for (const c of written.unreferenced) {
+        log(`cloister cluster k8s: connection "${c.name}" from "${c.from}" to "${c.to}": no env, args or command value names it`);
       }
       return 0;
     } catch (error) {
