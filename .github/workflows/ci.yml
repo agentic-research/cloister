@@ -329,6 +329,57 @@ jobs:
         # HTTP smoke. Per ADR-0005's amendment.
         run: task verify
 
+  # Every other test of lowering stops at the YAML. This job runs it: it lowers a
+  # cluster.toml, applies the result to a real cluster, and observes that a
+  # declared edge works and an UNDECLARED one is refused. The refusal is the
+  # point: without it "strength: policy" is asserted and never seen.
+  #
+  # kind and kubectl ship on the runner image. kind >= 0.24's own network
+  # plugin enforces NetworkPolicy, so no CNI is installed here. The job fails,
+  # rather than passing vacuously, if the cluster does not enforce it.
+  lowered-kind:
+    name: lowered-kind (apply lowered manifests to a real cluster)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pnpm store
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install Node dependencies
+        run: task deps:node
+
+      - name: Show the cluster tooling
+        run: |
+          kind version
+          kubectl version --client
+
+      - name: Lower, apply to kind, and observe the graph
+        run: task smoke:lowered-kind
+
   # Full-stack end-to-end: real ley-line-open daemon + real mache + real
   # cloister, exercising cloister's dispatch layer against live upstreams.
   #

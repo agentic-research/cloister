@@ -267,6 +267,11 @@ tasks:
     cmds:
       - bash dev/e2e-smoke.sh
 
+  smoke:lowered-kind:
+    desc: "Lower test/e2e/lowered-kind/cluster.toml, apply it to a kind cluster, and observe the graph: a declared caller reaches the server, a declared Job completes, and an undeclared pod is refused by the NetworkPolicy (ADR-0074 §7). Needs kind >= 0.24, kubectl, docker. KEEP_CLUSTER=1 leaves the cluster up. Its own CI job; not part of `task lint`, which has no cluster."
+    cmds:
+      - bash dev/lowered-kind.sh
+
   # ── OCI packaging (melange + apko) ───────────────────────────────────────
   #
   # `task apk:keygen` once, then `task image` whenever you want to rebuild.
