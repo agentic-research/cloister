@@ -262,7 +262,7 @@ A connection is only as strong as the weaker of its two ends. If you set
 |---|---|---|
 | `microvm` | The service has only the sockets it was granted | `capability` |
 | `kubernetes` | A `NetworkPolicy` per connection | `policy` |
-| `knative` | Checked against the manifest; nothing enforces it. Dialled on port 80 | `none` |
+| `knative` | Knative's own label keeps it off outside routes. Which in-cluster caller may reach it is not enforced | `none` |
 | `cloudRun` | Checked against a plan by `inspect`; nothing enforces it | `none` |
 | `workerd` | Service bindings inside the router | not a connection end |
 
@@ -308,8 +308,9 @@ production-sensitive data in a dev install.
 thing only when they have the same name. A service named differently in the
 cloud and locally shows up as not found.
 
-**A checked placement is not an enforced one.** `knative` and `cloudRun` are
-read and compared. Nothing cloister writes stops a connection there.
+**A checked placement is not an enforced one.** Nothing cloister writes stops
+one in-cluster caller reaching a `knative` bundle, and `cloudRun` is only read
+and compared.
 
 ## How it fits together
 

@@ -22,7 +22,7 @@ import { clusterToToml } from "../../lib/cluster/cluster-to-toml.mjs";
 import { emitK8s, KNATIVE_WIRES, lowerK8s } from "../../lib/cluster/emit-k8s.mjs";
 import { addressesIn, clusterService, containerStrings, WORKLOADS } from "../../lib/cluster/manifest-addresses.mjs";
 import { BLESSED_LABELS } from "../../lib/app-protocol.mjs";
-import { assertPortsAndConnections, meetStrength, strengthOf } from "../../lib/cluster/connections.mjs";
+import { assertPortsAndConnections, edgeStrength, meetStrength, strengthOf } from "../../lib/cluster/connections.mjs";
 import { emitK8sDir, main as clusterMain } from "../../commands/cluster.mjs";
 import { planFromToml } from "../../commands/runtime-plan.mjs";
 import { tableAdmits } from "../fixtures/platform-admits-table.mjs";
@@ -452,14 +452,14 @@ port = "http"
 `;
 const knToml = ({ minStrength = "none", reconciler = {}, workqueue = {}, appProtocol = "art.http" } = {}) =>
   KN_HEAD + knBundle("workqueue", workqueue) + knBundle("reconciler", { appProtocol, ...reconciler }) + knConnection(minStrength, appProtocol);
-const ksvc = (name, { portName, containerPort = 8080, namespace = "platform", ports, env = [] } = {}) => {
+const ksvc = (name, { portName, containerPort = 8080, namespace = "platform", ports, env = [], visibility = "cluster-local" } = {}) => {
   const envRows = env.length ? `\n          env:\n${env.map(([k, v]) => `            - name: ${k}\n              ${v}`).join("\n")}` : "";
   const rows = ports ?? [`- containerPort: ${containerPort}${portName ? `\n              name: ${portName}` : ""}`];
   return `apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: ${name}
-${namespace ? `  namespace: ${namespace}\n` : ""}spec:
+${namespace ? `  namespace: ${namespace}\n` : ""}${visibility ? `  labels:\n    networking.knative.dev/visibility: ${visibility}\n` : ""}spec:
   template:
     spec:
       containers:
@@ -525,9 +525,12 @@ const knativeRefusals = [
   ["a protocol that is not HTTP",
     knToml({ appProtocol: "art.mysql" }), KN_MANIFESTS,
     /port "http" has appProtocol "art.mysql", which is not HTTP; a Knative Service serves HTTP only/],
-  ["expose = edge",
+  ["expose = edge on a Service labelled cluster-local",
     knToml({ workqueue: { expose: "edge" } }), KN_MANIFESTS,
-    /Knative Service "workqueue": port "http" has expose = "edge", which is not checked for a knative placement/],
+    /Knative Service "workqueue": port "http" has expose = "edge", but the Service is labelled networking\.knative\.dev\/visibility: cluster-local, so it has no route from outside the cluster/],
+  ["expose = cluster on a Service with a route from outside",
+    knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { visibility: "" }) },
+    /Knative Service "reconciler": port "http" has expose = "cluster", but the Service is not labelled networking\.knative\.dev\/visibility: cluster-local\. Without it Knative gives the Service a route from outside the cluster/],
   ["two exposed ports",
     knToml({ workqueue: { extraPorts: `\n[[bundles.ports]]\nname = "admin"\nport = 9090\nappProtocol = "art.http"\nexpose = "cluster"\n` } }), KN_MANIFESTS,
     /bundle "workqueue" declares 2 exposed ports \(http, admin\); a Knative Service serves exactly one/],
@@ -561,16 +564,40 @@ test("every blessed appProtocol label is placed in the Knative wire table", () =
   assert.deepEqual(Object.keys(KNATIVE_WIRES).sort(), [...BLESSED_LABELS].sort());
 });
 
-test("a knative placement needs a manifest, and an edge between knative and kubernetes is refused", async () => {
+test("a knative placement needs a manifest", async () => {
   await assert.rejects(
     parseTomlToCluster(knToml().replace('manifest = "reconciler.yaml"\n', "")),
     /bundle "reconciler" placement env "local": kind "knative" requires a manifest/,
   );
-  const mixed = KN_HEAD + knBundle("workqueue") + knBundle("reconciler", { kind: "kubernetes" }) + knConnection("none");
-  const core = `apiVersion: v1\nkind: Service\nmetadata:\n  name: reconciler\nspec:\n  selector:\n    app: reconciler\n  ports:\n    - name: http\n      port: 80\n      appProtocol: art.http\n`;
+});
+
+// kubernetes and knative share a cluster network, so an edge between them is
+// lowered. What it is worth depends on its direction (ADR-0070 §2 amendment).
+const CORE_RECONCILER = `apiVersion: v1\nkind: Service\nmetadata:\n  name: reconciler\nspec:\n  selector:\n    app: reconciler\n  ports:\n    - name: http\n      port: 80\n      appProtocol: art.http\n`;
+
+test("knative → kubernetes: the target's policy admits the caller's Knative pods, and the edge is policy", async () => {
+  const mixed = KN_HEAD + knBundle("workqueue") + knBundle("reconciler", { kind: "kubernetes" }) + knConnection("policy");
+  const out = await lowerKn(mixed, { ...KN_MANIFESTS, "reconciler.yaml": CORE_RECONCILER });
+  const policy = out.files.find((f) => f.path === "reconciler/20-networkpolicy.yaml").content;
+  assert.match(policy, /namespaceSelector:\n\s+matchLabels:\n\s+kubernetes\.io\/metadata\.name: platform\n\s+podSelector:\n\s+matchLabels:\n\s+serving\.knative\.dev\/service: workqueue/);
+  assert.equal(edgeStrength("knative", "kubernetes"), "policy");
+  // A Knative caller with no namespace cannot be named in a policy.
   await assert.rejects(
-    lowerKn(mixed, { ...KN_MANIFESTS, "reconciler.yaml": core }),
-    /connection "reconcile" \(from "workqueue"\) env "local" joins "workqueue" \(knative\) to "reconciler" \(kubernetes\): a kubernetes bundle is fenced by NetworkPolicies that select pods/,
+    lowerKn(mixed, { ...KN_MANIFESTS, "workqueue.yaml": ksvc("workqueue", { namespace: "" }), "reconciler.yaml": CORE_RECONCILER }),
+    /Knative Service "workqueue" states no metadata\.namespace, so no NetworkPolicy can name where its pods run/,
+  );
+});
+
+test("kubernetes → knative: lowered, and worth nothing, because nothing fences a Knative Service from in-cluster callers", async () => {
+  assert.equal(edgeStrength("kubernetes", "knative"), "none");
+  const core = (name) => `apiVersion: v1\nkind: Service\nmetadata:\n  name: ${name}\nspec:\n  selector:\n    app: ${name}\n  ports:\n    - name: http\n      port: 80\n      appProtocol: art.http\n`;
+  const mixed = KN_HEAD + knBundle("workqueue", { kind: "kubernetes" }) + knBundle("reconciler") + knConnection("none");
+  const out = await lowerKn(mixed, { ...KN_MANIFESTS, "workqueue.yaml": core("workqueue") });
+  assert.deepEqual(out.checked.map((k) => [k.bundle, k.connectionsIn.map((c) => c.from)]), [["reconciler", ["workqueue"]]]);
+  // And a floor above none fails the build, as for any edge into a knative bundle.
+  await assert.rejects(
+    parseTomlToCluster(KN_HEAD + knBundle("workqueue", { kind: "kubernetes" }) + knBundle("reconciler") + knConnection("policy")),
+    /minStrength "policy" is not met — "workqueue" is placed "kubernetes" and "reconciler" is placed "knative", so the edge's strength is "none"/,
   );
 });
 

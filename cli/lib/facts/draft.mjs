@@ -104,7 +104,7 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
       // A Knative Service is dialled on 80 whatever its container listens on.
       if (kind === "knative" && ports.some((p) => p.port !== 80)) row.ports = ports.filter((p) => p.port !== 80).map((p) => ({ name: p.name, port: 80 }));
       bundle.placements.push(row);
-      if (kind !== localKind) notes.push(`"${w.name}": runs to completion, so it is placed "kubernetes" for "${local}", not "${localKind}". A connection from it to a "${localKind}" bundle crosses placements, which nothing lowers yet`);
+      if (kind !== localKind) notes.push(`"${w.name}": runs to completion, so it is placed "kubernetes" for "${local}", not "${localKind}"`);
     }
     // Env rows are read from the configuration when there is one (a plan). A
     // state document has none, and its planned env may be withheld.

@@ -25,8 +25,8 @@
 
 import { stringify as stringifyYaml } from "yaml";
 
-import { envSource, isExposed, placementFor, portsFor } from "./connections.mjs";
-import { KNATIVE_WIRES } from "./emit-k8s.mjs";
+import { envSource, isExposed, joinable, placementFor, portsFor } from "./connections.mjs";
+import { KNATIVE_CLUSTER_LOCAL, KNATIVE_VISIBILITY_LABEL, KNATIVE_WIRES } from "./emit-k8s.mjs";
 
 /** How an app_protocol label is dialled. A label not listed has no URL form here. */
 const SCHEMES = Object.freeze({ "art.http": "http", "art.http2": "http", "art.grpc": "http", "art.mcp-jsonrpc": "http" });
@@ -47,15 +47,17 @@ const IMPLIED = Object.freeze({ http: 80 });
 
 /**
  * The address of connection `c` in `env`, from a bundle placed `fromKind`.
- * Both ends must have that kind: an address across placements is not one any
- * emitter here can write. Throws by name.
+ * The target must be on the same cluster network (kubernetes or knative): an
+ * address into any other placement is not one an emitter here can write.
+ * Throws by name.
  */
 function clusterAddress(c, env, byName, fromKind, where) {
   const target = c.targets.find((t) => t.env === env);
   if (!target) throw new Error(`${where}: connection "${c.name}" has no target for env "${env}"`);
   const bundle = byName.get(target.bundle);
   const kind = placementFor(bundle, env);
-  if (kind !== fromKind) {
+  // kubernetes and knative share a cluster network and one address form.
+  if (!LOWERED_KINDS.includes(kind) || !joinable(fromKind, kind)) {
     throw new Error(
       `${where}: connection "${c.name}" reaches "${target.bundle}", which is placed "${kind}" for env "${env}". ` +
         `An address across placements needs LLO's broker, which nothing lowers yet`,
@@ -229,7 +231,8 @@ export function knativeWorkload(bundle, { bundles, connections, env }) {
   const service = {
     apiVersion: "serving.knative.dev/v1",
     kind: "Service",
-    metadata: { name, namespace: name, labels: { [LABEL]: name } },
+    // expose = "cluster" means no route from outside: Knative's own label for it.
+    metadata: { name, namespace: name, labels: { [LABEL]: name, ...(port.expose === "edge" ? {} : { [KNATIVE_VISIBILITY_LABEL]: KNATIVE_CLUSTER_LOCAL }) } },
     spec: { template: { metadata: { labels: { [LABEL]: name } }, spec: { containers: [container] } } },
   };
   const header = headerOf({
@@ -237,7 +240,10 @@ export function knativeWorkload(bundle, { bundles, connections, env }) {
     what: "a Knative Service",
     tail: [
       `Peers dial it on port ${port.port}; its container listens on ${port.listen}.`,
-      "Nothing enforces who may call it: a knative placement has strength \"none\".",
+      port.expose === "edge"
+        ? "It has a route from outside the cluster (expose = \"edge\")."
+        : `It has no route from outside the cluster (${KNATIVE_VISIBILITY_LABEL}: ${KNATIVE_CLUSTER_LOCAL}).`,
+      "Inside the cluster nothing enforces which caller may reach it: that needs a mesh.",
     ],
   });
   return `${header}\n${stringifyYaml(service)}`;

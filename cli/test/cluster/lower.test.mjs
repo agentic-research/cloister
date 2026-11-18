@@ -279,10 +279,12 @@ test("the same bundle lowers to a Knative Service: dialled on 80, listening on i
     assert.deepEqual(written, ["orders.yaml", "payments.yaml"]);
     const [payments] = objectsOf(readFileSync(join(dir, "payments.yaml"), "utf8"));
     assert.deepEqual([payments.apiVersion, payments.kind, payments.metadata.namespace], ["serving.knative.dev/v1", "Service", "payments"]);
+    // expose = "cluster" is Knative's own label for no route from outside.
+    assert.equal(payments.metadata.labels["networking.knative.dev/visibility"], "cluster-local");
     assert.deepEqual(payments.spec.template.spec.containers[0].ports, [{ name: "http1", containerPort: 8080 }]);
     // The address is the dialled one: port 80, which http implies.
     assert.deepEqual(containerOf(readFileSync(join(dir, "orders.yaml"), "utf8")).env[0], { name: "PAYMENTS_URL", value: "http://payments.payments.svc.cluster.local/v1" });
-    assert.match(readFileSync(join(dir, "payments.yaml"), "utf8"), /# Peers dial it on port 80; its container listens on 8080\.\n# Nothing enforces who may call it/);
+    assert.match(readFileSync(join(dir, "payments.yaml"), "utf8"), /# Peers dial it on port 80; its container listens on 8080\.\n# It has no route from outside the cluster \(networking\.knative\.dev\/visibility: cluster-local\)\.\n# Inside the cluster nothing enforces which caller may reach it/);
     // And the existing Knative check accepts it, tying the address to its connection.
     const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
     assert.deepEqual(checked.files, []);
@@ -344,6 +346,33 @@ test("a draft placed on Knative sets each port's dialled number, and keeps a job
   const local = (name) => cluster.bundles.find((b) => b.name === name).placements.find((p) => p.env === "local");
   assert.deepEqual([local("reconciler").kind, local("reconciler").ports], ["knative", [{ name: "h2c", port: 80 }]]);
   assert.deepEqual([local("sweep").kind, local("sweep").ports], ["kubernetes", []]);
-  assert.ok(draft.notes.some((n) => /"sweep": runs to completion, so it is placed "kubernetes" for "local", not "knative"/.test(n)));
+  assert.ok(draft.notes.some((n) => n === '"sweep": runs to completion, so it is placed "kubernetes" for "local", not "knative"'));
   assert.throws(() => draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "nomad" }), /--local-kind "nomad" is not one of kubernetes, knative/);
+});
+
+test("a plan with services and a job lowers whole to Knative: the job is a Kubernetes Job that calls a Knative Service", async () => {
+  const PLAN = fileURLToPath(new URL("../../../test/fixtures/terraform/google-plan.show.json", import.meta.url));
+  const draft = draftCluster(importFacts(JSON.parse(readFileSync(PLAN, "utf8"))), { env: "prod", local: "local", localKind: "knative" });
+  await inDir(draft.toml, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual(written, ["reconciler.yaml", "workqueue.yaml", "sweep.yaml"]);
+    assert.deepEqual(objectsOf(readFileSync(join(dir, "sweep.yaml"), "utf8")).map((o) => o.kind), ["Job"]);
+    // The job dials the Knative Service where a peer dials it: port 80.
+    assert.deepEqual(containerOf(readFileSync(join(dir, "sweep.yaml"), "utf8")).env, [{ name: "TARGET", value: "http://reconciler.reconciler.svc.cluster.local" }]);
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.to]).sort(), [["sweep", "reconciler"], ["workqueue", "reconciler"]]);
+    assert.deepEqual(checked.unreferenced, []);
+  });
+});
+
+test("a Knative bundle exposed at the edge is lowered with a route from outside, and says so", async () => {
+  const edge = KNATIVE.replace('expose = "cluster"\n\n[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "payments.yaml"', 'expose = "edge"\n\n[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "payments.yaml"');
+  assert.notEqual(edge, KNATIVE);
+  await inDir(edge, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const text = readFileSync(join(dir, "payments.yaml"), "utf8");
+    assert.equal(objectsOf(text)[0].metadata.labels["networking.knative.dev/visibility"], undefined);
+    assert.match(text, /# It has a route from outside the cluster \(expose = "edge"\)\./);
+    await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+  });
 });

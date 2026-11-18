@@ -332,12 +332,18 @@ export const COMMANDS = [
       "manifest unchanged, and adds an overlay in a namespace named after the " +
       "bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one " +
       "NetworkPolicy per declared connection into it. Apply each bundle's " +
-      "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. Edges to " +
-      "other placements are refused (they need LLO's broker). For each bundle " +
-      "placed \"knative\", checks its Knative Service against the declared " +
-      "port (80, the port a peer dials) and appProtocol (the http1 or h2c " +
-      "wire), and writes nothing: a knative placement has strength \"none\", " +
-      "so a connection that sets a higher minStrength fails the build. " +
+      "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. For each bundle " +
+      "placed \"knative\", checks its Knative Service and writes nothing for it: the " +
+      "port must be dialled on 80 (set with [[bundles.placements.ports]] when the " +
+      "workload listens elsewhere), the appProtocol must match the http1 or h2c wire, " +
+      "and `expose` must agree with the Service's route visibility. expose = " +
+      "\"cluster\" requires the label networking.knative.dev/visibility: cluster-local, " +
+      "and expose = \"edge\" requires it absent. An edge between a kubernetes and a " +
+      "knative bundle is lowered: a knative caller is admitted by the kubernetes " +
+      "target's NetworkPolicy (strength \"policy\"), and a kubernetes caller reaches a " +
+      "knative target that nothing fences from in-cluster callers (strength \"none\"). " +
+      "A connection that sets a higher minStrength than its edge has fails the build. " +
+      "Edges to any other placement are refused (they need LLO's broker). " +
       "For both kinds, the in-cluster addresses in each container's " +
       "environment (resolved through envFrom, env, valueFrom and variable " +
       "references, for ConfigMaps and Secrets in the manifest), args and " +

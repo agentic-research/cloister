@@ -21,6 +21,18 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `targetPort`.
 - **`inspect --draft --local <env> --local-kind knative`** places services on
   Knative with the dialled port set. A job stays a Kubernetes Job.
+- **`expose` is held to Knative's route visibility.** A knative bundle whose
+  port is `expose = "cluster"` must carry
+  `networking.knative.dev/visibility: cluster-local`; one that is
+  `expose = "edge"` must not. `cluster lower` writes the label. **This is a
+  new failure for an existing Knative manifest that lacks the label**: without
+  it the Service has a route from outside the cluster. `expose = "edge"` on a
+  knative bundle was refused and is now checked.
+- **Edges between `kubernetes` and `knative` are lowered.** They were refused.
+  A Knative caller is admitted by the Kubernetes target's NetworkPolicy
+  (strength `policy`); a Kubernetes caller reaches a Knative target that has
+  none (strength `none`). So a plan with services and a job lowers whole to
+  Knative.
 - **`cluster lower` is all-or-nothing.** If one bundle cannot be lowered, no
   manifest is written.
 - `cluster k8s` on a Knative bundle whose port is not dialled on 80 now says

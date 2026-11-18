@@ -318,10 +318,10 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 - **The microVM emitter does not lower a binding.** `runtime plan` refuses a
   `connection` or `secret` row by name. Writing a socket address into a
   guest's environment is part of LLO's plan contract.
-- **An address across placements is refused.** A bundle bound to a connection
-  whose target is placed differently needs LLO's broker. This bites one
-  ordinary case: a job is a Kubernetes Job wherever it runs, so a job that
-  calls a Knative-placed service cannot be lowered.
+- **An address into another network is refused.** `kubernetes` and `knative`
+  share a cluster network, so a bundle on one may be bound to a connection
+  into the other (a job is a Kubernetes Job wherever it runs, and may call a
+  Knative Service). A target placed anywhere else needs LLO's broker.
 - **A path the plan appends to an address is not read** (`"${uri}/sweep"`).
   The configuration lists what a value references, not the text around it.
   The draft says so for each such row, and `path` is where to put it back.
@@ -379,9 +379,10 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
   placement (§7). The scheme is not: a Cloud Run service is reached over
   `https` on 443 by its URL, and `https` to a Knative Service is refused
   today.
-- **Reachability as intent.** How an operator says "internal only" once, so it
-  is checked against Cloud Run's `ingress` in one placement and Knative's
-  route visibility in another.
+- **Reachability as intent.** `expose` on a port is where an operator says
+  "internal only" once. It is now held to Knative's route visibility
+  (ADR-0070 amendment). It is not yet compared with Cloud Run's `ingress`,
+  which the importer reads.
 - **Sub-files.** Whether `cluster.toml` may include other files, so a large
   graph's connections live apart. Not decided here.
 

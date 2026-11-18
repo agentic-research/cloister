@@ -112,6 +112,29 @@ export function meetStrength(a, b) {
 }
 
 /**
+ * The strength of one edge, from the kinds of its two ends.
+ *
+ * It is the weaker end's, with one exception that is a fact about direction.
+ * Strength is about the TARGET: can something that is not a declared caller
+ * reach it? A knative bundle calling a kubernetes one is a direct pod-to-pod
+ * request, so the target's NetworkPolicy admits exactly the caller's pods and
+ * refuses the rest: `policy`. The other way round the request goes through
+ * Knative's ingress and activator, the target has no policy, and the edge is
+ * `none` like any into a knative bundle (ADR-0070 §3 amendment).
+ */
+export function edgeStrength(fromKind, toKind) {
+  if (fromKind === "knative" && toKind === "kubernetes") return "policy";
+  return meetStrength(strengthOf(fromKind), strengthOf(toKind));
+}
+
+/** The label Knative puts on every pod of a Service; its value is the Service's name. */
+export const KNATIVE_POD_LABEL = "serving.knative.dev/service";
+
+/** Kind pairs whose edge an emitter can lower although the two ends differ. */
+const JOINABLE = Object.freeze([["kubernetes", "knative"], ["knative", "kubernetes"]]);
+export const joinable = (fromKind, toKind) => fromKind === toKind || JOINABLE.some(([a, b]) => a === fromKind && b === toKind);
+
+/**
  * A bundle's placement kind for `env`, or null when it has none.
  *
  * A bundle with NO placement rows and executionMode "microvm" is implicitly
@@ -445,7 +468,7 @@ export function assertPortsAndConnections(bundles, connections) {
       const toKind = placementFor(target, t.env);
       // ADR-0070 §3: the edge is as strong as its weaker end.
       if (c.minStrength !== "") {
-        const strength = meetStrength(strengthOf(fromKind), strengthOf(toKind));
+        const strength = edgeStrength(fromKind, toKind);
         if (STRENGTHS.indexOf(strength) < STRENGTHS.indexOf(c.minStrength)) {
           throw new Error(
             `${tw}: minStrength "${c.minStrength}" is not met — "${c.from}" is placed ` +
@@ -566,14 +589,6 @@ export function refuseCrossPlacement(c, fromName, fromKind, toName, toKind, env)
           `placed "${kind}", which is not lowered yet (ADR-0070 §4)`,
       );
     }
-  }
-  if ([fromKind, toKind].includes("kubernetes") && [fromKind, toKind].includes("knative")) {
-    throw new Error(
-      `connection "${c.name}" (from "${fromName}") env "${env}" joins "${fromName}" ` +
-        `(${fromKind}) to "${toName}" (${toKind}): a kubernetes bundle is fenced by ` +
-        `NetworkPolicies that select pods, and a Knative request does not travel pod to ` +
-        `pod, so no policy this emitter writes would admit this edge and nothing else`,
-    );
   }
   throw new Error(
     `connection "${c.name}" (from "${fromName}") env "${env}" joins "${fromName}" ` +
