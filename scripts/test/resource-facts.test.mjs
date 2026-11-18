@@ -1079,3 +1079,96 @@ test("real plan: edges come from the configuration, by env var name, with the en
 test("real plan: the trimmed fixture is what the trimmer produces from itself", () => {
   assert.equal(JSON.stringify(trimPlan(googlePlan())), JSON.stringify(googlePlan()));
 });
+
+// ── a hand-written cluster.toml beside what the plan implies ─────────────
+//
+// A bundle and a resource are the same thing when they have the same name.
+// Each declared connection is then evidenced, or unknown; each edge the plan
+// implies from a declared bundle is declared, or undeclared.
+
+const connection = (from, name, to, env = "local") => ({ from, name, appProtocol: "art.http", targets: [{ env, bundle: to, port: "http" }] });
+const handWritten = (bundles, connections) => ({ bundles: bundles.map((name) => ({ name })), wires: [], connections });
+const connectionFindings = (report) => report.findings.filter((f) => f.connection || f.dial);
+
+test("declared connections: evidenced, unknown, and a bundle the plan does not have", () => {
+  const cluster = handWritten(["workqueue", "reconciler", "retired"], [
+    connection("workqueue", "reconcile", "reconciler"),
+    connection("reconciler", "callback", "workqueue"),
+    connection("workqueue", "legacy", "retired"),
+  ]);
+  const report = buildReport(importFacts(googlePlan()), cluster);
+  assert.deepEqual(connectionFindings(report), [
+    { kind: "evidenced", connection: { from: "workqueue", name: "reconcile", to: "reconciler", env: "local" },
+      dial: { section: "Cloud Run services", by: "configuration", where: "env RECONCILER_URL" } },
+    { kind: "unknown", connection: { from: "reconciler", name: "callback", to: "workqueue", env: "local" },
+      reason: 'nothing "reconciler" is started with names "workqueue" in these inputs' },
+    { kind: "unknown", connection: { from: "workqueue", name: "legacy", to: "retired", env: "local" },
+      reason: 'no resource named "retired" in these inputs' },
+  ]);
+  // The job is in the plan and nobody added it to cluster.toml.
+  assert.deepEqual(report.unlisted, [{ name: "sweep", section: "Cloud Run jobs" }]);
+  const text = renderReport(report);
+  assert.match(text, /Declared connections \(cluster\.toml\):\n {2}workqueue → reconciler {2}as reconcile {2}\(env local\)\n/);
+  assert.match(text, /In these inputs, with no bundle in cluster\.toml:\n {2}sweep {2}\(Cloud Run jobs\)\n/);
+  assert.match(text, / {2}evidenced {3}workqueue → reconciler \(connection "reconcile", env local\): referenced by configuration in env RECONCILER_URL\n/);
+  assert.match(text, / {2}unknown {5}workqueue → retired \(connection "legacy", env local\): no resource named "retired" in these inputs\n/);
+});
+
+test("an edge the plan implies from a declared bundle, with no connection for it, is undeclared", () => {
+  const report = buildReport(importFacts(googlePlan()), handWritten(["workqueue", "reconciler", "sweep"], []));
+  assert.deepEqual(connectionFindings(report), [
+    { kind: "undeclared", from: "workqueue", dial: { to: "reconciler", section: "Cloud Run services", by: "configuration", where: "env RECONCILER_URL" }, reason: "declares no such connection" },
+    { kind: "undeclared", from: "sweep", dial: { to: "reconciler", section: "Cloud Run services", by: "configuration", where: "env TARGET" }, reason: "declares no such connection" },
+  ]);
+  assert.match(renderReport(report), / {2}undeclared {2}workqueue dials reconciler \(Cloud Run services; referenced by configuration in env RECONCILER_URL\), and cluster\.toml declares no such connection\n/);
+  // The target is not a bundle at all: said differently, and still not adopted.
+  const noTarget = buildReport(importFacts(googlePlan()), handWritten(["workqueue"], []));
+  assert.deepEqual(connectionFindings(noTarget).map((f) => f.reason), ['has no bundle named "reconciler"']);
+  // A source that is not a bundle is not a finding. It is listed as unlisted.
+  assert.deepEqual(noTarget.unlisted.map((r) => r.name), ["reconciler", "sweep"]);
+});
+
+test("--env narrows the comparison to one environment's targets", () => {
+  const cluster = handWritten(["workqueue", "reconciler"], [{
+    from: "workqueue", name: "reconcile", appProtocol: "art.http",
+    targets: [{ env: "local", bundle: "reconciler", port: "http" }, { env: "staging", bundle: "workqueue-shadow", port: "http" }],
+  }]);
+  const all = buildReport(importFacts(googlePlan()), cluster);
+  assert.deepEqual(connectionFindings(all).map((f) => `${f.kind} ${f.connection.env}`), ["evidenced local", "unknown staging"]);
+  const local = buildReport(importFacts(googlePlan()), cluster, { env: "local" });
+  assert.deepEqual(connectionFindings(local).map((f) => `${f.kind} ${f.connection.env}`), ["evidenced local"]);
+  // In staging the plan's edge to reconciler is not what cluster.toml declares.
+  const staging = buildReport(importFacts(googlePlan()), cluster, { env: "staging" });
+  assert.deepEqual(connectionFindings(staging).map((f) => f.kind), ["unknown", "undeclared"]);
+});
+
+test("a connection whose source's env was withheld says so, and without a cluster.toml nothing is compared", () => {
+  // Read as STATE, the configuration is not used, and workqueue's env is withheld.
+  const doc = googlePlan();
+  doc.values = doc.planned_values;
+  delete doc.planned_values;
+  const report = buildReport(importFacts(doc), handWritten(["workqueue", "reconciler"], [connection("workqueue", "reconcile", "reconciler")]));
+  assert.deepEqual(connectionFindings(report).map((f) => f.reason), [
+    'nothing "workqueue" is started with names "reconciler" in these inputs; its env is marked sensitive and was not read',
+  ]);
+  const bare = buildReport(importFacts(googlePlan()), undefined);
+  assert.deepEqual([bare.declaredConnections, bare.unlisted, connectionFindings(bare)], [[], [], []]);
+});
+
+test("inspect --env is passed through, and a hand-written cluster.toml is compared on the real CLI path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "inspect-connections-"));
+  try {
+    cpSync(GOOGLE_PLAN_FIXTURE, join(dir, "plan.json"));
+    const bundle = (name) => `[[bundles]]\nname = "${name}"\nkind = "external"\ntier = "cluster"\n\n[bundles.external]\nimage = "example.com/${name}:1"\n\n[[bundles.ports]]\nname = "http"\nport = 80\nappProtocol = "art.http"\nexpose = "cluster"\n\n[[bundles.placements]]\nenv = "local"\nkind = "knative"\nmanifest = "${name}.yaml"\n\n`;
+    writeFileSync(join(dir, "cluster.toml"),
+      `[metadata]\nname = "fixture"\nversion = "0.0.1"\n\n[storage]\ndoStoragePath = "/data/do"\n\n${bundle("workqueue")}${bundle("reconciler")}` +
+      `[[connections]]\nfrom = "workqueue"\nname = "reconcile"\nappProtocol = "art.http"\n\n[[connections.targets]]\nenv = "local"\nbundle = "reconciler"\nport = "http"\n`);
+    const lines = [];
+    const code = await inspectMain(["--terraform", join(dir, "plan.json"), "--dir", dir, "--env", "local"], { log: (l) => lines.push(l), errLog: (l) => lines.push(l), isGitTracked: () => false });
+    assert.equal(code, 0, lines.join("\n"));
+    assert.match(lines.join("\n"), / {2}evidenced {3}workqueue → reconciler \(connection "reconcile", env local\): referenced by configuration in env RECONCILER_URL\n/);
+    assert.match(lines.join("\n"), /In these inputs, with no bundle in cluster\.toml:\n {2}sweep {2}\(Cloud Run jobs\)\n/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

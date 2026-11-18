@@ -29,6 +29,7 @@ export function parseArgs(argv) {
     if (arg === "--terraform") opts.terraform = value();
     else if (arg === "--wrangler") opts.wrangler.push(value());
     else if (arg === "--dir") opts.dir = value();
+    else if (arg === "--env") opts.env = value();
     else if (arg === "--json") opts.json = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new InspectUsageError(`unknown argument: ${arg}`);
@@ -81,7 +82,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--json]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]");
     return 0;
   }
 
@@ -128,7 +129,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       errLog(`cloister inspect: no cluster.toml in ${opts.dir}`);
       return 2;
     }
-    const report = buildReport(imported, cluster);
+    const report = buildReport(imported, cluster, { env: opts.env });
     log(opts.json ? JSON.stringify(report, null, 2) : renderReport(report));
     return 0;
   } catch (error) {

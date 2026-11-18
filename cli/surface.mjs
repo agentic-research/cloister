@@ -355,7 +355,7 @@ export const COMMANDS = [
   },
   {
     name: "inspect",
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--json]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -373,11 +373,15 @@ export const COMMANDS = [
       "Cloudflare resource types, Google Cloud Run services and jobs (with their invoker " +
       "member rows, and what each one dials, read from its containers' env and args) " +
       "and Cloud SQL instances and Cloud Tasks queues, and " +
-      "wrangler.toml / wrangler.json are read today. ADR-0073.",
+      "wrangler.toml / wrangler.json are read today. With a cluster.toml, each " +
+      "declared connection is also compared with what the inputs say a service " +
+      "dials: evidenced, unknown, or undeclared, plus the services cluster.toml " +
+      "does not list. ADR-0073, ADR-0074.",
     flags: [
       { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
       { flag: "--wrangler", value: "<file>", summary: "a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required)" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory, if it has one)" },
+      { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON" },
     ],
     seeAlso: "docs/adr/0073-resource-facts-are-imported-never-granted.md",
