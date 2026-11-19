@@ -197,6 +197,9 @@ interface JsonRpcStreamMessage {
   error?:  { code: number; message: string; data?: unknown };
 }
 
+/** The most of an upstream's error text passed on to the caller. */
+const MAX_UPSTREAM_ERROR_CHARS = 2000;
+
 export class McpProxyToolBackend implements ToolBackend {
   private readonly assertedTools: McpTool[];
 
@@ -885,10 +888,21 @@ export class McpProxyToolBackend implements ToolBackend {
     }
 
     if (isError) {
-      const err =
-        parsed && typeof parsed === "object" && "error" in (parsed as object)
-          ? String((parsed as { error: unknown }).error)
-          : `tool ${toolName} failed`;
+      // What the upstream said, in the order it is most likely to have said
+      // it: a JSON `{ "error": ... }`, or plain text. An upstream's own
+      // sentence is usually the remedy ("start with --path", "run init"), and
+      // replacing it with "tool X failed" leaves the caller to guess. The
+      // leylineNet backend has always passed the text through; this one
+      // dropped it. Bounded, so a runaway upstream cannot fill a response.
+      let err = `tool ${toolName} failed`;
+      if (parsed && typeof parsed === "object" && "error" in (parsed as object)) {
+        err = String((parsed as { error: unknown }).error);
+      } else if (typeof parsed === "string" && parsed.trim() !== "") {
+        err = parsed;
+      }
+      if (err.length > MAX_UPSTREAM_ERROR_CHARS) {
+        err = `${err.slice(0, MAX_UPSTREAM_ERROR_CHARS)}… (truncated)`;
+      }
       throw new JsonRpcInvocationError(-32000, err);
     }
 

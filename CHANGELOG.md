@@ -8,6 +8,13 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — an upstream's own error text reaches the caller
+
+- When a proxied tool fails with a plain-text message, the caller now gets
+  that message (up to 2000 characters). It used to get `tool <name> failed`,
+  which hid remedies the upstream had written out. The `leylineNet` backend
+  already passed the text through.
+
 ### 2026-11 — one graph: wires and connections together, each with what holds it
 
 - `cloister cluster graph --env <name>` prints every declared edge: each
