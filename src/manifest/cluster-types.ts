@@ -396,8 +396,9 @@ export interface PlacementSpec {
    */
   kind: string;
   /**
-   * Cluster-dir-relative path to the operator's rendered manifest. Required
-   * for kubernetes and knative, refused on constructed kinds; never edited.
+   * Cluster-dir-relative path to the operator's rendered manifest, for
+   * kubernetes and knative; refused on constructed kinds; never edited. Omitted
+   * when a plan describes the placement.
    */
   manifest: string;
   /**
@@ -405,6 +406,11 @@ export interface PlacementSpec {
    * listens on (a Knative Service is dialled on 80). Forwarded kinds only.
    */
   ports: readonly PlacementPort[];
+  /**
+   * What the bundle is called in what describes this placement, when that is
+   * not the bundle's name (ADR-0074 §4). Forwarded kinds only.
+   */
+  name: string;
 }
 
 /** The number one of the bundle's ports is dialled on in one placement. */

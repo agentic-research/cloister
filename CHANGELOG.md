@@ -8,6 +8,18 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a bundle may be called something else where it is deployed
+
+- `[[bundles.placements]]` rows take a `name`: what the bundle is called in
+  that environment's plan or manifest. `inspect --env <name>` matches a
+  rendered resource to the bundle by it, so a service that is `orders`
+  locally and `orders-api-prod` in the cloud is compared as one thing.
+- Nothing is matched by likeness. Two bundles that would share a name in one
+  environment are refused, and without `--env` the report says the names
+  were not applied.
+- The schema's description of a placement's `manifest` no longer says it is
+  required.
+
 ### 2026-11 — a connection's address reaches a microVM
 
 - An env row bound to a connection is lowered for a microVM placement: the

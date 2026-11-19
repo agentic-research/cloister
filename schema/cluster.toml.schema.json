@@ -680,7 +680,7 @@
         },
         "manifest": {
           "type": "string",
-          "description": "Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'."
+          "description": "Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'."
         },
         "ports": {
           "type": "array",
@@ -688,6 +688,10 @@
             "$ref": "#/$defs/PlacementPort"
           },
           "description": "Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only."
+        },
+        "name": {
+          "type": "string",
+          "description": "What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only."
         }
       }
     },

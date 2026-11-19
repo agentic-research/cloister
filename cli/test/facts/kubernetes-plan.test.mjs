@@ -317,3 +317,56 @@ test("a type that is like another is still held to its own schema", () => {
   mapping.types.kubernetes_job_v1.read = [...mapping.types.kubernetes_job_v1.read, "spec.min_ready_seconds"];
   assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
 });
+
+// ── a bundle called something else where it is deployed (ADR-0074 §4) ────────
+
+/** The drafted cluster, with a bundle renamed and its plan-side name kept on the placement row. */
+async function renamedCluster({ bundle = "server", as = "api", env = "prod", rowName = bundle } = {}) {
+  const { parseTomlToCluster } = await import("../../lib/cluster/toml-to-cluster.mjs");
+  let toml = draftCluster(importFacts(plan()), { env: "prod" }).toml;
+  // Everywhere the bundle is named: its own row, and each connection's target.
+  toml = toml.replaceAll(`name = "${bundle}"\nkind = "external"`, `name = "${as}"\nkind = "external"`)
+    .replaceAll(`bundle = "${bundle}"`, `bundle = "${as}"`);
+  const at = toml.indexOf(`name = "${as}"\nkind = "external"`);
+  const row = toml.indexOf(`env = "${env}"\nkind = "kubernetes"\n`, at) + `env = "${env}"\nkind = "kubernetes"\n`.length;
+  toml = toml.slice(0, row) + (rowName === null ? "" : `name = ${JSON.stringify(rowName)}\n`) + toml.slice(row);
+  return parseTomlToCluster(toml);
+}
+const kindsOf = (cluster, options) => buildReport(importFacts(plan()), cluster, options).findings.map((f) => [f.kind, f.connection ? `${f.connection.from}→${f.connection.to}` : f.reason ?? ""]);
+
+test("a bundle named differently from its resource is matched by its placement's name", async () => {
+  // The bundle is `api`; in prod the plan calls it `server`.
+  const findings = kindsOf(await renamedCluster(), { env: "prod" });
+  assert.deepEqual(findings, [["evidenced", "caller→api"], ["evidenced", "probe→api"]]);
+});
+
+test("without the name, the same cluster is not matched: nothing is guessed from likeness", async () => {
+  const findings = kindsOf(await renamedCluster({ rowName: null }), { env: "prod" });
+  assert.deepEqual(findings.map(([kind]) => kind).sort(), ["undeclared", "undeclared", "unknown", "unknown"]);
+  assert.ok(findings.some(([kind, text]) => kind === "unknown" && /caller→api/.test(text)));
+});
+
+test("a placement name applies to its environment only, and --env says which", async () => {
+  const cluster = await renamedCluster();
+  // No environment: there is no one name to take, and the report says so.
+  const all = buildReport(importFacts(plan()), cluster, {}).findings;
+  assert.ok(all.some((f) => f.unchecked && /"api" goes by another name in some environment; pass --env/.test(f.reason)));
+});
+
+test("two bundles cannot go by one name in the same environment", async () => {
+  await assert.rejects(renamedCluster({ rowName: "caller" }), /bundles "caller" and "api" are both called "caller" in env "prod"\. A name means one bundle there/);
+});
+
+test("a constructed placement takes no name: cloister names it after the bundle", async () => {
+  const { parseTomlToCluster } = await import("../../lib/cluster/toml-to-cluster.mjs");
+  const toml = draftCluster(importFacts(plan()), { env: "prod" }).toml.replace('env = "prod"\nkind = "kubernetes"\n', 'env = "prod"\nkind = "workerd"\nname = "other"\n');
+  await assert.rejects(parseTomlToCluster(toml), /kind "workerd" is constructed by cloister and named after the bundle; it takes no `name`/);
+});
+
+test("a placement's name survives the round trip through cluster.toml", async () => {
+  const { clusterToToml } = await import("../../lib/cluster/cluster-to-toml.mjs");
+  const { parseTomlToCluster } = await import("../../lib/cluster/toml-to-cluster.mjs");
+  const cluster = await renamedCluster();
+  const again = await parseTomlToCluster(clusterToToml(cluster));
+  assert.equal(again.bundles.find((b) => b.name === "api").placements.find((p) => p.env === "prod").name, "server");
+});

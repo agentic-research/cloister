@@ -352,10 +352,12 @@ export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
     env: z.string().default(""),
     /** How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own. */
     kind: z.string().default(""),
-    /** Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'. */
+    /** Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'. */
     manifest: z.string().default(""),
     /** Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only. */
     ports: z.array(PlacementPortSchema).readonly().default([]),
+    /** What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only. */
+    name: z.string().default(""),
   }).strict());
 
 export interface PlacementSpec {
@@ -363,6 +365,7 @@ export interface PlacementSpec {
   kind: string;
   manifest: string;
   ports: readonly PlacementPort[];
+  name: string;
 }
 
 /** Filesystem paths the bundle may use. */

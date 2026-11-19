@@ -70,6 +70,7 @@ export function normalizePlacements(raw) {
     kind: text(p?.kind),
     manifest: text(p?.manifest),
     ports: Array.isArray(p?.ports) ? p.ports.map((x) => ({ name: text(x?.name), port: x?.port ?? 0, expose: text(x?.expose) })) : [],
+    name: text(p?.name),
   }));
 }
 
@@ -148,6 +149,40 @@ export function placementFor(bundle, env) {
   return rows.find((p) => p.env === env)?.kind ?? null;
 }
 
+/**
+ * What a bundle is called in `env`: its placement row's `name`, or its own
+ * name (ADR-0074 §4). Null when the bundle is not placed there at all.
+ */
+export function placementName(bundle, env) {
+  const rows = bundle?.placements ?? [];
+  if (rows.length === 0) return bundle?.name ?? null;
+  const row = rows.find((p) => p.env === env);
+  return row ? (row.name || bundle.name) : null;
+}
+
+/**
+ * Within one environment a name means one bundle. Throws by name when two
+ * bundles placed in the same environment go by the same name there, whether
+ * by a placement row's `name` or by their own.
+ */
+function assertPlacementNames(bundles) {
+  const envs = new Set(bundles.flatMap((b) => (b.placements ?? []).map((p) => p.env)));
+  for (const env of envs) {
+    const seen = new Map();
+    for (const b of bundles) {
+      const name = placementName(b, env);
+      if (name === null) continue;
+      if (seen.has(name)) {
+        throw new Error(
+          `bundles "${seen.get(name)}" and "${b.name}" are both called ${JSON.stringify(name)} in env "${env}". ` +
+            `A name means one bundle there: change a placement row's \`name\``,
+        );
+      }
+      seen.set(name, b.name);
+    }
+  }
+}
+
 /** The manifest path of a bundle's placement row for `env` ("" if none). */
 export function placementManifest(bundle, env) {
   return (bundle?.placements ?? []).find((p) => p.env === env)?.manifest ?? "";
@@ -200,6 +235,15 @@ function assertPlacements(b) {
         `${where}: kind "microvm" requires executionMode = "microvm" ` +
           `(the bundle declares ${JSON.stringify(b.executionMode)}) — the two must agree`,
       );
+    }
+    if (CONSTRUCTED_KINDS.includes(p.kind) && (p.name ?? "") !== "") {
+      throw new Error(
+        `${where}: kind "${p.kind}" is constructed by cloister and named after the bundle; it takes no \`name\` ` +
+          `(name is for forwarded kinds: ${FORWARDED_KINDS.join(", ")})`,
+      );
+    }
+    if (/[\u0000-\u001f\u007f]/.test(p.name ?? "")) {
+      throw new Error(`${where}: name holds a control character`);
     }
     if (CONSTRUCTED_KINDS.includes(p.kind) && p.manifest !== "") {
       throw new Error(
@@ -410,8 +454,9 @@ export function assertPortsAndConnections(bundles, connections) {
   const byName = new Map();
   for (const b of bundles) byName.set(b.name, b);
 
+  for (const b of bundles) assertPlacements(b);
+  assertPlacementNames(bundles);
   for (const b of bundles) {
-    assertPlacements(b);
     const names = new Set();
     const numbers = new Map();
     for (const p of b.ports ?? []) {
