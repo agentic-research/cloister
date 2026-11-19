@@ -18,6 +18,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   kubernetes Service; and an undeclared pod is refused there.
 - `dev/lowered-kind.sh` takes the scenario as its argument (`kubernetes` or
   `knative`).
+- **`cluster k8s` writes a directory for a knative bundle too**: its manifest,
+  copied unchanged, and the Namespace its Service names when the manifest does
+  not declare it. Before, every bundle had a directory to `kubectl apply`
+  except the knative ones, and nothing created their namespace. No
+  NetworkPolicy is written for one. The printed apply lines now name each
+  directory's namespace.
 
 ### 2026-11 — `expose` per placement
 

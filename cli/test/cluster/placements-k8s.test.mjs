@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -382,7 +382,7 @@ test("cluster k8s writes the files, re-runs into the same --out, and refuses sta
   const out = mkdtempSync(join(tmpdir(), "cloister-k8s-"));
   try {
     const first = await emitK8sDir({ root: DEMO, env: "local", out });
-    assert.deepEqual(first.bundles, ["dolt", "orders"]);
+    assert.deepEqual(first.applies, [{ bundle: "dolt", namespace: "dolt" }, { bundle: "orders", namespace: "orders" }]);
     assert.equal(readFileSync(join(out, "dolt/10-dolt.yaml"), "utf8"), MANIFESTS["dolt.yaml"]);
     await emitK8sDir({ root: DEMO, env: "local", out });
     mkdirSync(join(out, "old"), { recursive: true });
@@ -485,10 +485,19 @@ test("strengthOf: knative is none, so its edges never report a strength nothing 
   assert.equal(meetStrength(strengthOf("knative"), strengthOf("kubernetes")), "none");
 });
 
-test("knative ↔ knative at minStrength none (or unset): checked, and nothing is written", async () => {
+test("knative ↔ knative at minStrength none (or unset): checked, its manifest and namespace written, and no policy", async () => {
   for (const minStrength of ["none", null]) {
-    const { files, checked } = await lowerKn(knToml({ minStrength }));
-    assert.deepEqual(files, [], "no file, namespace or policy for a knative placement");
+    const { files, checked, applies } = await lowerKn(knToml({ minStrength }));
+    // The same directory a kubernetes bundle gets, minus the NetworkPolicy:
+    // nothing enforces who may call a Knative Service.
+    assert.deepEqual(files.map((f) => f.path), [
+      "workqueue/00-namespace.yaml", "workqueue/10-workqueue.yaml",
+      "reconciler/00-namespace.yaml", "reconciler/10-reconciler.yaml",
+    ]);
+    assert.equal(files[1].content, KN_MANIFESTS["workqueue.yaml"], "the manifest is copied unchanged");
+    // The namespace is the one the Service states, not the bundle's name.
+    assert.match(files[0].content, /kind: Namespace\nmetadata:\n {2}name: platform\n/);
+    assert.deepEqual(applies, [{ bundle: "workqueue", namespace: "platform" }, { bundle: "reconciler", namespace: "platform" }]);
     assert.deepEqual(checked, [
       { bundle: "workqueue", service: "workqueue", namespace: "platform", wire: "http1", port: 80,
         connectionsIn: [], connectionsOut: [{ name: "reconcile", to: "reconciler" }] },
@@ -601,7 +610,7 @@ test("kubernetes → knative: lowered, and worth nothing, because nothing fences
   );
 });
 
-test("cluster k8s on a knative-only cluster reports the check and leaves --out untouched", async () => {
+test("cluster k8s on a knative-only cluster writes each bundle's directory and says where to apply it", async () => {
   const root = mkdtempSync(join(tmpdir(), "cloister-kn-"));
   try {
     writeFileSync(join(root, "cluster.toml"), knToml());
@@ -610,10 +619,19 @@ test("cluster k8s on a knative-only cluster reports the check and leaves --out u
     const lines = [];
     const code = await clusterMain(["k8s", "--dir", root, "--env", "local", "--out", out], { log: (l) => lines.push(l), errLog: (l) => lines.push(l) });
     assert.equal(code, 0, lines.join("\n"));
-    assert.equal(existsSync(out), false, "nothing is written for a knative placement");
-    assert.deepEqual(lines, [
-      'cloister cluster k8s: checked "workqueue" (knative, strength "none"): reached at workqueue.platform.svc:80 (http1); nothing written',
-      'cloister cluster k8s: checked "reconciler" (knative, strength "none"): reached at reconciler.platform.svc:80 (http1); nothing written',
+    assert.deepEqual(readdirSync(out, { recursive: true }).map(String).filter((p) => p.endsWith(".yaml")).sort(), [
+      "reconciler/00-namespace.yaml", "reconciler/10-reconciler.yaml",
+      "workqueue/00-namespace.yaml", "workqueue/10-workqueue.yaml",
+    ]);
+    assert.deepEqual(lines.map((l) => l.replace(out, "<out>")), [
+      "cloister cluster k8s: wrote <out>/workqueue/00-namespace.yaml",
+      "cloister cluster k8s: wrote <out>/workqueue/10-workqueue.yaml",
+      "cloister cluster k8s: wrote <out>/reconciler/00-namespace.yaml",
+      "cloister cluster k8s: wrote <out>/reconciler/10-reconciler.yaml",
+      "  kubectl apply -n platform -f <out>/workqueue",
+      "  kubectl apply -n platform -f <out>/reconciler",
+      'cloister cluster k8s: checked "workqueue" (knative, strength "none"): reached at workqueue.platform.svc:80 (http1); its manifest is copied, and no policy is written',
+      'cloister cluster k8s: checked "reconciler" (knative, strength "none"): reached at reconciler.platform.svc:80 (http1); its manifest is copied, and no policy is written',
       '  connection "reconcile" from "workqueue": checked, not enforced',
       'cloister cluster k8s: connection "reconcile" from "workqueue" to "reconciler": no env, args or command value names it',
     ]);
@@ -899,7 +917,8 @@ test("cluster k8s prints what the manifests' addresses say", async () => {
     const lines = [];
     const code = await clusterMain(["k8s", "--dir", root, "--env", "local", "--out", join(root, "out")], { log: (l) => lines.push(l), errLog: (l) => lines.push(l) });
     assert.equal(code, 0, lines.join("\n"));
-    assert.deepEqual(lines.slice(3), [
+    // After the files written, the apply lines and the two "checked" lines with their connection.
+    assert.deepEqual(lines.filter((l) => / names /.test(l)), [
       'cloister cluster k8s: "workqueue" container "app" env RECONCILER_URL names reconciler.platform.svc:80: connection "reconcile"',
       'cloister cluster k8s: "workqueue" container "app" env METRICS names prometheus.monitoring.svc:9090, which is no bundle placed here; not checked',
     ]);

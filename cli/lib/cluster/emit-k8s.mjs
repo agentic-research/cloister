@@ -451,9 +451,10 @@ const HANDLED = Object.freeze(["kubernetes", "knative"]);
  * @returns {{files: Array<{path: string, content: string}>, checked: Array, references: Array, unreferenced: Array}}
  *   `files` is deterministic: kubernetes bundles in declaration order, files
  *   `<bundle>/00-namespace.yaml` (when needed), `<bundle>/10-<manifest
- *   basename>`, `<bundle>/20-networkpolicy.yaml`. `checked` lists each knative
- *   bundle with what a peer dials and the connections into and out of it; no
- *   file is written for one. `references` and `unreferenced` are what the
+ *   basename>`, `<bundle>/20-networkpolicy.yaml`. A knative bundle gets the
+ *   first two and no policy. `applies` says which namespace each directory is
+ *   applied in. `checked` lists each knative bundle with what a peer dials and
+ *   the connections into and out of it. `references` and `unreferenced` are what the
  *   containers' own strings say about the graph (see checkAddresses).
  */
 export function lowerK8s({ bundles: declared, connections, env, readManifest }) {
@@ -562,7 +563,29 @@ export function lowerK8s({ bundles: declared, connections, env, readManifest }) 
     }
     files.push({ path: `${b.name}/20-networkpolicy.yaml`, content: yamlDocs(policies) });
   }
-  return { files, checked, references, unreferenced, unread };
+  // A knative bundle gets the same directory, minus the policy: its manifest,
+  // copied unchanged, and the Namespace its Service names when the manifest
+  // does not declare it. Nothing enforces who may call a Knative Service
+  // (strength "none"), so there is no policy to write. But without these two
+  // files every bundle had a directory to `kubectl apply` except the knative
+  // ones, and nothing created the namespace their Service lives in.
+  for (const b of knative) {
+    const info = checked.find((k) => k.bundle === b.name);
+    const { path, text, objects } = manifests.get(b.name);
+    const declared = objects.some((obj) => isObject(obj, NAMESPACE) && obj.metadata?.name === info.namespace);
+    if (info.namespace !== "" && !declared) {
+      files.push({ path: `${b.name}/00-namespace.yaml`, content: yamlDocs([namespaceObject(info.namespace)]) });
+    }
+    files.push({ path: `${b.name}/10-${basename(path)}`, content: text });
+  }
+  // Where each written directory is applied: a kubernetes bundle in the
+  // namespace named after it, a knative one in the namespace its Service
+  // states ("" when it states none, and kubectl's current namespace is used).
+  const applies = [
+    ...placed.map((b) => ({ bundle: b.name, namespace: b.name })),
+    ...knative.map((b) => ({ bundle: b.name, namespace: checked.find((k) => k.bundle === b.name).namespace })),
+  ];
+  return { files, applies, checked, references, unreferenced, unread };
 }
 
 /** The files `lowerK8s` writes, for callers that want only those. */

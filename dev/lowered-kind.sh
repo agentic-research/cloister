@@ -191,11 +191,6 @@ if [ "$SCENARIO" = "kubernetes" ]; then
   # refusal above is the policy and not a server that went away.
   connects caller deployment/caller "$hostport" || fail "caller lost its connection once the policy settled"
 else
-  # `cluster k8s` checks a knative bundle and writes nothing for it, so its
-  # manifest is applied as lowered, into the namespace it names.
-  k create namespace web
-  k apply -f "$WORK/web.yaml"
-
   say "wait for the workloads"
   for bundle in api client outsider; do
     k rollout status "deployment/$bundle" -n "$bundle" --timeout=180s
