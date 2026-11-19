@@ -471,16 +471,12 @@ jobs:
       # is the trust root, not the tag and not the release's own checksum file:
       # that file comes from the same place as the binary. Bump both together.
       #
-      # HELD at v0.19.0 on purpose. v0.22.0 was tried (2026-11-19) and the
-      # smoke's `mache_list_directory` failed: a newer mache no longer falls
-      # back to a default project when the client cannot answer its
-      # server-initiated `roots/list`, and cloister's proxy has no channel for
-      # one. mache's own answer is a `?project=<token>` on the URL
-      # (mache-6ec106). Until cloister forwards one or the other, a newer mache
-      # behind cloister cannot resolve a workspace. Do not bump past this
-      # without that; the smoke will say so.
-      MACHE_RELEASE: v0.19.0
-      MACHE_SHA256: 533e9a7b228ee92166706201b5fffc4fe7cb310f3dfef32100951d94be56ff3e
+      # The smoke starts mache with `--path`, pinned to one project. A mache
+      # newer than v0.19.0 needs that behind cloister: with no project pinned
+      # it asks the client for its roots, cloister can only pass on roots a
+      # client declared on `initialize`, and an empty answer is now an error.
+      MACHE_RELEASE: v0.22.0
+      MACHE_SHA256: 6183082481b5f07be3efcfbc1cb856925471c0e9d0650dca84b12a9994ff16c2
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
