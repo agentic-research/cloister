@@ -150,6 +150,27 @@ that the name is the one the operator stated for that environment.
 - It does not rename what cloister writes. A lowered manifest still names
   its objects after the bundle.
 
+**Amendment (2026-11-19): who may call a target is compared too.** A provider
+enforces an edge with an access row: "this principal may invoke that
+service". The report already listed those rows. It now holds them beside the
+declared connections, matching a row to a caller by the caller's OWN
+identity (the service account the plan says it runs as), never by a name
+that looks alike.
+
+One limit decides how far this goes. A document shows who is granted. It
+cannot show that nobody else is: a grant may be made in another module, at a
+wider scope, or by hand. So:
+
+- a row naming the caller's identity is **evidence** for the connection;
+- a row granting everyone **contradicts** a private connection;
+- a row for a workload with no declared connection is **undeclared**;
+- no row is **unknown**. It is never read as "refused".
+
+For the same reason an evidenced row does not raise the edge's strength. A
+strength is what stops an undeclared caller, and a plan cannot show that.
+The edge stays `none` in `cluster graph`, with this as the reason a reader
+can check for themselves.
+
 ### 5. Checking comes before drafting, and drafting before lowering
 
 In order, each useful without the next:
@@ -425,7 +446,7 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | Cloud Run services and jobs, their containers, env, args and ports | built |
 | Edges from addresses and from configuration references | built for Cloud Run |
 | `ingress` beside a port's `expose` | built (`inspect --terraform --dir`) |
-| Access rows (invoker) | read; not compared with intent |
+| Access rows (invoker) | compared with declared connections: `evidenced` when the row names the caller's own service account, `contradicted` when the row is public, `undeclared` when a workload is granted with no connection, otherwise `unknown`. Never raises an edge's strength |
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |

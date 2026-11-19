@@ -186,7 +186,8 @@
                         "name": null,
                         "ports": []
                       }
-                    ]
+                    ],
+                    "service_account": "sweep@example-project.iam.gserviceaccount.com"
                   }
                 ]
               }
@@ -295,7 +296,8 @@
                     "image": "example.com/workqueue:1",
                     "name": null
                   }
-                ]
+                ],
+                "service_account": "workqueue@example-project.iam.gserviceaccount.com"
               }
             ]
           }

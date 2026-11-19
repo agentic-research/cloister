@@ -34,12 +34,28 @@ function sortKeys(value) {
   return value;
 }
 
-const getPath = (obj, path) => path.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), obj);
-function setPath(obj, path, value) {
+// A single nested block is rendered as a list of one. A scalar path reads
+// through it, and is written back in the same shape, so the trimmed document
+// is still what the tool renders.
+const single = (o) => (Array.isArray(o) ? (o.length === 1 ? o[0] : undefined) : o);
+const getPath = (obj, path) => path.split(".").reduce((o, k) => {
+  const at = single(o);
+  return at && typeof at === "object" ? at[k] : undefined;
+}, obj);
+function setPath(obj, path, value, source) {
   const parts = path.split(".");
   const last = parts.pop();
   let level = obj;
-  for (const part of parts) level = level[part] ??= {};
+  let from = source;
+  for (const part of parts) {
+    from = single(from)?.[part];
+    if (Array.isArray(from)) {
+      level[part] ??= [{}];
+      level = level[part][0];
+    } else {
+      level = level[part] ??= {};
+    }
+  }
   level[last] = value;
 }
 const pick = (row, keys) =>
@@ -50,10 +66,6 @@ const pick = (row, keys) =>
 /** Copy only the mapped scalar paths and list rows from `source`, in the same shape. */
 function reduce(source, entry) {
   const out = {};
-  for (const path of [entry.name, ...(entry.read ?? []), ...(entry.ids ?? [])].filter(Boolean)) {
-    const v = getPath(source, path);
-    if (v !== undefined && (typeof v !== "object" || v === null)) setPath(out, path, v);
-  }
   // Lists may nest (a block inside a block), so every mapped list's fields are
   // gathered per path first, and the structure is then copied down to them.
   const keep = new Map();
@@ -63,6 +75,13 @@ function reduce(source, entry) {
   for (const top of new Set([...keep.keys()].map((path) => path.split(".")[0]))) {
     const copied = copyLists(source[top], top, keep);
     if (copied !== undefined) out[top] = copied;
+  }
+  // Scalars after the lists: a scalar inside a block a list also passes
+  // through (`template.service_account` beside `template.containers`) is set
+  // into the block already copied, not replaced by it.
+  for (const path of [entry.name, ...(entry.read ?? []), ...(entry.ids ?? [])].filter(Boolean)) {
+    const v = getPath(source, path);
+    if (v !== undefined && (typeof v !== "object" || v === null)) setPath(out, path, v, source);
   }
   return out;
 }

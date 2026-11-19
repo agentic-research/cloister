@@ -3,7 +3,7 @@
   "types": {
     "google_cloud_run_v2_service": {
       "name": "name",
-      "read": ["location", "ingress", "uri"],
+      "read": ["location", "ingress", "uri", "template.service_account"],
       "ids": ["project", "id"],
       "referenceAttrs": ["template"],
       "lists": [
@@ -24,6 +24,7 @@
         "bundle": {
           "placement": "cloudRun",
           "runs": "service",
+          "identity": { "attr": "template.service_account", "principal": "serviceAccount:{}" },
           "image": { "list": "containers", "value": "image" },
           "args": { "list": "containers", "strings": "args" },
           "command": { "list": "containers", "strings": "command" },
@@ -68,7 +69,7 @@
     },
     "google_cloud_run_v2_job": {
       "name": "name",
-      "read": ["location"],
+      "read": ["location", "template.template.service_account"],
       "ids": ["project", "id"],
       "referenceAttrs": ["template"],
       "lists": [
@@ -88,6 +89,7 @@
         "bundle": {
           "placement": "cloudRun",
           "runs": "job",
+          "identity": { "attr": "template.template.service_account", "principal": "serviceAccount:{}" },
           "image": { "list": "containers", "value": "image" },
           "args": { "list": "containers", "strings": "args" },
           "command": { "list": "containers", "strings": "command" },

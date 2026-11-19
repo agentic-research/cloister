@@ -130,6 +130,13 @@ function dialsOf(fact, entry, facts, kind, addressed) {
   return out.map(({ address: _address, ...dial }) => dial);
 }
 
+/** A workload's own principal, as an access row would write it, or "". */
+function principalOf(fact, rule) {
+  if (!rule) return "";
+  const value = fact.attrs[rule.attr];
+  return typeof value === "string" && value !== "" ? rule.principal.replace("{}", value) : "";
+}
+
 /**
  * The bundle a workload would be drafted as: its placement kind, image and
  * ports, as the mapping says to read them. A port carries the app_protocol
@@ -293,6 +300,9 @@ function declaredSections(facts, kind, { withRun = false } = {}) {
         // A type that declares what it dials is a workload: it can be the
         // source of a connection.
         dialer: Boolean(entry.report.dials),
+        // Who it runs as, in the form an access row names a principal, when
+        // the mapping says where that is and the document states it.
+        identity: principalOf(fact, entry.report.bundle?.identity),
         // What a bundle drafted from this resource would hold (ADR-0074 §3),
         // for a type whose mapping says it is a workload.
         bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle, facts, withRun, addressed) : null,
@@ -408,6 +418,43 @@ function compareConnections(sections, cluster, env) {
         dial: { to: dial.to, section: dial.section, by: dial.by, where: dial.where },
         reason: bundles.has(dial.to) ? "declares no such connection" : `has no bundle named "${dial.to}"`,
       });
+    }
+  }
+  // Who the inputs let CALL each target, beside the declared connections.
+  // An access row is the provider's own enforcement of an edge: it names a
+  // principal, and a workload's principal is who it runs as.
+  //
+  // What a document can show is who IS granted. It cannot show that nobody
+  // else is: a grant may be made in another module, at a wider scope, or by
+  // hand. So a row is evidence for an edge, a public row contradicts a
+  // private one, and the absence of a row is unknown, never "refused".
+  for (const target of resources) {
+    if (!bundles.has(target.name)) continue;
+    for (const label of target.accessLabels ?? []) {
+      const rows = (target.access ?? []).filter((a) => a.label === label);
+      const callers = declared.filter((c) => c.to === target.name);
+      const open = rows.filter((a) => a.public);
+      for (const connection of callers) {
+        const access = { from: connection.from, to: connection.to, name: connection.name, env: connection.env, label };
+        const sources = named(connection.from);
+        const identity = sources.length === 1 ? sources[0].identity : "";
+        if (open.length) {
+          findings.push({ kind: "contradicted", access, reason: `${label} is granted to ${open.map((a) => a.principal).join(", ")}, so it is not only "${connection.from}" that may call it` });
+        } else if (identity !== "" && rows.some((a) => a.principal === identity)) {
+          findings.push({ kind: "evidenced", access, principal: identity });
+        } else if (identity === "") {
+          findings.push({ kind: "unknown", access, reason: `these inputs do not state who "${connection.from}" runs as` });
+        } else {
+          findings.push({ kind: "unknown", access, reason: `no ${label} row in these inputs names ${identity}; a row made elsewhere is not visible here` });
+        }
+      }
+      // A row for a workload that declares no connection to this target.
+      for (const row of rows.filter((a) => !a.public)) {
+        const holder = resources.filter((r) => r.identity === row.principal);
+        if (holder.length !== 1 || holder[0].name === target.name) continue;
+        if (callers.some((c) => c.from === holder[0].name)) continue;
+        findings.push({ kind: "undeclared", access: { from: holder[0].name, to: target.name, label }, reason: bundles.has(holder[0].name) ? "declares no such connection" : `has no bundle named "${holder[0].name}"` });
+      }
     }
   }
   // A port's `expose` beside what the inputs say about reaching the workload
@@ -679,7 +726,12 @@ export function renderReport(report) {
   section("Findings:");
   if (report.findings.length === 0) lines.push("  (none)");
   for (const f of report.findings) {
-    if (f.exposure) {
+    if (f.access) {
+      const edge = `${f.access.from} → ${f.access.to} (${f.access.label})`;
+      if (f.kind === "evidenced") lines.push(`  evidenced   ${edge}: granted to ${f.principal}`);
+      else if (f.kind === "undeclared") lines.push(`  undeclared  ${edge}: the inputs grant it, and cluster.toml ${f.reason}`);
+      else lines.push(`  ${f.kind.padEnd(11)} ${edge}: ${f.reason}`);
+    } else if (f.exposure) {
       const what = `${f.exposure.bundle} port "${f.exposure.port}" expose = "${f.exposure.expose}"`;
       lines.push(f.kind === "evidenced" ? `  evidenced   ${what}: ${f.setting}` : `  ${f.kind.padEnd(11)} ${what}: ${f.reason}`);
     } else if (f.connection) {
