@@ -37,7 +37,7 @@ import {
   placementFor,
   joinable,
   KNATIVE_POD_LABEL,
-  placementManifest,
+  requireManifest,
   portsFor,
   refuseCrossPlacement,
 } from "./connections.mjs";
@@ -495,7 +495,7 @@ export function lowerK8s({ bundles: declared, connections, env, readManifest }) 
   // Each manifest is read and parsed once.
   const manifests = new Map();
   for (const b of [...placed, ...knative]) {
-    const path = placementManifest(b, env);
+    const path = requireManifest(b, env, "cloister cluster k8s");
     const label = `bundle "${b.name}" manifest ${path}`;
     const text = readManifest(path);
     manifests.set(b.name, { path, label, text, objects: parseManifest(text, label) });

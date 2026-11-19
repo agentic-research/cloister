@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { main as inspectMain, isGitTracked, withoutGitEnv } from "../../commands/inspect.mjs";
-import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, GOOGLE_MAPPING, GOOGLE_SPEC, importResource } from "../../lib/facts/cloudflare.mjs";
+import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, GOOGLE_MAPPING, GOOGLE_SPEC, KUBERNETES_MAPPING, KUBERNETES_SPEC, importResource } from "../../lib/facts/cloudflare.mjs";
 import { validateMapping, validateWranglerKeys } from "../../lib/facts/validate.mjs";
 import { WRANGLER_MAPPING, importWrangler } from "../../lib/facts/wrangler.mjs";
 import { projectSpec, renderSpec } from "../../../gen/facts-spec.mjs";
@@ -35,6 +35,7 @@ const WRANGLER_FIXTURE = fileURLToPath(new URL("../../../test/fixtures/terraform
 const SPEC_FILES = [
   [CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, fileURLToPath(new URL("../../lib/facts/spec/cloudflare.schema.json", import.meta.url))],
   [GOOGLE_MAPPING, GOOGLE_SPEC, fileURLToPath(new URL("../../lib/facts/spec/google.schema.json", import.meta.url))],
+  [KUBERNETES_MAPPING, KUBERNETES_SPEC, fileURLToPath(new URL("../../lib/facts/spec/kubernetes.schema.json", import.meta.url))],
 ];
 const JSR_FIXTURE = fileURLToPath(new URL("../../../test/fixtures/terraform/oss/jsr-plan.show.json", import.meta.url));
 const jsrDoc = () => JSON.parse(readFileSync(JSR_FIXTURE, "utf8"));

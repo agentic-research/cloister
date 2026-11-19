@@ -168,8 +168,12 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
         rows.push({ name: entry.name, value: entry.value });
       } else if (entry.kind === "workload") {
         if (connections.some((c) => c.from === w.name && c.name === entry.to)) {
-          rows.push({ name: entry.name, connection: entry.to });
-          notes.push(`"${w.name}": env ${entry.name} is the address of "${entry.to}". If the inputs append a path to it, add \`path = "..."\` to that row`);
+          // A literal address shows what follows it. One taken from another
+          // resource does not: the configuration records the reference, and
+          // anything appended to it is not in the row.
+          const known = typeof entry.path === "string";
+          rows.push({ name: entry.name, connection: entry.to, ...(known && entry.path !== "" ? { path: entry.path } : {}) });
+          if (!known) notes.push(`"${w.name}": env ${entry.name} is the address of "${entry.to}". If the inputs append a path to it, add \`path = "..."\` to that row`);
         } else {
           notes.push(`"${w.name}": env ${entry.name} is not drafted: it is the address of "${entry.to}" (${entry.section}), which has no drafted connection to bind it to`);
         }

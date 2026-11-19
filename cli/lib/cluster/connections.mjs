@@ -153,8 +153,22 @@ export function placementManifest(bundle, env) {
   return (bundle?.placements ?? []).find((p) => p.env === env)?.manifest ?? "";
 }
 
-/** Forwarded kinds whose manifest cloister reads, so a row must name one. */
-const MANIFEST_KINDS = Object.freeze(["kubernetes", "knative"]);
+/** Forwarded kinds whose manifest cloister reads, when the row names one. */
+export const MANIFEST_KINDS = Object.freeze(["kubernetes", "knative"]);
+
+/**
+ * The manifest path of a bundle placed in `env`, for a command that must
+ * read or write one. Throws by name when the row names none.
+ */
+export function requireManifest(bundle, env, command) {
+  const path = placementManifest(bundle, env);
+  if (path !== "") return path;
+  throw new Error(
+    `bundle "${bundle.name}" is placed "${placementFor(bundle, env)}" for env "${env}" and names no manifest. ` +
+      `\`${command}\` works from a manifest: add \`manifest = "${bundle.name}.yaml"\` to that placement row. ` +
+      `A placement described only by a plan is checked with \`cloister inspect\``,
+  );
+}
 
 /** "a", "a or b", "a, b or c". */
 const oneOf = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`);
@@ -193,9 +207,11 @@ function assertPlacements(b) {
           `(manifest is for forwarded kinds: ${FORWARDED_KINDS.join(", ")})`,
       );
     }
-    if (MANIFEST_KINDS.includes(p.kind) && p.manifest === "") {
-      throw new Error(`${where}: kind "${p.kind}" requires a manifest (a rendered YAML path)`);
-    }
+    // A manifest is not required here. A placement may be described by
+    // something other than YAML (a Terraform plan that declares the
+    // Deployment), and `inspect` reads that. The commands that READ a
+    // manifest (`cluster k8s`, `cluster lower`) refuse a row without one, by
+    // name, for the env they are run for (ADR-0070 §2 amendment 2026-11-19).
     if (p.manifest !== "") {
       const problem = relativePathProblem(p.manifest);
       if (problem) {

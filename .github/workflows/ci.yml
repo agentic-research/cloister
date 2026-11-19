@@ -573,11 +573,14 @@ jobs:
   # later would otherwise be advisory until someone remembered to list it: this
   # job is the list. `lint/test/ci-gate.test.mjs` fails if a job is left out.
   #
-  # `if: always()` matters. Without it a failed dependency SKIPS this job, and
-  # a skipped required check counts as passing.
+  # The condition matters. With none, a failed dependency SKIPS this job, and
+  # a skipped required check counts as passing. `!cancelled()` runs it after a
+  # failure and leaves it out of a run that was cancelled, which is what a
+  # newer push does to the run before it: that commit is superseded, and a
+  # red check on it is noise. `always()` reported every such run as failed.
   ci-ok:
     name: ci-ok (every job passed)
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, smoke-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2

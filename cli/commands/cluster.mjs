@@ -140,7 +140,7 @@ export function clusterComposePath(dir) {
  */
 export async function lowerDir({ root, env }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
-  const { placementFor } = await import("../lib/cluster/connections.mjs");
+  const { placementFor, requireManifest } = await import("../lib/cluster/connections.mjs");
   const { kubernetesWorkload, knativeWorkload, LOWERED_KINDS } = await import("../lib/cluster/emit-workload.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
   const bundles = cluster.bundles.map(checkableBundle);
@@ -152,7 +152,7 @@ export async function lowerDir({ root, env }) {
     const checkable = bundles.find((b) => b.name === bundle.name);
     const kind = placementFor(checkable, env);
     if (!LOWERED_KINDS.includes(kind)) continue;
-    const manifest = checkable.placements.find((p) => p.env === env).manifest;
+    const manifest = requireManifest(checkable, env, "cloister cluster lower");
     const dest = resolve(root, manifest);
     if (existsSync(dest)) { kept.push(manifest); continue; }
     pending.push({ manifest, dest, content: (kind === "knative" ? knativeWorkload : kubernetesWorkload)(bundle, { bundles, connections, env }) });

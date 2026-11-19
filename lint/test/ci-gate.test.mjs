@@ -28,8 +28,10 @@ test("ci-ok needs every other job in ci.yml", () => {
 });
 
 test("ci-ok runs when a job it needs failed, so it fails and is not skipped", () => {
-  // A skipped required check counts as passing.
-  assert.equal(ci.jobs[GATE].if, "always()");
+  // A skipped required check counts as passing, so the gate must carry a
+  // status function: with none, a failed dependency skips it. `!cancelled()`
+  // runs it after a failure and not in a run a newer push cancelled.
+  assert.equal(ci.jobs[GATE].if, "${{ !cancelled() }}");
 });
 
 test("only a job with a condition may be skipped, and ci-ok names each one", () => {

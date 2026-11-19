@@ -1,0 +1,981 @@
+{
+  "provider": "hashicorp/kubernetes",
+  "types": {
+    "kubernetes_deployment_v1": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes deployments",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_deployment": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes deployments",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_stateful_set_v1": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes stateful sets",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_stateful_set": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes stateful sets",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_daemon_set_v1": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes daemon sets",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_daemonset": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes daemon sets",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_job_v1": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes jobs",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "job",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_job": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "referenceAttrs": [
+        "spec"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.container",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.env",
+          "read": [
+            "name",
+            "value"
+          ]
+        },
+        {
+          "path": "spec.template.spec.container.port",
+          "read": [
+            "name",
+            "container_port"
+          ]
+        }
+      ],
+      "configLists": [
+        {
+          "path": "spec.template.spec.container.env",
+          "fields": [
+            "name",
+            "value",
+            "value_from.secret_key_ref.name",
+            "value_from.secret_key_ref.key"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes jobs",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "container",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "container",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "references": [
+          "spec"
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "job",
+          "image": {
+            "list": "container",
+            "value": "image"
+          },
+          "args": {
+            "list": "container",
+            "strings": "args"
+          },
+          "command": {
+            "list": "container",
+            "strings": "command"
+          },
+          "env": {
+            "configured": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "value_from.secret_key_ref.name",
+            "secretVersion": "value_from.secret_key_ref.key"
+          },
+          "ports": {
+            "list": "port",
+            "name": "name",
+            "port": "container_port"
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_service_v1": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace",
+        "spec.type"
+      ],
+      "maps": [
+        "spec.selector"
+      ],
+      "report": {
+        "section": "Kubernetes services",
+        "show": [
+          "metadata.namespace",
+          "spec.type"
+        ],
+        "hosts": [
+          "{name}.{metadata.namespace}.svc.cluster.local",
+          "{name}.{metadata.namespace}.svc",
+          "{name}.{metadata.namespace}"
+        ],
+        "standsFor": {
+          "selector": "spec.selector",
+          "labels": "spec.template.metadata.labels",
+          "toTypes": [
+            "kubernetes_deployment_v1",
+            "kubernetes_deployment",
+            "kubernetes_stateful_set_v1",
+            "kubernetes_stateful_set",
+            "kubernetes_daemon_set_v1",
+            "kubernetes_daemonset"
+          ],
+          "scope": [
+            "metadata.namespace"
+          ]
+        }
+      }
+    },
+    "kubernetes_service": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace",
+        "spec.type"
+      ],
+      "maps": [
+        "spec.selector"
+      ],
+      "report": {
+        "section": "Kubernetes services",
+        "show": [
+          "metadata.namespace",
+          "spec.type"
+        ],
+        "hosts": [
+          "{name}.{metadata.namespace}.svc.cluster.local",
+          "{name}.{metadata.namespace}.svc",
+          "{name}.{metadata.namespace}"
+        ],
+        "standsFor": {
+          "selector": "spec.selector",
+          "labels": "spec.template.metadata.labels",
+          "toTypes": [
+            "kubernetes_deployment_v1",
+            "kubernetes_deployment",
+            "kubernetes_stateful_set_v1",
+            "kubernetes_stateful_set",
+            "kubernetes_daemon_set_v1",
+            "kubernetes_daemonset"
+          ],
+          "scope": [
+            "metadata.namespace"
+          ]
+        }
+      }
+    },
+    "kubernetes_namespace_v1": {
+      "name": "metadata.name",
+      "report": {
+        "section": "Kubernetes namespaces",
+        "show": []
+      }
+    },
+    "kubernetes_namespace": {
+      "name": "metadata.name",
+      "report": {
+        "section": "Kubernetes namespaces",
+        "show": []
+      }
+    }
+  }
+}

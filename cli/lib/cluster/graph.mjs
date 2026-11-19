@@ -22,12 +22,14 @@
 // It reads cluster.toml only. It writes nothing and starts nothing.
 
 import {
+  MANIFEST_KINDS,
   STRENGTHS,
   checkableBundle,
   edgeStrength,
   joinable,
   normalizeConnections,
   placementFor,
+  placementManifest,
 } from "./connections.mjs";
 
 /** The placement a wire runs in: what `cloister cluster up` starts. */
@@ -71,9 +73,12 @@ function wireReach(target) {
 }
 
 /** Why a connection edge has the strength it has, from the kinds of its ends. */
-function connectionWhy(fromKind, toKind, strength) {
+function connectionWhy(fromKind, toKind, strength, unwritten) {
   if (fromKind === null || toKind === null) {
     return "an end has no placement in this environment, so nothing lowers the edge";
+  }
+  if (unwritten.length) {
+    return `${unwritten.map((name) => `"${name}"`).join(" and ")} ${unwritten.length === 1 ? "names" : "name"} no manifest here, so cloister writes no policy for it: what holds this edge is whatever its plan applies`;
   }
   if (!joinable(fromKind, toKind)) {
     return `no emitter joins a ${fromKind} bundle to a ${toKind} one: that needs a broker`;
@@ -107,7 +112,12 @@ export function clusterGraph(cluster, env) {
     }
     const fromKind = placementFor(bundles.get(c.from), env);
     const toKind = placementFor(bundles.get(target.bundle), env);
-    const lowered = fromKind !== null && toKind !== null && joinable(fromKind, toKind);
+    // An end whose placement reads a manifest, and names none, is described
+    // somewhere else (a plan). cloister writes nothing for it.
+    const unwritten = [[c.from, fromKind], [target.bundle, toKind]]
+      .filter(([name, kind]) => MANIFEST_KINDS.includes(kind) && placementManifest(bundles.get(name), env) === "")
+      .map(([name]) => name);
+    const lowered = fromKind !== null && toKind !== null && joinable(fromKind, toKind) && unwritten.length === 0;
     const strength = lowered ? edgeStrength(fromKind, toKind) : "none";
     edges.push({
       from: c.from,
@@ -118,7 +128,7 @@ export function clusterGraph(cluster, env) {
       strength,
       minStrength: c.minStrength,
       meetsMinimum: c.minStrength === "" || STRENGTHS.indexOf(strength) >= STRENGTHS.indexOf(c.minStrength),
-      why: connectionWhy(fromKind, toKind, strength),
+      why: connectionWhy(fromKind, toKind, strength, unwritten),
     });
   }
 

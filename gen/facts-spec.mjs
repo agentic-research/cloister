@@ -38,6 +38,8 @@ function mappedPaths(entry) {
   // A configured field is a path through nested blocks below the list.
   for (const list of entry.configLists ?? []) for (const field of list.fields ?? []) paths.push(`${list.path}.${field}`);
   for (const relation of entry.relations ?? []) paths.push(relation.attr);
+  // A map attribute read whole (a selector, a pod template's labels).
+  for (const map of entry.maps ?? []) paths.push(map);
   return paths.filter((p) => typeof p === "string").map((p) => p.split("."));
 }
 

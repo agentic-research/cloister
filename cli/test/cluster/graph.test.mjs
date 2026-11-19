@@ -17,7 +17,7 @@ import { parseTomlToCluster } from "../../lib/cluster/toml-to-cluster.mjs";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const cluster = async (path) => parseTomlToCluster(readFileSync(resolve(ROOT, path), "utf8"));
 
-const bundle = (name, kind) => ({ name, kind: { external: {} }, ports: [{ name: "http", port: 8080, appProtocol: "art.http", expose: "cluster" }], placements: [{ env: "local", kind }] });
+const bundle = (name, kind) => ({ name, kind: { external: {} }, ports: [{ name: "http", port: 8080, appProtocol: "art.http", expose: "cluster" }], placements: [{ env: "local", kind, ...(["kubernetes", "knative"].includes(kind) ? { manifest: `${name}.yaml` } : {}) }] });
 const connection = (from, to, extra = {}) => ({ from, name: to, appProtocol: "art.http", targets: [{ env: "local", bundle: to, port: "http" }], ...extra });
 
 test("this repository's own cluster: every wire is an edge, and none is held", async () => {
@@ -73,6 +73,14 @@ test("an edge below its minStrength is marked, not passed over", () => {
   assert.match(renderGraph(graph), /BELOW its minStrength "policy"/);
   const held = clusterGraph({ bundles: [bundle("a", "kubernetes"), bundle("b", "kubernetes")], connections: [connection("a", "b", { minStrength: "policy" })] }, "local");
   assert.equal(held.edges[0].meetsMinimum, true);
+});
+
+test("an end that names no manifest is not credited with a policy nobody wrote", () => {
+  const unwritten = (name) => ({ ...bundle(name, "kubernetes"), placements: [{ env: "local", kind: "kubernetes" }] });
+  const graph = clusterGraph({ bundles: [bundle("a", "kubernetes"), unwritten("b")], connections: [connection("a", "b", { minStrength: "policy" })] }, "local");
+  assert.equal(graph.edges[0].strength, "none");
+  assert.match(graph.edges[0].why, /"b" names no manifest here, so cloister writes no policy for it/);
+  assert.equal(graph.edges[0].meetsMinimum, false);
 });
 
 test("a connection with no target in the environment is listed, not dropped", () => {
