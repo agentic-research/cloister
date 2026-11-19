@@ -87,7 +87,7 @@ test("a wire to a socket is `capability` exactly when the rendered compose file 
   assert.equal(open, 0, "a rendered wire is open to a bundle with no wire to it: give its target a directory of its own");
 });
 
-test("a wire is not held when someone else is in the directory, when tenants share it, or when the source has no container", () => {
+test("a wire is not held when someone else is in the directory, when tenants share its binding, or when the source has no container", () => {
   const ext = (name, ipcSocket, extra = {}) => ({ name, kind: { external: { ipcSocket, httpPort: 0 } }, ...extra });
   const wire = (from, to) => ({ from, to, binding: `${to.toUpperCase()}_SOCK`, transport: "uds" });
   const edge = (c, from, to) => clusterGraph(c, "local").edges.find((e) => e.from === from && e.to === to);
@@ -103,9 +103,23 @@ test("a wire is not held when someone else is in the directory, when tenants sha
   const viaWire = { bundles: [ext("a", "/run/s/a.sock"), ext("b", "/run/s/b.sock"), ext("c", ""), ext("d", "")], wires: [wire("c", "a"), wire("d", "b"), wire("c", "b")] };
   assert.match(edge(viaWire, "c", "a").why, /"b" and "d" also mount/);
 
-  const tenants = { bundles: [ext("t", "/run/t/t.sock", { perTenant: true }), ext("c", "")], wires: [wire("c", "t")] };
-  assert.equal(edge(tenants, "c", "t").strength, "none");
-  assert.match(edge(tenants, "c", "t").why, /one tenant's instance can open another's socket/);
+  // A perTenant bundle is one container per tenant, each in a directory of
+  // its own. A wire that reaches one tenant is held; one whose binding
+  // several tenants share is handed a socket nothing binds.
+  const rows = (...tenants) => [{ path: "/", kind: { tenantDispatch: { tenants: tenants.map(([name, binding]) => ({ name, binding, mode: "sni", matchValue: `${name}.example` })) } } }];
+  const perTenant = {
+    bundles: [ext("t", "/run/t/t.sock", { perTenant: true }), ext("c", "")],
+    wires: [{ ...wire("c", "t"), binding: "T_ALICE" }, { ...wire("c", "t"), binding: "T_BOB" }],
+    routes: rows(["alice", "T_ALICE"], ["bob", "T_BOB"]),
+  };
+  const tenantEdges = clusterGraph(perTenant, "local").edges;
+  assert.deepEqual(tenantEdges.map((e) => [e.name, e.strength]), [["T_ALICE", "capability"], ["T_BOB", "capability"]]);
+  assert.match(tenantEdges[0].carrier, /socket \/run\/t\/alice\/t\.sock/);
+  assert.match(tenantEdges[0].why, /mounted only into "t-alice" and its declared caller "c"/);
+
+  const sharedBinding = { ...perTenant, wires: [{ ...wire("c", "t"), binding: "T_ANY" }], routes: rows(["alice", "T_ANY"], ["bob", "T_ANY"]) };
+  assert.equal(edge(sharedBinding, "c", "t").strength, "none");
+  assert.match(edge(sharedBinding, "c", "t").why, /no tenant's instance binds it/);
 
   const inProcess = { bundles: [ext("a", "/run/s/a/a.sock"), { name: "w", kind: { workerd: {} } }], wires: [wire("w", "a")] };
   assert.equal(edge(inProcess, "w", "a").strength, "none");

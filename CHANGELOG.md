@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — one tenant's instance cannot open another's socket
+
+- A `perTenant` bundle's instances each bind in a directory of the tenant's
+  own, mounted into that instance and the bundles whose wire reaches that
+  tenant. `cluster graph` reports such a wire as `capability`.
+- **Moved:** `TENANT_SOCKET`, and the address a wire to one tenant hands its
+  source, are now `<dir>/<tenant>/<file>`. They were `<dir>/<stem>.<tenant><ext>`
+  in a directory every instance shared. An instance that binds
+  `TENANT_SOCKET` needs no change.
+- A tenant name that cannot be a directory name is refused.
+- `task smoke:compose-hold` now starts two tenants and has each try the
+  other's socket.
+
 ### 2026-11 — a wire to a socket is held under compose
 
 - `emit-compose` gives each socket directory its own volume and mounts it
@@ -27,7 +40,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   refused.
 - `task smoke:compose-hold`, a new CI job, starts an emitted cluster and has
   every bundle try every wired socket. Not held yet: a target reached over
-  HTTP, and tenant instances of one `perTenant` bundle (ADR-0075 §5).
+  HTTP (ADR-0075 §5).
 
 ### 2026-11 — the architecture document says one thing
 

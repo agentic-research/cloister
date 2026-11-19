@@ -125,7 +125,7 @@ mounts no socket volume at all.
 |---|---|
 | the target and its declared callers only | `capability` |
 | anyone else (it binds its own socket there, or has a wire to another bundle that does) | `none`, and that bundle is named |
-| the target is `perTenant` | `none`: every tenant's instance binds in the one directory |
+| the wire's binding is shared by several tenants of a `perTenant` target | `none`: the source is handed the bundle's declared socket, which no tenant's instance binds |
 | the source has no container of its own | `none`: there is nothing to mount it into |
 
 So holding is opt-in by path and needs no schema field. A cluster whose
@@ -148,16 +148,25 @@ graph did not show was the reason one volume had to be everywhere.
   reach it. The companion opens the socket path a request names. Who can
   reach the companion is the companion's own edge, with its own row.
 - A wire to a target reached over HTTP is still `none`.
-- Tenant instances of one `perTenant` bundle still share a directory.
 - A socket path that is relative, directly under `/`, or in a directory whose
   name compose's mount syntax would misread is refused, naming the bundle.
+
+**Tenants.** A `perTenant` bundle runs one container per tenant. Each binds
+the bundle's socket file in a directory of the tenant's own,
+`<dir>/<tenant>/<file>`, handed to it as `TENANT_SOCKET`; the tenant used to
+be a tag in the file name, in one directory every instance mounted. A wire
+whose binding is one tenant's is judged against that tenant's directory, so
+it can be `capability`, and one tenant's instance has no path to another's
+socket. A tenant name that cannot be a directory name is refused.
 
 **Checked against running containers.** `task smoke:compose-hold` emits
 `test/e2e/compose-hold/cluster.toml`, starts it, and has every bundle try
 every wired socket. A declared caller connects. Where the graph says
 `capability`, a bundle with no wire gets `FileNotFoundError`: the path is not
 in its container. Where the graph says `none` and names a bundle, that bundle
-connects. The run fails if it saw no refusal or no named entry. It is a CI
+connects. Each tenant's instance tries the other's socket and finds no such
+path. The run fails if it saw no refusal, no named entry, or fewer than two
+tenants. It is a CI
 job and one of the jobs `ci-ok` needs.
 
 **What moved.** In this repository: rosary's socket, to
@@ -186,6 +195,6 @@ did not move, because its image declares that path.
 | Strength and reason for a wire under compose | implemented, read from every committed compose file by a test |
 | Holding a wire to a socket under compose | implemented (§5), checked against running containers in CI |
 | Holding a wire to an HTTP target under compose | not decided (§4.1) |
-| Keeping tenant instances out of each other's sockets | not built (§5) |
+| Keeping tenant instances out of each other's sockets | implemented (§5), checked against running containers in CI |
 | One vocabulary for an edge | not decided (§4.2) |
 | A strength for workerd | not decided (§4.3) |

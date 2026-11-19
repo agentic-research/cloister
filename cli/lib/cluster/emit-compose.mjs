@@ -40,7 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
-import { socketDirs, socketMountsFor } from "./socket-dirs.mjs";
+import { bindPath, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -122,107 +122,6 @@ export function resolveTenancy(cluster) {
   return { colocation, violations };
 }
 
-// ── perTenant fanout (cedcf3 Phase 2 piece 2) ────────────────────────────
-
-/**
- * Resolve the tenant rows that should fan out into per-tenant
- * containers for a perTenant=true bundle. Walks the Inv-9 binding-
- * correlation chain in reverse:
- *
- *   bundle.name === wire.to
- *      → wire.binding
- *      → tenantDispatch row.binding match
- *      → tenant row
- *
- * Returns the matched rows in dispatch-table declaration order.
- * Returns [] if no chain links exist — lint Inv 8 + Inv 9 should
- * have caught that case before this script runs; this code falls
- * back to single-emission rather than fail-late.
- *
- * The shared-binding case (all tenants share one `binding` per the
- * docs/reference/tenancy-model.md §"Operator opt-in shape" example)
- * means one wire entry yields N tenants here. The per-tenant-binding
- * case (operator declares N wires + N matching dispatch rows) also
- * works: each wire matches its corresponding row.
- *
- * Per cloister-cedcf3 Phase 2 piece 2.
- */
-function perTenantInstancesFor(bundleName, cluster) {
-  const incomingBindings = new Set(
-    cluster.wires.filter((w) => w.to === bundleName).map((w) => w.binding),
-  );
-  if (incomingBindings.size === 0) return [];
-  const rows = [];
-  for (const route of cluster.routes ?? []) {
-    if (!("tenantDispatch" in route.kind)) continue;
-    for (const row of route.kind.tenantDispatch.tenants) {
-      if (incomingBindings.has(row.binding)) rows.push(row);
-    }
-  }
-  return rows;
-}
-
-/**
- * Derive a per-tenant ipcSocket path from a base socket + tenant name
- * by inserting `.<tenant>` before the extension:
- *
- *   /run/cloister-uds/tenant.sock + "alice"
- *     → /run/cloister-uds/tenant.alice.sock
- *
- * Every tenant's instance mounts the bundle's socket directory, and so
- * does each bundle with a wire to it, so the router reaches a tenant's
- * bind point at the same path the tenant's container publishes. The
- * instances therefore hold each other's sockets: the graph reports a
- * wire to a perTenant bundle as held by nothing (ADR-0075 §4.1).
- *
- * If the base socket has no extension, the tenant tag is appended
- * with a `.` separator. Empty base returns the tag with a `.sock`
- * extension as a safe default.
- *
- * Per cloister-cedcf3 Phase 3.
- */
-function perTenantSocketPath(baseSocket, tenantName) {
-  if (!baseSocket) return `.${tenantName}.sock`;
-  const lastSlash = baseSocket.lastIndexOf("/");
-  const dir = lastSlash >= 0 ? baseSocket.slice(0, lastSlash + 1) : "";
-  const file = lastSlash >= 0 ? baseSocket.slice(lastSlash + 1) : baseSocket;
-  const lastDot = file.lastIndexOf(".");
-  if (lastDot <= 0) return `${dir}${file}.${tenantName}`;
-  const stem = file.slice(0, lastDot);
-  const ext = file.slice(lastDot);
-  return `${dir}${stem}.${tenantName}${ext}`;
-}
-
-/**
- * Resolve the per-tenant socket path the SOURCE side of a wire should
- * use to reach its perTenant target. Walks dispatch routes to find the
- * unique tenant row whose binding matches this wire's binding; if
- * exactly one row matches, returns the derived per-tenant socket. If
- * zero or multiple rows match, returns null and the caller falls back
- * to the bundle's declared ipcSocket (the operator opted into a shared
- * binding shape — the dispatch path is their responsibility).
- *
- * Per cloister-cedcf3 Phase 3.
- */
-function perTenantSocketForWire(wire, cluster, targetBundle) {
-  if (targetBundle?.perTenant !== true) return null;
-  if (!("external" in targetBundle.kind)) return null;
-  const baseSocket = targetBundle.kind.external.ipcSocket;
-  if (!baseSocket) return null;
-  let matched = null;
-  for (const route of cluster.routes ?? []) {
-    if (!("tenantDispatch" in route.kind)) continue;
-    for (const row of route.kind.tenantDispatch.tenants) {
-      if (row.binding === wire.binding) {
-        if (matched) return null; // ambiguous (shared binding); operator owns dispatch
-        matched = row;
-      }
-    }
-  }
-  if (!matched) return null;
-  return perTenantSocketPath(baseSocket, matched.name);
-}
-
 // ── Compose YAML emitter ─────────────────────────────────────────────────
 
 /**
@@ -270,7 +169,7 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   const perTenantDoVolumes = new Set();
   // One volume per socket directory, mounted only into the bundles that
   // bind in it or have a wire to one that does (ADR-0075 §4.1).
-  const udsDirs = socketDirs(cluster);
+  const udsPlan = socketPlan(cluster);
 
   for (const b of cluster.bundles) {
     if (!("external" in b.kind)) {
@@ -282,13 +181,13 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
     // tenantDispatch row (cedcf3 Phase 2 piece 2). If the chain
     // resolves to zero rows (shouldn't — lint Inv 8 + Inv 9 catch
     // that), fall back to single-emission.
-    const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
+    const tenants = b.perTenant === true ? tenantInstances(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsDirs);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsDirs);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan);
     }
   }
 
@@ -318,7 +217,7 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // tmpfs rather than a disk-backed volume because a socket has no business
   // surviving a restart: a stale socket file from a previous run is a bind
   // failure waiting to happen, not state worth keeping.
-  for (const d of udsDirs) {
+  for (const d of udsPlan.dirs) {
     topVolumes.push(`  ${d.volume}:`);
     topVolumes.push(`    # ${d.dir} — held by ${d.holders.join(", ")}`);
     topVolumes.push(`    driver: local`);
@@ -414,7 +313,7 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsDirs = socketDirs(cluster)) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsPlan = socketPlan(cluster)) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
@@ -461,7 +360,7 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
   }
 
-  const mounts = socketMountsFor(b.name, udsDirs).map((d) => `${d.volume}:${d.dir}`);
+  const mounts = socketMountsFor(serviceName, udsPlan).map((d) => `${d.volume}:${d.dir}`);
   const doPath = cluster.storage.doStoragePath || "/var/lib/cloister/do";
   if (b.name === "cloister-router") {
     // doBindPath set → host bind-mount (owned/backup-able/encryptable);
@@ -492,15 +391,12 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     if (w.from !== b.name) continue;
     const target = cluster.bundles.find((x) => x.name === w.to);
     if (target && "external" in target.kind && target.kind.external.ipcSocket) {
-      // Per-tenant socket derivation (cedcf3 Phase 3): if the target
-      // bundle is perTenant=true AND this wire's binding maps to
-      // exactly one dispatch row, derive the per-tenant socket path so
-      // the router reaches the right tenant's bind point. Ambiguous
-      // bindings (shared across rows) fall through to the bundle's
-      // declared ipcSocket — that's the operator's shared-dispatch
-      // shape, not ours to second-guess.
-      const perTenantSocket = perTenantSocketForWire(w, cluster, target);
-      envVars.push(`${w.binding}=${perTenantSocket ?? target.kind.external.ipcSocket}`);
+      // The path comes from the socket plan, the same one the volumes are
+      // mounted from: the tenant's own socket when this wire's binding maps
+      // to exactly one dispatch row, else the bundle's declared ipcSocket
+      // (a binding several tenants share is the operator's dispatch shape,
+      // not ours to second-guess).
+      envVars.push(`${w.binding}=${dialPath(w, udsPlan)}`);
     } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
       if (w.to === "mache") {
         envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
@@ -514,13 +410,11 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     envVars.push(`TENANT_MODE=${tenant.mode}`);
     envVars.push(`TENANT_MATCH_VALUE=${tenant.matchValue}`);
     // TENANT_SOCKET tells this per-tenant container where to bind its
-    // UDS so it's reachable from the router through the socket
-    // directory both mount, at the matching path (perTenantSocketForWire on the source
-    // side derives the same path from the wire binding). Per cedcf3
-    // Phase 3.
-    if (b.kind.external.ipcSocket) {
-      envVars.push(`TENANT_SOCKET=${perTenantSocketPath(b.kind.external.ipcSocket, tenant.name)}`);
-    }
+    // UDS: a directory of the tenant's own, mounted into this container
+    // and into the bundles whose wire reaches this tenant, and into no
+    // other tenant's container (ADR-0075 §5).
+    const ownSocket = bindPath(serviceName, udsPlan);
+    if (ownSocket) envVars.push(`TENANT_SOCKET=${ownSocket}`);
   }
   for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);
   if (envVars.length > 0) {

@@ -14,6 +14,10 @@
 // holds a wire, so the emitter and the graph cannot disagree: there is one
 // function, and both call it.
 //
+// A `perTenant` bundle runs one container per tenant. Each binds its socket in
+// a directory of that tenant's own, `<dir>/<tenant>/<file>`, so one tenant's
+// instance holds no other tenant's socket.
+//
 // What this does NOT settle, and the graph says so:
 //
 //   - Two bundles that bind in the SAME directory each hold the other's
@@ -70,53 +74,166 @@ function volumeNames(dirs) {
 }
 
 /**
- * Every socket directory in a cluster, with who binds in it and who holds it.
+ * The tenant instances a `perTenant` bundle fans out to: every
+ * `tenantDispatch` row whose binding is the binding of a wire to the bundle,
+ * in dispatch-table order. Empty when no row matches, in which case the
+ * bundle runs as one container (lint Inv 8 and Inv 9 refuse that cluster
+ * before it gets here).
  *
- * @param {object} cluster a parsed cluster
- * @returns {Array<{dir: string, volume: string, binders: string[], holders: string[]}>}
- *   in directory order. `holders` is binders first, then callers, each in the
- *   order cluster.toml declares them.
+ * One wire whose binding several rows share yields several tenants. So does
+ * one wire and one row per tenant.
  */
-export function socketDirs(cluster) {
-  const byDir = new Map();
-  for (const b of cluster.bundles ?? []) {
-    const socket = socketOf(b);
-    if (!socket) continue;
-    const dir = socketDir(socket, b.name);
-    if (!byDir.has(dir)) byDir.set(dir, { dir, binders: [], callers: [] });
-    byDir.get(dir).binders.push(b.name);
-  }
-  const containers = new Set((cluster.bundles ?? []).filter((b) => external(b)).map((b) => b.name));
-  for (const entry of byDir.values()) {
-    for (const w of cluster.wires ?? []) {
-      // A source with no container of its own runs inside the gateway's
-      // process: there is nothing to mount the directory into.
-      if (!entry.binders.includes(w.to) || !containers.has(w.from)) continue;
-      if (!entry.binders.includes(w.from) && !entry.callers.includes(w.from)) entry.callers.push(w.from);
+export function tenantInstances(bundleName, cluster) {
+  const incoming = new Set((cluster.wires ?? []).filter((w) => w.to === bundleName).map((w) => w.binding));
+  if (incoming.size === 0) return [];
+  const rows = [];
+  for (const route of cluster.routes ?? []) {
+    if (!("tenantDispatch" in route.kind)) continue;
+    for (const row of route.kind.tenantDispatch.tenants) {
+      if (incoming.has(row.binding)) rows.push(row);
     }
   }
-  const volumes = volumeNames(byDir.keys());
-  return [...byDir.values()]
-    .sort((a, b) => (a.dir < b.dir ? -1 : 1))
-    .map(({ dir, binders, callers }) => ({ dir, volume: volumes.get(dir), binders, holders: [...binders, ...callers] }));
-}
-
-/** The socket directories one bundle's container mounts, in directory order. */
-export function socketMountsFor(bundleName, dirs) {
-  return dirs.filter((d) => d.holders.includes(bundleName));
+  return rows;
 }
 
 /**
- * Who can open a bundle's socket without a wire to it.
+ * Where one tenant's instance binds: the bundle's socket file, in a directory
+ * named for the tenant inside the bundle's socket directory.
  *
- * @returns {{dir: string, callers: string[], undeclared: string[]} | null}
- *   null when the bundle binds no socket. `undeclared` is every holder of the
- *   directory that is neither the bundle itself nor one of its callers.
+ *   /run/cloister-uds/app/app.sock + "alice" → /run/cloister-uds/app/alice/app.sock
+ *
+ * A directory per tenant, and not a file name per tenant in one directory,
+ * because under compose the directory is what is mounted: tenants that share
+ * one can open each other's sockets.
  */
-export function socketExposure(cluster, bundleName, dirs = socketDirs(cluster)) {
-  const entry = dirs.find((d) => d.binders.includes(bundleName));
-  if (!entry) return null;
-  const callers = [...new Set((cluster.wires ?? []).filter((w) => w.to === bundleName).map((w) => w.from))];
-  const undeclared = entry.holders.filter((name) => name !== bundleName && !callers.includes(name));
-  return { dir: entry.dir, callers: callers.filter((name) => entry.holders.includes(name)), undeclared };
+export function tenantSocketPath(baseSocket, tenantName, bundleName) {
+  const dir = socketDir(baseSocket, bundleName);
+  if (!/^[A-Za-z0-9._-]+$/.test(tenantName) || tenantName === "." || tenantName === "..") {
+    throw new Error(`bundle "${bundleName}": tenant "${tenantName}" cannot name a socket directory. Use letters, digits, ".", "_" and "-"`);
+  }
+  return posix.join(dir, tenantName, posix.basename(baseSocket));
+}
+
+/**
+ * The one tenant a wire reaches, or null.
+ *
+ * A wire whose binding is the binding of exactly one dispatch row reaches
+ * that tenant. A binding several rows share reaches no one tenant: the source
+ * is handed the bundle's declared socket, and what answers there is the
+ * operator's dispatch.
+ */
+function tenantOfWire(wire, cluster) {
+  let matched = null;
+  for (const route of cluster.routes ?? []) {
+    if (!("tenantDispatch" in route.kind)) continue;
+    for (const row of route.kind.tenantDispatch.tenants) {
+      if (row.binding !== wire.binding) continue;
+      if (matched) return null;
+      matched = row;
+    }
+  }
+  return matched;
+}
+
+/**
+ * Everything compose needs to know about sockets, worked out once.
+ *
+ * Holders are compose SERVICES. A bundle is one service under its own name;
+ * a `perTenant` bundle with tenants is one service per tenant, named
+ * `<bundle>-<tenant>`.
+ *
+ * @param {object} cluster a parsed cluster
+ * @returns {{
+ *   dirs: Array<{dir: string, volume: string, holders: string[]}>,
+ *   binds: Array<{service: string, bundle: string, tenant: string, path: string, dir: string}>,
+ *   dials: Array<{service: string, from: string, to: string, binding: string, path: string, dir: string}>,
+ * }}
+ *   `binds` is every socket a service binds. `dials` is every socket path a
+ *   wire hands its source, one row per service of the source. `dirs` is in
+ *   directory order, holders in the order cluster.toml declares them, binders
+ *   before callers.
+ */
+export function socketPlan(cluster) {
+  const bundles = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
+  const tenantsOf = new Map();
+  for (const b of cluster.bundles ?? []) {
+    tenantsOf.set(b.name, external(b) && b.perTenant === true ? tenantInstances(b.name, cluster) : []);
+  }
+  const servicesOf = (name) => {
+    const tenants = tenantsOf.get(name) ?? [];
+    return tenants.length ? tenants.map((t) => `${name}-${t.name}`) : [name];
+  };
+
+  const binds = [];
+  for (const b of cluster.bundles ?? []) {
+    const socket = socketOf(b);
+    if (!socket) continue;
+    const tenants = tenantsOf.get(b.name);
+    if (tenants.length === 0) {
+      binds.push({ service: b.name, bundle: b.name, tenant: "", path: socket, dir: socketDir(socket, b.name) });
+      continue;
+    }
+    for (const t of tenants) {
+      const path = tenantSocketPath(socket, t.name, b.name);
+      binds.push({ service: `${b.name}-${t.name}`, bundle: b.name, tenant: t.name, path, dir: posix.dirname(path) });
+    }
+  }
+
+  const dials = [];
+  for (const w of cluster.wires ?? []) {
+    const target = bundles.get(w.to);
+    const socket = socketOf(target);
+    // A source with no container of its own runs inside the gateway's
+    // process: there is nothing to mount a directory into.
+    if (!socket || !external(bundles.get(w.from))) continue;
+    const tenant = tenantsOf.get(w.to).length ? tenantOfWire(w, cluster) : null;
+    const path = tenant ? tenantSocketPath(socket, tenant.name, w.to) : socket;
+    for (const service of servicesOf(w.from)) {
+      dials.push({ service, from: w.from, to: w.to, binding: w.binding, path, dir: socketDir(path, w.to) });
+    }
+  }
+
+  const holders = new Map();
+  for (const row of [...binds, ...dials]) {
+    if (!holders.has(row.dir)) holders.set(row.dir, []);
+    if (!holders.get(row.dir).includes(row.service)) holders.get(row.dir).push(row.service);
+  }
+  const volumes = volumeNames(holders.keys());
+  const dirs = [...holders.keys()].sort().map((dir) => ({ dir, volume: volumes.get(dir), holders: holders.get(dir) }));
+  return { dirs, binds, dials };
+}
+
+/** The socket directories one service's container mounts, in directory order. */
+export function socketMountsFor(service, plan) {
+  return plan.dirs.filter((d) => d.holders.includes(service));
+}
+
+/** The socket path a wire hands its source, or "" when the target binds none. */
+export function dialPath(wire, plan) {
+  return plan.dials.find((d) => d.from === wire.from && d.to === wire.to && d.binding === wire.binding)?.path ?? "";
+}
+
+/** Where a service binds its socket, or "" when it binds none. */
+export function bindPath(service, plan) {
+  return plan.binds.find((b) => b.service === service)?.path ?? "";
+}
+
+/**
+ * Who can open the socket a wire dials.
+ *
+ * @returns {{path: string, dir: string, bound: string[], callers: string[], undeclared: string[]} | null}
+ *   null when the wire dials no socket. `bound` is the services that bind
+ *   exactly this path (empty when nothing does). `callers` is the services a
+ *   wire hands this path. `undeclared` is every other service that mounts the
+ *   directory: it binds another socket there, or dials one.
+ */
+export function socketExposure(wire, plan) {
+  const path = dialPath(wire, plan);
+  if (!path) return null;
+  const dir = posix.dirname(path);
+  const bound = plan.binds.filter((b) => b.path === path).map((b) => b.service);
+  const callers = [...new Set(plan.dials.filter((d) => d.path === path).map((d) => d.service))];
+  const holding = plan.dirs.find((d) => d.dir === dir)?.holders ?? [];
+  const undeclared = holding.filter((service) => !bound.includes(service) && !callers.includes(service));
+  return { path, dir, bound, callers, undeclared };
 }
