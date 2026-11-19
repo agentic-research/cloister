@@ -2,7 +2,7 @@
 # Regenerate via `cloister cluster generate` after editing cluster.toml.
 #
 # Cluster: art-default v0.1.0
-# 5 bundle(s), 4 wire(s)
+# 5 bundle(s), 5 wire(s)
 # 5 input(s); tenancy resolved per ADR-0030 §A5
 
 name: art-default
@@ -20,11 +20,12 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
       - cloister-do:/data/do
     environment:
       - "MACHE_BUNDLE=http://127.0.0.1:7532"
-      - "ROSARY_BUNDLE=/run/cloister-uds/rosary.sock"
+      - "ROSARY_BUNDLE=/run/cloister-uds/rosary/rosary.sock"
       - "NOTME=http://notme-identity:8788"
       - "COMPANION=/run/cloister-uds/companion.sock"
 
@@ -38,8 +39,6 @@ services:
       - "cloister.description=ghcr.io/agentic-research/notme@sha256:56fd69dd51e5f4269f11cd541245e061ca54acd3f6f8ea52b12155b7f421b95b — Identity authority — Signet master CA, lease cert mint"
     ports:
       - "8788:8788"
-    volumes:
-      - cloister-uds:/run/cloister-uds
 
   notme-proxy:
     image: ghcr.io/agentic-research/notme-proxy@sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64
@@ -50,7 +49,10 @@ services:
       - "cloister.tier=hypervisor"
       - "cloister.description=ghcr.io/agentic-research/notme-proxy@sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64 — cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
+    environment:
+      - "ROSARY_SOCKET=/run/cloister-uds/rosary/rosary.sock"
 
   mache:
     image: ghcr.io/agentic-research/mache@sha256:8620a0dc2d4c2ae7f6cc1f0ee68d6823a8bc9af6a8cf01d332c08738d9203ac7
@@ -68,8 +70,6 @@ services:
       - "--path"
       - "/workspace"
     network_mode: "service:cloister-router"
-    volumes:
-      - cloister-uds:/run/cloister-uds
 
   rosary:
     image: ghcr.io/agentic-research/rosary@sha256:38aadea5d94b5f96ea43d9decd3c6f46f97c71a765fc73afd5f44387c21800ad
@@ -83,12 +83,20 @@ services:
     command:
       - "mcp"
       - "--ipc-socket"
-      - "/run/cloister-uds/rosary.sock"
+      - "/run/cloister-uds/rosary/rosary.sock"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
 
 volumes:
-  cloister-uds:
+  uds-run-cloister-uds:
+    # /run/cloister-uds — held by cloister-router, notme-proxy
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777"
+  uds-run-cloister-uds-rosary:
+    # /run/cloister-uds/rosary — held by rosary, cloister-router, notme-proxy
     driver: local
     driver_opts:
       type: tmpfs

@@ -452,7 +452,10 @@ export interface ExternalBundle {
   image:     string;
   /**
    * UDS socket path the bundle listens on for capnp ToolCall traffic.
-   * Convention: `/run/cloister-uds/<bundle>.sock`.
+   * Convention: `/run/cloister-uds/<bundle>/<bundle>.sock`. Under compose
+   * the directory is the grant: it is mounted only into this bundle and the
+   * bundles wired to it, so a directory of its own is what holds the socket
+   * (ADR-0075 §5).
    */
   ipcSocket: string;
   /**

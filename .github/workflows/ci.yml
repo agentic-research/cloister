@@ -391,6 +391,58 @@ jobs:
         # same and a second cluster is a minute and a half.
         run: task smoke:lowered-drafted
 
+  # What `cloister cluster graph` says about a wire under compose, checked
+  # against running containers (ADR-0075 §4.1). `emit-compose` gives each
+  # socket directory its own volume and mounts it only into the bundles that
+  # bind there or have a wire to one that does. This starts a small cluster
+  # and has EVERY bundle try EVERY wired socket: the declared caller connects,
+  # a bundle with no wire finds no such path, and where the graph says `none`
+  # the bundle it names really gets in. It also has docker parse every compose
+  # file this repository commits. docker and its compose plugin ship on the
+  # runner image.
+  compose-hold:
+    name: compose-hold (start the emitted compose file and try every socket)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pnpm store
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install Node dependencies
+        run: task deps:node
+
+      - name: Show the container tooling
+        run: |
+          docker version
+          docker compose version
+
+      - name: Emit, start, and have every bundle try every wired socket
+        run: task smoke:compose-hold
+
   # The same, for the Knative lowering and for edges between the two
   # placements a cluster can hold. Separate from lowered-kind on purpose:
   # installing Knative is minutes of setup with its own ways to fail, and the
@@ -581,7 +633,7 @@ jobs:
   ci-ok:
     name: ci-ok (every job passed)
     if: ${{ !cancelled() }}
-    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, smoke-e2e]
+    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, smoke-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

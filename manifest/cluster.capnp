@@ -389,8 +389,11 @@ struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the
 
   # UDS socket path the bundle listens on for capnp ToolCall traffic.
   # Bundles MUST share a volume mount that includes this path so wires
-  # can reach across container boundaries. Convention: /run/cloister-uds/.
-  ipcSocket @1 :Text $Traits.doc("The unix socket path the bundle listens on for tool calls.");      # e.g. "/run/cloister-uds/mache.sock"
+  # can reach across container boundaries. Convention: /run/cloister-uds/<bundle>/.
+  # Under compose the directory is the grant: it is mounted only into this
+  # bundle and the bundles wired to it, so a directory of the bundle's own
+  # is what holds the socket (ADR-0075 §5).
+  ipcSocket @1 :Text $Traits.doc("The unix socket path the bundle listens on for tool calls.");      # e.g. "/run/cloister-uds/mache/mache.sock"
 
   # Optional TCP port — for bundles that ALSO want to be reachable over
   # HTTP (e.g. cloister-router itself exposes /mcp on a TCP port for

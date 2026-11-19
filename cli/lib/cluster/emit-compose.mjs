@@ -40,6 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
+import { socketDirs, socketMountsFor } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -168,12 +169,11 @@ function perTenantInstancesFor(bundleName, cluster) {
  *   /run/cloister-uds/tenant.sock + "alice"
  *     → /run/cloister-uds/tenant.alice.sock
  *
- * The shared `cloister-uds:` named volume is mounted into every
- * container, so per-tenant sockets coexist on the same volume without
- * filesystem-namespace collisions, and the router can reach each
- * tenant's bind point through the same path the per-tenant container
- * publishes. Bind point is the in-container path; the router sees the
- * SAME path because the volume is shared.
+ * Every tenant's instance mounts the bundle's socket directory, and so
+ * does each bundle with a wire to it, so the router reaches a tenant's
+ * bind point at the same path the tenant's container publishes. The
+ * instances therefore hold each other's sockets: the graph reports a
+ * wire to a perTenant bundle as held by nothing (ADR-0075 §4.1).
  *
  * If the base socket has no extension, the tenant tag is appended
  * with a `.` separator. Empty base returns the tag with a `.sock`
@@ -268,6 +268,9 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // the YAML must declare each one. Set keeps emission deterministic
   // (insertion order) without duplicates.
   const perTenantDoVolumes = new Set();
+  // One volume per socket directory, mounted only into the bundles that
+  // bind in it or have a wire to one that does (ADR-0075 §4.1).
+  const udsDirs = socketDirs(cluster);
 
   for (const b of cluster.bundles) {
     if (!("external" in b.kind)) {
@@ -282,16 +285,14 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
     const tenants = b.perTenant === true ? perTenantInstancesFor(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsDirs);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsDirs);
     }
   }
 
-  lines.push(`volumes:`);
-  lines.push(`  cloister-uds:`);
-  lines.push(`    driver: local`);
+  const topVolumes = [];
   // tmpfs with /tmp semantics (mode 1777), and BOTH halves are load-bearing.
   //
   // The comment here used to say "tmpfs is fine — UDS sockets are ephemeral"
@@ -317,23 +318,31 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // tmpfs rather than a disk-backed volume because a socket has no business
   // surviving a restart: a stale socket file from a previous run is a bind
   // failure waiting to happen, not state worth keeping.
-  lines.push(`    driver_opts:`);
-  lines.push(`      type: tmpfs`);
-  lines.push(`      device: tmpfs`);
-  lines.push(`      o: "mode=1777"`);
+  for (const d of udsDirs) {
+    topVolumes.push(`  ${d.volume}:`);
+    topVolumes.push(`    # ${d.dir} — held by ${d.holders.join(", ")}`);
+    topVolumes.push(`    driver: local`);
+    topVolumes.push(`    driver_opts:`);
+    topVolumes.push(`      type: tmpfs`);
+    topVolumes.push(`      device: tmpfs`);
+    topVolumes.push(`      o: "mode=1777"`);
+  }
   if (!doBindPath) {
-    lines.push(`  cloister-do:`);
-    lines.push(`    driver: local`);
-    lines.push(`    # SQLite DO storage — survives container restarts; backup target`);
+    topVolumes.push(`  cloister-do:`);
+    topVolumes.push(`    driver: local`);
+    topVolumes.push(`    # SQLite DO storage — survives container restarts; backup target`);
   }
   // Per-tenant DO volumes — one per (perTenant bundle, tenant) pair.
   // Operator offboarding is mechanically atomic: `docker volume rm
   // cloister-do-<bundle>-<tenant>`. Per cedcf3 Phase 3 piece 2.
   for (const name of perTenantDoVolumes) {
-    lines.push(`  ${name}:`);
-    lines.push(`    driver: local`);
-    lines.push(`    # Per-tenant SQLite DO storage; isolated per (bundle, tenant). Backup/offboard target.`);
+    topVolumes.push(`  ${name}:`);
+    topVolumes.push(`    driver: local`);
+    topVolumes.push(`    # Per-tenant SQLite DO storage; isolated per (bundle, tenant). Backup/offboard target.`);
   }
+  // A cluster with no socket and a bind-mounted store declares no volume:
+  // an empty `volumes:` key is not a mapping, and compose refuses it.
+  if (topVolumes.length > 0) lines.push(`volumes:`, ...topVolumes);
 
   return lines.join("\n") + "\n";
 }
@@ -366,7 +375,7 @@ function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName, 
  * + `TENANT_SOCKET` (Phase 3 piece 1), and the container mounts its
  * own `cloister-do-<bundle>-<tenant>` volume (Phase 3 piece 2 — added
  * to the `perTenantDoVolumes` Set so the top-level `volumes:` section
- * declares it). The shared `cloister-uds:` volume is still mounted so
+ * declares it). The bundle's socket directory is still mounted so
  * the router can reach each tenant's per-tenant UDS path.
  *
  * Source-side wires targeting this bundle get their env vars rewritten
@@ -405,7 +414,7 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsDirs = socketDirs(cluster)) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
@@ -452,14 +461,13 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
   }
 
-  lines.push(`    volumes:`);
-  lines.push(`      - cloister-uds:/run/cloister-uds`);
+  const mounts = socketMountsFor(b.name, udsDirs).map((d) => `${d.volume}:${d.dir}`);
   const doPath = cluster.storage.doStoragePath || "/var/lib/cloister/do";
   if (b.name === "cloister-router") {
     // doBindPath set → host bind-mount (owned/backup-able/encryptable);
     // else the named docker volume (default). Same in-container path.
     const src = doBindPath ? `${doBindPath}/cloister-router` : "cloister-do";
-    lines.push(`      - ${src}:${doPath}`);
+    mounts.push(`${src}:${doPath}`);
   }
   // Per-tenant DO store — one per (bundle, tenant) pair at the same
   // in-container path. Named volume (offboard: `docker volume rm
@@ -467,12 +475,16 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
   // CLOISTER_DO_BIND. Per cedcf3 Phase 3 piece 2.
   if (tenant) {
     if (doBindPath) {
-      lines.push(`      - ${doBindPath}/${b.name}-${tenant.name}:${doPath}`);
+      mounts.push(`${doBindPath}/${b.name}-${tenant.name}:${doPath}`);
     } else {
       const doVol = `cloister-do-${b.name}-${tenant.name}`;
       perTenantDoVolumes?.add(doVol);
-      lines.push(`      - ${doVol}:${doPath}`);
+      mounts.push(`${doVol}:${doPath}`);
     }
+  }
+  if (mounts.length > 0) {
+    lines.push(`    volumes:`);
+    for (const m of mounts) lines.push(`      - ${m}`);
   }
 
   const envVars = [];
@@ -502,8 +514,8 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     envVars.push(`TENANT_MODE=${tenant.mode}`);
     envVars.push(`TENANT_MATCH_VALUE=${tenant.matchValue}`);
     // TENANT_SOCKET tells this per-tenant container where to bind its
-    // UDS so it's reachable from the router via the shared cloister-uds
-    // volume at the matching path (perTenantSocketForWire on the source
+    // UDS so it's reachable from the router through the socket
+    // directory both mount, at the matching path (perTenantSocketForWire on the source
     // side derives the same path from the wire binding). Per cedcf3
     // Phase 3.
     if (b.kind.external.ipcSocket) {

@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a wire to a socket is held under compose
+
+- `emit-compose` gives each socket directory its own volume and mounts it
+  only into the bundles that bind there or have a wire to one that does. A
+  bundle with no socket and no such wire mounts none. The one `cloister-uds`
+  volume in every container is gone; volumes are named for their directory.
+- `cloister cluster graph` reports a wire as `capability` when only the
+  target and its declared callers hold the directory, and otherwise `none`
+  with the bundle that can also open the socket named.
+- **Moved:** rosary binds `/run/cloister-uds/rosary/rosary.sock`, and the
+  companion's dial of it is declared as a wire (`notme-proxy → rosary`). In
+  `recipes/multi-tenant-smoke` each tenant has a directory of its own, so one
+  tenant can no longer open the other's socket.
+- A cluster that keeps every socket in one directory still works, and is told
+  per wire who else can open it. A socket path that is relative, directly
+  under `/`, or in a directory compose's mount syntax would misread is now
+  refused.
+- `task smoke:compose-hold`, a new CI job, starts an emitted cluster and has
+  every bundle try every wired socket. Not held yet: a target reached over
+  HTTP, and tenant instances of one `perTenant` bundle (ADR-0075 §5).
+
 ### 2026-11 — the architecture document says one thing
 
 - `docs/ARCHITECTURE.md` opens with the one idea (declare which part may

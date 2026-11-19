@@ -208,12 +208,12 @@ export const cluster: Cluster = {
       "kind": {
         "external": {
           "image": "",
-          "ipcSocket": "/run/cloister-uds/rosary.sock",
+          "ipcSocket": "/run/cloister-uds/rosary/rosary.sock",
           "httpPort": 0,
           "args": [
             "mcp",
             "--ipc-socket",
-            "/run/cloister-uds/rosary.sock"
+            "/run/cloister-uds/rosary/rosary.sock"
           ],
           "env": [],
           "entryPoint": "",
@@ -253,6 +253,14 @@ export const cluster: Cluster = {
       "from": "cloister-router",
       "to": "notme-proxy",
       "binding": "COMPANION",
+      "transport": {
+        "uds": null
+      }
+    },
+    {
+      "from": "notme-proxy",
+      "to": "rosary",
+      "binding": "ROSARY_SOCKET",
       "transport": {
         "uds": null
       }

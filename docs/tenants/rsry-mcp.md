@@ -41,7 +41,7 @@ those specific tools always surface even if `tools/list` fails.
 `rsry_*` — no rewrite needed at the proxy boundary.
 
 `requiresSession = false` — rosary's MCP server (currently the
-Rust-side `mcp` mode at `/run/cloister-uds/rosary.sock`) is
+Rust-side `mcp` mode at `/run/cloister-uds/rosary/rosary.sock`) is
 stateless per request; no `Mcp-Session-Id` lifecycle.
 
 ## Required bindings
@@ -65,13 +65,14 @@ cross-tenant rosary consumption.
 `rosary:0.2.0` per
 [`cluster.compose.yaml`](../../cluster.compose.yaml) (service
 `rosary`). The compose service binds the UDS socket inside
-`/run/cloister-uds/` shared via volume between the rosary container
-and the cloister-router container.
+`/run/cloister-uds/rosary/`, a volume mounted into the rosary container
+and the two bundles wired to it, cloister-router and notme-proxy, and into
+no other (ADR-0075 §5).
 
 ## Upstream project
 
 - Repo: [github.com/agentic-research/rosary](https://github.com/agentic-research/rosary)
-- Process: `rsry mcp --ipc-socket /run/cloister-uds/rosary.sock`
+- Process: `rsry mcp --ipc-socket /run/cloister-uds/rosary/rosary.sock`
 - Transport: MCP Streamable HTTP over Unix domain socket
 - Storage substrate: bd-managed Dolt at `.beads/dolt/cloister/`
   (per ADR-0033). rosary reads via MySQL when bd's dolt sql-server

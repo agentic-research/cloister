@@ -272,6 +272,11 @@ tasks:
     cmds:
       - bash dev/lowered-kind.sh kubernetes
 
+  smoke:compose-hold:
+    desc: "Emit test/e2e/compose-hold/cluster.toml as a compose file, start it, and have every bundle try every wired socket: a declared caller connects, a bundle with no wire finds no such path where the graph says `capability`, and where the graph says `none` the bundle it names really gets in (ADR-0075 §4.1). Needs docker with the compose plugin. KEEP_CLUSTER=1 leaves it up. Its own CI job."
+    cmds:
+      - node --import tsx dev/compose-hold.mjs
+
   smoke:lowered-drafted:
     desc: "The whole path, from a plan to an enforcing cluster: `inspect --draft` writes cluster.toml from the rendered Terraform plan in test/e2e/drafted-kind, it is lowered unedited, applied to a kind cluster, and the graph the plan implies is observed (declared caller connects, declared Job completes, undeclared pod is refused). Needs kind, kubectl, docker. Runs in the lowered-kind CI job."
     cmds:

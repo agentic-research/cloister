@@ -18,11 +18,13 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-alice:/run/cloister-uds/alice
+      - uds-run-cloister-uds-bob:/run/cloister-uds/bob
       - cloister-do:/data/do
     environment:
-      - "T_ALICE=/run/cloister-uds/alice.sock"
-      - "T_BOB=/run/cloister-uds/bob.sock"
+      - "T_ALICE=/run/cloister-uds/alice/alice.sock"
+      - "T_BOB=/run/cloister-uds/bob/bob.sock"
 
   alice-tenant:
     image: cloister:0.1.0
@@ -33,7 +35,7 @@ services:
       - "cloister.tier=cluster"
       - "cloister.description=cloister:0.1.0 — Tenant alice — echoes inbound request URLs as proof of routing"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-alice:/run/cloister-uds/alice
 
   bob-tenant:
     image: cloister:0.1.0
@@ -44,10 +46,25 @@ services:
       - "cloister.tier=cluster"
       - "cloister.description=cloister:0.1.0 — Tenant bob — echoes inbound request URLs as proof of routing"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds-bob:/run/cloister-uds/bob
 
 volumes:
-  cloister-uds:
+  uds-run-cloister-uds:
+    # /run/cloister-uds — held by cloister-router
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777"
+  uds-run-cloister-uds-alice:
+    # /run/cloister-uds/alice — held by alice-tenant, cloister-router
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777"
+  uds-run-cloister-uds-bob:
+    # /run/cloister-uds/bob — held by bob-tenant, cloister-router
     driver: local
     driver_opts:
       type: tmpfs

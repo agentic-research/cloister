@@ -18,7 +18,7 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
       - cloister-do:/data/do
     environment:
       - "MACHE_BUNDLE=http://127.0.0.1:7532"
@@ -36,11 +36,10 @@ services:
       - "--http"
       - "localhost:7532"
     network_mode: "service:cloister-router"
-    volumes:
-      - cloister-uds:/run/cloister-uds
 
 volumes:
-  cloister-uds:
+  uds-run-cloister-uds:
+    # /run/cloister-uds — held by cloister-router
     driver: local
     driver_opts:
       type: tmpfs
