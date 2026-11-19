@@ -225,6 +225,30 @@ drafted ([ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 draft as an env value. It is already in the operator's source, and the draft
 is theirs to review before it is committed.
 
+**Amendment (2026-11-19): three things a mapping may say, so a provider
+shaped like Kubernetes needs no code.** Reading Kubernetes resources declared
+in Terraform needed nothing provider-specific, but it needed the reader to
+understand three shapes it had not met. Each is available to every mapping,
+and each is held to the provider's schema by the validator:
+
+- **A scalar inside a single nested block.** `metadata.name` is a path through
+  a block the document renders as a list of one. A list of none, or of
+  several, has no one value, so the path reads as absent.
+- **An address that is built, not stored** (`report.hosts`). A Service is
+  reached at a name made of its name and namespace. A template may use only
+  attributes the entry reads, and must use at least one: a fixed host is not
+  a resource's address.
+- **A resource that stands for another** (`report.standsFor`). What answers
+  at a Service's name is the workload whose pods its selector matches. The
+  mapping names the selector map, the label map on the candidates, and the
+  attributes both must share. Exactly one candidate must match. None, or
+  several, resolves to nothing: an edge is never guessed. The maps are read
+  under `maps`, whole, and only where the provider declares a map of strings
+  it does not mark sensitive.
+
+None of this lets a fact carry authority. A resolved Service is still an
+observation that one workload names another.
+
 ## What exists today
 
 | Part | State |

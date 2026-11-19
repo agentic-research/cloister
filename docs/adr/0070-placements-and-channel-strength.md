@@ -241,6 +241,18 @@ by `cluster k8s` as before. §3's table gives `cloudRun` strength `policy` once
 its invoker row and ingress setting are compared with intent, which they are
 not yet.
 
+**Amendment (2026-11-19): a forwarded placement may be described by something
+other than a manifest.** A `kubernetes` or `knative` placement row had to
+name a rendered YAML file, checked when `cluster.toml` was parsed. But a
+cluster may be described by a Terraform plan that declares the Deployment,
+and there is then no YAML to name. A row may now omit `manifest`. The
+requirement moves to the commands that work from one: `cluster lower` and
+`cluster k8s` refuse such a row by name, for the environment they are run
+for, and say what to add. `inspect` checks the placement against its plan.
+Nothing is credited that was not written: `cluster graph` shows an edge with
+such an end as `none`, because cloister wrote no policy for it
+([ADR-0075](0075-one-graph.md) §3).
+
 **Amendment (2026-11-18): the addresses a manifest dials are held to the
 declared connections.** This section says a forwarded manifest is parsed for
 "the name, ports and env var names". Until now only ports were read. A wrong
