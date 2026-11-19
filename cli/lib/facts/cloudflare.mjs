@@ -24,18 +24,21 @@
 import { readFileSync } from "node:fs";
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
+import { expandMapping } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows } from "./terraform.mjs";
 
 const readJson = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
+/** A mapping file, with every `like` resolved (see mapping.mjs). */
+const readMapping = (rel) => expandMapping(readJson(rel));
 
-export const CLOUDFLARE_MAPPING = Object.freeze(readJson("./mappings/cloudflare.json"));
+export const CLOUDFLARE_MAPPING = Object.freeze(readMapping("./mappings/cloudflare.json"));
 export const CLOUDFLARE_SPEC = Object.freeze(readJson("./spec/cloudflare.schema.json"));
 validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
-export const GOOGLE_MAPPING = Object.freeze(readJson("./mappings/google.json"));
+export const GOOGLE_MAPPING = Object.freeze(readMapping("./mappings/google.json"));
 export const GOOGLE_SPEC = Object.freeze(readJson("./spec/google.schema.json"));
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
-export const KUBERNETES_MAPPING = Object.freeze(readJson("./mappings/kubernetes.json"));
+export const KUBERNETES_MAPPING = Object.freeze(readMapping("./mappings/kubernetes.json"));
 export const KUBERNETES_SPEC = Object.freeze(readJson("./spec/kubernetes.schema.json"));
 validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC);
 

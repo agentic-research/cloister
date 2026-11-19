@@ -209,3 +209,111 @@ test("no reader names a Kubernetes resource type: the mapping is the only place"
     for (const type of Object.keys(KUBERNETES_MAPPING.types)) assert.ok(!source.includes(type), `${file} names ${type}`);
   }
 });
+
+// ── one definition, and every type that refers to it is run ──────────────────
+
+const RAW = JSON.parse(readFileSync(here("../../lib/facts/mappings/kubernetes.json"), "utf8"));
+const likeOf = (type) => RAW.types[type].like ?? type;
+const WORKLOAD_TYPES = Object.keys(KUBERNETES_MAPPING.types).filter((type) => KUBERNETES_MAPPING.types[type].report?.bundle);
+
+test("the pod template is written out once, and every other workload type refers to it", () => {
+  const written = WORKLOAD_TYPES.filter((type) => RAW.types[type].like === undefined);
+  assert.deepEqual(written, ["kubernetes_deployment_v1"]);
+  for (const type of WORKLOAD_TYPES) {
+    if (type === "kubernetes_deployment_v1") continue;
+    // What a type may say for itself is its section and whether it runs to
+    // completion. How a pod template is read is not restated anywhere.
+    const { like, report, ...rest } = RAW.types[type];
+    assert.equal(like, "kubernetes_deployment_v1", type);
+    assert.deepEqual(rest, {}, `${type} restates more than its report`);
+    // The second name of the same type says nothing for itself at all.
+    const { section, bundle, ...other } = report ?? {};
+    assert.ok(section === undefined || typeof section === "string", type);
+    assert.deepEqual(other, {}, type);
+    if (bundle !== undefined) assert.deepEqual(bundle, { runs: "job" }, type);
+  }
+});
+
+// The fixture holds a Deployment and a Job. Every OTHER mapped workload type
+// is run too: the same resource, declared as that type, must read the same.
+for (const type of WORKLOAD_TYPES) {
+  const isJob = KUBERNETES_MAPPING.types[type].report.bundle.runs === "job";
+  test(`a workload declared as ${type} reads as one, with its image, port, env and edges`, () => {
+    const doc = plan();
+    const from = isJob ? "kubernetes_job_v1.probe" : "kubernetes_deployment_v1.caller";
+    const name = from.split(".")[1];
+    for (const list of [resourcesOf(doc), doc.configuration.root_module.resources]) {
+      const resource = list.find((r) => r.address === from);
+      resource.type = type;
+      resource.address = `${type}.${name}`;
+    }
+    const imported = importFacts(doc);
+    assert.deepEqual(imported.skipped, {}, "a mapped type was skipped");
+    const read = named(doc, name, KUBERNETES_MAPPING.types[type].report.section);
+    assert.ok(read, `${type} produced no workload`);
+    assert.equal(read.bundle.image, "registry.k8s.io/e2e-test-images/agnhost:2.53");
+    assert.equal(read.bundle.runs, isJob ? "job" : "service");
+    assert.equal(read.bundle.placement, "kubernetes");
+    assert.deepEqual(read.dials.map((d) => d.to), ["server"]);
+    assert.equal(read.bundle.run.env.find((e) => e.name === "SERVER_URL").kind, "workload");
+  });
+}
+
+// A Service must be able to stand for every long-running workload type.
+for (const type of WORKLOAD_TYPES.filter((t) => KUBERNETES_MAPPING.types[t].report.bundle.runs !== "job")) {
+  test(`a Service stands for a workload declared as ${type}`, () => {
+    const doc = plan();
+    for (const list of [resourcesOf(doc), doc.configuration.root_module.resources]) {
+      const resource = list.find((r) => r.address === "kubernetes_deployment_v1.server");
+      resource.type = type;
+      resource.address = `${type}.server`;
+    }
+    assert.deepEqual(named(doc, "probe", "Kubernetes jobs").dials.map((d) => [d.to, d.section]), [["server", KUBERNETES_MAPPING.types[type].report.section]]);
+  });
+}
+
+test("both names of the Service type, and of the Namespace type, read the same", () => {
+  for (const [from, type] of [["kubernetes_service_v1.server", "kubernetes_service"], ["kubernetes_namespace_v1.shop", "kubernetes_namespace"]]) {
+    const doc = plan();
+    for (const list of [resourcesOf(doc), doc.configuration.root_module.resources]) {
+      const resource = list.find((r) => r.address === from);
+      if (!resource) continue;
+      resource.type = type;
+      resource.address = `${type}.${from.split(".")[1]}`;
+    }
+    assert.deepEqual(importFacts(doc).skipped, {});
+    assert.deepEqual(named(doc, "probe", "Kubernetes jobs").dials.map((d) => d.to), ["server"], type);
+  }
+});
+
+// ── `like` itself ────────────────────────────────────────────────────────────
+
+test("an entry that is like another gets everything it says, with its differences laid over", async () => {
+  const { expandMapping } = await import("../../lib/facts/mapping.mjs");
+  const mapping = { provider: "x/y", types: { a: { name: "n", read: ["p", "q"], report: { section: "A", show: ["p"] } }, b: { like: "a", read: ["p"], report: { section: "B" } } } };
+  const expanded = expandMapping(mapping);
+  assert.deepEqual(expanded.types.b, { name: "n", read: ["p"], report: { section: "B", show: ["p"] } });
+  assert.equal(expanded.types.b.like, undefined);
+  // The input is untouched, and the base is not shared with the copy.
+  assert.equal(mapping.types.b.like, "a");
+  expanded.types.b.report.show.push("z");
+  assert.deepEqual(expanded.types.a.report.show, ["p"]);
+});
+
+test("a `like` that names nothing, itself, or another `like` is refused by name", async () => {
+  const { expandMapping } = await import("../../lib/facts/mapping.mjs");
+  const types = (t) => ({ provider: "x/y", types: t });
+  assert.throws(() => expandMapping(types({ b: { like: "missing" } })), /b is like "missing", which this mapping does not describe/);
+  assert.throws(() => expandMapping(types({ b: { like: "b" } })), /b is like itself/);
+  assert.throws(() => expandMapping(types({ a: { name: "n" }, b: { like: "a" }, c: { like: "b" } })), /c is like b, which is itself like "a"\. Name the entry that is written out in full/);
+  // A name from the document must not find Object.prototype.
+  assert.throws(() => expandMapping(types({ b: { like: "constructor" } })), /which this mapping does not describe/);
+});
+
+test("a type that is like another is still held to its own schema", () => {
+  // The Job type has no `strategy`; the Deployment type does. A path that is
+  // valid for the entry it is like must still be refused for the Job.
+  const mapping = structuredClone(KUBERNETES_MAPPING);
+  mapping.types.kubernetes_job_v1.read = [...mapping.types.kubernetes_job_v1.read, "spec.min_ready_seconds"];
+  assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
+});

@@ -246,6 +246,15 @@ and each is held to the provider's schema by the validator:
   under `maps`, whole, and only where the provider declares a map of strings
   it does not mark sensitive.
 
+An entry may also say it is **`like`** another. A provider often has several
+types read the same way (a Deployment, a StatefulSet and a DaemonSet all hold
+a pod template, and most types exist under an old and a new name). Written
+out, that is one block many times, and a mistake in one copy goes unread. An
+entry that is `like` another gets everything it says, with its own
+differences laid over. The named entry must be written out in full: a chain
+is refused. Each expanded entry is still checked against its own type's
+schema, and a test runs every mapped type, not only those in a fixture.
+
 None of this lets a fact carry authority. A resolved Service is still an
 observation that one workload names another.
 

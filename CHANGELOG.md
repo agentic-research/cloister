@@ -19,6 +19,9 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   resource reads (a cluster DNS name), and a resource that stands for
   another (a Service, for the workload its selector matches). A Service that
   matches no workload, or two, stands for neither.
+- A mapping entry may be `like` another, with its differences laid over.
+  The Kubernetes mapping writes the pod template once; the other workload
+  types refer to it, and a test runs every one of them.
 - A literal env value that is the address of a workload is drafted as a
   binding to its connection, with the path after it.
 - A `kubernetes` or `knative` placement row may omit `manifest`: the
