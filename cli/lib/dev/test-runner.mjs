@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 function discoverIn(root, directory, accepts) {
   const absolute = resolve(root, directory);
@@ -44,20 +45,64 @@ export function discoverNodeTests(root = process.cwd()) {
   ].sort();
 }
 
+/**
+ * The failing tests in a TAP stream: each `not ok` line with the block under
+ * it, up to the line that closes the block. A skipped or todo test is `ok`.
+ */
+export function failedTests(tap) {
+  const failures = [];
+  let open = null;
+  for (const line of tap.split("\n")) {
+    if (/^\s*not ok \d+/.test(line)) {
+      if (open) failures.push(open);
+      open = [line];
+    } else if (open) {
+      open.push(line);
+      if (line.trim() === "...") { failures.push(open); open = null; }
+    }
+  }
+  if (open) failures.push(open);
+  // A failing subtest fails its parent too: report the innermost, once.
+  return failures.filter((f) => !/subtestsFailed|[0-9]+ subtests? failed/.test(f.join("\n"))).map((f) => f.join("\n"));
+}
+
 export function runNodeTests({
   root = process.cwd(),
   env = process.env,
   spawn = spawnSync,
+  log = console.error,
 } = {}) {
   const tests = discoverNodeTests(root);
   if (tests.length === 0) {
     throw new Error(`no Node tests found under ${resolve(root)}`);
   }
-  const result = spawn(
-    process.execPath,
-    ["--import", "tsx", "--test", ...tests],
-    { cwd: resolve(root), env, stdio: "inherit" },
-  );
-  if (result.error) throw result.error;
-  return result.signal ? 1 : (result.status ?? 1);
+  // The same TAP goes to the terminal and to a file. The file is read back
+  // only to say, last, WHICH tests failed: this run prints several thousand
+  // lines and `task lint` interleaves other suites after it, so a failure is
+  // otherwise one `not ok` line thousands of lines above the exit status. A
+  // CI log viewer that keeps only the tail does not show it at all.
+  const scratch = mkdtempSync(join(tmpdir(), "cloister-node-tests-"));
+  const tapFile = join(scratch, "results.tap");
+  try {
+    const result = spawn(
+      process.execPath,
+      [
+        "--import", "tsx", "--test",
+        "--test-reporter=tap", "--test-reporter-destination=stdout",
+        "--test-reporter=tap", `--test-reporter-destination=${tapFile}`,
+        ...tests,
+      ],
+      { cwd: resolve(root), env, stdio: "inherit" },
+    );
+    if (result.error) throw result.error;
+    const status = result.signal ? 1 : (result.status ?? 1);
+    if (status !== 0) {
+      const failures = existsSync(tapFile) ? failedTests(readFileSync(tapFile, "utf8")) : [];
+      log(`\ncloister dev test: ${failures.length} failing test(s)${failures.length ? ":" : " found in the results; the run itself failed (see above)"}`);
+      for (const failure of failures) log(`\n${failure}`);
+    }
+    return status;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
