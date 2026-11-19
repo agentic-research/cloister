@@ -401,13 +401,13 @@ type PlacementPort struct {
 	Expose string `json:"expose"`
 }
 
-// One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.
+// One environment variable. Its value is a literal, the address of a connection, or a secret reference. A secret may also name the connection whose address it holds.
 type EnvVar struct {
 	// The variable's name. Not empty, and without '=' or NUL.
 	Name string `json:"name"`
 	// A literal value. Stored in clear. Leave empty when connection or secret is set.
 	Value string `json:"value"`
-	// The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered.
+	// The name of one of this bundle's connections. Alone: the variable is set to that connection's address in the placement being lowered. With secret: the secret holds that address, and nothing is written.
 	Connection string `json:"connection"`
 	// Text appended to the connection's address, for example '/api'. Only with connection.
 	Path string `json:"path"`

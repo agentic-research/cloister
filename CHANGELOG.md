@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — an address kept in a secret can be declared
+
+- An env row may set `secret` and `connection` together: the value comes
+  from the secret, and the secret holds that connection's address. This is
+  how a database URL, which carries a password, becomes an edge of the graph.
+- Nothing is written as the address and no secret is ever read. `cluster k8s`
+  and `inspect` report the edge as declared, not observed; the finding stays
+  `unknown`.
+- The edge is enforced the same as any other: the policy comes from the
+  connection.
+
 ### 2026-11 — who may call a service is compared with the declared connections
 
 - `inspect --env` holds each declared connection beside the plan's access

@@ -390,6 +390,37 @@ Deployment and Service (`port: 80, targetPort: 8080` when a row says so) or to
 a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 --local <env> --local-kind knative` writes the row for each port.
 
+#### An address kept in a secret (amendment 2026-11-19)
+
+A database URL holds a password, so it lives in a secret. The edge it
+carries is then in a value cloister never reads, and the graph had no way to
+show it: a connection to the database was "nothing names it" for ever.
+
+An env row may set `secret` and `connection` together:
+
+```toml
+[[bundles.external.env]]
+name = "DATABASE_URL"
+secret = "orders-db-url"
+connection = "orders-db"
+```
+
+It means: the value comes from that secret, and what the secret holds is the
+address of that connection. It is still one source for the value. Three
+things follow.
+
+- **Nothing is written as the address.** The row lowers to a secret
+  reference, as any secret row does. The manifest's header says which
+  connection's address to put in the secret for that placement. `path` is
+  refused beside it: the secret holds the whole address.
+- **The edge is enforced the same.** A NetworkPolicy comes from the
+  connection, not from where its address is kept.
+- **The edge is declared, not observed.** `cluster k8s` and `inspect` cannot
+  see a secret's value, and say so in those words. The finding stays
+  `unknown`. It is not `evidenced`, because nothing was.
+
+A microVM is still given no secret (above), whatever the secret holds.
+
 #### What it does not do
 
 - **A secret binding is not lowered to a microVM.** `runtime plan` refuses a
@@ -461,7 +492,7 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | built (a mapping; ADR-0073 amendment 2026-11-19) |
-| Edges that arrive by a secret reference (`value_source`) | not read |
+| Edges that arrive by a secret reference | never read. An operator may DECLARE one: an env row with `secret` and `connection`. Reports show it as declared, not observed |
 
 ## Open questions
 

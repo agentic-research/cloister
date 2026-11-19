@@ -578,9 +578,35 @@ export function assertPortsAndConnections(bundles, connections) {
 
 /** Where an env row's value comes from: "value", "connection" or "secret". */
 export function envSource(row) {
-  if (text(row?.connection) !== "") return "connection";
+  // A secret is where the value comes from, whatever else the row says about
+  // what the value IS (see `secretBorne`).
   if (text(row?.secret) !== "") return "secret";
+  if (text(row?.connection) !== "") return "connection";
   return "value";
+}
+
+/**
+ * The connections whose address a bundle keeps in a secret (ADR-0074 §7).
+ *
+ * A database URL usually holds a password, so it lives in a secret, and the
+ * edge it carries is then in a value cloister never reads. A row that sets
+ * `secret` AND `connection` says so: "this secret holds the address of that
+ * connection". The value still comes from the secret. The edge is DECLARED,
+ * not observed, and every report that shows it says which.
+ *
+ * @param {Array} bundles validated bundles (the zod shape)
+ * @returns {Map<string, {secret: string, env: string}>} keyed `from\0connection`
+ */
+export function secretBorne(bundles) {
+  const out = new Map();
+  for (const b of bundles ?? []) {
+    for (const row of b?.kind?.external?.env ?? []) {
+      if (text(row?.secret) === "" || text(row?.connection) === "") continue;
+      const key = `${b.name}\u0000${row.connection}`;
+      if (!out.has(key)) out.set(key, { secret: row.secret, env: row.name });
+    }
+  }
+  return out;
 }
 
 export const RUNS = Object.freeze(["service", "job"]);
@@ -611,17 +637,25 @@ export function assertEnvBindings(bundles, connections) {
     for (const row of external.env ?? []) {
       const where = `bundle "${b.name}" env ${JSON.stringify(text(row?.name))}`;
       const set = [["value", row?.value], ["connection", row?.connection], ["secret", row?.secret]].filter(([, v]) => text(v) !== "").map(([k]) => k);
-      if (set.length > 1) {
+      // One source for the value. `secret` with `connection` is not two
+      // sources: the value comes from the secret, and `connection` says what
+      // that value is the address of.
+      const inSecret = set.length === 2 && set.includes("secret") && set.includes("connection");
+      if (set.length > 1 && !inSecret) {
         throw new Error(`${where} sets ${set.join(" and ")}: a variable's value comes from exactly one of value, connection or secret`);
       }
       const source = envSource(row);
       if (text(row?.path) !== "" && source !== "connection") {
-        throw new Error(`${where} sets path without connection: path is appended to a connection's address`);
+        throw new Error(
+          inSecret
+            ? `${where} sets path with secret: the secret holds the whole address, so nothing is appended to it`
+            : `${where} sets path without connection: path is appended to a connection's address`,
+        );
       }
       if (text(row?.secretKey) !== "" && source !== "secret") {
         throw new Error(`${where} sets secretKey without secret`);
       }
-      if (source === "connection" && !connections.some((c) => c.from === b.name && c.name === row.connection)) {
+      if (text(row?.connection) !== "" && !connections.some((c) => c.from === b.name && c.name === row.connection)) {
         const own = connections.filter((c) => c.from === b.name).map((c) => c.name);
         throw new Error(
           `${where} is bound to connection "${row.connection}", but bundle "${b.name}" declares no connection of that name` +

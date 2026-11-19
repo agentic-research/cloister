@@ -14,7 +14,7 @@
 // Every join here is exact equality on a mapped attribute. Nothing is matched
 // by guessing at a resource's name.
 
-import { checkableBundle, placementName, portsFor } from "../cluster/connections.mjs";
+import { checkableBundle, placementName, portsFor, secretBorne } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
 import { bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
@@ -379,6 +379,7 @@ function compareConnections(sections, cluster, env) {
       if (env === undefined || t.env === env) declared.push({ from: c.from, name: c.name, to: t.bundle, env: t.env });
     }
   }
+  const inSecret = secretBorne(cluster?.bundles);
   const findings = [];
   // Without --env there is no one environment to take a name from.
   if (renamed.length) {
@@ -405,7 +406,14 @@ function compareConnections(sections, cluster, env) {
       findings.push({ kind: "evidenced", connection, dial: { section: dial.section, by: dial.by, where: dial.where } });
     } else {
       const withheld = source.withheld.length ? `; its ${source.withheld.join(" and ")} ${source.withheld.length === 1 ? "is" : "are"} marked sensitive and ${source.withheld.length === 1 ? "was" : "were"} not read` : "";
-      findings.push({ kind: "unknown", connection, reason: `nothing "${connection.from}" is started with names "${connection.to}" in these inputs${withheld}` });
+      const declaredIn = inSecret.get(`${connection.from}\u0000${connection.name}`);
+      if (declaredIn) {
+        // Still unknown: nothing was observed. But the operator has said
+        // where the address is, and that is why nothing could be.
+        findings.push({ kind: "unknown", connection, declaredIn, reason: `cluster.toml says its address is in secret "${declaredIn.secret}" (env ${declaredIn.env}). A secret's value is never read, so this edge is declared, not observed` });
+      } else {
+        findings.push({ kind: "unknown", connection, reason: `nothing "${connection.from}" is started with names "${connection.to}" in these inputs${withheld}` });
+      }
     }
   }
   for (const resource of resources) {
