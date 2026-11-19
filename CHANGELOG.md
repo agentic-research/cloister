@@ -8,6 +8,13 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the architecture document says one thing
+
+- `docs/ARCHITECTURE.md` opens with the one idea (declare which part may
+  reach which; the place each part runs enforces it, at a stated strength),
+  a table of what holds an edge in each placement, and a list of where the
+  code is not yet one thing.
+
 ### 2026-11 — an address kept in a secret can be declared
 
 - An env row may set `secret` and `connection` together: the value comes

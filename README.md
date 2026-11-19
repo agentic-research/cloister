@@ -37,6 +37,7 @@ you name, and nothing else.
 | A `cluster.toml` | A Kubernetes manifest per service | `cloister cluster lower` |
 | That plan and a `cluster.toml` | To know where the two disagree | `cloister inspect --terraform --dir` |
 | Kubernetes or Knative manifests | Each service held to its declared connections, plus network policies | `cloister cluster k8s` |
+| A `cluster.toml` | Every declared edge, and what actually stops an undeclared caller | `cloister cluster graph` |
 | A repository and a coding tool | The tool confined to that repository | `cloister run --harness` |
 | Tools that speak MCP | One local address for all of them | `cloister dev serve` |
 

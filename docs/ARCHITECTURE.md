@@ -1,47 +1,89 @@
 # Architecture
 
-cloister does two things, and they share one description of a system.
+cloister is one idea: **you declare which part of a system may reach which,
+and the place each part runs is made to enforce that, at a strength cloister
+states.**
 
-1. **It is a gateway that runs.** A v8-isolate hypervisor on workerd: it hosts
-   Workers, wires them together with service bindings, mediates their access
-   to identity and credentials, and routes outside traffic to them. Its public
-   face is MCP over Streamable HTTP. The same TypeScript bundle runs under the
-   `workerd` binary locally and on Cloudflare Workers in production; only
-   config differs.
-2. **It describes a system and checks it.** `cluster.toml` declares bundles,
-   the connections between them, and where each one runs. cloister reads what
-   your existing tools already render (a Terraform plan, Kubernetes manifests,
-   a wrangler config), compares it with that description, and can write the
-   workloads and network policy for a placement from it.
+`cluster.toml` is the declaration. A *bundle* is a part; a *connection* (or a
+*wire*) is "this bundle may reach that one"; a *placement* is where a bundle
+runs in one environment. Everything else in this repository is that sentence
+applied to a different place:
+
+| Where a bundle runs | How the declared graph is held | Strength today |
+|---|---|---|
+| a microVM | cloister builds the node. It holds only the sockets its declared connections grant, so there is nothing else to dial | `capability` |
+| Kubernetes | cloister writes the workload and a NetworkPolicy that admits only declared callers | `policy` |
+| Knative | cloister writes or checks the Service and can keep it off the outside network. Nothing says which in-cluster caller may reach it | `none` |
+| Cloud Run, or anything a plan describes | cloister reads the plan and compares it with the declaration. It writes nothing there | `none` |
+| workerd (the gateway and its Workers) | a service binding is the only way one Worker reaches another, and rails hold the bindings to the declaration. No emitter lowers a connection to a binding yet | `none` |
+| the compose cluster (`cluster up`) | each bundle is handed the address of what it is wired to. Every container mounts the one socket volume | `none` |
+
+A coding tool under `cloister run` is the same idea on your own machine: the
+kernel confines it, and cloister is the only address it can reach
+([Running a tool under confinement](#running-a-tool-under-confinement)).
+
+A strength is what stops a bundle that is **not** the declared caller. It is
+what cloister writes today for that placement, never what is intended:
+`cloister cluster graph` prints every edge with its strength and the reason,
+so "declared" is not mistaken for "enforced".
 
 ```mermaid
-graph LR
-    subgraph describe ["Describe and check (the cloister CLI)"]
-        direction TB
-        RENDERED["what your tools render<br/>plan · manifests · wrangler config"]
-        TOML["cluster.toml<br/>bundles · connections · placements"]
-        OUT["per placement<br/>workloads · network policy · compose"]
-        RENDERED -->|"inspect (compare, or --draft)"| TOML
-        TOML -->|"cluster lower · cluster k8s · cluster emit"| OUT
+graph TB
+    RENDERED["what your tools already render<br/>Terraform plan · manifests · wrangler config"]
+    TOML["cluster.toml<br/>bundles · connections and wires · placements"]
+    GRAPH["cluster graph<br/>every edge, its strength, and why"]
+
+    subgraph places ["one declaration, lowered per placement"]
+        direction LR
+        VM["microVM<br/>launch plan + socket grants"]
+        K8S["Kubernetes · Knative<br/>workloads + NetworkPolicy"]
+        GW["workerd gateway<br/>routes · backends · bindings"]
+        COMPOSE["compose cluster"]
     end
 
-    subgraph run ["Run (the Worker)"]
-        direction TB
-        MAN["cloister.capnp<br/>routes · backends"]
-        GW["gateway on workerd<br/>MCP · identity · vault · receipts"]
-        MAN -->|"task manifest"| GW
-    end
+    FINDINGS["findings<br/>evidenced · unknown · undeclared · contradicted"]
 
-    TOML -->|"generates"| MAN
+    RENDERED -->|"inspect --draft"| TOML
+    RENDERED -->|"inspect (compare)"| FINDINGS
+    TOML --> FINDINGS
+    TOML --> GRAPH
+    TOML -->|"runtime plan"| VM
+    TOML -->|"cluster lower · cluster k8s"| K8S
+    TOML -->|"cluster generate"| GW
+    TOML -->|"cluster emit"| COMPOSE
     TOOL["a coding tool under<br/>cloister run"] -->|"the only address it can reach"| GW
 ```
 
-This document covers both halves as they are implemented today. The decisions
-behind them are in the ADRs. Every one, with its **current** design status, is
+The gateway is not a second product. It is the workerd placement, plus the
+front door: its public face is MCP over Streamable HTTP, and the same
+TypeScript bundle runs under the `workerd` binary locally and on Cloudflare
+Workers in production.
+
+### Where it is not yet one thing
+
+Stated here because a reader would otherwise find them one at a time
+([ADR-0075](adr/0075-one-graph.md) §4):
+
+- **A wire and a connection are two vocabularies for one statement.** The
+  gateway's own edges are `[[wires]]`; everything else is `[[connections]]`.
+  `cluster graph` shows both, but a wire cannot yet ask for a `minStrength`.
+- **A wire under compose is not held.** The shared socket volume means a
+  bundle can open a socket no wire gives it. A test ties that statement to the
+  compose emitter, so it changes when the emitter does.
+- **workerd is not credited.** A binding is the strongest boundary here, and
+  its strength reads `none` until a connection is lowered to one and checked.
+- **An edge across two placements has no address.** A Kubernetes bundle
+  calling a microVM one needs a broker that does not exist yet; every emitter
+  refuses such an edge by name.
+- **A secret does not reach a microVM by an env row.** The path into a guest
+  is the vault.
+
+This document covers the system as it is implemented today. The decisions
+behind it are in the ADRs. Every one, with its **current** design status, is
 in the generated [ADR index](adr/INDEX.md); it is derived from each ADR's
-frontmatter and never restated here. Start with **0001 → 0002 → 0007 → 0011**
-for the gateway, and **0070 → 0073 → 0074** for describing and checking a
-system.
+frontmatter and never restated here. Start with **0070 → 0074 → 0075** for
+the declaration and what holds it, and **0001 → 0002 → 0007 → 0011** for the
+gateway.
 
 If you want to *run* cloister, start at
 [../GETTING-STARTED.md](../GETTING-STARTED.md). For the reason behind a
@@ -64,6 +106,7 @@ decision, follow the linked ADR: the ADRs are the source of truth for why.
 ## Contents
 
 - [Terms used here](#terms-used-here)
+- [Where it is not yet one thing](#where-it-is-not-yet-one-thing)
 - [Runtime model](#runtime-model)
 - [From cluster.toml to a running gateway](#from-clustertoml-to-a-running-gateway)
 - [Request routing — two layers](#request-routing--two-layers)
@@ -460,8 +503,8 @@ and the `.well-known` routes.
 
 ## Describing and checking a system
 
-The second half of cloister does not run anything. It reads, compares, and
-writes files for you to apply. It is all in the `cloister` CLI (`cli/`).
+This part of cloister does not run anything. It reads, compares, and writes
+files for you to apply. It is all in the `cloister` CLI (`cli/`).
 
 ```mermaid
 graph TB
@@ -498,12 +541,22 @@ graph TB
   it must be enforced, is in `cluster.toml`. A report says which is which: a
   finding is `evidenced`, `unknown`, `undeclared` or `contradicted`.
 - **Nothing is provider-specific in the code.** A mapping file says which
-  resource types of a provider are workloads and where their fields are. A
-  type with no mapping is counted and named as not read.
+  resource types of a provider are workloads and where their fields are.
+  Cloud Run, Cloudflare and Kubernetes resources declared in Terraform are
+  each a mapping. A type with no mapping is counted and named as not read.
+- **An edge is never guessed.** A Kubernetes Service stands for a workload
+  only when its selector matches exactly one. A caller is matched to an
+  access grant by the identity the plan says it runs as, never by a similar
+  name. A bundle is matched to a resource by name, and a placement row may
+  state the name it goes by in that environment.
+- **What cannot be read is declared, and said to be.** A secret's value is
+  never read. An env row may declare that a secret holds a connection's
+  address; reports then show the edge as declared, not observed.
 - **`cluster.toml` is the one description every placement is lowered from.**
   A bundle's image, arguments and environment are declared once. An env value
   that is another bundle's address is a *binding* to a connection, because the
-  address differs in every placement and each emitter writes its own.
+  address differs in every placement and each emitter writes its own: a
+  cluster name on Kubernetes and Knative, the guest's loopback in a microVM.
 - **A placement is where a bundle runs in one environment.** The kinds are
   `microvm` and `workerd` (cloister constructs these) and `kubernetes`,
   `knative` and `cloudRun` (cloister writes or checks files for these).
