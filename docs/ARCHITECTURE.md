@@ -1,39 +1,71 @@
 # Architecture
 
-cloister is a **v8-isolate hypervisor**: it hosts workerd Workers,
-wires them into clusters via service bindings, mediates their access
-to identity and credentials, and routes external traffic to them. The
-same TypeScript bundle runs locally via the `workerd` binary and on
-Cloudflare Workers in production — no code changes, only config
-differs. The MCP/JSON-RPC face is **one tenant** of the public pipe;
-the substrate underneath (declarative routing, capability
-distribution, state-boundary attestation, Interlace identity) is the
-hypervisor layer per
-[ADR-0011](adr/0011-hypervisor-bundle-boundary.md).
+cloister does two things, and they share one description of a system.
 
-This document covers the runtime model and request routing as
-implemented today. The decisions behind it are in the ADRs — every one,
-grouped, with its **current** status, is the generated
-[ADR index](adr/INDEX.md) (derived from each ADR's frontmatter, never
-hand-maintained here). Read them in `docs/adr/`; start with **0001 → 0002
-→ 0007 → 0011** for the core mental model. The load-bearing arcs: substrate
-foundations (0001–0006), Interlace identity + trust (0007–0021), MCP-spec
-+ operator surface (0015–0028), and the isolation + LLO substrate (0030
-process-per-tenant, 0035 LLO boundary, 0044 microVM, and the harness
-sandbox).
+1. **It is a gateway that runs.** A v8-isolate hypervisor on workerd: it hosts
+   Workers, wires them together with service bindings, mediates their access
+   to identity and credentials, and routes outside traffic to them. Its public
+   face is MCP over Streamable HTTP. The same TypeScript bundle runs under the
+   `workerd` binary locally and on Cloudflare Workers in production; only
+   config differs.
+2. **It describes a system and checks it.** `cluster.toml` declares bundles,
+   the connections between them, and where each one runs. cloister reads what
+   your existing tools already render (a Terraform plan, Kubernetes manifests,
+   a wrangler config), compares it with that description, and can write the
+   workloads and network policy for a placement from it.
 
-**The forward arc:** ADRs 0007 + 0010 + 0013 + 0014 + 0019 together
-replace today's env-var-bindings world (`LLO_MCP_URL`, `MACHE_MCP_URL`,
-`INTERLACE_MASTER_PUBKEY`) with a layered trust substrate: V8 isolate
-sandboxing (ADR-0013) + per-bundle vault DOs (ADR-0021) +
-trust-anchor-helper for master_sk custody (ADR-0019). The runtime
-described in this document is the *current* shape; the ADRs describe
-where it's going.
+```mermaid
+graph LR
+    subgraph describe ["Describe and check (the cloister CLI)"]
+        direction TB
+        RENDERED["what your tools render<br/>plan · manifests · wrangler config"]
+        TOML["cluster.toml<br/>bundles · connections · placements"]
+        OUT["per placement<br/>workloads · network policy · compose"]
+        RENDERED -->|"inspect (compare, or --draft)"| TOML
+        TOML -->|"cluster lower · cluster k8s · cluster emit"| OUT
+    end
 
-If you're trying to *run* cloister rather than understand its shape, start
-at [../GETTING-STARTED.md](../GETTING-STARTED.md). If you want the
-"why" of any specific decision, walk into the linked ADR — they're the
-source of truth.
+    subgraph run ["Run (the Worker)"]
+        direction TB
+        MAN["cloister.capnp<br/>routes · backends"]
+        GW["gateway on workerd<br/>MCP · identity · vault · receipts"]
+        MAN -->|"task manifest"| GW
+    end
+
+    TOML -->|"generates"| MAN
+    TOOL["a coding tool under<br/>cloister run"] -->|"the only address it can reach"| GW
+```
+
+This document covers both halves as they are implemented today. The decisions
+behind them are in the ADRs. Every one, with its **current** design status, is
+in the generated [ADR index](adr/INDEX.md); it is derived from each ADR's
+frontmatter and never restated here. Start with **0001 → 0002 → 0007 → 0011**
+for the gateway, and **0070 → 0073 → 0074** for describing and checking a
+system.
+
+If you want to *run* cloister, start at
+[../GETTING-STARTED.md](../GETTING-STARTED.md). For the reason behind a
+decision, follow the linked ADR: the ADRs are the source of truth for why.
+
+## Contents
+
+- [Runtime model](#runtime-model)
+- [From cluster.toml to a running gateway](#from-clustertoml-to-a-running-gateway)
+- [Request routing — two layers](#request-routing--two-layers)
+- [Sequence diagrams](#sequence-diagrams)
+- [Transports](#transports)
+- [Component map](#component-map)
+- [Describing and checking a system](#describing-and-checking-a-system)
+- [Bead store per repo](#bead-store-per-repo)
+- [Content-addressing — two hash algorithms](#content-addressing--two-hash-algorithms)
+- [Bindings](#bindings)
+- [Packaging (melange + apko)](#packaging-melange--apko)
+- [Lease verification](#lease-verification-adr-0007--adr-0053)
+- [Running a tool under confinement](#running-a-tool-under-confinement)
+- [Security surface](#security-surface)
+- [Adversarial review rotation](#adversarial-review-rotation-adr-0020)
+- [Where the code lives, and what gates it](#where-the-code-lives-and-what-gates-it)
+- [Where to next](#where-to-next)
 
 ## Runtime model
 
@@ -47,7 +79,7 @@ graph TB
             BEAD["BeadStore<br/>per-repo<br/>(ADR-0003)"]
             TRUST["TrustStore<br/>singleton<br/>(ADR-0012)"]
             BLOB["BlobStore<br/>singleton<br/>(ADR-0003)"]
-            VAULT["CredentialVault<br/>singleton<br/>(ADR-0013)"]
+            VAULT["CredentialVault<br/>one per bundle<br/>(ADR-0021)"]
         end
         W --- dos
     end
@@ -72,38 +104,102 @@ graph TB
 The code is identical. Storage differs: local disk vs Cloudflare-managed
 Durable Object SQLite. Both use the same DO SQL API (`ctx.storage.sql`).
 Tier classification per ADR-0011's three-criterion test: **BeadStore** is
-bundle-tier (per-repo, idFromName(repo)); **TrustStore**, **BlobStore**,
-and **CredentialVault** are hypervisor-tier singletons (idFromName("cluster")).
+bundle-tier (per-repo, idFromName(repo)); **TrustStore** and **BlobStore**
+are hypervisor-tier singletons (idFromName("cluster")). **CredentialVault**
+is keyed by bundle (idFromName(bundleIdName), ADR-0021), so one bundle's
+credentials are a different object from another's.
 The full hypervisor-tier DO map + the per-bundle topology live in
 [`docs/reference/bundle-topology.md`](reference/bundle-topology.md).
+
+## From cluster.toml to a running gateway
+
+Nothing in `src/index.ts` names a route or a backend. They are declared, and
+the declaration is generated.
+
+```mermaid
+graph TB
+    TOML["cluster.toml<br/>(the operator's file)"]
+    INPUTS["[inputs.*]<br/>each tool's server.json,<br/>pinned by ref + version"]
+    LOCK["cluster.lock.toml<br/>content digests"]
+    MATCH["capability matchmaker<br/>provides / requires (ADR-0027)<br/>unsatisfied or ambiguous fails the build"]
+    GEN["cloister cluster generate<br/>(task cluster:toml)"]
+
+    CTS["src/generated/cluster.ts"]
+    CAPNP["cloister.capnp<br/>routes + backends (ADR-0031)"]
+    COMPOSE["cluster.compose.yaml"]
+    MTS["src/generated/manifest.ts"]
+    RT["manifest/runtime.ts<br/>instantiate()"]
+    WORKER["the Worker<br/>src/index.ts"]
+
+    INPUTS --> TOML
+    TOML --> GEN
+    LOCK --> GEN
+    GEN --> MATCH
+    GEN --> CTS
+    GEN --> CAPNP
+    GEN --> COMPOSE
+    CAPNP -->|"task manifest (capnp compile)"| MTS
+    MTS --> RT
+    RT --> WORKER
+```
+
+- **`cluster.toml` is the only file edited by hand.** `cloister.capnp`,
+  `cluster.compose.yaml` and `src/generated/*` are committed and generated;
+  `cluster:emit:check-drift` fails `task lint` when one does not match.
+- **The schema is `manifest/cluster.capnp`.** It is projected to a strict zod
+  schema, Go types, and the published JSON Schema for `cluster.toml`. The
+  parser refuses a key the schema does not define.
+- **Tools arrive as inputs.** An `[inputs.<name>]` row pins a tool's
+  `server.json`; its tools become generated backends on `/mcp`. Adding a tool
+  family is a row in `cluster.toml`, not a TypeScript file.
+- **Two launch configs are kept in step by a rail.** `config.capnp` (workerd)
+  and `wrangler.toml` (Cloudflare) each declare the bindings; see
+  [Bindings](#bindings).
 
 ## Request routing — two layers
 
 ADR-0002 introduces two small interfaces. The outer layer dispatches HTTP
 requests to `EdgeRoute`s. The MCP edge route, in turn, dispatches tool
-calls to `ToolBackend`s.
+calls to `ToolBackend`s. Both tables are built from the manifest.
 
 ```mermaid
 graph TB
     REQ["incoming Request"]
-    R["Router (ordered table)"]
-    H["HealthRoute\nGET /health"]
-    I["NotmeIdentityRoute\n/identity/*"]
-    M["McpEdgeRoute\nGET|POST /mcp"]
+    R["Router (ordered table, first match wins)"]
 
-    B["DurableObjectToolBackend\nbead_*\n→ env.BEAD_STORE DO"]
-    L["HttpForwardToolBackend\nlsp_*\n→ env.LLO_MCP_URL"]
-    F["HttpForwardToolBackend\nreparse | enrich | status\n→ env.LLO_MCP_URL"]
-    LN["LeylineNetToolBackend\n(spec-declared)\n→ env.COMPANION_URL\n→ cloister-companion → backend"]
+    H["/health"]
+    WK["/.well-known/*<br/>interlace index · identity bridge · MCP registry"]
+    IL["/interlace/*<br/>peer disclosure · CA bundle"]
+    OCI["/v2<br/>OCI registry"]
+    VP["/vault/proxy<br/>credential injection"]
+    ID["/identity/*<br/>service binding to notme"]
+    M["McpEdgeRoute<br/>POST /mcp"]
+
+    DO["DurableObjectToolBackend<br/>bead_* → BEAD_STORE"]
+    MP["McpProxyToolBackend<br/>lsp_* · mache_* · rsry_* · …<br/>→ an upstream MCP server"]
+    SB["ServiceBindingToolBackend<br/>→ a Worker in the same process"]
+    UDS["UdsForwardToolBackend<br/>→ companion → a unix socket"]
+    LN["LeylineNetToolBackend<br/>→ companion → signed AEAD wire"]
 
     REQ --> R
-    R -->|first match wins| H
-    R --> I
+    R --> H
+    R --> WK
+    R --> IL
+    R --> OCI
+    R --> VP
+    R --> ID
     R --> M
-    M -->|"handles(name)"| B
-    M --> L
-    M --> F
+    M -->|"handles(name)"| DO
+    M --> MP
+    M --> SB
+    M -.->|"declared kinds, not in today's manifest"| UDS
+    M -.-> LN
 ```
+
+Today's manifest uses three of the five backend kinds: one `durableObject`
+backend (beads) and many `mcpProxy` and `serviceBinding` backends, one per
+tool family an input declares. The five kinds and when to use each are in
+[`reference/backend-kinds.md`](reference/backend-kinds.md).
 
 ### EdgeRoute — HTTP/SSE multiplexing
 
@@ -142,18 +238,24 @@ sequenceDiagram
     ME-->>C: {content:[{type:"text", text:"..."}]}
 ```
 
-### lsp_hover — HTTP forward to ley-line-open
+That is the path when the lease gate is off. When it enforces, `bead_create`
+alone is intercepted and run by `routes/bead-create-orchestrator.ts`, which
+writes the canonical bytes to BlobStore, creates the bead, and records an
+attestation in TrustStore against the certificate that authorized the call
+(ADR-0012). Other bead methods stay inside the one Durable Object.
+
+### lsp_hover — MCP proxy to ley-line-open
 
 ```mermaid
 sequenceDiagram
     participant C as MCP Client
     participant ME as McpEdgeRoute
-    participant LB as HttpForwardToolBackend
+    participant LB as McpProxyToolBackend
     participant LLO as ley-line-open daemon
 
     C->>ME: POST /mcp tools/call lsp_hover {file,line,col}
     ME->>LB: handles("lsp_hover") → true
-    LB->>LLO: POST env.LLO_MCP_URL — tools/call lsp_hover (Accept: application/json, text/event-stream)
+    LB->>LLO: POST via env.LSP_MCP, or env.LLO_MCP_URL — tools/call lsp_hover
     LLO-->>LB: {content:[{type:"text", text:"<json>"}]}
     LB-->>ME: parsed JSON (or raw text fallback)
     ME-->>C: re-wrapped as MCP content
@@ -209,7 +311,7 @@ sequenceDiagram
     CC->>CC: Edit /x/foo.rs
     CC->>H: stdin = {tool_name, tool_input:{file_path}}
     H->>CL: POST /mcp tools/call reparse {source:"/x/foo.rs"}
-    CL->>LLO: forward (HttpForwardToolBackend → LLO_MCP_URL, exact-match prefix)
+    CL->>LLO: forward (McpProxyToolBackend, exact-match tool name)
     LLO-->>CL: {ok:true, files_reparsed:1}
     CL-->>H: 2xx (silently ignored on failure)
     Note over CC,LLO: subsequent lsp_* calls now see fresh data
@@ -224,7 +326,7 @@ sequenceDiagram
     participant NM as notme worker (vault)
 
     C->>ME: GET /identity/token
-    Note over ME,NM: env.NOTME is a workerd Fetcher —\nunforgeable intra-process ref
+    Note over ME,NM: env.NOTME is a workerd Fetcher —<br/>unforgeable intra-process ref
     ME->>NM: fetch (no network hop)
     NM-->>ME: JWT
     ME-->>C: JWT
@@ -234,41 +336,48 @@ The notme vault has *no network*. It is reachable only through this service
 binding, which is an unforgeable reference. cloister is the only thing on
 the network in front of it. See ADR-0002 §"Capability boundary".
 
-## SSE (Server-Sent Events)
+## Transports
+
+The MCP face is **Streamable HTTP**: a client sends JSON-RPC in a `POST /mcp`
+and reads the answer from that response. Every tool call above is one such
+request. The protocol version cloister advertises is `2026-07-28`.
+
+`GET /mcp` still answers with the older HTTP+SSE stream. That transport is
+deprecated by the MCP specification and is kept only for its twelve-month
+window; nothing new should be built on it.
 
 ```mermaid
 sequenceDiagram
-    participant C as Any SSE client (browser, Python, Go, Rust)
-    participant GW as McpEdgeRoute (GET /mcp)
+    participant C as MCP client
+    participant GW as McpEdgeRoute
 
+    C->>GW: POST /mcp — JSON-RPC request
+    Note over GW: lease gate, then dispatch to a backend
+    GW-->>C: 200 — JSON-RPC result (+ Interlace-Receipt header)
+
+    Note over C,GW: deprecated, kept for the transition window
     C->>GW: GET /mcp
-    GW-->>C: HTTP 200\nContent-Type: text/event-stream\nCache-Control: no-cache
-
-    GW-->>C: data: {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2024-11-05"}}\n\n
-    Note over GW,C: standard W3C SSE — no MCP-specific framing
-
+    GW-->>C: 200 text/event-stream
     loop every 15s
-        GW-->>C: : ping\n\n
-        Note over GW,C: comment line — proxies don't close idle connections
+        GW-->>C: comment ping, so proxies keep the connection
     end
 ```
-
-Any language's EventSource implementation works without MCP-specific
-libraries.
 
 ## Component map
 
 ```mermaid
 graph TD
     subgraph compose ["Composition root"]
-        IDX["index.ts\nbuilds ROUTES, exports Worker"]
+        IDX["index.ts<br/>hands the manifest to instantiate(),<br/>exports the Worker"]
+        RTM["manifest/runtime.ts<br/>builds every route + backend<br/>from the manifest"]
     end
 
     subgraph router ["Routing layer"]
         RR["router.ts<br/>Router + EdgeRoute"]
         H["routes/health.ts"]
         I["routes/notme-identity.ts"]
-        M["routes/mcp.ts<br/>McpEdgeRoute (SSE + JSON-RPC)"]
+        M["routes/mcp.ts<br/>McpEdgeRoute<br/>(Streamable HTTP JSON-RPC)"]
+        LG["routes/lease-gate.ts<br/>resolveLeaseGate<br/>(ADR-0053)"]
         LM["routes/lease-middleware.ts<br/>verifyAndUpsertLease<br/>(ADR-0007 pipeline)"]
         BC["routes/bead-create-orchestrator.ts<br/>ADR-0012 four-step handoff<br/>(BlobStore → BeadStore → TrustStore<br/>→ pending-retry)"]
         DR["routes/disclosure.ts<br/>GET /interlace/peers/:fp<br/>(JSONL stream, constant-time 404)"]
@@ -277,7 +386,7 @@ graph TD
     subgraph backends ["MCP backends"]
         BI["backends.ts<br/>ToolBackend interface<br/>JsonRpcInvocationError"]
         BB["manifest/backends/durable-object.ts<br/>DurableObjectToolBackend"]
-        BL["manifest/backends/mcp-proxy.ts<br/>McpProxyToolBackend<br/>(formerly httpForward, ADR-0015 Phase 1 rename)"]
+        BL["manifest/backends/mcp-proxy.ts<br/>McpProxyToolBackend<br/>(ADR-0015)"]
         BS["manifest/backends/service-binding.ts<br/>ServiceBindingToolBackend"]
         BU["manifest/backends/uds-forward.ts<br/>UdsForwardToolBackend<br/>(via companion proxy, cloister-46fc1a)"]
         BLN["manifest/backends/leyline-net.ts<br/>LeylineNetToolBackend (ADR-0005)"]
@@ -287,7 +396,7 @@ graph TD
         BDO["beads.ts<br/>BeadStore DO<br/>(per-repo)"]
         TDO["trust-store.ts<br/>TrustStore DO<br/>(singleton)"]
         BLO["blob-store.ts<br/>BlobStore DO<br/>(singleton)"]
-        VDO["vault-store.ts<br/>CredentialVault DO<br/>(singleton today;<br/>per-bundle via ADR-0021)<br/>F1 rate-limit + F4 size caps<br/>uses vault/src/{vault,crypto,rate-bucket}.ts"]
+        VDO["vault-store.ts<br/>CredentialVault DO<br/>(one per bundle, ADR-0021)<br/>F1 rate-limit + F4 size caps<br/>uses vault/src/{vault,crypto,rate-bucket}.ts"]
     end
 
     subgraph helper ["Trust-anchor-helper (host process — ADR-0019)"]
@@ -300,12 +409,14 @@ graph TD
         CAB["routes/ca-bundle.ts<br/>/interlace/ca-bundle<br/>(V-archival CA + compromise notice)"]
     end
 
-    IDX --> RR
+    IDX --> RTM
+    RTM --> RR
     IDX --> H
     IDX --> I
     IDX --> M
     IDX --> DR
-    M --> LM
+    M --> LG
+    LG --> LM
     M --> BC
     M --> BB
     M --> BL
@@ -328,10 +439,73 @@ graph TD
     M --> REM
 ```
 
-`router.ts`, `backends.ts`, and the four route/backend modules are the
-*entire* abstraction surface. New tenants are new files in `routes/` or
-`backends/` plus one line in `index.ts`'s ROUTES table. There is no
-plugin loader, manifest, or registry. ADR-0002 details the contract.
+`router.ts` and `backends.ts` hold the two interfaces; `manifest/runtime.ts`
+builds every route and backend from the manifest. A new route kind or backend
+kind is a schema field, a TypeScript mirror, and a branch in `runtime.ts`
+(ADRs 0002, 0005, 0015). A new *instance* of an existing kind is a line in
+`cluster.toml`. The diagram shows the load-bearing modules, not every file:
+`src/routes/` also holds the OCI registry, the vault proxy, tenant dispatch,
+and the `.well-known` routes.
+
+## Describing and checking a system
+
+The second half of cloister does not run anything. It reads, compares, and
+writes files for you to apply. It is all in the `cloister` CLI (`cli/`).
+
+```mermaid
+graph TB
+    subgraph rendered ["Rendered output (read, never templates)"]
+        PLAN["terraform show -json"]
+        K8S["Kubernetes / Knative manifests"]
+        WR["wrangler config"]
+    end
+
+    MAP["provider mappings<br/>cli/lib/facts/mappings/*.json<br/>which resource types are workloads,<br/>where their image, ports and env are"]
+    FACTS["facts<br/>workloads · ports · who dials whom · exposure"]
+    TOML["cluster.toml<br/>bundles · connections · placements per env"]
+    REPORT["findings<br/>evidenced · unknown · undeclared · contradicted"]
+
+    LOWER["cluster lower<br/>one workload file per bundle"]
+    POLICY["cluster k8s<br/>namespaces + NetworkPolicy,<br/>and checks the manifests agree"]
+    COMPOSE["cluster emit<br/>cluster.compose.yaml"]
+
+    PLAN --> MAP
+    K8S --> FACTS
+    WR --> MAP
+    MAP --> FACTS
+    FACTS -->|"inspect --draft"| TOML
+    FACTS -->|"inspect"| REPORT
+    TOML --> REPORT
+    TOML --> LOWER
+    TOML --> POLICY
+    TOML --> COMPOSE
+    LOWER --> POLICY
+```
+
+- **The graph is derived, the intent is declared** (ADR-0074). Who talks to
+  whom is read from rendered output. What *should* be allowed, and how strongly
+  it must be enforced, is in `cluster.toml`. A report says which is which: a
+  finding is `evidenced`, `unknown`, `undeclared` or `contradicted`.
+- **Nothing is provider-specific in the code.** A mapping file says which
+  resource types of a provider are workloads and where their fields are. A
+  type with no mapping is counted and named as not read.
+- **`cluster.toml` is the one description every placement is lowered from.**
+  A bundle's image, arguments and environment are declared once. An env value
+  that is another bundle's address is a *binding* to a connection, because the
+  address differs in every placement and each emitter writes its own.
+- **A placement is where a bundle runs in one environment.** The kinds are
+  `microvm` and `workerd` (cloister constructs these) and `kubernetes`,
+  `knative` and `cloudRun` (cloister writes or checks files for these).
+- **Enforcement strength is stated, not assumed** (ADR-0070). A connection may
+  set `minStrength`; `cluster k8s` refuses when the placements at its two ends
+  cannot deliver it. Knative, for example, can keep a Service off the outside
+  network but cannot say which in-cluster caller may reach it without a mesh.
+- **No values are printed.** A report names where a secret or address was
+  found, never what it is.
+
+Two CI jobs apply the lowered output to a real cluster (kind, and kind with
+Knative) and observe the result: a declared caller connects, an undeclared
+pod is refused.
 
 ## Bead store per repo
 
@@ -340,9 +514,9 @@ Each repo gets its own Durable Object instance, keyed by repo path:
 ```mermaid
 graph LR
     GW["DurableObjectToolBackend (bead_*)"]
-    GW -->|"idFromName('/repos/rosary')"| R["BeadStore\n/repos/rosary\nSQLite: beads, comments"]
-    GW -->|"idFromName('/repos/mache')"| M["BeadStore\n/repos/mache\nSQLite: beads, comments"]
-    GW -->|"idFromName('/repos/crumb')"| C["BeadStore\n/repos/crumb\nSQLite: beads, comments"]
+    GW -->|"idFromName('/repos/rosary')"| R["BeadStore<br/>/repos/rosary<br/>SQLite: beads, comments"]
+    GW -->|"idFromName('/repos/mache')"| M["BeadStore<br/>/repos/mache<br/>SQLite: beads, comments"]
+    GW -->|"idFromName('/repos/crumb')"| C["BeadStore<br/>/repos/crumb<br/>SQLite: beads, comments"]
 ```
 
 Isolation is physical: separate SQLite files, separate DO instances, no
@@ -371,29 +545,26 @@ work.
 
 ## Bindings
 
-Bindings live in two files that must stay in sync — one source of truth for
-each launcher:
+Bindings are declared in two files, one per launcher: `config.capnp` for
+`workerd serve` and `wrangler.toml` for Cloudflare. **Those files are the
+list.** `lint:binding-parity` fails when a binding read in `src/` is not
+declared on both paths, unless it carries a declared asymmetry, so this
+section names the groups and what each is for, not every entry.
 
-| Binding                          | Type                        | Where                                       | Used by                                        |
-| -------------------------------- | --------------------------- | ------------------------------------------- | ---------------------------------------------- |
-| `BEAD_STORE`                     | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | `BeadToolBackend`                              |
-| `TRUST_STORE`                    | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | lease-middleware, disclosure, bead-create-orchestrator |
-| `BLOB_STORE`                     | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | bead-create-orchestrator (ADR-0003 CAS)        |
-| `VAULT_STORE`                    | `DurableObjectNamespace`    | `wrangler.toml`, `config.capnp`             | CredentialVault DO (ADR-0013)                  |
-| `NOTME`                          | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | `NotmeIdentityRoute`                           |
-| `MACHE_MCP`                      | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | `mache_*` upstream (workerd ExternalServer)    |
-| `LSP_MCP`                        | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | `lsp_*` + lifecycle upstream                   |
-| `KEK_HELPER`                     | `Fetcher` (service binding) | `wrangler.toml`, `config.capnp`             | CredentialVault `#getKEK` (ADR-0014; URL→bytes resolver — superseded by ADR-0019 helper) |
-| `LLO_MCP_URL`                    | text var                    | `wrangler.toml`, `config.capnp`             | LspToolBackend, LeylineLifecycleBackend (CF-prod fallback) |
-| `MACHE_MCP_URL`                  | text var                    | `wrangler.toml`, `config.capnp`             | mache backend (CF-prod fallback)               |
-| `ROSARY_MCP_URL`                 | text var                    | `wrangler.toml`, `config.capnp`             | (future) rosary passthrough                    |
-| `VAULT_KEK_SOURCE`               | text var (URL spec)         | `wrangler.toml`, `config.capnp`             | CredentialVault — ADR-0014 v2; required non-empty URL (env://, file://, keychain://, apple-password://, keyring://, op://, secret-tool://, http(s)://) |
-| `INTERLACE_MASTER_PUBKEY`        | text var (b64)              | `wrangler.toml`, `config.capnp`             | lease verification (cert-chain root)           |
-| `INTERLACE_ROOT_PUBKEY`          | text var (b64; optional)    | `wrangler.toml`, `config.capnp`             | lease-gate activation switch (unset = dev mode) |
-| `INTERLACE_DISCLOSURE_HMAC_KEY`  | text var                    | `wrangler.toml`, `config.capnp`             | DisclosureRoute HMAC cursor signing            |
-| `RECEIPT_SIGNING_KEY`            | text var (b64; optional)    | `wrangler.toml`, `config.capnp`             | Interlace 0.2.0 receipt emitter — unset = no emission (Phase 1 default) |
-| `RECEIPT_EPOCH`                  | text var (int; optional)    | `wrangler.toml`, `config.capnp`             | receipt epoch stamp (ADR-0007 rotation alignment) |
-| `ALLOWED_ORIGINS`                | text var (optional)         | env-only (unset in wrangler/capnp defaults) | `pickAllowedOrigin` in `src/cors.ts`           |
+| Group | Bindings | Used for |
+| --- | --- | --- |
+| Durable Objects | `BEAD_STORE`, `TRUST_STORE`, `BLOB_STORE`, `VAULT_STORE` | beads, lease counters and attestations, content-addressed blobs, per-bundle credentials |
+| Service bindings | `NOTME`, `NOTME_JWT`, `NOTME_RECEIPTS`, `LSP_MCP`, `MACHE_MCP`, `KEK_HELPER` | identity, token verification, receipt signing, tool upstreams, key-encryption-key resolution. A service binding is an unforgeable in-process reference, not a URL |
+| Upstream URLs | `LLO_MCP_URL`, `MACHE_MCP_URL`, `ROSARY_MCP_URL`, `COMPANION_URL`, `SIGNET_URL` | where an `mcpProxy` backend or the companion is reached when there is no service binding |
+| Trust anchors | `INTERLACE_ROOT_PUBKEY`, `INTERLACE_MASTER_PUBKEY`, `INTERLACE_DISCLOSURE_HMAC_KEY` | the lease gate's authority, cert-chain root, disclosure cursor signing |
+| Receipts | `RECEIPT_SIGNING_KEY`, `RECEIPT_EPOCH`, `RECEIPT_ACTOR_FP`, `INTERLACE_ACTOR_FP` | signed response receipts |
+| Vault | `VAULT_KEK_SOURCE`, `VAULT_KEK_TENANT_SCOPED` | where the key-encryption key comes from (a URL spec, ADR-0014) |
+| Operator knobs | `CLOISTER_MODE`, `BEAD_STORAGE_BACKEND`, `ALLOWED_ORIGINS` | dev mode, bead storage path (ADR-0033), CORS allow-list |
+| Dev only | `DEV_CA_MASTER`, `DEV_CA_EPOCH`, `DEV_VAULT_SEED`, `DEV_ALLOWED_SUBS`, `DEV_PASSTHROUGH_SERVICES` | read only when `CLOISTER_MODE=dev`; `lint:no-dev-mode` rejects committed dev material |
+
+Each trust secret is read in exactly one resolver (`lint:lease-gate-source`,
+`lint:trust-env-locality`). New credentials are vault slices on a bundle, not
+new `[vars]` entries (ADR-0010).
 
 **Host-process env (leyline-sign-helper binary; NOT in wrangler/capnp).
 Env-var surface anchored to ADR-0019 (normative reqs 1–15 + §"Implementation
@@ -418,9 +589,9 @@ recipe lives in `melange.yaml` (APK build) + `apko.yaml` (image compose).
 graph TB
     subgraph cloister_pkg ["cloister.tar — apko output"]
         WD["/usr/bin/workerd"]
-        JS["/usr/share/cloister/index.js\n(wrangler build output)"]
+        JS["/usr/share/cloister/index.js<br/>(wrangler build output)"]
         CFG["/usr/share/cloister/config.capnp"]
-        DATA["/data (volume mount\nfor DO SQLite)"]
+        DATA["/data (volume mount<br/>for DO SQLite)"]
         WD --- JS
         WD --- CFG
         WD -.->|reads/writes| DATA
@@ -454,7 +625,7 @@ volumes.
 `task image:check` parses `melange.yaml` + `apko.yaml` end-to-end without
 running a real build — useful in CI before bumping versions.
 
-## Lease verification (ADR-0007 / cloister-bd7770)
+## Lease verification (ADR-0007 / ADR-0053)
 
 Every authenticated `POST /mcp` call is verified by
 `src/routes/lease-middleware.ts:verifyAndUpsertLease` before reaching
@@ -484,15 +655,33 @@ the JSON-RPC dispatch. The pipeline:
    workerd RPC. ADR-0007 §13.2: every authenticated call is recorded so
    silence is evidence.
 
-The `INTERLACE_DEV_BYPASS` escape hatch was removed by the 2026-05-08
-ADR-0007 amendment. Auth is always-on in production. Dev workflow mints
-short-lived dev certs through `notme` against a real master.
+The pipeline is end-to-end tested in `test/routes/lease-middleware.test.ts`
+and wired into `McpEdgeRoute.handlePost`.
 
-The substrate (header parse, canonical bytes, cert verify, sig verify,
-scope, TrustStore upsert) is end-to-end tested in
-`test/routes/lease-middleware.test.ts`. **Wired into `McpEdgeRoute.handlePost`**
-as of cloister-b89fdb — the gate is active when `INTERLACE_ROOT_PUBKEY`
-is set (deployment-binding granularity, NOT per-request bypass).
+**Whether it runs is decided in one place**, `resolveLeaseGate`
+(`src/routes/lease-gate.ts`, ADR-0053):
+
+```mermaid
+graph TB
+    Q1{"CLOISTER_MODE = dev?"}
+    Q2{"an authority set?<br/>DEV_CA_MASTER or<br/>INTERLACE_ROOT_PUBKEY"}
+    Q3{"an authority set?<br/>INTERLACE_ROOT_PUBKEY"}
+    OFF["off<br/>the only way to turn it off"]
+    ENF["enforce<br/>verify against the CA bundle"]
+    CLOSED["enforce, then fail closed<br/>-32005 CA bundle unavailable"]
+
+    Q1 -->|yes| Q2
+    Q1 -->|no| Q3
+    Q2 -->|no| OFF
+    Q2 -->|yes| ENF
+    Q3 -->|yes| ENF
+    Q3 -->|no| CLOSED
+```
+
+Unsetting `INTERLACE_ROOT_PUBKEY` alone does **not** disable the gate: outside
+dev mode, no authority means every request is rejected. There is no
+per-request bypass (`INTERLACE_DEV_BYPASS` was removed by the 2026-05-08
+ADR-0007 amendment). The granularity is the deployment's bindings.
 
 ## Running a tool under confinement
 
@@ -615,9 +804,9 @@ its executable), ADR-0061 (skills declared and digest-verified).
 
 | Layer            | Risk                                | Mitigation                                                |
 | ---------------- | ----------------------------------- | --------------------------------------------------------- |
-| `POST /mcp`      | Unauthenticated request execution   | `McpEdgeRoute.handlePost` wraps every POST in the lease pipeline: `getCABundle` (with sig verify) → `verifyAndUpsertLease` (wasm32 cert chain + clock-skew + Ed25519 request-sig + scope + replay defense + TrustStore counter upsert). Gate is active when `INTERLACE_ROOT_PUBKEY` is set; unset = dev/test mode. ADR-0007 (Accepted). |
+| `POST /mcp`      | Unauthenticated request execution   | `McpEdgeRoute.handlePost` wraps every POST in the lease pipeline: `getCABundle` (with sig verify) → `verifyAndUpsertLease` (wasm32 cert chain + clock-skew + Ed25519 request-sig + scope + replay defense + TrustStore counter upsert). Whether the gate enforces is decided by `resolveLeaseGate` (ADR-0053): off only in explicit dev mode with no authority, and fail-closed when there is no authority outside it. |
 | `POST /mcp` response | §13.2 "silence is evidence" gap on the response side | **Interlace 0.2.0 receipts (Phase 1, shipped 2026-05-12)** — every authenticated 2xx response carries an `Interlace-Receipt` header. Commitment over `(request_hash, body_hash, allowlisted_headers, timestamp_ms, actor_fp, epoch)`. SSE streams use cryptographically-paired open/close commitments via `open_commitment_hash`. Archival CA bundle at `/interlace/ca-bundle` + compromise-notice mechanism for V-archival verifiers. `RECEIPT_SIGNING_KEY` unset → no emission (Phase 1 default; peers verify-but-don't-enforce). ADR-0007 §13.2 + `interlace-spec/0.2.0-draft/RECEIPTS.md`. |
-| `GET /interlace/peers/{fp}` | Peer-existence oracle, paginated-tail oracle, attestation forgery, cert reuse for chain reads | `DisclosureRoute` (src/routes/disclosure.ts): URLPattern path match, HMAC-signed cursors (rejects unsigned), constant-time 404 across all error classes (not_found / denied / bad_cursor are byte-identical), cross-peer cursor reuse rejected. Lease-gated when `INTERLACE_ROOT_PUBKEY` is set (scope `disclosure:<fp>`); auth-failure collapses into the same 404. JSONL stream includes the cluster master pubkey for offline verification. ADR-0007 §11 + threat model §9. Registered in `cloister.capnp` as a `disclosure` route kind. **§9.4.b CLOSED claim verified by oracle-friend cycle 2026-05-12** (threat-model §16). |
+| `GET /interlace/peers/{fp}` | Peer-existence oracle, paginated-tail oracle, attestation forgery, cert reuse for chain reads | `DisclosureRoute` (src/routes/disclosure.ts): URLPattern path match, HMAC-signed cursors (rejects unsigned), constant-time 404 across all error classes (not_found / denied / bad_cursor are byte-identical), cross-peer cursor reuse rejected. Lease-gated whenever the gate enforces (scope `disclosure:<fp>`); auth-failure collapses into the same 404. JSONL stream includes the cluster master pubkey for offline verification. ADR-0007 §11 + threat model §9. Registered in `cloister.capnp` as a `disclosure` route kind. **§9.4.b CLOSED claim verified by oracle-friend cycle 2026-05-12** (threat-model §16). |
 | Vault `proxyRequest` / `putCredential` | Per-caller resource exhaustion via tight loop; oversized payload blocks single-threaded DO | **F1 token-bucket** per `subject_fp` (`vault/src/rate-bucket.ts`): cost-weighted (read=1, write=3, proxy=5), capacity 100, refill 10/sec, persisted in SQL so DO eviction doesn't reset attacker's budget. Structured `vault.rate_limit_reject` emit for audit. **F4 payload caps** (`vault/src/vault.ts:validateCredentialPayload`): 32 headers max, 16 KiB total (UTF-8 bytes), 64 allowedSubs entries. Rejected before encrypt + SQL write. dos-friend cycle 2026-05-12; beads `cloister-211b68` (F1) + `cloister-21b5eb` (F4). |
 | Vault 403 vs 404 status-code distinguishability | Credential-name enumeration oracle (DORMANT today — only cloister-router calls vault) | OPEN; activates with first non-router bundle (ADR-0021 implementation). Closing playbook = collapse 403→404, always run the same SQL+parse+checkAccess work, preserve reason in structured logs but byte-identical wire response. Threat-model §16.1 / bead `cloister-aa9376`. |
 | Trust-anchor-helper (leyline-sign-helper) | Master_sk exfil via byte-return path; cross-UID loopback; CSRF simple-POST; body-size bypass | Rust host binary (LLO `rs/ll-open/sign/`, ADR-0019). `POST /sign` returns `sig+kid` only — key bytes never leave the helper. Bearer-token auth (`LEYLINE_SIGN_CALLER_TOKENS`) keyed per-caller for rate-limit fairness. Strict `Content-Type: application/json` blocks CORS-simple-POST CSRF. `tower_http::RequestBodyLimitLayer` + Content-Length guard cap bodies at 64 KiB. `--require-auth` flag fail-stops if env unset (supervisor templates pass it). `/resolve` allow-list gated (deny-all default). ed25519-dalek pinned `~2.1`. Threat-model §15 + §15.A; beads cloister-7aaab1/7afedc/7b5b9d/7c2179/7c737a/7cd202 (cycle 1, shipped) + cloister-9bd96c (cycle 2 NEW-1, shipped). |
@@ -633,8 +822,7 @@ its executable), ADR-0061 (skills declared and digest-verified).
 ## Adversarial review rotation (ADR-0020)
 
 Substrate-level security is reviewed by a 7-role specialist team
-defined in ADR-0020 + the agent definitions in
-`~/github/jamestexas/agents/agents/`. Each specialist's findings flow
+defined in ADR-0020. Each specialist's findings flow
 into the threat model + a per-cycle report under
 `docs/security/adversarial-cycles/<date>.md`.
 
@@ -655,17 +843,50 @@ never patch. Synthesis-lead integrates findings into
 2026-05-12 (trust-root × 2 on PR #1 + oracle × 1 on vault + disclosure)
 — 11 findings, 8 shipped same-day, 3 follow-up beads.
 
+## Where the code lives, and what gates it
+
+| Directory | Holds |
+| --- | --- |
+| `src/` (tests in `test/`) | the Worker: router, routes, backends, Durable Objects, wire codecs |
+| `cli/` | the `cloister` command, the only part that ships to an operator's machine |
+| `manifest/` | the capnp schemas: `cloister.capnp` (gateway) and `cluster.capnp` (cluster.toml) |
+| `lint/` | the rails `task lint` runs |
+| `gen/` | code generators and build steps |
+| `dev/` | local launchers, smoke tests, git hooks |
+| `rs/`, `tools/harness-sandbox/` | Rust: bridge crates to ley-line-open, and the confinement launcher |
+
+```mermaid
+graph LR
+    PR["pull request"] --> LINT["lint<br/>types · worker tests · rails"]
+    LINT --> VERIFY["verify<br/>substrate equivalence"]
+    LINT --> KIND["lowered-kind<br/>real cluster"]
+    LINT --> KN["lowered-knative<br/>real cluster + Knative"]
+    LINT --> SMOKE["smoke-e2e<br/>released ley-line + mache"]
+    PR --> IMG["install<br/>clean image"]
+    VERIFY --> OK["ci-ok"]
+    KIND --> OK
+    KN --> OK
+    SMOKE --> OK
+    IMG --> OK
+    OK --> MERGE["merge"]
+```
+
+`ci-ok` needs every job and is the one check to require. A rule stated in an
+ADR or a comment gets a rail in `lint/` in the same change, with a test that
+runs against the real tree: an invariant with no rail is a comment.
+
 ## Where to next
 
 - Set it up: [../GETTING-STARTED.md](../GETTING-STARTED.md)
 - Verify the security claims: [security/threat-model.md](security/threat-model.md)
   §§9.4.b, 13.2, 13.4, 13.6, 15, 16; reproduce via the adversarial
   cycle reports under [security/adversarial-cycles/](security/adversarial-cycles/)
-- Add a new MCP tool family: see `LspToolBackend` / `LeylineLifecycleBackend`
-  for templates, register via `cloister.capnp`'s `mcp.backends` list
-  (declarative — no TS edits in `src/index.ts`)
-- Add a new HTTP tenant: implement `EdgeRoute`, register via
-  `cloister.capnp`'s `routes` list
+- Add a new MCP tool family: add an `[inputs.<name>]` row to `cluster.toml`
+  and run `task cluster:toml`. No TypeScript edits in `src/index.ts`
+- Add a new route or backend *kind*: a schema field, its TypeScript mirror,
+  and a branch in `src/manifest/runtime.ts`, after an ADR
+- Describe a system you already run: `cloister inspect --terraform plan.json
+  --draft --env prod`, described in the [README](../README.md)
 - Add a substrate-changing decision: draft a numbered ADR in
   `docs/adr/` (0037 reserved for secure MCP ingress; the current list +
   status is the generated [ADR index](adr/INDEX.md), never hand-counted;
