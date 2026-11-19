@@ -1,0 +1,128 @@
+# The input to `task smoke:lowered-knative` (dev/lowered-kind.sh knative): a
+# graph that mixes the two placements a cluster can hold, lowered, applied to a
+# kind cluster with Knative Serving installed, and then exercised.
+#
+# Hand-written: lowering reads only cluster.toml.
+#
+#   client   ──▶ web        kubernetes → knative: an HTTP request, through
+#                           Knative's ingress. Strength "none".
+#   web      ──▶ api        knative → kubernetes: pod to pod, admitted by the
+#                           target's NetworkPolicy. Strength "policy".
+#   outsider  ✗  api        NOT declared: must be refused by the cluster
+#
+# `web` listens on 8080 and is dialled on 80, as every Knative Service is, and
+# it is internal to the cluster: expose = "cluster" becomes Knative's own
+# cluster-local visibility label.
+
+[metadata]
+name = "lowered-knative"
+version = "0.0.1"
+
+[storage]
+
+[[bundles]]
+name = "web"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["netexec", "--http-port=8080"]
+
+[[bundles.external.env]]
+name = "API_URL"
+connection = "api"
+
+[[bundles.ports]]
+name = "http"
+port = 8080
+appProtocol = "art.http"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "local"
+kind = "knative"
+manifest = "web.yaml"
+
+[[bundles.placements.ports]]
+name = "http"
+port = 80
+
+[[bundles]]
+name = "api"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["netexec", "--http-port=8080"]
+
+[[bundles.ports]]
+name = "http"
+port = 8080
+appProtocol = "art.http"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "api.yaml"
+
+[[bundles]]
+name = "client"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+# It does nothing on its own. The smoke runs curl inside it, against the URL in
+# the env var below, which is how a real client would use that variable.
+args = ["pause"]
+
+[[bundles.external.env]]
+name = "WEB_URL"
+connection = "web"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "client.yaml"
+
+[[bundles]]
+name = "outsider"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = ["pause"]
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+manifest = "outsider.yaml"
+
+[[connections]]
+from = "client"
+name = "web"
+appProtocol = "art.http"
+
+[[connections.targets]]
+env = "local"
+bundle = "web"
+port = "http"
+
+[[connections]]
+from = "web"
+name = "api"
+appProtocol = "art.http"
+minStrength = "policy"
+
+[[connections.targets]]
+env = "local"
+bundle = "api"
+port = "http"

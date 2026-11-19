@@ -359,8 +359,10 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
   so not written.
 - The Kubernetes lowering is run on a real cluster in CI (`lowered-kind`):
   a declared caller reaches the server, a declared Job completes, and an
-  undeclared pod is refused. The Knative lowering is not: that needs Knative
-  installed in the cluster.
+  undeclared pod is refused. The Knative lowering is too (`lowered-knative`), on a
+  cluster with Knative Serving and Kourier: the Service has no outside route,
+  a kubernetes pod reaches it over HTTP, its pod reaches a kubernetes
+  Service, and an undeclared pod is refused there.
 
 ## Consequences
 
@@ -395,7 +397,7 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §7 Draft fills it from a plan (`inspect --draft`, `--local`) | built |
 | §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; applied to a kind cluster in CI (`task smoke:lowered-kind`) |
 | §7 A port's dialled number and `expose` per placement (`[[bundles.placements.ports]]`) | built |
-| §7 Lower a bundle to a Knative Service | built; not run against a live cluster |
+| §7 Lower a bundle to a Knative Service | built; applied to a kind cluster with Knative in CI (`task smoke:lowered-knative`) |
 | §7 Lower a binding to a microVM | not built |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |

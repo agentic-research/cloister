@@ -34,8 +34,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloister-schema-go-${{ github.ref }}
-  cancel-in-progress: true
+  # A run on main is never cancelled by the next merge (see ci.yml).
+  group: cloister-schema-go-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   regen-and-test:

@@ -205,6 +205,16 @@ reach the TARGET, and there the target is fenced. A Knative caller whose
 manifest states no namespace is refused by name, because no policy can say
 where its pods run.
 
+**Amendment (2026-11-18): `cluster k8s` writes a directory for a knative
+bundle too.** The Knative amendment above says a knative bundle is checked and
+nothing is written for it. Nothing to enforce is not the same as nothing to
+apply: every bundle had a directory to `kubectl apply` except the knative
+ones, and nothing created the namespace their Service lives in. A knative
+bundle now gets its manifest, copied unchanged, and the Namespace its Service
+names when the manifest does not declare it. Still no NetworkPolicy. The
+namespace is the one the Service states, which need not be the bundle's name,
+and each printed apply line names it.
+
 **Amendment (2026-11-18): cloister may write a workload's manifest when asked,
 and a bundle with no exposed port needs no Service.** §2 says cloister owns
 only the edges of a forwarded workload. That holds for a manifest the operator

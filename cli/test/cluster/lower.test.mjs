@@ -287,7 +287,9 @@ test("the same bundle lowers to a Knative Service: dialled on 80, listening on i
     assert.match(readFileSync(join(dir, "payments.yaml"), "utf8"), /# Peers dial it on port 80; its container listens on 8080\.\n# It has no route from outside the cluster \(networking\.knative\.dev\/visibility: cluster-local\)\.\n# Inside the cluster nothing enforces which caller may reach it/);
     // And the existing Knative check accepts it, tying the address to its connection.
     const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
-    assert.deepEqual(checked.files, []);
+    // A directory per bundle to apply: the namespace and the manifest, and no policy.
+    assert.deepEqual(checked.files, ["orders/00-namespace.yaml", "orders/10-orders.yaml", "payments/00-namespace.yaml", "payments/10-payments.yaml"]);
+    assert.deepEqual(checked.applies, [{ bundle: "orders", namespace: "orders" }, { bundle: "payments", namespace: "payments" }]);
     assert.deepEqual(checked.checked.map((k) => [k.bundle, k.port, k.wire]), [["orders", 80, "http1"], ["payments", 80, "http1"]]);
     assert.deepEqual(checked.references.map((r) => [r.bundle, r.to, r.connections]), [["orders", "payments", ["payments"]]]);
   });
@@ -464,4 +466,29 @@ test("a placement cannot open a port the bundle keeps to itself, and the fields 
   const canonical = clusterToToml(await parseTomlToCluster(both));
   assert.match(canonical, /\[\[bundles\.placements\.ports\]\]\nexpose = "edge"\nname = "http"\n/);
   assert.ok(!/\nport = 0\n/.test(canonical));
+});
+
+// The input of the Knative kind smoke (`dev/lowered-kind.sh knative`, its own
+// CI job), kept from rotting where no cluster is available.
+test("the Knative smoke's cluster.toml lowers and passes cluster k8s, with the graph the smoke observes", async () => {
+  const input = readFileSync(fileURLToPath(new URL("../../../test/e2e/lowered-knative/cluster.toml", import.meta.url)), "utf8");
+  await inDir(input, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual(written, ["web.yaml", "api.yaml", "client.yaml", "outsider.yaml"]);
+    const [web] = objectsOf(readFileSync(join(dir, "web.yaml"), "utf8"));
+    assert.deepEqual([web.apiVersion, web.metadata.namespace, web.metadata.labels["networking.knative.dev/visibility"]], ["serving.knative.dev/v1", "web", "cluster-local"]);
+    // The two addresses the smoke reads back: kubernetes → knative on 80, knative → kubernetes on 8080.
+    assert.equal(containerOf(readFileSync(join(dir, "client.yaml"), "utf8")).env[0].value, "http://web.web.svc.cluster.local");
+    assert.equal(web.spec.template.spec.containers[0].env[0].value, "http://api.api.svc.cluster.local:8080");
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.to]).sort(), [["client", "web"], ["web", "api"]]);
+    // api admits web's Knative pods and nothing else. web gets a directory to apply, with no policy in it.
+    const policy = readFileSync(join(dir, "k8s/api/20-networkpolicy.yaml"), "utf8");
+    assert.match(policy, /kubernetes\.io\/metadata\.name: web\n\s+podSelector:\n\s+matchLabels:\n\s+serving\.knative\.dev\/service: web/);
+    assert.ok(!policy.includes("outsider") && !policy.includes("client"));
+    assert.deepEqual(checked.files.filter((f) => f.startsWith("web/")), ["web/00-namespace.yaml", "web/10-web.yaml"]);
+    assert.deepEqual(checked.applies.find((a) => a.bundle === "web"), { bundle: "web", namespace: "web" });
+  });
+  const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
+  for (const name of ["web", "api", "client", "outsider", "test/e2e/lowered-knative/cluster.toml"]) assert.ok(script.includes(name), `dev/lowered-kind.sh does not mention "${name}"`);
 });

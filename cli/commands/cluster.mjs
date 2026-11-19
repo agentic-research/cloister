@@ -173,7 +173,7 @@ export async function emitK8sDir({ root, env, out }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
-  const { files, checked, references, unreferenced, unread } = lowerK8s({
+  const { files, applies, checked, references, unreferenced, unread } = lowerK8s({
     bundles: cluster.bundles.map(checkableBundle),
     connections: cluster.connections ?? [],
     env,
@@ -182,9 +182,6 @@ export async function emitK8sDir({ root, env, out }) {
   if (files.length === 0 && checked.length === 0) {
     throw new ClusterUsageError(`no bundle is placed "kubernetes" or "knative" for env "${env}"`);
   }
-  // Only knative bundles: they are checked and nothing is written, so --out is
-  // left exactly as it was.
-  if (files.length === 0) return { files: [], bundles: [], checked, references, unreferenced, unread };
   const expected = new Set(files.map((f) => f.path));
   const stale = existsSync(out)
     ? readdirSync(out, { recursive: true, withFileTypes: true })
@@ -206,7 +203,7 @@ export async function emitK8sDir({ root, env, out }) {
   }
   return {
     files: files.map((f) => f.path),
-    bundles: [...new Set(files.map((f) => f.path.split("/")[0]))],
+    applies,
     checked,
     references,
     unreferenced,
@@ -296,10 +293,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       const outDir = args.out ?? (() => { throw new ClusterUsageError("--out <dir> is required"); })();
       const written = await emitK8sDir({ root: selectedRoot, env: args.env ?? "local", out: resolve(process.cwd(), outDir) });
       for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
-      for (const b of written.bundles) log(`  kubectl apply -n ${b} -f ${join(outDir, b)}`);
+      for (const a of written.applies) log(`  kubectl apply ${a.namespace ? `-n ${a.namespace} ` : ""}-f ${join(outDir, a.bundle)}`);
       for (const k of written.checked) {
         const address = `${k.service}${k.namespace ? `.${k.namespace}.svc` : ""}:${k.port}`;
-        log(`cloister cluster k8s: checked "${k.bundle}" (knative, strength "none"): reached at ${address} (${k.wire}); nothing written`);
+        log(`cloister cluster k8s: checked "${k.bundle}" (knative, strength "none"): reached at ${address} (${k.wire}); its manifest is copied, and no policy is written`);
         for (const c of k.connectionsIn) log(`  connection "${c.name}" from "${c.from}": checked, not enforced`);
       }
       // What the containers' own env, args and command say about the graph.

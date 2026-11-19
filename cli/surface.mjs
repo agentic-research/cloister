@@ -333,7 +333,10 @@ export const COMMANDS = [
       "bundle: the Namespace, a default-deny-ingress NetworkPolicy, and one " +
       "NetworkPolicy per declared connection into it. Apply each bundle's " +
       "directory with `kubectl apply -n <bundle> -f <out>/<bundle>`. For each bundle " +
-      "placed \"knative\", checks its Knative Service and writes nothing for it: the " +
+      "placed \"knative\", checks its Knative Service, copies its manifest unchanged and adds " +
+      "the Namespace the Service names when the manifest does not declare it. No " +
+      "NetworkPolicy is written for it. Each printed apply line names the namespace: the " +
+      "bundle's own for kubernetes, the Service's for knative. The checks: the " +
       "port must be dialled on 80 (set with [[bundles.placements.ports]] when the " +
       "workload listens elsewhere), the appProtocol must match the http1 or h2c wire, " +
       "and `expose` must agree with the Service's route visibility. expose = " +

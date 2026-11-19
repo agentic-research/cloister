@@ -270,7 +270,12 @@ tasks:
   smoke:lowered-kind:
     desc: "Lower test/e2e/lowered-kind/cluster.toml, apply it to a kind cluster, and observe the graph: a declared caller reaches the server, a declared Job completes, and an undeclared pod is refused by the NetworkPolicy (ADR-0074 §7). Needs kind >= 0.24, kubectl, docker. KEEP_CLUSTER=1 leaves the cluster up. Its own CI job; not part of `task lint`, which has no cluster."
     cmds:
-      - bash dev/lowered-kind.sh
+      - bash dev/lowered-kind.sh kubernetes
+
+  smoke:lowered-knative:
+    desc: "As smoke:lowered-kind, with Knative: installs Knative Serving and Kourier (pinned by digest) on a kind cluster, lowers test/e2e/lowered-knative/cluster.toml, and observes that the Knative Service has no route from outside, that a kubernetes pod reaches it over HTTP through Knative's ingress, that its own pod reaches a kubernetes Service, and that an undeclared pod is refused there (ADR-0070 §2 amendment). Needs kind, kubectl, docker, curl. Its own CI job."
+    cmds:
+      - bash dev/lowered-kind.sh knative
 
   # ── OCI packaging (melange + apko) ───────────────────────────────────────
   #

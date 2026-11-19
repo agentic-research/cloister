@@ -144,8 +144,7 @@ manifest that already exists is never overwritten.
 
 ### What is not built yet
 
-The Kubernetes output is applied to a real cluster in CI. The Knative output
-has not been run against a live cluster. microVM output for an address or a secret is not
+Both outputs are applied to a real cluster in CI. microVM output for an address or a secret is not
 built. Probes, resource limits,
 volumes and service accounts are not carried. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
