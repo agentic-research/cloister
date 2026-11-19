@@ -212,16 +212,20 @@ describe("the generated cluster.ts (consumer manifest)", () => {
     expect(wire?.transport).toEqual({ uds: null });
   });
 
-  it("every wire originates at cloister-router", async () => {
+  // The gateway is workerd and cannot open a Unix socket: the companion opens
+  // rosary's for it. That dial is an edge, so it is a wire, and the wire is
+  // what mounts rosary's socket directory into the companion's container
+  // (ADR-0075 §5). Every other wire originates at the gateway.
+  it("every wire originates at cloister-router, except the companion's dial of rosary", async () => {
     const { cluster: real } = await import("../../src/generated/cluster.js");
-    const bindings = real.wires.map(w => w.binding).sort();
-    expect(bindings).toEqual([
-      "COMPANION",
-      "MACHE_BUNDLE",
-      "NOTME",
-      "ROSARY_BUNDLE",
+    const edges = real.wires.map(w => `${w.from} → ${w.to} as ${w.binding}`).sort();
+    expect(edges).toEqual([
+      "cloister-router → mache as MACHE_BUNDLE",
+      "cloister-router → notme-identity as NOTME",
+      "cloister-router → notme-proxy as COMPANION",
+      "cloister-router → rosary as ROSARY_BUNDLE",
+      "notme-proxy → rosary as ROSARY_SOCKET",
     ]);
-    expect(real.wires.every(w => w.from === "cloister-router")).toBe(true);
   });
 
   it("storage path set to the documented default", async () => {

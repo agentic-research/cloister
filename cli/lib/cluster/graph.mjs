@@ -31,45 +31,63 @@ import {
   placementFor,
   placementManifest,
 } from "./connections.mjs";
+import { socketDirs, socketExposure } from "./socket-dirs.mjs";
 
 /** The placement a wire runs in: what `cloister cluster up` starts. */
 export const WIRE_PLACEMENT = "compose";
 
-/**
- * What holds a wire under compose: nothing.
- *
- * `emit-compose` gives every container the one socket volume, and that volume
- * holds every bundle's socket. A wire sets the address its source is handed;
- * it does not stop a bundle with no wire from opening the same path. The
- * bundle-isolation rails (Inv 1, 4, 5) hold the WORKER's bindings to the
- * wires, which is a different thing: they bound what the gateway's own code
- * can name, not what a container beside it can dial.
- *
- * `cli/test/cluster/graph.test.mjs` ties this to the emitter: when compose
- * stops sharing one volume, that test fails and this is what changes.
- */
-export const WIRE_STRENGTH = "none";
+const quoted = (names) => names.map((name) => `"${name}"`).join(" and ");
 
 /**
- * How compose reaches a wire's target, and so why nothing holds the edge.
- * The same test `emit-compose` uses to pick the address it hands the source:
- * a socket path if the target declares one, else its HTTP port.
+ * How compose carries a wire, and what holds it.
+ *
+ * The address is chosen by the same test `emit-compose` uses: a socket path
+ * if the target declares one, else its HTTP port. For a socket, who holds it
+ * is read from `socket-dirs.mjs`, the function the emitter mounts volumes
+ * from, so this cannot describe a compose file other than the one written.
+ *
+ * A wire is `capability` only when every container that mounts the target's
+ * socket directory is the target or one of its declared callers. Any other
+ * holder, and the answer is `none` with that holder named.
+ *
+ * The bundle-isolation rails (Inv 1, 4, 5) hold the WORKER's bindings to the
+ * wires, which is a different thing: they bound what the gateway's own code
+ * can name, not what a container beside it can dial.
  */
-function wireReach(target) {
+function wireReach(cluster, wire, declared, dirs) {
+  const target = declared.get(wire.to);
+  const source = declared.get(wire.from);
   const external = target?.kind?.external;
   if (external?.ipcSocket) {
+    const over = `socket ${external.ipcSocket}`;
+    if (!(source?.kind && "external" in source.kind)) {
+      return { over, strength: "none", why: `"${wire.from}" has no container of its own, so compose mounts the socket's directory into nothing for it and hands it no address` };
+    }
+    const { dir, callers, undeclared } = socketExposure(cluster, wire.to, dirs);
+    if (undeclared.length) {
+      return {
+        over,
+        strength: "none",
+        why: `${quoted(undeclared)} also ${undeclared.length === 1 ? "mounts" : "mount"} ${dir} (for a socket of ${undeclared.length === 1 ? "its" : "their"} own there, or a wire to another bundle that binds there) with no wire to "${wire.to}", and can open this socket. A directory of its own would hold it`,
+      };
+    }
+    if (target.perTenant === true) {
+      return { over, strength: "none", why: `every tenant's instance of "${wire.to}" binds in ${dir}, so one tenant's instance can open another's socket` };
+    }
     return {
-      over: `socket ${external.ipcSocket}`,
-      why: "every bundle mounts the one socket volume, so a bundle with no wire to this one can open the same socket",
+      over,
+      strength: "capability",
+      why: `${dir} is mounted only into "${wire.to}" and its declared ${callers.length === 1 ? "caller" : "callers"} ${quoted(callers)}: a bundle with no wire has no path to the socket. A caller that relays requests extends this to whoever can reach it, which is that caller's own edge`,
     };
   }
   if (external?.httpPort > 0) {
     return {
       over: `HTTP port ${external.httpPort}`,
+      strength: "none",
       why: "it is reached over a network compose shares between containers, and nothing there checks which bundle is calling",
     };
   }
-  return { over: "no address", why: "the target declares neither a socket nor a port, so compose hands the source no address" };
+  return { over: "no address", strength: "none", why: "the target declares neither a socket nor a port, so compose hands the source no address" };
 }
 
 /** Why a connection edge has the strength it has, from the kinds of its ends. */
@@ -133,15 +151,16 @@ export function clusterGraph(cluster, env) {
   }
 
   const declared = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
+  const dirs = socketDirs(cluster);
   for (const w of cluster.wires ?? []) {
-    const reach = wireReach(declared.get(w.to));
+    const reach = wireReach(cluster, w, declared, dirs);
     edges.push({
       from: w.from,
       to: w.to,
       declaredAs: "wire",
       name: w.binding,
       carrier: `${WIRE_PLACEMENT}, binding ${w.binding}, ${reach.over}`,
-      strength: WIRE_STRENGTH,
+      strength: reach.strength,
       // A wire cannot ask for a strength yet (ADR-0075 §4).
       minStrength: "",
       meetsMinimum: true,

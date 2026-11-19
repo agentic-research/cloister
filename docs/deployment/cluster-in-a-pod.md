@@ -270,12 +270,12 @@ X-Cloister-Socket-Path: /run/cloister-uds/<bundle>.sock
 ```
 
 Companion connects to the named socket, proxies the bytes, returns
-the ToolResult. The companion bundle therefore MUST mount the same
-`cloister-uds` volume as the sibling bundles whose sockets it dials.
-Once Phase 2B lands the Rust companion as a separate bundle in
-`cluster.capnp` (currently TBD), its `volumes:` entry will be
-`cloister-uds:/run/cloister-uds`, matching the existing
-cloister-router / mache / rosary mounts.
+the ToolResult. The companion therefore MUST mount the socket directory
+of every bundle whose socket it dials. Under compose that follows from a
+wire: `emit-compose` mounts a socket directory into the bundle that binds
+there and the bundles with a wire to it, and into no other, so the
+companion's dial is declared as a wire from the companion to that bundle
+(ADR-0075 §5).
 
 ## Bootstrap path (cold-start)
 
@@ -405,7 +405,8 @@ nerdctl inspect cloister-cloister-router | grep -A2 Mounts
 nerdctl inspect cloister-mache           | grep -A2 Mounts
 ```
 
-Both should show `cloister-uds:/run/cloister-uds` (read-write).
+Each should show the socket directories it binds in or is wired to, and no
+others. `cloister cluster graph` lists who holds which.
 
 ### CA bundle unavailable (503 from /mcp)
 

@@ -5,13 +5,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 import { main as clusterMain } from "../../commands/cluster.mjs";
-import { WIRE_STRENGTH, clusterGraph, renderGraph } from "../../lib/cluster/graph.mjs";
+import { clusterGraph, renderGraph } from "../../lib/cluster/graph.mjs";
 import { parseTomlToCluster } from "../../lib/cluster/toml-to-cluster.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -20,32 +20,96 @@ const cluster = async (path) => parseTomlToCluster(readFileSync(resolve(ROOT, pa
 const bundle = (name, kind) => ({ name, kind: { external: {} }, ports: [{ name: "http", port: 8080, appProtocol: "art.http", expose: "cluster" }], placements: [{ env: "local", kind, ...(["kubernetes", "knative"].includes(kind) ? { manifest: `${name}.yaml` } : {}) }] });
 const connection = (from, to, extra = {}) => ({ from, name: to, appProtocol: "art.http", targets: [{ env: "local", bundle: to, port: "http" }], ...extra });
 
-test("this repository's own cluster: every wire is an edge, and none is held", async () => {
+test("this repository's own cluster: every wire is an edge, and a socket in a directory of its own is held", async () => {
   const graph = clusterGraph(await cluster("cluster.toml"), "local");
   const wires = graph.edges.filter((e) => e.declaredAs === "wire");
-  assert.ok(wires.length >= 4, "the gateway's wires are edges of the graph");
-  for (const e of wires) {
-    assert.equal(e.from, "cloister-router");
-    assert.equal(e.strength, "none");
-  }
-  // The reason is the real one for how compose reaches each target.
-  const by = Object.fromEntries(wires.map((e) => [e.to, e]));
-  assert.match(by.rosary.carrier, /socket \/run\/cloister-uds\/rosary\.sock/);
-  assert.match(by.rosary.why, /one socket volume/);
+  assert.ok(wires.length >= 5, "the gateway's wires are edges of the graph");
+  const strength = Object.fromEntries(wires.map((e) => [`${e.from} → ${e.to}`, e.strength]));
+  assert.deepEqual(strength, {
+    "cloister-router → mache": "none",
+    "cloister-router → rosary": "capability",
+    "cloister-router → notme-identity": "none",
+    "cloister-router → notme-proxy": "capability",
+    // The companion opens rosary's socket for the gateway. That is an edge,
+    // so it is declared, and it is what puts the directory in its container.
+    "notme-proxy → rosary": "capability",
+  });
+  const by = Object.fromEntries(wires.filter((e) => e.from === "cloister-router").map((e) => [e.to, e]));
+  assert.match(by.rosary.carrier, /socket \/run\/cloister-uds\/rosary\/rosary\.sock/);
+  assert.match(by.rosary.why, /mounted only into "rosary" and its declared callers "cloister-router" and "notme-proxy"/);
   assert.match(by["notme-identity"].carrier, /HTTP port 8788/);
   assert.match(by["notme-identity"].why, /nothing there checks which bundle is calling/);
 });
 
-// The claim that a wire is not held is a claim about emit-compose. If compose
-// stops giving every container the one socket volume, this fails, and
-// WIRE_STRENGTH and its reason are what must change with it.
-test("a wire is `none` because compose gives every container the same socket volume", () => {
-  assert.equal(WIRE_STRENGTH, "none");
-  const compose = parseYaml(readFileSync(resolve(ROOT, "cluster.compose.yaml"), "utf8"));
-  const services = Object.entries(compose.services);
-  assert.ok(services.length >= 2);
-  const sharing = services.filter(([, s]) => (s.volumes ?? []).some((v) => String(v).startsWith("cloister-uds:")));
-  assert.deepEqual(sharing.map(([name]) => name), services.map(([name]) => name), "a container no longer mounts the shared socket volume: wires may now be held, so update WIRE_STRENGTH (ADR-0075 §3)");
+// What the graph says about a wire is a claim about the compose file. This
+// reads the RENDERED file, works out from its `volumes:` lines alone which
+// services can open each socket, and requires the graph to agree. It runs on
+// this repository's cluster and on every recipe, so a change to the emitter
+// that the graph does not follow fails here.
+const RENDERED = ["", ...readdirSync(resolve(ROOT, "recipes"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `recipes/${d.name}/`)]
+  .filter((dir) => existsSync(resolve(ROOT, `${dir}cluster.compose.yaml`)) && existsSync(resolve(ROOT, `${dir}cluster.toml`)));
+
+test("a wire to a socket is `capability` exactly when the rendered compose file mounts its directory into no one else", async () => {
+  let held = 0;
+  let open = 0;
+  assert.ok(RENDERED.length >= 4, "the repository's cluster and its recipes are all read");
+  for (const dir of RENDERED) {
+    const parsed = await cluster(`${dir}cluster.toml`);
+    const compose = parseYaml(readFileSync(resolve(ROOT, `${dir}cluster.compose.yaml`), "utf8"));
+    const bundleOf = (service) => (service.labels ?? []).map((l) => /^cloister\.bundle=(.+)$/.exec(l)?.[1]).find(Boolean);
+    const mounting = (path) => Object.values(compose.services)
+      .filter((s) => (s.volumes ?? []).some((v) => String(v).split(":")[1] === path))
+      .map(bundleOf);
+    const graph = clusterGraph(parsed, "local");
+    for (const w of parsed.wires) {
+      const socket = parsed.bundles.find((b) => b.name === w.to)?.kind?.external?.ipcSocket;
+      if (!socket) continue;
+      const callers = parsed.wires.filter((x) => x.to === w.to).map((x) => x.from);
+      const others = mounting(posix.dirname(socket)).filter((name) => name !== w.to && !callers.includes(name));
+      const edge = graph.edges.find((e) => e.declaredAs === "wire" && e.from === w.from && e.to === w.to);
+      const where = `${dir}cluster.toml ${w.from} → ${w.to}`;
+      assert.ok(mounting(posix.dirname(socket)).includes(w.to), `${where}: the target mounts its own socket directory`);
+      assert.ok(mounting(posix.dirname(socket)).includes(w.from), `${where}: the declared caller mounts the directory`);
+      if (others.length === 0) {
+        assert.equal(edge.strength, "capability", where);
+        held += 1;
+      } else {
+        assert.equal(edge.strength, "none", where);
+        for (const name of others) assert.match(edge.why, new RegExp(`"${name}"`), `${where}: the bundle that can open it is named`);
+        open += 1;
+      }
+    }
+  }
+  assert.ok(held > 0, "at least one rendered wire is held, so the capability branch ran");
+  // Nothing rendered in this repository shares a socket directory with a
+  // stranger any more. The `none` branch above still guards a file that does,
+  // and the next test drives it with clusters built for the purpose.
+  assert.equal(open, 0, "a rendered wire is open to a bundle with no wire to it: give its target a directory of its own");
+});
+
+test("a wire is not held when someone else is in the directory, when tenants share it, or when the source has no container", () => {
+  const ext = (name, ipcSocket, extra = {}) => ({ name, kind: { external: { ipcSocket, httpPort: 0 } }, ...extra });
+  const wire = (from, to) => ({ from, to, binding: `${to.toUpperCase()}_SOCK`, transport: "uds" });
+  const edge = (c, from, to) => clusterGraph(c, "local").edges.find((e) => e.from === from && e.to === to);
+
+  const shared = { bundles: [ext("a", "/run/s/a.sock"), ext("b", "/run/s/b.sock"), ext("c", "")], wires: [wire("c", "a")] };
+  assert.equal(edge(shared, "c", "a").strength, "none");
+  assert.match(edge(shared, "c", "a").why, /"b" also mounts \/run\/s/);
+
+  const apart = { bundles: [ext("a", "/run/s/a/a.sock"), ext("b", "/run/s/b/b.sock"), ext("c", "")], wires: [wire("c", "a")] };
+  assert.equal(edge(apart, "c", "a").strength, "capability");
+
+  // A caller of ANOTHER socket in the directory holds this one too.
+  const viaWire = { bundles: [ext("a", "/run/s/a.sock"), ext("b", "/run/s/b.sock"), ext("c", ""), ext("d", "")], wires: [wire("c", "a"), wire("d", "b"), wire("c", "b")] };
+  assert.match(edge(viaWire, "c", "a").why, /"b" and "d" also mount/);
+
+  const tenants = { bundles: [ext("t", "/run/t/t.sock", { perTenant: true }), ext("c", "")], wires: [wire("c", "t")] };
+  assert.equal(edge(tenants, "c", "t").strength, "none");
+  assert.match(edge(tenants, "c", "t").why, /one tenant's instance can open another's socket/);
+
+  const inProcess = { bundles: [ext("a", "/run/s/a/a.sock"), { name: "w", kind: { workerd: {} } }], wires: [wire("w", "a")] };
+  assert.equal(edge(inProcess, "w", "a").strength, "none");
+  assert.match(edge(inProcess, "w", "a").why, /no container of its own/);
 });
 
 test("a connection's strength is what its two placements deliver, with the mechanism named", async () => {

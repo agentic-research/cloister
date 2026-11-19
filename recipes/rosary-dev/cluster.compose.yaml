@@ -20,7 +20,7 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
       - cloister-do:/data/do
     environment:
       - "MACHE_BUNDLE=http://127.0.0.1:7532"
@@ -37,8 +37,6 @@ services:
       - "cloister.description=notme:0.1.0 — Identity authority — Signet master CA, lease cert mint"
     ports:
       - "8788:8788"
-    volumes:
-      - cloister-uds:/run/cloister-uds
 
   mache:
     image: mache:0.8.0
@@ -53,8 +51,6 @@ services:
       - "--http"
       - "localhost:7532"
     network_mode: "service:cloister-router"
-    volumes:
-      - cloister-uds:/run/cloister-uds
 
   rosary:
     image: rosary:0.2.0
@@ -69,10 +65,11 @@ services:
       - "--ipc-socket"
       - "/run/cloister-uds/rosary.sock"
     volumes:
-      - cloister-uds:/run/cloister-uds
+      - uds-run-cloister-uds:/run/cloister-uds
 
 volumes:
-  cloister-uds:
+  uds-run-cloister-uds:
+    # /run/cloister-uds — held by cloister-router, rosary
     driver: local
     driver_opts:
       type: tmpfs

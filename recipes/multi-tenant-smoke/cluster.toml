@@ -24,7 +24,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "cloister:0.1.0"
-ipcSocket = "/run/cloister-uds/alice.sock"
+ipcSocket = "/run/cloister-uds/alice/alice.sock"
 
 [[bundles]]
 description = "Tenant bob — echoes inbound request URLs as proof of routing"
@@ -34,7 +34,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "cloister:0.1.0"
-ipcSocket = "/run/cloister-uds/bob.sock"
+ipcSocket = "/run/cloister-uds/bob/bob.sock"
 
 [[wires]]
 binding = "T_ALICE"

@@ -235,11 +235,63 @@ test("emitCompose: workerd-bundle kind does NOT emit a compose service (in-proce
   assert.ok(!yaml.includes("  tool-bundle:"), "workerd-bundle should not emit a compose service");
 });
 
-test("emitCompose: emits volumes block + named cloister-uds + cloister-do volumes", () => {
+test("emitCompose: emits volumes block + a volume for the socket directory + cloister-do", () => {
   const yaml = emitCompose(baseCluster());
   assert.ok(yaml.includes("volumes:"));
-  assert.ok(yaml.includes("  cloister-uds:"));
+  assert.ok(yaml.includes("  uds-run-cloister-uds:"));
   assert.ok(yaml.includes("  cloister-do:"));
+});
+
+// ── emitCompose: a socket directory goes only to who binds or dials (ADR-0075 §4.1) ──
+
+function socketCluster(sockets, wires) {
+  const c = baseCluster();
+  const router = c.bundles[0];
+  c.bundles = Object.entries(sockets).map(([name, ipcSocket]) => ({
+    ...router,
+    name,
+    kind: { external: { ...router.kind.external, ipcSocket, httpPort: 0 } },
+  }));
+  c.wires = wires.map(([from, to]) => ({ from, to, binding: `${to.toUpperCase()}_SOCK`, transport: { uds: null } }));
+  return c;
+}
+const mountsOf = (yaml, service) => {
+  const block = new RegExp(`^  ${service}:\n((?:    .*\n|\n)*)`, "m").exec(yaml)?.[1] ?? "";
+  return [...block.matchAll(/^      - (uds-[^\n]+)$/gm)].map((m) => m[1]);
+};
+
+test("emitCompose: a socket directory is mounted into its binder and its callers, and no one else", () => {
+  const yaml = emitCompose(socketCluster(
+    { target: "/run/s/target/t.sock", caller: "", bystander: "/run/s/bystander/b.sock", idle: "" },
+    [["caller", "target"]],
+  ));
+  assert.deepEqual(mountsOf(yaml, "target"), ["uds-run-s-target:/run/s/target"]);
+  assert.deepEqual(mountsOf(yaml, "caller"), ["uds-run-s-target:/run/s/target"]);
+  assert.deepEqual(mountsOf(yaml, "bystander"), ["uds-run-s-bystander:/run/s/bystander"]);
+  assert.deepEqual(mountsOf(yaml, "idle"), [], "a bundle that binds nothing and dials nothing mounts no socket directory");
+  assert.match(yaml, /^  uds-run-s-target:\n    # \/run\/s\/target — held by target, caller$/m);
+});
+
+test("emitCompose: a directory inside another is its own volume", () => {
+  const yaml = emitCompose(socketCluster({ outer: "/run/s/o.sock", inner: "/run/s/inner/i.sock" }, [["outer", "inner"]]));
+  assert.deepEqual(mountsOf(yaml, "outer"), ["uds-run-s:/run/s", "uds-run-s-inner:/run/s/inner"]);
+  assert.deepEqual(mountsOf(yaml, "inner"), ["uds-run-s-inner:/run/s/inner"]);
+});
+
+test("emitCompose: two directories that would share a volume name get different ones", () => {
+  const yaml = emitCompose(socketCluster({ a: "/run/s-x/a.sock", b: "/run/s/x/b.sock" }, []));
+  assert.notDeepEqual(mountsOf(yaml, "a").map((m) => m.split(":")[0]), mountsOf(yaml, "b").map((m) => m.split(":")[0]));
+});
+
+test("emitCompose: a socket path with no directory to mount is refused, and says which bundle", () => {
+  for (const [path, why] of [["relative/x.sock", /not an absolute path/], ["/x.sock", /directly under \//], ["/run/a b/x.sock", /cannot carry/], ["/run/a:b/x.sock", /cannot carry/]]) {
+    assert.throws(() => emitCompose(socketCluster({ odd: path }, [])), (e) => why.test(e.message) && /bundle "odd"/.test(e.message), path);
+  }
+});
+
+test("emitCompose: with no socket and a bind-mounted store there is no `volumes:` key at all", () => {
+  const yaml = emitCompose(socketCluster({ only: "" }, []), new Map(), { doBindPath: "/srv/do" });
+  assert.doesNotMatch(yaml, /^volumes:/m);
 });
 
 // ── emitCompose: ADR-0030 §A5 — co-location labels ───────────────────────
@@ -710,7 +762,7 @@ test("a description containing quotes and backslashes still emits a valid scalar
   assert.ok(parsed.includes("C:\\x"), "the backslash must survive into the value");
 });
 
-test("the shared UDS volume is tmpfs with 1777 — bundles do not share a uid", () => {
+test("every socket volume is tmpfs with 1777 — bundles do not share a uid", () => {
   // cloister-047b06. A default local volume is root:root 0755, and the bundles
   // that bind sockets in it run as 65532 (rosary, cloister-router), 1000 (notme,
   // notme-proxy) and a named user (mache). No single owner to chown to, so the
@@ -726,9 +778,10 @@ test("the shared UDS volume is tmpfs with 1777 — bundles do not share a uid", 
   // as a devDependency would be the principled fix and would also let the label
   // test above stop hand-matching — worth doing, but not inside a P1 socket fix.
   const body = readFileSync(resolve(ROOT, "cluster.compose.yaml"), "utf8");
-  const block = /^  cloister-uds:\n((?:    .*\n)*)/m.exec(body);
-  assert.ok(block, "cluster.compose.yaml must declare the cloister-uds volume");
-
-  assert.match(block[1], /type: tmpfs/, "a socket dir must not survive a restart — a stale socket is a bind failure");
-  assert.match(block[1], /mode=1777/, "without 1777 a non-root bundle cannot bind its socket");
+  const blocks = [...body.matchAll(/^  (uds-[^:\n]+):\n((?:    .*\n)*)/gm)];
+  assert.ok(blocks.length >= 2, "cluster.compose.yaml declares a volume per socket directory");
+  for (const [, name, block] of blocks) {
+    assert.match(block, /type: tmpfs/, `${name}: a socket dir must not survive a restart — a stale socket is a bind failure`);
+    assert.match(block, /mode=1777/, `${name}: without 1777 a non-root bundle cannot bind its socket`);
+  }
 });

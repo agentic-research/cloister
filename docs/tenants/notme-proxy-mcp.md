@@ -14,7 +14,10 @@ It fills two roles, both stated in the bundle's `hypervisorRationale` in
 1. **UDS bridge for workerd.** Workerd cannot dial a Unix socket. Requests
    carrying `X-Cloister-Transport: uds` are handed to this bundle, which does
    the dial. This is how `ROSARY_BUNDLE` reaches
-   `/run/cloister-uds/rosary.sock` (ADR-0051).
+   `/run/cloister-uds/rosary/rosary.sock` (ADR-0051). Because it does the
+   dial, it is a caller of that socket: the `notme-proxy → rosary` wire in
+   `cluster.toml` says so, and is what mounts rosary's socket directory into
+   this bundle's container (ADR-0075 §5).
 2. **mTLS forward proxy holding the bridge cert.** It holds the bridge
    certificate and its private key in process memory and presents them on
    outbound TLS, so **no Worker ever holds a credential** — the two-plane

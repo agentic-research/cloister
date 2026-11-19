@@ -69,10 +69,10 @@ name = "rosary"
 tier = "cluster"
 
 [bundles.external]
-args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary.sock" ]
+args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary/rosary.sock" ]
 executionMode = "process"
 executionModeRationale = "STRUCTURAL, and this field previously recorded it wrong. It first said the exemption was CONTINGENT because rosary-56b557 would make cloister a ComputeProvider and remove the host-subprocess requirement. That work shipped (rosary #464, CloisterProvider) and the requirement did not go away. CloisterProvider confines the DISPATCHED AGENT -- each agent now runs under cloister run rather than as a bare host subprocess, which is a real gain for those agents -- but rosary itself is what spawns them, so this bundle still needs host-process capability. Confining what a process spawns is not the same as confining the process. Independently fatal to a flip today: this bundle is UDS-only, and rs/crates/host-runtime/src/krunvm.rs:769 hard-errors when confinement.port.bind == 0, with zero UDS support in the crate (cloister-66badb). Withdraw this only when the long-running MCP bundle no longer needs to spawn, not when its agents are confined."
-ipcSocket = "/run/cloister-uds/rosary.sock"
+ipcSocket = "/run/cloister-uds/rosary/rosary.sock"
 
 [[wires]]
 binding = "MACHE_BUNDLE"
@@ -96,6 +96,12 @@ transport = "uds"
 binding = "COMPANION"
 from = "cloister-router"
 to = "notme-proxy"
+transport = "uds"
+
+[[wires]]
+binding = "ROSARY_SOCKET"
+from = "notme-proxy"
+to = "rosary"
 transport = "uds"
 
 [inputs.llo]
