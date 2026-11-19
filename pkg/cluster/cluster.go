@@ -355,10 +355,12 @@ type PlacementSpec struct {
 	Env string `json:"env"`
 	// How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.
 	Kind string `json:"kind"`
-	// Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.
+	// Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'.
 	Manifest string `json:"manifest"`
 	// Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only.
 	Ports []PlacementPort `json:"ports"`
+	// What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only.
+	Name string `json:"name"`
 }
 
 // Filesystem paths the bundle may use.

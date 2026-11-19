@@ -124,6 +124,32 @@ and the local cluster will show up as "no resource named X", and the answer
 is a declared alias on the bundle, added when a real case needs it, not a
 looser match.
 
+**Amendment (2026-11-19): the alias, per environment.** The real case came: a
+service is `orders` on a developer's cluster and `orders-api-prod` in the
+cloud, and the comparison could not be told they are one thing. A placement
+row may now say what the bundle is called there:
+
+```toml
+[[bundles.placements]]
+env = "prod"
+kind = "cloudRun"
+name = "orders-api-prod"
+```
+
+`inspect --env prod` matches a rendered resource to the bundle by that name,
+and reports in bundle names. The rule of this section is unchanged: a name
+still means one thing, and nothing is matched by likeness. What changed is
+that the name is the one the operator stated for that environment.
+
+- It is per environment because that is where names differ. Without `--env`
+  there is no one name to take, and the report says so instead of picking.
+- Within one environment a name means one bundle. Two bundles that would go
+  by the same name there are refused when `cluster.toml` is read.
+- It is for forwarded placements. A constructed one is named by cloister,
+  after the bundle.
+- It does not rename what cloister writes. A lowered manifest still names
+  its objects after the bundle.
+
 ### 5. Checking comes before drafting, and drafting before lowering
 
 In order, each useful without the next:
@@ -410,6 +436,7 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §7 Lower a bundle to a Knative Service | built; applied to a kind cluster with Knative in CI (`task smoke:lowered-knative`) |
 | §7 Lower a connection binding to a microVM | built (`runtime plan`): the address the grant presents in the guest, `127.0.0.1:<guestPort>`. Not run on a live microVM in CI |
 | §7 Lower a secret binding to a microVM | refused: a launch plan carries no secret, and the credential path into a guest is the vault |
+| §4 A bundle's name per environment (`[[bundles.placements]] name`) | built: used by `inspect --env` |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
 | Nodes from Kubernetes resources declared in Terraform | built (a mapping; ADR-0073 amendment 2026-11-19) |

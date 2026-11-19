@@ -14,7 +14,7 @@
 // Every join here is exact equality on a mapped attribute. Nothing is matched
 // by guessing at a resource's name.
 
-import { checkableBundle, portsFor } from "../cluster/connections.mjs";
+import { checkableBundle, placementName, portsFor } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
 import { bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
@@ -339,7 +339,28 @@ function routeHost(pattern) {
  * for: with a hand-written cluster.toml, the services nobody added.
  */
 function compareConnections(sections, cluster, env) {
-  const resources = sections.flatMap((s) => s.resources.map((r) => ({ ...r, section: s.title })));
+  // A resource is matched to a bundle by name (ADR-0074 §4). With --env, the
+  // name is the one the bundle goes by in that environment: its placement
+  // row's `name`, when it has one. Everything below then speaks in bundle
+  // names, so a resource called `orders-api-prod` is the bundle `orders`.
+  const called = new Map();
+  const renamed = [];
+  for (const b of cluster?.bundles ?? []) {
+    const checkable = checkableBundle(b);
+    if (env !== undefined) {
+      const name = placementName(checkable, env);
+      if (name !== null && name !== b.name) called.set(name, b.name);
+    } else if ((checkable.placements ?? []).some((p) => (p.name ?? "") !== "")) {
+      renamed.push(b.name);
+    }
+  }
+  const bundleNameOf = (name) => (called.has(name) ? called.get(name) : name);
+  const resources = sections.flatMap((s) => s.resources.map((r) => ({
+    ...r,
+    name: bundleNameOf(r.name),
+    dials: (r.dials ?? []).map((d) => ({ ...d, to: bundleNameOf(d.to) })),
+    section: s.title,
+  })));
   const named = (name) => resources.filter((r) => r.name === name);
   const bundles = new Set((cluster?.bundles ?? []).map((b) => b.name));
   const declared = [];
@@ -349,6 +370,14 @@ function compareConnections(sections, cluster, env) {
     }
   }
   const findings = [];
+  // Without --env there is no one environment to take a name from.
+  if (renamed.length) {
+    findings.push({
+      kind: "unknown",
+      unchecked: true,
+      reason: `${renamed.map((n) => `"${n}"`).join(", ")} ${renamed.length === 1 ? "goes" : "go"} by another name in some environment; pass --env <name> so resources are matched by it`,
+    });
+  }
   for (const connection of declared) {
     const sources = named(connection.from).filter((r) => r.dialer);
     const missing = sources.length === 0 ? connection.from : named(connection.to).length === 0 ? connection.to : null;

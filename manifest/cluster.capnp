@@ -275,11 +275,13 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # and every emitter refuses it by name.
   kind @1 :Text $Traits.doc("How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.");
   # Path, relative to the cluster directory, to the operator's RENDERED
-  # manifest. Forwarded kinds only: required for kubernetes and knative,
-  # refused on constructed kinds. Cloister parses it to check edges; a
-  # kubernetes manifest is also copied unchanged. It never edits the
-  # operator's objects.
-  manifest @2 :Text $Traits.doc("Path, relative to the cluster directory, to the rendered manifest. Required for 'kubernetes' and 'knative'. Not allowed for 'microvm' or 'workerd'.");
+  # manifest. Forwarded kinds only, refused on constructed kinds. Cloister
+  # parses it to check edges; a kubernetes manifest is also copied unchanged.
+  # It never edits the operator's objects. It may be omitted when the
+  # placement is described by something other than YAML (a Terraform plan):
+  # `cluster lower` and `cluster k8s` then refuse the row by name, and
+  # `inspect` checks it against the plan (ADR-0070 §2 amendment 2026-11-19).
+  manifest @2 :Text $Traits.doc("Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'.");
   # The number a peer DIALS a port on in this placement, when it is not the
   # number the workload listens on (ADR-0074 §7). A bundle's port is what the
   # process binds. Some placements put something in front of it: a Knative
@@ -287,6 +289,15 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # Kubernetes Service may map any port to a targetPort. Forwarded kinds
   # only. A port with no row here is dialled on its own number.
   ports @3 :List(PlacementPort) $Traits.doc("Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only.");
+  # What this bundle is CALLED in what describes this placement, when that is
+  # not the bundle's own name (ADR-0074 §4). A service is often `orders` on a
+  # developer's cluster and `orders-api-prod` in the cloud. A bundle and a
+  # resource are the same thing when they have the same name, and this is how
+  # an operator says which name that is, per environment. `inspect --env`
+  # matches a rendered resource to the bundle by it. Forwarded kinds only: a
+  # constructed placement is named by cloister, after the bundle. Within one
+  # environment a name means one bundle.
+  name @4 :Text $Traits.doc("What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only.");
 }
 
 struct PlacementPort $Traits.doc("What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both.") {

@@ -92,7 +92,7 @@ test("meetStrength is the weaker of the two ends", () => {
 test("the demo (kubernetes ↔ kubernetes, minStrength policy) builds", async () => {
   const c = await parseTomlToCluster(DEMO_TOML);
   assert.equal(c.connections[0].minStrength, "policy");
-  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml", ports: [] }]);
+  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml", ports: [], name: "" }]);
 });
 
 test("kubernetes ↔ kubernetes does not meet minStrength capability, naming both placements", async () => {
