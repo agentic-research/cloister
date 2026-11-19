@@ -92,3 +92,28 @@ test("the mapping validator holds `identity` to what the entry reads", () => {
   assert.throws(() => validateMapping(withIdentity((i) => { i.principal = "serviceAccount:"; }), GOOGLE_SPEC), /identity principal must hold exactly one "\{\}"/);
   assert.throws(() => validateMapping(withIdentity((i) => { i.guess = true; }), GOOGLE_SPEC), /identity has unknown key "guess"/);
 });
+
+// ── an address the operator says is in a secret (ADR-0074 §7 amendment) ──────
+
+test("a connection whose address is in a secret is unknown, and says the edge is declared, not observed", async () => {
+  const cluster = await drafted((toml) => toml.replace('name = "RECONCILER_URL"\nconnection = "reconciler"', 'name = "RECONCILER_URL"\nsecret = "reconciler-url"\nconnection = "reconciler"'));
+  assert.ok(cluster.bundles.find((b) => b.name === "workqueue").kind.external.env.some((e) => e.secret === "reconciler-url" && e.connection === "reconciler"), "the row was not rewritten");
+  // A plan in which nothing workqueue is started with names reconciler.
+  const doc = plan();
+  delete doc.configuration.root_module.resources.find((r) => r.address === "google_cloud_run_v2_service.workqueue").expressions.template;
+  const report = buildReport(importFacts(doc), cluster, { env: "prod" });
+  const finding = report.findings.find((f) => f.connection?.from === "workqueue" && f.connection.to === "reconciler");
+  // Nothing was observed, so it is not `evidenced`. The reason is the true one.
+  assert.equal(finding.kind, "unknown");
+  assert.deepEqual(finding.declaredIn, { secret: "reconciler-url", env: "RECONCILER_URL" });
+  assert.match(renderReport(report), /unknown {5}workqueue → reconciler \(connection "reconciler", env prod\): cluster\.toml says its address is in secret "reconciler-url" \(env RECONCILER_URL\)\. A secret's value is never read, so this edge is declared, not observed/);
+});
+
+test("without that row the same plan gives the plain reason", async () => {
+  const doc = plan();
+  delete doc.configuration.root_module.resources.find((r) => r.address === "google_cloud_run_v2_service.workqueue").expressions.template;
+  const finding = buildReport(importFacts(doc), await drafted(), { env: "prod" }).findings.find((f) => f.connection?.from === "workqueue" && f.connection.to === "reconciler");
+  assert.equal(finding.kind, "unknown");
+  assert.equal(finding.declaredIn, undefined);
+  assert.match(finding.reason, /nothing "workqueue" is started with names "reconciler" in these inputs/);
+});

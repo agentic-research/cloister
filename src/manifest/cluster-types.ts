@@ -486,7 +486,9 @@ export interface ExternalBundle {
  * one of the bundle's connections (`connection`, plus an optional `path`), or
  * a reference to a named secret (`secret`, `secretKey`): exactly one. Only a
  * literal is the same in every placement, which is why the other two are
- * bindings and not text (ADR-0074 §7).
+ * bindings and not text (ADR-0074 §7). `secret` with `connection` is still
+ * one source: the secret holds that connection's address, which cloister
+ * never reads, so the edge is declared and not observed.
  */
 export interface EnvVar {
   name:  string;

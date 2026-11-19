@@ -96,7 +96,10 @@ function podEnv(bundle, { byName, connections, env, kind }) {
         throw new Error(`${where} env "${row.name}": secret "${row.secret}" key "${key}" cannot name a Kubernetes Secret and key`);
       }
       rows.push({ name: row.name, valueFrom: { secretKeyRef: { name: row.secret, key } } });
-      secrets.push(`env ${row.name}: create Secret "${row.secret}" with key "${key}" in namespace "${name}". Its value is not in cluster.toml`);
+      secrets.push(
+        `env ${row.name}: create Secret "${row.secret}" with key "${key}" in namespace "${name}". Its value is not in cluster.toml` +
+          (row.connection ? `. cluster.toml says it holds the address of connection "${row.connection}": write the address for this placement into it` : ""),
+      );
     } else {
       rows.push({ name: row.name, value: row.value });
       literal.push(`env ${row.name}`);

@@ -212,12 +212,18 @@ export async function emitK8sDir({ root, env, out }) {
     mkdirSync(dirname(dest), { recursive: true });
     writeFileSync(dest, f.content);
   }
+  // A connection no value names may be one the bundle keeps in a secret.
+  const { secretBorne } = await import("../lib/cluster/connections.mjs");
+  const inSecret = secretBorne(cluster.bundles);
   return {
     files: files.map((f) => f.path),
     applies,
     checked,
     references,
-    unreferenced,
+    unreferenced: unreferenced.map((c) => {
+      const declared = inSecret.get(`${c.from}\u0000${c.name}`);
+      return declared ? { ...c, declaredIn: declared } : c;
+    }),
     unread,
   };
 }
@@ -339,7 +345,11 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
         log(`cloister cluster k8s: "${u.bundle}" container ${JSON.stringify(u.container)} ${u.where} comes from ${u.kind} ${JSON.stringify(u.name)}, which is not in this manifest; not read`);
       }
       for (const c of written.unreferenced) {
-        log(`cloister cluster k8s: connection "${c.name}" from "${c.from}" to "${c.to}": no env, args or command value names it`);
+        if (c.declaredIn) {
+          log(`cloister cluster k8s: connection "${c.name}" from "${c.from}" to "${c.to}": cluster.toml says its address is in secret "${c.declaredIn.secret}" (env ${c.declaredIn.env}). A secret's value is never read, so this edge is declared, not observed`);
+        } else {
+          log(`cloister cluster k8s: connection "${c.name}" from "${c.from}" to "${c.to}": no env, args or command value names it`);
+        }
       }
       return 0;
     } catch (error) {

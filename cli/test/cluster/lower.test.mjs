@@ -536,3 +536,72 @@ test("the Knative smoke's cluster.toml lowers and passes cluster k8s, with the g
   const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
   for (const name of ["web", "api", "client", "outsider", "test/e2e/lowered-knative/cluster.toml"]) assert.ok(script.includes(name), `dev/lowered-kind.sh does not mention "${name}"`);
 });
+
+// ── an address kept in a secret (ADR-0074 §7 amendment) ──────────────────────
+//
+// A database URL holds a password, so it lives in a secret, and the edge it
+// carries is in a value cloister never reads. A row with `secret` and
+// `connection` says which connection that secret holds the address of. The
+// value still comes from the secret; the edge is declared, not observed.
+
+const IN_SECRET = HAND.replace('name = "PAYMENTS_URL"\nconnection = "payments"\npath = "/v1"', 'name = "PAYMENTS_URL"\nsecret = "payments-url"\nconnection = "payments"');
+
+test("the fixture really was rewritten to keep the address in a secret", () => {
+  assert.notEqual(IN_SECRET, HAND);
+});
+
+test("a secret that holds a connection's address is lowered as a secret, and the manifest says what to put in it", async () => {
+  await inDir(IN_SECRET, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const text = readFileSync(join(dir, "orders.yaml"), "utf8");
+    const row = containerOf(text).env.find((e) => e.name === "PAYMENTS_URL");
+    // Nothing is written as the value: cloister does not know it.
+    assert.deepEqual(row, { name: "PAYMENTS_URL", valueFrom: { secretKeyRef: { name: "payments-url", key: "latest" } } });
+    assert.match(text, /env PAYMENTS_URL: create Secret "payments-url" with key "latest" in namespace "orders"\. Its value is not in cluster\.toml\. cluster\.toml says it holds the address of connection "payments": write the address for this placement into it/);
+  });
+});
+
+test("the edge is still enforced, and is reported as declared, not observed", async () => {
+  await inDir(IN_SECRET, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const out = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    // The declared caller is admitted exactly as before: the policy comes
+    // from the connection, not from where its address is kept.
+    const policy = readFileSync(join(dir, "k8s/payments/20-networkpolicy.yaml"), "utf8");
+    assert.ok(policy.includes("kubernetes.io/metadata.name: orders"));
+    // No value names the target, and the command knows why.
+    const unseen = out.unreferenced.find((c) => c.from === "orders" && c.name === "payments");
+    assert.deepEqual(unseen.declaredIn, { secret: "payments-url", env: "PAYMENTS_URL" });
+    // A connection with no such row is still just "nothing names it".
+    assert.ok(out.unreferenced.every((c) => c.from === "orders" || c.declaredIn === undefined));
+  });
+});
+
+test("`cluster k8s` says so in words", async () => {
+  await inDir(IN_SECRET, async (dir) => {
+    await lowerDir({ root: dir, env: "local" });
+    const lines = [];
+    assert.equal(await clusterMain(["k8s", "--dir", dir, "--env", "local", "--out", join(dir, "k8s")], { log: (l) => lines.push(l), errLog: (l) => lines.push(l) }), 0);
+    assert.match(lines.join("\n"), /connection "payments" from "orders" to "payments": cluster\.toml says its address is in secret "payments-url" \(env PAYMENTS_URL\)\. A secret's value is never read, so this edge is declared, not observed/);
+  });
+});
+
+for (const [what, edit, message] of [
+  ["a path on a row whose address is in a secret", (t) => t.replace('secret = "payments-url"\nconnection = "payments"', 'secret = "payments-url"\nconnection = "payments"\npath = "/v1"'), /env "PAYMENTS_URL" sets path with secret: the secret holds the whole address, so nothing is appended to it/],
+  ["a literal value beside a secret", (t) => t.replace('secret = "payments-url"\nconnection = "payments"', 'secret = "payments-url"\nvalue = "x"'), /sets value and secret: a variable's value comes from exactly one of value, connection or secret/],
+  ["all three", (t) => t.replace('secret = "payments-url"\nconnection = "payments"', 'secret = "payments-url"\nconnection = "payments"\nvalue = "x"'), /sets value and connection and secret/],
+  ["a secret said to hold a connection the bundle does not declare", (t) => t.replace('secret = "payments-url"\nconnection = "payments"', 'secret = "payments-url"\nconnection = "ledger"'), /env "PAYMENTS_URL" is bound to connection "ledger", but bundle "orders" declares no connection of that name/],
+]) {
+  test(`an env row is refused by name: ${what}`, async () => {
+    const toml = edit(IN_SECRET);
+    assert.notEqual(toml, IN_SECRET);
+    await assert.rejects(parseTomlToCluster(toml), message);
+  });
+}
+
+test("a microVM is given no secret, whatever the secret holds", () => {
+  assert.throws(
+    () => lowerEnvironment("orders", [{ name: "PAYMENTS_URL", value: "", secret: "payments-url", connection: "payments" }], new Map([["payments", { guestPort: 8080, appProtocol: "art.http", to: "payments" }]])),
+    /is bound to secret "payments-url"; a launch plan carries no secret/,
+  );
+});

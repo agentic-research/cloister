@@ -452,10 +452,16 @@ struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the
 #               value is never in this file.
 #
 # toml-to-cluster refuses a row that sets more than one of them.
-struct EnvVar $Traits.doc("One environment variable. Its value is a literal, the address of a connection, or a secret reference: exactly one.") {
+# One source for the value: `value`, `connection` or `secret`. `secret` WITH
+# `connection` is not two sources. The value comes from the secret, and
+# `connection` says what it is: the address of that connection, kept in a
+# secret because it holds a credential (a database URL). cloister never reads
+# the value, so the edge is declared, not observed, and reports say so
+# (ADR-0074 §7 amendment 2026-11-19).
+struct EnvVar $Traits.doc("One environment variable. Its value is a literal, the address of a connection, or a secret reference. A secret may also name the connection whose address it holds.") {
   name  @0 :Text $Traits.doc("The variable's name. Not empty, and without '=' or NUL.");
   value @1 :Text $Traits.doc("A literal value. Stored in clear. Leave empty when connection or secret is set.");
-  connection @2 :Text $Traits.doc("The name of one of this bundle's connections. The variable is set to that connection's address in the placement being lowered.");
+  connection @2 :Text $Traits.doc("The name of one of this bundle's connections. Alone: the variable is set to that connection's address in the placement being lowered. With secret: the secret holds that address, and nothing is written.");
   # Appended to the address as written, e.g. "/sweep". Only with `connection`.
   path @3 :Text $Traits.doc("Text appended to the connection's address, for example '/api'. Only with connection.");
   secret @4 :Text $Traits.doc("The name of a secret the value is read from. The value itself is never stored here.");
