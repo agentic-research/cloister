@@ -329,7 +329,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       // What the containers' own env, args and command say about the graph.
       for (const r of written.references) {
         const from = `"${r.bundle}" container ${JSON.stringify(r.container)} ${r.where}`;
-        if (r.to) log(`cloister cluster k8s: ${from} names ${r.address}: ${r.connections.map((c) => `connection "${c}"`).join(", ")}`);
+        if (r.to) {
+          log(`cloister cluster k8s: ${from} names ${r.address}: ${r.connections.map((c) => `connection "${c}"`).join(", ")}`);
+          if (r.overTls) log(`  it is dialled over TLS on port 443. A Knative Service answers there only where the cluster's Knative has internal encryption turned on, which no manifest shows: check the cluster`);
+        }
         else log(`cloister cluster k8s: ${from} names ${r.address}, which is no bundle placed here; not checked`);
       }
       for (const u of written.unread) {

@@ -850,9 +850,12 @@ const addressRefusals = [
   ["a non-HTTP address on the wrong port",
     knToml(), withEnv(["DSN", lit("app:s3cret-value@tcp(reconciler.platform.svc:3306)/db")]),
     /env DSN names reconciler\.platform\.svc:3306 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
-  ["https, whose default port is not the declared one",
-    knToml(), withEnv(["RECONCILER_URL", lit("https://reconciler.platform.svc")]),
+  ["port 443 with no scheme: nothing says the caller speaks TLS",
+    knToml(), withEnv(["RECONCILER_ADDR", lit("reconciler.platform.svc:443")]),
     /names reconciler\.platform\.svc:443 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
+  ["https on a port that is not 443",
+    knToml(), withEnv(["RECONCILER_URL", lit("https://reconciler.platform.svc:8443")]),
+    /names reconciler\.platform\.svc:8443 \(bundle "reconciler"\), but the declared connection "reconcile" reaches port 80/],
   ["a connection declared only in the other direction",
     knToml(), { ...KN_MANIFESTS, "reconciler.yaml": ksvc("reconciler", { env: [["CALLBACK", lit("http://workqueue.platform.svc")]] }) },
     /bundle "reconciler" manifest reconciler.yaml: container "app" env CALLBACK names workqueue\.platform\.svc:80 \(bundle "workqueue"\), but cluster.toml declares no connection from "reconciler" to "workqueue"/],
@@ -866,6 +869,33 @@ for (const [label, toml, manifests, pattern] of addressRefusals) {
     });
   });
 }
+
+// A Knative Service is dialled on 80, and answers on 443 over TLS where the
+// cluster's Knative has internal encryption turned on. So an https address
+// names the same Service and the same connection. Whether 443 answers is a
+// setting no manifest shows: the reference is accepted and marked, so the
+// command can say so. This used to be refused as "the wrong port", which
+// turned away a manifest that was right about what it dials.
+test("an https address to a Knative bundle is the same connection, marked as depending on the cluster's TLS", async () => {
+  for (const url of ["https://reconciler.platform.svc", "https://reconciler.platform.svc.cluster.local/v1", "wss://reconciler.platform.svc"]) {
+    const out = await lowerKn(knToml(), withEnv(["RECONCILER_URL", lit(url)]));
+    const [reference] = out.references.filter((r) => r.to === "reconciler");
+    assert.deepEqual([reference.connections, reference.overTls, reference.address], [["reconcile"], true, `${new URL(url).hostname}:443`], url);
+    assert.deepEqual(out.unreferenced, []);
+  }
+  // Plain http is the ordinary case and carries no such mark.
+  const plain = await lowerKn(knToml(), withEnv(["RECONCILER_URL", lit("http://reconciler.platform.svc")]));
+  assert.equal(plain.references.find((r) => r.to === "reconciler").overTls, undefined);
+});
+
+test("an https address to a kubernetes bundle is still held to its declared port", async () => {
+  // Nothing puts a TLS port in front of a plain Kubernetes Service, so the
+  // scheme earns no exception there.
+  const before = MANIFESTS["orders.yaml"];
+  const after = before.replace("dolt.dolt.svc.cluster.local:3306", "https://dolt.dolt.svc");
+  assert.notEqual(after, before, "the demo manifest no longer names dolt the way this test rewrites");
+  await assert.rejects(emit(DEMO_TOML, { ...MANIFESTS, "orders.yaml": after }), /names dolt\.dolt\.svc:443 \(bundle "dolt"\), but the declared connection/);
+});
 
 test("a cluster name that is no placed bundle is reported and not refused; a secret reference is not read", async () => {
   const { references, unreferenced } = await lowerKn(knToml(), withEnv(
