@@ -36,6 +36,7 @@ resource "google_cloud_run_v2_service" "workqueue" {
   location = "us-central1"
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
   template {
+    service_account = "workqueue@example-project.iam.gserviceaccount.com"
     containers {
       image = "example.com/workqueue:1"
       args  = ["--workers", "4"]
@@ -69,6 +70,7 @@ resource "google_cloud_run_v2_job" "sweep" {
   location = "us-central1"
   template {
     template {
+      service_account = "sweep@example-project.iam.gserviceaccount.com"
       containers {
         image = "example.com/sweep:1"
         env {

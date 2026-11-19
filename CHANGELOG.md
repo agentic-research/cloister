@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — who may call a service is compared with the declared connections
+
+- `inspect --env` holds each declared connection beside the plan's access
+  rows. A row that grants the caller's own service account is `evidenced`; a
+  public row is `contradicted`; a row for a workload that declares no
+  connection is `undeclared`; no row is `unknown`.
+- A caller is matched by the service account the plan says it runs as, never
+  by a similar name.
+- An evidenced grant does not raise an edge's strength. A plan shows who is
+  granted, not that nobody else is.
+
 ### 2026-11 — an https address to a Knative bundle is no longer "the wrong port"
 
 - `cluster k8s` accepts a manifest that dials a knative-placed bundle as
