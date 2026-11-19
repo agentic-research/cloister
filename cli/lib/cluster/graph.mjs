@@ -31,7 +31,7 @@ import {
   placementFor,
   placementManifest,
 } from "./connections.mjs";
-import { httpEdgeOf, networkExposure, networkPlan } from "./http-networks.mjs";
+import { connectionEdgeOf, httpEdgeOf, networkExposure, networkPlan } from "./http-networks.mjs";
 import { composeView } from "./compose-placement.mjs";
 import { bundleServices, socketExposure, socketPlan } from "./socket-dirs.mjs";
 
@@ -111,6 +111,25 @@ function wireReach(wire, declared, plan, nets, services) {
   return { over: "no address", strength: "none", why: "the target declares neither a socket nor a port, so compose hands the source no address" };
 }
 
+/**
+ * A connection between two compose bundles: what the network plan says holds
+ * it (ADR-0075 §7). The same answer a wire over HTTP gets, because it is
+ * carried the same way.
+ */
+function composeConnection(c, nets, services) {
+  const edge = connectionEdgeOf(c.from, c.name, nets);
+  if (!edge) return { strength: "none", why: `the compose file is written for env "${nets.env}", and this connection has no target there` };
+  if (edge.kind !== "network") return { strength: "none", why: `${edge.reason}, so compose cannot carry it` };
+  const { network, undeclared } = networkExposure(edge, nets, services);
+  if (undeclared.length) {
+    return { strength: "none", why: `${quoted(undeclared)} ${undeclared.length === 1 ? "shares" : "share"} the network namespace of an end of this connection, so ${undeclared.length === 1 ? "it is" : "they are"} on network ${network} too, with no connection to "${edge.to}"` };
+  }
+  return {
+    strength: "capability",
+    why: `only "${edge.from}" and "${edge.to}" are on network ${network}, and no container is on a shared one, so a bundle with no connection has no route to the port. The network joins them both ways: "${edge.to}" can reach "${edge.from}"'s ports too`,
+  };
+}
+
 /** Why a connection edge has the strength it has, from the kinds of its ends. */
 function connectionWhy(fromKind, toKind, strength, unwritten) {
   if (fromKind === null || toKind === null) {
@@ -140,6 +159,11 @@ function connectionWhy(fromKind, toKind, strength, unwritten) {
  */
 export function clusterGraph(cluster, env) {
   const bundles = new Map((cluster.bundles ?? []).map((b) => [b.name, checkableBundle(b)]));
+  // Edges of the compose cluster are read against what compose runs.
+  const view = composeView(cluster);
+  const plan = socketPlan(view.cluster);
+  const nets = networkPlan(view.cluster, view.env);
+  const services = bundleServices(view.cluster);
   const edges = [];
   const elsewhere = [];
 
@@ -157,7 +181,10 @@ export function clusterGraph(cluster, env) {
       .filter(([name, kind]) => MANIFEST_KINDS.includes(kind) && placementManifest(bundles.get(name), env) === "")
       .map(([name]) => name);
     const lowered = fromKind !== null && toKind !== null && joinable(fromKind, toKind) && unwritten.length === 0;
-    const strength = lowered ? edgeStrength(fromKind, toKind) : "none";
+    // Between two compose bundles the strength is a fact about this edge,
+    // read from the network plan the emitter attaches services from.
+    const composed = fromKind === "compose" && toKind === "compose" ? composeConnection(c, nets, services) : null;
+    const strength = composed ? composed.strength : lowered ? edgeStrength(fromKind, toKind) : "none";
     edges.push({
       from: c.from,
       to: target.bundle,
@@ -167,16 +194,11 @@ export function clusterGraph(cluster, env) {
       strength,
       minStrength: c.minStrength,
       meetsMinimum: c.minStrength === "" || STRENGTHS.indexOf(strength) >= STRENGTHS.indexOf(c.minStrength),
-      why: connectionWhy(fromKind, toKind, strength, unwritten),
+      why: composed ? composed.why : connectionWhy(fromKind, toKind, strength, unwritten),
     });
   }
 
   const declared = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
-  // Wires are edges of the compose cluster: read against what compose runs.
-  const view = composeView(cluster);
-  const plan = socketPlan(view.cluster);
-  const nets = networkPlan(view.cluster);
-  const services = bundleServices(view.cluster);
   for (const w of cluster.wires ?? []) {
     const notRun = [w.from, w.to].map((end) => view.skipped.find((s) => s.name === end)).find(Boolean);
     const reach = notRun

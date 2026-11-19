@@ -919,3 +919,62 @@ test("emitCompose: a wire to a bundle compose does not run is refused, naming th
   placed(cluster, "vm", [["local", "microvm"]], "microvm");
   assert.throws(() => emitCompose(cluster), /wire "VM_URL" \(a → vm\) has an end compose does not run: "vm" is not a service here because it has placements, and none is for env "compose"\. Add `\[\[bundles\.placements\]\] env = "compose", kind = "compose"` to "vm"/);
 });
+
+// ── emitCompose: a connection between two compose bundles (ADR-0075 §7) ──
+
+function connectionCluster({ protocol = "art.http", env = [], minStrength = "", targetEnv = "compose", extra = {} } = {}) {
+  const c = httpCluster({ api: 0, db: 0, other: 0, ...extra }, []);
+  withPorts(c, "db", [["main", 5000, "cluster"]]);
+  c.bundles.find((b) => b.name === "db").ports[0].appProtocol = protocol;
+  c.bundles.find((b) => b.name === "api").kind.external.env = env;
+  c.connections = [{ from: "api", name: "store", appProtocol: protocol, minStrength, targets: [{ env: targetEnv, bundle: "db", port: "main" }] }];
+  return c;
+}
+const bound = (name, extra = {}) => ({ name, value: "", connection: "store", path: "", secret: "", secretKey: "", ...extra });
+
+test("emitCompose: a connection is a network of its two ends, and its env row is the address", () => {
+  const yaml = emitCompose(connectionCluster({ env: [bound("STORE_URL"), bound("STORE_API", { path: "/v1" })] }));
+  assert.deepEqual(networksOf(yaml, "api"), ["wire-api-db"]);
+  assert.deepEqual(networksOf(yaml, "db"), ["wire-api-db"]);
+  assert.deepEqual(networksOf(yaml, "other"), ["solo-other"]);
+  assert.match(serviceBlock(yaml, "api"), /"STORE_URL=http:\/\/db:5000"/);
+  assert.match(serviceBlock(yaml, "api"), /"STORE_API=http:\/\/db:5000\/v1"/);
+  assert.doesNotMatch(serviceBlock(yaml, "db"), /    ports:/, "a `cluster` port is reached over the connection and is not on the host");
+});
+
+test("emitCompose: a connection with no env row still gets its network", () => {
+  assert.deepEqual(networksOf(emitCompose(connectionCluster()), "db"), ["wire-api-db"]);
+});
+
+test("emitCompose: a connection in a protocol with no URL form refuses an address row, and says where it is reached", () => {
+  assert.throws(() => emitCompose(connectionCluster({ protocol: "art.mysql", env: [bound("DB")] })), /bundle "api" env "DB": connection "store" speaks "art\.mysql", which has no URL form here\. Set the variable with a literal value for this placement \(it is reached at db:5000\)/);
+  assert.deepEqual(networksOf(emitCompose(connectionCluster({ protocol: "art.mysql" })), "db"), ["wire-api-db"], "without the row, the network is still there");
+});
+
+test("emitCompose: an env row that takes its value from a secret is refused, not written empty", () => {
+  assert.throws(() => emitCompose(connectionCluster({ env: [{ name: "TOKEN", value: "", connection: "", path: "", secret: "api-token", secretKey: "" }] })), /bundle "api" env "TOKEN" takes its value from secret "api-token", and compose has no secret store cloister writes to/);
+});
+
+test("emitCompose: a connection with an end compose does not run is refused by name", () => {
+  const c = connectionCluster();
+  placed(c, "db", [["compose", "kubernetes"]]);
+  assert.throws(() => emitCompose(c), /connection "store" \(api → db\) for env "compose" has an end compose does not run: "db" is not a service here because it is placed "kubernetes" for env "compose"\. An edge across two placements needs a broker/);
+});
+
+test("emitCompose: a connection to the bundle inside the gateway's namespace cannot be addressed", () => {
+  const c = httpCluster({ api: 0, "cloister-router": 0, mache: 0 }, []);
+  withPorts(c, "mache", [["http", 7532, "cluster"]]);
+  c.connections = [{ from: "api", name: "code", appProtocol: "art.http", minStrength: "", targets: [{ env: "compose", bundle: "mache", port: "http" }] }];
+  assert.throws(() => emitCompose(c), /connection "code" \(api → mache\) for env "compose" cannot be addressed: "mache" runs inside "cloister-router"'s network namespace/);
+});
+
+test("emitCompose: minStrength is held to what this edge delivers", () => {
+  assert.match(emitCompose(connectionCluster({ minStrength: "capability" })), /wire-api-db/);
+  // mache shares the gateway's namespace, so an edge from the gateway is not held.
+  const c = httpCluster({ "cloister-router": 0, mache: 0, db: 0 }, []);
+  withPorts(c, "db", [["main", 5000, "cluster"]]);
+  c.connections = [{ from: "cloister-router", name: "store", appProtocol: "art.http", minStrength: "capability", targets: [{ env: "compose", bundle: "db", port: "main" }] }];
+  assert.throws(() => emitCompose(c), /connection "store" \(cloister-router → db\) for env "compose": minStrength "capability" is not met\. "mache" shares the network namespace of an end/);
+  c.connections[0].minStrength = "";
+  assert.match(emitCompose(c), /wire-cloister-router-db/);
+});

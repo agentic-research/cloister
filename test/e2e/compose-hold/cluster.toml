@@ -20,6 +20,13 @@
 #                             a directory of its own: caller reaches both,
 #                             and neither tenant can open the other's socket
 #
+# And as a connection, not a wire (ADR-0075 §7):
+#
+#   api       ──▶ store       a [[connections]] row that asks for
+#                             `capability`. api's STORE_URL is set to the
+#                             address, api gets a page there, no one else has
+#                             a route, and the port is not on the host
+#
 # Compose is a placement (ADR-0070 §2 amendment). Every bundle here but one
 # has no placement rows and is not a microvm, so it is placed compose:
 #
@@ -154,6 +161,34 @@ env = "prod"
 kind = "kubernetes"
 
 [[bundles]]
+name = "api"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
+
+[[bundles.external.env]]
+name = "STORE_URL"
+connection = "store"
+
+[[bundles]]
+name = "store"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-m", "http.server", "18082"]
+
+[[bundles.ports]]
+name = "main"
+port = 18082
+appProtocol = "art.http"
+expose = "cluster"
+
+[[bundles]]
 name = "cloister-router"
 kind = "external"
 tier = "cluster"
@@ -229,3 +264,14 @@ binding = "INNER_URL"
 from = "caller"
 to = "inner"
 transport = "uds"
+
+[[connections]]
+from = "api"
+name = "store"
+appProtocol = "art.http"
+minStrength = "capability"
+
+[[connections.targets]]
+env = "compose"
+bundle = "store"
+port = "main"

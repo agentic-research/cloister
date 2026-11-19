@@ -401,14 +401,7 @@ export function dnsLabelProblem(name) {
  * kubernetes. The rule is on the category: a new forwarded kind is a
  * connection end without an edit here.
  */
-export const CHANNEL_KINDS = Object.freeze(["microvm", ...FORWARDED_KINDS]);
-
-/**
- * Placement kinds under which a declared port is lowered or checked: every
- * channel kind, and `compose`, which publishes an `edge` port and leaves any
- * other unpublished.
- */
-export const PORT_KINDS = Object.freeze([...CHANNEL_KINDS, "compose"]);
+export const CHANNEL_KINDS = Object.freeze(["microvm", "compose", ...FORWARDED_KINDS]);
 
 /**
  * Why bundle `b` cannot hold a channel end — in `env` when given (a
@@ -420,9 +413,9 @@ export const PORT_KINDS = Object.freeze([...CHANNEL_KINDS, "compose"]);
  * microvm bundle, so for it the old rule and message stand.
  *
  *
- * `compose` is a placement that lowers a PORT (an `edge` port is published on
- * the host's loopback) and not yet a CONNECTION: between compose bundles an
- * edge is still written as a `[[wires]]` row (ADR-0075 §4.2).
+ * `compose` lowers both: a port (an `edge` port is published on the host's
+ * loopback) and a connection between two compose bundles (a network of the
+ * two ends alone, ADR-0075 §7).
  */
 function endpointProblem(b, env) {
   if (b.kind !== "external") {
@@ -437,10 +430,13 @@ function endpointProblem(b, env) {
       return `has no placement for env "${env}" — declare a [[bundles.placements]] row ` +
         `(a bundle with no rows at all is placed implicitly: "microvm" if that is its executionMode, else "compose")`;
     }
-    if (kind === "compose") {
-      return `is placed "compose" for env "${env}"${rows.length === 0 ? ` (implicitly: it has executionMode ${JSON.stringify(b.executionMode)} and no placements)` : ""}; ` +
-        `no emitter lowers a connection for a compose bundle yet. Between compose bundles, say the edge as a ` +
-        `[[wires]] row (ADR-0075 §4.2). A connection end must be placed ${oneOf(CHANNEL_KINDS)}`;
+    // One compose file is written, for one env. A connection declared for
+    // any other env between compose bundles would be accepted here and then
+    // lowered by nothing.
+    if (kind === "compose" && env !== COMPOSE_ENV) {
+      return `is placed "compose" for env "${env}"${rows.length === 0 ? ` (implicitly: it has executionMode ${JSON.stringify(b.executionMode)} and no placements)` : ""}, ` +
+        `and compose lowers connections only for env "${COMPOSE_ENV}": give the connection a target row for env "${COMPOSE_ENV}", ` +
+        `or place the bundle for "${env}" as something that is lowered there`;
     }
     if (!CHANNEL_KINDS.includes(kind)) {
       return `is placed "${kind}" for env "${env}"; a channel end must be placed ` +
@@ -449,8 +445,8 @@ function endpointProblem(b, env) {
     return null;
   }
   const kinds = rows.length === 0 ? [placementFor(b)] : rows.map((r) => r.kind);
-  if (!kinds.some((k) => PORT_KINDS.includes(k))) {
-    return `has no placement of kind ${oneOf(PORT_KINDS)} (declared: ` +
+  if (!kinds.some((k) => CHANNEL_KINDS.includes(k))) {
+    return `has no placement of kind ${oneOf(CHANNEL_KINDS)} (declared: ` +
       `${kinds.join(", ")}), so nothing would lower or check its channel`;
   }
   return null;
@@ -575,8 +571,12 @@ export function assertPortsAndConnections(bundles, connections) {
       assertEndpoint(target, `is the target of connection "${c.name}"`, t.env);
       const fromKind = placementFor(byName.get(c.from), t.env);
       const toKind = placementFor(target, t.env);
-      // ADR-0070 §3: the edge is as strong as its weaker end.
-      if (c.minStrength !== "") {
+      // ADR-0070 §3: the edge is as strong as its weaker end. Not for an edge
+      // between two compose bundles: its strength is a fact about THAT edge
+      // (who else is on its network), not about the kind, so `emit-compose`
+      // holds it to its minStrength when it lowers it (ADR-0075 §7).
+      const composeEdge = fromKind === "compose" && toKind === "compose";
+      if (c.minStrength !== "" && !composeEdge) {
         const strength = edgeStrength(fromKind, toKind);
         if (STRENGTHS.indexOf(strength) < STRENGTHS.indexOf(c.minStrength)) {
           throw new Error(

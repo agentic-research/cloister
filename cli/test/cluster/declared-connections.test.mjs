@@ -364,8 +364,8 @@ test("a socket path over 103 bytes is refused, naming it", async () => {
 // An external bundle with no placement rows that is not a microvm is placed
 // `compose` (ADR-0070 §2 amendment 2026-11-19). Compose lowers its PORTS:
 // `edge` is published on the host's loopback, anything else is not. What is
-// still refused is handing it a CHANNEL: `runtime plan` cannot, and a
-// connection cannot end there yet.
+// refused: `runtime plan` cannot hand it a channel, and a connection that
+// ends at it must be declared for the env the compose file is written for.
 test("cluster:toml accepts a port on a process bundle, and runtime plan still refuses to lower it", async () => {
   const toml = fixtureToml({ ordersMode: "process", connections: "" });
   const cluster = await parseTomlToCluster(toml);
@@ -377,7 +377,7 @@ test("cluster:toml refuses a connection whose target is a process bundle", async
   const toml = fixtureToml({ doltMode: "process" }).replace('expose = "cluster"', 'expose = "none"');
   // dolt's only port is now unexposed, so the target-port check fires first;
   // keep it exposed and the port check names dolt as an endpoint instead.
-  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" is the target of connection "orders-db" but is placed "compose" for env "local" \(implicitly: it has executionMode "process" and no placements\); no emitter lowers a connection for a compose bundle yet\. Between compose bundles, say the edge as a \[\[wires\]\] row/);
+  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" is the target of connection "orders-db" but is placed "compose" for env "local" \(implicitly: it has executionMode "process" and no placements\), and compose lowers connections only for env "compose": give the connection a target row for env "compose"/);
   await assert.rejects(parseTomlToCluster(toml), /port "dolt.mysql" has expose "none"/);
 });
 

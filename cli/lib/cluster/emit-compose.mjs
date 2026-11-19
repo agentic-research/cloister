@@ -40,9 +40,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
-import { PUBLISH_ADDRESS, edgePortsOf, httpEdgeOf, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
+import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExposure, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
-import { bindPath, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
+import { STRENGTHS, envSource } from "./connections.mjs";
+import { bindPath, bundleServices, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -124,6 +125,32 @@ export function resolveTenancy(cluster) {
   return { colocation, violations };
 }
 
+/**
+ * Every connection with a target in the compose env is one this emitter
+ * lowers, or it says why not, by name. Nothing is left as an env row with no
+ * network behind it.
+ */
+function assertConnectionsLowered(netPlan, view, services) {
+  for (const edge of netPlan.edges.filter((e) => e.declaredAs === "connection")) {
+    const where = `emit-compose: connection "${edge.connection}" (${edge.from} → ${edge.to}) for env "${view.env}"`;
+    if (edge.kind === "unjoined") {
+      const gone = view.skipped.find((s) => s.name === edge.missing);
+      throw new Error(
+        `${where} has an end compose does not run: "${edge.missing}" is not a service here` +
+          (gone ? ` because ${gone.reason}` : ": it runs inside the gateway and has no container") +
+          `. An edge across two placements needs a broker that nothing lowers yet`,
+      );
+    }
+    if (edge.kind === "unaddressed") throw new Error(`${where} cannot be addressed: ${edge.reason}`);
+    if (edge.minStrength === "") continue;
+    const { undeclared, network } = networkExposure(edge, netPlan, services);
+    const strength = undeclared.length ? "none" : "capability";
+    if (STRENGTHS.indexOf(strength) < STRENGTHS.indexOf(edge.minStrength)) {
+      throw new Error(`${where}: minStrength "${edge.minStrength}" is not met. ${undeclared.map((s) => `"${s}"`).join(" and ")} shares the network namespace of an end and so is on network ${network} too, which makes the edge's strength "none"`);
+    }
+  }
+}
+
 // ── Compose YAML emitter ─────────────────────────────────────────────────
 
 /**
@@ -191,7 +218,8 @@ export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
   const udsPlan = socketPlan(cluster);
   // One network per wire carried over HTTP, joining its two ends and no
   // one else; no service is left on compose's shared `default` (ADR-0075 §6).
-  const netPlan = networkPlan(cluster);
+  const netPlan = networkPlan(cluster, view.env);
+  assertConnectionsLowered(netPlan, view, bundleServices(cluster));
 
   for (const b of cluster.bundles) {
     if (!("external" in b.kind)) {
@@ -467,7 +495,25 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     const ownSocket = bindPath(serviceName, udsPlan);
     if (ownSocket) envVars.push(`TENANT_SOCKET=${ownSocket}`);
   }
-  for (const e of ext.env) envVars.push(`${e.name}=${e.value}`);
+  for (const e of ext.env) {
+    const source = envSource(e);
+    const where = `emit-compose: bundle "${b.name}" env "${e.name}"`;
+    if (source === "secret") {
+      // Written as an empty value this would start the service with the
+      // variable set to nothing, and nothing would say so.
+      throw new Error(`${where} takes its value from secret "${e.secret}", and compose has no secret store cloister writes to. Set it in a compose overlay, or give the row a literal value`);
+    }
+    if (source === "connection") {
+      const edge = connectionEdgeOf(b.name, e.connection, netPlan);
+      if (!edge) throw new Error(`${where} is bound to connection "${e.connection}", which has no target for env "${netPlan.env}"`);
+      if (edge.address === "") {
+        throw new Error(`${where}: connection "${e.connection}" speaks "${edge.appProtocol}", which has no URL form here. Set the variable with a literal value for this placement (it is reached at ${edge.hostPort})`);
+      }
+      envVars.push(`${e.name}=${edge.address}${e.path ?? ""}`);
+      continue;
+    }
+    envVars.push(`${e.name}=${e.value}`);
+  }
   if (envVars.length > 0) {
     lines.push(`    environment:`);
     for (const e of envVars) lines.push(`      - ${JSON.stringify(e)}`);

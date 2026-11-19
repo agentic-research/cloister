@@ -315,7 +315,7 @@ test("an exposed port on a bundle with no placement that lowers or checks it fai
   const bundles = [{ name: "dolt", kind: "external", executionMode: "", ports: [{ name: "mysql", port: 3306, appProtocol: "art.mysql", expose: "cluster" }], placements: [{ env: "local", kind: "workerd", manifest: "" }] }];
   assert.throws(
     () => assertPortsAndConnections(bundles, []),
-    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes, knative, cloudRun or compose \(declared: workerd\)/,
+    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, compose, kubernetes, knative or cloudRun \(declared: workerd\)/,
   );
 });
 

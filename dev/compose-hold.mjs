@@ -20,6 +20,8 @@
 //   - where the graph says `none` and names who else can open the socket,
 //     that bundle really can
 //   - one tenant's instance of a `perTenant` bundle cannot open another's
+//   - a [[connections]] row between two compose bundles is carried the
+//     same way, and the env row bound to it holds an address that answers
 //   - a target reached over HTTP answers its declared callers, and no one
 //     else has a route: by its name, at its addresses, or through the host
 //     at the published port (ADR-0075 §6)
@@ -40,7 +42,7 @@ import { fileURLToPath } from "node:url";
 import { emitCompose } from "../cli/lib/cluster/emit-compose.mjs";
 import { clusterGraph, renderGraph } from "../cli/lib/cluster/graph.mjs";
 import { composeView } from "../cli/lib/cluster/compose-placement.mjs";
-import { PUBLISH_ADDRESS, edgePortsOf, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
+import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
 import { bundleServices, socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
 import { parseTomlToCluster } from "../cli/lib/cluster/toml-to-cluster.mjs";
 
@@ -221,6 +223,24 @@ try {
       else fail(`"${service}" reached the published port through the host's address ${gateway}: ${viaHost}`);
     }
   }
+  // A connection's env row is the address: read the variable INSIDE the
+  // container and fetch what it holds.
+  let bound = 0;
+  for (const b of cluster.bundles) {
+    for (const row of b.kind.external.env ?? []) {
+      if (!row.connection) continue;
+      bound += 1;
+      const run = spawnSync("docker", ["compose", "-f", file, "exec", "-T", b.name, "python3", "-c", `import os\nprint(os.environ.get(${JSON.stringify(row.name)}, ""))`], { encoding: "utf8" });
+      const value = run.stdout.trim();
+      const want = connectionEdgeOf(b.name, row.connection, nets).address + (row.path ?? "");
+      if (value !== want) { fail(`${b.name}'s ${row.name} is "${value}", and the connection's address is "${want}"`); continue; }
+      const got = fetchFrom(b.name, value);
+      if (got === "http:200") say(`ok    bound address      ${b.name} ${row.name} = ${value}: ${got}`);
+      else fail(`${b.name} fetched its own ${row.name} (${value}) and got "${got}"`);
+    }
+  }
+  if (bound === 0) fail("the fixture has no env row bound to a connection, so an address was not tried");
+  if (!nets.edges.some((e) => e.declaredAs === "connection" && e.kind === "network")) fail("the fixture has no connection between compose bundles, so one was not tried");
   if (nets.edges.filter((e) => e.kind === "network").length === 0) fail("the fixture has no wire carried over a network, so HTTP was not tried");
   if (published === 0) fail("the fixture has no HTTP target with an edge port, so publishing was not tried");
   if (unpublished === 0) fail("the fixture has no HTTP target without an edge port, so NOT publishing was not tried");

@@ -274,7 +274,7 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # Any forwarded kind may be a connection end (ADR-0074 §6). workerd parses,
   # and every emitter refuses it by name. compose is a service in the compose
   # file `cloister cluster generate` writes for env "compose"; its ports are
-  # lowered, and a connection ending at it is refused until one is.
+  # lowered, and so is a connection between two compose bundles there.
   kind @1 :Text $Traits.doc("How it runs. 'microvm', 'workerd' or 'compose': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.");
   # Path, relative to the cluster directory, to the operator's RENDERED
   # manifest. Forwarded kinds only, refused on constructed kinds. Cloister

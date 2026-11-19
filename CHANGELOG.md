@@ -8,6 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a connection between two compose bundles is lowered
+
+- A `[[connections]]` row with a target for env `compose` between two
+  compose bundles gets a network of its two ends, and an env row bound to it
+  is set to its address. It can ask for a `minStrength`, held to what that
+  edge delivers. `cluster graph` reports it like a wire over HTTP.
+- Refused by name: such a connection for any other env, one with an end
+  compose does not run, and one to a bundle with no name of its own on a
+  network.
+- **Fixed:** an env row that takes its value from a secret, or from a
+  connection, was written into the compose file as an empty value. A
+  connection row is now the address. A secret row is refused, because compose
+  has no secret store cloister writes to.
+- The gateway's own edges are still `[[wires]]`.
+
 ### 2026-11 — `compose` is a placement kind
 
 - A bundle is placed `compose` in an env like any other placement:
@@ -23,8 +38,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   naming the row to add.
 - In this repository mache now says both: `microvm` for `local`, `compose`
   for `compose`.
-- A connection to or from a compose bundle is still refused, now saying so
-  and pointing at `[[wires]]`. Several refusal messages changed wording.
+- Several refusal messages changed wording.
 - `cluster up` and `runtime plan` name a compose bundle as one when they skip
   or refuse it.
 

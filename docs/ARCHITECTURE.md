@@ -66,9 +66,10 @@ Workers in production.
 Stated here because a reader would otherwise find them one at a time
 ([ADR-0075](adr/0075-one-graph.md) §4):
 
-- **A wire and a connection are two vocabularies for one statement.** The
-  gateway's own edges are `[[wires]]`; everything else is `[[connections]]`.
-  `cluster graph` shows both, but a wire cannot yet ask for a `minStrength`.
+- **The gateway's own edges are still `[[wires]]`.** A connection between
+  two compose bundles is lowered like any other and can ask for a
+  `minStrength`. The gateway's wires are not rewritten as connections yet: a
+  wire also names the binding the Worker reads, and rails check it.
 - **A wire under compose is held unless something is shared.** A socket in
   a directory another bundle binds in is not held. Neither is an HTTP wire
   with an end whose network namespace another container shares, which is

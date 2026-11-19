@@ -207,8 +207,8 @@ ground that nothing lowered it. Such a bundle is placed `compose`
 (ADR-0070 §2, amendment of the same date), and compose lowers its ports as
 above. Two things are unchanged:
 
-- A **connection** cannot end at a compose bundle yet. It is refused by
-  name, pointing at `[[wires]]`.
+- A **connection** between two compose bundles is lowered for env
+  `compose`, and refused by name for any other env (ADR-0075 §7).
 - `runtime plan` still refuses to lower a port for a bundle that is not
   `microvm`: it has no way to hand such a bundle a channel.
 
