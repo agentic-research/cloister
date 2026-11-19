@@ -32,7 +32,8 @@ import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
 import {
   DEFAULT_CHANNEL_DIR,
   checkableBundle,
-  lowerChannelGrants,
+  URL_SCHEMES,
+  lowerChannels,
 } from "../lib/cluster/connections.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -174,7 +175,7 @@ export function buildLaunchPlan(cluster, lock, options) {
   // lower to confinement/v1 §6 grants. The declarations were checked by
   // parseTomlToCluster; lowerChannelGrants keeps its own refusals as defense
   // in depth.
-  const grants = lowerChannelGrants(
+  const { grants, dials } = lowerChannels(
     cluster.bundles.map(checkableBundle),
     cluster.connections ?? [],
     {
@@ -190,7 +191,7 @@ export function buildLaunchPlan(cluster, lock, options) {
     ? { ...baseConfinement, unixSocket: { allow: grants } }
     : baseConfinement;
 
-  const environment = lowerEnvironment(bundle.name, external.env);
+  const environment = lowerEnvironment(bundle.name, external.env, dials);
 
   return {
     schema: "cloister/host-runtime/v1",
@@ -215,23 +216,48 @@ export function buildLaunchPlan(cluster, lock, options) {
  * A bundle's declared environment as `{ name, value }` rows in declaration
  * order. Refusals name the bundle and the variable, never the value: values
  * are stored in the plan and are not secrets, but an error is logged.
+ *
+ * A row bound to a connection is given that connection's address IN THE
+ * GUEST (ADR-0074 §7): `<scheme>://127.0.0.1:<guestPort>`, plus the row's
+ * path. confinement/v1 §6 presents a dial grant on the guest's loopback at
+ * the grant's `guestPort`, and says a workload learns that address from its
+ * configuration. `dials` is built in the same pass as the grants
+ * (`lowerChannels`), so the address names a port a grant presents, and a
+ * connection with no grant has no address to write.
+ *
+ * A row bound to a secret is refused. The only credential path into a guest
+ * is the vault (confinement/v1 §5); nothing puts a secret's value in a
+ * launch plan, and starting the workload without the variable would be the
+ * silent version of that.
  */
-export function lowerEnvironment(bundleName, env) {
+export function lowerEnvironment(bundleName, env, dials = new Map()) {
   if (env === undefined || env === null) return [];
   const bundleText = JSON.stringify(bundleName);
   const seen = new Set();
   return env.map((entry) => {
-    const { name, value } = entry ?? {};
-    // A binding is lowered per placement (ADR-0074 §7). The microVM lowering
-    // of an address or a secret is not built, and starting the workload
-    // without the variable would be the silent version of that.
-    for (const key of ["connection", "secret"]) {
-      if (typeof entry?.[key] === "string" && entry[key] !== "") {
+    const { name } = entry ?? {};
+    let { value } = entry ?? {};
+    if (typeof entry?.secret === "string" && entry.secret !== "") {
+      throw new Error(
+        `bundle ${bundleText} environment variable ${JSON.stringify(name)} is bound to secret ${JSON.stringify(entry.secret)}; ` +
+          `a launch plan carries no secret, and the only credential path into a microVM is the vault ` +
+          `(confinement/v1 §5). Give this bundle the credential through a vault slice`,
+      );
+    }
+    if (typeof entry?.connection === "string" && entry.connection !== "") {
+      const where = `bundle ${bundleText} environment variable ${JSON.stringify(name)}`;
+      const dial = dials.get(entry.connection);
+      if (!dial) {
+        throw new Error(`${where} is bound to connection ${JSON.stringify(entry.connection)}, which this bundle does not declare for this environment, so no grant presents it`);
+      }
+      const scheme = Object.hasOwn(URL_SCHEMES, dial.appProtocol) ? URL_SCHEMES[dial.appProtocol] : undefined;
+      if (!scheme) {
         throw new Error(
-          `bundle ${bundleText} environment variable ${JSON.stringify(name)} is bound to ${key} ${JSON.stringify(entry[key])}; ` +
-            `\`runtime plan\` does not lower a ${key} binding for a microVM yet. Use a literal value for this bundle`,
+          `${where}: connection ${JSON.stringify(entry.connection)} speaks ${JSON.stringify(dial.appProtocol)}, which has no URL form here. ` +
+            `It is presented in the guest at 127.0.0.1:${dial.guestPort}; set the variable with a literal value in the form the workload reads`,
         );
       }
+      value = `${scheme}://127.0.0.1:${dial.guestPort}${typeof entry.path === "string" ? entry.path : ""}`;
     }
     if (typeof name !== "string" || name === "") {
       throw new Error(`bundle ${bundleText} declares an environment variable with an empty or non-string name`);

@@ -660,6 +660,33 @@ export function channelSocketPath(channelDir, bundle, portName) {
  * @returns {Array<{path: string, mode?: string, guestPort: number}>}
  */
 export function lowerChannelGrants(bundles, connections, options) {
+  return lowerChannels(bundles, connections, options).grants;
+}
+
+/**
+ * How an app_protocol label is dialled as a URL. A label not listed has no
+ * URL form: a variable that needs one is set with a literal value. One table,
+ * so every placement writes an address for the same protocols.
+ */
+export const URL_SCHEMES = Object.freeze({ "art.http": "http", "art.http2": "http", "art.grpc": "http", "art.mcp-jsonrpc": "http" });
+
+/**
+ * The grants of `lowerChannelGrants`, and with them what each outbound
+ * connection is dialled at from inside the guest.
+ *
+ * `dials` maps a connection's name to the guest port its grant presents
+ * (confinement/v1 §6: the workload connects to 127.0.0.1:<guestPort>) and its
+ * app protocol. It is built in the same pass as the grants, from the same
+ * number, so an address written into the workload's environment cannot name
+ * a port no grant presents.
+ */
+export function lowerChannels(bundles, connections, options) {
+  const dials = new Map();
+  const grants = lowerGrants(bundles, connections, options, dials);
+  return { grants, dials };
+}
+
+function lowerGrants(bundles, connections, options, dials) {
   const { bundle: name, env, channelDir } = options;
   const self = bundles.find((b) => b.name === name);
   const outbound = connections.filter((c) => c.from === name);
@@ -700,19 +727,20 @@ export function lowerChannelGrants(bundles, connections, options) {
     }
     const port = tb.ports.find((p) => p.name === target.port);
     grants.push({ path: channelSocketPath(channelDir, target.bundle, port.name), guestPort: port.port });
+    dials.set(c.name, { guestPort: port.port, appProtocol: c.appProtocol, to: target.bundle });
   }
 
-  // No auto-shift on a collision: launch plans carry no workload env yet, so
-  // a guestPort moved to dodge another could not be told to the workload — it
-  // would dial the declared number and reach the wrong channel or nothing.
+  // No auto-shift on a collision. An env row bound to the connection would be
+  // told a moved port, but a workload may hold the declared number anywhere
+  // else (an argument, a config file), and would dial the wrong channel.
   const byPort = new Map();
   for (const g of grants) {
     if (byPort.has(g.guestPort)) {
       throw new Error(
         `bundle "${name}": guestPort ${g.guestPort} is presented by two grants ` +
           `(${byPort.get(g.guestPort)} and ${g.path}). Ports are not shifted ` +
-          `automatically because a launch plan carries no workload env yet, so ` +
-          `the workload could not learn the moved port.`,
+          `automatically: a workload may hold the declared number where no ` +
+          `workload env reaches it, so a moved port would be dialled wrongly.`,
       );
     }
     byPort.set(g.guestPort, g.path);

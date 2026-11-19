@@ -25,11 +25,9 @@
 
 import { stringify as stringifyYaml } from "yaml";
 
-import { envSource, isExposed, joinable, placementFor, portsFor } from "./connections.mjs";
+import { URL_SCHEMES as SCHEMES, envSource, isExposed, joinable, placementFor, portsFor } from "./connections.mjs";
 import { KNATIVE_CLUSTER_LOCAL, KNATIVE_VISIBILITY_LABEL, KNATIVE_WIRES } from "./emit-k8s.mjs";
 
-/** How an app_protocol label is dialled. A label not listed has no URL form here. */
-const SCHEMES = Object.freeze({ "art.http": "http", "art.http2": "http", "art.grpc": "http", "art.mcp-jsonrpc": "http" });
 
 /** A Kubernetes Secret name is a DNS subdomain; a key is a short identifier. */
 const isSecretName = (name) => name.length <= 253 && /^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$/.test(name);

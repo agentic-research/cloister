@@ -345,9 +345,19 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 
 #### What it does not do
 
-- **The microVM emitter does not lower a binding.** `runtime plan` refuses a
-  `connection` or `secret` row by name. Writing a socket address into a
-  guest's environment is part of LLO's plan contract.
+- **A secret binding is not lowered to a microVM.** `runtime plan` refuses a
+  `secret` row by name. A launch plan carries no secret, and the credential
+  path into a guest is the vault (confinement/v1 §5).
+
+  *Amended 2026-11-19: a `connection` row is lowered.* This list used to say
+  neither binding was, because writing an address into a guest was thought to
+  need a change to LLO's plan contract. It does not. confinement/v1 §6
+  already presents a dial grant on the guest's loopback at the grant's
+  `guestPort`, and says a workload learns that address from its
+  configuration. The launch plan already carries env. So the row is set to
+  `<scheme>://127.0.0.1:<guestPort>` plus its path, with the port taken from
+  the same pass that builds the grant. A protocol with no URL form is
+  refused, and the refusal says where the channel is presented.
 - **An address into another network is refused.** `kubernetes` and `knative`
   share a cluster network, so a bundle on one may be bound to a connection
   into the other (a job is a Kubernetes Job wherever it runs, and may call a
@@ -398,10 +408,11 @@ a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 | §5.3, §7 Lower a bundle to a Kubernetes manifest (`cluster lower`) | built; applied to a kind cluster in CI (`task smoke:lowered-kind`) |
 | §7 A port's dialled number and `expose` per placement (`[[bundles.placements.ports]]`) | built |
 | §7 Lower a bundle to a Knative Service | built; applied to a kind cluster with Knative in CI (`task smoke:lowered-knative`) |
-| §7 Lower a binding to a microVM | not built |
+| §7 Lower a connection binding to a microVM | built (`runtime plan`): the address the grant presents in the guest, `127.0.0.1:<guestPort>`. Not run on a live microVM in CI |
+| §7 Lower a secret binding to a microVM | refused: a launch plan carries no secret, and the credential path into a guest is the vault |
 | §6 Any forwarded placement as a checked connection end | built |
 | §6 A mapping names the placement kind its workloads satisfy | built; the list of kinds is still closed in code |
-| Nodes from Kubernetes resources declared in Terraform | not built |
+| Nodes from Kubernetes resources declared in Terraform | built (a mapping; ADR-0073 amendment 2026-11-19) |
 | Edges that arrive by a secret reference (`value_source`) | not read |
 
 ## Open questions

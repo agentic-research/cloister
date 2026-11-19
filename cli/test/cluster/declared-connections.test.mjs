@@ -534,3 +534,86 @@ test("N4: cluster-to-toml drops only empty scalars from port/connection rows, ne
     targets: [{ bundle: "b", env: "local", extra: { k: 1 }, port: "p" }],
   });
 });
+
+// ── An env row bound to a connection, in a microVM (ADR-0074 §7) ─────────────
+//
+// confinement/v1 §6 presents a dial grant on the guest's loopback at the
+// grant's guestPort, and says the workload learns that address from its
+// configuration. The launch plan carries env, so the address is written there.
+
+/** The fixture, with dolt also serving HTTP and orders bound to it by env. */
+function boundToml({ env, extraConnection = "" }) {
+  const HTTP_PORT = `
+[[bundles.ports]]
+name = "admin"
+port = 8080
+appProtocol = "art.http"
+expose = "cluster"
+`;
+  const ADMIN = `
+[[connections]]
+from = "orders"
+name = "dolt-admin"
+appProtocol = "art.http"
+
+[[connections.targets]]
+env = "local"
+bundle = "dolt"
+port = "admin"
+`;
+  const base = fixtureToml();
+  const orders = base.indexOf('name = "orders"');
+  const afterMode = base.indexOf('executionMode = "microvm"\n', orders) + 'executionMode = "microvm"\n'.length;
+  const withEnv = base.slice(0, afterMode) + env + base.slice(afterMode);
+  // dolt's second port goes straight after its first.
+  const doltPortEnd = withEnv.indexOf('expose = "cluster"\n') + 'expose = "cluster"\n'.length;
+  return withEnv.slice(0, doltPortEnd) + HTTP_PORT + withEnv.slice(doltPortEnd) + ADMIN + extraConnection;
+}
+const envRow = (fields) => `\n[[bundles.external.env]]\n${Object.entries(fields).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join("\n")}\n`;
+
+test("a connection-bound env row is the address the grant presents in the guest", async () => {
+  const p = await plan(boundToml({ env: envRow({ name: "ADMIN_URL", connection: "dolt-admin", path: "/v1/status" }) + envRow({ name: "LOG_LEVEL", value: "debug" }) }), "orders");
+  assert.deepEqual(p.environment, [
+    { name: "ADMIN_URL", value: "http://127.0.0.1:8080/v1/status" },
+    { name: "LOG_LEVEL", value: "debug" },
+  ]);
+  // The port in the address is the port of the grant for that connection:
+  // one number, written once, so the two cannot disagree.
+  const grant = p.confinement.unixSocket.allow.find((g) => g.path === `${CH}/dolt.admin.sock`);
+  assert.equal(grant.guestPort, 8080);
+  assert.equal(new URL(p.environment[0].value).port, String(grant.guestPort));
+});
+
+test("the address follows the grant when the target's port number changes", async () => {
+  const toml = boundToml({ env: envRow({ name: "ADMIN_URL", connection: "dolt-admin" }) }).replace("port = 8080", "port = 9911");
+  const p = await plan(toml, "orders");
+  assert.equal(p.environment[0].value, "http://127.0.0.1:9911");
+  assert.equal(p.confinement.unixSocket.allow.find((g) => g.path === `${CH}/dolt.admin.sock`).guestPort, 9911);
+});
+
+test("the bundle that only serves is given no address for a connection it does not make", async () => {
+  // dolt declares no connection; a row bound to one is refused at parse time.
+  const toml = boundToml({ env: "" });
+  const dolt = toml.indexOf('name = "dolt"');
+  const at = toml.indexOf('executionMode = "microvm"\n', dolt) + 'executionMode = "microvm"\n'.length;
+  await assert.rejects(plan(toml.slice(0, at) + envRow({ name: "X", connection: "dolt-admin" }) + toml.slice(at), "dolt"), /"dolt".*"X".*connection "dolt-admin"/s);
+});
+
+test("a protocol with no URL form is refused, and says where the channel is presented", async () => {
+  await assert.rejects(
+    plan(boundToml({ env: envRow({ name: "DB", connection: "orders-db" }) }), "orders"),
+    /bundle "orders" environment variable "DB": connection "orders-db" speaks "art\.mysql", which has no URL form here\. It is presented in the guest at 127\.0\.0\.1:3306; set the variable with a literal value/,
+  );
+});
+
+test("a secret-bound env row is refused for a microVM, naming the path that exists", async () => {
+  await assert.rejects(
+    plan(boundToml({ env: envRow({ name: "DB_PASSWORD", secret: "orders-db" }) }), "orders"),
+    /bundle "orders" environment variable "DB_PASSWORD" is bound to secret "orders-db"; a launch plan carries no secret, and the only credential path into a microVM is the vault/,
+  );
+});
+
+test("a plan with no bound row is unchanged by any of this", async () => {
+  const p = await plan(fixtureToml(), "orders");
+  assert.equal("environment" in p, false);
+});

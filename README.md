@@ -144,8 +144,8 @@ manifest that already exists is never overwritten.
 
 ### What is not built yet
 
-Both outputs are applied to a real cluster in CI. microVM output for an address or a secret is not
-built. Probes, resource limits,
+Both outputs are applied to a real cluster in CI. For a microVM, an address is written into the
+launch plan and a secret is refused: the credential path into a microVM is the vault. Probes, resource limits,
 volumes and service accounts are not carried. [ADR-0074](docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 records the direction and what exists.
 
