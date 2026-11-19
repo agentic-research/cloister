@@ -1,0 +1,348 @@
+{
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_job.probe",
+          "expressions": {
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "env": [
+                          {
+                            "name": {
+                              "constant_value": "SERVER_URL"
+                            },
+                            "value": {
+                              "references": [
+                                "google_cloud_run_v2_service.server.uri",
+                                "google_cloud_run_v2_service.server"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "probe",
+          "type": "google_cloud_run_v2_job"
+        },
+        {
+          "address": "google_cloud_run_v2_service.caller",
+          "expressions": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": {
+                          "constant_value": "SERVER_URL"
+                        },
+                        "value": {
+                          "references": [
+                            "google_cloud_run_v2_service.server.uri",
+                            "google_cloud_run_v2_service.server"
+                          ]
+                        }
+                      },
+                      {
+                        "name": {
+                          "constant_value": "LOG_LEVEL"
+                        },
+                        "value": {
+                          "constant_value": "info"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "caller",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_run_v2_service.server",
+          "expressions": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "ports": [
+                      {
+                        "name": {
+                          "constant_value": "http1"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "name": "server",
+          "type": "google_cloud_run_v2_service"
+        },
+        {
+          "address": "google_cloud_run_v2_service.stranger",
+          "expressions": {
+            "template": [
+              {
+                "containers": [
+                  {}
+                ]
+              }
+            ]
+          },
+          "name": "stranger",
+          "type": "google_cloud_run_v2_service"
+        }
+      ]
+    }
+  },
+  "format_version": "1.2",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_run_v2_job.probe",
+          "mode": "managed",
+          "name": "probe",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "args": [
+                          false,
+                          false
+                        ],
+                        "command": [
+                          false
+                        ],
+                        "env": [
+                          {}
+                        ],
+                        "ports": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_job",
+          "values": {
+            "location": "us-central1",
+            "name": "probe",
+            "project": "example-project",
+            "template": [
+              {
+                "template": [
+                  {
+                    "containers": [
+                      {
+                        "args": [
+                          "-c",
+                          "curl -fsS --max-time 20 \"$SERVER_URL/hostname\""
+                        ],
+                        "command": [
+                          "sh"
+                        ],
+                        "env": [
+                          {
+                            "name": "SERVER_URL"
+                          }
+                        ],
+                        "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+                        "name": null,
+                        "ports": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.caller",
+          "mode": "managed",
+          "name": "caller",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      false
+                    ],
+                    "command": [
+                      false
+                    ],
+                    "env": [
+                      {},
+                      {}
+                    ],
+                    "ports": []
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "caller",
+            "project": "example-project",
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      "pause"
+                    ],
+                    "command": [
+                      "/agnhost"
+                    ],
+                    "env": [
+                      {
+                        "name": "LOG_LEVEL",
+                        "value": "info"
+                      },
+                      {
+                        "name": "SERVER_URL"
+                      }
+                    ],
+                    "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+                    "name": null
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.server",
+          "mode": "managed",
+          "name": "server",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      false,
+                      false
+                    ],
+                    "command": [
+                      false
+                    ],
+                    "env": [],
+                    "ports": [
+                      {}
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "server",
+            "project": "example-project",
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      "netexec",
+                      "--http-port=8080"
+                    ],
+                    "command": [
+                      "/agnhost"
+                    ],
+                    "env": [],
+                    "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+                    "name": null,
+                    "ports": [
+                      {
+                        "container_port": 8080,
+                        "name": "http1"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "address": "google_cloud_run_v2_service.stranger",
+          "mode": "managed",
+          "name": "stranger",
+          "provider_name": "registry.opentofu.org/hashicorp/google",
+          "sensitive_values": {
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      false
+                    ],
+                    "command": [
+                      false
+                    ],
+                    "env": [],
+                    "ports": []
+                  }
+                ]
+              }
+            ]
+          },
+          "type": "google_cloud_run_v2_service",
+          "values": {
+            "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+            "location": "us-central1",
+            "name": "stranger",
+            "project": "example-project",
+            "template": [
+              {
+                "containers": [
+                  {
+                    "args": [
+                      "pause"
+                    ],
+                    "command": [
+                      "/agnhost"
+                    ],
+                    "env": [],
+                    "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+                    "name": null
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

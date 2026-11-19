@@ -516,7 +516,9 @@ graph TB
 
 Two CI jobs apply the lowered output to a real cluster (kind, and kind with
 Knative) and observe the result: a declared caller connects, an undeclared
-pod is refused.
+pod is refused. One scenario starts further back, from a rendered Terraform
+plan: `inspect --draft` writes the `cluster.toml`, and it is lowered and
+applied with no edit.
 
 ## Bead store per repo
 
@@ -599,40 +601,38 @@ recipe lives in `melange.yaml` (APK build) + `apko.yaml` (image compose).
 
 ```mermaid
 graph TB
-    subgraph cloister_pkg ["cloister.tar — apko output"]
+    subgraph cloister_pkg ["cloister image (apko output)"]
         WD["/usr/bin/workerd"]
-        JS["/usr/share/cloister/index.js<br/>(wrangler build output)"]
-        CFG["/usr/share/cloister/config.capnp"]
-        DATA["/data (volume mount<br/>for DO SQLite)"]
+        JS["/usr/share/cloister/dist/index.js<br/>(the Worker bundle, with its wasm modules beside it)"]
+        CFG["/usr/share/cloister/dist/config.capnp"]
+        DATA["/data/do<br/>(volume mount for Durable Object SQLite)"]
         WD --- JS
         WD --- CFG
-        WD -.->|reads/writes| DATA
+        WD -.->|"reads / writes"| DATA
     end
 
-    subgraph rosary_pkg ["rosary apko image (permissive — separate)"]
-        RB["rosary binary"]
-        GIT["git"]
-        DOLT["dolt"]
+    subgraph others ["each backend's own image (ADR-0041)"]
+        RB["rosary · mache · ley-line-open · notme"]
     end
 
-    subgraph compose ["pod / compose"]
-        cloister_pkg -->|ROSARY_MCP_URL| rosary_pkg
-    end
+    cloister_pkg -->|"bindings and upstream URLs"| others
 ```
 
 What `task image` produces:
 
-- workerd binary + the wrangler-built JS bundle + `config.capnp`
-- no shell, no package manager, no subprocesses
-- runs as `uid 65532` (non-root)
-- entrypoint `workerd serve --experimental /usr/share/cloister/config.capnp`
-- two architectures: `x86_64` + `aarch64`
-- per-origin layering — same upstream packages share a layer, so updates
-  pull only the changed layer (~70% smaller deltas)
+- the workerd binary, the Worker bundle and `config.capnp`
+- no shell and no package manager
+- runs as uid 65532, not root
+- starts as `workerd serve --experimental /usr/share/cloister/dist/config.capnp`
+- declared for two architectures, `x86_64` and `aarch64`. A local
+  `task image` builds the host's only
+- packages from the same upstream share a layer, so an update pulls only the
+  layer that changed
 
-cloister's security profile is fully hardenable. rosary lives in its own
-image because it needs subprocess caps (git, dolt, claude-cli) and writable
-volumes.
+Each backend publishes its own image from its own repository (ADR-0041).
+Keeping them out of cloister's image is what lets cloister's stay this
+small: a backend that needs a shell, subprocesses or a writable volume has
+them in its image, not this one.
 
 `task image:check` parses `melange.yaml` + `apko.yaml` end-to-end without
 running a real build — useful in CI before bumping versions.

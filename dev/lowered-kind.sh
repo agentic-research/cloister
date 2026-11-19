@@ -11,7 +11,7 @@
 #   3. `kubectl apply` puts all of it on a kind cluster
 #   4. then the graph is observed, not assumed
 #
-# Two scenarios, chosen by the first argument:
+# Three scenarios, chosen by the first argument:
 #
 #   kubernetes (default)   test/e2e/lowered-kind/cluster.toml
 #       - the declared caller reaches the server at the address lowering wrote
@@ -24,6 +24,12 @@
 #       - a kubernetes pod reaches it over HTTP, through Knative's ingress
 #       - its own pod reaches a kubernetes Service (knative → kubernetes)
 #       - an undeclared pod is REFUSED by that kubernetes Service
+#
+#   drafted                test/e2e/drafted-kind/plan.show.json
+#       Nobody wrote this cluster.toml. `inspect --draft` writes it from a
+#       rendered Terraform plan, and it is lowered as drafted, unedited. The
+#       same three observations as `kubernetes`, so the whole path from a plan
+#       to an enforcing cluster is run, not only the last step of it.
 #
 # The refusals are the ones that matter. Without them this would pass on a
 # cluster that enforces nothing, and "strength: policy" would be a word.
@@ -41,7 +47,8 @@ SCENARIO="${1:-kubernetes}"
 case "$SCENARIO" in
   kubernetes) INPUT="test/e2e/lowered-kind/cluster.toml" ;;
   knative) INPUT="test/e2e/lowered-knative/cluster.toml" ;;
-  *) printf 'usage: dev/lowered-kind.sh [kubernetes|knative]\n' >&2; exit 2 ;;
+  drafted) INPUT="test/e2e/drafted-kind/plan.show.json" ;;
+  *) printf 'usage: dev/lowered-kind.sh [kubernetes|knative|drafted]\n' >&2; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -131,8 +138,23 @@ must_be_refused() { # <what> <namespace> <target> <host:port>
   echo "ok: $1"
 }
 
+if [ "$SCENARIO" = "drafted" ]; then
+  say "draft cluster.toml from the rendered plan"
+  # The env the plan describes is "prod"; "$ENV_NAME" is the second placement,
+  # the one lowered here. The draft is used exactly as written.
+  # `inspect` refuses a plan that git tracks, because a real rendered plan
+  # prints secrets. This fixture is a trimmed plan of public test images with
+  # none in it, so it is read from a copy outside the repository, which is
+  # what the refusal tells an operator to do.
+  cp "$ROOT/$INPUT" "$WORK/plan.json"
+  node "$ROOT/bin/cloister.mjs" inspect --terraform "$WORK/plan.json" --draft --name drafted-kind \
+    --env prod --local "$ENV_NAME" > "$WORK/cluster.toml"
+  cat "$WORK/cluster.toml"
+else
+  cp "$ROOT/$INPUT" "$WORK/cluster.toml"
+fi
+
 say "lower cluster.toml to manifests ($SCENARIO)"
-cp "$ROOT/$INPUT" "$WORK/cluster.toml"
 node "$ROOT/bin/cloister.mjs" cluster lower --dir "$WORK" --env "$ENV_NAME"
 
 say "check the manifests and write the NetworkPolicies"
@@ -168,7 +190,7 @@ for dir in "$WORK"/k8s/*/; do
   k apply -n "$bundle" -f "$dir"
 done
 
-if [ "$SCENARIO" = "kubernetes" ]; then
+if [ "$SCENARIO" != "knative" ]; then
   say "wait for the workloads"
   for bundle in server caller stranger; do
     k rollout status "deployment/$bundle" -n "$bundle" --timeout=180s

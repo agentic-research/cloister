@@ -19,6 +19,10 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   engine through `schema-bridge.lock.json`, mache (now v0.22.0) in the
   workflow.
 - `task test:lint-scripts` is now `task test:node`.
+- `dev/lowered-kind.sh drafted` runs the whole path on a real cluster: a
+  rendered Terraform plan is drafted into `cluster.toml`, lowered unedited,
+  applied to kind, and the graph is observed. It runs in the `lowered-kind`
+  CI job.
 - `docs/ARCHITECTURE.md` covers describing and checking a system, and was
   corrected where it had drifted.
 

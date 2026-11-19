@@ -384,6 +384,13 @@ jobs:
       - name: Lower, apply to kind, and observe the graph
         run: task smoke:lowered-kind
 
+      - name: The same from a Terraform plan nobody edited (draft, lower, apply, observe)
+        # The step above starts from a hand-written cluster.toml. This one
+        # starts from a rendered plan: `inspect --draft` writes cluster.toml,
+        # and it is lowered as drafted. Same job, because the tooling is the
+        # same and a second cluster is a minute and a half.
+        run: task smoke:lowered-drafted
+
   # The same, for the Knative lowering and for edges between the two
   # placements a cluster can hold. Separate from lowered-kind on purpose:
   # installing Knative is minutes of setup with its own ways to fail, and the
