@@ -136,6 +136,17 @@ test("a wire over HTTP is `capability` exactly when the rendered compose file pu
   assert.ok(tried >= 4, "the rendered clusters hold HTTP wires, so this ran");
 });
 
+test("a wire with an end compose does not run is carried nowhere, and says which end and why", () => {
+  const ext = (name, extra = {}, more = {}) => ({ name, kind: { external: { ipcSocket: "", httpPort: 0, ...extra } }, ...more });
+  const c = {
+    bundles: [ext("a"), ext("vm", { httpPort: 80, executionMode: "microvm" }, { placements: [{ env: "local", kind: "microvm" }] })],
+    wires: [{ from: "a", to: "vm", binding: "VM_URL", transport: "uds" }],
+  };
+  const edge = clusterGraph(c, "local").edges.find((e) => e.to === "vm");
+  assert.equal(edge.strength, "none");
+  assert.match(edge.why, /compose does not run "vm": it has placements, and none is for env "compose"/);
+});
+
 test("a wire over HTTP: held on a network of its own, and not when a namespace is shared or nothing answers", () => {
   const ext = (name, extra = {}) => ({ name, kind: { external: { ipcSocket: "", httpPort: 0, ...extra } } });
   const wire = (from, to) => ({ from, to, binding: `${to.toUpperCase().replace(/-/g, "_")}_URL`, transport: "uds" });

@@ -77,7 +77,13 @@ export function normalizePlacements(raw) {
 // ── Placements and channel strength (ADR-0070 §2–3) ──────────────────────
 
 /** Constructed: cloister builds the node. Forwarded: it owns only the edges. */
-export const CONSTRUCTED_KINDS = Object.freeze(["microvm", "workerd"]);
+export const CONSTRUCTED_KINDS = Object.freeze(["microvm", "workerd", "compose"]);
+
+/**
+ * The env `emit-compose` writes a compose file for. A bundle placed `compose`
+ * in this env is a service in that file (ADR-0070 §2 amendment 2026-11-19).
+ */
+export const COMPOSE_ENV = "compose";
 export const FORWARDED_KINDS = Object.freeze(["kubernetes", "knative", "cloudRun"]);
 export const PLACEMENT_KINDS = Object.freeze([...CONSTRUCTED_KINDS, ...FORWARDED_KINDS]);
 
@@ -142,10 +148,18 @@ export const joinable = (fromKind, toKind) => fromKind === toKind || JOINABLE.so
  * "microvm" in every env — the behaviour before placements existed, kept so a
  * cluster.toml that only says `executionMode = "microvm"` still lowers. Any
  * declared row turns the implicit default off for that bundle entirely.
+ *
+ * The same holds for the other thing cloister ran before placements existed:
+ * an external bundle with no rows that is NOT a microvm is implicitly
+ * "compose" in every env, because compose is what runs it. A workerd bundle
+ * runs inside the gateway and has no implicit placement.
  */
 export function placementFor(bundle, env) {
   const rows = bundle?.placements ?? [];
-  if (rows.length === 0) return bundle?.executionMode === "microvm" ? "microvm" : null;
+  if (rows.length === 0) {
+    if (bundle?.executionMode === "microvm") return "microvm";
+    return bundle?.kind === "external" ? "compose" : null;
+  }
   return rows.find((p) => p.env === env)?.kind ?? null;
 }
 
@@ -390,6 +404,13 @@ export function dnsLabelProblem(name) {
 export const CHANNEL_KINDS = Object.freeze(["microvm", ...FORWARDED_KINDS]);
 
 /**
+ * Placement kinds under which a declared port is lowered or checked: every
+ * channel kind, and `compose`, which publishes an `edge` port and leaves any
+ * other unpublished.
+ */
+export const PORT_KINDS = Object.freeze([...CHANNEL_KINDS, "compose"]);
+
+/**
  * Why bundle `b` cannot hold a channel end — in `env` when given (a
  * connection end), or in any env (an exposed port) — or null if it can.
  *
@@ -398,8 +419,10 @@ export const CHANNEL_KINDS = Object.freeze(["microvm", ...FORWARDED_KINDS]);
  * with no placement rows is placed implicitly only if it is an external
  * microvm bundle, so for it the old rule and message stand.
  *
- * The one exception is a port (no `env`) on an external bundle with no
- * placement: compose lowers it. See the comment in the body.
+ *
+ * `compose` is a placement that lowers a PORT (an `edge` port is published on
+ * the host's loopback) and not yet a CONNECTION: between compose bundles an
+ * edge is still written as a `[[wires]]` row (ADR-0075 §4.2).
  */
 function endpointProblem(b, env) {
   if (b.kind !== "external") {
@@ -408,22 +431,16 @@ function endpointProblem(b, env) {
       `connection from one — ADR-0033)`;
   }
   const rows = b.placements ?? [];
-  // A PORT on an external bundle with no placement is lowered by compose,
-  // which runs every external bundle whatever its executionMode: an `edge`
-  // port is published on the host's loopback, and any other is left
-  // unpublished (ADR-0069 amendment 2026-11-19). A CONNECTION end still needs
-  // a placement in its env, so `env` given keeps the refusal below.
-  if (rows.length === 0 && b.executionMode !== "microvm" && env === undefined) return null;
-  if (rows.length === 0 && b.executionMode !== "microvm") {
-    return `has executionMode ${JSON.stringify(b.executionMode)} and no placements; channels ` +
-      `are lowered only for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, ` +
-      `LLO) or bundles with a forwarded placement (${FORWARDED_KINDS.join(", ")})`;
-  }
   if (env !== undefined) {
     const kind = placementFor(b, env);
     if (kind === null) {
       return `has no placement for env "${env}" — declare a [[bundles.placements]] row ` +
-        `(only an executionMode "microvm" bundle with no rows is placed implicitly)`;
+        `(a bundle with no rows at all is placed implicitly: "microvm" if that is its executionMode, else "compose")`;
+    }
+    if (kind === "compose") {
+      return `is placed "compose" for env "${env}"${rows.length === 0 ? ` (implicitly: it has executionMode ${JSON.stringify(b.executionMode)} and no placements)` : ""}; ` +
+        `no emitter lowers a connection for a compose bundle yet. Between compose bundles, say the edge as a ` +
+        `[[wires]] row (ADR-0075 §4.2). A connection end must be placed ${oneOf(CHANNEL_KINDS)}`;
     }
     if (!CHANNEL_KINDS.includes(kind)) {
       return `is placed "${kind}" for env "${env}"; a channel end must be placed ` +
@@ -431,9 +448,9 @@ function endpointProblem(b, env) {
     }
     return null;
   }
-  const kinds = rows.length === 0 ? ["microvm"] : rows.map((r) => r.kind);
-  if (!kinds.some((k) => CHANNEL_KINDS.includes(k))) {
-    return `has no placement of kind ${oneOf(CHANNEL_KINDS)} (declared: ` +
+  const kinds = rows.length === 0 ? [placementFor(b)] : rows.map((r) => r.kind);
+  if (!kinds.some((k) => PORT_KINDS.includes(k))) {
+    return `has no placement of kind ${oneOf(PORT_KINDS)} (declared: ` +
       `${kinds.join(", ")}), so nothing would lower or check its channel`;
   }
   return null;
@@ -697,6 +714,9 @@ export function refuseNonMicrovm(label, kind, env) {
   }
   if (kind === "knative") {
     throw new Error(`${label} is placed "knative" for env "${env}"; check it with \`cloister cluster k8s\`. A knative placement is checked, never lowered or started`);
+  }
+  if (kind === "compose") {
+    throw new Error(`${label} is placed "compose" for env "${env}"; it is a service in the compose file \`cloister cluster generate\` writes, not something \`runtime plan\` lowers. A launch plan is for a bundle placed "microvm"`);
   }
   throw new Error(`${label} is placed "${kind}" for env "${env}", which is not lowered yet (ADR-0070 §4)`);
 }

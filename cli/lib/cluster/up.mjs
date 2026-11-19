@@ -65,6 +65,8 @@ export function startOrder(cluster, env) {
     if (kind === "microvm") started.push(b.name);
     else if (kind === "kubernetes") {
       skipped.push({ name: b.name, reason: `placed "kubernetes" for env "${env}"; deploy it with \`cloister cluster k8s --env ${env}\`` });
+    } else if (kind === "compose") {
+      skipped.push({ name: b.name, reason: `placed "compose" for env "${env}"; it is a service in the compose file \`cloister cluster generate\` writes` });
     } else if (kind === null) {
       skipped.push({ name: b.name, reason: `no microvm placement for env "${env}"` });
     } else {

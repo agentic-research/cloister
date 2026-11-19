@@ -201,20 +201,21 @@ should be reachable from outside. It now follows the rule above:
   The compose file carries a comment on each such service naming the port and
   the row that would publish it, so the absence is stated where it is read.
 
-For that to be expressible, a port may now be declared on any external
-bundle. It was refused on a `process` bundle with no placement, on the ground
-that nothing lowered it. Compose runs every external bundle whatever its
-`executionMode`, and lowers its ports as above, so that ground no longer
-holds. Two things are unchanged:
+For that to be expressible, a port may be declared on a bundle placed
+`compose`. It was refused on a `process` bundle with no placement, on the
+ground that nothing lowered it. Such a bundle is placed `compose`
+(ADR-0070 §2, amendment of the same date), and compose lowers its ports as
+above. Two things are unchanged:
 
-- A **connection** end still needs a placement in its env. A connection to
-  or from a `process` bundle with no placement is refused as before.
+- A **connection** cannot end at a compose bundle yet. It is refused by
+  name, pointing at `[[wires]]`.
 - `runtime plan` still refuses to lower a port for a bundle that is not
   `microvm`: it has no way to hand such a bundle a channel.
 
-Compose is not a placement kind. It runs the whole cluster, including a
-bundle whose placement is `microvm`, so it cannot be something one bundle is
-placed as in one env.
+This amendment first said compose was not a placement kind, because the
+emitter ran every bundle whatever its placement. That described the emitter,
+not a principle, and it was the inconsistency to remove: ADR-0070's amendment
+makes compose a placement and the emitter follow it.
 
 Two cases are refused or stated, not guessed: an `edge` port on the one
 bundle that runs inside the gateway's network namespace is refused, naming

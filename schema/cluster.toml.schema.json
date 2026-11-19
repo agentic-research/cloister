@@ -676,7 +676,7 @@
         },
         "kind": {
           "type": "string",
-          "description": "How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own."
+          "description": "How it runs. 'microvm', 'workerd' or 'compose': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own."
         },
         "manifest": {
           "type": "string",

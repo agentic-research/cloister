@@ -146,7 +146,8 @@ executionModeRationale = "test"
   assert.deepEqual(order, ["dolt", "orders"]);
   assert.deepEqual(skipped, [
     { name: "web", reason: 'placed "kubernetes" for env "local"; deploy it with `cloister cluster k8s --env local`' },
-    { name: "batch", reason: 'no microvm placement for env "local"' },
+    // An external bundle with no rows that is not a microvm is placed compose.
+    { name: "batch", reason: 'placed "compose" for env "local"; it is a service in the compose file `cloister cluster generate` writes' },
   ]);
 });
 

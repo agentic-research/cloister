@@ -8,6 +8,26 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `compose` is a placement kind
+
+- A bundle is placed `compose` in an env like any other placement:
+  `[[bundles.placements]] env = "compose", kind = "compose"`. The compose
+  file runs the external bundles placed `compose` for env `compose` and no
+  others, and its header names each one it does not run and why.
+- An external bundle with no placement rows that is not a microvm is placed
+  `compose` implicitly, as a microvm bundle with no rows is placed `microvm`.
+- **Compatibility:** a cluster in which no bundle declares any placement row
+  is emitted as before, with every external bundle run. The first placement
+  row anywhere ends that. From then on a microvm bundle is a compose service
+  only if it has a `compose` row, and a wire to one that does not is refused,
+  naming the row to add.
+- In this repository mache now says both: `microvm` for `local`, `compose`
+  for `compose`.
+- A connection to or from a compose bundle is still refused, now saying so
+  and pointing at `[[wires]]`. Several refusal messages changed wording.
+- `cluster up` and `runtime plan` name a compose bundle as one when they skip
+  or refuse it.
+
 ### 2026-11 — compose publishes a port only when it is declared `edge`
 
 - **Changed:** `emit-compose` no longer publishes a bundle's `httpPort` on

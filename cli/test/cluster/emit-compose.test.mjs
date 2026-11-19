@@ -880,3 +880,42 @@ test("emitCompose: the bundle in the gateway's namespace has no networks of its 
   assert.match(serviceBlock(yaml, "cloister-router"), /"MACHE_URL=http:\/\/127\.0\.0\.1:7532"/);
   assert.deepEqual(networksOf(yaml, "cloister-router"), ["solo-cloister-router"]);
 });
+
+// ── emitCompose: compose is a placement (ADR-0070 §2 amendment) ──────────
+
+const placed = (cluster, name, rows, executionMode) => {
+  const b = cluster.bundles.find((x) => x.name === name);
+  b.placements = rows.map(([env, kind]) => ({ env, kind, manifest: "", ports: [], name: "" }));
+  if (executionMode) b.kind = { external: { ...b.kind.external, executionMode } };
+  return cluster;
+};
+
+test("emitCompose: with no placement anywhere, every external bundle is run, and the file says that is why", () => {
+  const yaml = emitCompose(httpCluster({ a: 0, vm: 0 }, []));
+  assert.match(yaml, /^# No bundle declares a placement, so every external bundle is run here\.$/m);
+  assert.match(yaml, /^  a:$/m);
+  assert.match(yaml, /^  vm:$/m);
+});
+
+test("emitCompose: once a bundle declares a placement, only bundles placed compose for the compose env are run", () => {
+  const cluster = httpCluster({ a: 0, vm: 0, k8s: 0, elsewhere: 0, both: 0 }, []);
+  placed(cluster, "vm", [], "microvm");                                   // implicitly microvm
+  placed(cluster, "k8s", [["compose", "kubernetes"]]);
+  placed(cluster, "elsewhere", [["prod", "compose"]]);                    // compose, but not in this env
+  placed(cluster, "both", [["local", "microvm"], ["compose", "compose"]], "microvm");
+  const yaml = emitCompose(cluster);
+  assert.match(yaml, /^# Runs the bundles placed "compose" for env "compose"\.$/m);
+  assert.match(yaml, /^  a:$/m, "an external bundle with no rows that is not a microvm is placed compose");
+  assert.match(yaml, /^  both:$/m, "a bundle may be a microvm in one env and a compose service in another");
+  for (const name of ["vm", "k8s", "elsewhere"]) assert.doesNotMatch(yaml, new RegExp(`^  ${name}:$`, "m"), `${name} is not a service`);
+  assert.match(yaml, /^# Not run: vm — it is placed "microvm" for env "compose" \(implicitly, from its executionMode\)\.$/m);
+  assert.match(yaml, /^# Not run: k8s — it is placed "kubernetes" for env "compose"\.$/m);
+  assert.match(yaml, /^# Not run: elsewhere — it has placements, and none is for env "compose"\.$/m);
+  assert.doesNotMatch(yaml, /solo-vm|solo-k8s|solo-elsewhere/, "a bundle that is not run is on no network");
+});
+
+test("emitCompose: a wire to a bundle compose does not run is refused, naming the row that would run it", () => {
+  const cluster = httpCluster({ a: 0, vm: 8080 }, [["a", "vm"]]);
+  placed(cluster, "vm", [["local", "microvm"]], "microvm");
+  assert.throws(() => emitCompose(cluster), /wire "VM_URL" \(a → vm\) has an end compose does not run: "vm" is not a service here because it has placements, and none is for env "compose"\. Add `\[\[bundles\.placements\]\] env = "compose", kind = "compose"` to "vm"/);
+});

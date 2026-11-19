@@ -4,6 +4,8 @@
 # Cluster: art-default v0.1.0
 # 5 bundle(s), 5 wire(s)
 # 5 input(s); tenancy resolved per ADR-0030 §A5
+#
+# Runs the bundles placed "compose" for env "compose".
 
 name: art-default
 

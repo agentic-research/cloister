@@ -20,6 +20,12 @@
 #                             a directory of its own: caller reaches both,
 #                             and neither tenant can open the other's socket
 #
+# Compose is a placement (ADR-0070 §2 amendment). Every bundle here but one
+# has no placement rows and is not a microvm, so it is placed compose:
+#
+#   elsewhere                 placed kubernetes for env "prod" and nothing for
+#                             the compose env: it is not started at all
+#
 # And over HTTP (ADR-0075 §6):
 #
 #   caller    ──▶ web         declared, on a network of the two alone: caller
@@ -133,6 +139,19 @@ tier = "cluster"
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
 args = ["python3", "-m", "http.server", "18081"]
 httpPort = 18081
+
+[[bundles]]
+name = "elsewhere"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
+
+[[bundles.placements]]
+env = "prod"
+kind = "kubernetes"
 
 [[bundles]]
 name = "cloister-router"

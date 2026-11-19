@@ -4,6 +4,9 @@
 # Cluster: art-default v0.1.0
 # 4 bundle(s), 3 wire(s)
 # 1 input(s); tenancy resolved per ADR-0030 §A5
+#
+# No bundle declares a placement, so every external bundle is run here.
+# Once one does, only bundles placed "compose" for env "compose" are.
 
 name: art-default
 

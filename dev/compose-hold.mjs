@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 
 import { emitCompose } from "../cli/lib/cluster/emit-compose.mjs";
 import { clusterGraph, renderGraph } from "../cli/lib/cluster/graph.mjs";
+import { composeView } from "../cli/lib/cluster/compose-placement.mjs";
 import { PUBLISH_ADDRESS, edgePortsOf, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
 import { bundleServices, socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
 import { parseTomlToCluster } from "../cli/lib/cluster/toml-to-cluster.mjs";
@@ -48,11 +49,12 @@ const INPUT = join(ROOT, "test/e2e/compose-hold/cluster.toml");
 const say = (line) => console.log(`compose-hold: ${line}`);
 const fail = (line) => { console.error(`compose-hold: FAIL: ${line}`); process.exitCode = 1; };
 
-const cluster = await parseTomlToCluster(readFileSync(INPUT, "utf8"));
-const graph = clusterGraph(cluster, "local");
+const declared = await parseTomlToCluster(readFileSync(INPUT, "utf8"));
+const graph = clusterGraph(declared, "local");
+const view = composeView(declared);
 const work = mkdtempSync(join(tmpdir(), "cloister-compose-hold-"));
 const file = join(work, "cluster.compose.yaml");
-writeFileSync(file, emitCompose(cluster));
+writeFileSync(file, emitCompose(declared));
 say(`wrote ${file}`);
 console.log(renderGraph(graph));
 
@@ -96,20 +98,34 @@ function gatewayOf(service) {
 }
 
 // The emitter writes `pull_policy: never`, so the images are fetched here.
-for (const image of new Set(cluster.bundles.map((b) => b.kind.external.image))) {
+for (const image of new Set(view.cluster.bundles.map((b) => b.kind.external.image))) {
   say(`pulling ${image}`);
   execFileSync("docker", ["pull", "--quiet", image], { stdio: "inherit" });
 }
 
 let refusals = 0;
 let namedEntries = 0;
-let declared = 0;
+let declaredOk = 0;
 let published = 0;
 let unpublished = 0;
 try {
   compose("up", "--detach", "--wait");
-  const plan = socketPlan(cluster);
   const services = compose("config", "--services").split("\n").filter(Boolean).sort();
+
+  // Compose is a placement: what is running is what the view says, no more.
+  const running = compose("ps", "--services", "--status", "running").split("\n").filter(Boolean).sort();
+  const expected = [...bundleServices(view.cluster).values()].flat().sort();
+  if (JSON.stringify(running) === JSON.stringify(expected)) say(`ok    running            ${running.length} services, the bundles placed compose`);
+  else fail(`running services [${running.join(", ")}] are not the bundles placed compose [${expected.join(", ")}]`);
+  if (view.skipped.length === 0) fail("the fixture has no bundle placed elsewhere, so NOT running one was not tried");
+  for (const s of view.skipped) {
+    if (running.includes(s.name) || services.includes(s.name)) fail(`"${s.name}" is a service, and ${s.reason}`);
+    else say(`ok    not run            ${s.name}: ${s.reason}`);
+  }
+
+  // From here on, the cluster is the one compose runs.
+  const cluster = view.cluster;
+  const plan = socketPlan(cluster);
 
   // A listener binds a moment after its container starts. Wait for each from
   // inside its OWN container, which holds the directory whatever else is true.
@@ -131,7 +147,7 @@ try {
       const got = attempt(service, reach.path);
       const line = `${service} → ${reach.path} (wire ${wire.binding}): ${got}`;
       if (reach.callers.includes(service)) {
-        if (got === "connected:ok") { declared += 1; say(`ok    declared caller    ${line}`); }
+        if (got === "connected:ok") { declaredOk += 1; say(`ok    declared caller    ${line}`); }
         else fail(`a declared caller could not connect: ${line}`);
       } else if (edge.strength === "capability") {
         if (got === "refused:FileNotFoundError") { refusals += 1; say(`ok    refused, no path   ${line}`); }
@@ -187,7 +203,7 @@ try {
       const byName = fetchFrom(service, `http://${target}:${port}/`);
       const line = `${service} → http://${target}:${port} : ${byName}`;
       if (allowed.has(service)) {
-        if (byName === "http:200") { declared += 1; say(`ok    declared caller    ${line}`); }
+        if (byName === "http:200") { declaredOk += 1; say(`ok    declared caller    ${line}`); }
         else fail(`a declared caller got no page: ${line}`);
       } else if (named.has(service)) {
         if (byName === "http:200") { namedEntries += 1; say(`ok    open, as stated    ${line}`); }
@@ -221,7 +237,7 @@ try {
       else fail(`tenant instance "${mine.service}" got "${got}" on another tenant's socket ${theirs.path}`);
     }
   }
-  if (declared === 0) fail("no declared caller was tried");
+  if (declaredOk === 0) fail("no declared caller was tried");
   if (refusals === 0) fail("no refusal was observed, so `capability` was not tested");
   if (namedEntries === 0) fail("no bundle the graph names as able to open a shared directory was tried, so `none` was not tested");
 } catch (error) {
@@ -231,4 +247,4 @@ try {
   if (process.env.KEEP_CLUSTER === "1") say(`left up: docker compose -f ${file} down -v`);
   else compose("down", "--volumes", "--timeout", "1");
 }
-if (process.exitCode !== 1) say(`passed: ${declared} declared, ${refusals} refused, ${namedEntries} open as the graph states`);
+if (process.exitCode !== 1) say(`passed: ${declaredOk} declared, ${refusals} refused, ${namedEntries} open as the graph states`);

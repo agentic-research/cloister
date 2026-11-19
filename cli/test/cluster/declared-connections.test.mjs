@@ -361,22 +361,23 @@ test("a socket path over 103 bytes is refused, naming it", async () => {
 
 // ── Endpoint rules are build-time (S1 / N1) ──────────────────────────────
 
-// A port on a process bundle is lowered by compose, which runs every external
-// bundle: `edge` is published on the host's loopback, anything else is not
-// (ADR-0069 amendment 2026-11-19). What is still refused is handing such a
-// bundle a CHANNEL: `runtime plan` cannot, and a connection cannot end there.
+// An external bundle with no placement rows that is not a microvm is placed
+// `compose` (ADR-0070 §2 amendment 2026-11-19). Compose lowers its PORTS:
+// `edge` is published on the host's loopback, anything else is not. What is
+// still refused is handing it a CHANNEL: `runtime plan` cannot, and a
+// connection cannot end there yet.
 test("cluster:toml accepts a port on a process bundle, and runtime plan still refuses to lower it", async () => {
   const toml = fixtureToml({ ordersMode: "process", connections: "" });
   const cluster = await parseTomlToCluster(toml);
   assert.equal(cluster.bundles.find((b) => b.name === "orders").ports[0].name, "grpc");
-  await assert.rejects(plan(toml, "orders"), /bundle "orders" declares ports or connections but its executionMode is "process"/);
+  await assert.rejects(plan(toml, "orders"), /bundle "orders" is placed "compose" for env "local"; it is a service in the compose file `cloister cluster generate` writes, not something `runtime plan` lowers/);
 });
 
 test("cluster:toml refuses a connection whose target is a process bundle", async () => {
   const toml = fixtureToml({ doltMode: "process" }).replace('expose = "cluster"', 'expose = "none"');
   // dolt's only port is now unexposed, so the target-port check fires first;
   // keep it exposed and the port check names dolt as an endpoint instead.
-  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" is the target of connection "orders-db" but has executionMode "process" and no placements/);
+  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" is the target of connection "orders-db" but is placed "compose" for env "local" \(implicitly: it has executionMode "process" and no placements\); no emitter lowers a connection for a compose bundle yet\. Between compose bundles, say the edge as a \[\[wires\]\] row/);
   await assert.rejects(parseTomlToCluster(toml), /port "dolt.mysql" has expose "none"/);
 });
 
@@ -385,7 +386,7 @@ test("cluster:toml refuses an outbound connection from a process bundle", async 
     'name = "grpc"\nport = 50051\nappProtocol = "art.grpc"\nexpose = "cluster"',
     'name = "grpc"\nport = 50051\nappProtocol = "art.grpc"\nexpose = "none"',
   );
-  await assert.rejects(parseTomlToCluster(toml), /bundle "orders" is the from of connection "orders-db" but has executionMode "process"/);
+  await assert.rejects(parseTomlToCluster(toml), /bundle "orders" is the from of connection "orders-db" but is placed "compose" for env "local"/);
 });
 
 const WORKERD_DIALLER = `
@@ -436,7 +437,7 @@ test("the emitter keeps its process refusal as defense in depth", () => {
   const bundles = [{ name: "orders", kind: "external", executionMode: "process", ports: [{ name: "grpc", port: 50051, appProtocol: "art.grpc", expose: "cluster" }] }];
   assert.throws(
     () => lowerChannelGrants(bundles, [], { bundle: "orders", env: "local", channelDir: CH }),
-    /executionMode is "process": confinement\/v1 §6 guestPort presentation is microVM-only \(LLO\)/,
+    /bundle "orders" is placed "compose" for env "local"; it is a service in the compose file/,
   );
 });
 
