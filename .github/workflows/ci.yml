@@ -392,12 +392,13 @@ jobs:
         run: task smoke:lowered-drafted
 
   # What `cloister cluster graph` says about a wire under compose, checked
-  # against running containers (ADR-0075 §4.1). `emit-compose` gives each
+  # against running containers (ADR-0075 §5). `emit-compose` gives each
   # socket directory its own volume and mounts it only into the bundles that
   # bind there or have a wire to one that does. This starts a small cluster
   # and has EVERY bundle try EVERY wired socket: the declared caller connects,
   # a bundle with no wire finds no such path, and where the graph says `none`
-  # the bundle it names really gets in. It also has docker parse every compose
+  # the bundle it names really gets in. Two tenants of one bundle each try the
+  # other's socket and are refused. It also has docker parse every compose
   # file this repository commits. docker and its compose plugin ship on the
   # runner image.
   compose-hold:

@@ -31,7 +31,7 @@ import {
   placementFor,
   placementManifest,
 } from "./connections.mjs";
-import { socketDirs, socketExposure } from "./socket-dirs.mjs";
+import { socketExposure, socketPlan } from "./socket-dirs.mjs";
 
 /** The placement a wire runs in: what `cloister cluster up` starts. */
 export const WIRE_PLACEMENT = "compose";
@@ -46,38 +46,40 @@ const quoted = (names) => names.map((name) => `"${name}"`).join(" and ");
  * is read from `socket-dirs.mjs`, the function the emitter mounts volumes
  * from, so this cannot describe a compose file other than the one written.
  *
- * A wire is `capability` only when every container that mounts the target's
- * socket directory is the target or one of its declared callers. Any other
- * holder, and the answer is `none` with that holder named.
+ * A wire is `capability` only when every container that mounts the socket's
+ * directory binds that socket or is handed it by a wire. Any other holder,
+ * and the answer is `none` with that holder named. A `perTenant` target is
+ * one container per tenant, each in a directory of its own, so a wire that
+ * reaches one tenant is judged against that tenant's directory.
  *
  * The bundle-isolation rails (Inv 1, 4, 5) hold the WORKER's bindings to the
  * wires, which is a different thing: they bound what the gateway's own code
  * can name, not what a container beside it can dial.
  */
-function wireReach(cluster, wire, declared, dirs) {
+function wireReach(wire, declared, plan) {
   const target = declared.get(wire.to);
   const source = declared.get(wire.from);
   const external = target?.kind?.external;
   if (external?.ipcSocket) {
-    const over = `socket ${external.ipcSocket}`;
     if (!(source?.kind && "external" in source.kind)) {
-      return { over, strength: "none", why: `"${wire.from}" has no container of its own, so compose mounts the socket's directory into nothing for it and hands it no address` };
+      return { over: `socket ${external.ipcSocket}`, strength: "none", why: `"${wire.from}" has no container of its own, so compose mounts the socket's directory into nothing for it and hands it no address` };
     }
-    const { dir, callers, undeclared } = socketExposure(cluster, wire.to, dirs);
+    const { path, dir, bound, callers, undeclared } = socketExposure(wire, plan);
+    const over = `socket ${path}`;
+    if (bound.length === 0) {
+      return { over, strength: "none", why: `several tenants share the binding "${wire.binding}", so compose hands "${wire.from}" the bundle's declared socket, and no tenant's instance binds it: what answers there is the operator's own dispatch` };
+    }
     if (undeclared.length) {
       return {
         over,
         strength: "none",
-        why: `${quoted(undeclared)} also ${undeclared.length === 1 ? "mounts" : "mount"} ${dir} (for a socket of ${undeclared.length === 1 ? "its" : "their"} own there, or a wire to another bundle that binds there) with no wire to "${wire.to}", and can open this socket. A directory of its own would hold it`,
+        why: `${quoted(undeclared)} also ${undeclared.length === 1 ? "mounts" : "mount"} ${dir} (for a socket of ${undeclared.length === 1 ? "its" : "their"} own there, or a wire to another bundle that binds there) with no wire to this socket, and can open it. A directory of its own would hold it`,
       };
-    }
-    if (target.perTenant === true) {
-      return { over, strength: "none", why: `every tenant's instance of "${wire.to}" binds in ${dir}, so one tenant's instance can open another's socket` };
     }
     return {
       over,
       strength: "capability",
-      why: `${dir} is mounted only into "${wire.to}" and its declared ${callers.length === 1 ? "caller" : "callers"} ${quoted(callers)}: a bundle with no wire has no path to the socket. A caller that relays requests extends this to whoever can reach it, which is that caller's own edge`,
+      why: `${dir} is mounted only into ${quoted(bound)} and its declared ${callers.length === 1 ? "caller" : "callers"} ${quoted(callers)}: a bundle with no wire has no path to the socket. A caller that relays requests extends this to whoever can reach it, which is that caller's own edge`,
     };
   }
   if (external?.httpPort > 0) {
@@ -151,9 +153,9 @@ export function clusterGraph(cluster, env) {
   }
 
   const declared = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
-  const dirs = socketDirs(cluster);
+  const plan = socketPlan(cluster);
   for (const w of cluster.wires ?? []) {
-    const reach = wireReach(cluster, w, declared, dirs);
+    const reach = wireReach(w, declared, plan);
     edges.push({
       from: w.from,
       to: w.to,

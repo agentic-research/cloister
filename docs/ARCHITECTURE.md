@@ -69,9 +69,8 @@ Stated here because a reader would otherwise find them one at a time
   gateway's own edges are `[[wires]]`; everything else is `[[connections]]`.
   `cluster graph` shows both, but a wire cannot yet ask for a `minStrength`.
 - **A wire under compose is held only for a socket in its own directory.**
-  A target reached over HTTP is not held, tenant instances of one bundle
-  still share a directory, and a caller that relays (the companion) extends
-  its reach to whoever can reach it. `cluster graph` says which, and
+  A target reached over HTTP is not held, and a caller that relays (the
+  companion) extends its reach to whoever can reach it. `cluster graph` says which, and
   `task smoke:compose-hold` tries it against running containers.
 - **workerd is not credited.** A binding is the strongest boundary here, and
   its strength reads `none` until a connection is lowered to one and checked.

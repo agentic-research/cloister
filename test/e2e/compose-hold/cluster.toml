@@ -2,17 +2,23 @@
 # cluster that is emitted as a compose file, started, and then tried.
 #
 # It exists to show that what `cloister cluster graph` says about a wire under
-# compose is true of running containers (ADR-0075 §4.1). Each bundle is one
+# compose is true of running containers (ADR-0075 §5). Each bundle is one
 # public Python image that either serves a Unix socket or does nothing.
 #
 #   caller    ──▶ listener    declared, and listener has a directory of its
-#                             own: caller connects, no one else can
+#                             own: caller connects, no one else can.
+#                             caller also binds a socket of its own in the
+#                             directory ABOVE listener's, the shape the
+#                             gateway has in this repository's cluster
 #   bystander  ✗  listener    binds its own socket elsewhere, has no wire:
 #                             the path does not exist in its container
 #   idle       ✗  listener    binds nothing, dials nothing: the same
 #   caller    ──▶ shared-a    declared, but shared-b binds in the same
 #                             directory: the graph says `none` and names
 #                             shared-b, and shared-b really can connect
+#   caller    ──▶ tenant      one container per tenant (alice, bob), each in
+#                             a directory of its own: caller reaches both,
+#                             and neither tenant can open the other's socket
 
 [metadata]
 name = "compose-hold"
@@ -27,7 +33,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
-args = ["python3", "-c", "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/listener/l.sock"]
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/listener/l.sock"]
 ipcSocket = "/run/hold/listener/l.sock"
 
 [[bundles]]
@@ -37,7 +43,8 @@ tier = "cluster"
 
 [bundles.external]
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
-args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/caller.sock"]
+ipcSocket = "/run/hold/caller.sock"
 
 [[bundles]]
 name = "bystander"
@@ -46,7 +53,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
-args = ["python3", "-c", "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/bystander/b.sock"]
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/bystander/b.sock"]
 ipcSocket = "/run/hold/bystander/b.sock"
 
 [[bundles]]
@@ -65,7 +72,7 @@ tier = "cluster"
 
 [bundles.external]
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
-args = ["python3", "-c", "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/shared/a.sock"]
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/shared/a.sock"]
 ipcSocket = "/run/hold/shared/a.sock"
 
 [[bundles]]
@@ -75,8 +82,19 @@ tier = "cluster"
 
 [bundles.external]
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
-args = ["python3", "-c", "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/shared/b.sock"]
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/shared/b.sock"]
 ipcSocket = "/run/hold/shared/b.sock"
+
+[[bundles]]
+name = "tenant"
+kind = "external"
+tier = "cluster"
+perTenant = true
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/tenant/t.sock"]
+ipcSocket = "/run/hold/tenant/t.sock"
 
 [[wires]]
 binding = "LISTENER_SOCK"
@@ -89,3 +107,31 @@ binding = "SHARED_A_SOCK"
 from = "caller"
 to = "shared-a"
 transport = "uds"
+
+[[wires]]
+binding = "T_ALICE"
+from = "caller"
+to = "tenant"
+transport = "uds"
+
+[[wires]]
+binding = "T_BOB"
+from = "caller"
+to = "tenant"
+transport = "uds"
+
+[[routes]]
+kind = "tenantDispatch"
+path = "/"
+
+[[routes.tenantDispatch.tenants]]
+binding = "T_ALICE"
+matchValue = "alice.example"
+mode = "sni"
+name = "alice"
+
+[[routes.tenantDispatch.tenants]]
+binding = "T_BOB"
+matchValue = "/t/bob"
+mode = "path-prefix"
+name = "bob"

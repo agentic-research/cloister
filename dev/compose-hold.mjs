@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // dev/compose-hold.mjs — start what `emit-compose` writes, and see that the
-// graph's word for each wire is true of running containers (ADR-0075 §4.1).
+// graph's word for each wire is true of running containers (ADR-0075 §5).
 //
 // Every other test of this stops at the YAML. This one runs it:
 //
 //   1. test/e2e/compose-hold/cluster.toml is emitted as a compose file
 //   2. `docker compose up` starts it
-//   3. for every wire to a socket, EVERY other bundle tries to connect
+//   3. for every wire to a socket, EVERY other container tries to connect
 //
 // (and, first, docker parses every compose file the repository commits)
 //
@@ -19,6 +19,7 @@
 //     and refused because the path does not exist in its container
 //   - where the graph says `none` and names who else can open the socket,
 //     that bundle really can
+//   - one tenant's instance of a `perTenant` bundle cannot open another's
 //
 // The refusals are what matter. Without them this would pass on a compose
 // file that mounts everything everywhere, and `capability` would be a word.
@@ -35,6 +36,7 @@ import { fileURLToPath } from "node:url";
 
 import { emitCompose } from "../cli/lib/cluster/emit-compose.mjs";
 import { clusterGraph, renderGraph } from "../cli/lib/cluster/graph.mjs";
+import { socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
 import { parseTomlToCluster } from "../cli/lib/cluster/toml-to-cluster.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -84,41 +86,54 @@ let namedEntries = 0;
 let declared = 0;
 try {
   compose("up", "--detach", "--wait");
-  const sockets = new Map(cluster.bundles.filter((b) => b.kind.external.ipcSocket).map((b) => [b.name, b.kind.external.ipcSocket]));
+  const plan = socketPlan(cluster);
+  const services = compose("config", "--services").split("\n").filter(Boolean).sort();
 
   // A listener binds a moment after its container starts. Wait for each from
   // inside its OWN container, which holds the directory whatever else is true.
-  for (const [name, path] of sockets) {
+  for (const { service, path } of plan.binds) {
     const deadline = Date.now() + 30_000;
-    while (attempt(name, path) !== "connected:ok") {
-      if (Date.now() > deadline) throw new Error(`"${name}" never served ${path}`);
+    while (attempt(service, path) !== "connected:ok") {
+      if (Date.now() > deadline) throw new Error(`"${service}" never served ${path}`);
       await new Promise((r) => setTimeout(r, 250));
     }
   }
 
-  for (const target of new Set(cluster.wires.map((w) => w.to))) {
-    const path = sockets.get(target);
-    if (!path) continue;
-    const callers = cluster.wires.filter((w) => w.to === target).map((w) => w.from);
-    const edge = graph.edges.find((e) => e.declaredAs === "wire" && e.to === target);
-    for (const b of cluster.bundles) {
-      if (b.name === target) continue;
-      const got = attempt(b.name, path);
-      const line = `${b.name} → ${target} (${path}): ${got}`;
-      if (callers.includes(b.name)) {
+  // Every socket path a wire hands out, tried from EVERY service.
+  for (const wire of cluster.wires) {
+    const reach = socketExposure(wire, plan);
+    if (!reach) continue;
+    const edge = graph.edges.find((e) => e.declaredAs === "wire" && e.from === wire.from && e.to === wire.to && e.name === wire.binding);
+    for (const service of services) {
+      if (reach.bound.includes(service)) continue;
+      const got = attempt(service, reach.path);
+      const line = `${service} → ${reach.path} (wire ${wire.binding}): ${got}`;
+      if (reach.callers.includes(service)) {
         if (got === "connected:ok") { declared += 1; say(`ok    declared caller    ${line}`); }
         else fail(`a declared caller could not connect: ${line}`);
       } else if (edge.strength === "capability") {
         if (got === "refused:FileNotFoundError") { refusals += 1; say(`ok    refused, no path   ${line}`); }
-        else fail(`the graph says "capability", and a bundle with no wire got "${got}": ${line}`);
-      } else if (edge.why.includes(`"${b.name}"`)) {
+        else fail(`the graph says "capability", and a service with no wire got "${got}": ${line}`);
+      } else if (edge.why.includes(`"${service}"`)) {
         if (got === "connected:ok") { namedEntries += 1; say(`ok    open, as stated    ${line}`); }
-        else fail(`the graph names "${b.name}" as able to open this socket, and it could not: ${line}`);
+        else fail(`the graph names "${service}" as able to open this socket, and it could not: ${line}`);
       } else if (got === "refused:FileNotFoundError") {
         say(`ok    refused, no path   ${line}`);
       } else {
-        fail(`"${b.name}" opened a socket the graph does not say it can: ${line}`);
+        fail(`"${service}" opened a socket the graph does not say it can: ${line}`);
       }
+    }
+  }
+  // The claim that matters most for tenants, stated on its own so that a
+  // fixture without two tenants cannot pass it by having nothing to try.
+  const tenantBinds = plan.binds.filter((b) => b.tenant !== "");
+  if (tenantBinds.length < 2) fail("the fixture has fewer than two tenant instances, so tenants were not tried against each other");
+  for (const mine of tenantBinds) {
+    for (const theirs of tenantBinds) {
+      if (mine === theirs) continue;
+      const got = attempt(mine.service, theirs.path);
+      if (got === "refused:FileNotFoundError") say(`ok    tenant kept out    ${mine.service} → ${theirs.path}: ${got}`);
+      else fail(`tenant instance "${mine.service}" got "${got}" on another tenant's socket ${theirs.path}`);
     }
   }
   if (declared === 0) fail("no declared caller was tried");

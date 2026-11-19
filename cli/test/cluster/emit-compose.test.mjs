@@ -581,7 +581,7 @@ test("emitCompose: per-tenant binding shape → router env rewritten with per-te
   // distinct bindings (T_APP_ALICE, T_APP_BOB). Each wire's binding
   // matches exactly one dispatch row, so the source-side env emit
   // derives a per-tenant socket: /run/cloister-uds/tenant.sock →
-  // /run/cloister-uds/tenant.alice.sock (and tenant.bob.sock).
+  // /run/cloister-uds/alice/tenant.sock (and bob/tenant.sock).
   const cluster = perTenantCluster([
     { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP_ALICE" },
     { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP_BOB" },
@@ -594,9 +594,9 @@ test("emitCompose: per-tenant binding shape → router env rewritten with per-te
   const routerIdx = yaml.indexOf("cloister-router:");
   const firstTenantIdx = yaml.indexOf("\n  tenant-app-", routerIdx);
   const routerBlock = yaml.slice(routerIdx, firstTenantIdx);
-  assert.ok(routerBlock.includes('"T_APP_ALICE=/run/cloister-uds/tenant.alice.sock"'),
+  assert.ok(routerBlock.includes('"T_APP_ALICE=/run/cloister-uds/alice/tenant.sock"'),
     `T_APP_ALICE should resolve to alice's socket:\n${routerBlock}`);
-  assert.ok(routerBlock.includes('"T_APP_BOB=/run/cloister-uds/tenant.bob.sock"'),
+  assert.ok(routerBlock.includes('"T_APP_BOB=/run/cloister-uds/bob/tenant.sock"'),
     `T_APP_BOB should resolve to bob's socket:\n${routerBlock}`);
 });
 
@@ -610,7 +610,7 @@ test("emitCompose: per-tenant container gets TENANT_SOCKET env matching the deri
   const aliceIdx = yaml.indexOf("tenant-app-alice:");
   const nextSvcIdx = yaml.indexOf("\nvolumes:", aliceIdx);
   const aliceBlock = yaml.slice(aliceIdx, nextSvcIdx);
-  assert.ok(aliceBlock.includes('"TENANT_SOCKET=/run/cloister-uds/tenant.alice.sock"'),
+  assert.ok(aliceBlock.includes('"TENANT_SOCKET=/run/cloister-uds/alice/tenant.sock"'),
     `tenant-app-alice block should declare TENANT_SOCKET:\n${aliceBlock}`);
 });
 
@@ -648,10 +648,9 @@ test("emitCompose: non-perTenant bundle does NOT get a per-tenant DO volume (sin
   assert.ok(!yaml.includes("cloister-do-"), `single-emission should not declare per-tenant volumes:\n${yaml}`);
 });
 
-test("emitCompose: per-tenant socket derivation handles base path with no extension", () => {
-  // Edge: bundle ipcSocket has no .ext (rare but legal — a bare socket
-  // name). Tenant tag should append with `.` separator rather than
-  // injecting before a non-existent extension.
+test("emitCompose: a tenant's socket keeps the bundle's file name, whatever that name is", () => {
+  // The tenant is a directory, not a tag in the file name, so a socket
+  // with no extension needs no special case.
   const cluster = perTenantCluster([
     { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP_ALICE" },
   ]);
@@ -660,10 +659,33 @@ test("emitCompose: per-tenant socket derivation handles base path with no extens
     { from: "cloister-router", to: "tenant-app", binding: "T_APP_ALICE", transport: { uds: null } },
   ];
   const yaml = emitCompose(cluster);
-  assert.ok(yaml.includes('"T_APP_ALICE=/run/cloister-uds/bare.alice"'),
-    `bare base + tenant should append with .: ${yaml.slice(yaml.indexOf("cloister-router:"), yaml.indexOf("\n  tenant-app"))}`);
-  assert.ok(yaml.includes('"TENANT_SOCKET=/run/cloister-uds/bare.alice"'),
-    `TENANT_SOCKET should match`);
+  assert.ok(yaml.includes('"T_APP_ALICE=/run/cloister-uds/alice/bare"'), yaml);
+  assert.ok(yaml.includes('"TENANT_SOCKET=/run/cloister-uds/alice/bare"'), "TENANT_SOCKET is the path the router is handed");
+});
+
+test("emitCompose: each tenant's instance mounts its own socket directory and no other tenant's", () => {
+  const cluster = perTenantCluster([
+    { name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP_ALICE" },
+    { name: "bob",   mode: "path-prefix", matchValue: "/t/bob", binding: "T_APP_BOB" },
+  ]);
+  cluster.wires = [
+    { from: "cloister-router", to: "tenant-app", binding: "T_APP_ALICE", transport: { uds: null } },
+    { from: "cloister-router", to: "tenant-app", binding: "T_APP_BOB",   transport: { uds: null } },
+  ];
+  const yaml = emitCompose(cluster);
+  assert.deepEqual(mountsOf(yaml, "tenant-app-alice"), ["uds-run-cloister-uds-alice:/run/cloister-uds/alice"]);
+  assert.deepEqual(mountsOf(yaml, "tenant-app-bob"), ["uds-run-cloister-uds-bob:/run/cloister-uds/bob"]);
+  assert.deepEqual(mountsOf(yaml, "cloister-router"), [
+    "uds-run-cloister-uds:/run/cloister-uds",
+    "uds-run-cloister-uds-alice:/run/cloister-uds/alice",
+    "uds-run-cloister-uds-bob:/run/cloister-uds/bob",
+  ]);
+});
+
+test("emitCompose: a tenant name that cannot be a directory is refused", () => {
+  for (const name of ["a/b", "..", "a b"]) {
+    assert.throws(() => emitCompose(perTenantCluster([{ name, mode: "sni", matchValue: "x.example", binding: "T_APP" }])), /cannot name a socket directory/, name);
+  }
 });
 
 // ── ADR-0038: derive bundle image from a linked input's packages[].oci ────
