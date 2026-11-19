@@ -98,7 +98,7 @@ per-bundle "digest mandatory in non-dev mode" knob is a future ADR concern
 ## Tests
 
 `test/nono-isolation.test.mjs` (node:test, part of `task lint` via
-`test:lint-scripts`; skips when the nono CLI isn't installed, otherwise
+`test:node`; skips when the nono CLI isn't installed, otherwise
 runs on darwin AND linux) proves each row of the table above against a
 real `node` binary, a `$HOME` decoy secret that provably exists, and
 live localhost/UDS listeners. A denial only counts when it's a nonzero

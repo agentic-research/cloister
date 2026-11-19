@@ -26,7 +26,7 @@
 // Run with:  node --test gen/test/e2e-manifest-pipeline.test.mjs
 //
 // Wired into:
-//   - task test:lint-scripts (the node:test aggregator)
+//   - task test:node (the node:test aggregator)
 //
 // This test exercises the unhappy paths AS WE GO — every Copilot
 // finding from PR #36 has a corresponding red fixture here so the

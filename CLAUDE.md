@@ -125,6 +125,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 | `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |
+| `mermaid:lint` | every mermaid diagram in a tracked markdown file parses, by mermaid's own parser, and avoids the shapes GitHub draws wrongly | `cloister-ca2582` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs

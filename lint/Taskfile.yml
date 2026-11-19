@@ -22,13 +22,14 @@ tasks:
       - node cli/lib/dev/config-sources.mjs
 
   mermaid:lint:
-    desc: "Validate mermaid blocks in markdown — catches undeclared node refs (the GH-renderer-breaks bug)"
+    desc: "Every mermaid diagram in a tracked markdown file parses (mermaid's own parser, in Node) and avoids three shapes GitHub draws wrongly. Was two named files and no parse."
     cmds:
-      - node lint/mermaid.mjs README.md docs/ARCHITECTURE.md
+      - node lint/mermaid.mjs
     sources:
-      - README.md
-      - docs/ARCHITECTURE.md
+      - "**/*.md"
       - lint/mermaid.mjs
+      - pnpm-lock.yaml
+      - exclude: node_modules/**
 
   lint:paths:
     desc: "Validate the do-storage path agrees across apko/config.capnp/cluster.capnp (cloister-7c12cc)"

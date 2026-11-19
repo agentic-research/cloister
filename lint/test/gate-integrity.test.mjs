@@ -104,7 +104,7 @@ test("PROPERTY: Taskfile delegates the script suite to one first-party command",
   // lint-allow-rawparse: this assertion is deliberately about the command a
   // contributor sees and Task executes, not Task's parsed data model.
   const taskfile = readFlatTaskfiles(ROOT);
-  const block = taskfile.match(/\n  test:lint-scripts:\n([\s\S]*?)(?=\n  [\w:-]+:\n)/)?.[1] ?? "";
+  const block = taskfile.match(/\n  test:node:\n([\s\S]*?)(?=\n  [\w:-]+:\n)/)?.[1] ?? "";
   assert.match(block, /node bin\/cloister\.mjs dev test/);
   assert.doesNotMatch(block, /\.test\.mjs/);
 });

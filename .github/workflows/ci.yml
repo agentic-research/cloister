@@ -463,8 +463,8 @@ jobs:
       # cluster.toml ([inputs.mache]), which pins the tool CONTRACT. The digest
       # is the trust root, not the tag and not the release's own checksum file:
       # that file comes from the same place as the binary. Bump both together.
-      MACHE_RELEASE: v0.19.0
-      MACHE_SHA256: 533e9a7b228ee92166706201b5fffc4fe7cb310f3dfef32100951d94be56ff3e
+      MACHE_RELEASE: v0.22.0
+      MACHE_SHA256: 6183082481b5f07be3efcfbc1cb856925471c0e9d0650dca84b12a9994ff16c2
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
