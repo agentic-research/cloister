@@ -285,7 +285,12 @@ function checkReport(type, entry, types = {}) {
         if (problem) throw new Error(`mapping: ${where} wires "${wire}": appProtocol ${problem}`);
       }
       if (bundle.ports !== undefined) {
-        onlyKeys(bundle.ports, ["list", "name", "port", "default"], `${where} ports`);
+        onlyKeys(bundle.ports, ["list", "name", "port", "default", "byConvention"], `${where} ports`);
+        // `byConvention`: on this provider a port's name is free text, and
+        // reading a protocol from it is a convention. The draft then says so.
+        if (bundle.ports.byConvention !== undefined && typeof bundle.ports.byConvention !== "boolean") {
+          throw new Error(`mapping: ${where} ports "byConvention" must be true or false`);
+        }
         readFrom(bundle.ports, ["name", "port"], "ports");
         const fallback = bundle.ports.default;
         if (fallback !== undefined) {

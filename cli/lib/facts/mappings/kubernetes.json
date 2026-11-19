@@ -101,7 +101,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -212,7 +213,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -323,7 +325,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -434,7 +437,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -545,7 +549,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -656,7 +661,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -767,7 +773,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -878,7 +885,8 @@
           "ports": {
             "list": "port",
             "name": "name",
-            "port": "container_port"
+            "port": "container_port",
+            "byConvention": true
           },
           "wires": {
             "http": "art.http",
@@ -906,8 +914,7 @@
         ],
         "hosts": [
           "{name}.{metadata.namespace}.svc.cluster.local",
-          "{name}.{metadata.namespace}.svc",
-          "{name}.{metadata.namespace}"
+          "{name}.{metadata.namespace}.svc"
         ],
         "standsFor": {
           "selector": "spec.selector",
@@ -943,8 +950,7 @@
         ],
         "hosts": [
           "{name}.{metadata.namespace}.svc.cluster.local",
-          "{name}.{metadata.namespace}.svc",
-          "{name}.{metadata.namespace}"
+          "{name}.{metadata.namespace}.svc"
         ],
         "standsFor": {
           "selector": "spec.selector",

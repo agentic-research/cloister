@@ -94,6 +94,7 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
         notes.push(`"${w.name}": port ${p.port} ("${p.name}") repeats a name or number already drafted; it is not drafted`);
         continue;
       }
+      if (p.byConvention) notes.push(`"${w.name}": port ${p.port} is named "${p.name}", and its protocol (${p.appProtocol}) is taken from that name. A port name is free text here, so check it`);
       if (p.assumed) notes.push(`"${w.name}": declares no port; ${p.port} ("${p.name}") is this provider's default and was assumed, not read`);
       ports.push({ name: p.name, port: p.port, appProtocol: p.appProtocol, expose: exposed === "edge" ? "edge" : "cluster" });
     }

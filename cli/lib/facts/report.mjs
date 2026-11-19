@@ -146,7 +146,10 @@ function bundleOf(fact, rule, facts, withRun, addressed) {
       if (!Number.isInteger(port)) continue;
       // An unnamed port is served the provider's default way.
       const wire = typeof row[rule.ports.name] === "string" && row[rule.ports.name] !== "" ? row[rule.ports.name] : rule.ports.default?.name ?? "";
-      ports.push({ name: wire, port, appProtocol: Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "", assumed: false });
+      const appProtocol = Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "";
+      // Where a port's name is free text, a protocol read from it is a
+      // convention, and the draft says it was not declared.
+      ports.push({ name: wire, port, appProtocol, assumed: false, byConvention: rule.ports.byConvention === true && appProtocol !== "" });
     }
     if (ports.length === 0 && rule.ports.default) {
       const { name, port } = rule.ports.default;

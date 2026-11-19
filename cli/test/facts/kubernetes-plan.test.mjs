@@ -59,12 +59,31 @@ test("a workload that dials a Service's cluster name dials the workload behind i
   assert.deepEqual(named(doc, "caller", "Kubernetes deployments").dials.map((d) => [d.to, d.section]), [["server", "Kubernetes deployments"]]);
 });
 
-test("every form of the cluster name is the same address", () => {
-  for (const host of ["server.shop.svc.cluster.local", "server.shop.svc", "server.shop"]) {
+test("both cluster forms of the name are the same address", () => {
+  for (const host of ["server.shop.svc.cluster.local", "server.shop.svc"]) {
     const doc = plan();
     find(doc, "kubernetes_job_v1.probe").values.spec[0].template[0].spec[0].container[0].env[0].value = `http://${host}:8080`;
     assert.equal(named(doc, "probe", "Kubernetes jobs").dials[0]?.to, "server", host);
   }
+});
+
+// `server.shop` is how a pod may dial a Service, and it is also a public
+// hostname: `.shop` is a real top-level domain. Reading it as the Service
+// would draw an edge to whatever shares the name. A missed edge is reported
+// as unknown; a wrong one would be believed.
+test("a two-label host is not taken for a Service: it could be anyone's domain", () => {
+  const doc = plan();
+  find(doc, "kubernetes_job_v1.probe").values.spec[0].template[0].spec[0].container[0].env[0].value = "https://server.shop/hostname";
+  assert.deepEqual(named(doc, "probe", "Kubernetes jobs").dials, []);
+});
+
+test("a protocol read from a port's name is said to be a convention, in the draft", () => {
+  const { notes } = draftCluster(importFacts(plan()), { env: "prod" });
+  assert.ok(notes.some((n) => /"server": port 8080 is named "http", and its protocol \(art\.http\) is taken from that name\. A port name is free text here, so check it/.test(n)), notes.join("\n"));
+  // A name the mapping has no protocol for is not drafted at all, as before.
+  const doc = plan();
+  find(doc, "kubernetes_deployment_v1.server").values.spec[0].template[0].spec[0].container[0].port[0].name = "metrics";
+  assert.ok(draftCluster(importFacts(doc), { env: "prod" }).notes.some((n) => /port 8080 is served as "metrics", which has no appProtocol here; it is not drafted/.test(n)));
 });
 
 test("a Service that matches no workload, or two, stands for neither: an edge is never guessed", () => {
