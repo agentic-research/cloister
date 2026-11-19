@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 import { emitCompose } from "../cli/lib/cluster/emit-compose.mjs";
 import { clusterGraph, renderGraph } from "../cli/lib/cluster/graph.mjs";
-import { PUBLISH_ADDRESS, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
+import { PUBLISH_ADDRESS, edgePortsOf, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
 import { bundleServices, socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
 import { parseTomlToCluster } from "../cli/lib/cluster/toml-to-cluster.mjs";
 
@@ -104,6 +104,8 @@ for (const image of new Set(cluster.bundles.map((b) => b.kind.external.image))) 
 let refusals = 0;
 let namedEntries = 0;
 let declared = 0;
+let published = 0;
+let unpublished = 0;
 try {
   compose("up", "--detach", "--wait");
   const plan = socketPlan(cluster);
@@ -167,9 +169,18 @@ try {
       if (Date.now() > deadline) throw new Error(`"${target}" never served port ${port}`);
       await new Promise((r) => setTimeout(r, 250));
     }
+    // On the host only if the bundle declares the port `edge`.
+    const isEdge = edgePortsOf(cluster.bundles.find((b) => b.name === target)).some((p) => p.port === port);
     const fromHost = await fetch(`http://${PUBLISH_ADDRESS}:${port}/`).then((r) => `http:${r.status}`, (e) => `refused:${e.cause?.code ?? e.name}`);
-    if (fromHost === "http:200") say(`ok    published          host → ${PUBLISH_ADDRESS}:${port}: ${fromHost}`);
-    else fail(`the port is published on the host's loopback, and the host got "${fromHost}"`);
+    if (isEdge) {
+      published += 1;
+      if (fromHost === "http:200") say(`ok    published (edge)   host → ${PUBLISH_ADDRESS}:${port}: ${fromHost}`);
+      else fail(`"${target}" declares port ${port} edge, and the host got "${fromHost}"`);
+    } else {
+      unpublished += 1;
+      if (fromHost.startsWith("refused:")) say(`ok    not published      host → ${PUBLISH_ADDRESS}:${port}: ${fromHost}`);
+      else fail(`"${target}" declares no edge port ${port}, and the host got "${fromHost}"`);
+    }
 
     for (const service of services) {
       if (service === target) continue;
@@ -195,6 +206,8 @@ try {
     }
   }
   if (nets.edges.filter((e) => e.kind === "network").length === 0) fail("the fixture has no wire carried over a network, so HTTP was not tried");
+  if (published === 0) fail("the fixture has no HTTP target with an edge port, so publishing was not tried");
+  if (unpublished === 0) fail("the fixture has no HTTP target without an edge port, so NOT publishing was not tried");
 
   // The claim that matters most for tenants, stated on its own so that a
   // fixture without two tenants cannot pass it by having nothing to try.

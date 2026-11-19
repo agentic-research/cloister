@@ -39,8 +39,7 @@ services:
       - "cloister.description=notme:0.1.0 — Identity authority — Signet master CA, lease cert mint"
     networks:
       - wire-cloister-router-notme-identity
-    ports:
-      - "127.0.0.1:8788:8788"
+    # not published: httpPort 8788 is reached through this bundle's wires only. A [[bundles.ports]] row for it with expose = "edge" publishes it on 127.0.0.1
 
   mache:
     image: mache:0.8.0

@@ -25,6 +25,9 @@
 #   caller    ──▶ web         declared, on a network of the two alone: caller
 #                             gets a page, and no one else has a route, by
 #                             name, by address, or through the host
+#   caller    ──▶ inner       declared, and inner declares no `edge` port: the
+#                             caller gets a page, and the port is not on the
+#                             host at all (web's is, because web says `edge`)
 #   cloister-router ──▶ web   declared, but `mache` runs inside this bundle's
 #                             network namespace (the one bundle the emitter
 #                             places that way, by name): the graph says
@@ -115,6 +118,22 @@ tier = "cluster"
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
 args = ["python3", "-m", "http.server", "18080"]
 httpPort = 18080
+
+[[bundles.ports]]
+name = "http"
+port = 18080
+appProtocol = "art.http"
+expose = "edge"
+[[bundles]]
+name = "inner"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-m", "http.server", "18081"]
+httpPort = 18081
+
 [[bundles]]
 name = "cloister-router"
 kind = "external"
@@ -184,4 +203,10 @@ transport = "uds"
 binding = "ROUTER_WEB_URL"
 from = "cloister-router"
 to = "web"
+transport = "uds"
+
+[[wires]]
+binding = "INNER_URL"
+from = "caller"
+to = "inner"
 transport = "uds"

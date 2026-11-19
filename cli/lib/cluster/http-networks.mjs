@@ -40,6 +40,16 @@ export function publishedPort(hostPort, containerPort) {
   return `"${PUBLISH_ADDRESS}:${hostPort}:${containerPort}"`;
 }
 
+/**
+ * The ports of a bundle that compose publishes on the host: those it
+ * declares with `expose = "edge"`, the one value that means "also from
+ * outside" (ADR-0069 §2). `httpPort` alone publishes nothing: it is where a
+ * wire reaches the bundle, and says nothing about the host.
+ */
+export function edgePortsOf(bundle) {
+  return (bundle?.ports ?? []).filter((p) => p.expose === "edge").map((p) => ({ name: p.name, port: p.port }));
+}
+
 const external = (bundle) => (bundle?.kind && "external" in bundle.kind ? bundle.kind.external : null);
 
 /**

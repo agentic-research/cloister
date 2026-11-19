@@ -44,7 +44,14 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
-      "ports": [],
+      "ports": [
+        {
+          "name": "mcp",
+          "port": 8787,
+          "appProtocol": "art.http",
+          "expose": "edge"
+        }
+      ],
       "placements": [],
       "kind": {
         "external": {

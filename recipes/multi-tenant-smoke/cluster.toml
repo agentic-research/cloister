@@ -16,6 +16,12 @@ httpPort = 8787
 image = "cloister:0.1.0"
 ipcSocket = "/run/cloister-uds/router.sock"
 
+[[bundles.ports]]
+name = "mcp"
+port = 8787
+appProtocol = "art.http"
+expose = "edge"
+
 [[bundles]]
 description = "Tenant alice — echoes inbound request URLs as proof of routing"
 kind = "external"

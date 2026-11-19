@@ -397,6 +397,9 @@ export const CHANNEL_KINDS = Object.freeze(["microvm", ...FORWARDED_KINDS]);
  * placed `microvm` or a forwarded kind (CHANNEL_KINDS). A bundle
  * with no placement rows is placed implicitly only if it is an external
  * microvm bundle, so for it the old rule and message stand.
+ *
+ * The one exception is a port (no `env`) on an external bundle with no
+ * placement: compose lowers it. See the comment in the body.
  */
 function endpointProblem(b, env) {
   if (b.kind !== "external") {
@@ -405,6 +408,12 @@ function endpointProblem(b, env) {
       `connection from one — ADR-0033)`;
   }
   const rows = b.placements ?? [];
+  // A PORT on an external bundle with no placement is lowered by compose,
+  // which runs every external bundle whatever its executionMode: an `edge`
+  // port is published on the host's loopback, and any other is left
+  // unpublished (ADR-0069 amendment 2026-11-19). A CONNECTION end still needs
+  // a placement in its env, so `env` given keeps the refusal below.
+  if (rows.length === 0 && b.executionMode !== "microvm" && env === undefined) return null;
   if (rows.length === 0 && b.executionMode !== "microvm") {
     return `has executionMode ${JSON.stringify(b.executionMode)} and no placements; channels ` +
       `are lowered only for "microvm" bundles (confinement/v1 §6 guestPort is microVM-only, ` +

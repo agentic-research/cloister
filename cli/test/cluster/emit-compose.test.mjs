@@ -834,9 +834,37 @@ test("emitCompose: a wire over HTTP gets a network of its two ends, and everyone
   assert.match(serviceBlock(yaml, "a"), /"WEB_URL=http:\/\/web:8080"/);
 });
 
-test("emitCompose: a published port is on the host's loopback", () => {
-  const yaml = emitCompose(httpCluster({ web: 8080 }, []));
-  assert.match(serviceBlock(yaml, "web"), /    ports:\n      - "127\.0\.0\.1:8080:8080"\n/);
+const withPorts = (cluster, name, ports) => {
+  cluster.bundles.find((b) => b.name === name).ports = ports.map(([portName, port, expose]) => ({ name: portName, port, appProtocol: "art.http", expose }));
+  return cluster;
+};
+
+test("emitCompose: only a port declared `edge` is published, and on the host's loopback", () => {
+  const yaml = emitCompose(withPorts(httpCluster({ web: 8080 }, []), "web", [["http", 8080, "edge"], ["admin", 9090, "cluster"], ["metrics", 9100, "edge"]]));
+  assert.match(serviceBlock(yaml, "web"), /    ports:\n      - "127\.0\.0\.1:8080:8080"\n      - "127\.0\.0\.1:9100:9100"\n/);
+  assert.doesNotMatch(serviceBlock(yaml, "web"), /9090/, "a `cluster` port is not published");
+  assert.doesNotMatch(serviceBlock(yaml, "web"), /not published/, "httpPort is declared edge, so there is nothing to say");
+});
+
+test("emitCompose: httpPort alone publishes nothing, and the file says so", () => {
+  for (const ports of [[], [["http", 8080, "cluster"]], [["other", 9000, "edge"]]]) {
+    const block = serviceBlock(emitCompose(withPorts(httpCluster({ web: 8080 }, []), "web", ports)), "web");
+    assert.doesNotMatch(block, /:8080:8080/);
+    assert.match(block, /    # not published: httpPort 8080 is reached through this bundle's wires only\. A \[\[bundles\.ports\]\] row for it with expose = "edge" publishes it on 127\.0\.0\.1\n/);
+  }
+});
+
+test("emitCompose: an edge port on the bundle inside the gateway's namespace is refused, naming where to declare it", () => {
+  const cluster = withPorts(httpCluster({ "cloister-router": 8787, mache: 7532 }, []), "mache", [["http", 7532, "edge"]]);
+  assert.throws(() => emitCompose(cluster), /bundle "mache" declares port "http" with expose = "edge", but it runs inside "cloister-router"'s network namespace[\s\S]*Declare the port on "cloister-router"/);
+});
+
+test("emitCompose: a tenant instance's edge port is not published, and the file says why", () => {
+  const cluster = perTenantCluster([{ name: "alice", mode: "sni", matchValue: "alice.example", binding: "T_APP" }]);
+  withPorts(cluster, "tenant-app", [["http", 8080, "edge"]]);
+  const block = serviceBlock(emitCompose(cluster), "tenant-app-alice");
+  assert.doesNotMatch(block, /    ports:/);
+  assert.match(block, /    # not published: 8080 — one host port cannot serve every tenant's instance\n/);
 });
 
 test("emitCompose: network names that would collide are told apart", () => {

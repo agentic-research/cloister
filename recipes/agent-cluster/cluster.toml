@@ -16,6 +16,12 @@ httpPort = 8787
 image = "cloister:0.1.0"
 ipcSocket = "/run/cloister-uds/router.sock"
 
+[[bundles.ports]]
+name = "mcp"
+port = 8787
+appProtocol = "art.http"
+expose = "edge"
+
 [[bundles]]
 description = "Identity authority — Signet master CA, lease cert mint"
 hypervisorRationale = "Identity authority: mints lease certs against the master CA. Mediates trust (every authenticated request transits a lease this bundle minted). Compromise blast radius is cluster-wide. Singleton per cluster. Three-criterion test per ADR-0011, expanded in ADR-0018."
