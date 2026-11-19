@@ -807,3 +807,48 @@ test("every socket volume is tmpfs with 1777 — bundles do not share a uid", ()
     assert.match(block, /mode=1777/, `${name}: without 1777 a non-root bundle cannot bind its socket`);
   }
 });
+
+// ── emitCompose: a network per wire carried over HTTP (ADR-0075 §6) ──────
+
+function httpCluster(bundles, wires) {
+  const c = baseCluster();
+  const router = c.bundles[0];
+  c.bundles = Object.entries(bundles).map(([name, httpPort]) => ({
+    ...router,
+    name,
+    kind: { external: { ...router.kind.external, ipcSocket: "", httpPort } },
+  }));
+  c.wires = wires.map(([from, to]) => ({ from, to, binding: `${to.toUpperCase().replace(/-/g, "_")}_URL`, transport: { uds: null } }));
+  return c;
+}
+const serviceBlock = (yaml, service) => new RegExp(`^  ${service}:\\n((?:    .*\\n|\\n)*)`, "m").exec(yaml)?.[1] ?? "";
+const networksOf = (yaml, service) => /^    networks:\n((?:      - .*\n)*)/m.exec(serviceBlock(yaml, service))?.[1].trim().split("\n").map((l) => l.replace(/^\s*- /, "")) ?? [];
+
+test("emitCompose: a wire over HTTP gets a network of its two ends, and everyone else a network alone", () => {
+  const yaml = emitCompose(httpCluster({ a: 0, b: 0, web: 8080, idle: 0 }, [["a", "web"], ["b", "web"]]));
+  assert.deepEqual(networksOf(yaml, "a"), ["wire-a-web"]);
+  assert.deepEqual(networksOf(yaml, "b"), ["wire-b-web"], "two callers of one target do not share a network with each other");
+  assert.deepEqual(networksOf(yaml, "web"), ["wire-a-web", "wire-b-web"]);
+  assert.deepEqual(networksOf(yaml, "idle"), ["solo-idle"], "a service on no wire is not left on the shared default network");
+  assert.match(yaml, /^networks:\n  solo-idle:\n    # idle alone\n    driver: bridge\n  wire-a-web:\n    # a → web\n/m);
+  assert.match(serviceBlock(yaml, "a"), /"WEB_URL=http:\/\/web:8080"/);
+});
+
+test("emitCompose: a published port is on the host's loopback", () => {
+  const yaml = emitCompose(httpCluster({ web: 8080 }, []));
+  assert.match(serviceBlock(yaml, "web"), /    ports:\n      - "127\.0\.0\.1:8080:8080"\n/);
+});
+
+test("emitCompose: network names that would collide are told apart", () => {
+  const yaml = emitCompose(httpCluster({ "a-b": 0, c: 80, a: 0, "b-c": 80 }, [["a-b", "c"], ["a", "b-c"]]));
+  assert.notDeepEqual(networksOf(yaml, "a-b"), networksOf(yaml, "a"));
+  assert.equal(networksOf(yaml, "a-b").length, 1);
+});
+
+test("emitCompose: the bundle in the gateway's namespace has no networks of its own and is reached at loopback", () => {
+  const yaml = emitCompose(httpCluster({ "cloister-router": 8787, mache: 7532 }, [["cloister-router", "mache"]]));
+  assert.match(serviceBlock(yaml, "mache"), /    network_mode: "service:cloister-router"\n/);
+  assert.doesNotMatch(serviceBlock(yaml, "mache"), /    networks:|    ports:/);
+  assert.match(serviceBlock(yaml, "cloister-router"), /"MACHE_URL=http:\/\/127\.0\.0\.1:7532"/);
+  assert.deepEqual(networksOf(yaml, "cloister-router"), ["solo-cloister-router"]);
+});

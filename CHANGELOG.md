@@ -8,6 +8,25 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a wire over HTTP is held under compose, and ports publish on loopback
+
+- **Changed:** every published port is now on `127.0.0.1`. It was on every
+  interface. A cluster that should be reachable from other machines needs a
+  compose overlay that says so.
+- **Changed:** no container is on compose's shared `default` network. Each
+  wire carried over HTTP is a network of its two ends, and a service on no
+  such wire has a network to itself. A bundle that reached another over HTTP
+  with no wire between them no longer can.
+- `cloister cluster graph` reports such a wire as `capability`, and as `none`
+  when a container shares the network namespace of one of its ends. Both HTTP
+  wires in this repository's own cluster are `none` for that reason: mache
+  runs in the gateway's namespace (ADR-0075 §6).
+- `cloister init --port` now fails if the compose file publishes nothing it
+  can move. After the port format changed it would have replaced nothing and
+  reported success.
+- `task smoke:compose-hold` adds an HTTP target and tries it from every
+  container by name, by address, and through the host.
+
 ### 2026-11 — one tenant's instance cannot open another's socket
 
 - A `perTenant` bundle's instances each bind in a directory of the tenant's
@@ -39,8 +58,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   under `/`, or in a directory compose's mount syntax would misread is now
   refused.
 - `task smoke:compose-hold`, a new CI job, starts an emitted cluster and has
-  every bundle try every wired socket. Not held yet: a target reached over
-  HTTP (ADR-0075 §5).
+  every bundle try every wired socket (ADR-0075 §5).
 
 ### 2026-11 — the architecture document says one thing
 

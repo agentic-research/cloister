@@ -398,7 +398,8 @@ jobs:
   # and has EVERY bundle try EVERY wired socket: the declared caller connects,
   # a bundle with no wire finds no such path, and where the graph says `none`
   # the bundle it names really gets in. Two tenants of one bundle each try the
-  # other's socket and are refused. It also has docker parse every compose
+  # other's socket and are refused. A target reached over HTTP is tried the
+  # same way, by name, by address, and through the host (§6). It also has docker parse every compose
   # file this repository commits. docker and its compose plugin ship on the
   # runner image.
   compose-hold:

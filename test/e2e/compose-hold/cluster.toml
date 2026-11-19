@@ -19,6 +19,17 @@
 #   caller    ──▶ tenant      one container per tenant (alice, bob), each in
 #                             a directory of its own: caller reaches both,
 #                             and neither tenant can open the other's socket
+#
+# And over HTTP (ADR-0075 §6):
+#
+#   caller    ──▶ web         declared, on a network of the two alone: caller
+#                             gets a page, and no one else has a route, by
+#                             name, by address, or through the host
+#   cloister-router ──▶ web   declared, but `mache` runs inside this bundle's
+#                             network namespace (the one bundle the emitter
+#                             places that way, by name): the graph says
+#                             `none` and names mache, and mache really gets
+#                             the page
 
 [metadata]
 name = "compose-hold"
@@ -95,6 +106,33 @@ perTenant = true
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
 args = ["python3", "-c", "import os,socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.bind(os.environ.get(\"TENANT_SOCKET\") or sys.argv[1])\ns.listen()\nwhile True:\n    c,_=s.accept()\n    c.sendall(b\"ok\")\n    c.close()\n", "/run/hold/tenant/t.sock"]
 ipcSocket = "/run/hold/tenant/t.sock"
+[[bundles]]
+name = "web"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-m", "http.server", "18080"]
+httpPort = 18080
+[[bundles]]
+name = "cloister-router"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
+
+[[bundles]]
+name = "mache"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
+args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
+
 
 [[wires]]
 binding = "LISTENER_SOCK"
@@ -135,3 +173,15 @@ binding = "T_BOB"
 matchValue = "/t/bob"
 mode = "path-prefix"
 name = "bob"
+
+[[wires]]
+binding = "WEB_URL"
+from = "caller"
+to = "web"
+transport = "uds"
+
+[[wires]]
+binding = "ROUTER_WEB_URL"
+from = "cloister-router"
+to = "web"
+transport = "uds"

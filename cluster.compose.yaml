@@ -17,8 +17,10 @@ services:
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834)."
       - "cloister.colocated-inputs=llo,notme,canonical-hours"
+    networks:
+      - wire-cloister-router-notme-identity
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
       - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
@@ -37,8 +39,10 @@ services:
       - "cloister.bundle=notme-identity"
       - "cloister.tier=hypervisor"
       - "cloister.description=ghcr.io/agentic-research/notme@sha256:56fd69dd51e5f4269f11cd541245e061ca54acd3f6f8ea52b12155b7f421b95b — Identity authority — Signet master CA, lease cert mint"
+    networks:
+      - wire-cloister-router-notme-identity
     ports:
-      - "8788:8788"
+      - "127.0.0.1:8788:8788"
 
   notme-proxy:
     image: ghcr.io/agentic-research/notme-proxy@sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64
@@ -48,6 +52,8 @@ services:
       - "cloister.bundle=notme-proxy"
       - "cloister.tier=hypervisor"
       - "cloister.description=ghcr.io/agentic-research/notme-proxy@sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64 — cloister-companion — UDS bridge for workerd (X-Cloister-Transport: uds) and mTLS forward proxy holding the bridge cert"
+    networks:
+      - solo-notme-proxy
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
       - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
@@ -84,6 +90,8 @@ services:
       - "mcp"
       - "--ipc-socket"
       - "/run/cloister-uds/rosary/rosary.sock"
+    networks:
+      - solo-rosary
     volumes:
       - uds-run-cloister-uds-rosary:/run/cloister-uds/rosary
 
@@ -105,3 +113,14 @@ volumes:
   cloister-do:
     driver: local
     # SQLite DO storage — survives container restarts; backup target
+
+networks:
+  solo-notme-proxy:
+    # notme-proxy alone
+    driver: bridge
+  solo-rosary:
+    # rosary alone
+    driver: bridge
+  wire-cloister-router-notme-identity:
+    # cloister-router → notme-identity
+    driver: bridge

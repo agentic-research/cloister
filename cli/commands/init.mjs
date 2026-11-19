@@ -28,6 +28,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
+import { publishedPort } from "../lib/cluster/http-networks.mjs";
 import { fileURLToPath } from "node:url";
 
 // ── Recipe discovery ──────────────────────────────────────────────────────
@@ -323,10 +324,16 @@ export function runInit(opts, runOpts = {}) {
 export function applyPortSubstitution(body, port, filename) {
   if (port === 8787) return body;
   if (filename === "cluster.compose.yaml") {
-    // Replace `"8787:8787"` → `"<port>:8787"` (host port only — the
-    // container's listening port stays 8787 because that's what the
-    // image binds inside).
-    return body.replaceAll('"8787:8787"', `"${port}:8787"`);
+    // The host half only: the container's listening port stays 8787,
+    // because that is what the image binds inside. The text to replace is
+    // built by the emitter's own function, and finding none of it is an
+    // error: a recipe that asked for another port and silently kept 8787
+    // would start on the wrong one.
+    const emitted = publishedPort(8787, 8787);
+    if (!body.includes(emitted)) {
+      throw new UsageError(`--port ${port}: ${filename} publishes no port as ${emitted}, so there is nothing to move to ${port}`);
+    }
+    return body.replaceAll(emitted, publishedPort(port, 8787));
   }
   // For other files, leave the body alone — recipes don't currently
   // hard-code a port in cloister.capnp. READMEs mention 8787

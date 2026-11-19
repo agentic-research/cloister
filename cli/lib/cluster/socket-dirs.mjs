@@ -136,6 +136,21 @@ function tenantOfWire(wire, cluster) {
 }
 
 /**
+ * The compose services each bundle with a container runs as: one under its
+ * own name, or, for a `perTenant` bundle with tenants, one per tenant named
+ * `<bundle>-<tenant>`. A bundle with no container of its own is absent.
+ */
+export function bundleServices(cluster) {
+  const services = new Map();
+  for (const b of cluster.bundles ?? []) {
+    if (!external(b)) continue;
+    const tenants = b.perTenant === true ? tenantInstances(b.name, cluster) : [];
+    services.set(b.name, tenants.length ? tenants.map((t) => `${b.name}-${t.name}`) : [b.name]);
+  }
+  return services;
+}
+
+/**
  * Everything compose needs to know about sockets, worked out once.
  *
  * Holders are compose SERVICES. A bundle is one service under its own name;
@@ -159,10 +174,8 @@ export function socketPlan(cluster) {
   for (const b of cluster.bundles ?? []) {
     tenantsOf.set(b.name, external(b) && b.perTenant === true ? tenantInstances(b.name, cluster) : []);
   }
-  const servicesOf = (name) => {
-    const tenants = tenantsOf.get(name) ?? [];
-    return tenants.length ? tenants.map((t) => `${name}-${t.name}`) : [name];
-  };
+  const services = bundleServices(cluster);
+  const servicesOf = (name) => services.get(name) ?? [name];
 
   const binds = [];
   for (const b of cluster.bundles ?? []) {
