@@ -3,6 +3,9 @@
 #
 # Cluster: cloister-multi-tenant-smoke v0.1.0
 # 3 bundle(s), 2 wire(s)
+#
+# No bundle declares a placement, so every external bundle is run here.
+# Once one does, only bundles placed "compose" for env "compose" are.
 
 name: cloister-multi-tenant-smoke
 

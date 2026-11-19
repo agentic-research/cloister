@@ -350,7 +350,7 @@ export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
   z.object({
     /** The environment this row applies to, for example 'local'. Unique per bundle. */
     env: z.string().default(""),
-    /** How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own. */
+    /** How it runs. 'microvm', 'workerd' or 'compose': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own. */
     kind: z.string().default(""),
     /** Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'. */
     manifest: z.string().default(""),

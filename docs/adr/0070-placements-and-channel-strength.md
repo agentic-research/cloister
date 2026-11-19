@@ -270,6 +270,46 @@ Nothing is credited that was not written: `cluster graph` shows an edge with
 such an end as `none`, because cloister wrote no policy for it
 ([ADR-0075](0075-one-graph.md) §3).
 
+**Amendment (2026-11-19): `compose` is a placement kind.** The compose file
+was the one place cloister ran bundles that the placement vocabulary did not
+know about. `emit-compose` wrote a service for every external bundle,
+whatever its placement, so a bundle that said it was a microVM was also run
+as a plain container if compose was what got started. Now:
+
+- `compose` is a constructed kind, beside `microvm` and `workerd`. It takes no
+  `manifest` and no `name`.
+- `emit-compose` writes a service for each external bundle placed `compose`
+  in the env named `compose`, and for no other. The file's header names each
+  external bundle it does not run and why.
+- The implicit placement has a second half. A bundle with no placement rows
+  was implicitly `microvm` if that was its `executionMode`. An external bundle
+  with no rows that is not a microvm is now implicitly `compose`, in every
+  env: compose is what ran it before placements existed.
+- A bundle may be a microvm in one env and a compose service in another. In
+  this repository mache is: `microvm` for `local`, `compose` for `compose`.
+  That double life used to be implicit.
+- A wire with an end compose does not run is refused, naming the placement
+  row that would run it. The graph reports such a wire as carried nowhere.
+
+One compatibility rule, stated and not inferred per bundle: a cluster in
+which no bundle declares any placement row is emitted as before, with every
+external bundle run, and the file says that is why. The first placement row
+anywhere ends it.
+
+What `compose` lowers, and does not:
+
+| | |
+|---|---|
+| A port | lowered: `edge` is published on the host's loopback, any other is not (ADR-0069 §2 amendment) |
+| A wire | lowered: a socket directory or a network of its two ends (ADR-0075 §5, §6) |
+| A connection | refused by name. Between compose bundles the edge is still a `[[wires]]` row. Lowering a connection here is what lets a wire be written as one (ADR-0075 §4.2) |
+
+`strengthOf("compose")` is `none` and is not what a wire's strength is read
+from: that is worked out per wire from who holds the socket directory or the
+network. A kind-level strength for compose would be a guess.
+
+The env name `compose` is fixed. One cluster.toml yields one compose file.
+
 **Amendment (2026-11-18): the addresses a manifest dials are held to the
 declared connections.** This section says a forwarded manifest is parsed for
 "the name, ports and env var names". Until now only ports were read. A wrong

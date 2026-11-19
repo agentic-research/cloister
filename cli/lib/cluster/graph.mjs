@@ -32,6 +32,7 @@ import {
   placementManifest,
 } from "./connections.mjs";
 import { httpEdgeOf, networkExposure, networkPlan } from "./http-networks.mjs";
+import { composeView } from "./compose-placement.mjs";
 import { bundleServices, socketExposure, socketPlan } from "./socket-dirs.mjs";
 
 /** The placement a wire runs in: what `cloister cluster up` starts. */
@@ -171,11 +172,16 @@ export function clusterGraph(cluster, env) {
   }
 
   const declared = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
-  const plan = socketPlan(cluster);
-  const nets = networkPlan(cluster);
-  const services = bundleServices(cluster);
+  // Wires are edges of the compose cluster: read against what compose runs.
+  const view = composeView(cluster);
+  const plan = socketPlan(view.cluster);
+  const nets = networkPlan(view.cluster);
+  const services = bundleServices(view.cluster);
   for (const w of cluster.wires ?? []) {
-    const reach = wireReach(w, declared, plan, nets, services);
+    const notRun = [w.from, w.to].map((end) => view.skipped.find((s) => s.name === end)).find(Boolean);
+    const reach = notRun
+      ? { over: "no address", strength: "none", why: `compose does not run "${notRun.name}": ${notRun.reason}. A wire is an edge of the compose cluster, so this one is carried nowhere` }
+      : wireReach(w, declared, plan, nets, services);
     edges.push({
       from: w.from,
       to: w.to,

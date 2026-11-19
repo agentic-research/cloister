@@ -3,6 +3,9 @@
 #
 # Cluster: cloister-oss-minimal v0.1.0
 # 2 bundle(s), 1 wire(s)
+#
+# No bundle declares a placement, so every external bundle is run here.
+# Once one does, only bundles placed "compose" for env "compose" are.
 
 name: cloister-oss-minimal
 

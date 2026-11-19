@@ -353,7 +353,7 @@ type PortSpec struct {
 type PlacementSpec struct {
 	// The environment this row applies to, for example 'local'. Unique per bundle.
 	Env string `json:"env"`
-	// How it runs. 'microvm' or 'workerd': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.
+	// How it runs. 'microvm', 'workerd' or 'compose': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own.
 	Kind string `json:"kind"`
 	// Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'.
 	Manifest string `json:"manifest"`

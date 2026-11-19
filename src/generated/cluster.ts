@@ -168,7 +168,22 @@ export const cluster: Cluster = {
         "credentialSource": ""
       },
       "ports": [],
-      "placements": [],
+      "placements": [
+        {
+          "env": "local",
+          "kind": "microvm",
+          "manifest": "",
+          "ports": [],
+          "name": ""
+        },
+        {
+          "env": "compose",
+          "kind": "compose",
+          "manifest": "",
+          "ports": [],
+          "name": ""
+        }
+      ],
       "kind": {
         "external": {
           "image": "",

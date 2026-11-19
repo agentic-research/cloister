@@ -41,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
 import { PUBLISH_ADDRESS, edgePortsOf, httpEdgeOf, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
+import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { bindPath, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -131,7 +132,13 @@ export function resolveTenancy(cluster) {
  *
  * Exported for tests.
  */
-export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
+export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
+  // What compose runs: the external bundles placed `compose` in the compose
+  // env. Everything below reads this view, not the cluster as declared, so a
+  // bundle that is not run is not mounted, attached, or handed an address.
+  const view = composeView(declared, opts.env);
+  assertWiresRun(view);
+  const cluster = view.cluster;
   const ociByBundle = opts.ociByBundle ?? new Map();
   const warn = opts.warn ?? console.warn;
   // CLOISTER_DO_BIND: when set to a host path, /data/do is mounted from host
@@ -139,7 +146,9 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // volumes — making the cluster's data an owned, backup-able, dev:securevol-
   // encryptable file tree on the host. Unset → named volumes (default).
   const doBindPath = opts.doBindPath || "";
-  const { colocation, violations } = resolveTenancy(cluster);
+  // Tenancy is a statement about the whole cluster: an input may be hosted by
+  // a bundle that compose does not run.
+  const { colocation, violations } = resolveTenancy(declared);
   if (violations.length > 0) {
     const msg = violations
       .map((v) => `  - input "${v.input}": ${v.problem}`)
@@ -157,6 +166,15 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   lines.push(`# ${cluster.bundles.length} bundle(s), ${cluster.wires.length} wire(s)`);
   if ((cluster.inputs ?? []).length > 0) {
     lines.push(`# ${cluster.inputs.length} input(s); tenancy resolved per ADR-0030 §A5`);
+  }
+  if (view.legacy) {
+    lines.push(`#`);
+    lines.push(`# No bundle declares a placement, so every external bundle is run here.`);
+    lines.push(`# Once one does, only bundles placed "compose" for env "${view.env}" are.`);
+  } else {
+    lines.push(`#`);
+    lines.push(`# Runs the bundles placed "compose" for env "${view.env}".`);
+    for (const s of view.skipped) lines.push(`# Not run: ${s.name} — ${s.reason}.`);
   }
   lines.push(``);
   lines.push(`name: ${cluster.metadata.name}`);

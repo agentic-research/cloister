@@ -142,7 +142,7 @@ const placementRefusals = [
     /bundle "dolt" declares a placement for env "local" more than once/],
   ["unknown kind",
     (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "nomad"\n`),
-    /kind "nomad" is not one of microvm, workerd, kubernetes, knative, cloudRun/],
+    /kind "nomad" is not one of microvm, workerd, compose, kubernetes, knative, cloudRun/],
   ["microvm without executionMode microvm",
     (t) => placeAs(t, "dolt.yaml", MICROVM()),
     /kind "microvm" requires executionMode = "microvm" \(the bundle declares ""\) — the two must agree/],
@@ -315,7 +315,7 @@ test("an exposed port on a bundle with no placement that lowers or checks it fai
   const bundles = [{ name: "dolt", kind: "external", executionMode: "", ports: [{ name: "mysql", port: 3306, appProtocol: "art.mysql", expose: "cluster" }], placements: [{ env: "local", kind: "workerd", manifest: "" }] }];
   assert.throws(
     () => assertPortsAndConnections(bundles, []),
-    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes, knative or cloudRun \(declared: workerd\)/,
+    /bundle "dolt" exposes port "mysql" but has no placement of kind microvm, kubernetes, knative, cloudRun or compose \(declared: workerd\)/,
   );
 });
 
