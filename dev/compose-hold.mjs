@@ -20,6 +20,9 @@
 //   - where the graph says `none` and names who else can open the socket,
 //     that bundle really can
 //   - one tenant's instance of a `perTenant` bundle cannot open another's
+//   - a target reached over HTTP answers its declared callers, and no one
+//     else has a route: by its name, at its addresses, or through the host
+//     at the published port (ADR-0075 §6)
 //
 // The refusals are what matter. Without them this would pass on a compose
 // file that mounts everything everywhere, and `capability` would be a word.
@@ -36,7 +39,8 @@ import { fileURLToPath } from "node:url";
 
 import { emitCompose } from "../cli/lib/cluster/emit-compose.mjs";
 import { clusterGraph, renderGraph } from "../cli/lib/cluster/graph.mjs";
-import { socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
+import { PUBLISH_ADDRESS, networkExposure, networkPlan } from "../cli/lib/cluster/http-networks.mjs";
+import { bundleServices, socketExposure, socketPlan } from "../cli/lib/cluster/socket-dirs.mjs";
 import { parseTomlToCluster } from "../cli/lib/cluster/toml-to-cluster.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,6 +77,22 @@ for (const path of committed) {
   const parsed = spawnSync("docker", ["compose", "-f", join(ROOT, path), "config", "--quiet"], { encoding: "utf8" });
   if (parsed.status === 0) say(`ok    docker parses      ${path}`);
   else fail(`docker cannot read ${path}: ${parsed.stderr.trim()}`);
+}
+
+// The same over HTTP: fetch a URL from inside a container.
+const GET = 'import sys,urllib.request\ntry:\n    print("http:%d" % urllib.request.urlopen(sys.argv[1], timeout=3).status)\nexcept Exception as e:\n    r = getattr(e, "reason", e)\n    print("refused:" + type(r).__name__)\n';
+function fetchFrom(service, url) {
+  const run = spawnSync("docker", ["compose", "-f", file, "exec", "-T", service, "python3", "-c", GET, url], { encoding: "utf8" });
+  if (run.status !== 0) throw new Error(`could not run the fetch inside "${service}": ${run.stderr.trim() || `exit ${run.status}`}`);
+  return run.stdout.trim();
+}
+// The host, as a container sees it: its default route's gateway.
+const GATEWAY = 'import socket,struct\nfor l in open("/proc/net/route").read().splitlines()[1:]:\n    f = l.split()\n    if f[1] == "00000000":\n        print(socket.inet_ntoa(struct.pack("<L", int(f[2], 16))))\n        break\n';
+function gatewayOf(service) {
+  const run = spawnSync("docker", ["compose", "-f", file, "exec", "-T", service, "python3", "-c", GATEWAY], { encoding: "utf8" });
+  const gateway = run.stdout.trim();
+  if (run.status !== 0 || !gateway) throw new Error(`could not read the default gateway inside "${service}"`);
+  return gateway;
 }
 
 // The emitter writes `pull_policy: never`, so the images are fetched here.
@@ -124,6 +144,58 @@ try {
       }
     }
   }
+  // ── Over HTTP ────────────────────────────────────────────────────────────
+  // For each target a wire reaches over HTTP: its callers get a page. So does
+  // a container the graph names as sharing a caller's namespace. No one else
+  // has a route, tried three ways: by the target's name, by each address the
+  // target's container has, and through the host's address at the published
+  // port. The last must fail for EVERYONE, callers included: a port published
+  // on loopback is not reachable from a container at all.
+  const nets = networkPlan(cluster);
+  const serviceMap = bundleServices(cluster);
+  for (const target of new Set(nets.edges.filter((e) => e.kind === "network").map((e) => e.to))) {
+    const edges = nets.edges.filter((e) => e.to === target && e.kind === "network");
+    const port = edges[0].port;
+    const allowed = new Set(edges.flatMap((e) => serviceMap.get(e.from)));
+    const named = new Set(edges.flatMap((e) => networkExposure(e, nets, serviceMap).undeclared));
+    const addresses = JSON.parse(execFileSync("docker", ["inspect", "--format", "{{json .NetworkSettings.Networks}}", `cloister-${target}`], { encoding: "utf8" }));
+    const ips = Object.values(addresses).map((n) => n.IPAddress).filter(Boolean);
+    if (ips.length === 0) throw new Error(`"${target}" has no address to try`);
+
+    const deadline = Date.now() + 30_000;
+    while (fetchFrom(target, `http://127.0.0.1:${port}/`) !== "http:200") {
+      if (Date.now() > deadline) throw new Error(`"${target}" never served port ${port}`);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    const fromHost = await fetch(`http://${PUBLISH_ADDRESS}:${port}/`).then((r) => `http:${r.status}`, (e) => `refused:${e.cause?.code ?? e.name}`);
+    if (fromHost === "http:200") say(`ok    published          host → ${PUBLISH_ADDRESS}:${port}: ${fromHost}`);
+    else fail(`the port is published on the host's loopback, and the host got "${fromHost}"`);
+
+    for (const service of services) {
+      if (service === target) continue;
+      const byName = fetchFrom(service, `http://${target}:${port}/`);
+      const line = `${service} → http://${target}:${port} : ${byName}`;
+      if (allowed.has(service)) {
+        if (byName === "http:200") { declared += 1; say(`ok    declared caller    ${line}`); }
+        else fail(`a declared caller got no page: ${line}`);
+      } else if (named.has(service)) {
+        if (byName === "http:200") { namedEntries += 1; say(`ok    open, as stated    ${line}`); }
+        else fail(`the graph names "${service}" as on this network, and it got no page: ${line}`);
+      } else {
+        const tries = [["by name", byName], ...ips.map((ip) => [`at ${ip}`, fetchFrom(service, `http://${ip}:${port}/`)])];
+        for (const [how, got] of tries) {
+          if (got.startsWith("refused:")) { refusals += 1; say(`ok    refused, no route  ${service} → ${target} ${how}: ${got}`); }
+          else fail(`"${service}" has no wire to "${target}" and got "${got}" ${how}`);
+        }
+      }
+      const gateway = gatewayOf(service);
+      const viaHost = fetchFrom(service, `http://${gateway}:${port}/`);
+      if (viaHost.startsWith("refused:")) say(`ok    not via the host   ${service} → ${gateway}:${port}: ${viaHost}`);
+      else fail(`"${service}" reached the published port through the host's address ${gateway}: ${viaHost}`);
+    }
+  }
+  if (nets.edges.filter((e) => e.kind === "network").length === 0) fail("the fixture has no wire carried over a network, so HTTP was not tried");
+
   // The claim that matters most for tenants, stated on its own so that a
   // fixture without two tenants cannot pass it by having nothing to try.
   const tenantBinds = plan.binds.filter((b) => b.tenant !== "");

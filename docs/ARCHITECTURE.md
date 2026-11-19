@@ -17,7 +17,8 @@ applied to a different place:
 | Cloud Run, or anything a plan describes | cloister reads the plan and compares it with the declaration. It writes nothing there | `none` |
 | workerd (the gateway and its Workers) | a service binding is the only way one Worker reaches another, and rails hold the bindings to the declaration. No emitter lowers a connection to a binding yet | `none` |
 | the compose cluster (`cluster up`), a socket in a directory of its own | the directory is a volume mounted only into the bundle that binds there and the bundles wired to it. Holding the mount is the grant | `capability` |
-| the compose cluster, a shared socket directory or an HTTP port | each bundle is handed the address of what it is wired to, and so can anyone else in that directory or on that network | `none` |
+| the compose cluster, an HTTP port | the wire is a network of its two ends alone, no container is on a shared one, and ports are published on the host's loopback | `capability` |
+| the compose cluster, a shared socket directory or a shared network namespace | each bundle is handed the address of what it is wired to, and so can whoever else is in that directory or namespace | `none` |
 
 A coding tool under `cloister run` is the same idea on your own machine: the
 kernel confines it, and cloister is the only address it can reach
@@ -68,9 +69,12 @@ Stated here because a reader would otherwise find them one at a time
 - **A wire and a connection are two vocabularies for one statement.** The
   gateway's own edges are `[[wires]]`; everything else is `[[connections]]`.
   `cluster graph` shows both, but a wire cannot yet ask for a `minStrength`.
-- **A wire under compose is held only for a socket in its own directory.**
-  A target reached over HTTP is not held, and a caller that relays (the
-  companion) extends its reach to whoever can reach it. `cluster graph` says which, and
+- **A wire under compose is held unless something is shared.** A socket in
+  a directory another bundle binds in is not held. Neither is an HTTP wire
+  with an end whose network namespace another container shares, which is
+  true of both HTTP wires in this repository's own cluster, because of mache.
+  A caller that relays (the companion) extends its reach to whoever can
+  reach it. `cluster graph` says which, and
   `task smoke:compose-hold` tries it against running containers.
 - **workerd is not credited.** A binding is the strongest boundary here, and
   its strength reads `none` until a connection is lowered to one and checked.

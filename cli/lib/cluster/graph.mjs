@@ -31,7 +31,8 @@ import {
   placementFor,
   placementManifest,
 } from "./connections.mjs";
-import { socketExposure, socketPlan } from "./socket-dirs.mjs";
+import { httpEdgeOf, networkExposure, networkPlan } from "./http-networks.mjs";
+import { bundleServices, socketExposure, socketPlan } from "./socket-dirs.mjs";
 
 /** The placement a wire runs in: what `cloister cluster up` starts. */
 export const WIRE_PLACEMENT = "compose";
@@ -42,9 +43,11 @@ const quoted = (names) => names.map((name) => `"${name}"`).join(" and ");
  * How compose carries a wire, and what holds it.
  *
  * The address is chosen by the same test `emit-compose` uses: a socket path
- * if the target declares one, else its HTTP port. For a socket, who holds it
- * is read from `socket-dirs.mjs`, the function the emitter mounts volumes
- * from, so this cannot describe a compose file other than the one written.
+ * if the target declares one, else its HTTP port. Who holds a socket is read
+ * from `socket-dirs.mjs`, and who is on a wire's network from
+ * `http-networks.mjs`: the functions the emitter mounts volumes and attaches
+ * networks from, so this cannot describe a compose file other than the one
+ * written.
  *
  * A wire is `capability` only when every container that mounts the socket's
  * directory binds that socket or is handed it by a wire. Any other holder,
@@ -56,7 +59,7 @@ const quoted = (names) => names.map((name) => `"${name}"`).join(" and ");
  * wires, which is a different thing: they bound what the gateway's own code
  * can name, not what a container beside it can dial.
  */
-function wireReach(wire, declared, plan) {
+function wireReach(wire, declared, plan, nets, services) {
   const target = declared.get(wire.to);
   const source = declared.get(wire.from);
   const external = target?.kind?.external;
@@ -82,12 +85,27 @@ function wireReach(wire, declared, plan) {
       why: `${dir} is mounted only into ${quoted(bound)} and its declared ${callers.length === 1 ? "caller" : "callers"} ${quoted(callers)}: a bundle with no wire has no path to the socket. A caller that relays requests extends this to whoever can reach it, which is that caller's own edge`,
     };
   }
-  if (external?.httpPort > 0) {
+  const http = httpEdgeOf(wire, nets);
+  if (http) {
+    const over = `HTTP port ${http.port} at ${http.address}`;
+    if (http.kind === "unaddressed") {
+      return { over, strength: "none", why: `${http.reason}, so compose hands "${wire.from}" an address nothing answers at` };
+    }
+    if (http.kind === "namespace") {
+      return { over, strength: "none", why: `"${wire.to}" runs inside "${wire.from}"'s network namespace. Who else reaches it depends on the address it listens on, and compose does not constrain that: on any address but loopback, every container on a network "${wire.from}" is on can` };
+    }
+    const { network, undeclared } = networkExposure(http, nets, services);
+    if (undeclared.length) {
+      return { over, strength: "none", why: `${quoted(undeclared)} ${undeclared.length === 1 ? "shares" : "share"} the network namespace of an end of this wire, so ${undeclared.length === 1 ? "it is" : "they are"} on network ${network} too, with no wire to "${wire.to}"` };
+    }
     return {
-      over: `HTTP port ${external.httpPort}`,
-      strength: "none",
-      why: "it is reached over a network compose shares between containers, and nothing there checks which bundle is calling",
+      over,
+      strength: "capability",
+      why: `only "${wire.from}" and "${wire.to}" are on network ${network}, and no container is on a shared one, so a bundle with no wire has no route to the port. The network joins them both ways: "${wire.to}" can reach "${wire.from}"'s ports too`,
     };
+  }
+  if (external?.httpPort > 0) {
+    return { over: `HTTP port ${external.httpPort}`, strength: "none", why: `"${wire.from}" has no container of its own, so compose attaches nothing to a network for it and hands it no address` };
   }
   return { over: "no address", strength: "none", why: "the target declares neither a socket nor a port, so compose hands the source no address" };
 }
@@ -154,8 +172,10 @@ export function clusterGraph(cluster, env) {
 
   const declared = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
   const plan = socketPlan(cluster);
+  const nets = networkPlan(cluster);
+  const services = bundleServices(cluster);
   for (const w of cluster.wires ?? []) {
-    const reach = wireReach(w, declared, plan);
+    const reach = wireReach(w, declared, plan, nets, services);
     edges.push({
       from: w.from,
       to: w.to,

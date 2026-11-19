@@ -252,8 +252,8 @@ for (const recipe of RECIPES) {
         "utf8",
       );
       // Host port should be 12345; container side stays 8787.
-      assert.match(compose, /"12345:8787"/);
-      assert.doesNotMatch(compose, /"8787:8787"/);
+      assert.match(compose, /"127\.0\.0\.1:12345:8787"/);
+      assert.doesNotMatch(compose, /:8787:8787"/);
     } finally {
       tmp.cleanup();
     }
@@ -301,3 +301,10 @@ for (const recipe of RECIPES) {
     });
   }
 }
+
+test("--port on a compose file that publishes nothing as the emitter writes it is an error, not a silent 8787", async () => {
+  const { applyPortSubstitution } = await import("../../commands/init.mjs");
+  assert.throws(() => applyPortSubstitution('ports:\n  - "8787:8787"\n', 9000, "cluster.compose.yaml"), /publishes no port as "127\.0\.0\.1:8787:8787"/);
+  assert.equal(applyPortSubstitution('  - "127.0.0.1:8787:8787"\n', 9000, "cluster.compose.yaml"), '  - "127.0.0.1:9000:8787"\n');
+  assert.equal(applyPortSubstitution("anything", 8787, "cluster.compose.yaml"), "anything", "the default port changes nothing");
+});

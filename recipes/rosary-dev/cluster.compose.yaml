@@ -17,8 +17,10 @@ services:
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
       - "cloister.colocated-inputs=llo"
+    networks:
+      - wire-cloister-router-notme-identity
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
       - cloister-do:/data/do
@@ -35,8 +37,10 @@ services:
       - "cloister.bundle=notme-identity"
       - "cloister.tier=hypervisor"
       - "cloister.description=notme:0.1.0 — Identity authority — Signet master CA, lease cert mint"
+    networks:
+      - wire-cloister-router-notme-identity
     ports:
-      - "8788:8788"
+      - "127.0.0.1:8788:8788"
 
   mache:
     image: mache:0.8.0
@@ -64,6 +68,8 @@ services:
       - "mcp"
       - "--ipc-socket"
       - "/run/cloister-uds/rosary.sock"
+    networks:
+      - solo-rosary
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
 
@@ -78,3 +84,11 @@ volumes:
   cloister-do:
     driver: local
     # SQLite DO storage — survives container restarts; backup target
+
+networks:
+  solo-rosary:
+    # rosary alone
+    driver: bridge
+  wire-cloister-router-notme-identity:
+    # cloister-router → notme-identity
+    driver: bridge

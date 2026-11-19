@@ -273,7 +273,7 @@ tasks:
       - bash dev/lowered-kind.sh kubernetes
 
   smoke:compose-hold:
-    desc: "Emit test/e2e/compose-hold/cluster.toml as a compose file, start it, and have every bundle try every wired socket: a declared caller connects, a bundle with no wire finds no such path where the graph says `capability`, where the graph says `none` the bundle it names really gets in, and one tenant's instance cannot open another's socket (ADR-0075 §5). Needs docker with the compose plugin. KEEP_CLUSTER=1 leaves it up. Its own CI job."
+    desc: "Emit test/e2e/compose-hold/cluster.toml as a compose file, start it, and have every bundle try every wired socket: a declared caller connects, a bundle with no wire finds no such path where the graph says `capability`, where the graph says `none` the bundle it names really gets in, one tenant's instance cannot open another's socket, and a target reached over HTTP answers its callers and no one else, by name, by address, or through the host (ADR-0075 §5, §6). Needs docker with the compose plugin. KEEP_CLUSTER=1 leaves it up. Its own CI job."
     cmds:
       - node --import tsx dev/compose-hold.mjs
 

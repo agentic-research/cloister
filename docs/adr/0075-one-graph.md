@@ -94,8 +94,8 @@ graph to agree.
 Three things follow, and each changes something an operator runs, so each
 needs its own decision:
 
-1. **Holding a wire under compose.** Decided for sockets in §5. A network
-   per edge, the same change for a target reached over HTTP, is still open.
+1. **Holding a wire under compose.** Decided for sockets in §5 and for a
+   target reached over HTTP in §6.
 2. **Writing a wire as a connection.** Today a bundle that is not placed
    cannot be a connection end, and a wire cannot ask for a `minStrength`. One
    vocabulary would let the gateway's own edges demand a strength like any
@@ -147,7 +147,7 @@ graph did not show was the reason one volume had to be everywhere.
 - A declared caller that relays requests extends its reach to whoever can
   reach it. The companion opens the socket path a request names. Who can
   reach the companion is the companion's own edge, with its own row.
-- A wire to a target reached over HTTP is still `none`.
+- A wire to a target reached over HTTP is not covered here. §6 is.
 - A socket path that is relative, directly under `/`, or in a directory whose
   name compose's mount syntax would misread is refused, naming the bundle.
 
@@ -175,12 +175,66 @@ job and one of the jobs `ci-ok` needs.
 named `cloister-uds`; each is named for its directory. The companion's socket
 did not move, because its image declares that path.
 
+### 6. Amendment (2026-11-19): a network is the grant, and ports publish on loopback
+
+Decided, with the operator's go-ahead to publish on loopback by default.
+
+**The rule.** A wire to a bundle with no socket is carried over HTTP to the
+target's service name. `emit-compose` gives each such pair of bundles a
+bridge network of its own and attaches the two ends to it. Two callers of
+one target get a network each, so they do not reach each other. A service on
+no such network gets one to itself. No service is left on compose's
+`default` network, which every service used to share.
+
+**Published ports.** A port published on every interface is reachable from
+every container through the host's address, whatever network that container
+is on, which would undo the networks. So every port is published on
+`127.0.0.1`. This is also what `cluster up` already does for an `edge` port.
+An operator who wants a port on the LAN says so in a compose overlay.
+`init --port` rewrites the host half of that entry, builds the text it looks
+for from the emitter's own function, and now fails if it finds none; it used
+to replace nothing and report success.
+
+**What a wire's strength then is.** For a wire carried over HTTP:
+
+| | Strength |
+|---|---|
+| only its two ends are on the network | `capability` |
+| a container shares the network namespace of an end, and so is on the network too | `none`, and that container is named |
+| the target runs inside its caller's namespace and is reached at 127.0.0.1 | `none`: who else reaches it depends on the address it listens on, which compose does not constrain |
+| the address compose hands the source is one nothing answers at (the target is one container per tenant, or is inside another bundle's namespace) | `none` |
+
+**What this does not claim.**
+
+- A network joins its two ends both ways. The target can reach its caller's
+  ports too. The graph says so on every such edge.
+- One bundle, mache, is placed in the gateway's namespace by name. That rule
+  is older than this ADR. It is now stated in one function
+  (`namespaceHost`), which the emitter and the graph both read, and it is the
+  reason neither HTTP wire in this repository's own cluster is held: mache is
+  reached at loopback, and being in the gateway's namespace puts it on the
+  network the gateway shares with notme-identity. Moving mache onto a network
+  of its own would hold both. It changes the address mache listens on, which
+  the microVM placement also reads, so it is not done here.
+
+**What this takes away.** A bundle that reached another over HTTP with no
+wire between them no longer can. That is the point, and it is the change an
+existing cluster is most likely to notice.
+
+**Checked against running containers.** `task smoke:compose-hold` adds an
+HTTP target. Its declared callers get a page. Every other container is
+refused three ways: by the target's name, at each address the target's
+container has, and through the host's address at the published port, which
+fails for the callers as well. The host itself reaches the published port on
+loopback. The container the graph names as sharing a caller's namespace gets
+the page.
+
 ## Consequences
 
 - The system cloister runs as appears in its own graph. When this was
   written that graph was four edges, all `none`, which was the honest reading
   and was not visible. Since §5 it is five: three sockets held, two HTTP
-  targets not.
+  targets not, for the reason in §6.
 - A reader can no longer take "declared" for "enforced". The command says
   which is which.
 - No schema field is added. Until §5 nothing an operator runs changed. §5
@@ -194,7 +248,8 @@ did not move, because its image declares that path.
 | `cloister cluster graph`, connections and wires together | implemented |
 | Strength and reason for a wire under compose | implemented, read from every committed compose file by a test |
 | Holding a wire to a socket under compose | implemented (§5), checked against running containers in CI |
-| Holding a wire to an HTTP target under compose | not decided (§4.1) |
+| Holding a wire to an HTTP target under compose | implemented (§6), checked against running containers in CI |
+| Holding this repository's own two HTTP wires | not done: mache shares the gateway's namespace (§6) |
 | Keeping tenant instances out of each other's sockets | implemented (§5), checked against running containers in CI |
 | One vocabulary for an edge | not decided (§4.2) |
 | A strength for workerd | not decided (§4.3) |

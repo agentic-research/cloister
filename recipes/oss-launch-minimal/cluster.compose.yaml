@@ -15,8 +15,10 @@ services:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+    networks:
+      - solo-cloister-router
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
       - cloister-do:/data/do
@@ -48,3 +50,8 @@ volumes:
   cloister-do:
     driver: local
     # SQLite DO storage — survives container restarts; backup target
+
+networks:
+  solo-cloister-router:
+    # cloister-router alone
+    driver: bridge

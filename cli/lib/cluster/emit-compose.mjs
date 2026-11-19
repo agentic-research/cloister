@@ -40,6 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
+import { httpEdgeOf, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
 import { bindPath, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -170,6 +171,9 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // One volume per socket directory, mounted only into the bundles that
   // bind in it or have a wire to one that does (ADR-0075 §4.1).
   const udsPlan = socketPlan(cluster);
+  // One network per wire carried over HTTP, joining its two ends and no
+  // one else; no service is left on compose's shared `default` (ADR-0075 §6).
+  const netPlan = networkPlan(cluster);
 
   for (const b of cluster.bundles) {
     if (!("external" in b.kind)) {
@@ -184,10 +188,10 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
     const tenants = b.perTenant === true ? tenantInstances(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan);
     }
   }
 
@@ -242,6 +246,15 @@ export function emitCompose(cluster, ociByInput = new Map(), opts = {}) {
   // A cluster with no socket and a bind-mounted store declares no volume:
   // an empty `volumes:` key is not a mapping, and compose refuses it.
   if (topVolumes.length > 0) lines.push(`volumes:`, ...topVolumes);
+  if (netPlan.networks.length > 0) {
+    if (topVolumes.length > 0) lines.push(``);
+    lines.push(`networks:`);
+    for (const n of netPlan.networks) {
+      lines.push(`  ${n.name}:`);
+      lines.push(`    # ${n.for}`);
+      lines.push(`    driver: bridge`);
+    }
+  }
 
   return lines.join("\n") + "\n";
 }
@@ -313,7 +326,7 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsPlan = socketPlan(cluster)) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsPlan = socketPlan(cluster), netPlan = networkPlan(cluster)) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
@@ -347,17 +360,30 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     for (const a of ext.args) lines.push(`      - ${JSON.stringify(a)}`);
   }
 
-  if (b.name === "mache") {
-    lines.push(`    network_mode: "service:cloister-router"`);
+  // A container is on the networks of its own wires and no others. One
+  // that joins another's namespace is on that one's networks instead.
+  const nsHost = namespaceHost(b);
+  if (nsHost) {
+    lines.push(`    network_mode: ${yamlStr(`service:${nsHost}`)}`);
+  } else {
+    lines.push(`    networks:`);
+    for (const n of networksFor(serviceName, netPlan)) lines.push(`      - ${n}`);
   }
 
   // Port forwards (only the lead instance gets host-port binding when
   // we'd otherwise collide — per-tenant containers don't bind host
   // ports by default; operators add explicit ports: in their compose
   // overlay if they want per-tenant TCP exposure).
-  if (ext.httpPort > 0 && b.name !== "mache" && !tenant) {
+  //
+  // Published on the host's loopback only. A port published on every
+  // interface is reachable from EVERY container through the host's
+  // address, whatever network that container is on, which would undo the
+  // per-wire networks above. It is also what `cluster up` does for an
+  // `edge` port. An operator who wants the port on the LAN says so in a
+  // compose overlay.
+  if (ext.httpPort > 0 && !nsHost && !tenant) {
     lines.push(`    ports:`);
-    lines.push(`      - "${ext.httpPort}:${ext.httpPort}"`);
+    lines.push(`      - ${publishedPort(ext.httpPort, ext.httpPort)}`);
   }
 
   const mounts = socketMountsFor(serviceName, udsPlan).map((d) => `${d.volume}:${d.dir}`);
@@ -397,12 +423,10 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
       // (a binding several tenants share is the operator's dispatch shape,
       // not ours to second-guess).
       envVars.push(`${w.binding}=${dialPath(w, udsPlan)}`);
-    } else if (target && "external" in target.kind && target.kind.external.httpPort > 0) {
-      if (w.to === "mache") {
-        envVars.push(`${w.binding}=http://127.0.0.1:${target.kind.external.httpPort}`);
-      } else {
-        envVars.push(`${w.binding}=http://${w.to}:${target.kind.external.httpPort}`);
-      }
+    } else {
+      // Over HTTP: the address is the one the network plan carries it at.
+      const http = httpEdgeOf(w, netPlan);
+      if (http) envVars.push(`${w.binding}=${http.address}`);
     }
   }
   if (tenant) {

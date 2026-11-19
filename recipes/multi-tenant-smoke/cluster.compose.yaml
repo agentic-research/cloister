@@ -15,8 +15,10 @@ services:
       - "cloister.bundle=cloister-router"
       - "cloister.tier=hypervisor"
       - "cloister.description=cloister:0.1.0 — Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)"
+    networks:
+      - solo-cloister-router
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     volumes:
       - uds-run-cloister-uds:/run/cloister-uds
       - uds-run-cloister-uds-alice:/run/cloister-uds/alice
@@ -34,6 +36,8 @@ services:
       - "cloister.bundle=alice-tenant"
       - "cloister.tier=cluster"
       - "cloister.description=cloister:0.1.0 — Tenant alice — echoes inbound request URLs as proof of routing"
+    networks:
+      - solo-alice-tenant
     volumes:
       - uds-run-cloister-uds-alice:/run/cloister-uds/alice
 
@@ -45,6 +49,8 @@ services:
       - "cloister.bundle=bob-tenant"
       - "cloister.tier=cluster"
       - "cloister.description=cloister:0.1.0 — Tenant bob — echoes inbound request URLs as proof of routing"
+    networks:
+      - solo-bob-tenant
     volumes:
       - uds-run-cloister-uds-bob:/run/cloister-uds/bob
 
@@ -73,3 +79,14 @@ volumes:
   cloister-do:
     driver: local
     # SQLite DO storage — survives container restarts; backup target
+
+networks:
+  solo-alice-tenant:
+    # alice-tenant alone
+    driver: bridge
+  solo-bob-tenant:
+    # bob-tenant alone
+    driver: bridge
+  solo-cloister-router:
+    # cloister-router alone
+    driver: bridge
