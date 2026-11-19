@@ -1,65 +1,119 @@
-// lint/mermaid.mjs
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Lightweight mermaid linter — catches the breakage classes that
-// GitHub's renderer chokes on most often:
-//   1. Edge references to undeclared node IDs (the README ATTEST/TRUST
-//      bug from 2026-05-09)
-//   2. style/class blocks naming a node that doesn't exist
+// lint/mermaid.mjs — every mermaid diagram in a tracked markdown file draws.
 //
-// Not a full parser — just enough to catch the regressions we've hit.
-// For full mermaid syntax validation we'd need @mermaid-js/mermaid-cli
-// (mmdc), which is a ~150MB chromium dep; this script is ~100 lines.
+// Two checks, because they catch different things:
 //
-// Usage: node lint/mermaid.mjs <file.md> [file2.md ...]
+//   1. The diagram PARSES, by mermaid's own parser. A diagram that does not
+//      parse is shown on GitHub as an error box where the picture should be,
+//      and nothing else in the repository notices.
+//   2. Three shapes that parse and still go wrong on GitHub, found by hand
+//      matching (the README ATTEST/TRUST bug, 2026-05-09): an edge to a node
+//      that was never declared (mermaid invents an empty box for it), a
+//      style/class line naming such a node, and an unquoted bracket inside an
+//      edge label.
+//
+// The parser runs in Node against a jsdom window: mermaid sanitises label
+// text through DOMPurify, which needs one. Nothing is rendered and no browser
+// is started. The earlier version of this file did check 2 only, on two named
+// files, because a real parse was thought to need a browser.
+//
+// Usage: node lint/mermaid.mjs [file.md ...]
+//   With no files, every tracked markdown file is checked.
 // Exits non-zero on any error; logs file:line context.
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const IDENT = "[A-Za-z_][A-Za-z0-9_-]*";
 
-const files = process.argv.slice(2);
-if (files.length === 0) {
-  console.error("usage: lint/mermaid.mjs <file.md> [...]");
-  process.exit(2);
+/** Every tracked markdown file, relative to the repository root. */
+export function trackedMarkdown(root = ROOT) {
+  return execFileSync("git", ["ls-files", "-z", "--", "*.md"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
 }
 
-let totalErrors = 0;
-for (const file of files) {
-  const errs = lintFile(file);
-  if (errs.length > 0) {
-    console.error(`\n${file}: ${errs.length} issue(s)`);
-    for (const e of errs) console.error(`  ${e}`);
-    totalErrors += errs.length;
-  }
+/** The mermaid blocks of one markdown text: `{ line, lines }`, `line` 1-based. */
+export function mermaidBlocks(text) {
+  const blocks = [];
+  let open = null;
+  text.split("\n").forEach((l, i) => {
+    if (!open && l.trim() === "```mermaid") open = { line: i + 2, lines: [] };
+    else if (open && l.trim() === "```") { blocks.push(open); open = null; }
+    else if (open) open.lines.push(l);
+  });
+  return blocks;
 }
 
-if (totalErrors > 0) {
-  console.error(`\n${totalErrors} mermaid issue(s) — see above`);
-  process.exit(1);
+let parser;
+/** mermaid's parser, loaded once. It reads `window` and `document` at import. */
+async function mermaidParser() {
+  if (parser) return parser;
+  const { JSDOM } = await import("jsdom");
+  const { window } = new JSDOM("<!doctype html><body></body>");
+  globalThis.window = window;
+  globalThis.document = window.document;
+  for (const name of ["Element", "HTMLElement", "Node", "DOMParser"]) globalThis[name] = window[name];
+  parser = (await import("mermaid")).default;
+  return parser;
 }
-console.log(`mermaid lint clean (${files.length} file${files.length === 1 ? "" : "s"})`);
 
-function lintFile(path) {
-  const text = readFileSync(resolve(path), "utf-8");
-  const lines = text.split("\n");
+/**
+ * The problems in one markdown text, as `L<line>: <what>` strings.
+ * @param {string} text
+ * @returns {Promise<string[]>}
+ */
+export async function lintMarkdown(text) {
   const errors = [];
-
-  let inBlock = false, blockStart = 0, blockLines = [];
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i];
-    if (!inBlock && l.trim() === "```mermaid") {
-      inBlock = true;
-      blockStart = i + 2;
-      blockLines = [];
-    } else if (inBlock && l.trim() === "```") {
-      errors.push(...lintBlock(blockLines, blockStart));
-      inBlock = false;
-    } else if (inBlock) {
-      blockLines.push(l);
+  const mermaid = await mermaidParser();
+  for (const block of mermaidBlocks(text)) {
+    try {
+      await mermaid.parse(block.lines.join("\n"));
+    } catch (error) {
+      // The parser's message is several lines: the line, a caret, what it expected.
+      const [first, ...rest] = String(error?.message ?? error).split("\n");
+      const at = first.match(/line (\d+)/)?.[1];
+      const line = at ? block.line + Number(at) - 1 : block.line;
+      errors.push(`L${line}: does not parse: ${[first, ...rest.slice(0, 3)].join(" | ")}`);
+      continue; // the hand checks below assume a diagram that parses
     }
+    errors.push(...lintBlock(block.lines, block.line));
   }
   return errors;
+}
+
+async function main(argv) {
+  const files = argv.length ? argv : trackedMarkdown();
+  let total = 0;
+  let diagrams = 0;
+  let withDiagrams = 0;
+  for (const file of files) {
+    const text = readFileSync(resolve(ROOT, file), "utf8");
+    const count = mermaidBlocks(text).length;
+    if (count === 0) continue;
+    diagrams += count;
+    withDiagrams += 1;
+    const errors = await lintMarkdown(text);
+    if (errors.length > 0) {
+      console.error(`\n${file}: ${errors.length} issue(s)`);
+      for (const e of errors) console.error(`  ${e}`);
+      total += errors.length;
+    }
+  }
+  if (total > 0) {
+    console.error(`\n${total} mermaid issue(s) — see above`);
+    return 1;
+  }
+  console.log(`mermaid lint clean (${diagrams} diagrams in ${withDiagrams} files)`);
+  return 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(await main(process.argv.slice(2)));
 }
 
 function lintBlock(lines, startLineNo) {

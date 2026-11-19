@@ -402,6 +402,46 @@ test("the kind smoke's cluster.toml lowers and passes cluster k8s, with the grap
   });
 });
 
+// The input of the drafted smoke (`dev/lowered-kind.sh drafted`). Nobody wrote
+// its cluster.toml: it is drafted from this plan and lowered unedited, so a
+// change to drafting or lowering that the cluster would reject shows here.
+test("the drafted smoke's plan drafts, lowers and passes cluster k8s with no edit, with the graph the smoke observes", async () => {
+  const plan = JSON.parse(readFileSync(fileURLToPath(new URL("../../../test/e2e/drafted-kind/plan.show.json", import.meta.url)), "utf8"));
+  const draft = draftCluster(importFacts(plan), { env: "prod", name: "drafted-kind", local: "local" });
+  assert.equal(draft.bundles, 4);
+  assert.equal(draft.connections, 2);
+  // Nothing was left out for a person to fill in: every note is about a
+  // default that was assumed or a path that may need appending.
+  for (const note of draft.notes) assert.match(note, /was assumed, not read|If the inputs append a path/, note);
+  await inDir(draft.toml, async (dir) => {
+    const { written } = await lowerDir({ root: dir, env: "local" });
+    assert.deepEqual([...written].sort(), ["caller.yaml", "probe.yaml", "server.yaml", "stranger.yaml"]);
+    const checked = await emitK8sDir({ root: dir, env: "local", out: join(dir, "k8s") });
+    // Both edges are env bindings the lowering wrote: nothing is typed by hand.
+    assert.deepEqual(checked.references.map((r) => [r.bundle, r.where, r.to]).sort(), [["caller", "env SERVER_URL", "server"], ["probe", "env SERVER_URL", "server"]]);
+    const policy = readFileSync(join(dir, "k8s/server/20-networkpolicy.yaml"), "utf8");
+    assert.deepEqual([...policy.matchAll(/kubernetes\.io\/metadata\.name: (\S+)/g)].map((m) => m[1]).sort(), ["caller", "probe"]);
+    assert.ok(!policy.includes("stranger"));
+    // The smoke reads the caller's address back from this field, and the Job
+    // dials the same one.
+    for (const file of ["caller.yaml", "probe.yaml"]) {
+      assert.equal(containerOf(readFileSync(join(dir, file), "utf8")).env.find((e) => e.name === "SERVER_URL").value, "http://server.server.svc.cluster.local:8080");
+    }
+    const script = readFileSync(fileURLToPath(new URL("../../../dev/lowered-kind.sh", import.meta.url)), "utf8");
+    assert.ok(script.includes("test/e2e/drafted-kind/plan.show.json"));
+  });
+});
+
+// The committed plan is what `tofu show -json` gives for the committed
+// configuration, trimmed. If one is edited without the other, the fixture no
+// longer shows what a real tool renders.
+test("the drafted smoke's plan names the workloads its configuration declares", () => {
+  const tf = readFileSync(fileURLToPath(new URL("../../../test/e2e/drafted-kind/plan.tf", import.meta.url)), "utf8");
+  const plan = JSON.parse(readFileSync(fileURLToPath(new URL("../../../test/e2e/drafted-kind/plan.show.json", import.meta.url)), "utf8"));
+  const declared = [...tf.matchAll(/^resource "(\w+)" "(\w+)"/gm)].map((m) => `${m[1]}.${m[2]}`).sort();
+  assert.deepEqual(plan.planned_values.root_module.resources.map((r) => r.address).sort(), declared);
+});
+
 // ── expose per placement (ADR-0074 §7) ───────────────────────────────────────
 
 const OPEN_PLAN = () => {

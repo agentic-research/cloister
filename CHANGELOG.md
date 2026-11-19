@@ -8,6 +8,26 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every diagram is parsed, and the gate covers every job
+
+- `mermaid:lint` runs mermaid's own parser over every diagram in every
+  tracked markdown file (34 in 17 files). It was a hand check of two named
+  files. `mermaid` and `jsdom` are pinned dev dependencies.
+- `ci-ok` needs every CI job and is the one check to require. A push to
+  `main` no longer cancels the run before it.
+- The full-stack smoke's binaries are checked against pinned digests: the
+  engine through `schema-bridge.lock.json`, mache in the workflow. mache is
+  held at v0.19.0: v0.22.0 was tried and cannot resolve a workspace behind
+  cloister, which has no channel for mache's `roots/list` request and does
+  not forward a `?project=` token.
+- `task test:lint-scripts` is now `task test:node`.
+- `dev/lowered-kind.sh drafted` runs the whole path on a real cluster: a
+  rendered Terraform plan is drafted into `cluster.toml`, lowered unedited,
+  applied to kind, and the graph is observed. It runs in the `lowered-kind`
+  CI job.
+- `docs/ARCHITECTURE.md` covers describing and checking a system, and was
+  corrected where it had drifted.
+
 ### 2026-11 — the Knative lowering is applied to a real cluster in CI
 
 - **`task smoke:lowered-knative`**, and a CI job of the same name, installs
