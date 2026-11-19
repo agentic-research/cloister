@@ -26,6 +26,7 @@
 // reachable from every container through the host's address, whatever
 // network it is on, so the emitter publishes on 127.0.0.1 only.
 
+import { COMPOSE_ENV, URL_SCHEMES, checkableBundle, normalizeConnections, portsFor } from "./connections.mjs";
 import { bundleServices, socketOf } from "./socket-dirs.mjs";
 
 /** The host address every published port is bound to. */
@@ -91,6 +92,36 @@ function httpEdge(wire, bundles, services) {
 }
 
 /**
+ * How a `[[connections]]` row is carried between two compose bundles
+ * (ADR-0075 §7): the same network of two ends a wire over HTTP gets, to the
+ * target's service name and the number of the port the connection names.
+ *
+ *   network      its own network, joining the two ends
+ *   unjoined     an end is not a compose service, so there is nothing to join
+ *   unaddressed  the target has no name of its own on any network
+ *
+ * Null when the connection has no target in the compose env: it is another
+ * placement's to lower.
+ */
+function connectionEdge(c, env, bundles, services) {
+  const target = c.targets.find((t) => t.env === env);
+  if (!target) return null;
+  const base = { from: c.from, to: target.bundle, connection: c.name, declaredAs: "connection", appProtocol: c.appProtocol, minStrength: c.minStrength, portName: target.port };
+  const missing = [c.from, target.bundle].find((name) => !services.has(name));
+  if (missing) return { ...base, kind: "unjoined", missing, reason: `"${missing}" is not a compose service` };
+  const port = portsFor(checkableBundle(bundles.get(target.bundle)), env).find((p) => p.name === target.port)?.port;
+  const scheme = URL_SCHEMES[c.appProtocol] ?? "";
+  const edge = { ...base, port, hostPort: `${target.bundle}:${port}`, address: scheme ? `${scheme}://${target.bundle}:${port}` : "" };
+  if (namespaceHost(bundles.get(target.bundle))) {
+    return { ...edge, kind: "unaddressed", reason: `"${target.bundle}" runs inside "${namespaceHost(bundles.get(target.bundle))}"'s network namespace and has no name of its own on any network` };
+  }
+  if (services.get(target.bundle).length !== 1 || services.get(target.bundle)[0] !== target.bundle) {
+    return { ...edge, kind: "unaddressed", reason: `"${target.bundle}" runs as one container per tenant, and none of them answers to the bundle's name` };
+  }
+  return { ...edge, kind: "network" };
+}
+
+/**
  * Every network a compose cluster needs, and who is on each.
  *
  * @param {object} cluster a parsed cluster
@@ -103,7 +134,7 @@ function httpEdge(wire, bundles, services) {
  *   whose namespace it joins. A service that shares a namespace is a member
  *   of no network: it is on its host's.
  */
-export function networkPlan(cluster) {
+export function networkPlan(cluster, env = COMPOSE_ENV) {
   const bundles = new Map((cluster.bundles ?? []).map((b) => [b.name, b]));
   const services = bundleServices(cluster);
   const sharing = new Map();
@@ -123,6 +154,17 @@ export function networkPlan(cluster) {
     if (edge.kind !== "network") continue;
     const key = JSON.stringify([wire.from, wire.to]);
     if (!pairs.has(key)) pairs.set(key, { from: wire.from, to: wire.to, members: [...new Set([...attachPoints(wire.from), wire.to])] });
+  }
+  // A connection between two compose bundles is the same statement as a wire
+  // over HTTP, so it is carried the same way, and a wire and a connection
+  // between one pair of bundles share the one network.
+  for (const c of normalizeConnections(cluster.connections ?? [])) {
+    const edge = connectionEdge(c, env, bundles, services);
+    if (!edge) continue;
+    edges.push(edge);
+    if (edge.kind !== "network") continue;
+    const key = JSON.stringify([edge.from, edge.to]);
+    if (!pairs.has(key)) pairs.set(key, { from: edge.from, to: edge.to, members: [...new Set([...attachPoints(edge.from), edge.to])] });
   }
 
   // Readable names, unique per pair: "a-b" + "c" and "a" + "b-c" would
@@ -151,7 +193,7 @@ export function networkPlan(cluster) {
     }
   }
   networks.sort((a, b) => (a.name < b.name ? -1 : 1));
-  return { networks, edges, sharing };
+  return { env, networks, edges, sharing };
 }
 
 /** The networks one service is attached to, in name order. */
@@ -161,7 +203,12 @@ export function networksFor(service, plan) {
 
 /** How the wire is carried over HTTP, or null when it is not an HTTP wire. */
 export function httpEdgeOf(wire, plan) {
-  return plan.edges.find((e) => e.from === wire.from && e.to === wire.to && e.binding === wire.binding) ?? null;
+  return plan.edges.find((e) => e.declaredAs !== "connection" && e.from === wire.from && e.to === wire.to && e.binding === wire.binding) ?? null;
+}
+
+/** How a bundle's connection is carried in the compose env, or null when it has no target there. */
+export function connectionEdgeOf(from, name, plan) {
+  return plan.edges.find((e) => e.declaredAs === "connection" && e.from === from && e.connection === name) ?? null;
 }
 
 /**

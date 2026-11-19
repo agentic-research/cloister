@@ -99,7 +99,8 @@ needs its own decision:
 2. **Writing a wire as a connection.** Today a bundle that is not placed
    cannot be a connection end, and a wire cannot ask for a `minStrength`. One
    vocabulary would let the gateway's own edges demand a strength like any
-   other. It is a schema change.
+   other. §7 makes it possible, with no schema change. The gateway's own
+   wires are not rewritten there.
 3. **Crediting workerd.** ADR-0013 makes a service binding the only way one
    Worker reaches another, and ADR-0070 §3 names `capability` as what a
    workerd placement is meant to deliver. `strengthOf("workerd")` is still
@@ -231,6 +232,54 @@ fails for the callers as well. The host itself reaches the published port on
 loopback. The container the graph names as sharing a caller's namespace gets
 the page.
 
+### 7. Amendment (2026-11-19): a connection between two compose bundles is lowered
+
+`compose` became a placement kind (ADR-0070 §2, amendment of the same date),
+and a connection ending at a compose bundle was refused by name. It is now
+lowered, the way a wire over HTTP is (§6), because it is the same statement:
+
+- The connection gets a network of its two ends, to the target's service
+  name and the number of the port the connection names. A wire and a
+  connection between one pair of bundles share the one network.
+- An env row bound to the connection is set to its address,
+  `<scheme>://<target>:<port>` plus the row's `path`, for a protocol with a
+  URL form. For one without (a database wire), the row is refused, saying
+  where the target is reached, and the network is still attached.
+- Its strength is read from the network plan: `capability` when only its two
+  ends are on the network, `none` when a container shares the namespace of an
+  end. A `minStrength` it does not meet fails the build, naming that
+  container. The kind-level check ADR-0070 §3 makes for other placements is
+  skipped for this pair, because for compose a strength is a fact about the
+  edge and not about the kind.
+
+So an edge of the compose cluster can now be written in the vocabulary every
+other placement uses, and can ask for a strength. That is what §4.2 wanted.
+
+Refused, by name:
+
+- A connection declared for any env but `compose` between compose bundles.
+  One compose file is written, for one env; without this the row would be
+  accepted and lowered by nothing.
+- A connection with an end compose does not run: an edge across two
+  placements needs a broker that nothing lowers yet.
+- A connection to a bundle with no name of its own on any network: the one
+  inside the gateway's namespace, and a `perTenant` bundle.
+- An env row that takes its value from a secret. Compose has no secret store
+  cloister writes to, and the emitter used to write such a row as an empty
+  value.
+
+**Not done.** The gateway's own edges are still `[[wires]]`. A wire also names
+the binding the gateway's Worker reads, and several rails check wires against
+bindings and tenant dispatch, so rewriting them is its own change. A
+connection carries TCP to a named port; an edge to a Unix socket is still a
+wire.
+
+**Checked against running containers.** `task smoke:compose-hold` adds a
+connection that asks for `capability`, with an env row bound to it. The
+variable is read inside the container and holds the address; the container
+gets a page there; no other container has a route; and the port, declared
+`cluster`, is not on the host.
+
 ## Consequences
 
 - The system cloister runs as appears in its own graph. When this was
@@ -253,5 +302,6 @@ the page.
 | Holding a wire to an HTTP target under compose | implemented (§6), checked against running containers in CI |
 | Holding this repository's own two HTTP wires | not done: mache shares the gateway's namespace (§6) |
 | Keeping tenant instances out of each other's sockets | implemented (§5), checked against running containers in CI |
-| One vocabulary for an edge | not decided (§4.2) |
+| A connection between two compose bundles | implemented (§7), checked against running containers in CI |
+| The gateway's own wires written as connections | not done (§7) |
 | A strength for workerd | not decided (§4.3) |

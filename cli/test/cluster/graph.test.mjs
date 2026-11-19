@@ -147,6 +147,25 @@ test("a wire with an end compose does not run is carried nowhere, and says which
   assert.match(edge.why, /compose does not run "vm": it has placements, and none is for env "compose"/);
 });
 
+test("a connection between two compose bundles is held the way a wire over HTTP is, and says so", () => {
+  const ext = (name, ports = []) => ({ name, kind: { external: { ipcSocket: "", httpPort: 0 } }, ports });
+  const port = { name: "main", port: 5000, appProtocol: "art.http", expose: "cluster" };
+  const store = (from) => ({ from, name: "store", appProtocol: "art.http", minStrength: "", targets: [{ env: "compose", bundle: "db", port: "main" }] });
+
+  const held = clusterGraph({ bundles: [ext("api"), ext("db", [port])], connections: [store("api")], wires: [] }, "compose").edges[0];
+  assert.deepEqual([held.declaredAs, held.strength], ["connection", "capability"]);
+  assert.match(held.carrier, /compose → compose, port "main"/);
+  assert.match(held.why, /only "api" and "db" are on network wire-api-db/);
+
+  const shared = clusterGraph({ bundles: [ext("cloister-router"), ext("mache"), ext("db", [port])], connections: [store("cloister-router")], wires: [] }, "compose").edges[0];
+  assert.equal(shared.strength, "none");
+  assert.match(shared.why, /"mache" shares the network namespace of an end of this connection/);
+
+  // A minStrength the edge does not meet is marked, as for any connection.
+  const below = clusterGraph({ bundles: [ext("cloister-router"), ext("mache"), ext("db", [port])], connections: [{ ...store("cloister-router"), minStrength: "capability" }], wires: [] }, "compose").edges[0];
+  assert.equal(below.meetsMinimum, false);
+});
+
 test("a wire over HTTP: held on a network of its own, and not when a namespace is shared or nothing answers", () => {
   const ext = (name, extra = {}) => ({ name, kind: { external: { ipcSocket: "", httpPort: 0, ...extra } } });
   const wire = (from, to) => ({ from, to, binding: `${to.toUpperCase().replace(/-/g, "_")}_URL`, transport: "uds" });

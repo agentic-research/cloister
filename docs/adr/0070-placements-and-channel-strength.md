@@ -302,7 +302,7 @@ What `compose` lowers, and does not:
 |---|---|
 | A port | lowered: `edge` is published on the host's loopback, any other is not (ADR-0069 §2 amendment) |
 | A wire | lowered: a socket directory or a network of its two ends (ADR-0075 §5, §6) |
-| A connection | refused by name. Between compose bundles the edge is still a `[[wires]]` row. Lowering a connection here is what lets a wire be written as one (ADR-0075 §4.2) |
+| A connection | lowered between two compose bundles, for env `compose`: a network of the two ends, and the address in any env row bound to it (ADR-0075 §7). Refused by name for any other env, and when one end is not a compose service |
 
 `strengthOf("compose")` is `none` and is not what a wire's strength is read
 from: that is worked out per wire from who holds the socket directory or the
