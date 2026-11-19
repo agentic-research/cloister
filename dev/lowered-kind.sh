@@ -49,7 +49,6 @@ CLUSTER_NAME="${CLUSTER_NAME:-cloister-lowered-${SCENARIO}}"
 CONTEXT="kind-${CLUSTER_NAME}"
 ENV_NAME="local"
 WORK="$(mktemp -d)"
-FORWARD_PID=""
 
 # Knative Serving and its Kourier ingress, pinned by release and by digest:
 # what is applied to the cluster is exactly what was reviewed.
@@ -65,14 +64,13 @@ fail() { printf '\nFAIL: %s\n' "$*" >&2; exit 1; }
 k() { kubectl --context "$CONTEXT" "$@"; }
 
 TOOLS=(kind kubectl docker node)
-[ "$SCENARIO" = "knative" ] && TOOLS+=(curl sha256sum)
+[ "$SCENARIO" = "knative" ] && TOOLS+=(curl sha256sum) # to fetch and verify the Knative release
 for tool in "${TOOLS[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool is not installed; the $SCENARIO scenario needs: ${TOOLS[*]}"
 done
 
 cleanup() {
   status=$?
-  [ -n "$FORWARD_PID" ] && kill "$FORWARD_PID" >/dev/null 2>&1 || true
   if [ "$status" -ne 0 ]; then
     # What a person would look at first, while the cluster still exists.
     say "state at failure"
@@ -205,23 +203,22 @@ else
   echo "ok: web is reached at $url only"
 
   say "a kubernetes pod reaches the Knative Service, over HTTP"
-  web_hostport="$(given_hostport client deployment/client WEB_URL .spec.template.spec)"
-  # agnhost can make an HTTP request on request: ask the client to dial web.
-  # The answer is the hostname of the pod that served it, so it is a real
-  # response from the Knative Service and not just an open port.
-  k port-forward -n client deployment/client 18080:8080 >/dev/null 2>&1 &
-  FORWARD_PID=$!
-  dial="http://127.0.0.1:18080/dial?request=hostname&protocol=http&host=${web_hostport%:*}&port=${web_hostport##*:}&tries=1"
-  answer=""
+  # The request is made from inside the client's pod, to the URL in the env var
+  # lowering wrote, read by the shell there and not by this script. Knative's
+  # ingress routes on the Host header, so it must be a request to the NAME: a
+  # request to the Service's IP reaches the ingress and matches nothing. The
+  # answer is the hostname of the pod that served it, so it is a real response
+  # from the Knative Service and not just an open port.
+  given_hostport client deployment/client WEB_URL .spec.template.spec >/dev/null
+  served=""
   for _ in $(seq 1 30); do
-    answer="$(curl -fsS --max-time 20 "$dial" 2>/dev/null || true)"
-    case "$answer" in *'"responses":["web-'*) break ;; esac
+    served="$(k exec -n client deployment/client -- sh -c 'curl -fsS --max-time 20 "$WEB_URL/hostname"' 2>/dev/null || true)"
+    case "$served" in web-*) break ;; esac
     sleep 2
   done
-  served="$(printf '%s' "$answer" | sed -n 's/.*"responses":\["\([^"]*\)".*/\1/p')"
   case "$served" in
     web-*) echo "ok: client → web, answered by $served" ;;
-    *) fail "client could not get an answer from web through Knative's ingress: ${answer:-no response}" ;;
+    *) fail "client could not get an answer from web through Knative's ingress: ${served:-no response}" ;;
   esac
 
   say "the Knative Service's pod reaches the kubernetes Service"

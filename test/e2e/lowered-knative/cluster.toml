@@ -78,9 +78,9 @@ tier = "cluster"
 [bundles.external]
 image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
 entryPoint = "/agnhost"
-# It serves HTTP only so the smoke can ask it to make a request on its behalf
-# (netexec's /dial). No port is declared: nothing in the graph reaches it.
-args = ["netexec", "--http-port=8080"]
+# It does nothing on its own. The smoke runs curl inside it, against the URL in
+# the env var below, which is how a real client would use that variable.
+args = ["pause"]
 
 [[bundles.external.env]]
 name = "WEB_URL"
