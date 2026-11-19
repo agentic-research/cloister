@@ -15,10 +15,14 @@ on:
 permissions:
   contents: read
 
-# Cancel previous runs on the same ref when a new push lands.
+# A new push to a pull request cancels the run it replaces. A push to main
+# never does: each merge is a commit someone may later bisect to or deploy, and
+# a run cancelled by the next merge leaves that commit with no result at all.
+# On main the group is per commit, so runs do not queue behind each other
+# either.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   lint:
@@ -437,10 +441,10 @@ jobs:
   # was failing 12 of 15 assertions with every dynamically-discovered tool
   # missing, and no CI job noticed because none ran it (cloister-aef43a).
   #
-  # Non-blocking today: the script tolerates a declared KNOWN_FAILING list
-  # (currently cloister-af794d, mache's Streamable HTTP session lifecycle) and
-  # fails on anything outside it — or on a listed assertion that starts passing,
-  # which forces the list to shrink rather than calcify.
+  # Blocking, through `ci-ok` below. The script tolerates a declared
+  # KNOWN_FAILING list (empty today) and fails on anything outside it, or on a
+  # listed assertion that starts passing, which forces the list to shrink
+  # rather than calcify.
   smoke-e2e:
     name: smoke-e2e (real leyline + mache + cloister)
     needs: [lint]
@@ -448,12 +452,19 @@ jobs:
     timeout-minutes: 15
 
     env:
-      # Pinned deliberately. These are BINARY release tags and move on their own
-      # cadence, independent of the server.json `version` pins in cluster.toml
-      # ([inputs.llo] 0.8.0, [inputs.mache] 0.17.0) which pin the tool CONTRACT,
-      # not the executable. Bump these when validating against a newer upstream.
-      LEYLINE_RELEASE: v0.11.3
+      # leyline is NOT pinned here. Its version and digest are in
+      # schema-bridge.lock.json with every other ley-line-open pin, so
+      # `task llo:bump` moves it and `lint:upstream-pins` holds it to the same
+      # release. A separate tag here once sat at v0.11.3 while the rest of the
+      # repo moved to v0.30.0, and the full-stack check ran an engine nobody
+      # used.
+      #
+      # mache is a BINARY release tag, apart from the server.json `version` in
+      # cluster.toml ([inputs.mache]), which pins the tool CONTRACT. The digest
+      # is the trust root, not the tag and not the release's own checksum file:
+      # that file comes from the same place as the binary. Bump both together.
       MACHE_RELEASE: v0.19.0
+      MACHE_SHA256: 533e9a7b228ee92166706201b5fffc4fe7cb310f3dfef32100951d94be56ff3e
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -519,30 +530,21 @@ jobs:
         # wasm32 build (cloister-dbe9c3).
         run: task llo:wasm
 
-      - name: Download upstream binaries
+      - name: Fetch upstream binaries, each checked against a pinned digest
         # Both repos publish linux-amd64 release assets, so the smoke runs
-        # against SHIPPED artifacts rather than a cross-repo source build —
-        # which also means this job tests what an operator would actually
-        # install. mache ships checksums; leyline does not, so only mache's
-        # integrity is verifiable here (worth raising upstream).
+        # against SHIPPED artifacts rather than a cross-repo source build, which
+        # also means this job tests what an operator would actually install.
+        # A digest that does not match fails the job before anything runs.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
-          gh release download "$LEYLINE_RELEASE" \
-            --repo agentic-research/ley-line-open \
-            --pattern 'leyline-linux-amd64' --output "$RUNNER_TEMP/bin/leyline"
+          cp "$(node gen/fetch-schema-bridge.mjs leyline)" "$RUNNER_TEMP/bin/leyline"
           gh release download "$MACHE_RELEASE" \
             --repo agentic-research/mache \
             --pattern 'mache-linux-amd64' --output "$RUNNER_TEMP/bin/mache"
-          gh release download "$MACHE_RELEASE" \
-            --repo agentic-research/mache \
-            --pattern 'checksums-sha256.txt' --output "$RUNNER_TEMP/mache-sums.txt"
-          ( cd "$RUNNER_TEMP/bin" \
-            && grep 'mache-linux-amd64' "$RUNNER_TEMP/mache-sums.txt" \
-               | sed 's/mache-linux-amd64/mache/' \
-               | sha256sum -c - )
+          echo "$MACHE_SHA256  $RUNNER_TEMP/bin/mache" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/bin/leyline" "$RUNNER_TEMP/bin/mache"
 
       - name: Run the full-stack smoke
@@ -552,3 +554,31 @@ jobs:
           LEYLINE: ${{ runner.temp }}/bin/leyline
           MACHE: ${{ runner.temp }}/bin/mache
         run: CLOISTER_DIR="$GITHUB_WORKSPACE" task smoke
+
+  # The one check to require. It needs every job in this file and passes only
+  # if each one succeeded, or was skipped on purpose (`verify` on a docs-only
+  # pull request). Branch protection lists check NAMES, so a job added here
+  # later would otherwise be advisory until someone remembered to list it: this
+  # job is the list. `lint/test/ci-gate.test.mjs` fails if a job is left out.
+  #
+  # `if: always()` matters. Without it a failed dependency SKIPS this job, and
+  # a skipped required check counts as passing.
+  ci-ok:
+    name: ci-ok (every job passed)
+    if: always()
+    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, smoke-e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Every job succeeded, or was skipped on purpose
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          # Only `verify` has a condition, so only it may be skipped.
+          bad="$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success" and (.key != "verify" or .value.result != "skipped")) | .key')"
+          if [ -n "$bad" ]; then
+            echo "not passed: $bad"
+            exit 1
+          fi
