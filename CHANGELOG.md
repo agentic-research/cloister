@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a connection's address reaches a microVM
+
+- An env row bound to a connection is lowered for a microVM placement: the
+  launch plan sets it to `<scheme>://127.0.0.1:<guestPort>` plus the row's
+  path. That is the address a dial grant presents in the guest
+  (confinement/v1 §6). The port comes from the same pass that builds the
+  grant, so the two cannot disagree.
+- A protocol with no URL form is refused, and the refusal says where the
+  channel is presented. A row bound to a secret is still refused for a
+  microVM: a launch plan carries no secret.
+
 ### 2026-11 — Kubernetes resources declared in Terraform are read
 
 - `cloister inspect --terraform` reads Deployments, StatefulSets, DaemonSets,

@@ -227,15 +227,19 @@ test("lowering refuses what it cannot write, by name", async () => {
   });
 });
 
-test("a microVM plan refuses a binding it does not lower, and never starts without the variable", () => {
+test("a microVM env row: a secret is refused, an unknown connection is refused, a literal is unchanged", () => {
   assert.throws(
     () => lowerEnvironment("orders", [{ name: "LOG_LEVEL", value: "debug" }, { name: "DB_PASSWORD", value: "", secret: "orders-db" }]),
-    /bundle "orders" environment variable "DB_PASSWORD" is bound to secret "orders-db"; `runtime plan` does not lower a secret binding for a microVM yet/,
+    /bundle "orders" environment variable "DB_PASSWORD" is bound to secret "orders-db"; a launch plan carries no secret/,
   );
+  // No grant presents a connection the bundle does not declare here, so there
+  // is no address to write, and the workload is not started without it.
   assert.throws(
     () => lowerEnvironment("orders", [{ name: "PAYMENTS_URL", value: "", connection: "payments" }]),
-    /is bound to connection "payments"; `runtime plan` does not lower a connection binding for a microVM yet/,
+    /is bound to connection "payments", which this bundle does not declare for this environment, so no grant presents it/,
   );
+  const dials = new Map([["payments", { guestPort: 8443, appProtocol: "art.http", to: "payments" }]]);
+  assert.deepEqual(lowerEnvironment("orders", [{ name: "PAYMENTS_URL", value: "", connection: "payments", path: "/v1" }], dials), [{ name: "PAYMENTS_URL", value: "http://127.0.0.1:8443/v1" }]);
   // A literal row, with the new fields empty as the parser leaves them, is unchanged.
   assert.deepEqual(lowerEnvironment("orders", [{ name: "A", value: "1", connection: "", path: "", secret: "", secretKey: "" }]), [{ name: "A", value: "1" }]);
 });
