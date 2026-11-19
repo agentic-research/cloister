@@ -94,7 +94,12 @@ func greet() { print("hi") }
 GO
 
 echo "→ starting mache MCP server on localhost:$MACHE_PORT"
-"$MACHE" serve --http "localhost:$MACHE_PORT" "$WORK/mache-src" \
+# `--path` pins mache to one project, as cluster.compose.yaml runs it. Without
+# it mache asks the connecting client for its roots. cloister answers that
+# request from what a client declared on `initialize`, and this script's
+# client, like most plain HTTP clients, declares none. A newer mache treats
+# an empty answer as an error, where v0.19.0 fell back to a default.
+"$MACHE" serve --http "localhost:$MACHE_PORT" --path "$WORK/mache-src" \
   > "$WORK/mache.log" 2>&1 &
 MACHE_PID=$!
 
@@ -350,11 +355,9 @@ echo
 echo "── tools/call mache_list_directory through dynamic backend ──────────"
 # Drives the full chain ADR-0006 commits to: cloister sees mache_list_directory
 # (Derived from upstream tools/list), strips the "mache_" prefix, and forwards
-# list_directory with the captured Mcp-Session-Id. mache attempts a server→
-# client `roots/list` callback on first contact; cloister doesn't implement
-# the back-channel, so mache waits ~5s before falling back to default path.
-# Subsequent calls are fast (cache warm). Bump curl timeout to 30s for this
-# one-time cost.
+# list_directory with the captured Mcp-Session-Id. mache is pinned to one
+# project with `--path` (see where it is started), so it has no need to ask
+# for roots. The 30s timeout is headroom for a cold first call.
 MACHE_OUT=$(post_mcp "$CLST_PORT" \
   '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"mache_list_directory","arguments":{"path":"/"}}}' \
   30)

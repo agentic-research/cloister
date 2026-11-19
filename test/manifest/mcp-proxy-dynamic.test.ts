@@ -218,6 +218,38 @@ describe("McpProxyToolBackend — dynamic (dynamicTools=true)", () => {
     expect(result).toEqual({ wireName: "get_overview", args: { repo: "x" } });
   });
 
+  // An upstream's own sentence is usually the remedy. mache answers a client
+  // that declared no roots with "start mache with an explicit --path"; the
+  // caller used to get "tool mache_list_directory failed" in its place.
+  const failingWith = (content: unknown, extra: Record<string, unknown> = {}) => {
+    const spec: HttpForwardBackend = { urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true, stripPrefix: "mache_" };
+    const { fetcher } = mockFetch((_method, body) => {
+      if ((body as { method: string }).method === "tools/list") return jsonResponse(TOOLS_LIST_RESULT);
+      return jsonResponse({ content, ...extra });
+    });
+    return new McpProxyToolBackend(spec, "mache_", fetcher).invoke("mache_get_overview", {}, envWith("http://stub/"));
+  };
+
+  it("a tool error in plain text reaches the caller as the upstream wrote it", async () => {
+    const said = "workspace root unavailable (the MCP client returned no roots). Start mache with an explicit --path";
+    await expect(failingWith([{ type: "text", text: said }], { isError: true })).rejects.toMatchObject({ code: -32000, message: said });
+  });
+
+  it("a tool error as JSON { error } still reaches the caller as that string", async () => {
+    await expect(failingWith([{ type: "text", text: JSON.stringify({ error: "db is empty" }) }], { isError: true })).rejects.toMatchObject({ code: -32000, message: "db is empty" });
+  });
+
+  it("a tool error with no text falls back to naming the tool", async () => {
+    await expect(failingWith([{ type: "text", text: "" }], { isError: true })).rejects.toMatchObject({ code: -32000, message: "tool mache_get_overview failed" });
+  });
+
+  it("a very long upstream error is cut, not passed on whole", async () => {
+    const error = await failingWith([{ type: "text", text: "x".repeat(5000) }], { isError: true }).catch((e) => e);
+    expect(error.code).toBe(-32000);
+    expect(error.message.length).toBeLessThan(2100);
+    expect(error.message.endsWith("(truncated)")).toBe(true);
+  });
+
   it("handles() returns true for prefixed names even before refreshTools runs", () => {
     const spec: HttpForwardBackend = {
       urlBinding: "MACHE_MCP_URL", tools: [], dynamicTools: true, stripPrefix: "mache_",

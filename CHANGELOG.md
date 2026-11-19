@@ -8,6 +8,13 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — an upstream's own error text reaches the caller
+
+- When a proxied tool fails with a plain-text message, the caller now gets
+  that message (up to 2000 characters). It used to get `tool <name> failed`,
+  which hid remedies the upstream had written out. The `leylineNet` backend
+  already passed the text through.
+
 ### 2026-11 — one graph: wires and connections together, each with what holds it
 
 - `cloister cluster graph --env <name>` prints every declared edge: each
@@ -27,10 +34,11 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - `ci-ok` needs every CI job and is the one check to require. A push to
   `main` no longer cancels the run before it.
 - The full-stack smoke's binaries are checked against pinned digests: the
-  engine through `schema-bridge.lock.json`, mache in the workflow. mache is
-  held at v0.19.0: v0.22.0 was tried and cannot resolve a workspace behind
-  cloister, which has no channel for mache's `roots/list` request and does
-  not forward a `?project=` token.
+  engine through `schema-bridge.lock.json`, mache (v0.22.0) in the workflow.
+  The smoke starts mache with `--path`. A mache newer than v0.19.0 needs a
+  project pinned when the client declares no roots: cloister passes on only
+  the roots a client declared on `initialize`, and mache now treats an empty
+  answer as an error.
 - `task test:lint-scripts` is now `task test:node`.
 - `dev/lowered-kind.sh drafted` runs the whole path on a real cluster: a
   rendered Terraform plan is drafted into `cluster.toml`, lowered unedited,
