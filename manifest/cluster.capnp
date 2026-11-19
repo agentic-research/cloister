@@ -324,7 +324,8 @@ struct PortSpec $Traits.doc("One named inbound port.") {
   # §2 defines them). "none": no channel, not a connection target. "cluster":
   # reachable only through declared connections. "edge": that, plus from
   # outside — on microvm, `cluster up` publishes it on the host at
-  # 127.0.0.1:<port> (loopback only); `cluster k8s` refuses it, not lowered.
+  # 127.0.0.1:<port> (loopback only); compose does the same, and publishes
+  # no other port; `cluster k8s` refuses it, not lowered.
   expose @3 :Text $Traits.doc("Who may reach the port. 'none': nobody, and it cannot be a connection target. 'cluster': only through declared connections. 'edge': also from outside. Empty means 'none'.");
 }
 

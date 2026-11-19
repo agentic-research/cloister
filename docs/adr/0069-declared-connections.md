@@ -188,6 +188,45 @@ target kind; `cloudSql` / `cloudRun` arrive as appended fields.
   New blessed labels this needs: `art.postgres`, `art.mysql`, `art.redis`
   (ADR-0030 §A4 amendment).
 
+#### Amendment (2026-11-19): compose reads `expose` too
+
+`emit-compose` was the one emitter that did not read `expose`. It published
+every bundle's `httpPort` on the host, whether or not anything said the port
+should be reachable from outside. It now follows the rule above:
+
+- A port declared `edge` is published on the host at `127.0.0.1:<port>`,
+  loopback only, as `cluster up` does.
+- Any other port is not published. That includes `httpPort` on its own,
+  which is where a wire reaches the bundle and says nothing about the host.
+  The compose file carries a comment on each such service naming the port and
+  the row that would publish it, so the absence is stated where it is read.
+
+For that to be expressible, a port may now be declared on any external
+bundle. It was refused on a `process` bundle with no placement, on the ground
+that nothing lowered it. Compose runs every external bundle whatever its
+`executionMode`, and lowers its ports as above, so that ground no longer
+holds. Two things are unchanged:
+
+- A **connection** end still needs a placement in its env. A connection to
+  or from a `process` bundle with no placement is refused as before.
+- `runtime plan` still refuses to lower a port for a bundle that is not
+  `microvm`: it has no way to hand such a bundle a channel.
+
+Compose is not a placement kind. It runs the whole cluster, including a
+bundle whose placement is `microvm`, so it cannot be something one bundle is
+placed as in one env.
+
+Two cases are refused or stated, not guessed: an `edge` port on the one
+bundle that runs inside the gateway's network namespace is refused, naming
+the gateway as where to declare it; and an `edge` port on a `perTenant`
+bundle is not published, with a comment saying one host port cannot serve
+every tenant's instance.
+
+**What an existing cluster sees.** A port it relied on from the host is no
+longer there until a `[[bundles.ports]]` row declares it `edge`. In this
+repository the gateway's 8787 is declared, in `cluster.toml` and in every
+recipe; the identity service's 8788 is not, and is no longer published.
+
 ### 3. Databases: the protocol is the wire, the engine is the target
 
 MySQL, Postgres and Dolt look like three choices and are really two wires:

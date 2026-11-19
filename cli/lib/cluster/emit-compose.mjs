@@ -40,7 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
-import { httpEdgeOf, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
+import { PUBLISH_ADDRESS, edgePortsOf, httpEdgeOf, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
 import { bindPath, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -370,20 +370,29 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
     for (const n of networksFor(serviceName, netPlan)) lines.push(`      - ${n}`);
   }
 
-  // Port forwards (only the lead instance gets host-port binding when
-  // we'd otherwise collide — per-tenant containers don't bind host
-  // ports by default; operators add explicit ports: in their compose
-  // overlay if they want per-tenant TCP exposure).
+  // A port reaches the host only if the bundle declares it with
+  // `expose = "edge"` (ADR-0069 §2: the one value that means "also from
+  // outside"). `httpPort` alone is where a wire reaches the bundle and says
+  // nothing about the host, so it is not published, and the file says so.
   //
-  // Published on the host's loopback only. A port published on every
-  // interface is reachable from EVERY container through the host's
-  // address, whatever network that container is on, which would undo the
-  // per-wire networks above. It is also what `cluster up` does for an
-  // `edge` port. An operator who wants the port on the LAN says so in a
-  // compose overlay.
-  if (ext.httpPort > 0 && !nsHost && !tenant) {
+  // Published on the host's loopback only, as `cluster up` does for an
+  // `edge` port. A port published on every interface is reachable from
+  // EVERY container through the host's address, whatever network that
+  // container is on, which would undo the per-wire networks above. An
+  // operator who wants the port on the LAN says so in a compose overlay.
+  const edge = edgePortsOf(b);
+  if (edge.length > 0 && nsHost) {
+    throw new Error(`emit-compose: bundle "${b.name}" declares ${edge.map((p) => `port "${p.name}"`).join(", ")} with expose = "edge", but it runs inside "${nsHost}"'s network namespace and has no ports of its own to publish. Declare the port on "${nsHost}"`);
+  }
+  if (edge.length > 0 && !tenant) {
     lines.push(`    ports:`);
-    lines.push(`      - ${publishedPort(ext.httpPort, ext.httpPort)}`);
+    for (const p of edge) lines.push(`      - ${publishedPort(p.port, p.port)}`);
+  } else if (edge.length > 0) {
+    // Every tenant's instance would ask for the same host port.
+    lines.push(`    # not published: ${edge.map((p) => p.port).join(", ")} — one host port cannot serve every tenant's instance`);
+  }
+  if (ext.httpPort > 0 && !nsHost && !edge.some((p) => p.port === ext.httpPort)) {
+    lines.push(`    # not published: httpPort ${ext.httpPort} is reached through this bundle's wires only. A [[bundles.ports]] row for it with expose = "edge" publishes it on ${PUBLISH_ADDRESS}`);
   }
 
   const mounts = socketMountsFor(serviceName, udsPlan).map((d) => `${d.volume}:${d.dir}`);

@@ -8,6 +8,32 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — compose publishes a port only when it is declared `edge`
+
+- **Changed:** `emit-compose` no longer publishes a bundle's `httpPort` on
+  its own. A port reaches the host only if a `[[bundles.ports]]` row declares
+  it `expose = "edge"`, the rule every other placement already follows
+  (ADR-0069 §2). The compose file carries a comment on each service whose
+  `httpPort` is not published, naming the row that would publish it.
+- To keep a port on the host, declare it:
+
+  ```toml
+  [[bundles.ports]]
+  name = "mcp"
+  port = 8787
+  appProtocol = "art.http"
+  expose = "edge"
+  ```
+
+  The gateway's 8787 is declared this way in this repository's `cluster.toml`
+  and in every recipe. The identity service's 8788 is not, and is no longer
+  published.
+- A port may now be declared on any external bundle. It was refused on a
+  `process` bundle with no placement. A connection to or from such a bundle
+  is still refused.
+- `task smoke:compose-hold` adds a target with no `edge` port: its caller gets
+  a page, and the host cannot reach it.
+
 ### 2026-11 — a wire over HTTP is held under compose, and ports publish on loopback
 
 - **Changed:** every published port is now on `127.0.0.1`. It was on every

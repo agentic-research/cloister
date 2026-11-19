@@ -190,7 +190,9 @@ no such network gets one to itself. No service is left on compose's
 every container through the host's address, whatever network that container
 is on, which would undo the networks. So every port is published on
 `127.0.0.1`. This is also what `cluster up` already does for an `edge` port.
-An operator who wants a port on the LAN says so in a compose overlay.
+An operator who wants a port on the LAN says so in a compose overlay. Which
+ports are published at all is ADR-0069's `expose`: only one declared `edge`
+(ADR-0069 §2, amendment of the same date).
 `init --port` rewrites the host half of that entry, builds the text it looks
 for from the emitter's own function, and now fails if it finds none; it used
 to replace nothing and report success.

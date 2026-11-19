@@ -361,18 +361,22 @@ test("a socket path over 103 bytes is refused, naming it", async () => {
 
 // ── Endpoint rules are build-time (S1 / N1) ──────────────────────────────
 
-test("cluster:toml refuses an exposed port on a process bundle", async () => {
-  await assert.rejects(
-    parseTomlToCluster(fixtureToml({ ordersMode: "process", connections: "" })),
-    /bundle "orders" exposes port "grpc" but has executionMode "process" and no placements; channels are lowered only for "microvm" bundles/,
-  );
+// A port on a process bundle is lowered by compose, which runs every external
+// bundle: `edge` is published on the host's loopback, anything else is not
+// (ADR-0069 amendment 2026-11-19). What is still refused is handing such a
+// bundle a CHANNEL: `runtime plan` cannot, and a connection cannot end there.
+test("cluster:toml accepts a port on a process bundle, and runtime plan still refuses to lower it", async () => {
+  const toml = fixtureToml({ ordersMode: "process", connections: "" });
+  const cluster = await parseTomlToCluster(toml);
+  assert.equal(cluster.bundles.find((b) => b.name === "orders").ports[0].name, "grpc");
+  await assert.rejects(plan(toml, "orders"), /bundle "orders" declares ports or connections but its executionMode is "process"/);
 });
 
 test("cluster:toml refuses a connection whose target is a process bundle", async () => {
   const toml = fixtureToml({ doltMode: "process" }).replace('expose = "cluster"', 'expose = "none"');
   // dolt's only port is now unexposed, so the target-port check fires first;
   // keep it exposed and the port check names dolt as an endpoint instead.
-  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" exposes port "mysql" but has executionMode "process"/);
+  await assert.rejects(parseTomlToCluster(fixtureToml({ doltMode: "process" })), /bundle "dolt" is the target of connection "orders-db" but has executionMode "process" and no placements/);
   await assert.rejects(parseTomlToCluster(toml), /port "dolt.mysql" has expose "none"/);
 });
 

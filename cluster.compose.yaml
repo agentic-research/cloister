@@ -41,8 +41,7 @@ services:
       - "cloister.description=ghcr.io/agentic-research/notme@sha256:56fd69dd51e5f4269f11cd541245e061ca54acd3f6f8ea52b12155b7f421b95b — Identity authority — Signet master CA, lease cert mint"
     networks:
       - wire-cloister-router-notme-identity
-    ports:
-      - "127.0.0.1:8788:8788"
+    # not published: httpPort 8788 is reached through this bundle's wires only. A [[bundles.ports]] row for it with expose = "edge" publishes it on 127.0.0.1
 
   notme-proxy:
     image: ghcr.io/agentic-research/notme-proxy@sha256:fdfa077c3eecfb568879393e10c8ee7e81f04b41c31e25fb8bc479f63cffac64
