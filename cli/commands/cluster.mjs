@@ -75,7 +75,7 @@ function spawnSyncSafe(bin, args) {
 export function parseArgs(argv) {
   const out = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
-    env: null, out: null,
+    env: null, out: null, json: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -93,7 +93,8 @@ export function parseArgs(argv) {
       if (v === undefined || v.startsWith("--")) throw new ClusterUsageError(`${a} requires a value`);
       out[a.slice(2)] = v; i++; continue;
     }
-    if (!out.sub && ["generate", "resolve", "up", "down", "k8s", "lower"].includes(a)) { out.sub = a; continue; }
+    if (a === "--json") { out.json = true; continue; }
+    if (!out.sub && ["generate", "resolve", "up", "down", "k8s", "lower", "graph"].includes(a)) { out.sub = a; continue; }
     if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
     throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
   }
@@ -167,6 +168,16 @@ export async function lowerDir({ root, env }) {
     throw new ClusterUsageError(`no bundle is placed "kubernetes" or "knative" for env "${env}"; those are the placements lowering writes a manifest for`);
   }
   return { written, kept };
+}
+
+/**
+ * Every edge cluster.toml declares, for one environment (ADR-0075).
+ * Reads cluster.toml; writes and starts nothing.
+ */
+export async function graphDir({ root, env }) {
+  const { parseTomlToCluster } = await import("../lib/cluster/toml-to-cluster.mjs");
+  const { clusterGraph } = await import("../lib/cluster/graph.mjs");
+  return clusterGraph(await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8")), env);
 }
 
 export async function emitK8sDir({ root, env, out }) {
@@ -285,6 +296,22 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     } catch (error) {
       errLog(`cloister cluster lower: ${error.message}`);
       return error instanceof ClusterUsageError ? 2 : 1;
+    }
+  }
+
+  if (args.sub === "graph") {
+    const env = args.env ?? "local";
+    try {
+      const graph = await graphDir({ root: selectedRoot, env });
+      if (args.json) log(JSON.stringify(graph, null, 2));
+      else {
+        const { renderGraph } = await import("../lib/cluster/graph.mjs");
+        log(renderGraph(graph));
+      }
+      return 0;
+    } catch (error) {
+      errLog(`cloister cluster graph: ${error.message}`);
+      return 1;
     }
   }
 

@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — one graph: wires and connections together, each with what holds it
+
+- `cloister cluster graph --env <name>` prints every declared edge: each
+  `[[connections]]` row with a target in the environment, and each `[[wires]]`
+  row. For each it says what carries it, its strength, and the mechanism in a
+  sentence. An edge nothing enforces is shown as `none`, with the reason
+  (ADR-0075).
+- A wire under `cluster up` is `none`: compose gives every container the one
+  socket volume. That was true before and is now stated. A test ties the
+  statement to the compose emitter.
+
 ### 2026-11 — every diagram is parsed, and the gate covers every job
 
 - `mermaid:lint` runs mermaid's own parser over every diagram in every
