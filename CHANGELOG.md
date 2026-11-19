@@ -8,6 +8,16 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — an https address to a Knative bundle is no longer "the wrong port"
+
+- `cluster k8s` accepts a manifest that dials a knative-placed bundle as
+  `https://<name>.<namespace>.svc` (or `wss://`). A Knative Service answers
+  on 443 where the cluster's Knative has internal encryption turned on, so
+  the address names the same connection. The command says that it depends on
+  that setting, which no manifest shows.
+- Port 443 with no scheme, https on another port, and https to a plain
+  Kubernetes bundle are still held to the declared port.
+
 ### 2026-11 — a bundle may be called something else where it is deployed
 
 - `[[bundles.placements]]` rows take a `name`: what the bundle is called in

@@ -178,7 +178,10 @@ const SCHEME_BEFORE = /([a-z][a-z0-9+.-]*):\/\/(?:[^/\s@]*@)?$/;
  * A token followed by `@`, with or without a `:password`, is a user and is
  * skipped.
  *
- * @returns {Array<{host: string, port: number | null, hostPosition: boolean}>}
+ * `scheme` is the URL scheme written before the host, when there is one. It
+ * says how the caller means to speak, which a port number alone does not.
+ *
+ * @returns {Array<{host: string, port: number | null, scheme: string | null, hostPosition: boolean}>}
  */
 export function addressesIn(value) {
   const text = value.toLowerCase();
@@ -195,6 +198,7 @@ export function addressesIn(value) {
     out.push({
       host,
       port: stated ? Number(stated[1]) : schemePort,
+      scheme: scheme ? scheme[1] : null,
       // `user@tcp(host:3306)`: the word before "(" is a transport, not a host.
       hostPosition: Boolean(stated || scheme || (before.endsWith("@") && !after.startsWith("("))),
     });

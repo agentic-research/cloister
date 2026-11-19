@@ -241,6 +241,23 @@ by `cluster k8s` as before. §3's table gives `cloudRun` strength `policy` once
 its invoker row and ingress setting are compared with intent, which they are
 not yet.
 
+**Amendment (2026-11-19): an https address to a Knative bundle is the same
+connection.** A Knative Service is dialled on 80. `cluster k8s` therefore
+refused a manifest that named one as `https://<name>.<namespace>.svc`,
+reading it as port 443 and "the wrong port". But the Service does answer on
+443, over TLS, where the cluster's Knative has internal encryption turned on,
+and a workload written for a platform that is always reached over https
+(Cloud Run) dials exactly that. The manifest was right about what it dials.
+
+An address whose scheme is `https` or `wss`, on port 443, to a knative-placed
+bundle is now held to that bundle's connection like any other. Whether 443
+answers is a setting of the cluster that no manifest shows, so the command
+says so beside the reference; it is accepted, never assumed to work. Nothing
+else changes: port 443 with no scheme, https on another port, and https to a
+plain `kubernetes` bundle are still held to the declared port. Lowering still
+writes `http` for a Knative address, because cloister cannot know the caller
+would trust the cluster's certificate.
+
 **Amendment (2026-11-19): a forwarded placement may be described by something
 other than a manifest.** A `kubernetes` or `knative` placement row had to
 name a rendered YAML file, checked when `cluster.toml` was parsed. But a

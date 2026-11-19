@@ -53,6 +53,10 @@ const KNATIVE_SERVICE = Object.freeze({ group: "serving.knative.dev", kind: "Ser
 
 /** The port a Knative Service is reached on inside the cluster, whatever its container listens on. */
 const KNATIVE_PORT = 80;
+/** The port a Knative Service answers TLS on, where the cluster enables it. */
+const KNATIVE_TLS_PORT = 443;
+/** Schemes that mean the caller speaks TLS. */
+const TLS_SCHEMES = Object.freeze(["https", "wss"]);
 /** The label, and its value, that keeps a Knative Service off every external route. */
 export const KNATIVE_VISIBILITY_LABEL = "networking.knative.dev/visibility";
 export const KNATIVE_CLUSTER_LOCAL = "cluster-local";
@@ -367,14 +371,21 @@ function checkAddresses(nodes, edges, env) {
           );
         }
         const portOf = (edge) => target.ports.find((p) => p.name === edge.port)?.port;
-        const reached = address.port === null ? declared : declared.filter((e) => portOf(e) === address.port);
+        let reached = address.port === null ? declared : declared.filter((e) => portOf(e) === address.port);
+        // A Knative Service is dialled on 80. It also answers on 443, over
+        // TLS, where the cluster's Knative has internal encryption turned on.
+        // So an https address to it names the same Service and the same
+        // connection. Whether 443 answers is a setting of the cluster, which
+        // no manifest shows: it is accepted, and said, never assumed to work.
+        const overTls = reached.length === 0 && target.knative === true && TLS_SCHEMES.includes(address.scheme) && address.port === KNATIVE_TLS_PORT;
+        if (overTls) reached = declared;
         if (reached.length === 0) {
           throw new Error(
             `${from} (bundle "${target.name}"), but the declared ` +
               `${declared.map((e) => `connection "${e.name}" reaches port ${portOf(e)}`).join(" and ")}`,
           );
         }
-        if (!seen.has(key)) references.push({ bundle: source.name, container, where, address: shown, to: target.name, connections: reached.map((e) => e.name) });
+        if (!seen.has(key)) references.push({ bundle: source.name, container, where, address: shown, to: target.name, connections: reached.map((e) => e.name), ...(overTls ? { overTls: true } : {}) });
         seen.add(key);
       }
     }
@@ -526,7 +537,7 @@ export function lowerK8s({ bundles: declared, connections, env, readManifest }) 
     ...(ownObjects.has(b.name) ? { objects: ownObjects.get(b.name) } : {}),
   });
   const { references, unreferenced, unread } = checkAddresses(
-    [...placed.map((b) => node(b, inspected.get(b.name))), ...knative.map((b) => node(b, checked.find((k) => k.bundle === b.name)))],
+    [...placed.map((b) => node(b, inspected.get(b.name))), ...knative.map((b) => ({ ...node(b, checked.find((k) => k.bundle === b.name)), knative: true }))],
     edges,
     env,
   );
