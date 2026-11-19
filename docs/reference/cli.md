@@ -33,6 +33,7 @@ Global options may appear before or after a command. Cloister stops reading them
 | [`cloister cluster up`](#cloister-cluster-up) | Bring a declared cluster up (compose, or microVMs with --env) |
 | [`cloister cluster down`](#cloister-cluster-down) | Tear a cluster down, preserving volumes |
 | [`cloister cluster k8s`](#cloister-cluster-k8s) | Lower kubernetes placements to manifests + NetworkPolicy; check knative ones |
+| [`cloister cluster graph`](#cloister-cluster-graph) | Show every declared edge, what carries it, and what holds it |
 | [`cloister cluster lower`](#cloister-cluster-lower) | Write each kubernetes- or knative-placed bundle's manifest from cluster.toml |
 | [`cloister inspect`](#cloister-inspect) | Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml |
 | [`cloister artifacts pull`](#cloister-artifacts-pull) | Acquire lockfile-pinned OCI artifacts |
@@ -257,6 +258,22 @@ For each bundle placed "kubernetes" in --env, checks its rendered manifest's Ser
 | `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
 
 See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-placements-and-channel-strength.md)
+
+## cloister cluster graph
+
+```
+cloister cluster graph [--env <name>] [--dir <path>] [--json]
+```
+
+Reads cluster.toml and prints one graph: every [[connections]] row that has a target in --env, and every [[wires]] row. For each edge it says what carries it where it runs, its strength (none, policy or capability: what stops a bundle that is not the declared caller), and the mechanism in a sentence. A strength is what the emitter for that placement writes today, never what is intended: an edge nothing enforces is shown as none, with the reason. An edge below its minStrength is marked. A connection with no target in --env is listed, not dropped. Nothing is written or started. ADR-0075.
+
+| Flag | | |
+|---|---|---|
+| `--env` `<name>` |  | environment whose connection targets and placements are read (default: local) |
+| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--json` |  | print the graph as JSON |
+
+See also: [`docs/adr/0075-one-graph.md`](../adr/0075-one-graph.md)
 
 ## cloister cluster lower
 

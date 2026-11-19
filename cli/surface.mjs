@@ -363,6 +363,26 @@ export const COMMANDS = [
     seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
   },
   {
+    name: "cluster graph",
+    usage: "cloister cluster graph [--env <name>] [--dir <path>] [--json]",
+    summary: "Show every declared edge, what carries it, and what holds it",
+    detail:
+      "Reads cluster.toml and prints one graph: every [[connections]] row that has a target " +
+      "in --env, and every [[wires]] row. For each edge it says what carries it where it " +
+      "runs, its strength (none, policy or capability: what stops a bundle that is not the " +
+      "declared caller), and the mechanism in a sentence. A strength is what the emitter " +
+      "for that placement writes today, never what is intended: an edge nothing enforces " +
+      "is shown as none, with the reason. An edge below its minStrength is marked. A " +
+      "connection with no target in --env is listed, not dropped. Nothing is written or " +
+      "started. ADR-0075.",
+    flags: [
+      { flag: "--env", value: "<name>", summary: "environment whose connection targets and placements are read (default: local)" },
+      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--json", summary: "print the graph as JSON" },
+    ],
+    seeAlso: "docs/adr/0075-one-graph.md",
+  },
+  {
     name: "cluster lower",
     usage: "cloister cluster lower [--env <name>] [--dir <path>]",
     summary: "Write each kubernetes- or knative-placed bundle's manifest from cluster.toml",
