@@ -13,7 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeGeneratedFile } from "../lib/atomic-write.mjs";
@@ -88,20 +88,16 @@ test("the temp file lives in the DESTINATION directory, not os.tmpdir()", (t) =>
 
 test("a failed write removes the temp file and rethrows", (t) => {
   const dir = scratch(t);
-  const ro = join(dir, "ro");
-  mkdirSync(ro);
-  const f = join(ro, "out.ts");
-  writeFileSync(f, "existing");
-  chmodSync(ro, 0o500); // readable + executable, not writable
-  // Restored in `finally`, not t.after: scratch()'s recursive rm is registered
-  // first and node:test runs after-hooks in registration order, so an after
-  // hook here would fire on an already-deleted directory.
-  try {
-    assert.throws(() => writeGeneratedFile(f, "new"), /EACCES|EPERM/);
-  } finally {
-    chmodSync(ro, 0o700);
-  }
-  // The original file is untouched, and no scratch was left in the tree.
-  assert.equal(readFileSync(f, "utf8"), "existing");
-  assert.deepEqual(readdirSync(ro), ["out.ts"]);
+  // The destination is a directory with something in it, so the temp file is
+  // written and the rename onto it fails. That holds for every user. An
+  // unwritable directory does not: root writes into it anyway, so a test built
+  // on one fails wherever the suite runs as root, for no reason in the code.
+  // It also never created the temp file, so it could not show it being removed.
+  const f = join(dir, "out.ts");
+  mkdirSync(f);
+  writeFileSync(join(f, "kept"), "existing");
+  assert.throws(() => writeGeneratedFile(f, "new"), /EISDIR|ENOTEMPTY|EEXIST|EPERM/);
+  // What was there is untouched, and no scratch was left beside it.
+  assert.equal(readFileSync(join(f, "kept"), "utf8"), "existing");
+  assert.deepEqual(readdirSync(dir), ["out.ts"]);
 });
