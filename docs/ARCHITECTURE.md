@@ -47,8 +47,23 @@ If you want to *run* cloister, start at
 [../GETTING-STARTED.md](../GETTING-STARTED.md). For the reason behind a
 decision, follow the linked ADR: the ADRs are the source of truth for why.
 
+## Terms used here
+
+| Term | Meaning |
+| --- | --- |
+| bundle | one deployable unit: a Worker or a container, with the bindings it is allowed |
+| connection | a declared edge: this bundle may call that one |
+| placement | where a bundle runs in one environment (for example Kubernetes in `prod`) |
+| lease | a short-lived certificate a caller presents with each request; cloister verifies it and counts the call |
+| attestation | a signed record that a caller wrote something, kept so the history can be audited later |
+| receipt | a signed header on a response, so a caller can prove what cloister answered |
+| Interlace | the identity and trust protocol the leases, attestations and receipts follow (ADR-0007) |
+| bead | a tracked work item. `cloister-1a2b3c` is a bead id; they are cited here so the history of a decision can be found |
+| ley-line-open (LLO), mache, rosary, notme | sibling projects: code intelligence and signing, a code graph, the bead tracker, and the identity service |
+
 ## Contents
 
+- [Terms used here](#terms-used-here)
 - [Runtime model](#runtime-model)
 - [From cluster.toml to a running gateway](#from-clustertoml-to-a-running-gateway)
 - [Request routing — two layers](#request-routing--two-layers)
@@ -263,15 +278,11 @@ sequenceDiagram
 
 ### Generic leylineNet via cloister-companion (ADR-0005)
 
-> **Note (2026-06-24)**: this section shows the leylineNet backend
-> flow generically, using `rsry_status` as the example tool name.
-> **The current cloister manifest does NOT use leylineNet for the
-> `rsry_*` surface** — per cloister-c2bd47, `rsry_*` tools are
-> dispatched via an `mcpProxy` backend with `serviceBinding =
-> "ROSARY_BUNDLE"` (HTTP MCP over UDS to the rosary bundle). The
-> leylineNet pattern remains the substrate's transport-agnostic
-> escape hatch for future tool surfaces that need cross-host AEAD-
-> wrapped wire.
+> **Not in use today.** The diagram uses `rsry_status` as its example, but
+> the current manifest reaches the `rsry_*` tools another way: an `mcpProxy`
+> backend over the `ROSARY_BUNDLE` service binding (`cloister-c2bd47`). The
+> `leylineNet` kind is kept for a tool that must be reached across hosts
+> over an encrypted, signed wire.
 
 ```mermaid
 sequenceDiagram
@@ -396,17 +407,17 @@ graph TD
         BDO["beads.ts<br/>BeadStore DO<br/>(per-repo)"]
         TDO["trust-store.ts<br/>TrustStore DO<br/>(singleton)"]
         BLO["blob-store.ts<br/>BlobStore DO<br/>(singleton)"]
-        VDO["vault-store.ts<br/>CredentialVault DO<br/>(one per bundle, ADR-0021)<br/>F1 rate-limit + F4 size caps<br/>uses vault/src/{vault,crypto,rate-bucket}.ts"]
+        VDO["vault-store.ts<br/>CredentialVault DO<br/>(one per bundle, ADR-0021)<br/>rate limit + payload size caps<br/>uses vault/src/{vault,crypto,rate-bucket}.ts"]
     end
 
     subgraph helper ["Trust-anchor-helper (host process — ADR-0019)"]
         HLP["leyline-sign-helper<br/>(LLO rs/ll-open/sign/, Rust)<br/>POST /sign — sig+kid only<br/>GET /resolve — allow-list gated<br/>--require-auth bearer-token"]
     end
 
-    subgraph receipts ["Interlace 0.2.0 receipts — Phase 1 (ADR-0007 §13.2 closure)"]
+    subgraph receipts ["Signed receipts on responses (ADR-0007)"]
         REM["routes/receipt-emitter.ts<br/>per-2xx Interlace-Receipt header"]
         RES["routes/receipt-stream.ts<br/>SSE open/close chain<br/>(open_commitment_hash)"]
-        CAB["routes/ca-bundle.ts<br/>/interlace/ca-bundle<br/>(V-archival CA + compromise notice)"]
+        CAB["routes/ca-bundle.ts<br/>/interlace/ca-bundle<br/>(current and past signing keys,<br/>and a notice if one is compromised)"]
     end
 
     IDX --> RTM
@@ -443,7 +454,7 @@ graph TD
 builds every route and backend from the manifest. A new route kind or backend
 kind is a schema field, a TypeScript mirror, and a branch in `runtime.ts`
 (ADRs 0002, 0005, 0015). A new *instance* of an existing kind is a line in
-`cluster.toml`. The diagram shows the load-bearing modules, not every file:
+`cluster.toml`. The diagram shows the main modules, not every file:
 `src/routes/` also holds the OCI registry, the vault proxy, tenant dispatch,
 and the `.well-known` routes.
 
@@ -529,7 +540,7 @@ Cloister uses **two** content-addressing schemes at different layers:
 | Layer | Algorithm | Implementation | Used for |
 | --- | --- | --- | --- |
 | Application | SHA-256 | `crypto.subtle.digest` (`src/storage/canonical.ts`) | Bead `content_hash`, attestation references, default `BlobStore` key, OCI tag verification |
-| Substrate | BLAKE3-256 | wasm32 FFI to LLO `leyline-cas-ffi` (`src/wire/cas-hash.ts`) | Blob identity in build-cache/v1, arena roots, substrate content addressing (Σ §3.4) |
+| Storage | BLAKE3-256 | wasm32 FFI to LLO `leyline-cas-ffi` (`src/wire/cas-hash.ts`) | Blob identity in build-cache/v1, arena roots |
 
 Both produce 64-character lowercase hex digests. The BLAKE3 path is
 **synchronous** — CAS hashing is on the attestation / provenance path
@@ -566,9 +577,10 @@ Each trust secret is read in exactly one resolver (`lint:lease-gate-source`,
 `lint:trust-env-locality`). New credentials are vault slices on a bundle, not
 new `[vars]` entries (ADR-0010).
 
-**Host-process env (leyline-sign-helper binary; NOT in wrangler/capnp).
-Env-var surface anchored to ADR-0019 (normative reqs 1–15 + §"Implementation
-pins" subsections):**
+**Environment of the signing helper.** `leyline-sign-helper` is a separate
+host process that holds the master signing key (ADR-0019). These variables
+are read by that binary, not by the Worker, so they are in neither
+`wrangler.toml` nor `config.capnp`:
 
 | Env var                            | Required? | Used by                                              |
 | ---------------------------------- | --------- | ---------------------------------------------------- |
@@ -627,6 +639,9 @@ running a real build — useful in CI before bumping versions.
 
 ## Lease verification (ADR-0007 / ADR-0053)
 
+Tracked in `cloister-bd7770` (the pipeline) and `cloister-b89fdb` (wiring it
+into `/mcp`).
+
 Every authenticated `POST /mcp` call is verified by
 `src/routes/lease-middleware.ts:verifyAndUpsertLease` before reaching
 the JSON-RPC dispatch. The pipeline:
@@ -639,7 +654,7 @@ the JSON-RPC dispatch. The pipeline:
    master in the CA bundle, falling back to the previous master during
    a rotation window. Source: LLO `rs/ll-open/sign/src/cert_chain.rs` →
    `src/wire/signet-verify.ts`.
-3. **Claims required** — Phase 1 mandates `epoch` + `peer_fp` + `scope`
+3. **Claims required** — the cert must carry `epoch` + `peer_fp` + `scope`
    (Interlace OID extensions at `1.3.6.1.4.1.99999.1.{4,5,6}`). Certs
    without them fail closed.
 4. **Epoch currency** — `isCertEpochCurrent` accepts the current bundle
@@ -652,8 +667,8 @@ the JSON-RPC dispatch. The pipeline:
    Glob semantics: `X:*` matches any `X:Y`; `*` matches anything (admin
    only).
 8. **Lease counter UPSERT** — `TrustStore.upsertLeaseCounter(...)` via
-   workerd RPC. ADR-0007 §13.2: every authenticated call is recorded so
-   silence is evidence.
+   workerd RPC. Every authenticated call is counted, so a caller with no
+   count provably made no call (ADR-0007 §13.2).
 
 The pipeline is end-to-end tested in `test/routes/lease-middleware.test.ts`
 and wired into `McpEdgeRoute.handlePost`.
@@ -706,7 +721,7 @@ own, so the two do not enforce the same thing. The
 launcher builds the policy; `cloister-harness` applies it and then `exec`s the
 tool.
 
-Two properties follow, and both are load-bearing:
+Two properties follow, and the design depends on both:
 
 - **It is not advisory.** There is no shim to bypass and no environment variable
   to unset. A denied read returns `EPERM` from the operating system.
@@ -802,46 +817,44 @@ its executable), ADR-0061 (skills declared and digest-verified).
 
 ## Security surface
 
-| Layer            | Risk                                | Mitigation                                                |
-| ---------------- | ----------------------------------- | --------------------------------------------------------- |
-| `POST /mcp`      | Unauthenticated request execution   | `McpEdgeRoute.handlePost` wraps every POST in the lease pipeline: `getCABundle` (with sig verify) → `verifyAndUpsertLease` (wasm32 cert chain + clock-skew + Ed25519 request-sig + scope + replay defense + TrustStore counter upsert). Whether the gate enforces is decided by `resolveLeaseGate` (ADR-0053): off only in explicit dev mode with no authority, and fail-closed when there is no authority outside it. |
-| `POST /mcp` response | §13.2 "silence is evidence" gap on the response side | **Interlace 0.2.0 receipts (Phase 1, shipped 2026-05-12)** — every authenticated 2xx response carries an `Interlace-Receipt` header. Commitment over `(request_hash, body_hash, allowlisted_headers, timestamp_ms, actor_fp, epoch)`. SSE streams use cryptographically-paired open/close commitments via `open_commitment_hash`. Archival CA bundle at `/interlace/ca-bundle` + compromise-notice mechanism for V-archival verifiers. `RECEIPT_SIGNING_KEY` unset → no emission (Phase 1 default; peers verify-but-don't-enforce). ADR-0007 §13.2 + `interlace-spec/0.2.0-draft/RECEIPTS.md`. |
-| `GET /interlace/peers/{fp}` | Peer-existence oracle, paginated-tail oracle, attestation forgery, cert reuse for chain reads | `DisclosureRoute` (src/routes/disclosure.ts): URLPattern path match, HMAC-signed cursors (rejects unsigned), constant-time 404 across all error classes (not_found / denied / bad_cursor are byte-identical), cross-peer cursor reuse rejected. Lease-gated whenever the gate enforces (scope `disclosure:<fp>`); auth-failure collapses into the same 404. JSONL stream includes the cluster master pubkey for offline verification. ADR-0007 §11 + threat model §9. Registered in `cloister.capnp` as a `disclosure` route kind. **§9.4.b CLOSED claim verified by oracle-friend cycle 2026-05-12** (threat-model §16). |
-| Vault `proxyRequest` / `putCredential` | Per-caller resource exhaustion via tight loop; oversized payload blocks single-threaded DO | **F1 token-bucket** per `subject_fp` (`vault/src/rate-bucket.ts`): cost-weighted (read=1, write=3, proxy=5), capacity 100, refill 10/sec, persisted in SQL so DO eviction doesn't reset attacker's budget. Structured `vault.rate_limit_reject` emit for audit. **F4 payload caps** (`vault/src/vault.ts:validateCredentialPayload`): 32 headers max, 16 KiB total (UTF-8 bytes), 64 allowedSubs entries. Rejected before encrypt + SQL write. dos-friend cycle 2026-05-12; beads `cloister-211b68` (F1) + `cloister-21b5eb` (F4). |
-| Vault 403 vs 404 status-code distinguishability | Credential-name enumeration oracle (DORMANT today — only cloister-router calls vault) | OPEN; activates with first non-router bundle (ADR-0021 implementation). Closing playbook = collapse 403→404, always run the same SQL+parse+checkAccess work, preserve reason in structured logs but byte-identical wire response. Threat-model §16.1 / bead `cloister-aa9376`. |
-| Trust-anchor-helper (leyline-sign-helper) | Master_sk exfil via byte-return path; cross-UID loopback; CSRF simple-POST; body-size bypass | Rust host binary (LLO `rs/ll-open/sign/`, ADR-0019). `POST /sign` returns `sig+kid` only — key bytes never leave the helper. Bearer-token auth (`LEYLINE_SIGN_CALLER_TOKENS`) keyed per-caller for rate-limit fairness. Strict `Content-Type: application/json` blocks CORS-simple-POST CSRF. `tower_http::RequestBodyLimitLayer` + Content-Length guard cap bodies at 64 KiB. `--require-auth` flag fail-stops if env unset (supervisor templates pass it). `/resolve` allow-list gated (deny-all default). ed25519-dalek pinned `~2.1`. Threat-model §15 + §15.A; beads cloister-7aaab1/7afedc/7b5b9d/7c2179/7c737a/7cd202 (cycle 1, shipped) + cloister-9bd96c (cycle 2 NEW-1, shipped). |
-| BeadStore SQL    | Parameterized queries throughout    | No injection risk                                         |
-| TrustStore SQL   | Singleton DO, parameterized queries | No injection risk; per-DO ACID; `seen_nonces` blocks request replay (cloister-c5c846); `peer_attestations` chain-integrity defense rejects forks (cloister-bdcbe7) |
-| notme proxy      | SSRF?                               | `NOTME` is a service binding (not a user-controlled URL)  |
-| LLO HTTP         | SSRF                                | `LLO_MCP_URL` is an env var, not a request param          |
-| rosary proxy     | SSRF                                | `ROSARY_MCP_URL` is an env var                            |
-| CORS             | `*` in local dev                    | `ALLOWED_ORIGINS` env var enables a literal+`:*`-port allowlist; disallowed origins receive `null` sentinel — see `src/cors.ts` |
-| notme vault      | Side channel                        | Vault has no network — only reachable via service binding |
-| Container surface| Shell, pkgmgr, root                 | Distroless apko image; no shell, no pkgmgr, runs as uid 65532 |
+Each row is one place an attacker could push, what could go wrong there, and
+what stops it. The last column says where the decision and its history are.
+
+| Where | What could go wrong | What stops it | Tracked in |
+| --- | --- | --- | --- |
+| `POST /mcp` | A request runs without proving who sent it | Every POST goes through the lease pipeline above: certificate chain, clock skew, request signature, scope, replay check, call counter. Whether it runs is decided in one place, `resolveLeaseGate`: off only in explicit dev mode with no authority, and rejecting everything when there is no authority outside it | ADR-0007, ADR-0053, `cloister-b89fdb` |
+| `POST /mcp` response | A caller cannot prove what cloister answered | Every authenticated 2xx response carries a signed `Interlace-Receipt` header covering the request, the body, selected headers, the time and the signer. A stream gets a paired receipt at open and at close. `/interlace/ca-bundle` publishes current and past signing keys, and a notice if one is compromised. With `RECEIPT_SIGNING_KEY` unset nothing is emitted | ADR-0007 §13.2, `interlace-spec/0.2.0-draft/RECEIPTS.md` |
+| `GET /interlace/peers/{fp}` | Learning whether a peer exists, or how long its history is, from how the endpoint answers; forged history; replaying a page cursor for another peer | Not found, denied and bad cursor return byte-identical 404s in constant time. Cursors are HMAC-signed and bound to one peer. Lease-gated whenever the gate enforces (scope `disclosure:<fp>`), and an auth failure is the same 404. The stream includes the cluster's public key so it can be verified offline. Reviewed 2026-05-12 | ADR-0007 §11, threat model §9 and §16 |
+| Vault `proxyRequest` / `putCredential` | One caller exhausts the vault in a tight loop; an oversized payload blocks the single-threaded object | A per-caller token bucket (`vault/src/rate-bucket.ts`): reads cost 1, writes 3, proxied requests 5; capacity 100, refill 10 per second. It is stored in SQL, so evicting the object does not refill an attacker's budget. Payload caps (`validateCredentialPayload`): 32 headers, 16 KiB, 64 allowed subjects, checked before anything is encrypted or written. Reviewed 2026-05-12 | `cloister-211b68` (rate limit), `cloister-21b5eb` (size caps) |
+| Vault 403 vs 404 | A caller learns which credential names exist from the status code | **Open.** Not reachable today, because only the router calls the vault; it becomes reachable with the first other bundle. The fix is to answer 404 for both, do the same work on both paths, and keep the real reason in logs only | threat model §16.1, `cloister-aa9376`, ADR-0021 |
+| Signing helper (`leyline-sign-helper`) | The master key leaks through a response; another local user calls it; a browser is tricked into calling it; an oversized body | A separate Rust process (LLO `rs/ll-open/sign/`). `POST /sign` returns a signature and key id, never key bytes. Per-caller bearer tokens. Only `Content-Type: application/json` is accepted, which a cross-site form cannot send. Bodies are capped at 64 KiB. `--require-auth` refuses to start without tokens. `/resolve` denies by default | ADR-0019, threat model §15 and §15.A; `cloister-7aaab1`, `cloister-7afedc`, `cloister-7b5b9d`, `cloister-7c2179`, `cloister-7c737a`, `cloister-7cd202` (first review), `cloister-9bd96c` (second review) |
+| BeadStore SQL | Injection | Parameterized queries throughout | |
+| TrustStore SQL | Injection; a replayed request; a forked history | Parameterized queries, one object so writes are atomic. A seen-nonce table rejects a replayed request. The attestation chain rejects a fork | `cloister-c5c846` (replay), `cloister-bdcbe7` (chain integrity) |
+| Upstream calls (notme, LLO, rosary) | A request makes cloister call an address the attacker chose | The upstream is never taken from a request. `NOTME` is a service binding; `LLO_MCP_URL` and `ROSARY_MCP_URL` are deployment config | |
+| CORS | Any origin in local dev | `ALLOWED_ORIGINS` sets an allow-list; other origins get `null`. See `src/cors.ts` | |
+| notme vault | Reaching it from the network | It has no network. It is reachable only through the service binding | ADR-0002 |
+| Container | A shell, a package manager, or root inside the image | Distroless image: no shell, no package manager, runs as uid 65532 | |
 
 ## Adversarial review rotation (ADR-0020)
 
-Substrate-level security is reviewed by a 7-role specialist team
-defined in ADR-0020. Each specialist's findings flow
-into the threat model + a per-cycle report under
-`docs/security/adversarial-cycles/<date>.md`.
+Security is reviewed by attacking it on a schedule. ADR-0020 defines seven
+reviewer roles, each looking for one kind of failure:
 
-| Role                          | Threat class                                                                |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| `dos-resilience-auditor`      | Resource exhaustion, self-DoS, fairness                                     |
-| `enumeration-oracle-hunter`   | Side-channel + response-shape oracles                                       |
-| `bundle-isolation-tester`     | Cross-tenant slice escapes, manifest misconfig                              |
-| `protocol-replay-adversary`   | Replay, epoch confusion, chain forking                                      |
-| `trust-root-adversary`        | Helper-binary tamper, keystore confusion, kid collisions                    |
-| `observability-gap-auditor`   | Silent failures, alert deadlock under load                                  |
-| `adversarial-synthesis-lead`  | Cross-cut integration, threat-model owner (only role with write access)     |
+| Role | Looks for |
+| --- | --- |
+| `dos-resilience-auditor` | ways to exhaust a resource, or starve other callers |
+| `enumeration-oracle-hunter` | answers that leak whether something exists, by timing or by shape |
+| `bundle-isolation-tester` | one bundle reaching another's credentials; a misdeclared manifest |
+| `protocol-replay-adversary` | replayed requests, stale certificates, forked histories |
+| `trust-root-adversary` | tampering with the signing helper or its key storage |
+| `observability-gap-auditor` | failures that are silent, or alerts that fail under load |
+| `adversarial-synthesis-lead` | combines the findings and owns the threat model |
 
-Specialists are read-only — they file beads tagged `red-team:<class>`,
-never patch. Synthesis-lead integrates findings into
-[`docs/security/threat-model.md`](security/threat-model.md) §§14, 15,
-15.A, 16 and writes the cycle report. The first three cycles ran
-2026-05-12 (trust-root × 2 on PR #1 + oracle × 1 on vault + disclosure)
-— 11 findings, 8 shipped same-day, 3 follow-up beads.
+Reviewers only read. They file a bead for each finding, tagged
+`red-team:<class>`, and do not patch. The lead writes the findings into
+[`docs/security/threat-model.md`](security/threat-model.md) and a report under
+`docs/security/adversarial-cycles/<date>.md`. The first three reviews ran on
+2026-05-12: eleven findings, eight fixed the same day, three tracked as beads.
 
 ## Where the code lives, and what gates it
 
@@ -858,7 +871,7 @@ never patch. Synthesis-lead integrates findings into
 ```mermaid
 graph LR
     PR["pull request"] --> LINT["lint<br/>types · worker tests · rails"]
-    LINT --> VERIFY["verify<br/>substrate equivalence"]
+    LINT --> VERIFY["verify<br/>local and deployed builds agree"]
     LINT --> KIND["lowered-kind<br/>real cluster"]
     LINT --> KN["lowered-knative<br/>real cluster + Knative"]
     LINT --> SMOKE["smoke-e2e<br/>released ley-line + mache"]
@@ -878,16 +891,16 @@ runs against the real tree: an invariant with no rail is a comment.
 ## Where to next
 
 - Set it up: [../GETTING-STARTED.md](../GETTING-STARTED.md)
-- Verify the security claims: [security/threat-model.md](security/threat-model.md)
-  §§9.4.b, 13.2, 13.4, 13.6, 15, 16; reproduce via the adversarial
-  cycle reports under [security/adversarial-cycles/](security/adversarial-cycles/)
+- Check the security claims: [security/threat-model.md](security/threat-model.md)
+  (§§9.4.b, 13.2, 13.4, 13.6, 15, 16), and the review reports under
+  [security/adversarial-cycles/](security/adversarial-cycles/)
 - Add a new MCP tool family: add an `[inputs.<name>]` row to `cluster.toml`
   and run `task cluster:toml`. No TypeScript edits in `src/index.ts`
 - Add a new route or backend *kind*: a schema field, its TypeScript mirror,
   and a branch in `src/manifest/runtime.ts`, after an ADR
 - Describe a system you already run: `cloister inspect --terraform plan.json
   --draft --env prod`, described in the [README](../README.md)
-- Add a substrate-changing decision: draft a numbered ADR in
+- Change the wire, the trust boundary, or a schema: draft a numbered ADR in
   `docs/adr/` (0037 reserved for secure MCP ingress; the current list +
   status is the generated [ADR index](adr/INDEX.md), never hand-counted;
   rules at the top of each ADR file)
