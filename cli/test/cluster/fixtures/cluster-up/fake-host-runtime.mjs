@@ -28,6 +28,16 @@ const event = (what) => appendFileSync(process.env.FAKE_LOG, `${bundle} ${proces
 const binds = (plan.confinement?.unixSocket?.allow ?? []).filter((g) => g.mode === "bind").map((g) => g.path);
 const bind = () => { for (const p of binds) writeFileSync(p, ""); event("bound"); };
 
+// The stop handler goes in BEFORE anything announces readiness. Binding is
+// what the supervisor waits for, so a SIGTERM can follow a bind at once; with
+// the handler installed afterwards, that signal met the default disposition
+// and the run died without recording its exit.
+process.on("SIGTERM", () => {
+  event("term");
+  if (mode === "ignore-term") return;
+  setTimeout(() => { event("exit"); process.exit(143); }, Number(process.env.FAKE_STOP_MS ?? 0));
+});
+
 event("start");
 if (mode === "ok" || mode === "ignore-term") bind();
 if (mode === "echo") {
@@ -54,11 +64,6 @@ if (mode === "split-line-then-die") {
   setTimeout(next, 100);
 }
 
-process.on("SIGTERM", () => {
-  event("term");
-  if (mode === "ignore-term") return;
-  setTimeout(() => { event("exit"); process.exit(143); }, Number(process.env.FAKE_STOP_MS ?? 0));
-});
 // The supervisor's end of stdin closes only when it is gone.
 process.stdin.on("end", () => { event("eof"); process.exit(143); });
 process.stdin.resume();
