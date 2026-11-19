@@ -76,12 +76,19 @@ export function validateMapping(mapping, spec) {
         }
       }
     }
+    // A map read whole: it must be a map of strings the provider does not
+    // mark sensitive. Nothing else can be read as a set of pairs.
+    for (const path of entry.maps ?? []) {
+      const leaf = lookup(attributes, path, here);
+      const [collection, element] = Array.isArray(leaf.type) ? leaf.type : [];
+      if (collection !== "map" || element !== "string") throw new Error(`mapping: "${here}${path}" is not a map of strings`);
+    }
     for (const rel of entry.relations ?? []) {
       scalar(attributes, rel.attr, here);
       checkTarget(rel, attrsOf, `${here}${rel.attr}`);
       checkScope(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
     }
-    checkReport(type, entry);
+    checkReport(type, entry, mapping.types);
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
   const bindingAttrs = bindingList && resources.cloudflare_workers_script?.attributes.bindings?.attributes;
@@ -126,14 +133,48 @@ function onlyKeys(table, allowed, where) {
  * above hold to the provider spec: the report cannot show, or decide on,
  * anything the importer was not allowed to read.
  */
-function checkReport(type, entry) {
+function checkReport(type, entry, types = {}) {
   const read = entry.read ?? [];
   if (entry.report !== undefined) {
     const { report } = entry;
     if (!isTable(report) || !isText(report.section) || !Array.isArray(report.show)) {
       throw new Error(`mapping: ${type}.report needs a "section" title and a "show" list`);
     }
-    onlyKeys(report, ["section", "show", "address", "dials", "references", "bundle"], `${type}.report`);
+    onlyKeys(report, ["section", "show", "address", "hosts", "standsFor", "dials", "references", "bundle"], `${type}.report`);
+    // `hosts`: names this resource answers to that are built from what it
+    // reads. Every `{attribute}` must be one the entry reads, or `{name}`.
+    if (report.hosts !== undefined) {
+      if (!Array.isArray(report.hosts) || report.hosts.length === 0 || !report.hosts.every(isText)) {
+        throw new Error(`mapping: ${type}.report hosts must be a non-empty list of templates`);
+      }
+      for (const template of report.hosts) {
+        const keys = [...template.matchAll(/\{([^}]*)\}/g)].map((m) => m[1]);
+        if (keys.length === 0) throw new Error(`mapping: ${type}.report hosts "${template}" names no attribute: a fixed host is not a resource's address`);
+        for (const key of keys) {
+          if (key !== "name" && !read.includes(key)) throw new Error(`mapping: ${type}.report hosts uses "{${key}}", which is not in its "read" list`);
+        }
+        if (/[{}]/.test(template.replace(/\{[^{}]*\}/g, ""))) throw new Error(`mapping: ${type}.report hosts "${template}" has an unclosed brace`);
+      }
+    }
+    // `standsFor`: this resource is an address for another one, found by a
+    // selector map here matching a label map there. Both maps must be read,
+    // and the scope attributes must be read on both sides.
+    if (report.standsFor !== undefined) {
+      const rule = report.standsFor;
+      const where = `${type}.report standsFor`;
+      if (!isTable(rule)) throw new Error(`mapping: ${where} must be a table`);
+      onlyKeys(rule, ["selector", "labels", "toTypes", "scope"], where);
+      if (!isText(rule.selector) || !(entry.maps ?? []).includes(rule.selector)) throw new Error(`mapping: ${where} selector must be one of the entry's "maps"`);
+      if (!Array.isArray(rule.toTypes) || rule.toTypes.length === 0) throw new Error(`mapping: ${where} needs a non-empty "toTypes" list`);
+      if (!Array.isArray(rule.scope) || !rule.scope.every(isText)) throw new Error(`mapping: ${where} "scope" must be a list of attributes`);
+      for (const attr of rule.scope) if (!read.includes(attr)) throw new Error(`mapping: ${where} scope "${attr}" is not in its "read" list`);
+      for (const toType of rule.toTypes) {
+        const target = typeof toType === "string" && Object.hasOwn(types, toType) ? types[toType] : undefined;
+        if (!target) throw new Error(`mapping: ${where} names "${toType}", which this mapping does not describe`);
+        if (!isText(rule.labels) || !(target.maps ?? []).includes(rule.labels)) throw new Error(`mapping: ${where} labels "${rule.labels}" is not one of ${toType}'s "maps"`);
+        for (const attr of rule.scope) if (!(target.read ?? []).includes(attr)) throw new Error(`mapping: ${where} scope "${attr}" is not read by ${toType}`);
+      }
+    }
     for (const attr of report.show) {
       if (!read.includes(attr)) throw new Error(`mapping: ${type}.report shows "${attr}", which is not in its "read" list`);
     }
@@ -244,7 +285,12 @@ function checkReport(type, entry) {
         if (problem) throw new Error(`mapping: ${where} wires "${wire}": appProtocol ${problem}`);
       }
       if (bundle.ports !== undefined) {
-        onlyKeys(bundle.ports, ["list", "name", "port", "default"], `${where} ports`);
+        onlyKeys(bundle.ports, ["list", "name", "port", "default", "byConvention"], `${where} ports`);
+        // `byConvention`: on this provider a port's name is free text, and
+        // reading a protocol from it is a convention. The draft then says so.
+        if (bundle.ports.byConvention !== undefined && typeof bundle.ports.byConvention !== "boolean") {
+          throw new Error(`mapping: ${where} ports "byConvention" must be true or false`);
+        }
         readFrom(bundle.ports, ["name", "port"], "ports");
         const fallback = bundle.ports.default;
         if (fallback !== undefined) {

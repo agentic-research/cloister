@@ -146,9 +146,6 @@ const placementRefusals = [
   ["microvm without executionMode microvm",
     (t) => placeAs(t, "dolt.yaml", MICROVM()),
     /kind "microvm" requires executionMode = "microvm" \(the bundle declares ""\) — the two must agree/],
-  ["kubernetes without a manifest",
-    (t) => placeAs(t, "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "kubernetes"\n`),
-    /kind "kubernetes" requires a manifest/],
   ["a manifest on a constructed kind",
     (t) => placeAs(asMicrovm(t, "dolt", DOLT_IMAGE), "dolt.yaml", `[[bundles.placements]]\nenv = "local"\nkind = "microvm"\nmanifest = "dolt.yaml"\n`),
     /kind "microvm" is constructed by cloister and takes no manifest/],
@@ -573,10 +570,15 @@ test("every blessed appProtocol label is placed in the Knative wire table", () =
   assert.deepEqual(Object.keys(KNATIVE_WIRES).sort(), [...BLESSED_LABELS].sort());
 });
 
-test("a knative placement needs a manifest", async () => {
-  await assert.rejects(
-    parseTomlToCluster(knToml().replace('manifest = "reconciler.yaml"\n', "")),
-    /bundle "reconciler" placement env "local": kind "knative" requires a manifest/,
+// A placement may be described by something other than YAML (a plan), so a
+// row without a manifest parses. The command that reads one says so by name.
+test("a knative placement without a manifest parses, and `cluster k8s` names what it needs", async () => {
+  const text = knToml().replace('manifest = "reconciler.yaml"\n', "");
+  const cluster = await parseTomlToCluster(text);
+  assert.equal(cluster.bundles.find((b) => b.name === "reconciler").placements[0].manifest ?? "", "");
+  assert.throws(
+    () => emitK8s({ bundles: cluster.bundles.map(checkableBundle), connections: cluster.connections ?? [], env: "local", readManifest: () => "" }),
+    /bundle "reconciler" is placed "knative" for env "local" and names no manifest\. `cloister cluster k8s` works from a manifest: add `manifest = "reconciler\.yaml"`/,
   );
 });
 

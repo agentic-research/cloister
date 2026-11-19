@@ -24,20 +24,26 @@
 import { readFileSync } from "node:fs";
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
+import { expandMapping } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows } from "./terraform.mjs";
 
 const readJson = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
+/** A mapping file, with every `like` resolved (see mapping.mjs). */
+const readMapping = (rel) => expandMapping(readJson(rel));
 
-export const CLOUDFLARE_MAPPING = Object.freeze(readJson("./mappings/cloudflare.json"));
+export const CLOUDFLARE_MAPPING = Object.freeze(readMapping("./mappings/cloudflare.json"));
 export const CLOUDFLARE_SPEC = Object.freeze(readJson("./spec/cloudflare.schema.json"));
 validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
-export const GOOGLE_MAPPING = Object.freeze(readJson("./mappings/google.json"));
+export const GOOGLE_MAPPING = Object.freeze(readMapping("./mappings/google.json"));
 export const GOOGLE_SPEC = Object.freeze(readJson("./spec/google.schema.json"));
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
+export const KUBERNETES_MAPPING = Object.freeze(readMapping("./mappings/kubernetes.json"));
+export const KUBERNETES_SPEC = Object.freeze(readJson("./spec/kubernetes.schema.json"));
+validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC);
 
 /** Every mapping, with the source name its facts carry. */
-const MAPPINGS = [CLOUDFLARE_MAPPING, GOOGLE_MAPPING];
+const MAPPINGS = [CLOUDFLARE_MAPPING, GOOGLE_MAPPING, KUBERNETES_MAPPING];
 const SOURCE_OF = new WeakMap();
 for (const mapping of MAPPINGS) {
   for (const entry of Object.values(mapping.types)) SOURCE_OF.set(entry, `terraform:${mapping.provider.split("/").pop()}`);
@@ -67,13 +73,22 @@ const WORKER_FACT_TYPES = new Set([WORKER_TYPE, "wrangler_worker", "cloudflare_w
 /** Fact types whose NAME is the Worker's script name. */
 const NAME_IS_SCRIPT_NAME = new Set(["wrangler_worker", "cloudflare_worker"]);
 
-const getPath = (obj, path) => path.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), obj);
+/**
+ * A single nested block is rendered as a list of one (`metadata: [{ name }]`).
+ * A scalar path reads through it. A list of none, or of several, has no one
+ * value for a scalar path, so it reads as absent.
+ */
+const single = (o) => (Array.isArray(o) ? (o.length === 1 ? o[0] : undefined) : o);
+const getPath = (obj, path) => path.split(".").reduce((o, k) => {
+  const at = single(o);
+  return at && typeof at === "object" ? at[k] : undefined;
+}, obj);
 
 function pickPath(values, sensitive, path) {
   const parts = path.split(".");
   const key = parts.pop();
-  const v = parts.length ? getPath(values, parts.join(".")) : values;
-  const s = parts.length ? getPath(sensitive, parts.join(".")) : sensitive;
+  const v = parts.length ? single(getPath(values, parts.join("."))) : values;
+  const s = parts.length ? single(getPath(sensitive, parts.join("."))) : sensitive;
   return pickPublic(v, s, [key])[key];
 }
 
@@ -147,6 +162,16 @@ export function importResource(resource, entry, references, expressions) {
       }
       if (Object.keys(picked).length > 0) attrs[key].push(picked);
     }
+  }
+  // A map of strings read whole (a selector, a pod template's labels). Label
+  // keys and values are not secrets, but the document's own marker is still
+  // obeyed: any sensitivity on the map withholds all of it.
+  for (const path of entry.maps ?? []) {
+    const map = getPath(values, path);
+    if (!map || typeof map !== "object" || Array.isArray(map)) continue;
+    if (isMarkedSensitive(getPath(sensitive, path))) continue;
+    const pairs = Object.entries(map).filter(([, v]) => typeof v === "string");
+    if (pairs.length) (attrs.maps ??= {})[path] = Object.fromEntries(pairs);
   }
   // Configuration references (plan documents), for the attributes the mapping names only.
   const kept = {};

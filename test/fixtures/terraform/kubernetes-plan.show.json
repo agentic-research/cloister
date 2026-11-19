@@ -1,0 +1,1007 @@
+{
+ "configuration": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "kubernetes_deployment_v1.caller",
+     "expressions": {
+      "metadata": [
+       {
+        "name": {
+         "constant_value": "caller"
+        },
+        "namespace": {
+         "constant_value": "shop"
+        }
+       }
+      ],
+      "spec": [
+       {
+        "replicas": {
+         "constant_value": 1
+        },
+        "selector": [
+         {
+          "match_labels": {
+           "constant_value": {
+            "app": "caller"
+           }
+          }
+         }
+        ],
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {
+             "constant_value": {
+              "app": "caller"
+             }
+            }
+           }
+          ],
+          "spec": [
+           {
+            "container": [
+             {
+              "args": {
+               "constant_value": [
+                "pause"
+               ]
+              },
+              "command": {
+               "constant_value": [
+                "/agnhost"
+               ]
+              },
+              "env": [
+               {
+                "name": {
+                 "constant_value": "SERVER_URL"
+                },
+                "value": {
+                 "references": [
+                  "kubernetes_service_v1.server.metadata[0].name",
+                  "kubernetes_service_v1.server.metadata[0]",
+                  "kubernetes_service_v1.server.metadata",
+                  "kubernetes_service_v1.server",
+                  "kubernetes_service_v1.server.metadata[0].namespace",
+                  "kubernetes_service_v1.server.metadata[0]",
+                  "kubernetes_service_v1.server.metadata",
+                  "kubernetes_service_v1.server"
+                 ]
+                }
+               },
+               {
+                "name": {
+                 "constant_value": "LOG_LEVEL"
+                },
+                "value": {
+                 "constant_value": "info"
+                }
+               },
+               {
+                "name": {
+                 "constant_value": "DB_PASSWORD"
+                },
+                "value_from": [
+                 {
+                  "secret_key_ref": [
+                   {
+                    "key": {
+                     "constant_value": "latest"
+                    },
+                    "name": {
+                     "constant_value": "db-password"
+                    }
+                   }
+                  ]
+                 }
+                ]
+               }
+              ],
+              "image": {
+               "constant_value": "registry.k8s.io/e2e-test-images/agnhost:2.53"
+              },
+              "name": {
+               "constant_value": "caller"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "mode": "managed",
+     "name": "caller",
+     "provider_config_key": "kubernetes",
+     "schema_version": 1,
+     "type": "kubernetes_deployment_v1"
+    },
+    {
+     "address": "kubernetes_deployment_v1.server",
+     "expressions": {
+      "metadata": [
+       {
+        "name": {
+         "constant_value": "server"
+        },
+        "namespace": {
+         "constant_value": "shop"
+        }
+       }
+      ],
+      "spec": [
+       {
+        "replicas": {
+         "constant_value": 1
+        },
+        "selector": [
+         {
+          "match_labels": {
+           "constant_value": {
+            "app": "server"
+           }
+          }
+         }
+        ],
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {
+             "constant_value": {
+              "app": "server"
+             }
+            }
+           }
+          ],
+          "spec": [
+           {
+            "container": [
+             {
+              "args": {
+               "constant_value": [
+                "netexec",
+                "--http-port=8080"
+               ]
+              },
+              "command": {
+               "constant_value": [
+                "/agnhost"
+               ]
+              },
+              "image": {
+               "constant_value": "registry.k8s.io/e2e-test-images/agnhost:2.53"
+              },
+              "name": {
+               "constant_value": "server"
+              },
+              "port": [
+               {
+                "container_port": {
+                 "constant_value": 8080
+                },
+                "name": {
+                 "constant_value": "http"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "mode": "managed",
+     "name": "server",
+     "provider_config_key": "kubernetes",
+     "schema_version": 1,
+     "type": "kubernetes_deployment_v1"
+    },
+    {
+     "address": "kubernetes_job_v1.probe",
+     "expressions": {
+      "metadata": [
+       {
+        "name": {
+         "constant_value": "probe"
+        },
+        "namespace": {
+         "constant_value": "shop"
+        }
+       }
+      ],
+      "spec": [
+       {
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {
+             "constant_value": {
+              "app": "probe"
+             }
+            }
+           }
+          ],
+          "spec": [
+           {
+            "container": [
+             {
+              "args": {
+               "constant_value": [
+                "-c",
+                "curl -fsS --max-time 20 \"$SERVER_URL/hostname\""
+               ]
+              },
+              "command": {
+               "constant_value": [
+                "sh"
+               ]
+              },
+              "env": [
+               {
+                "name": {
+                 "constant_value": "SERVER_URL"
+                },
+                "value": {
+                 "constant_value": "http://server.shop.svc.cluster.local:8080"
+                }
+               }
+              ],
+              "image": {
+               "constant_value": "registry.k8s.io/e2e-test-images/agnhost:2.53"
+              },
+              "name": {
+               "constant_value": "probe"
+              }
+             }
+            ],
+            "restart_policy": {
+             "constant_value": "Never"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "wait_for_completion": {
+       "constant_value": false
+      }
+     },
+     "mode": "managed",
+     "name": "probe",
+     "provider_config_key": "kubernetes",
+     "schema_version": 1,
+     "type": "kubernetes_job_v1"
+    },
+    {
+     "address": "kubernetes_namespace_v1.shop",
+     "expressions": {
+      "metadata": [
+       {
+        "name": {
+         "constant_value": "shop"
+        }
+       }
+      ]
+     },
+     "mode": "managed",
+     "name": "shop",
+     "provider_config_key": "kubernetes",
+     "schema_version": 0,
+     "type": "kubernetes_namespace_v1"
+    },
+    {
+     "address": "kubernetes_service_v1.server",
+     "expressions": {
+      "metadata": [
+       {
+        "name": {
+         "constant_value": "server"
+        },
+        "namespace": {
+         "constant_value": "shop"
+        }
+       }
+      ],
+      "spec": [
+       {
+        "port": [
+         {
+          "name": {
+           "constant_value": "http"
+          },
+          "port": {
+           "constant_value": 8080
+          },
+          "target_port": {
+           "constant_value": 8080
+          }
+         }
+        ],
+        "selector": {
+         "constant_value": {
+          "app": "server"
+         }
+        }
+       }
+      ]
+     },
+     "mode": "managed",
+     "name": "server",
+     "provider_config_key": "kubernetes",
+     "schema_version": 1,
+     "type": "kubernetes_service_v1"
+    }
+   ]
+  }
+ },
+ "format_version": "1.2",
+ "planned_values": {
+  "root_module": {
+   "resources": [
+    {
+     "address": "kubernetes_deployment_v1.caller",
+     "mode": "managed",
+     "name": "caller",
+     "provider_name": "registry.opentofu.org/hashicorp/kubernetes",
+     "schema_version": 1,
+     "sensitive_values": {
+      "metadata": [
+       {}
+      ],
+      "spec": [
+       {
+        "selector": [
+         {
+          "match_expressions": [],
+          "match_labels": {}
+         }
+        ],
+        "strategy": [],
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {}
+           }
+          ],
+          "spec": [
+           {
+            "affinity": [],
+            "container": [
+             {
+              "args": [
+               false
+              ],
+              "command": [
+               false
+              ],
+              "env": [
+               {
+                "value_from": []
+               },
+               {
+                "value_from": []
+               },
+               {
+                "value_from": [
+                 {
+                  "config_map_key_ref": [],
+                  "field_ref": [],
+                  "resource_field_ref": [],
+                  "secret_key_ref": [
+                   {}
+                  ]
+                 }
+                ]
+               }
+              ],
+              "env_from": [],
+              "lifecycle": [],
+              "liveness_probe": [],
+              "port": [],
+              "readiness_probe": [],
+              "resources": [],
+              "security_context": [],
+              "startup_probe": [],
+              "volume_device": [],
+              "volume_mount": []
+             }
+            ],
+            "dns_config": [],
+            "host_aliases": [],
+            "image_pull_secrets": [],
+            "init_container": [],
+            "os": [],
+            "readiness_gate": [],
+            "security_context": [],
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "type": "kubernetes_deployment_v1",
+     "values": {
+      "metadata": [
+       {
+        "annotations": null,
+        "generate_name": null,
+        "labels": null,
+        "name": "caller",
+        "namespace": "shop"
+       }
+      ],
+      "spec": [
+       {
+        "min_ready_seconds": 0,
+        "paused": false,
+        "progress_deadline_seconds": 600,
+        "replicas": "1",
+        "revision_history_limit": 10,
+        "selector": [
+         {
+          "match_expressions": [],
+          "match_labels": {
+           "app": "caller"
+          }
+         }
+        ],
+        "template": [
+         {
+          "metadata": [
+           {
+            "annotations": null,
+            "generate_name": null,
+            "labels": {
+             "app": "caller"
+            },
+            "namespace": null
+           }
+          ],
+          "spec": [
+           {
+            "active_deadline_seconds": null,
+            "affinity": [],
+            "automount_service_account_token": true,
+            "container": [
+             {
+              "args": [
+               "pause"
+              ],
+              "command": [
+               "/agnhost"
+              ],
+              "env": [
+               {
+                "name": "SERVER_URL",
+                "value": "http://server.shop.svc.cluster.local:8080",
+                "value_from": []
+               },
+               {
+                "name": "LOG_LEVEL",
+                "value": "info",
+                "value_from": []
+               },
+               {
+                "name": "DB_PASSWORD",
+                "value": null,
+                "value_from": [
+                 {
+                  "config_map_key_ref": [],
+                  "field_ref": [],
+                  "resource_field_ref": [],
+                  "secret_key_ref": [
+                   {
+                    "key": "latest",
+                    "name": "db-password",
+                    "optional": null
+                   }
+                  ]
+                 }
+                ]
+               }
+              ],
+              "env_from": [],
+              "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+              "lifecycle": [],
+              "liveness_probe": [],
+              "name": "caller",
+              "port": [],
+              "readiness_probe": [],
+              "security_context": [],
+              "startup_probe": [],
+              "stdin": false,
+              "stdin_once": false,
+              "termination_message_path": "/dev/termination-log",
+              "tty": false,
+              "volume_device": [],
+              "volume_mount": [],
+              "working_dir": null
+             }
+            ],
+            "dns_config": [],
+            "dns_policy": "ClusterFirst",
+            "enable_service_links": true,
+            "host_aliases": [],
+            "host_ipc": false,
+            "host_network": false,
+            "host_pid": false,
+            "init_container": [],
+            "node_selector": null,
+            "os": [],
+            "priority_class_name": null,
+            "restart_policy": "Always",
+            "runtime_class_name": null,
+            "security_context": [],
+            "share_process_namespace": false,
+            "subdomain": null,
+            "termination_grace_period_seconds": 30,
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "timeouts": null,
+      "wait_for_rollout": true
+     }
+    },
+    {
+     "address": "kubernetes_deployment_v1.server",
+     "mode": "managed",
+     "name": "server",
+     "provider_name": "registry.opentofu.org/hashicorp/kubernetes",
+     "schema_version": 1,
+     "sensitive_values": {
+      "metadata": [
+       {}
+      ],
+      "spec": [
+       {
+        "selector": [
+         {
+          "match_expressions": [],
+          "match_labels": {}
+         }
+        ],
+        "strategy": [],
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {}
+           }
+          ],
+          "spec": [
+           {
+            "affinity": [],
+            "container": [
+             {
+              "args": [
+               false,
+               false
+              ],
+              "command": [
+               false
+              ],
+              "env": [],
+              "env_from": [],
+              "lifecycle": [],
+              "liveness_probe": [],
+              "port": [
+               {}
+              ],
+              "readiness_probe": [],
+              "resources": [],
+              "security_context": [],
+              "startup_probe": [],
+              "volume_device": [],
+              "volume_mount": []
+             }
+            ],
+            "dns_config": [],
+            "host_aliases": [],
+            "image_pull_secrets": [],
+            "init_container": [],
+            "os": [],
+            "readiness_gate": [],
+            "security_context": [],
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "type": "kubernetes_deployment_v1",
+     "values": {
+      "metadata": [
+       {
+        "annotations": null,
+        "generate_name": null,
+        "labels": null,
+        "name": "server",
+        "namespace": "shop"
+       }
+      ],
+      "spec": [
+       {
+        "min_ready_seconds": 0,
+        "paused": false,
+        "progress_deadline_seconds": 600,
+        "replicas": "1",
+        "revision_history_limit": 10,
+        "selector": [
+         {
+          "match_expressions": [],
+          "match_labels": {
+           "app": "server"
+          }
+         }
+        ],
+        "template": [
+         {
+          "metadata": [
+           {
+            "annotations": null,
+            "generate_name": null,
+            "labels": {
+             "app": "server"
+            },
+            "namespace": null
+           }
+          ],
+          "spec": [
+           {
+            "active_deadline_seconds": null,
+            "affinity": [],
+            "automount_service_account_token": true,
+            "container": [
+             {
+              "args": [
+               "netexec",
+               "--http-port=8080"
+              ],
+              "command": [
+               "/agnhost"
+              ],
+              "env": [],
+              "env_from": [],
+              "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+              "lifecycle": [],
+              "liveness_probe": [],
+              "name": "server",
+              "port": [
+               {
+                "container_port": 8080,
+                "host_ip": null,
+                "host_port": null,
+                "name": "http",
+                "protocol": "TCP"
+               }
+              ],
+              "readiness_probe": [],
+              "security_context": [],
+              "startup_probe": [],
+              "stdin": false,
+              "stdin_once": false,
+              "termination_message_path": "/dev/termination-log",
+              "tty": false,
+              "volume_device": [],
+              "volume_mount": [],
+              "working_dir": null
+             }
+            ],
+            "dns_config": [],
+            "dns_policy": "ClusterFirst",
+            "enable_service_links": true,
+            "host_aliases": [],
+            "host_ipc": false,
+            "host_network": false,
+            "host_pid": false,
+            "init_container": [],
+            "node_selector": null,
+            "os": [],
+            "priority_class_name": null,
+            "restart_policy": "Always",
+            "runtime_class_name": null,
+            "security_context": [],
+            "share_process_namespace": false,
+            "subdomain": null,
+            "termination_grace_period_seconds": 30,
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "timeouts": null,
+      "wait_for_rollout": true
+     }
+    },
+    {
+     "address": "kubernetes_job_v1.probe",
+     "mode": "managed",
+     "name": "probe",
+     "provider_name": "registry.opentofu.org/hashicorp/kubernetes",
+     "schema_version": 1,
+     "sensitive_values": {
+      "metadata": [
+       {
+        "labels": {}
+       }
+      ],
+      "spec": [
+       {
+        "pod_failure_policy": [],
+        "selector": [],
+        "template": [
+         {
+          "metadata": [
+           {
+            "labels": {}
+           }
+          ],
+          "spec": [
+           {
+            "affinity": [],
+            "container": [
+             {
+              "args": [
+               false,
+               false
+              ],
+              "command": [
+               false
+              ],
+              "env": [
+               {
+                "value_from": []
+               }
+              ],
+              "env_from": [],
+              "lifecycle": [],
+              "liveness_probe": [],
+              "port": [],
+              "readiness_probe": [],
+              "resources": [],
+              "security_context": [],
+              "startup_probe": [],
+              "volume_device": [],
+              "volume_mount": []
+             }
+            ],
+            "dns_config": [],
+            "host_aliases": [],
+            "image_pull_secrets": [],
+            "init_container": [],
+            "os": [],
+            "readiness_gate": [],
+            "security_context": [],
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "type": "kubernetes_job_v1",
+     "values": {
+      "metadata": [
+       {
+        "annotations": null,
+        "generate_name": null,
+        "name": "probe",
+        "namespace": "shop"
+       }
+      ],
+      "spec": [
+       {
+        "active_deadline_seconds": null,
+        "backoff_limit": 6,
+        "backoff_limit_per_index": null,
+        "completions": 1,
+        "manual_selector": null,
+        "max_failed_indexes": null,
+        "parallelism": 1,
+        "pod_failure_policy": [],
+        "template": [
+         {
+          "metadata": [
+           {
+            "annotations": null,
+            "generate_name": null,
+            "labels": {
+             "app": "probe"
+            }
+           }
+          ],
+          "spec": [
+           {
+            "active_deadline_seconds": null,
+            "affinity": [],
+            "automount_service_account_token": true,
+            "container": [
+             {
+              "args": [
+               "-c",
+               "curl -fsS --max-time 20 \"$SERVER_URL/hostname\""
+              ],
+              "command": [
+               "sh"
+              ],
+              "env": [
+               {
+                "name": "SERVER_URL",
+                "value": "http://server.shop.svc.cluster.local:8080",
+                "value_from": []
+               }
+              ],
+              "env_from": [],
+              "image": "registry.k8s.io/e2e-test-images/agnhost:2.53",
+              "lifecycle": [],
+              "liveness_probe": [],
+              "name": "probe",
+              "port": [],
+              "readiness_probe": [],
+              "security_context": [],
+              "startup_probe": [],
+              "stdin": false,
+              "stdin_once": false,
+              "termination_message_path": "/dev/termination-log",
+              "tty": false,
+              "volume_device": [],
+              "volume_mount": [],
+              "working_dir": null
+             }
+            ],
+            "dns_config": [],
+            "dns_policy": "ClusterFirst",
+            "enable_service_links": true,
+            "host_aliases": [],
+            "host_ipc": false,
+            "host_network": false,
+            "host_pid": false,
+            "init_container": [],
+            "node_selector": null,
+            "os": [],
+            "priority_class_name": null,
+            "restart_policy": "Never",
+            "runtime_class_name": null,
+            "security_context": [],
+            "share_process_namespace": false,
+            "subdomain": null,
+            "termination_grace_period_seconds": 30,
+            "toleration": [],
+            "topology_spread_constraint": [],
+            "volume": []
+           }
+          ]
+         }
+        ],
+        "ttl_seconds_after_finished": null
+       }
+      ],
+      "timeouts": null,
+      "wait_for_completion": false
+     }
+    },
+    {
+     "address": "kubernetes_namespace_v1.shop",
+     "mode": "managed",
+     "name": "shop",
+     "provider_name": "registry.opentofu.org/hashicorp/kubernetes",
+     "schema_version": 0,
+     "sensitive_values": {
+      "metadata": [
+       {}
+      ]
+     },
+     "type": "kubernetes_namespace_v1",
+     "values": {
+      "metadata": [
+       {
+        "annotations": null,
+        "generate_name": null,
+        "labels": null,
+        "name": "shop"
+       }
+      ],
+      "timeouts": null,
+      "wait_for_default_service_account": false
+     }
+    },
+    {
+     "address": "kubernetes_service_v1.server",
+     "mode": "managed",
+     "name": "server",
+     "provider_name": "registry.opentofu.org/hashicorp/kubernetes",
+     "schema_version": 1,
+     "sensitive_values": {
+      "metadata": [
+       {}
+      ],
+      "spec": [
+       {
+        "cluster_ips": [],
+        "ip_families": [],
+        "port": [
+         {}
+        ],
+        "selector": {},
+        "session_affinity_config": []
+       }
+      ],
+      "status": []
+     },
+     "type": "kubernetes_service_v1",
+     "values": {
+      "metadata": [
+       {
+        "annotations": null,
+        "generate_name": null,
+        "labels": null,
+        "name": "server",
+        "namespace": "shop"
+       }
+      ],
+      "spec": [
+       {
+        "allocate_load_balancer_node_ports": true,
+        "external_ips": null,
+        "external_name": null,
+        "load_balancer_class": null,
+        "load_balancer_ip": null,
+        "load_balancer_source_ranges": null,
+        "port": [
+         {
+          "app_protocol": null,
+          "name": "http",
+          "port": 8080,
+          "protocol": "TCP",
+          "target_port": "8080"
+         }
+        ],
+        "publish_not_ready_addresses": false,
+        "selector": {
+         "app": "server"
+        },
+        "session_affinity": "None",
+        "type": "ClusterIP"
+       }
+      ],
+      "timeouts": null,
+      "wait_for_load_balancer": true
+     }
+    }
+   ]
+  }
+ }
+}

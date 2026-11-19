@@ -8,6 +8,26 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — Kubernetes resources declared in Terraform are read
+
+- `cloister inspect --terraform` reads Deployments, StatefulSets, DaemonSets,
+  Jobs, Services and Namespaces declared with the Kubernetes provider. It is
+  a mapping file (`cli/lib/facts/mappings/kubernetes.json`): no code names
+  the provider.
+- The reader gained three things any mapping can use: a scalar inside a
+  single nested block (`metadata.name`), an address built from what a
+  resource reads (a cluster DNS name), and a resource that stands for
+  another (a Service, for the workload its selector matches). A Service that
+  matches no workload, or two, stands for neither.
+- A mapping entry may be `like` another, with its differences laid over.
+  The Kubernetes mapping writes the pod template once; the other workload
+  types refer to it, and a test runs every one of them.
+- A literal env value that is the address of a workload is drafted as a
+  binding to its connection, with the path after it.
+- A `kubernetes` or `knative` placement row may omit `manifest`: the
+  placement is then described by a plan. `cluster lower` and `cluster k8s`
+  refuse such a row by name, and `cluster graph` shows its edges as `none`.
+
 ### 2026-11 — an upstream's own error text reaches the caller
 
 - When a proxied tool fails with a plain-text message, the caller now gets

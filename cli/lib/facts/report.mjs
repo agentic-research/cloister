@@ -56,9 +56,48 @@ function hostOf(value) {
  * never returned: only the target, and where the string was (an env var's
  * name, or "args").
  */
+/**
+ * The resource a named one stands for.
+ *
+ * Some resources are an address for something else. A Kubernetes Service is
+ * dialled by name, and what answers is the workload whose pods its selector
+ * matches. A mapping says so with `standsFor`: the selector map on this
+ * resource, the label map on the candidates, and the attributes both must
+ * agree on (the namespace).
+ *
+ * Exactly one candidate must match. None, or several, resolves to nothing:
+ * an edge is never guessed. A resource with no `standsFor` is itself.
+ */
+function standsFor(fact, facts) {
+  const rule = mappedType(fact.type)?.report?.standsFor;
+  if (!rule) return fact;
+  const selector = Object.entries(fact.attrs.maps?.[rule.selector] ?? {});
+  if (selector.length === 0) return null;
+  const matches = facts.filter((candidate) => {
+    if (!rule.toTypes.includes(candidate.type)) return false;
+    if (!rule.scope.every((attr) => candidate.attrs[attr] !== undefined && candidate.attrs[attr] === fact.attrs[attr])) return false;
+    const labels = candidate.attrs.maps?.[rule.labels] ?? {};
+    return selector.every(([key, value]) => Object.hasOwn(labels, key) && labels[key] === value);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/** A `hosts` template with each `{attribute}` filled in, or null if one is missing. */
+function fillHost(template, fact) {
+  let missing = false;
+  const host = template.replace(/\{([^}]+)\}/g, (_, key) => {
+    const value = key === "name" ? fact.name : fact.attrs[key];
+    if (typeof value !== "string" || value === "") { missing = true; return ""; }
+    return value;
+  });
+  return missing ? null : host;
+}
+
 function dialsOf(fact, entry, facts, kind, addressed) {
   const out = [];
-  const add = (target, by, where) => {
+  const add = (named, by, where) => {
+    // What was named may stand for the workload that answers there.
+    const target = named ? standsFor(named, facts) : null;
     if (!target || target.address === fact.address) return;
     const existing = out.find((d) => d.address === target.address);
     // The value itself is better evidence than the reference it was built from.
@@ -98,7 +137,7 @@ function dialsOf(fact, entry, facts, kind, addressed) {
  * provider's default when the mapping states one, and that is recorded, so a
  * draft can say the port was assumed and not read.
  */
-function bundleOf(fact, rule, facts, withRun) {
+function bundleOf(fact, rule, facts, withRun, addressed) {
   const image = rule.image ? (fact.attrs[rule.image.list] ?? []).map((row) => row[rule.image.value]).find((v) => typeof v === "string" && v !== "") ?? "" : "";
   const ports = [];
   if (rule.ports) {
@@ -107,7 +146,10 @@ function bundleOf(fact, rule, facts, withRun) {
       if (!Number.isInteger(port)) continue;
       // An unnamed port is served the provider's default way.
       const wire = typeof row[rule.ports.name] === "string" && row[rule.ports.name] !== "" ? row[rule.ports.name] : rule.ports.default?.name ?? "";
-      ports.push({ name: wire, port, appProtocol: Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "", assumed: false });
+      const appProtocol = Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "";
+      // Where a port's name is free text, a protocol read from it is a
+      // convention, and the draft says it was not declared.
+      ports.push({ name: wire, port, appProtocol, assumed: false, byConvention: rule.ports.byConvention === true && appProtocol !== "" });
     }
     if (ports.length === 0 && rule.ports.default) {
       const { name, port } = rule.ports.default;
@@ -119,7 +161,7 @@ function bundleOf(fact, rule, facts, withRun) {
   // What it is started with is read only when a caller is going to write a
   // manifest from it. The report never carries it: an argument or an env value
   // may hold an address or worse, and the report is printed.
-  if (withRun) bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts) };
+  if (withRun) bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts, addressed) };
   return bundle;
 }
 
@@ -154,7 +196,24 @@ function exposureOf(fact, rule) {
  * Null when the mapping does not say where env is configured, or the document
  * is not a plan: there is then nothing to sort.
  */
-function envOf(fact, rule, facts) {
+/**
+ * The workload a literal value is the address of, and what follows the
+ * address, when the WHOLE value is one URL whose host is the address of
+ * exactly one workload. Anything else is not an address this can carry.
+ */
+function addressedBy(value, fact, facts, addressed) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  const targets = addressed.get(url.hostname) ?? [];
+  if (targets.length !== 1) return null;
+  const target = standsFor(targets[0], facts);
+  if (!target || target.address === fact.address || !mappedType(target.type)?.report?.bundle) return null;
+  if (url.username || url.password) return null;
+  const path = `${url.pathname === "/" && !value.endsWith("/") ? "" : url.pathname}${url.search}`;
+  return { target, path };
+}
+
+function envOf(fact, rule, facts, addressed = new Map()) {
   const rows = rule ? fact.attrs.configured?.[rule.configured] : undefined;
   if (!rows) return null;
   const out = [];
@@ -167,9 +226,14 @@ function envOf(fact, rule, facts) {
       const version = rule.secretVersion ? row[rule.secretVersion]?.constant : undefined;
       out.push({ name, kind: "secret", secret, version: typeof version === "string" ? version : "" });
     } else if (value && Object.hasOwn(value, "constant")) {
-      out.push({ name, kind: "constant", value: String(value.constant) });
+      // Where an address is known when the plan is made (a cluster DNS name),
+      // it is written as a literal. It is still an address: different in
+      // every placement, so it is carried as a binding and not as text.
+      const dialled = addressedBy(String(value.constant), fact, facts, addressed);
+      if (dialled) out.push({ name, kind: "workload", to: dialled.target.name, section: mappedType(dialled.target.type).report.section, path: dialled.path });
+      else out.push({ name, kind: "constant", value: String(value.constant) });
     } else if (value) {
-      const targets = value.references.map((address) => facts.find((f) => f.address === address));
+      const targets = value.references.map((address) => facts.find((f) => f.address === address)).map((f) => (f ? standsFor(f, facts) : f));
       const workloads = targets.filter((f) => f && mappedType(f.type)?.report?.bundle);
       if (workloads.length === 1 && targets.length === 1 && value.unresolved.length === 0) {
         out.push({ name, kind: "workload", to: workloads[0].name, section: mappedType(workloads[0].type).report.section });
@@ -193,10 +257,14 @@ function declaredSections(facts, kind, { withRun = false } = {}) {
   // host → the resources reached there, for every type that declares an address.
   const addressed = new Map();
   for (const [type, entry] of entries) {
-    if (!entry.report?.address) continue;
+    if (!entry.report?.address && !entry.report?.hosts) continue;
     for (const fact of byType(type)) {
-      const host = hostOf(fact.attrs[entry.report.address]);
-      if (host) addressed.set(host, [...(addressed.get(host) ?? []), fact]);
+      const hosts = [];
+      if (entry.report.address) hosts.push(hostOf(fact.attrs[entry.report.address]));
+      // Names a resource answers to that are built, not stored: a cluster
+      // DNS name is made of a Service's name and namespace.
+      for (const template of entry.report.hosts ?? []) hosts.push(fillHost(template, fact));
+      for (const host of new Set(hosts.filter(Boolean))) addressed.set(host, [...(addressed.get(host) ?? []), fact]);
     }
   }
   for (const [type, entry] of entries) {
@@ -227,7 +295,7 @@ function declaredSections(facts, kind, { withRun = false } = {}) {
         dialer: Boolean(entry.report.dials),
         // What a bundle drafted from this resource would hold (ADR-0074 §3),
         // for a type whose mapping says it is a workload.
-        bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle, facts, withRun) : null,
+        bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle, facts, withRun, addressed) : null,
         // A list the document marks sensitive is not read. Say so: "no edge
         // found" would otherwise read as "no edge".
         withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),

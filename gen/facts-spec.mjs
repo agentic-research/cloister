@@ -14,6 +14,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { expandMapping } from "../cli/lib/facts/mapping.mjs";
+
 const REGISTRY = "registry.opentofu.org/";
 
 function projectAttributes(attributes) {
@@ -38,6 +40,8 @@ function mappedPaths(entry) {
   // A configured field is a path through nested blocks below the list.
   for (const list of entry.configLists ?? []) for (const field of list.fields ?? []) paths.push(`${list.path}.${field}`);
   for (const relation of entry.relations ?? []) paths.push(relation.attr);
+  // A map attribute read whole (a selector, a pod template's labels).
+  for (const map of entry.maps ?? []) paths.push(map);
   return paths.filter((p) => typeof p === "string").map((p) => p.split("."));
 }
 
@@ -110,7 +114,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     );
     process.exit(2);
   }
-  const mapping = JSON.parse(readFileSync(flags.mapping, "utf8"));
+  // Every `like` is resolved first, so a type that is like another is
+  // projected, and later validated, against its own schema.
+  const mapping = expandMapping(JSON.parse(readFileSync(flags.mapping, "utf8")));
   const spec = projectSpec(JSON.parse(readFileSync(input, "utf8")), flags.version, mapping, flags.provider);
   writeFileSync(flags.out, renderSpec(spec));
   console.log(`wrote ${flags.out}`);

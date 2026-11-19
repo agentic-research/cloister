@@ -16,8 +16,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { expandMapping } from "../cli/lib/facts/mapping.mjs";
+
 const FACTS = new URL("../cli/lib/facts/mappings/", import.meta.url);
-const MAPPINGS = ["cloudflare.json", "google.json"].map((f) => JSON.parse(readFileSync(new URL(f, FACTS), "utf8")));
+// The Kubernetes mapping is not here: its plans render single nested blocks as
+// lists of one, which this trimmer's path walk does not follow. Its fixture
+// is the rendered plan with the provider configuration removed.
+const MAPPINGS = ["cloudflare.json", "google.json"].map((f) => expandMapping(JSON.parse(readFileSync(new URL(f, FACTS), "utf8"))));
 const own = (table, key) => (Object.hasOwn(table, key) ? table[key] : undefined);
 const entryOf = (type) => MAPPINGS.map((m) => own(m.types, type)).find(Boolean);
 
