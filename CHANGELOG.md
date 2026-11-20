@@ -8,6 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister's wire codecs run LLO's own test vectors
+
+- ley-line-open owns the ToolCall / ToolResult / Manifest wire
+  (`leyline-net/v1`) and pins twelve vectors in two byte forms, saying
+  decoders must accept both. cloister's cross-check loaded only one form.
+  Run against both, its decoders refused a Manifest with sequence 0 and a
+  ToolCall with no arguments in canonical form (the form rosary writes).
+  Both now read an absent field as its default, and the encoder writes an
+  empty `argumentsJson` as LLO does.
+- The vectors are vendored, digest-checked, into
+  `test/wire/fixtures/llo-net-vectors.json` and run by
+  `test/wire/llo-net-vectors.test.ts`. `task llo:bump` re-vendors them, and
+  `lint:upstream-pins` counts their version as a channel, so a bump cannot
+  leave them behind.
+
 ### 2026-11 — the plan checker is one file
 
 - `task plan:bundle` builds `cloister inspect` as `dist/cloister-plan.mjs`:

@@ -66,9 +66,14 @@ tasks:
   # imports it as a side-effect to keep it in the dependency graph for
   # `task lint`'s tsc pass.
   llo:bump:
-    desc: "Move EVERY ley-line-open channel from one input — a release tag (cloister-464216). Usage: task llo:bump -- v0.16.0 [--dry-run] [--skip-revendor]. Derives the channel list from lint:upstream-pins rather than a second copy, so adding a channel updates checker and writer together. Refuses to write unless the tag resolves to a commit (`^{}` — a tag-object sha is a valid git object and an invalid cargo rev) AND a published release carries every generator binary (a tag can exist while the release does not; bumping there points schema-bridge.lock.json at 404s while git-resolved channels succeed — half-bumped and green). Re-vendors the generated execution/v1 artifact too, since a stale one silently relaxes lint:schema-claim."
+    desc: "Move EVERY ley-line-open channel from one input — a release tag (cloister-464216). Usage: task llo:bump -- v0.16.0 [--dry-run] [--skip-revendor]. Derives the channel list from lint:upstream-pins rather than a second copy, so adding a channel updates checker and writer together. Refuses to write unless the tag resolves to a commit (`^{}` — a tag-object sha is a valid git object and an invalid cargo rev) AND a published release carries every generator binary (a tag can exist while the release does not; bumping there points schema-bridge.lock.json at 404s while git-resolved channels succeed — half-bumped and green). Re-vendors the generated execution/v1 artifact too, since a stale one silently relaxes lint:schema-claim, and the leyline-net/v1 wire vectors the codecs are tested against."
     cmds:
       - node gen/llo-bump.mjs {{.CLI_ARGS | default "--help"}}
+
+  wire:llo-vectors:
+    desc: "Re-vendor ley-line-open's leyline-net/v1 wire vectors (both byte forms, digest-checked against LLO's VECTORS.sha256) into test/wire/fixtures/llo-net-vectors.json, at the release schema-bridge.lock.json pins. Usage: task wire:llo-vectors -- <ley-line-open checkout>. `task llo:bump` does this itself; this is for re-vendoring without a bump."
+    cmds:
+      - node gen/vendor-llo-net-vectors.mjs {{.CLI_ARGS}}
 
   schema-bridge:build:
     desc: "Fetch LLO's schema-bridge capnp plugins (zod + go + jsonschema) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."

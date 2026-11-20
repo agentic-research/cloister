@@ -87,17 +87,25 @@ export function decodeManifest(bytes: Uint8Array): Manifest {
   const segStart = r.readSegmentStart();
 
   const root = r.readStructPointer(segStart);
-  if (root.dataWords < 1 || root.ptrWords < 3) {
-    throw new Error(
-      `Manifest struct too small: dataWords=${root.dataWords} ptrWords=${root.ptrWords} (need 1d/3p)`,
-    );
-  }
 
-  const sequence = r.readU64(root.target);
+  // A struct may arrive smaller than this schema declares; what is missing
+  // reads as its default (capnp encoding spec, "Structs"). A canonical writer
+  // drops an all-zero data word, so a manifest with `sequence = 0` has none
+  // (leyline-net/v1 `canonical/manifest-zero-sequence.bin`, which the spec
+  // requires decoders to accept). The three byte fields are fixed-size and
+  // required, so a missing one is refused below, by name.
+  const sequence = root.dataWords >= 1 ? r.readU64(root.target) : 0n;
 
-  const ptr0 = r.readListPointer(root.target + 1 * WORD);
-  const ptr1 = r.readListPointer(root.target + 2 * WORD);
-  const ptr2 = r.readListPointer(root.target + 3 * WORD);
+  const ptrSection = root.target + root.dataWords * WORD;
+  const field = (i: number, name: string) => {
+    if (i >= root.ptrWords || r.isNullPointer(ptrSection + i * WORD)) {
+      throw new Error(`Manifest.${name} is absent; it is required`);
+    }
+    return r.readListPointer(ptrSection + i * WORD);
+  };
+  const ptr0 = field(0, "publicKey");
+  const ptr1 = field(1, "signature");
+  const ptr2 = field(2, "contentHash");
 
   if (ptr0.elementSize !== ELEM_BYTE || ptr0.count !== MANIFEST_PUBKEY_BYTES) {
     throw new Error(`Manifest.publicKey shape: elem=${ptr0.elementSize} count=${ptr0.count}`);

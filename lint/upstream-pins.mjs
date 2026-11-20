@@ -3,13 +3,17 @@
 //
 // ONE upstream, ONE version — across every channel that states it.
 //
-// cloister consumes ley-line-open through FOUR independent channels, and each
+// cloister consumes ley-line-open through FIVE independent channels, and each
 // used to carry its own version string:
 //
 //   1. [inputs.llo] in cluster.toml       server.json @ git SHA
 //   2. Cargo git deps (rs/ + tools/)      every crate @ rev + version
 //   3. schema-bridge.lock.json            generator binaries @ release tag
 //   4. [inputs.llo.oci] in the lockfile   image, DERIVED from (1) — not checked here
+//   5. test/wire/fixtures/llo-net-vectors.json  leyline-net/v1 vectors @ release tag
+//
+// (5) is vendored by a script, but its version is committed text like the
+// others, and a bump can skip the script. So it is checked with (1)–(3).
 //
 // Channel 4 is already derived, which is why it never drifts. The other three
 // are hand-stated, and on 2026-07-29 they read 0.11.3, 0.12.0 and 0.12.1
@@ -53,6 +57,7 @@ import { fileURLToPath } from "node:url";
 import TOML from "smol-toml";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const VECTORS_REL = "test/wire/fixtures/llo-net-vectors.json";
 const RS = join(ROOT, "rs");
 // tools/ holds standalone crates that are NOT rs/ workspace members, so neither
 // `cargo check --workspace` nor an rs/-only walk sees them. tools/harness-sandbox
@@ -136,7 +141,7 @@ export function collectLloPins(roots = CARGO_ROOTS) {
  * the rail reads them to compare, the bump reads them to write. Neither owns
  * the other's format knowledge.
  *
- * @returns {{kind: "cargo"|"input"|"generator", file: string, detail?: string}[]}
+ * @returns {{kind: "cargo"|"input"|"generator"|"vectors", file: string, detail?: string}[]}
  */
 export function upstreamChannels() {
   const out = [];
@@ -145,6 +150,7 @@ export function upstreamChannels() {
   }
   for (const c of readInputVersion()) out.push({ kind: "input", file: "cluster.toml", detail: c.name });
   for (const c of readGeneratorVersion()) out.push({ kind: "generator", file: "schema-bridge.lock.json", detail: c.name });
+  for (const c of readVectorsVersion()) out.push({ kind: "vectors", file: VECTORS_REL, detail: c.name });
   return out;
 }
 
@@ -215,14 +221,15 @@ function main() {
     { name: "Cargo git deps (rs/**/Cargo.toml)", version: cargoVersion },
     ...readInputVersion(),
     ...readGeneratorVersion(),
+    ...readVectorsVersion(),
   ];
 
   // Non-vacuity: with only the Cargo channel readable, the comparison below is
   // over a one-element set and proves nothing — the same silent-pass shape the
   // MIN_EXPECTED_PINS floor guards against upstream of it.
-  if (channels.length < 3) {
+  if (channels.length < 4) {
     fail(
-      `only ${channels.length} of the 3 hand-stated channels were readable ` +
+      `only ${channels.length} of the 4 hand-stated channels were readable ` +
       `(${channels.map((c) => c.name).join(", ")}). The cross-channel comparison ` +
       `would pass over a set too small to disagree. Either a channel moved, or ` +
       `this lint's readers need updating.`,
@@ -279,6 +286,24 @@ export function readGeneratorVersion() {
     return typeof v === "string" && v ? [{ name: "schema-bridge.lock.json", version: normalize(v) }] : [];
   } catch {
     // lint-allow-silent: as above — fetch-schema-bridge owns that error.
+    return [];
+  }
+}
+
+/**
+ * Channel 5 — LLO's leyline-net/v1 wire vectors, vendored by
+ * gen/vendor-llo-net-vectors.mjs. A bump that left them behind would test
+ * cloister's codecs against the previous release's wire while every other
+ * channel claimed the new one.
+ */
+export function readVectorsVersion() {
+  const p = resolve(ROOT, VECTORS_REL);
+  if (!existsSync(p)) return [];
+  try {
+    const v = JSON.parse(readFileSync(p, "utf8")).version;
+    return typeof v === "string" && v ? [{ name: `leyline-net vectors (${VECTORS_REL})`, version: normalize(v) }] : [];
+  } catch {
+    // lint-allow-silent: the vectors test owns an unreadable fixture.
     return [];
   }
 }
