@@ -372,7 +372,10 @@ export const COMMANDS = [
       "runs, its strength (none, policy or capability: what stops a bundle that is not the " +
       "declared caller), and the mechanism in a sentence. A strength is what the emitter " +
       "for that placement writes today, never what is intended: an edge nothing enforces " +
-      "is shown as none, with the reason. An edge below its minStrength is marked. A " +
+      "is shown as none, with the reason. An edge below its minStrength is marked. " +
+      "Strength is reachability, not the isolation boundary under it: two compose " +
+      "containers and two microVMs can both be capability, though the containers share " +
+      "the host kernel (ADR-0070 §3, amendment of 2026-11-20). A " +
       "connection with no target in --env is listed, not dropped. Nothing is written or " +
       "started. ADR-0075.",
     flags: [

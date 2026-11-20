@@ -389,6 +389,32 @@ warning would not do: "this holds the payments credential, so it must not
 share a network" is exactly the claim that otherwise erodes silently when
 someone moves a bundle into kind for convenience.
 
+**Amendment (2026-11-20): strength measures reachability, not the boundary
+it is enforced by.** A reader of the graph asked why a connection between two
+compose containers and one between two microVMs both read `capability`, when
+containers share the host's kernel and microVMs do not. Both are
+`capability` because the question strength answers is the same in both: does
+a bundle that is not the declared caller hold anything to dial? In both, it
+does not. What strength does **not** say is what that answer rests on:
+
+| Placement | The answer holds as long as |
+|---|---|
+| `microvm` | the hypervisor holds: each guest has its own kernel |
+| `compose` | the host kernel holds: every container shares it, so a kernel escape from any container on the host reaches every socket and network |
+| `workerd` | the V8 isolate and workerd hold |
+| `kubernetes`, `knative` | the node's kernel and the CNI hold |
+
+That is a second axis, the isolation boundary, and it is not folded into
+strength: an ordering that ranked `compose` below `microvm` would also have to
+rank `kubernetes` against `workerd`, and no single order does. It is stated
+here and in the architecture table instead, so `capability` is never read as
+"as strong as a microVM".
+
+A declaration that needs the stronger boundary (a bundle holding a credential
+that must not share a kernel with untrusted code) has no field to say so yet.
+One would be a floor on the boundary, beside `minStrength`. It is added when
+a real cluster needs it, not before.
+
 **Socket hijacking is a strength downgrade, not a free switch.** It moves a
 microVM from `capability` to `policy`, because the guest then uses the host
 network filtered by a port map. It stays off by default, as LLO agreed, and it

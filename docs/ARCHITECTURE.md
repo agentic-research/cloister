@@ -20,6 +20,13 @@ applied to a different place:
 | the compose cluster, an HTTP port | the wire is a network of its two ends alone, no container is on a shared one, and ports are published on the host's loopback | `capability` |
 | the compose cluster, a shared socket directory or a shared network namespace | each bundle is handed the address of what it is wired to, and so can whoever else is in that directory or namespace | `none` |
 
+Strength says whether a bundle that is not the declared caller holds anything
+to dial. It does not say what that rests on. A microVM has its own kernel; the
+compose containers share the host's, so their `capability` holds only as long
+as that kernel does. Kubernetes and Knative rest on the node's kernel too, and
+workerd on the V8 isolate. [ADR-0070 §3](adr/0070-placements-and-channel-strength.md#3-channel-strength-is-a-property-of-the-placement-and-it-is-ordered)
+(amendment of 2026-11-20) keeps the two apart.
+
 A coding tool under `cloister run` is the same idea on your own machine: the
 kernel confines it, and cloister is the only address it can reach
 ([Running a tool under confinement](#running-a-tool-under-confinement)).
