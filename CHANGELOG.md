@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister can read what rosary sends
+
+- **Fixed:** `decodeToolResult` refused every result rosary returns. rosary
+  writes canonical capnp, which drops an all-zero data section
+  (`isError = false`, and the tag of a `text` content item). The decoder now
+  reads a missing section, or a null pointer, as its default, as the capnp
+  spec requires. Found by sending a cloister-encoded tool call through
+  notme-proxy into rosary, both built from source; their real reply bytes are
+  now a test fixture.
+- ADR-0076 (Proposed) records why the companion does not start under compose,
+  and what it would take: the socket bridge should start without a bridge
+  credential, and the credential itself is notme's to settle.
+
 ### 2026-11 — joining a network namespace is declared
 
 - `[[bundles.placements]]` gains `sharesNetworkOf`: the bundle whose network

@@ -80,4 +80,4 @@ beads + git (see each ADR's tracking bead), never typed here. Reserved-but-unfil
 | [ADR-0073](0073-resource-facts-are-imported-never-granted.md) | Resource facts are imported, never granted | Proposed |
 | [ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md) | The graph is derived from rendered output; cluster.toml holds intent | Proposed |
 | [ADR-0075](0075-one-graph.md) | One graph: a wire is an edge, and every edge states what holds it | Proposed |
-| [ADR-0076](0076-companion-bridge-credential.md) | The companion gets its bridge credential from the cluster's own authority, and renews it | Proposed |
+| [ADR-0076](0076-companion-bridge-credential.md) | The companion's socket bridge starts without a bridge credential; the credential is notme's to settle | Proposed |

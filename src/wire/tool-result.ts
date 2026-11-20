@@ -148,17 +148,26 @@ function encodeTextWithNul(s: string): Uint8Array {
 
 // ── Decode ────────────────────────────────────────────────────────────────
 
+// A struct may arrive SMALLER than this schema declares, and the reader must
+// treat what is missing as its default: zero for data, null for a pointer
+// (capnp encoding spec, "Structs"). This is not an edge case. A peer that
+// writes CANONICAL capnp drops a data section that is all zeros, and an
+// all-zero data section is the common case here: `isError = false`, and the
+// union tag of `Content.body.text` is 0. rosary does exactly that
+// (`rosary/src/serve/ipc.rs`: "We EMIT canonical capnp"), and this decoder
+// used to refuse every result it sent ("Content element too small: 0d/1p").
+// `test/wire/fixtures/rosary-tool-result.bin` is those bytes.
+
 export function decodeToolResult(bytes: Uint8Array): ToolResult {
   const r = new WireReader(bytes);
   const segStart = r.readSegmentStart();
   const root = r.readStructPointer(segStart);
 
-  if (root.dataWords < 1 || root.ptrWords < 1) {
-    throw new Error(`ToolResult struct too small: ${root.dataWords}d/${root.ptrWords}p`);
-  }
-  const isError = r.readBit(root.target, 0) === 1;
+  const isError = root.dataWords >= 1 && r.readBit(root.target, 0) === 1;
 
   const ptrSection = root.target + root.dataWords * WORD;
+  // No pointer section, or a null `content` pointer: the default, an empty list.
+  if (root.ptrWords < 1 || r.isNullPointer(ptrSection)) return { content: [], isError };
   const listPtr = r.readListPointer(ptrSection);
 
   if (listPtr.elementSize !== ELEM_COMPOSITE) {
@@ -192,18 +201,19 @@ function decodeContentElement(
   dataWords: number,
   ptrWords: number,
 ): Content {
-  if (dataWords < 1 || ptrWords < 1) {
-    throw new Error(`Content element too small: ${dataWords}d/${ptrWords}p (need ≥1d/1p)`);
-  }
   const elemDataOff = elemOff;
   const elemPtrOff  = elemOff + dataWords * WORD;
-  const discriminant = r.readU16(elemDataOff);
+  // A missing data section is all zeros, so the union tag is 0: `text`.
+  const discriminant = dataWords >= 1 ? r.readU16(elemDataOff) : DISCRIM_TEXT;
+  // A missing pointer section, or a null pointer, is the variant's default.
+  const nullPtr = ptrWords < 1 || r.isNullPointer(elemPtrOff);
 
   // Don't read the pointer until we know the variant — text/resource use a
   // list pointer; binary uses a struct pointer. readListPointer would throw
   // on the binary case (kind=0).
   switch (discriminant) {
     case DISCRIM_TEXT: {
+      if (nullPtr) return { kind: "text", text: "" };
       const ptr = r.readListPointer(elemPtrOff);
       if (ptr.elementSize !== ELEM_BYTE) {
         throw new Error(`Content.text expects byte list; got elementSize=${ptr.elementSize}`);
@@ -211,6 +221,7 @@ function decodeContentElement(
       return { kind: "text", text: decodeTextWithNul(r.readBytes(ptr.target, ptr.count)) };
     }
     case DISCRIM_RESOURCE: {
+      if (nullPtr) return { kind: "resource", resource: new Uint8Array(0) };
       const ptr = r.readListPointer(elemPtrOff);
       if (ptr.elementSize !== ELEM_BYTE) {
         throw new Error(`Content.resource expects byte list; got elementSize=${ptr.elementSize}`);
@@ -218,25 +229,22 @@ function decodeContentElement(
       return { kind: "resource", resource: r.readBytes(ptr.target, ptr.count) };
     }
     case DISCRIM_BINARY: {
+      if (nullPtr) return { kind: "binary", binary: { data: new Uint8Array(0), mimeType: "" } };
       const bc = r.readStructPointer(elemPtrOff);
-      if (bc.ptrWords < 2) {
-        throw new Error(`BinaryContent struct too small: ${bc.dataWords}d/${bc.ptrWords}p`);
-      }
       const bcPtrSection = bc.target + bc.dataWords * WORD;
-      const dataPtr = r.readListPointer(bcPtrSection + 0 * WORD);
-      const mtPtr   = r.readListPointer(bcPtrSection + 1 * WORD);
-      if (dataPtr.elementSize !== ELEM_BYTE) {
-        throw new Error(`BinaryContent.data elementSize=${dataPtr.elementSize}`);
-      }
-      if (mtPtr.elementSize !== ELEM_BYTE) {
-        throw new Error(`BinaryContent.mimeType elementSize=${mtPtr.elementSize}`);
-      }
+      // Each field may be absent (a smaller struct) or null: its default.
+      const field = (n: number): Uint8Array => {
+        if (bc.ptrWords <= n || r.isNullPointer(bcPtrSection + n * WORD)) return new Uint8Array(0);
+        const p = r.readListPointer(bcPtrSection + n * WORD);
+        if (p.elementSize !== ELEM_BYTE) {
+          throw new Error(`BinaryContent.${n === 0 ? "data" : "mimeType"} elementSize=${p.elementSize}`);
+        }
+        return r.readBytes(p.target, p.count);
+      };
+      const mimeType = field(1);
       return {
         kind: "binary",
-        binary: {
-          data:     r.readBytes(dataPtr.target, dataPtr.count),
-          mimeType: decodeTextWithNul(r.readBytes(mtPtr.target, mtPtr.count)),
-        },
+        binary: { data: field(0), mimeType: mimeType.length === 0 ? "" : decodeTextWithNul(mimeType) },
       };
     }
     default:
