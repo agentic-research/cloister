@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/// <reference path="./bundle-globals.d.ts" />
 //
 // Was this module started directly, as `node <this file>`, rather than
 // imported?

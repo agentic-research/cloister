@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/// <reference path="../bundle-globals.d.ts" />
 //
 // The generated zod schema for cluster.capnp (`src/generated/cluster.zod.ts`).
 //
