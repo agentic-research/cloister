@@ -64,9 +64,15 @@ export function encodeToolCall(tc: ToolCall): Uint8Array {
   const nameAt = b.appendBytesPadded(nameBytes);
   b.writeListPointer(p1Off, nameAt, ELEM_BYTE, nameBytes.length);
 
-  // Data field: no NUL terminator.
-  const argsAt = b.appendBytesPadded(tc.argumentsJson);
-  b.writeListPointer(p2Off, argsAt, ELEM_BYTE, tc.argumentsJson.length);
+  // Data field: no NUL terminator. Empty Data is a NULL pointer, as capnp's
+  // own encoder writes it, not a zero-length list: leyline-net/v1
+  // `reference/tool-call-empty.bin` is the reference bytes, and a
+  // zero-length list is a third encoding the spec does not pin. The pointer
+  // word is already zero (reserveWords zero-fills).
+  if (tc.argumentsJson.length > 0) {
+    const argsAt = b.appendBytesPadded(tc.argumentsJson);
+    b.writeListPointer(p2Off, argsAt, ELEM_BYTE, tc.argumentsJson.length);
+  }
 
   return b.finalize();
 }
@@ -86,10 +92,6 @@ export function decodeToolCall(bytes: Uint8Array): ToolCall {
   const segStart = r.readSegmentStart();
   const root = r.readStructPointer(segStart);
 
-  if (root.ptrWords < 3) {
-    throw new Error(`ToolCall struct too small: ptrWords=${root.ptrWords} (need ≥3)`);
-  }
-
   // Pointer section follows the data section. dataWords may be > 0 if the
   // sender is a future version that added data fields — skip past them.
   const ptrSection = root.target + root.dataWords * WORD;
@@ -97,14 +99,18 @@ export function decodeToolCall(bytes: Uint8Array): ToolCall {
   // Capnp encodes default-valued pointer fields as null pointers (8 zero
   // bytes). For Text/Data fields, null = empty. Detect the null case
   // BEFORE strict-kind-checking the pointer.
-  const idAt   = ptrSection + 0 * WORD;
-  const nameAt = ptrSection + 1 * WORD;
-  const argsAt = ptrSection + 2 * WORD;
+  //
+  // A pointer may also be ABSENT: a canonical writer drops trailing null
+  // pointers, so a call with no arguments arrives with two pointer words,
+  // not three (leyline-net/v1 `canonical/tool-call-empty.bin`, which the
+  // spec requires decoders to accept). Absent reads as null.
+  const isNull = (i: number) => i >= root.ptrWords || r.isNullPointer(ptrSection + i * WORD);
+  const at = (i: number) => ptrSection + i * WORD;
 
   return {
-    upstreamId:    r.isNullPointer(idAt)   ? "" : readText("upstreamId", r, idAt),
-    toolName:      r.isNullPointer(nameAt) ? "" : readText("toolName",   r, nameAt),
-    argumentsJson: r.isNullPointer(argsAt) ? new Uint8Array(0) : readData("argumentsJson", r, argsAt),
+    upstreamId:    isNull(0) ? "" : readText("upstreamId", r, at(0)),
+    toolName:      isNull(1) ? "" : readText("toolName",   r, at(1)),
+    argumentsJson: isNull(2) ? new Uint8Array(0) : readData("argumentsJson", r, at(2)),
   };
 }
 

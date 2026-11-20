@@ -130,12 +130,14 @@ describe("Manifest wire codec — decode robustness", () => {
     expect(() => decodeManifest(truncated)).toThrow();
   });
 
-  it("rejects struct with too few data/pointer words", () => {
-    // Forge a struct pointer claiming 0 data words / 0 pointer words.
+  it("reads a struct smaller than the schema as defaults, and refuses a required field that is absent", () => {
+    // A struct pointer claiming 0 data words / 0 pointer words. A struct may
+    // arrive smaller than the schema declares, and what is missing is its
+    // default (capnp encoding spec; leyline-net/v1 frames.md: decoders MUST
+    // accept the canonical form). sequence defaults to 0; the three byte
+    // fields are required, so their absence is refused, by name.
     const bytes = new Uint8Array(16);
     new DataView(bytes.buffer).setUint32(4, 1, true); // segWords = 1
-    // root pointer at byte 8: kind=0, offset=0, dataWords=0, ptrWords=0
-    // → all zeros. decoded as too-small struct.
-    expect(() => decodeManifest(bytes)).toThrow(/Manifest struct too small/);
+    expect(() => decodeManifest(bytes)).toThrow(/Manifest\.publicKey is absent; it is required/);
   });
 });

@@ -101,12 +101,14 @@ describe("ToolCall wire codec — decode robustness", () => {
     expect(() => decodeToolCall(bytes)).toThrow(/single-segment/);
   });
 
-  it("rejects struct with too few pointer words", () => {
-    // Forge: segWords=1, root pointer with 0d/0p.
+  it("reads a struct with too few pointer words as defaults", () => {
+    // segWords=1, root pointer with 0d/0p. Every field is absent, so every
+    // field is its default: a canonical writer drops trailing null pointers
+    // (leyline-net/v1 `canonical/tool-call-empty.bin`), and the spec requires
+    // decoders to accept it.
     const bytes = new Uint8Array(16);
     new DataView(bytes.buffer).setUint32(4, 1, true);
-    // root pointer (bytes 8..15) all zero → kind=0, offset=0, 0d/0p
-    expect(() => decodeToolCall(bytes)).toThrow(/ToolCall struct too small/);
+    expect(decodeToolCall(bytes)).toEqual({ upstreamId: "", toolName: "", argumentsJson: new Uint8Array(0) });
   });
 
   it("rejects Text without NUL terminator", () => {

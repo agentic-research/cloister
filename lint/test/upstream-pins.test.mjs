@@ -77,7 +77,7 @@ test("the walk reaches every committed Cargo.toml that pins ley-line-open, not o
   }
 });
 
-test("the shipped tree states ONE ley-line-open version across all three channels", () => {
+test("the shipped tree states ONE ley-line-open version across all four hand-stated channels", () => {
   // The property the first version of this rail lacked entirely. It compared
   // Cargo pins to EACH OTHER, so three internally-consistent channels reading
   // 0.11.3 / 0.12.0 / 0.12.1 simultaneously produced no complaint — they were
@@ -95,13 +95,16 @@ test("the shipped tree states ONE ley-line-open version across all three channel
   const gen = JSON.parse(readFileSync(resolve(ROOT, "schema-bridge.lock.json"), "utf8")).version;
   assert.ok(gen, "schema-bridge.lock.json must declare a version");
 
+  const vectors = JSON.parse(readFileSync(resolve(ROOT, "test/wire/fixtures/llo-net-vectors.json"), "utf8")).version;
+  assert.ok(vectors, "the vendored leyline-net vectors must declare a version");
+
   // ADR-0041: the `v` prefix is a per-repo convention, not a mandate, so a
   // Cargo semver field and a release tag legitimately differ by it.
   const strip = (v) => String(v).replace(/^v/, "");
   assert.deepEqual(
-    [...new Set([strip(cargo[0]), strip(input), strip(gen)])].length,
+    [...new Set([strip(cargo[0]), strip(input), strip(gen), strip(vectors)])].length,
     1,
-    `channels disagree — cargo=${cargo[0]} input=${input} generator=${gen}`,
+    `channels disagree — cargo=${cargo[0]} input=${input} generator=${gen} vectors=${vectors}`,
   );
 });
 
