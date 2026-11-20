@@ -7,18 +7,18 @@
 // the file are never read.
 
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { basename, extname } from "node:path";
+
+// Imported, not read from disk, so a bundler carries them (see cloudflare.mjs).
+import wranglerMapping from "./mappings/wrangler.json" with { type: "json" };
+import WRANGLER_CONFIG_SCHEMA from "wrangler/config-schema.json" with { type: "json" };
 
 import { parse as parseToml } from "smol-toml";
 
 import { makeFact } from "./facts.mjs";
 import { validateWranglerKeys } from "./validate.mjs";
 
-export const WRANGLER_MAPPING = Object.freeze(
-  JSON.parse(readFileSync(new URL("./mappings/wrangler.json", import.meta.url), "utf8")),
-);
-const WRANGLER_CONFIG_SCHEMA = createRequire(import.meta.url)("wrangler/config-schema.json");
+export const WRANGLER_MAPPING = Object.freeze(structuredClone(wranglerMapping));
 validateWranglerKeys(WRANGLER_MAPPING.keys, WRANGLER_CONFIG_SCHEMA);
 
 const KEYS = new Set(WRANGLER_MAPPING.keys);

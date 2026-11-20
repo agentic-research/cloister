@@ -44,6 +44,7 @@ import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExpo
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { STRENGTHS, envSource } from "./connections.mjs";
 import { bindPath, bundleServices, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
+import { startedAsScript } from "../started-as-script.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -608,7 +609,7 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
   return 0;
 }
 
-const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+const invokedDirectly = startedAsScript(import.meta.url);
 if (invokedDirectly) {
   process.exitCode = await main();
 }

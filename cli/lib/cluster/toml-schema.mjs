@@ -15,15 +15,14 @@
 // operator wrote must be a key the schema defines. It reports paths, never
 // values.
 
-import { readFileSync } from "node:fs";
+// Imported, not read from disk next to this file, so a bundler carries it:
+// the plan checker ships as one file (gen/bundle-plan.mjs) with no `schema/`
+// directory beside it.
+import TOML_SCHEMA from "../../../schema/cluster.toml.schema.json" with { type: "json" };
 
-export const TOML_SCHEMA_URL = new URL("../../../schema/cluster.toml.schema.json", import.meta.url);
-
-let cached;
-/** The published schema, read once. */
+/** The published schema. */
 export function tomlSchema() {
-  cached ??= JSON.parse(readFileSync(TOML_SCHEMA_URL, "utf8"));
-  return cached;
+  return TOML_SCHEMA;
 }
 
 const REF_PREFIX = "#/$defs/";

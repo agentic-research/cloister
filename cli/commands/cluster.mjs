@@ -30,6 +30,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve, isAbsolute, join } from "node:path";
 import { renderCommandHelp } from "../surface.mjs";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 export class ClusterUsageError extends Error {}
 
@@ -404,6 +405,6 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   });
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (startedAsScript(import.meta.url)) {
   main().then((c) => process.exit(c));
 }

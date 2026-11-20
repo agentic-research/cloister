@@ -61,6 +61,7 @@ import { fileURLToPath } from "node:url";
 import {
   launch, validateWorkdirSet, LaunchUsageError, PreconditionError,
 } from "../lib/harness/launch.mjs";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -278,6 +279,6 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (startedAsScript(import.meta.url)) {
   main().then((c) => process.exit(c));
 }

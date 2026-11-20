@@ -36,6 +36,7 @@ import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
+import { startedAsScript } from "../started-as-script.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../..");
@@ -711,7 +712,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   return 0;
 }
 
-const isDirectInvocation = fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "");
+const isDirectInvocation = startedAsScript(import.meta.url);
 if (isDirectInvocation) {
   process.exitCode = await main();
 }

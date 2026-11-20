@@ -197,8 +197,12 @@ tasks:
     desc: "Type-check the product-owned harness launch pipeline under cli/lib/harness. The root worker tsconfig does not include Node CLI modules, so this keeps their JSDoc contracts enforced rather than decorative."
     cmds:
       - pnpm exec tsc -p cli/lib/harness/tsconfig.json
+    # tsc follows imports out of cli/lib/harness, so every file it can reach
+    # is an input. Listing only the harness directory skipped this check when
+    # a shared module it imports changed, and CI found what local runs missed.
     sources:
-      - cli/lib/harness/*.mjs
+      - cli/**/*.mjs
+      - cli/**/*.d.ts
       - cli/lib/harness/tsconfig.json
 
   lint:shim:

@@ -35,6 +35,7 @@ import {
   URL_SCHEMES,
   lowerChannels,
 } from "../lib/cluster/connections.mjs";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -415,6 +416,6 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (startedAsScript(import.meta.url)) {
   process.exit(await main());
 }

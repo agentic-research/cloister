@@ -30,6 +30,7 @@ import {
 import { resolve, join, dirname, basename } from "node:path";
 import { publishedPort } from "../lib/cluster/http-networks.mjs";
 import { fileURLToPath } from "node:url";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 // ── Recipe discovery ──────────────────────────────────────────────────────
 
@@ -430,16 +431,7 @@ export function main(argv, deps = {}) {
 }
 
 // Run when invoked directly (handles both `node cli-init.mjs` and import).
-const invokedDirectly = (() => {
-  try {
-    return (
-      process.argv[1] &&
-      fileURLToPath(import.meta.url) === resolve(process.argv[1])
-    );
-  } catch {
-    return false;
-  }
-})();
+const invokedDirectly = startedAsScript(import.meta.url);
 
 if (invokedDirectly) {
   // Drop `node` + script path; pass the rest to main.

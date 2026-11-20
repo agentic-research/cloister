@@ -38,7 +38,8 @@ import { parse as parseToml } from "smol-toml";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { tsImport } from "tsx/esm/api";
+import { startedAsScript } from "../started-as-script.mjs";
+import { loadClusterSchema } from "./cluster-schema.mjs";
 import { assertEnvBindings, assertPortsAndConnections, checkableBundle,
   assertNamespaces,
 } from "./connections.mjs";
@@ -80,10 +81,7 @@ export async function parseTomlToCluster(tomlString) {
   // Loaded BEFORE the transform: assertDeclaredInputKeys runs inside the
   // synchronous unflatten pass and cannot await, and a shape that arrives
   // afterwards would leave that guard silently inert.
-  const { ClusterSchema, InputSpecSchema, HarnessTargetSchema, ExternalBundleSchema } = await tsImport(
-    new URL("../../../src/generated/cluster.zod.ts", import.meta.url).href,
-    { parentURL: import.meta.url },
-  );
+  const { ClusterSchema, InputSpecSchema, HarnessTargetSchema, ExternalBundleSchema } = await loadClusterSchema();
   inputShape = InputSpecSchema?._def?.getter?.()?.shape
     ?? InputSpecSchema?.def?.getter?.()?.shape
     ?? null;
@@ -1038,7 +1036,7 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
   return 0;
 }
 
-const isDirectInvocation = fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "");
+const isDirectInvocation = startedAsScript(import.meta.url);
 if (isDirectInvocation) {
   process.exitCode = await main();
 }
