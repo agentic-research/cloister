@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Check a rendered Terraform plan against cluster.toml, in a GitHub workflow.
+#
+#   - uses: agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0
+#     with:
+#       plan: plan.json        # `terraform show -json` output, NOT committed
+#       dir: infra             # the directory holding cluster.toml
+#       env: prod
+#
+# The check is the step's status and the job summary. It posts nothing to a
+# pull request. There is no `result` output: a composite action that fails
+# returns its outputs empty, so one would be missing exactly when it mattered. The checker is the one-file bundle (docs/plan-checker.md),
+# downloaded from the release this action is pinned to and verified against
+# the digest published beside it. Pin a plan-checker/v* tag: any other ref has
+# no release, and the action says so rather than guessing one.
+#
+# Every input reaches the shell as an environment variable, never
+# interpolated into the script, so a value cannot become a command.
+
+name: cloister plan check
+description: Check a rendered Terraform plan against cluster.toml, and fail on calls it does not declare
+branding:
+  icon: check-circle
+  color: gray-dark
+
+inputs:
+  plan:
+    description: Path to the output of `terraform show -json` (or `tofu show -json`). It must not be tracked by git.
+    required: true
+  dir:
+    description: The directory holding cluster.toml
+    required: false
+    default: "."
+  env:
+    description: The environment the plan describes. Connections are compared for this environment only. Empty compares every environment.
+    required: false
+    default: ""
+  fail-on:
+    description: Finding kinds that fail the check, a comma list of undeclared, contradicted, unknown
+    required: false
+    default: undeclared,contradicted
+  checker:
+    description: Path to a cloister-plan.mjs to run instead of downloading one. For testing this action.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Get the checker
+      id: get
+      shell: bash
+      env:
+        CHECKER: ${{ inputs.checker }}
+        ACTION_REPO: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if [ -n "$CHECKER" ]; then
+          echo "path=$(realpath "$CHECKER")" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        case "$ACTION_REF" in
+          plan-checker/v*) ;;
+          *)
+            echo "::error::cloister plan-check is pinned to '$ACTION_REF', which is not a release. Pin a plan-checker/v* tag, e.g. agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0"
+            exit 1
+            ;;
+        esac
+        out="$RUNNER_TEMP/cloister-plan"
+        mkdir -p "$out"
+        gh release download "$ACTION_REF" --repo "$ACTION_REPO" --dir "$out" \
+          --pattern cloister-plan.mjs --pattern cloister-plan.mjs.sha256
+        (cd "$out" && sha256sum --check --strict cloister-plan.mjs.sha256)
+        echo "path=$out/cloister-plan.mjs" >> "$GITHUB_OUTPUT"
+
+    - name: Check the plan
+      id: check
+      shell: bash
+      env:
+        CHECKER: ${{ steps.get.outputs.path }}
+        PLAN: ${{ inputs.plan }}
+        DIR: ${{ inputs.dir }}
+        ENV_NAME: ${{ inputs.env }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail
+        args=(--terraform "$PLAN" --dir "$DIR" --fail-on "$FAIL_ON")
+        if [ -n "$ENV_NAME" ]; then args+=(--env "$ENV_NAME"); fi
+        report="$RUNNER_TEMP/cloister-plan-report.txt"
+        node "$CHECKER" "${args[@]}" > "$report" 2> "$report.err"
+        code=$?
+        cat "$report"
+        cat "$report.err" >&2
+        {
+          echo "### cloister plan check"
+          echo
+          case "$code" in
+            0) echo "No finding of a kind that fails the check (\`$FAIL_ON\`)." ;;
+            3) echo "**Failed:** $(sed 's/^cloister inspect: //' "$report.err")" ;;
+            *) echo "**The check could not run** (exit $code): $(sed 's/^cloister inspect: //' "$report.err")" ;;
+          esac
+          echo
+          echo '```'
+          cat "$report"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit "$code"

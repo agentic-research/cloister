@@ -415,7 +415,7 @@ export const COMMANDS = [
   },
   {
     name: "inspect",
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] | cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind <kind>]] [--name <name>]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>] | cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind <kind>]] [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -458,6 +458,7 @@ export const COMMANDS = [
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory, if it has one)" },
       { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON" },
+      { flag: "--fail-on", value: "<kinds>", summary: "exit 3 when a finding of these kinds is reported, a comma list of undeclared, contradicted, unknown (for CI). Needs a cluster.toml. Exit 1 means the check could not run, 2 that it was called wrongly" },
       { flag: "--draft", summary: "print a cluster.toml drafted from --terraform, for you to review and commit; needs --env" },
       { flag: "--local", value: "<env>", summary: "with --draft: also place every bundle in this environment, for `cluster lower`" },
       { flag: "--local-kind", value: "<kind>", summary: "with --local: kubernetes (default) or knative. A job is always placed kubernetes" },

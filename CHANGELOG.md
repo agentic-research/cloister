@@ -8,6 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the plan checker in CI
+
+- `cloister inspect --fail-on undeclared,contradicted,unknown` exits 3 when a
+  finding of a named kind is reported. A finding never changed the exit code
+  before, so a CI check could only grep the text. It refuses to run without a
+  cluster.toml, where it would pass having checked nothing.
+- `actions/plan-check` runs the check in a GitHub workflow. The result is the
+  job's status and summary; it comments on nothing. CI runs it on a plan that
+  matches its file and one that does not.
+- A `plan-checker/v*` tag publishes `cloister-plan.mjs` and its sha256 as a
+  release (`release-plan-checker.yml`), after testing the bundle. Nothing is
+  published until a tag is pushed.
+- The bundle test runs every sample plan through the bundle and through
+  `cloister inspect`, report and draft, and requires identical output.
+
 ### 2026-11 — cloister's wire codecs run LLO's own test vectors
 
 - ley-line-open owns the ToolCall / ToolResult / Manifest wire

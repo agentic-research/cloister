@@ -1,0 +1,102 @@
+# DRAFT. Written by `cloister inspect --draft` from a rendered plan.
+# Read it before you commit it. Committing it is what makes it a declaration:
+# until then it is only what the inputs imply.
+#
+# 3 bundles, 2 connections, for env "prod".
+# A connection has no minStrength: add one where an edge must be enforced.
+#
+# Read these first:
+#   - "server": port 8080 is named "http", and its protocol (art.http) is taken from that name. A port name is free text here, so check it
+#   - "caller": env SERVER_URL is the address of "server". If the inputs append a path to it, add `path = "..."` to that row
+
+[metadata]
+name = "plan-check"
+version = "0.0.0"
+
+[storage]
+[[bundles]]
+name = "caller"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = [ "pause" ]
+
+[[bundles.external.env]]
+name = "SERVER_URL"
+connection = "server"
+
+[[bundles.external.env]]
+name = "LOG_LEVEL"
+value = "info"
+
+[[bundles.external.env]]
+name = "DB_PASSWORD"
+secret = "db-password"
+secretKey = "latest"
+
+[[bundles.placements]]
+env = "prod"
+kind = "kubernetes"
+
+[[bundles]]
+name = "server"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "/agnhost"
+args = [ "netexec", "--http-port=8080" ]
+
+[[bundles.ports]]
+name = "http"
+port = 8080
+appProtocol = "art.http"
+expose = "cluster"
+
+[[bundles.placements]]
+env = "prod"
+kind = "kubernetes"
+
+[[bundles]]
+name = "probe"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "registry.k8s.io/e2e-test-images/agnhost:2.53"
+entryPoint = "sh"
+args = [ "-c", "curl -fsS --max-time 20 \"$SERVER_URL/hostname\"" ]
+runs = "job"
+
+[[bundles.external.env]]
+name = "SERVER_URL"
+connection = "server"
+
+[[bundles.placements]]
+env = "prod"
+kind = "kubernetes"
+
+[[connections]]
+from = "caller"
+name = "server"
+appProtocol = "art.http"
+
+[[connections.targets]]
+env = "prod"
+bundle = "server"
+port = "http"
+
+[[connections]]
+from = "probe"
+name = "server"
+appProtocol = "art.http"
+
+[[connections.targets]]
+env = "prod"
+bundle = "server"
+port = "http"
+

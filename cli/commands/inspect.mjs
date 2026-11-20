@@ -17,6 +17,19 @@ import { importWrangler } from "../lib/facts/wrangler.mjs";
 
 export class InspectUsageError extends Error {}
 
+/**
+ * The finding kinds `--fail-on` may name. `evidenced` is not one: it is the
+ * answer a check wants.
+ */
+export const FAIL_ON_KINDS = ["undeclared", "contradicted", "unknown"];
+
+/**
+ * The exit code when a finding of a `--fail-on` kind is reported. Distinct
+ * from 1 (the check could not run) and 2 (it was called wrongly), so a CI job
+ * can tell "the plan disagrees" from "the checker broke".
+ */
+export const EXIT_FINDINGS = 3;
+
 export function parseArgs(argv) {
   const opts = { json: false, wrangler: [] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -36,6 +49,7 @@ export function parseArgs(argv) {
     else if (arg === "--name") opts.name = value();
     else if (arg === "--local") opts.local = value();
     else if (arg === "--local-kind") opts.localKind = value();
+    else if (arg === "--fail-on") opts.failOn = parseFailOn(value());
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new InspectUsageError(`unknown argument: ${arg}`);
   }
@@ -44,6 +58,7 @@ export function parseArgs(argv) {
       "--terraform <file> (the output of `terraform show -json`) or --wrangler <file> is required",
     );
   }
+  if (opts.draft && opts.failOn) throw new InspectUsageError("--fail-on checks a plan against cluster.toml; --draft writes one, so there is nothing to check");
   if (opts.draft) {
     if (!opts.terraform) throw new InspectUsageError("--draft needs --terraform <file>: a draft is written from a rendered plan or state");
     if (!opts.env) throw new InspectUsageError("--draft needs --env <name>: the environment its placements and connection targets are written for");
@@ -55,6 +70,15 @@ export function parseArgs(argv) {
     throw new InspectUsageError(`${opts.name ? "--name" : opts.local ? "--local" : "--local-kind"} is only used with --draft`);
   }
   return opts;
+}
+
+function parseFailOn(text) {
+  const kinds = text.split(",").map((k) => k.trim()).filter(Boolean);
+  if (kinds.length === 0) throw new InspectUsageError(`--fail-on needs one or more of ${FAIL_ON_KINDS.join(", ")}`);
+  for (const kind of kinds) {
+    if (!FAIL_ON_KINDS.includes(kind)) throw new InspectUsageError(`--fail-on "${kind}" is not one of ${FAIL_ON_KINDS.join(", ")}`);
+  }
+  return [...new Set(kinds)];
 }
 
 /**
@@ -97,7 +121,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind kubernetes|knative]] [--name <cluster name>]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind kubernetes|knative]] [--name <cluster name>]");
     return 0;
   }
 
@@ -150,9 +174,25 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     } else if (opts.dir) {
       errLog(`cloister inspect: no cluster.toml in ${opts.dir}`);
       return 2;
+    } else if (opts.failOn) {
+      // Without a file there is nothing declared, so nothing could be
+      // undeclared or contradicted: the check would pass having checked nothing.
+      errLog(`cloister inspect: --fail-on needs a cluster.toml to check against, and there is none in ${dir}. Pass --dir`);
+      return 2;
     }
     const report = buildReport(imported, cluster, { env: opts.env });
     log(opts.json ? JSON.stringify(report, null, 2) : renderReport(report));
+    if (opts.failOn) {
+      const failing = report.findings.filter((f) => opts.failOn.includes(f.kind));
+      if (failing.length) {
+        const counts = opts.failOn
+          .map((kind) => [kind, failing.filter((f) => f.kind === kind).length])
+          .filter(([, n]) => n > 0)
+          .map(([kind, n]) => `${n} ${kind}`);
+        errLog(`cloister inspect: ${counts.join(", ")} (--fail-on ${opts.failOn.join(",")})`);
+        return EXIT_FINDINGS;
+      }
+    }
     return 0;
   } catch (error) {
     errLog(`cloister inspect: ${error.message}`);
