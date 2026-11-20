@@ -174,14 +174,16 @@ export const cluster: Cluster = {
           "kind": "microvm",
           "manifest": "",
           "ports": [],
-          "name": ""
+          "name": "",
+          "sharesNetworkOf": ""
         },
         {
           "env": "compose",
           "kind": "compose",
           "manifest": "",
           "ports": [],
-          "name": ""
+          "name": "",
+          "sharesNetworkOf": "cloister-router"
         }
       ],
       "kind": {

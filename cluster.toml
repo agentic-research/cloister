@@ -75,6 +75,7 @@ kind = "microvm"
 [[bundles.placements]]
 env = "compose"
 kind = "compose"
+sharesNetworkOf = "cloister-router"
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."

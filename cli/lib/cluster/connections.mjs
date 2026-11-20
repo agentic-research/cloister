@@ -71,6 +71,7 @@ export function normalizePlacements(raw) {
     manifest: text(p?.manifest),
     ports: Array.isArray(p?.ports) ? p.ports.map((x) => ({ name: text(x?.name), port: x?.port ?? 0, expose: text(x?.expose) })) : [],
     name: text(p?.name),
+    sharesNetworkOf: text(p?.sharesNetworkOf),
   }));
 }
 
@@ -219,6 +220,39 @@ export function requireManifest(bundle, env, command) {
   );
 }
 
+/**
+ * Every `sharesNetworkOf` names something that can host a namespace: another
+ * external bundle, placed `compose` in the same env, that does not itself
+ * join one (a chain would leave "whose loopback is this" to be worked out),
+ * and that is not one container per tenant (there would be no one container
+ * to join). The bundle that joins cannot be per-tenant either.
+ *
+ * @param {Array} bundles checkable bundles, with `perTenant` (see `checkableBundle`)
+ */
+export function assertNamespaces(bundles) {
+  const byName = new Map(bundles.map((b) => [b.name, b]));
+  for (const b of bundles) {
+    for (const p of b.placements ?? []) {
+      const host = p.sharesNetworkOf ?? "";
+      if (host === "") continue;
+      const where = `bundle "${b.name}" placement env "${p.env}": sharesNetworkOf "${host}"`;
+      if (host === b.name) throw new Error(`${where} names the bundle itself`);
+      const target = byName.get(host);
+      if (!target) throw new Error(`${where} names no declared bundle (declared: ${bundles.map((x) => x.name).join(", ")})`);
+      const kind = placementFor(target, p.env);
+      if (kind !== "compose") {
+        throw new Error(`${where}: "${host}" is ${kind === null ? "not placed" : `placed "${kind}"`} for env "${p.env}", and only a compose service has a network namespace to join`);
+      }
+      const hostRow = (target.placements ?? []).find((x) => x.env === p.env);
+      if ((hostRow?.sharesNetworkOf ?? "") !== "") {
+        throw new Error(`${where}: "${host}" itself joins "${hostRow.sharesNetworkOf}"'s namespace there. Name "${hostRow.sharesNetworkOf}" directly`);
+      }
+      if (target.perTenant) throw new Error(`${where}: "${host}" runs as one container per tenant, so there is no one namespace to join`);
+      if (b.perTenant) throw new Error(`${where}: "${b.name}" runs as one container per tenant, and every instance would bind the same ports in the one namespace`);
+    }
+  }
+}
+
 /** "a", "a or b", "a, b or c". */
 const oneOf = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`);
 
@@ -258,6 +292,12 @@ function assertPlacements(b) {
     }
     if (/[\u0000-\u001f\u007f]/.test(p.name ?? "")) {
       throw new Error(`${where}: name holds a control character`);
+    }
+    // Joining another bundle's network namespace is something compose does
+    // (`network_mode: service:<host>`). Which bundle it names is checked
+    // against the whole cluster by `assertNamespaces`.
+    if ((p.sharesNetworkOf ?? "") !== "" && p.kind !== "compose") {
+      throw new Error(`${where}: sharesNetworkOf is for kind "compose"; a "${p.kind}" placement has no container whose network namespace cloister chooses`);
     }
     if (CONSTRUCTED_KINDS.includes(p.kind) && p.manifest !== "") {
       throw new Error(
@@ -704,6 +744,7 @@ export function checkableBundle(b) {
     executionMode: b?.kind?.external?.executionMode ?? "",
     ports: b?.ports ?? [],
     placements: b?.placements ?? [],
+    perTenant: b?.perTenant === true,
   };
 }
 

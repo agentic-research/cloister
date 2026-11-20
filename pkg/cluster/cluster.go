@@ -361,6 +361,8 @@ type PlacementSpec struct {
 	Ports []PlacementPort `json:"ports"`
 	// What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only.
 	Name string `json:"name"`
+	// The bundle whose network namespace this one's container joins, so that the two share 127.0.0.1. 'compose' only. Leave empty for a container with a network of its own.
+	SharesNetworkOf string `json:"sharesNetworkOf"`
 }
 
 // Filesystem paths the bundle may use.

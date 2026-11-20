@@ -221,9 +221,10 @@
         "kind": { "type": "string", "description": "How it runs. 'microvm', 'workerd' or 'compose': cloister builds and starts it. 'kubernetes', 'knative' or 'cloudRun': cloister checks and wires a manifest it does not own." },
         "manifest": { "type": "string", "description": "Path, relative to the cluster directory, to the rendered manifest, for 'kubernetes' and 'knative'. Omit it when a plan describes the placement. Not allowed for 'microvm' or 'workerd'." },
         "ports": { "type": "array", "items": { "$ref": "#/$defs/PlacementPort" }, "description": "Ports that are dialled on a different number in this placement than the workload listens on. Forwarded kinds only." },
-        "name": { "type": "string", "description": "What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only." }
+        "name": { "type": "string", "description": "What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only." },
+        "sharesNetworkOf": { "type": "string", "description": "The bundle whose network namespace this one's container joins, so that the two share 127.0.0.1. 'compose' only. Leave empty for a container with a network of its own." }
       },
-      "required": ["env", "kind", "manifest", "ports", "name"],
+      "required": ["env", "kind", "manifest", "ports", "name", "sharesNetworkOf"],
       "additionalProperties": false
     },
     "ConfinementFs": {

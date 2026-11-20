@@ -54,6 +54,40 @@ export function composeView(cluster, env = COMPOSE_ENV) {
 }
 
 /**
+ * The one bundle the emitter placed in another's namespace before that could
+ * be declared: `mache`, in the gateway's. It applies ONLY to a cluster with
+ * no placement row anywhere, which is emitted as it always was. A cluster
+ * that declares placements says `sharesNetworkOf`, or the bundle has a
+ * network of its own.
+ */
+const LEGACY_NAMESPACE = Object.freeze({ mache: "cloister-router" });
+
+/**
+ * Which bundle's network namespace each bundle joins under compose.
+ *
+ * @param {object} cluster a parsed cluster (or the view's)
+ * @param {string} [env] the compose env
+ * @returns {Map<string, string>} bundle name → the bundle it joins. A bundle
+ *   with a network of its own is absent.
+ */
+export function namespaceHosts(cluster, env = COMPOSE_ENV) {
+  const bundles = (cluster.bundles ?? []).filter(isExternal);
+  const hosts = new Map();
+  const legacy = !(cluster.bundles ?? []).some((b) => (b.placements ?? []).length > 0);
+  for (const b of bundles) {
+    if (legacy) {
+      const host = LEGACY_NAMESPACE[b.name];
+      // The rule was "mache joins the gateway", so it needs the gateway.
+      if (host && bundles.some((x) => x.name === host)) hosts.set(b.name, host);
+      continue;
+    }
+    const host = (b.placements ?? []).find((p) => p.env === env)?.sharesNetworkOf ?? "";
+    if (host !== "") hosts.set(b.name, host);
+  }
+  return hosts;
+}
+
+/**
  * Refuse a wire that has an end compose does not run: the address it would
  * hand its source names a service that is not in the file.
  */

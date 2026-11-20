@@ -41,11 +41,10 @@
 #   caller    ──▶ inner       declared, and inner declares no `edge` port: the
 #                             caller gets a page, and the port is not on the
 #                             host at all (web's is, because web says `edge`)
-#   cloister-router ──▶ web   declared, but `mache` runs inside this bundle's
-#                             network namespace (the one bundle the emitter
-#                             places that way, by name): the graph says
-#                             `none` and names mache, and mache really gets
-#                             the page
+#   host      ──▶ web         declared, but `joiner` declares that it joins
+#                             host's network namespace (sharesNetworkOf): the
+#                             graph says `none` and names joiner, and joiner
+#                             really gets the page
 
 [metadata]
 name = "compose-hold"
@@ -189,7 +188,7 @@ appProtocol = "art.http"
 expose = "cluster"
 
 [[bundles]]
-name = "cloister-router"
+name = "host"
 kind = "external"
 tier = "cluster"
 
@@ -198,7 +197,7 @@ image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2d
 args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
 
 [[bundles]]
-name = "mache"
+name = "joiner"
 kind = "external"
 tier = "cluster"
 
@@ -206,6 +205,11 @@ tier = "cluster"
 image = "mcr.microsoft.com/cbl-mariner/base/python@sha256:d1dd9c1296ec1a311efc2dd35d74a9c8f2be3c5e264d9a26c847b1123807312c"
 args = ["python3", "-c", "import time\ntime.sleep(10**9)\n"]
 
+
+[[bundles.placements]]
+env = "compose"
+kind = "compose"
+sharesNetworkOf = "host"
 
 [[wires]]
 binding = "LISTENER_SOCK"
@@ -255,7 +259,7 @@ transport = "uds"
 
 [[wires]]
 binding = "ROUTER_WEB_URL"
-from = "cloister-router"
+from = "host"
 to = "web"
 transport = "uds"
 

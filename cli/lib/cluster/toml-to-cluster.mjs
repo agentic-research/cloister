@@ -39,7 +39,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import { assertEnvBindings, assertPortsAndConnections, checkableBundle } from "./connections.mjs";
+import { assertEnvBindings, assertPortsAndConnections, checkableBundle,
+  assertNamespaces,
+} from "./connections.mjs";
 import { undeclaredKeys } from "./toml-schema.mjs";
 
 // Path constants — the repo-root cluster.toml (operator source) and
@@ -195,6 +197,9 @@ export async function parseTomlToCluster(tomlString) {
     validated.bundles.map(checkableBundle),
     validated.connections ?? [],
   );
+  //    4c-1a. A bundle that joins another's network namespace names one that
+  //        can host it (ADR-0075 §8).
+  assertNamespaces(validated.bundles.map(checkableBundle));
   //    4c-1b. Env bindings and run mode (ADR-0074 §7): an env row takes its
   //        value from exactly one place, and a connection binding names a
   //        connection the bundle declares.
