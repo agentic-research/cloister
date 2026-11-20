@@ -358,6 +358,8 @@ export const PlacementSpecSchema: z.ZodType<PlacementSpec> = z.lazy(() =>
     ports: z.array(PlacementPortSchema).readonly().default([]),
     /** What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only. */
     name: z.string().default(""),
+    /** The bundle whose network namespace this one's container joins, so that the two share 127.0.0.1. 'compose' only. Leave empty for a container with a network of its own. */
+    sharesNetworkOf: z.string().default(""),
   }).strict());
 
 export interface PlacementSpec {
@@ -366,6 +368,7 @@ export interface PlacementSpec {
   manifest: string;
   ports: readonly PlacementPort[];
   name: string;
+  sharesNetworkOf: string;
 }
 
 /** Filesystem paths the bundle may use. */

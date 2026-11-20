@@ -978,3 +978,34 @@ test("emitCompose: minStrength is held to what this edge delivers", () => {
   c.connections[0].minStrength = "";
   assert.match(emitCompose(c), /wire-cloister-router-db/);
 });
+
+// ── emitCompose: joining another bundle's network namespace is declared (ADR-0075 §8) ──
+
+const joins = (cluster, name, host) => {
+  const b = cluster.bundles.find((x) => x.name === name);
+  b.placements = [{ env: "compose", kind: "compose", manifest: "", ports: [], name: "", sharesNetworkOf: host }];
+  return cluster;
+};
+
+test("emitCompose: a bundle that declares sharesNetworkOf joins that bundle's namespace, whatever it is called", () => {
+  const yaml = emitCompose(joins(httpCluster({ gateway: 8787, sidecar: 9000 }, [["gateway", "sidecar"]]), "sidecar", "gateway"));
+  assert.match(serviceBlock(yaml, "sidecar"), /    network_mode: "service:gateway"\n/);
+  assert.doesNotMatch(serviceBlock(yaml, "sidecar"), /    networks:/);
+  assert.match(serviceBlock(yaml, "gateway"), /"SIDECAR_URL=http:\/\/127\.0\.0\.1:9000"/, "the host reaches it at loopback");
+});
+
+test("emitCompose: once placements are declared, a bundle named mache is not special", () => {
+  const cluster = httpCluster({ "cloister-router": 8787, mache: 7532, other: 0 }, [["cloister-router", "mache"]]);
+  placed(cluster, "other", [["compose", "compose"]]);   // any row ends the compatibility rule
+  const yaml = emitCompose(cluster);
+  assert.doesNotMatch(serviceBlock(yaml, "mache"), /network_mode/);
+  assert.deepEqual(networksOf(yaml, "mache"), ["wire-cloister-router-mache"]);
+  assert.match(serviceBlock(yaml, "cloister-router"), /"MACHE_URL=http:\/\/mache:7532"/);
+});
+
+test("emitCompose: with no placement anywhere, mache still joins the gateway, as it always did", () => {
+  const yaml = emitCompose(httpCluster({ "cloister-router": 8787, mache: 7532 }, [["cloister-router", "mache"]]));
+  assert.match(serviceBlock(yaml, "mache"), /    network_mode: "service:cloister-router"\n/);
+  // And only where there is a gateway to join.
+  assert.doesNotMatch(serviceBlock(emitCompose(httpCluster({ mache: 7532 }, [])), "mache"), /network_mode/);
+});

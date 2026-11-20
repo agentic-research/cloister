@@ -411,6 +411,12 @@ export interface PlacementSpec {
    * not the bundle's name (ADR-0074 §4). Forwarded kinds only.
    */
   name: string;
+  /**
+   * The bundle whose network namespace this one's container joins in this
+   * placement, so the two share 127.0.0.1 (ADR-0075 §8). `compose` only.
+   * Empty: a container with a network of its own.
+   */
+  sharesNetworkOf: string;
 }
 
 /** The number one of the bundle's ports is dialled on in one placement. */

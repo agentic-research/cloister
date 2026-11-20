@@ -73,7 +73,9 @@ Stated here because a reader would otherwise find them one at a time
 - **A wire under compose is held unless something is shared.** A socket in
   a directory another bundle binds in is not held. Neither is an HTTP wire
   with an end whose network namespace another container shares, which is
-  true of both HTTP wires in this repository's own cluster, because of mache.
+  true of both HTTP wires in this repository's own cluster: mache declares
+  that it joins the gateway's namespace, because the gateway's image dials it
+  at loopback.
   A caller that relays (the companion) extends its reach to whoever can
   reach it. `cluster graph` says which, and
   `task smoke:compose-hold` tries it against running containers.

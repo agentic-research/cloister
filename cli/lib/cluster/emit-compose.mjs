@@ -40,7 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { resolveBundleImage } from "../oci-artifact.mjs";
-import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExposure, publishedPort, namespaceHost, networkPlan, networksFor } from "./http-networks.mjs";
+import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExposure, publishedPort, networkPlan, networksFor } from "./http-networks.mjs";
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { STRENGTHS, envSource } from "./connections.mjs";
 import { bindPath, bundleServices, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
@@ -408,7 +408,7 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
 
   // A container is on the networks of its own wires and no others. One
   // that joins another's namespace is on that one's networks instead.
-  const nsHost = namespaceHost(b);
+  const nsHost = netPlan.hosts.get(b.name) ?? "";
   if (nsHost) {
     lines.push(`    network_mode: ${yamlStr(`service:${nsHost}`)}`);
   } else {

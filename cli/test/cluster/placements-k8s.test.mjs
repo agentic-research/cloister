@@ -92,7 +92,7 @@ test("meetStrength is the weaker of the two ends", () => {
 test("the demo (kubernetes ↔ kubernetes, minStrength policy) builds", async () => {
   const c = await parseTomlToCluster(DEMO_TOML);
   assert.equal(c.connections[0].minStrength, "policy");
-  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml", ports: [], name: "" }]);
+  assert.deepEqual(c.bundles[0].placements, [{ env: "local", kind: "kubernetes", manifest: "dolt.yaml", ports: [], name: "", sharesNetworkOf: "" }]);
 });
 
 test("kubernetes ↔ kubernetes does not meet minStrength capability, naming both placements", async () => {
@@ -1008,4 +1008,61 @@ test("a kubernetes placement reads a List export too", async () => {
   const { files, references } = lowerK8s({ bundles: cluster.bundles.map(checkableBundle), connections: cluster.connections, env: "local", readManifest: (p) => wrapped[p] });
   assert.equal(files.length, 6);
   assert.deepEqual(references.map((r) => r.connections), [["orders-db"]]);
+});
+
+// ── sharesNetworkOf names something that can host a namespace (ADR-0075 §8) ──
+
+test("sharesNetworkOf is refused unless it names another compose service that hosts its own namespace", async () => {
+  const { assertNamespaces } = await import("../../lib/cluster/connections.mjs");
+  const ext = (name, placements = [], extra = {}) => ({ name, kind: "external", executionMode: "", ports: [], placements, perTenant: false, ...extra });
+  const join = (host, env = "compose") => [{ env, kind: "compose", manifest: "", ports: [], name: "", sharesNetworkOf: host }];
+  const own = [{ env: "compose", kind: "compose", manifest: "", ports: [], name: "", sharesNetworkOf: "" }];
+
+  assert.doesNotThrow(() => assertNamespaces([ext("gw", own), ext("side", join("gw"))]));
+  // A host with no rows that is not a microvm is implicitly a compose service.
+  assert.doesNotThrow(() => assertNamespaces([ext("gw"), ext("side", join("gw"))]));
+
+  for (const [bundles, why] of [
+    [[ext("side", join("side"))], /sharesNetworkOf "side" names the bundle itself/],
+    [[ext("side", join("nobody"))], /names no declared bundle \(declared: side\)/],
+    [[ext("gw", [{ env: "compose", kind: "kubernetes", manifest: "", ports: [], name: "", sharesNetworkOf: "" }]), ext("side", join("gw"))], /"gw" is placed "kubernetes" for env "compose", and only a compose service has a network namespace to join/],
+    [[ext("gw", [{ env: "prod", kind: "compose", manifest: "", ports: [], name: "", sharesNetworkOf: "" }]), ext("side", join("gw"))], /"gw" is not placed for env "compose"/],
+    [[ext("a", own), ext("b", join("a")), ext("c", join("b"))], /"b" itself joins "a"'s namespace there\. Name "a" directly/],
+    [[ext("gw", own, { perTenant: true }), ext("side", join("gw"))], /"gw" runs as one container per tenant, so there is no one namespace to join/],
+    [[ext("gw", own), ext("side", join("gw"), { perTenant: true })], /"side" runs as one container per tenant/],
+  ]) assert.throws(() => assertNamespaces(bundles), why);
+});
+
+test("sharesNetworkOf on a placement that is not compose is refused when cluster.toml is parsed", async () => {
+  const toml = `
+[metadata]
+name = "t"
+version = "0.0.1"
+
+[storage]
+
+[[bundles]]
+name = "gw"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "x/gw"
+
+[[bundles]]
+name = "side"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "x/side"
+
+[[bundles.placements]]
+env = "local"
+kind = "kubernetes"
+sharesNetworkOf = "gw"
+`;
+  await assert.rejects(parseTomlToCluster(toml), /bundle "side" placement env "local": sharesNetworkOf is for kind "compose"/);
+  const ok = await parseTomlToCluster(toml.replace('env = "local"\nkind = "kubernetes"', 'env = "compose"\nkind = "compose"'));
+  assert.equal(ok.bundles[1].placements[0].sharesNetworkOf, "gw");
 });

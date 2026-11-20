@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — joining a network namespace is declared
+
+- `[[bundles.placements]]` gains `sharesNetworkOf`: the bundle whose network
+  namespace this one's container joins under compose, so the two share
+  `127.0.0.1`. It replaces a test in the emitter for a bundle named `mache`.
+- This repository's mache declares `sharesNetworkOf = "cloister-router"`. The
+  compose file it yields is unchanged.
+- A cluster with no placement row anywhere is emitted as before, mache
+  included. Once a cluster declares placements, a bundle named mache has a
+  network of its own unless it says otherwise.
+- A new rail holds the declaration to the gateway's image: a compose bundle
+  whose `httpPort` is one `config.capnp` dials at loopback must join the
+  gateway's namespace.
+- Not settled, and written down in ADR-0075 §8: how the gateway reaches
+  rosary, the companion and the identity service under compose.
+
 ### 2026-11 — a connection between two compose bundles is lowered
 
 - A `[[connections]]` row with a target for env `compose` between two

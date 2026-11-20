@@ -211,14 +211,12 @@ to replace nothing and report success.
 
 - A network joins its two ends both ways. The target can reach its caller's
   ports too. The graph says so on every such edge.
-- One bundle, mache, is placed in the gateway's namespace by name. That rule
-  is older than this ADR. It is now stated in one function
-  (`namespaceHost`), which the emitter and the graph both read, and it is the
-  reason neither HTTP wire in this repository's own cluster is held: mache is
-  reached at loopback, and being in the gateway's namespace puts it on the
-  network the gateway shares with notme-identity. Moving mache onto a network
-  of its own would hold both. It changes the address mache listens on, which
-  the microVM placement also reads, so it is not done here.
+- One bundle, mache, is placed in the gateway's namespace. When this was
+  written the emitter chose it by name; §8 makes it a declaration and gives
+  the real reason for it. It is why neither HTTP wire in this repository's
+  own cluster is held: mache is reached at loopback, and being in the
+  gateway's namespace puts it on the network the gateway shares with
+  notme-identity.
 
 **What this takes away.** A bundle that reached another over HTTP with no
 wire between them no longer can. That is the point, and it is the change an
@@ -280,6 +278,71 @@ variable is read inside the container and holds the address; the container
 gets a page there; no other container has a route; and the port, declared
 `cluster`, is not on the host.
 
+### 8. Amendment (2026-11-20): joining a network namespace is declared
+
+One bundle ran inside the gateway's network namespace under compose, and the
+emitter chose it by name: `if (b.name === "mache")`. §6 moved that test into
+one function and called it a special case. It is now a declaration:
+
+```toml
+[[bundles.placements]]
+env = "compose"
+kind = "compose"
+sharesNetworkOf = "cloister-router"
+```
+
+`PlacementSpec.sharesNetworkOf` names the bundle whose network namespace this
+one's container joins. The two share loopback: the host reaches the bundle at
+`127.0.0.1`, and the bundle is on every network the host is on. `compose`
+only.
+
+**Why it exists, which §6 got wrong.** §6 said moving mache onto a network
+of its own would hold this repository's two HTTP wires, and that only the
+address mache listens on stood in the way. That was not the reason. The
+gateway's image dials mache at a fixed address, `127.0.0.1:7532`, written in
+`config.capnp`. Under compose that is the gateway's own loopback, so mache is
+reachable only if it is in the gateway's namespace. Sharing the namespace is
+how an image that dials its backends at loopback is run under compose. It is
+a property of the image, and the declaration says so.
+
+**Refused, by name.** `sharesNetworkOf` on a placement that is not `compose`;
+naming the bundle itself, a bundle that is not declared, one that is not a
+compose service in that env, one that itself joins another's namespace, or
+one that runs as a container per tenant; and a per-tenant bundle joining
+anything.
+
+**Compatibility.** A cluster with no placement row anywhere is emitted as it
+always was (ADR-0070 §2), and that includes mache joining the gateway by
+name. Once a cluster declares placements, a bundle named mache is not
+special.
+
+**What it does to strength.** Nothing new. A wire that touches the host is
+`none`, with the bundle that joins named, as §6 already said. The reason is
+now one the operator wrote.
+
+**A rail.** `lint/test/compose-reach.test.mjs` reads the loopback addresses
+in `config.capnp` and requires every compose bundle whose `httpPort` is one
+of them to join the gateway's namespace. Without it, giving such a bundle a
+network of its own is emitted without complaint, and the gateway dials
+loopback and finds nothing.
+
+**Not settled: how the gateway finds its other backends under compose.** The
+image reaches its backends three ways, and they do not all work the same
+under compose:
+
+| Backend | How the image reaches it | Under compose |
+|---|---|---|
+| mache | fixed loopback address | works: it joins the gateway's namespace |
+| rosary, the companion | fixed loopback address (`8383`, `8385`) | they are separate containers, and neither declares an HTTP port, so on the code as written the gateway's dial has nowhere to land |
+| notme-identity | a network service, to a URL the Worker passes | depends on that URL, which nothing here sets for compose |
+
+The variables compose sets on the gateway from its wires (`MACHE_BUNDLE`,
+`COMPANION`) are read by nothing in the Worker. Which of these paths work can
+only be learned by starting the real images, which no check here does: they
+are not available to CI. Deciding the direction, addresses from the wires or
+one namespace for the gateway's backends, should follow that run, not
+precede it.
+
 ## Consequences
 
 - The system cloister runs as appears in its own graph. When this was
@@ -300,7 +363,9 @@ gets a page there; no other container has a route; and the port, declared
 | Strength and reason for a wire under compose | implemented, read from every committed compose file by a test |
 | Holding a wire to a socket under compose | implemented (§5), checked against running containers in CI |
 | Holding a wire to an HTTP target under compose | implemented (§6), checked against running containers in CI |
-| Holding this repository's own two HTTP wires | not done: mache shares the gateway's namespace (§6) |
+| Holding this repository's own two HTTP wires | not done: mache joins the gateway's namespace because the gateway's image dials it at loopback (§8) |
+| Joining a network namespace, declared | implemented (§8), with a rail against `config.capnp` |
+| How the gateway finds its other backends under compose | not settled: needs a run of the real images (§8) |
 | Keeping tenant instances out of each other's sockets | implemented (§5), checked against running containers in CI |
 | A connection between two compose bundles | implemented (§7), checked against running containers in CI |
 | The gateway's own wires written as connections | not done (§7) |

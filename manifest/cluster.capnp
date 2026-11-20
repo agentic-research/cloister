@@ -300,6 +300,15 @@ struct PlacementSpec $Traits.doc("Where a bundle runs in one environment.") {
   # constructed placement is named by cloister, after the bundle. Within one
   # environment a name means one bundle.
   name @4 :Text $Traits.doc("What this bundle is called in this environment's plan or manifest, when that is not the bundle's name. 'inspect --env' matches by it. Forwarded kinds only.");
+  # The bundle whose NETWORK NAMESPACE this one's container joins, in this
+  # placement (ADR-0075 §8). The two then share loopback: the host reaches
+  # this bundle at 127.0.0.1, and this bundle is on every network the host is
+  # on. It is how a gateway image that dials its backends at loopback is run
+  # under compose. `compose` only. It names an external bundle placed
+  # `compose` in the same env that does not itself join another's namespace.
+  # A wire that touches the host is not held: the bundle named here can reach
+  # what the host can. Append-only ordinal per ADR-0004.
+  sharesNetworkOf @5 :Text $Traits.doc("The bundle whose network namespace this one's container joins, so that the two share 127.0.0.1. 'compose' only. Leave empty for a container with a network of its own.");
 }
 
 struct PlacementPort $Traits.doc("What is different about one port in one placement: the number it is dialled on, whether it can be reached from outside, or both.") {
