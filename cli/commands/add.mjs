@@ -40,6 +40,7 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { resolveInput, buildLockfile } from "../lib/cluster/resolve-inputs.mjs";
 import { writeLockfile } from "../lib/cluster/lockfile.mjs";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -354,7 +355,7 @@ async function resolveAllAndWriteLockfile(tomlString, lockPath) {
 }
 
 // Run when invoked as a script (not when imported by tests).
-const invokedAsScript = process.argv[1] && resolvePath(process.argv[1]) === resolvePath(fileURLToPath(import.meta.url));
+const invokedAsScript = startedAsScript(import.meta.url);
 if (invokedAsScript) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),

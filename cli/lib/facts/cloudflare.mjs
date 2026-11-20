@@ -21,25 +21,32 @@
 // until apply) may resolve through the configuration's references, and only
 // when exactly one referenced address has the target type.
 
-import { readFileSync } from "node:fs";
+// The mappings and specs are imported, not read from disk next to this file,
+// so that a bundler carries them: `cloister inspect` ships as one file
+// (gen/bundle-plan.mjs), and there is no directory beside it to read from.
+import cloudflareMapping from "./mappings/cloudflare.json" with { type: "json" };
+import googleMapping from "./mappings/google.json" with { type: "json" };
+import kubernetesMapping from "./mappings/kubernetes.json" with { type: "json" };
+import cloudflareSpec from "./spec/cloudflare.schema.json" with { type: "json" };
+import googleSpec from "./spec/google.schema.json" with { type: "json" };
+import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { expandMapping } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows } from "./terraform.mjs";
 
-const readJson = (rel) => JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
-/** A mapping file, with every `like` resolved (see mapping.mjs). */
-const readMapping = (rel) => expandMapping(readJson(rel));
+/** A mapping, with every `like` resolved (see mapping.mjs). */
+const readMapping = (mapping) => expandMapping(structuredClone(mapping));
 
-export const CLOUDFLARE_MAPPING = Object.freeze(readMapping("./mappings/cloudflare.json"));
-export const CLOUDFLARE_SPEC = Object.freeze(readJson("./spec/cloudflare.schema.json"));
+export const CLOUDFLARE_MAPPING = Object.freeze(readMapping(cloudflareMapping));
+export const CLOUDFLARE_SPEC = Object.freeze(structuredClone(cloudflareSpec));
 validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
-export const GOOGLE_MAPPING = Object.freeze(readMapping("./mappings/google.json"));
-export const GOOGLE_SPEC = Object.freeze(readJson("./spec/google.schema.json"));
+export const GOOGLE_MAPPING = Object.freeze(readMapping(googleMapping));
+export const GOOGLE_SPEC = Object.freeze(structuredClone(googleSpec));
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
-export const KUBERNETES_MAPPING = Object.freeze(readMapping("./mappings/kubernetes.json"));
-export const KUBERNETES_SPEC = Object.freeze(readJson("./spec/kubernetes.schema.json"));
+export const KUBERNETES_MAPPING = Object.freeze(readMapping(kubernetesMapping));
+export const KUBERNETES_SPEC = Object.freeze(structuredClone(kubernetesSpec));
 validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC);
 
 /** Every mapping, with the source name its facts carry. */

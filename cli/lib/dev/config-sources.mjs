@@ -32,6 +32,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startedAsScript } from "../started-as-script.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../..");
@@ -244,6 +245,6 @@ export function main(_argv = [], deps = {}) {
 }
 
 // `task config:check` runs this file. Imported, it does nothing.
-if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+if (startedAsScript(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }

@@ -50,6 +50,11 @@ your tools render. It does not read templates, and it does not run your tools.
 
 ### A Terraform or OpenTofu plan
 
+> **Only want this?** The plan checker also builds as one file that needs
+> only Node 22, with nothing else from cloister installed. See
+> [Check a Terraform plan](docs/plan-checker.md): a sample to try, and a
+> guide to this one job.
+
 ```sh
 terraform show -json plan.out > plan.json
 cloister inspect --terraform plan.json

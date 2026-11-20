@@ -40,6 +40,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.2",
     "@cloudflare/workers-types": "^4.20260702.1",
+    "esbuild": "0.28.1",
     "fast-check": "^4.9.0",
     "jsdom": "25.0.1",
     "mermaid": "11.17.2",

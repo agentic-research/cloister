@@ -65,10 +65,11 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { tsImport } from "tsx/esm/api";
 
 import { parse as parseToml } from "smol-toml";
 import { writeLockfile } from "./lockfile.mjs";
+import { startedAsScript } from "../started-as-script.mjs";
+import { loadClusterSchema } from "./cluster-schema.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../../..");
@@ -1362,10 +1363,7 @@ export async function resolveClusterInputs({
   // the same manumation this replaces. Once the v0.11.3 bump lands
   // (cloister-9170d0, blocked on cloister-944766) the schema supplies its own
   // defaults and this becomes a plain `.parse()`.
-  const { InputSpecSchema } = await tsImport(
-    pathToFileURL(resolvePath(REPO_ROOT, "src/generated/cluster.zod.ts")).href,
-    { parentURL: import.meta.url },
-  );
+  const { InputSpecSchema } = await loadClusterSchema();
   const inputShape = InputSpecSchema?._def?.getter?.()?.shape
     ?? InputSpecSchema?.def?.getter?.()?.shape;
   if (!inputShape) {
@@ -1475,7 +1473,7 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
 }
 
 // Run when invoked as a script (not when imported by tests).
-const invokedAsScript = process.argv[1] && resolvePath(process.argv[1]) === resolvePath(fileURLToPath(import.meta.url));
+const invokedAsScript = startedAsScript(import.meta.url);
 if (invokedAsScript) {
   process.exitCode = await main();
 }

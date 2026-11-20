@@ -46,6 +46,7 @@ import {
   isAffirmative,
   requestOperatorConsent,
 } from "../lib/operator-consent.mjs";
+import { startedAsScript } from "../lib/started-as-script.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -296,8 +297,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   return 0;
 }
 
-const invokedAsScript =
-  process.argv[1] && resolvePath(process.argv[1]) === resolvePath(fileURLToPath(import.meta.url));
+const invokedAsScript = startedAsScript(import.meta.url);
 if (invokedAsScript) {
   main().then(
     (code) => process.exit(code),

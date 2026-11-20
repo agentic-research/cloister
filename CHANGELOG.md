@@ -8,6 +8,30 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the plan checker is one file
+
+- `task plan:bundle` builds `cloister inspect` as `dist/cloister-plan.mjs`:
+  one file that needs only Node 22. No checkout, no Rust, no Cap'n Proto, no
+  Task. [docs/plan-checker.md](docs/plan-checker.md) is a guide to that one
+  job, with a sample plan to try.
+- What made one file possible, each kept by a test:
+  - every "was I started as a script" check goes through
+    `cli/lib/started-as-script.mjs`. Thirteen modules compared
+    `process.argv[1]` with their own path, which is true for all of them once
+    bundled, so a bundle ran every module's `main`;
+  - mappings, specs and the published `cluster.toml` schema are JSON imports,
+    not files read from beside the module;
+  - the generated cluster schema loads through
+    `cli/lib/cluster/cluster-schema.mjs`, which a bundle imports directly
+    instead of through tsx.
+- `gen/test/bundle-plan.test.mjs` builds the file, runs it from an empty
+  directory, drafts a `cluster.toml` from the sample, checks the plan against
+  it, and flags a call the file does not declare.
+- esbuild is now a dev dependency, pinned to 0.28.1, the version tsx and
+  wrangler already use. The lockfile had two versions resolved; vite moves
+  from 0.28.2 to 0.28.1 with it.
+- Not published anywhere yet.
+
 ### 2026-11 — cloister can read what rosary sends
 
 - **Fixed:** `decodeToolResult` refused every result rosary returns. rosary
