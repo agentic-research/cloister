@@ -6,6 +6,7 @@ import {
   type ToolResult,
   type Content,
 } from "../../src/wire/tool-result.js";
+import { ROSARY_ACTIVE_OK, ROSARY_UNKNOWN_TOOL } from "./fixtures/rosary-tool-result.js";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const eq  = (a: Uint8Array, b: Uint8Array) =>
@@ -183,5 +184,42 @@ describe("ToolResult — decode robustness", () => {
     dv.setUint32(24, 1, true);              // kind=list, offset=0
     dv.setUint32(28, 2 | (0 << 3), true);   // elemSize=2, count=0
     expect(() => decodeToolResult(bytes)).toThrow(/expected composite/);
+  });
+});
+
+// ── Interop: a struct smaller than this schema (capnp canonical form) ──────
+//
+// A reader must treat a missing data section as zeros and a missing or null
+// pointer as its default. rosary writes canonical capnp, which drops an
+// all-zero data section, so these are what it really sends.
+
+
+describe("ToolResult — rosary's canonical encoding", () => {
+  it("decodes a success reply whose root and content carry no data words", () => {
+    const r = decodeToolResult(ROSARY_ACTIVE_OK);
+    expect(r.isError).toBe(false);
+    expect(r.content).toHaveLength(1);
+    expect(r.content[0].kind).toBe("text");
+    const body = JSON.parse((r.content[0] as { kind: "text"; text: string }).text);
+    expect(body).toMatchObject({ running: 0, completed: 0, agents: [] });
+  });
+
+  it("decodes an error reply whose content carries no data words", () => {
+    const r = decodeToolResult(ROSARY_UNKNOWN_TOOL);
+    expect(r.isError).toBe(true);
+    expect(r.content).toEqual([{ kind: "text", text: "Error: Unknown tool: rsry_no_such_tool" }]);
+  });
+
+  it("reads a root with no pointer section as empty content", () => {
+    // segment table (1 segment, 2 words) + root pointer (offset 0, 1d/0p) + data word (isError = 1)
+    const bytes = new Uint8Array([0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(decodeToolResult(bytes)).toEqual({ content: [], isError: true });
+  });
+
+  it("re-encodes what it decoded from rosary to the same result", () => {
+    for (const bytes of [ROSARY_ACTIVE_OK, ROSARY_UNKNOWN_TOOL]) {
+      const once = decodeToolResult(bytes);
+      expect(rt(once)).toEqual(once);
+    }
   });
 });
