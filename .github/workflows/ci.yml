@@ -632,10 +632,69 @@ jobs:
   # failure and leaves it out of a run that was cancelled, which is what a
   # newer push does to the run before it: that commit is superseded, and a
   # red check on it is noise. `always()` reported every such run as failed.
+  plan-check-action:
+    name: plan-check-action (run actions/plan-check on a plan that matches and one that does not)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the checker, and put the plan where git does not track it
+        # The checker refuses a plan git tracks, as a real plan must be.
+        run: |
+          node gen/bundle-plan.mjs
+          cp test/fixtures/terraform/kubernetes-plan.show.json "$RUNNER_TEMP/plan.json"
+
+      - name: A plan that matches cluster.toml passes
+        id: matches
+        uses: ./actions/plan-check
+        with:
+          checker: dist/cloister-plan.mjs
+          plan: ${{ runner.temp }}/plan.json
+          dir: test/e2e/plan-check/matches
+          env: prod
+
+      - name: A plan with a call cluster.toml does not declare fails
+        id: undeclared
+        continue-on-error: true
+        uses: ./actions/plan-check
+        with:
+          checker: dist/cloister-plan.mjs
+          plan: ${{ runner.temp }}/plan.json
+          dir: test/e2e/plan-check/undeclared
+          env: prod
+
+      - name: Each check ended as it must
+        env:
+          MATCHES: ${{ steps.matches.outputs.result }}
+          UNDECLARED: ${{ steps.undeclared.outputs.result }}
+          UNDECLARED_OUTCOME: ${{ steps.undeclared.outcome }}
+        run: |
+          set -euo pipefail
+          echo "matches=$MATCHES undeclared=$UNDECLARED ($UNDECLARED_OUTCOME)"
+          test "$MATCHES" = pass
+          test "$UNDECLARED" = fail
+          test "$UNDECLARED_OUTCOME" = failure
+
   ci-ok:
     name: ci-ok (every job passed)
     if: ${{ !cancelled() }}
-    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, smoke-e2e]
+    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, plan-check-action, smoke-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

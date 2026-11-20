@@ -90,3 +90,77 @@ test("the sample the guide points at is the one this test runs", () => {
   assert.ok(doc.planned_values?.root_module, "the sample carries planned values");
   assert.equal(execFileSync("git", ["-C", ROOT, "ls-files", "--error-unmatch", "test/fixtures/terraform/kubernetes-plan.show.json"], { encoding: "utf8" }).trim(), "test/fixtures/terraform/kubernetes-plan.show.json");
 });
+
+// ── Every fixture, bundled and unbundled ────────────────────────────────────
+//
+// The steps above are one walk through one sample. The bundle is the same
+// code as `cloister inspect`, rebuilt by esbuild with a define that changes
+// behaviour (startedAsScript), JSON imports inlined, and every module in one
+// scope. So every fixture the checker is tested on runs through both, and the
+// output must be identical, byte for byte. A difference is a bundling bug,
+// whatever the checker says.
+
+const FIXTURE_DIR = resolve(ROOT, "test/fixtures/terraform");
+const tracked = execFileSync("git", ["-C", ROOT, "ls-files", "--", "test/fixtures/terraform"], { encoding: "utf8" })
+  .split("\n")
+  .filter(Boolean);
+const documents = tracked.filter((f) => f.endsWith(".show.json"));
+const wranglers = tracked.filter((f) => /wrangler\.(toml|json)$/.test(f));
+
+/** Run the checker both ways on a copy of `file` in its own directory. */
+function both(file, args) {
+  const dir = mkdtempSync(join(work, "fixture-"));
+  const name = file.split("/").pop();
+  copyFileSync(resolve(ROOT, file), join(dir, name));
+  copyFileSync(join(work, "cloister-plan.mjs"), join(dir, "cloister-plan.mjs"));
+  const withName = args.map((a) => (a === "@" ? name : a));
+  const bundled = plan(withName, dir);
+  const source = spawnSync(process.execPath, [resolve(ROOT, "bin/cloister.mjs"), "inspect", ...withName], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: work },
+  });
+  return { bundled, source };
+}
+
+test("every fixture is read: the set is not empty", () => {
+  assert.ok(documents.length >= 5, `found ${documents.length} rendered documents`);
+  assert.ok(wranglers.length >= 1, "found a wrangler config");
+});
+
+for (const file of documents) {
+  test(`${file}: the bundle reports exactly what the CLI reports`, () => {
+    const { bundled, source } = both(file, ["--terraform", "@", "--json"]);
+    assert.equal(source.status, 0, source.stderr);
+    assert.equal(bundled.status, source.status, bundled.stderr);
+    assert.ok(JSON.parse(source.stdout).document.kind, "the CLI read a document");
+    assert.equal(bundled.stdout, source.stdout);
+    assert.equal(bundled.stderr, source.stderr);
+  });
+
+  test(`${file}: the bundle drafts exactly what the CLI drafts`, () => {
+    const { bundled, source } = both(file, ["--terraform", "@", "--draft", "--env", "prod"]);
+    // Two runs failing alike would also be equal, and would check nothing.
+    assert.equal(source.status, 0, source.stderr);
+    assert.match(source.stdout, /^\[metadata\]$/m);
+    assert.equal(bundled.status, source.status, `${bundled.stderr}\n${source.stderr}`);
+    assert.equal(bundled.stdout, source.stdout);
+    assert.equal(bundled.stderr, source.stderr);
+  });
+}
+
+for (const file of wranglers) {
+  test(`${file}: the bundle reads a wrangler config exactly as the CLI does`, () => {
+    const { bundled, source } = both(file, ["--wrangler", "@"]);
+    assert.equal(source.status, 0, source.stderr);
+    assert.equal(bundled.status, 0, bundled.stderr);
+    assert.equal(bundled.stdout, source.stdout);
+  });
+}
+
+test("--fail-on exits the same way from the bundle", () => {
+  // The `missing` directory from above declares no connection for probe.
+  const r = plan(["--terraform", "plan.json", "--env", "prod", "--dir", "missing", "--fail-on", "undeclared"]);
+  assert.equal(r.status, 3, r.stderr);
+  assert.match(r.stderr, /1 undeclared/);
+});

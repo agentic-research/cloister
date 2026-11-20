@@ -22,14 +22,24 @@ what.
 
 ## Get it
 
-Build it from a checkout:
+Download `cloister-plan.mjs` and `cloister-plan.mjs.sha256` from a
+[`plan-checker/v*` release](https://github.com/agentic-research/cloister/releases),
+and check one against the other:
+
+```sh
+sha256sum --check cloister-plan.mjs.sha256
+```
+
+That file is the whole checker. Run it with `node`, from anywhere.
+
+Or build it from a checkout:
 
 ```sh
 task plan:bundle        # writes dist/cloister-plan.mjs
 ```
 
-`dist/cloister-plan.mjs` is the whole checker. Copy it anywhere and run it
-with `node`.
+Either way, it is the same code as `cloister inspect`. A test runs every
+sample plan in this repository through both, and requires the same output.
 
 ## Try it on the sample
 
@@ -75,6 +85,34 @@ so instead of guessing.
 
 What it reads today: Google (Cloud Run and the like), Cloudflare and
 Kubernetes resources, and `wrangler.toml` with `--wrangler`.
+
+## In CI
+
+`--fail-on` turns findings into an exit code: 3 when a finding of a kind you
+name is reported, 0 when none is. 1 means the check could not run, and 2 that
+it was called wrongly. It needs a `cluster.toml`, because with nothing
+declared nothing could be undeclared.
+
+```sh
+node cloister-plan.mjs --terraform plan.json --env prod --dir . --fail-on undeclared,contradicted
+```
+
+In a GitHub workflow, the action does the download, the digest check and the
+job summary:
+
+```yaml
+- run: terraform show -json plan.out > "$RUNNER_TEMP/plan.json"
+- uses: agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0
+  with:
+    plan: ${{ runner.temp }}/plan.json
+    dir: infra          # where cluster.toml is
+    env: prod
+    # fail-on: undeclared,contradicted   (the default)
+```
+
+The result is the job's status and its summary. It comments on nothing. Pin a
+`plan-checker/v*` tag: the action downloads that tag's release, and refuses
+any other ref.
 
 ## Then what
 
