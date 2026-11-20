@@ -8,8 +8,9 @@
 #       dir: infra             # the directory holding cluster.toml
 #       env: prod
 #
-# The check is the job's status and its summary. It posts nothing to a pull
-# request. The checker is the one-file bundle (docs/plan-checker.md),
+# The check is the step's status and the job summary. It posts nothing to a
+# pull request. There is no `result` output: a composite action that fails
+# returns its outputs empty, so one would be missing exactly when it mattered. The checker is the one-file bundle (docs/plan-checker.md),
 # downloaded from the release this action is pinned to and verified against
 # the digest published beside it. Pin a plan-checker/v* tag: any other ref has
 # no release, and the action says so rather than guessing one.
@@ -43,11 +44,6 @@ inputs:
     description: Path to a cloister-plan.mjs to run instead of downloading one. For testing this action.
     required: false
     default: ""
-
-outputs:
-  result:
-    description: "`pass` or `fail`"
-    value: ${{ steps.check.outputs.result }}
 
 runs:
   using: composite
@@ -111,5 +107,4 @@ runs:
           cat "$report"
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
-        if [ "$code" = 0 ]; then echo "result=pass" >> "$GITHUB_OUTPUT"; else echo "result=fail" >> "$GITHUB_OUTPUT"; fi
         exit "$code"

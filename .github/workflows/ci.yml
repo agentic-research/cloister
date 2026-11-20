@@ -680,16 +680,19 @@ jobs:
           env: prod
 
       - name: Each check ended as it must
+        # `matches` failing would have stopped the job already; reaching here
+        # means it passed. `undeclared` is allowed to fail, and must have.
         env:
-          MATCHES: ${{ steps.matches.outputs.result }}
-          UNDECLARED: ${{ steps.undeclared.outputs.result }}
-          UNDECLARED_OUTCOME: ${{ steps.undeclared.outcome }}
+          MATCHES: ${{ steps.matches.outcome }}
+          UNDECLARED: ${{ steps.undeclared.outcome }}
         run: |
           set -euo pipefail
-          echo "matches=$MATCHES undeclared=$UNDECLARED ($UNDECLARED_OUTCOME)"
-          test "$MATCHES" = pass
-          test "$UNDECLARED" = fail
-          test "$UNDECLARED_OUTCOME" = failure
+          echo "matches=$MATCHES undeclared=$UNDECLARED"
+          test "$MATCHES" = success
+          test "$UNDECLARED" = failure
+          # And it failed for the reason it should, not because it could not run.
+          # Each step has its own summary file; the action keeps its stderr here.
+          grep -q '1 undeclared (--fail-on undeclared,contradicted)' "$RUNNER_TEMP/cloister-plan-report.txt.err"
 
   ci-ok:
     name: ci-ok (every job passed)
