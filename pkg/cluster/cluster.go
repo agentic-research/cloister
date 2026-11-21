@@ -323,6 +323,8 @@ type ExternalBundle struct {
 	ExecutionModeRationale string `json:"executionModeRationale"`
 	// 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'.
 	Runs string `json:"runs"`
+	// The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none.
+	Workspace string `json:"workspace"`
 }
 
 // What a bundle may touch. Every dimension denies by default.

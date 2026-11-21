@@ -452,6 +452,15 @@ struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the
   # A placement emitter picks the object from it: on Kubernetes a Deployment
   # and a Service, or a Job.
   runs @8 :Text $Traits.doc("'service' to run until stopped, or 'job' to run to completion. Empty means 'service'.");
+
+  # The operator's workspace, as a need the bundle declares once (ADR-0078).
+  # The bundle is given it at /work, which is where ley-line-open serves a
+  # workspace to a microVM guest, so its arguments name /work whatever runs
+  # it. "read" or "write"; empty means none. Every placement provides it or
+  # refuses by name: compose bind-mounts ${CLOISTER_WORKSPACE:-.} there, and
+  # a microvm plan carries it for the host runtime, which refuses it until it
+  # can serve a workspace (cloister-dc4a53). It is never dropped.
+  workspace @9 :Text $Traits.doc("The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none.");
 }
 
 # One environment variable, whose value comes from exactly one of three

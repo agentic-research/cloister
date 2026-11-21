@@ -54,19 +54,12 @@ kind = "external"
 name = "mache"
 tier = "cluster"
 
-[[bundles.confinement.fs.allow]]
-path = "/workspace"
-mode = "rw"
-
-[bundles.confinement.port]
-address = "127.0.0.1"
-bind = 7532
-
 [bundles.external]
-args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
+args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/work" ]
 entryPoint = "/usr/local/bin/mache"
 executionMode = "microvm"
 httpPort = 7532
+workspace = "write"
 
 [[bundles.placements]]
 env = "local"
@@ -76,6 +69,12 @@ kind = "microvm"
 env = "compose"
 kind = "compose"
 sharesNetworkOf = "cloister-router"
+
+[[bundles.ports]]
+appProtocol = "art.http"
+expose = "cluster"
+name = "mcp"
+port = 7532
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."

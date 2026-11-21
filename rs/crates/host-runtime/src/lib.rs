@@ -61,6 +61,45 @@ pub struct Confinement {
     pub unix_socket: ConfinementUnixSocket,
 }
 
+impl Confinement {
+    /// Refuse every grant the microVM tier cannot apply, naming each one.
+    ///
+    /// A microVM guest has no network card and no host path. Its only channels
+    /// are the §6 grants in `unix_socket`, which `cloister runtime plan`
+    /// derives from declared ports and connections. LLO folds nothing else
+    /// into a guest: §2 paths would widen what LLO grants itself, §4 needs
+    /// socket hijacking, which is off and not plan-reachable, and §3 egress
+    /// and §5 credentials have no mapping. Each of these, if it were accepted,
+    /// would be a grant the run silently did not have.
+    ///
+    /// `validate` applies this to every microvm plan, so `validate` and `run`
+    /// agree, and cluster.toml refuses the same grants on a microvm bundle
+    /// before a plan is emitted (`cli/lib/cluster/confinement.mjs`).
+    pub fn check_microvm_grants(&self) -> Result<(), RuntimeError> {
+        let mut uncarried = Vec::new();
+        if !self.fs.allow.is_empty() {
+            uncarried.push("fs.allow");
+        }
+        if !self.network.allow_hosts.is_empty() {
+            uncarried.push("network.allowHosts");
+        }
+        if self.port.bind != 0 || !self.port.address.is_empty() {
+            uncarried.push("port");
+        }
+        if !self.credential_source.is_empty() {
+            uncarried.push("credentialSource");
+        }
+        if uncarried.is_empty() {
+            return Ok(());
+        }
+        Err(RuntimeError::InvalidPlan(format!(
+            "a microvm plan carries only confinement/v1 §6 unixSocket grants, derived from declared ports and connections; this one also grants {}, which the microVM tier cannot apply, so it is refused rather than run without {}",
+            uncarried.join(", "),
+            if uncarried.len() == 1 { "it" } else { "them" },
+        )))
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfinementUnixSocket {
@@ -135,6 +174,11 @@ pub struct LaunchPlan {
     /// slices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment: Vec<EnvVar>,
+    /// The bundle's declared workspace (ADR-0078): "read" or "write", empty
+    /// for none. The bundle is given `workspace` at /work. Present only when
+    /// declared, so a plan for a bundle that declares none is unchanged.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub workspace_access: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -179,6 +223,27 @@ impl LaunchPlan {
             return Err(RuntimeError::InvalidPlan(
                 "controlSocket must be a canonical absolute host path".into(),
             ));
+        }
+        if self.mode == ExecutionMode::Microvm {
+            self.confinement.check_microvm_grants()?;
+        }
+        if !self.workspace_access.is_empty() {
+            if !["read", "write"].contains(&self.workspace_access.as_str()) {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "workspaceAccess must be read or write, or absent: {:?}",
+                    self.workspace_access
+                )));
+            }
+            // A declared need is provided or refused, never dropped
+            // (ADR-0078). Until this runtime can give a guest a workspace, a
+            // microvm plan that declares one is refused by name rather than
+            // started without it.
+            if self.mode == ExecutionMode::Microvm {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "bundle {:?} declares the workspace ({}), and this host runtime cannot give a microVM one yet: ley-line-open serves a workspace only to a run started with a RunSpec and RunGrant, which cloister does not issue yet (cloister-dc4a53). Refusing rather than starting it without",
+                    self.bundle, self.workspace_access
+                )));
+            }
         }
         for entry in &self.confinement.fs.allow {
             if !is_canonical_absolute_path(Path::new(&entry.path)) {

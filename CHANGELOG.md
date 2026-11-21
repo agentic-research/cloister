@@ -8,6 +8,42 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a bundle declares its needs once, and every placement provides them
+
+- mache was counted as cloister's one isolated bundle, and it could not run as
+  one. It said `executionMode = "microvm"` with its listener and its
+  `/workspace` path declared as `confinement` grants. The microVM tier applies
+  neither, so the host runtime refused its plan at launch, and no gate said so
+  earlier: no CI job launches a microVM.
+- `cluster.toml` now refuses a bundle placed `microvm` that declares a
+  confinement grant (`fs.allow`, `network.allowHosts`, `port`,
+  `credentialSource`), naming each and what to declare instead. Which grants a
+  facet declares is defined once (`cli/lib/cluster/confinement.mjs`), read by
+  the round trip too, and held by a test to the generated schema.
+- `cloister-host-runtime validate` now refuses the plans `run` refuses. It
+  used to answer "valid" for a microvm plan with a raw listener. One check
+  (`Confinement::check_microvm_grants`) serves both, and the launch path.
+- ADR-0078: a bundle declares what it needs once, not one tier's grants, and
+  every placement gives it each need or refuses by name. Nothing starts a
+  bundle without a need it declared, and no need is deleted to fit a tier.
+- The workspace is the first such need: `workspace = "read" | "write"` under
+  `[bundles.external]`, given at `/work`. Compose bind-mounts
+  `${CLOISTER_WORKSPACE:-.}` there; the dev launcher maps `/work` to the
+  workspace on the host. A microvm plan carries it as `workspaceAccess`, and
+  the host runtime refuses that plan by name until it can give a guest a
+  workspace (`cloister-dc4a53`), rather than dropping it as it did.
+- mache stays a `microvm` bundle. Its listener is a `[[bundles.ports]]` entry,
+  lowered to a `bind` grant on guest port 7532, and it declares its workspace.
+  Its compose service now mounts the workspace, which it never had: its
+  `--path /workspace` pointed at an empty path in the container.
+- The external facet is no longer rebuilt from a hand list of fields
+  (`cloister-8ae1f2`): the fields the operator wrote pass through, the schema
+  gives the rest their defaults, and a wrong type is refused instead of
+  becoming a default. The round trip drops any field left at its default by
+  one rule, not a list.
+- Filed ley-line-open#600: a service run in a microVM has nowhere to keep state
+  across runs, which the identity authority and the gateway both need.
+
 ### 2026-11 — the docs are held to the CLI
 
 - `lint:doc-invocations` (in `task lint`) reads every shell fence in the

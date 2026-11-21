@@ -44,6 +44,7 @@ import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExpo
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { STRENGTHS, envSource } from "./connections.mjs";
 import { bindPath, bundleServices, dialPath, socketMountsFor, socketPlan, tenantInstances } from "./socket-dirs.mjs";
+import { composeWorkspaceMount, workspaceAccess } from "./workspace.mjs";
 import { startedAsScript } from "../started-as-script.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -463,9 +464,13 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
       mounts.push(`${doVol}:${doPath}`);
     }
   }
-  if (mounts.length > 0) {
+  // A declared workspace is given here, at the path every placement uses
+  // (ADR-0078).
+  const workspace = workspaceAccess(b);
+  if (mounts.length > 0 || workspace !== "") {
     lines.push(`    volumes:`);
     for (const m of mounts) lines.push(`      - ${m}`);
+    if (workspace !== "") lines.push(...composeWorkspaceMount(workspace));
   }
 
   const envVars = [];

@@ -40,6 +40,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startedAsScript } from "../started-as-script.mjs";
 import { loadClusterSchema } from "./cluster-schema.mjs";
+import { assertMicrovmConfinement } from "./confinement.mjs";
+import { assertWorkspaces } from "./workspace.mjs";
 import { assertEnvBindings, assertPortsAndConnections, checkableBundle,
   assertNamespaces,
 } from "./connections.mjs";
@@ -202,6 +204,17 @@ export async function parseTomlToCluster(tomlString) {
   //        value from exactly one place, and a connection binding names a
   //        connection the bundle declares.
   assertEnvBindings(validated.bundles, validated.connections ?? []);
+  //    4c-1c. A bundle placed "microvm" declares no confinement grant the
+  //        microVM tier cannot apply (a path, egress, a raw listener, a
+  //        credential source). Such a grant used to pass here, reach the
+  //        launch plan, and be refused by the host runtime at launch, so the
+  //        bundle counted as isolated and could not run. The shipped mache
+  //        bundle did exactly that.
+  assertMicrovmConfinement(validated.bundles);
+  //    4c-1d. A declared workspace is one every placement of the bundle gives
+  //        it, or the file is refused (ADR-0078): no placement starts a
+  //        bundle without a need it declared.
+  assertWorkspaces(validated.bundles);
 
   //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
   //        tables are the blind spot: smol-toml rejects a duplicate KEY inside
@@ -934,38 +947,15 @@ function normalizeBundleDefaults(bundle) {
         }
       });
     }
-    result = {
-      ...result,
-      kind: {
-        ...result.kind,
-        external: {
-          image:     typeof external.image     === "string" ? external.image     : "",
-          ipcSocket: typeof external.ipcSocket === "string" ? external.ipcSocket : "",
-          httpPort:  typeof external.httpPort  === "number" ? external.httpPort  : 0,
-          args:      Array.isArray(external.args) ? external.args : [],
-          env:       external.env ?? [],
-          entryPoint: typeof external.entryPoint === "string" ? external.entryPoint : "",
-          executionMode: typeof external.executionMode === "string"
-            ? external.executionMode
-            : "",
-          // ADR-0062. Added here as well as the schema because this object is
-          // hand-enumerated, and a field missing from it is DECLARABLE AND
-          // INVISIBLE: the operator writes it in cluster.toml, the forward leg
-          // drops it, the reverse leg writes back "", and the edit is silently
-          // erased from the operator's own file.
-          //
-          // This is the exact failure CLAUDE.md records for ADR-0051's
-          // `connection`, reproduced by adding one field — which is the
-          // argument for deriving this shape from ClusterSchema rather than
-          // listing it (cloister-8ae1f2). Kept as a list for now only because
-          // changing the derivation is a bigger change than this one.
-          executionModeRationale: typeof external.executionModeRationale === "string"
-            ? external.executionModeRationale
-            : "",
-          runs: typeof external.runs === "string" ? external.runs : "",
-        },
-      },
-    };
+    // Every key the operator wrote is a declared one (checked above), and it
+    // passes through as written: ClusterSchema (step 3) gives each omitted
+    // field its capnp default and refuses a value of the wrong type. This
+    // object used to be rebuilt from a hand list of fields, which made a new
+    // capnp field DECLARABLE AND INVISIBLE until someone added it here: the
+    // forward leg dropped it, the reverse leg wrote back "", and the edit was
+    // erased from the operator's own file (cloister-8ae1f2). It also turned a
+    // wrong type into a default without a word: `httpPort = "80"` became 0.
+    result = { ...result, kind: { ...result.kind, external: { ...external } } };
   }
 
   return result;

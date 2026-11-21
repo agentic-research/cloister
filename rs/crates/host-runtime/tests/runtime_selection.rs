@@ -33,6 +33,7 @@ fn plan(mode: ExecutionMode) -> LaunchPlan {
         workspace: "/workspace".into(),
         control_socket: "/run/cloister/host.sock".into(),
         environment: Vec::new(),
+        workspace_access: String::new(),
     }
 }
 

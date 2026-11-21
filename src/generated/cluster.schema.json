@@ -184,9 +184,10 @@
         "entryPoint": { "type": "string", "description": "Absolute path of the binary inside the image. Required for a microvm bundle." },
         "executionMode": { "type": "string", "description": "'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale." },
         "executionModeRationale": { "type": "string", "description": "Why this bundle cannot be isolated. Required when executionMode is 'process'." },
-        "runs": { "type": "string", "description": "'service' to run until stopped, or 'job' to run to completion. Empty means 'service'." }
+        "runs": { "type": "string", "description": "'service' to run until stopped, or 'job' to run to completion. Empty means 'service'." },
+        "workspace": { "type": "string", "description": "The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none." }
       },
-      "required": ["image", "ipcSocket", "httpPort", "args", "env", "entryPoint", "executionMode", "executionModeRationale", "runs"],
+      "required": ["image", "ipcSocket", "httpPort", "args", "env", "entryPoint", "executionMode", "executionModeRationale", "runs", "workspace"],
       "additionalProperties": false
     },
     "Confinement": {

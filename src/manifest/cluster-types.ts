@@ -488,6 +488,14 @@ export interface ExternalBundle {
    * "service". A placement emitter picks the object from it. ADR-0074 §7.
    */
   runs: string;
+  /**
+   * The operator's workspace, as a need the bundle declares once: "read" or
+   * "write", empty for none. Given at /work in every placement, which is
+   * where ley-line-open serves a workspace to a microVM guest. Compose
+   * bind-mounts it; a microvm plan carries it, and the host runtime refuses
+   * it until it can serve one (cloister-dc4a53). ADR-0078.
+   */
+  workspace: string;
 }
 
 /**

@@ -414,29 +414,18 @@ pub fn run_id(plan: &LaunchPlan) -> String {
 ///   two implementations in step. Its digest is carried too, so the worker's
 ///   attestation is checked against what cloister asked for.
 ///
-/// Every other grant is still refused by name. §2 `fs.allow` cannot be carried
-/// (LLO never folds it — that would widen what LLO grants itself), §4 needs
-/// socket hijacking, which is off and not plan-reachable, and §5 / egress have
-/// no mapping. Refusing keeps a plan from running with grants silently dropped.
+/// Every other grant is still refused by name, by
+/// `Confinement::check_microvm_grants`, which says why each one cannot be
+/// carried. `HostRuntime::launch` has already applied it through `validate`;
+/// it is applied again here so a caller that drives this backend directly
+/// gets the same refusal from the same rule, not a run with grants silently
+/// dropped.
 fn to_execution_request(
     plan: &LaunchPlan,
     enforced: &EnforcedCeilings,
     deployment: &Deployment,
 ) -> Result<ExecutionRequest, RuntimeError> {
-    if !plan.confinement.network.allow_hosts.is_empty() {
-        return Err(RuntimeError::InvalidPlan(
-            "LLO execution/v1 does not yet support egress grants; refusing to discard confinement.network.allowHosts".into(),
-        ));
-    }
-    if !plan.confinement.fs.allow.is_empty()
-        || !plan.confinement.credential_source.is_empty()
-        || plan.confinement.port.bind != 0
-        || !plan.confinement.port.address.is_empty()
-    {
-        return Err(RuntimeError::InvalidPlan(
-            "LLO execution/v1 authority mapping for filesystem, credentials, and ports is not implemented; refusing to discard launch-plan grants".into(),
-        ));
-    }
+    plan.confinement.check_microvm_grants()?;
     let (confinement_digest, carried) = carried_confinement(plan, deployment)?;
     if plan.artifact.args.iter().any(|arg| arg.contains('\0')) {
         return Err(RuntimeError::InvalidPlan(
