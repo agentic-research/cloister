@@ -13,25 +13,11 @@
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
+import type { StoredCredential, VaultStorage } from "../vault";
 
 // ── In-memory storage for tests ────────────────────────────────────────────
 
-/** Minimal storage interface matching DO SQLite patterns. */
-interface VaultStorage {
-  get(service: string): Promise<StoredCredential | null>;
-  put(service: string, cred: StoredCredential): Promise<void>;
-  delete(service: string): Promise<boolean>;
-  list(): Promise<string[]>;
-}
-
-interface StoredCredential {
-  /** The upstream URL to proxy to. */
-  upstream: string;
-  /** Headers to inject (e.g. { "apiKey": "sk-..." }). */
-  headers: Record<string, string>;
-  /** Glob patterns for allowed subs (e.g. ["repo:org/venturi:*"]). */
-  allowedSubs: string[];
-}
+// The real types, so the test cannot drift from what the vault stores.
 
 function createMemoryStorage(): VaultStorage {
   const store = new Map<string, StoredCredential>();
@@ -58,14 +44,14 @@ describe("storeCredential", () => {
 
     await storeCredential(storage, "nvd", {
       upstream: "https://services.nvd.nist.gov/rest/json/cves/2.0",
-      headers: { apiKey: "test-nvd-key" },
+      credential: "test-nvd-key",
       allowedSubs: ["repo:org/venturi:*"],
     });
 
     const cred = await getCredential(storage, "nvd");
     expect(cred).not.toBeNull();
     expect(cred!.upstream).toBe("https://services.nvd.nist.gov/rest/json/cves/2.0");
-    expect(cred!.headers.apiKey).toBe("test-nvd-key");
+    expect(cred!.credential).toBe("test-nvd-key");
     expect(cred!.allowedSubs).toEqual(["repo:org/venturi:*"]);
   });
 
@@ -75,18 +61,18 @@ describe("storeCredential", () => {
 
     await storeCredential(storage, "nvd", {
       upstream: "https://old.api",
-      headers: { apiKey: "old-key" },
+      credential: "old-key",
       allowedSubs: ["*"],
     });
 
     await storeCredential(storage, "nvd", {
       upstream: "https://new.api",
-      headers: { apiKey: "new-key" },
+      credential: "new-key",
       allowedSubs: ["repo:org/venturi:*"],
     });
 
     const cred = await getCredential(storage, "nvd");
-    expect(cred!.headers.apiKey).toBe("new-key");
+    expect(cred!.credential).toBe("new-key");
     expect(cred!.upstream).toBe("https://new.api");
   });
 });
@@ -98,7 +84,7 @@ describe("deleteCredential", () => {
 
     await storeCredential(storage, "nvd", {
       upstream: "https://api.example.com",
-      headers: { apiKey: "key" },
+      credential: "key",
       allowedSubs: ["*"],
     });
 
@@ -123,12 +109,12 @@ describe("listServices", () => {
 
     await storeCredential(storage, "nvd", {
       upstream: "https://nvd.api",
-      headers: { apiKey: "k1" },
+      credential: "k1",
       allowedSubs: ["*"],
     });
     await storeCredential(storage, "github", {
       upstream: "https://api.github.com",
-      headers: { Authorization: "token gh_..." },
+      credential: "gh_...",
       allowedSubs: ["repo:org/*"],
     });
 
@@ -183,85 +169,92 @@ describe("checkAccess", () => {
   });
 });
 
-describe("buildProxyRequest", () => {
-  it("injects credential headers into upstream request", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    const cred: StoredCredential = {
-      upstream: "https://services.nvd.nist.gov/rest/json/cves/2.0",
-      headers: { apiKey: "test-key-123" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/nvd?cveId=CVE-2026-1234");
-    const proxied = buildProxyRequest(incoming, cred);
-
-    expect(proxied.url).toBe("https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-1234");
-    expect(proxied.headers.get("apiKey")).toBe("test-key-123");
+describe("injectCredential (the one injection, ADR-0082 §1)", () => {
+  // LLO's vectors pin every strategy byte for byte, through the vault's
+  // Durable Object (test/routes/credential-isolation-conformance.test.ts).
+  // These pin what the vectors leave out.
+  const caller = (headers: Record<string, string>, upstreamPath = "/data", search = "") => ({
+    method: "GET",
+    upstreamPath,
+    search,
+    headers: Object.entries(headers),
   });
 
-  it("preserves query params from original request", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    const cred: StoredCredential = {
-      upstream: "https://api.github.com/repos",
-      headers: { Authorization: "token gh_abc123" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/github?per_page=10&page=2");
-    const proxied = buildProxyRequest(incoming, cred);
-
-    const url = new URL(proxied.url);
-    expect(url.origin + url.pathname).toBe("https://api.github.com/repos");
-    expect(url.searchParams.get("per_page")).toBe("10");
-    expect(url.searchParams.get("page")).toBe("2");
-    expect(proxied.headers.get("Authorization")).toBe("token gh_abc123");
-  });
-
-  it("forwards request body for POST requests", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    const cred: StoredCredential = {
-      upstream: "https://api.example.com/data",
-      headers: { "X-Api-Key": "secret" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/example", {
-      method: "POST",
-      body: JSON.stringify({ query: "test" }),
-      headers: { "Content-Type": "application/json" },
+  it("sends the call to the declared base, the parsed path and the caller's query, byte for byte", async () => {
+    const { injectCredential } = await import("../inject");
+    const out = injectCredential({
+      injection: { kind: "headerNamed", name: "apiKey" },
+      credential: "test-key-123",
+      username: "nvd",
+      upstreamBase: "https://services.nvd.nist.gov/rest/json/",
+      request: caller({}, "/cves/2.0", "?cveId=CVE-2026-1234&q=a%20b+c"),
     });
-    const proxied = buildProxyRequest(incoming, cred);
-
-    expect(proxied.method).toBe("POST");
-    expect(proxied.headers.get("X-Api-Key")).toBe("secret");
-    expect(proxied.headers.get("Content-Type")).toBe("application/json");
+    expect(out.url).toBe("https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2026-1234&q=a%20b+c");
+    expect(out.headers).toEqual([["apikey", "test-key-123"]]);
   });
 
-  it("does not leak vault host headers to upstream", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    const cred: StoredCredential = {
-      upstream: "https://api.example.com/data",
-      headers: { "X-Api-Key": "secret" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/example", {
-      headers: {
+  it("keeps the caller's other headers and does not leak its identity or the vault's host", async () => {
+    const { injectCredential } = await import("../inject");
+    const out = injectCredential({
+      injection: { kind: "headerNamed", name: "X-Api-Key" },
+      credential: "secret",
+      username: "svc",
+      upstreamBase: "https://api.example.com",
+      request: caller({
         Host: "vault.example.com",
-        Authorization: "Bearer user-token",
+        Authorization: "Signet MIIB",
         "X-Client-Cert": "PEM-data",
-      },
+        "X-Signet-Sig": "sig",
+        "X-Signet-Ts": "1700000000000",
+        "X-Signet-Nonce": "nonce",
+        "X-Interlace-Peer": "fp",
+        "Content-Type": "application/json",
+      }),
     });
-    const proxied = buildProxyRequest(incoming, cred);
+    expect(out.headers).toEqual([["content-type", "application/json"], ["x-api-key", "secret"]]);
+  });
 
-    // Caller's auth headers should NOT be forwarded to upstream
-    expect(proxied.headers.get("Authorization")).toBeNull();
-    expect(proxied.headers.get("X-Client-Cert")).toBeNull();
-    // But credential headers should be injected
-    expect(proxied.headers.get("X-Api-Key")).toBe("secret");
+  it("refuses a credential that would end a header, instead of sending it", async () => {
+    const { injectCredential, InjectionRefused } = await import("../inject");
+    for (const injection of [{ kind: "authorizationBearer" as const }, { kind: "headerNamed" as const, name: "x-api-key" }]) {
+      expect(() => injectCredential({
+        injection,
+        credential: "legit-key\r\nX-Injected: evil-value",
+        username: "svc",
+        upstreamBase: "https://api.example.com",
+        request: caller({}),
+      })).toThrow(InjectionRefused);
+    }
+  });
+
+  it("encodes a Basic username and secret as UTF-8", async () => {
+    const { injectCredential } = await import("../inject");
+    const out = injectCredential({
+      injection: { kind: "authorizationBasic" },
+      credential: "pässwörd",
+      username: "üser",
+      upstreamBase: "https://api.example.com",
+      request: caller({}),
+    });
+    const encoded = out.headers.find(([name]) => name === "authorization")![1].slice("Basic ".length);
+    expect(new TextDecoder().decode(Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0)))).toBe("üser:pässwörd");
+  });
+
+  it("refuses a bodyField call it cannot carry the credential in", async () => {
+    const { injectCredential, InjectionRefused } = await import("../inject");
+    const body = (method: string) => injectCredential({
+      injection: { kind: "bodyField", path: "auth.client_secret" },
+      credential: "s",
+      username: "svc",
+      upstreamBase: "https://api.example.com",
+      request: { ...caller({ "Content-Type": "application/json" }), method },
+    });
+    expect(() => body("GET")).toThrow(InjectionRefused);
+    const rewrite = body("POST").rewriteBody!;
+    expect(rewrite('{"auth":{"client_id":"a"},"z":1}')).toBe('{"auth":{"client_id":"a","client_secret":"s"},"z":1}');
+    expect(rewrite("")).toBe('{"auth":{"client_secret":"s"}}');
+    for (const notAnObject of ["[1]", "\"text\"", "not json", '{"id":12345678901234567890}']) {
+      expect(() => rewrite(notAnObject)).toThrow(InjectionRefused);
+    }
   });
 });

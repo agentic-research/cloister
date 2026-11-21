@@ -8,6 +8,40 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — one credential injection, applied by the vault as declared (ADR-0082)
+
+- Production now does what a service declares. Before, the vault's Durable
+  Object:
+  - injected whatever headers were stored with the credential, and never read
+    the service's declared `injection`;
+  - sent every call to the stored upstream URL, dropping the path the caller
+    asked for.
+
+  The five credential-isolation/v1 strategies lived only on a path tests used.
+- `vault/src/inject.ts` is the only injection. It computes the upstream
+  request from the declared strategy and base, the stored secret, and the
+  caller's method, parsed path, query and headers. It uses no platform types,
+  so the egress boundary ADR-0082 names as its north star can later share it.
+  The vault, the in-memory path and nothing else call it. The vault library's
+  request builder, its unused handler and the harness's `credentialHeaders`
+  are deleted.
+- A credential is stored as the secret and the upstream it is for, not as
+  ready-made headers. The vault refuses, with the usual constant-shape 404,
+  a call whose declared base is not the one the credential was stored for.
+  The credentials table is recreated on first use, since nothing in
+  production writes credentials yet. The dev seed carries the API key.
+- The caller's lease headers no longer reach the upstream. Production
+  forwarded `X-Signet-Sig`, `X-Signet-Ts` and `X-Signet-Nonce`. A secret
+  holding a CR, LF or NUL is refused when stored and when injected.
+- LLO's eight injection vectors run through the Durable Object
+  (`test/routes/credential-isolation-conformance.test.ts`, cloister-7c9312).
+  The test worker's outbound network echoes requests to the vectors' hosts,
+  so each test compares the request that actually reached the upstream.
+  Where LLO's vectors and spec text disagree, cloister follows the vectors:
+  a `queryParam` collision appends, and a `bodyField` body has sorted keys.
+- No test reaches the real network: the test worker answers any other host
+  502.
+
 ### 2026-11 — core no longer reads the gateway's manifest types or the microVM driver's lock rows (ADR-0081)
 
 - The actor-fingerprint resolver takes the declared fingerprint, which the

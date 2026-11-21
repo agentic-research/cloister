@@ -149,38 +149,3 @@ export function serviceFor(target, services) {
   }
   return svc;
 }
-
-/**
- * Credential headers for a custody-mode vault seed, derived from the SERVICE's
- * declared injection strategy.
- *
- * In cluster.toml the strategy is a string tag with its parameters in a sibling
- * table (`injection = "headerNamed"` + `[gateway.vaultProxyServices.headerNamed]
- * name = "x-api-key"`). In the generated manifest the same thing is a tagged
- * union object. Both shapes are accepted so this works against either surface.
- *
- * @param {any} service
- * @param {string} apiKey
- * @returns {Record<string, string>}
- */
-export function credentialHeaders(service, apiKey) {
-  const tag = typeof service.injection === "string"
-    ? service.injection
-    : Object.keys(service.injection ?? {})[0];
-
-  if (tag === "authorizationBearer") return { Authorization: `Bearer ${apiKey}` };
-  if (tag === "headerNamed") {
-    const header = service.headerNamed?.name ?? service.injection?.headerNamed?.name;
-    if (!header) {
-      throw new UsageError(
-        `service ${JSON.stringify(service.name)} declares injection "headerNamed" ` +
-          `but no header name`,
-      );
-    }
-    return { [header]: apiKey };
-  }
-  throw new UsageError(
-    `service ${JSON.stringify(service.name)} declares injection ${JSON.stringify(tag)}, ` +
-      `which the harness path does not support (expected headerNamed or authorizationBearer)`,
-  );
-}

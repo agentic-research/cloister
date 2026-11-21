@@ -27,6 +27,14 @@
 
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { DeclaredService } from "../../vault/src/inject";
+
+/** The declaration a call carries (ADR-0082 §2). These tests pin denials that come before it is read. */
+const ANY_DECLARED: DeclaredService = {
+  injection: { kind: "authorizationBearer" },
+  upstreamBaseUrl: "https://api.example/",
+  upstreamPath: "",
+};
 
 // Two subject fingerprints — what `VerifiedLease.peerFp` looks like
 // for two different bundles. Used to drive the SQL-layer invariant.
@@ -46,7 +54,8 @@ const BUNDLE_B_ID_NAME = "bundle-b-vault";
 interface VaultStub extends DurableObjectStub {
   putCredential(subjectFp: string, service: string, cred: {
     upstream: string;
-    headers: Record<string, string>;
+    credential: string;
+    username?: string;
     allowedSubs: string[];
   }): Promise<void>;
   getCredentialMetadata(subjectFp: string, service: string): Promise<{
@@ -60,6 +69,7 @@ interface VaultStub extends DurableObjectStub {
     service: string,
     callerSub: string,
     req: Request,
+    declared: DeclaredService,
   ): Promise<Response>;
 }
 
@@ -93,7 +103,7 @@ describe("vault binding layer — distinct DO IDs per bundle", () => {
     // Bundle A writes under its OWN subject fingerprint.
     await stubA.putCredential(SUBJECT_FP_BUNDLE_A, "binding-layer-svc", {
       upstream: "https://a.example/",
-      headers: { "x-key": "A-ONLY-CREDENTIAL" },
+      credential: "A-ONLY-CREDENTIAL",
       allowedSubs: ["bundle:a:*"],
     });
 
@@ -113,7 +123,7 @@ describe("vault binding layer — distinct DO IDs per bundle", () => {
 
     await stubA.putCredential(SUBJECT_FP_BUNDLE_A, "binding-list-only-on-a", {
       upstream: "https://a.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
 
@@ -130,7 +140,7 @@ describe("vault binding layer — distinct DO IDs per bundle", () => {
 
     await stubA.putCredential(SUBJECT_FP_BUNDLE_A, "binding-proxy-target", {
       upstream: "https://a.example/",
-      headers: { "Authorization": "Bearer A-BINDING-PRIVATE-PAT" },
+      credential: "A-BINDING-PRIVATE-PAT",
       allowedSubs: ["bundle:a:*"],
     });
 
@@ -143,6 +153,7 @@ describe("vault binding layer — distinct DO IDs per bundle", () => {
       "binding-proxy-target",
       "bundle:a:legitimate",          // satisfies A's allowedSubs grammar
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);
@@ -174,12 +185,12 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
 
     await stub.putCredential(SUBJECT_FP_BUNDLE_A, "shared-svc", {
       upstream: "https://a.example/",
-      headers: { "x-key": "A-SECRET-VALUE" },
+      credential: "A-SECRET-VALUE",
       allowedSubs: ["bundle:a:*"],
     });
     await stub.putCredential(SUBJECT_FP_BUNDLE_B, "shared-svc", {
       upstream: "https://b.example/",
-      headers: { "x-key": "B-SECRET-VALUE" },
+      credential: "B-SECRET-VALUE",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -198,7 +209,7 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
     // Bundle B sets a row first.
     await stub.putCredential(SUBJECT_FP_BUNDLE_B, "clobber-svc", {
       upstream: "https://b-original.example/",
-      headers: { "x-key": "B-ORIGINAL" },
+      credential: "B-ORIGINAL",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -206,7 +217,7 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
     // (A, "clobber-svc") which is a different row from (B, "clobber-svc").
     await stub.putCredential(SUBJECT_FP_BUNDLE_A, "clobber-svc", {
       upstream: "https://a-attacker.example/",
-      headers: { "x-key": "A-OVERRIDE" },
+      credential: "A-OVERRIDE",
       allowedSubs: ["bundle:a:*"],
     });
 
@@ -221,7 +232,7 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
 
     await stub.putCredential(SUBJECT_FP_BUNDLE_B, "proxy-shared-svc", {
       upstream: "https://b.example/",
-      headers: { "Authorization": "Bearer B-SQL-LAYER-PRIVATE-PAT" },
+      credential: "B-SQL-LAYER-PRIVATE-PAT",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -234,6 +245,7 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
       "proxy-shared-svc",
       "bundle:b:legitimate",
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);
@@ -248,12 +260,12 @@ describe("vault SQL row layer — subject_fp filter inside a shared DO", () => {
 
     await stub.putCredential(SUBJECT_FP_BUNDLE_A, "list-a-only", {
       upstream: "https://a.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
     await stub.putCredential(SUBJECT_FP_BUNDLE_B, "list-b-only", {
       upstream: "https://b.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
 
@@ -291,7 +303,7 @@ describe("vault composite — subject_fp forge + manifest mistake", () => {
 
     await stub.putCredential(SUBJECT_FP_BUNDLE_B, "composite-target", {
       upstream: "https://b.example/",
-      headers: { "Authorization": "Bearer COMPOSITE-MUST-NEVER-LEAK" },
+      credential: "COMPOSITE-MUST-NEVER-LEAK",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -306,6 +318,7 @@ describe("vault composite — subject_fp forge + manifest mistake", () => {
       "composite-target",
       "bundle:a:malicious-payload",    // fails B's allowedSubs
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);

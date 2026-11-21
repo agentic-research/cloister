@@ -14,13 +14,13 @@
 //
 // Pure Web Crypto — no npm dependencies.
 
-/** Sealed envelope: stored in DO SQLite instead of plaintext headers. */
+/** Sealed envelope: stored in DO SQLite instead of the plaintext record. */
 export interface SealedCredential {
   /** AES-256-GCM DEK wrapped by the KEK (base64url). */
   wrappedDek: string;
   /** 96-bit IV for the AES-GCM encryption (base64url). */
   iv: string;
-  /** AES-GCM ciphertext of JSON-serialized headers (base64url). */
+  /** AES-GCM ciphertext of the JSON-serialized record (base64url). The vault seals `{ credential, username? }` (ADR-0082). */
   ciphertext: string;
 }
 
@@ -54,15 +54,16 @@ export async function deriveKEK(secret: string): Promise<CryptoKey> {
 // ── Encrypt ─────────────────────────────────────────────────────────────────
 
 /**
- * Encrypt credential headers using envelope encryption.
+ * Seal a record of strings using envelope encryption. The vault seals a
+ * credential's secret and optional username (ADR-0082 §3).
  *
  * 1. Generate a random AES-256-GCM DEK
- * 2. Encrypt the JSON-serialized headers with the DEK
+ * 2. Encrypt the JSON-serialized record with the DEK
  * 3. Wrap the DEK with the KEK (AES-GCM key wrapping)
  * 4. Return { wrappedDek, iv, ciphertext } — all base64url
  */
 export async function encrypt(
-  headers: Record<string, string>,
+  record: Record<string, string>,
   kek: CryptoKey,
 ): Promise<SealedCredential> {
   // Generate random DEK. The cast is needed because subtle.generateKey's
@@ -77,7 +78,7 @@ export async function encrypt(
 
   // Encrypt plaintext with DEK
   const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
-  const plaintext = new TextEncoder().encode(JSON.stringify(headers));
+  const plaintext = new TextEncoder().encode(JSON.stringify(record));
   const ciphertextBuf = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     dek,
@@ -112,7 +113,7 @@ export async function encrypt(
  *
  * 1. Unwrap the DEK using the KEK
  * 2. Decrypt the ciphertext using the DEK + IV
- * 3. Parse the JSON headers
+ * 3. Parse the JSON record
  */
 export async function decrypt(
   sealed: SealedCredential,

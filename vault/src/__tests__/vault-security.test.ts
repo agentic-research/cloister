@@ -18,28 +18,40 @@ async function getVault() {
 // ── Header stripping: no caller auth leaks to upstream ─────────────────────
 
 describe("header stripping", () => {
-  const cred = {
-    upstream: "https://api.example.com/data",
-    headers: { "X-Api-Key": "secret-123" },
-    allowedSubs: ["*"],
+  // What a caller sent that never reaches the upstream, through the one
+  // injection (vault/src/inject.ts, ADR-0082 §1).
+  const inject = async (headers: Record<string, string>) => {
+    const { injectCredential } = await import("../inject");
+    return injectCredential({
+      injection: { kind: "headerNamed", name: "X-Api-Key" },
+      credential: "secret-123",
+      username: "svc",
+      upstreamBase: "https://api.example.com/data",
+      request: { method: "GET", upstreamPath: "", search: "", headers: Object.entries(headers) },
+    });
   };
+  const sent = (headers: Array<[string, string]>, name: string) =>
+    headers.find(([n]) => n === name.toLowerCase())?.[1] ?? null;
 
   const sensitiveHeaders = [
     ["Authorization", "Bearer user-token"],
+    ["Authorization", "Signet MIIBNDCB56ADAgECAgkA"],
     ["X-Client-Cert", "-----BEGIN CERTIFICATE-----"],
     ["DPoP", "eyJhbGciOiJFUzI1NiJ9.proof"],
     ["Cookie", "notme_session=abc123"],
     ["cookie", "notme_session=abc123"],  // lowercase
+    ["X-Harness-Authorization", "Bearer harness-own"],
+    // The lease's signature headers (credential-isolation/v1 says MUST strip).
+    ["X-Signet-Sig", "c2lnbmF0dXJl"],
+    ["X-Signet-Ts", "1700000100000"],
+    ["X-Signet-Nonce", "oaKjpKWmp6ipqqusra6vsA"],
+    ["X-Interlace-Peer", "sha256:aaaa"],
   ];
 
   for (const [header, value] of sensitiveHeaders) {
     it(`strips ${header} from proxied request`, async () => {
-      const { buildProxyRequest } = await getVault();
-      const incoming = new Request("https://vault.example.com/svc", {
-        headers: { [header]: value },
-      });
-      const proxied = buildProxyRequest(incoming, cred);
-      expect(proxied.headers.get(header)).toBeNull();
+      const out = await inject({ [header]: value });
+      expect(sent(out.headers, header)).toBeNull();
     });
   }
 
@@ -57,33 +69,21 @@ describe("header stripping", () => {
 
   for (const [header, value] of cfHeaders) {
     it(`strips CF header ${header} from proxied request`, async () => {
-      const { buildProxyRequest } = await getVault();
-      const incoming = new Request("https://vault.example.com/svc", {
-        headers: { [header]: value },
-      });
-      const proxied = buildProxyRequest(incoming, cred);
-      expect(proxied.headers.get(header)).toBeNull();
+      const out = await inject({ [header]: value });
+      expect(sent(out.headers, header)).toBeNull();
     });
   }
 
-  it("still injects credential headers after stripping", async () => {
-    const { buildProxyRequest } = await getVault();
-    const incoming = new Request("https://vault.example.com/svc", {
-      headers: {
-        Authorization: "Bearer steal-me",
-        "CF-Connecting-IP": "1.2.3.4",
-        Accept: "application/json",
-      },
+  it("still injects the credential after stripping, and keeps the caller's safe headers", async () => {
+    const out = await inject({
+      Authorization: "Bearer steal-me",
+      "CF-Connecting-IP": "1.2.3.4",
+      Accept: "application/json",
     });
-    const proxied = buildProxyRequest(incoming, cred);
-
-    // Credential headers injected
-    expect(proxied.headers.get("X-Api-Key")).toBe("secret-123");
-    // Safe headers preserved
-    expect(proxied.headers.get("Accept")).toBe("application/json");
-    // Sensitive headers stripped
-    expect(proxied.headers.get("Authorization")).toBeNull();
-    expect(proxied.headers.get("CF-Connecting-IP")).toBeNull();
+    expect(sent(out.headers, "X-Api-Key")).toBe("secret-123");
+    expect(sent(out.headers, "Accept")).toBe("application/json");
+    expect(sent(out.headers, "Authorization")).toBeNull();
+    expect(sent(out.headers, "CF-Connecting-IP")).toBeNull();
   });
 });
 
@@ -269,7 +269,7 @@ describe("credential secrecy", () => {
 
     const cred = {
       upstream: "https://api.example.com",
-      headers: { apiKey: "super-secret-key-12345" },
+      credential: "super-secret-key-12345",
       allowedSubs: ["repo:org/specific:*"],
     };
 
@@ -283,7 +283,7 @@ describe("credential secrecy", () => {
     for (const err of errors) {
       const text = JSON.stringify(err);
       expect(text).not.toContain("super-secret-key-12345");
-      expect(text).not.toContain(cred.headers.apiKey);
+      expect(text).not.toContain(cred.credential);
     }
   });
 });

@@ -350,6 +350,14 @@ been. Decided once already on `cloister-aa6a71`.
   from ADR-0007/0011/0012 frontmatter). Adding a new seam (cert mint,
   bundle fetch, lease step, counter write, cross-DO handoff, disclosure
   endpoint, compute substrate) means extending the model first.
+- **Credential injection happens in one place: `vault/src/inject.ts`**
+  (ADR-0082). The vault's Durable Object applies the service's declared
+  strategy to the stored secret, with the declared base and the route-parsed
+  path, and a credential is only sent to the upstream it was stored for. LLO's
+  injection vectors run through the Durable Object in
+  `test/routes/credential-isolation-conformance.test.ts`. Don't add a second
+  injection path; the egress boundary that will share this one is the north
+  star ADR-0082 names.
 - **Two CAS hash algorithms, intentionally distinct.** SHA-256
   (`crypto.subtle.digest`) is the application-layer digest: bead
   `content_hash`, attestation references, default BlobStore keying.
