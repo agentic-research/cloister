@@ -291,6 +291,8 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     executionModeRationale: z.string().default(""),
     /** 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'. */
     runs: z.string().default(""),
+    /** The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none. */
+    workspace: z.string().default(""),
   }).strict());
 
 export interface ExternalBundle {
@@ -303,6 +305,7 @@ export interface ExternalBundle {
   executionMode: string;
   executionModeRationale: string;
   runs: string;
+  workspace: string;
 }
 
 /** What a bundle may touch. Every dimension denies by default. */

@@ -615,6 +615,10 @@
         "runs": {
           "type": "string",
           "description": "'service' to run until stopped, or 'job' to run to completion. Empty means 'service'."
+        },
+        "workspace": {
+          "type": "string",
+          "description": "The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none."
         }
       }
     },

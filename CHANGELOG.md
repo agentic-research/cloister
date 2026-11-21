@@ -8,7 +8,7 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
-### 2026-11 — a microVM bundle declares only what the microVM tier carries
+### 2026-11 — a bundle declares its needs once, and every placement provides them
 
 - mache was counted as cloister's one isolated bundle, and it could not run as
   one. It said `executionMode = "microvm"` with its listener and its
@@ -23,16 +23,24 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - `cloister-host-runtime validate` now refuses the plans `run` refuses. It
   used to answer "valid" for a microvm plan with a raw listener. One check
   (`Confinement::check_microvm_grants`) serves both, and the launch path.
-- mache stays a `microvm` bundle, declared the way the tier carries it: its
-  listener is a `[[bundles.ports]]` entry, which lowers to a `bind` grant on
-  guest port 7532, and it declares no confinement grant. Its plan now passes
-  `validate`. Its compose placement, the compose file and the graph are
-  unchanged.
-- Not done yet, and not an exemption: the guest is not given mache's
-  workspace. The host runtime drops a plan's workspace today
-  (`cloister-dc4a53`), and LLO serves one only to a run started with a
-  RunSpec and RunGrant. Next is an ADR for issuing them. A service is also
-  still stopped at the 15-minute wall-clock ceiling (ley-line-open-e6b1bb).
+- ADR-0078: a bundle declares what it needs once, not one tier's grants, and
+  every placement gives it each need or refuses by name. Nothing starts a
+  bundle without a need it declared, and no need is deleted to fit a tier.
+- The workspace is the first such need: `workspace = "read" | "write"` under
+  `[bundles.external]`, given at `/work`. Compose bind-mounts
+  `${CLOISTER_WORKSPACE:-.}` there; the dev launcher maps `/work` to the
+  workspace on the host. A microvm plan carries it as `workspaceAccess`, and
+  the host runtime refuses that plan by name until it can give a guest a
+  workspace (`cloister-dc4a53`), rather than dropping it as it did.
+- mache stays a `microvm` bundle. Its listener is a `[[bundles.ports]]` entry,
+  lowered to a `bind` grant on guest port 7532, and it declares its workspace.
+  Its compose service now mounts the workspace, which it never had: its
+  `--path /workspace` pointed at an empty path in the container.
+- The external facet is no longer rebuilt from a hand list of fields
+  (`cloister-8ae1f2`): the fields the operator wrote pass through, the schema
+  gives the rest their defaults, and a wrong type is refused instead of
+  becoming a default. The round trip drops any field left at its default by
+  one rule, not a list.
 - Filed ley-line-open#600: a service run in a microVM has nowhere to keep state
   across runs, which the identity authority and the gateway both need.
 

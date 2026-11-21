@@ -36,6 +36,7 @@ import {
   lowerChannels,
 } from "../lib/cluster/connections.mjs";
 import { startedAsScript } from "../lib/started-as-script.mjs";
+import { workspaceAccess } from "../lib/cluster/workspace.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -210,6 +211,10 @@ export function buildLaunchPlan(cluster, lock, options) {
     // Added only when declared, so a plan for a bundle with no env is
     // byte-identical to one emitted before this lowering (cloister-2af426).
     ...(environment.length > 0 ? { environment } : {}),
+    // The declared workspace (ADR-0078), carried rather than dropped: the
+    // host runtime gives it to the guest at /work, or refuses the plan by name
+    // while it cannot (cloister-dc4a53). Added only when declared.
+    ...(workspaceAccess(bundle) !== "" ? { workspaceAccess: workspaceAccess(bundle) } : {}),
   };
 }
 

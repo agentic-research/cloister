@@ -55,10 +55,11 @@ name = "mache"
 tier = "cluster"
 
 [bundles.external]
-args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
+args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/work" ]
 entryPoint = "/usr/local/bin/mache"
 executionMode = "microvm"
 httpPort = 7532
+workspace = "write"
 
 [[bundles.placements]]
 env = "local"

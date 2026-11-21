@@ -348,11 +348,20 @@ clean checkout is
 A `microvm` bundle can't declare a `confinement` grant: a path (`fs.allow`),
 egress (`network.allowHosts`), a raw listener (`port`) or a credential source.
 The tier can apply none of them. `cluster.toml` refuses such a declaration when
-it is parsed, and names what to declare instead: a listener becomes a
-`[[bundles.ports]]` entry. The host runtime refuses a plan that carries one, in
-`validate` as well as `run`, rather than run it with the grant silently
-dropped. Mapping them onto LLO's confinement manifest is tracked on
-`cloister-991e65`.
+it is parsed, and names what to declare instead. The host runtime refuses a
+plan that carries one, in `validate` as well as `run`, rather than run it with
+the grant silently dropped.
+
+A bundle declares what it needs, not one tier's grants, and every placement
+gives it each need or refuses by name (ADR-0078). A listener is a
+`[[bundles.ports]]` entry. The operator's workspace is
+`workspace = "read"` or `"write"` under `[bundles.external]`, and the bundle
+is given it at `/work`, whatever runs it:
+
+- compose bind-mounts `${CLOISTER_WORKSPACE:-.}` there, read-only for `"read"`;
+- a microvm plan carries it, and the host runtime refuses that plan by name
+  until it can give a guest a workspace (`cloister-dc4a53`);
+- any other placement is refused when `cluster.toml` is parsed.
 
 The one grant the tier does map is confinement/v1 §6, `unixSocket.allow`.
 Each entry is a host UNIX socket path, a mode (empty = connect, `bind` =

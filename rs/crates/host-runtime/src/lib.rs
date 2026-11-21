@@ -174,6 +174,11 @@ pub struct LaunchPlan {
     /// slices.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment: Vec<EnvVar>,
+    /// The bundle's declared workspace (ADR-0078): "read" or "write", empty
+    /// for none. The bundle is given `workspace` at /work. Present only when
+    /// declared, so a plan for a bundle that declares none is unchanged.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub workspace_access: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -221,6 +226,24 @@ impl LaunchPlan {
         }
         if self.mode == ExecutionMode::Microvm {
             self.confinement.check_microvm_grants()?;
+        }
+        if !self.workspace_access.is_empty() {
+            if !["read", "write"].contains(&self.workspace_access.as_str()) {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "workspaceAccess must be read or write, or absent: {:?}",
+                    self.workspace_access
+                )));
+            }
+            // A declared need is provided or refused, never dropped
+            // (ADR-0078). Until this runtime can give a guest a workspace, a
+            // microvm plan that declares one is refused by name rather than
+            // started without it.
+            if self.mode == ExecutionMode::Microvm {
+                return Err(RuntimeError::InvalidPlan(format!(
+                    "bundle {:?} declares the workspace ({}), and this host runtime cannot give a microVM one yet: ley-line-open serves a workspace only to a run started with a RunSpec and RunGrant, which cloister does not issue yet (cloister-dc4a53). Refusing rather than starting it without",
+                    self.bundle, self.workspace_access
+                )));
+            }
         }
         for entry in &self.confinement.fs.allow {
             if !is_canonical_absolute_path(Path::new(&entry.path)) {

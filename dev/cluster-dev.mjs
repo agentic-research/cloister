@@ -68,6 +68,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { WORKSPACE_PATH } from "../cli/lib/cluster/workspace.mjs";
+
 const REPO  = process.cwd();
 const ENV   = process.env;
 const DRY   = ENV.CLUSTER_DEV_DRY_RUN === "1";
@@ -159,8 +161,19 @@ for (const b of cluster.bundles) {
   // the bundle's own ipcSocket AND any wire bindings pointing at it.
   const localSocket = ext.ipcSocket ? relocateSocket(ext.ipcSocket) : "";
 
-  // Translate bundle-declared args by substituting the relocated UDS path.
-  const args = ext.args.map(a => a === ext.ipcSocket ? localSocket : a);
+  // Translate bundle-declared args by substituting the relocated UDS path,
+  // and the workspace's path (/work, ADR-0078) with the workspace on this
+  // host: a native process is given the directory itself, as compose mounts
+  // it. CLOISTER_WORKSPACE chooses it, as it does for compose.
+  const workspaceDir = resolve(ENV.CLOISTER_WORKSPACE ?? REPO);
+  const declaresWorkspace = typeof ext.workspace === "string" && ext.workspace !== "";
+  const args = ext.args.map((a) => {
+    if (a === ext.ipcSocket) return localSocket;
+    if (!declaresWorkspace) return a;
+    if (a === WORKSPACE_PATH) return workspaceDir;
+    if (a.startsWith(`${WORKSPACE_PATH}/`)) return `${workspaceDir}${a.slice(WORKSPACE_PATH.length)}`;
+    return a;
+  });
 
   // Build env: wire bindings (with relocated sockets), then bundle env.
   const env = {};

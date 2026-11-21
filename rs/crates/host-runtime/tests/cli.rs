@@ -7,6 +7,14 @@ fn write_plan(mode: ExecutionMode) -> tempfile::NamedTempFile {
 }
 
 fn write_plan_with(mode: ExecutionMode, confinement: Confinement) -> tempfile::NamedTempFile {
+    write_plan_full(mode, confinement, "")
+}
+
+fn write_plan_full(
+    mode: ExecutionMode,
+    confinement: Confinement,
+    workspace_access: &str,
+) -> tempfile::NamedTempFile {
     let file = tempfile::NamedTempFile::new().unwrap();
     let plan = LaunchPlan {
         schema: "cloister/host-runtime/v1".into(),
@@ -22,6 +30,7 @@ fn write_plan_with(mode: ExecutionMode, confinement: Confinement) -> tempfile::N
         workspace: "/workspace".into(),
         control_socket: "/run/cloister/host.sock".into(),
         environment: Vec::new(),
+        workspace_access: workspace_access.into(),
     };
     fs::write(file.path(), serde_json::to_vec_pretty(&plan).unwrap()).unwrap();
     file
@@ -69,6 +78,28 @@ fn validate_refuses_a_microvm_plan_whose_grant_run_would_refuse() {
     // The rule is the microVM tier's: a process plan is not held to it.
     let process = validate(ExecutionMode::Process);
     assert!(process.status.success(), "{}", String::from_utf8_lossy(&process.stderr));
+}
+
+#[test]
+fn a_declared_workspace_is_refused_by_name_until_a_microvm_can_be_given_one() {
+    // ADR-0078: a declared need is provided or refused, never dropped. The
+    // runtime cannot give a guest a workspace yet (cloister-dc4a53), so a
+    // microvm plan that declares one is refused, and says why.
+    let validate = |mode, access: &str| {
+        let plan = write_plan_full(mode, Confinement::default(), access);
+        Command::new(env!("CARGO_BIN_EXE_cloister-host-runtime"))
+            .args(["validate", plan.path().to_str().unwrap()])
+            .output()
+            .unwrap()
+    };
+    let microvm = validate(ExecutionMode::Microvm, "write");
+    assert!(!microvm.status.success(), "a microvm plan with a workspace must be refused");
+    let stderr = String::from_utf8_lossy(&microvm.stderr);
+    assert!(stderr.contains("declares the workspace (write)"), "{stderr}");
+    assert!(stderr.contains("cloister-dc4a53"), "the refusal names the work that lifts it: {stderr}");
+    let bad = validate(ExecutionMode::Process, "readwrite");
+    assert!(!bad.status.success());
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("workspaceAccess must be read or write"));
 }
 
 #[test]

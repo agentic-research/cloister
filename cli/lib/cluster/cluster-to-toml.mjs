@@ -468,12 +468,14 @@ function canonicalizeBundleKindPayload(tag, payload) {
     return sorted;
   }
 
+  // A field at its capnp default ("", 0, an empty list) was never written by
+  // the operator, so it is not written back. One rule, not a list of fields:
+  // a list let a new field (executionModeRationale, then workspace) come back
+  // as `= ""` in every bundle until someone added it here.
   const pruned = { ...sorted };
-  if (pruned.image === "") delete pruned.image;
-  if (pruned.ipcSocket === "") delete pruned.ipcSocket;
-  if (pruned.httpPort === 0) delete pruned.httpPort;
-  if (Array.isArray(pruned.args) && pruned.args.length === 0) delete pruned.args;
-  if (Array.isArray(pruned.env) && pruned.env.length === 0) delete pruned.env;
+  for (const [key, value] of Object.entries(pruned)) {
+    if (value === "" || value === 0 || (Array.isArray(value) && value.length === 0)) delete pruned[key];
+  }
   // An env row states the one place its value comes from. The fields it does
   // not use are empty, and an empty one was never written by the operator.
   if (Array.isArray(pruned.env)) {
@@ -485,13 +487,6 @@ function canonicalizeBundleKindPayload(tag, payload) {
       return kept;
     });
   }
-  if (pruned.runs === "") delete pruned.runs;
-  if (pruned.entryPoint === "") delete pruned.entryPoint;
-  if (pruned.executionMode === "") delete pruned.executionMode;
-  // Same pruning rule: an empty rationale is the "not applicable" case (any
-  // bundle that is not "process"), and emitting it would add a line the
-  // operator never wrote.
-  if (pruned.executionModeRationale === "") delete pruned.executionModeRationale;
   return pruned;
 }
 

@@ -150,6 +150,7 @@ fn plan() -> LaunchPlan {
         workspace: "/tmp/workspace".into(),
         control_socket: "/tmp/control.sock".into(),
         environment: Vec::new(),
+        workspace_access: String::new(),
     }
 }
 

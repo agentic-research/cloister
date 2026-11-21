@@ -161,13 +161,16 @@ test("buildLaunchPlan rejects non-canonical guest paths instead of normalizing p
   );
 });
 
-test("the declared Mache tenant has an explicit in-guest workspace fallback", () => {
+test("the declared Mache tenant declares its workspace, and reads it where every placement gives it", () => {
   const declared = parseToml(readFileSync(new URL("../../../cluster.toml", import.meta.url), "utf8"));
   const mache = declared.bundles.find((bundle) => bundle.name === "mache");
   assert.equal(mache.external.entryPoint, "/usr/local/bin/mache");
+  // ADR-0078: the workspace is a declared need, given at /work in every
+  // placement, so the argument naming it does not change with the placement.
+  assert.equal(mache.external.workspace, "write");
   assert.deepEqual(
     mache.external.args,
-    ["serve", "--http", "127.0.0.1:7532", "--path", "/workspace"],
+    ["serve", "--http", "127.0.0.1:7532", "--path", "/work"],
   );
 });
 
