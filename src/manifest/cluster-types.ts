@@ -478,9 +478,10 @@ export interface ExternalBundle {
   /** Exact host-runtime backend: "microvm" or "process". */
   executionMode: string;
   /**
-   * Why this bundle cannot be isolated. Required when executionMode is
-   * "process", which is an EXEMPTION from the microvm posture rather than a
-   * peer of it. Per ADR-0062.
+   * What this bundle needs that no guest placement gives it yet, and the
+   * work that ends that: a bead, an issue or an ADR. Required when
+   * executionMode is "process", which means a bundle not yet a guest, never
+   * one that cannot be isolated. Per ADR-0062 as amended by ADR-0080.
    */
   executionModeRationale: string;
   /**

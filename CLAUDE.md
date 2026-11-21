@@ -428,6 +428,12 @@ is tracked in the `mcp-spec-alignment` thread; draft SEP at
   the binding substrate. New bindings should land as `vaultSlice`
   declarations on a bundle, not as `[vars]` entries.
 - **Hand-coded route registration.** Goes in the manifest, not in TS.
+- **A permanent or structural exemption.** A placement a bundle cannot use yet
+  is an engineering effort, not an impossibility (ADR-0080). The host runs
+  only the platform; every bundle is a guest, the gateway included. A
+  `process` rationale says what the bundle needs that no guest placement gives
+  it yet, and names the work that ends that. Inv 13 refuses one that names no
+  exit or opens with a retired label.
 
 ## Operator-facing knobs (2026-06-24 additions)
 

@@ -606,11 +606,11 @@
         },
         "executionMode": {
           "type": "string",
-          "description": "'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale."
+          "description": "'microvm' to run as a guest in a microVM, or 'process' for a bundle that is not yet a guest. 'process' needs executionModeRationale."
         },
         "executionModeRationale": {
           "type": "string",
-          "description": "Why this bundle cannot be isolated. Required when executionMode is 'process'."
+          "description": "What this bundle needs that no guest placement gives it yet, and the work that ends that: a bead, an issue or an ADR. Required when executionMode is 'process'."
         },
         "runs": {
           "type": "string",

@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — no exemption is described as an impossibility
+
+- The schema's own description of `executionModeRationale` read "Why this
+  bundle cannot be isolated", which every editor shows on hover and every
+  generated file repeats. It now reads "What this bundle needs that no guest
+  placement gives it yet, and the work that ends that: a bead, an issue or an
+  ADR". `executionMode` reads "'process' for a bundle that is not yet a
+  guest". The zod, JSON Schema, cluster.toml schema and Go projections are
+  regenerated, and the hand-mirrored type matches.
+- ADR-0062's remaining lines of the old framing carry inline withdrawal
+  notes, and CLAUDE.md records the principle: a placement a bundle cannot use
+  yet is an engineering effort, not an impossibility.
+
 ### 2026-11 — the host runs the platform; every bundle is a guest
 
 - ADR-0080, with Proxmox VE as prior art. The host runs only the platform: the
