@@ -61,14 +61,14 @@ test("parseArgs: --version sets version field", () => {
 test("parseArgs: missing ref throws UsageError", () => {
   assert.throws(
     () => parseArgs([]),
-    (err) => err.message.includes("missing required <ref>"),
+    (err) => err.message.includes("<ref> is required"),
   );
 });
 
 test("parseArgs: unknown flag throws UsageError", () => {
   assert.throws(
     () => parseArgs(["github://x/y@main", "--bogus", "z"]),
-    (err) => err.message.includes("unknown flag"),
+    (err) => err.message.includes('unknown option "--bogus" for `cloister add`'),
   );
 });
 
@@ -82,15 +82,23 @@ test("parseArgs: --name without value throws UsageError", () => {
 test("parseArgs: two positional refs throws UsageError", () => {
   assert.throws(
     () => parseArgs(["github://x/y@main", "github://a/b@main"]),
-    (err) => err.message.includes("only one <ref>"),
+    (err) => err.message.includes('unexpected argument "github://a/b@main" for `cloister add`'),
   );
 });
 
-test("parseArgs: --help throws special UsageError sentinel", () => {
-  assert.throws(
-    () => parseArgs(["--help"]),
-    (err) => err.message === "__HELP__",
-  );
+test("--help is answered from the declaration, before any argument is parsed", async () => {
+  const out = [];
+  assert.equal(await main(["--help"], { log: (line) => out.push(line), errLog: () => assert.fail("no error") }), 0);
+  assert.match(out.join("\n"), /^Usage: cloister add <ref>/);
+  assert.match(out.join("\n"), /--provides <cap> +a capability this input provides/);
+  // parseArgs is not where help is answered, so to it --help is unknown.
+  assert.throws(() => parseArgs(["--help"]), (err) => err.message.includes('unknown option "--help"'));
+});
+
+test("a usage error prints the declared help, and exits 2", async () => {
+  const errors = [];
+  assert.equal(await main(["--bogus"], { log: () => {}, errLog: (line) => errors.push(line) }), 2);
+  assert.match(errors.join("\n"), /error: unknown option "--bogus" for `cloister add`[\s\S]*Usage: cloister add <ref>/);
 });
 
 // ── deriveName: schemes + edge cases ────────────────────────────────────

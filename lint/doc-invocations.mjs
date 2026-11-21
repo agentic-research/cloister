@@ -22,17 +22,18 @@
 //   cloister … / node …/cloister.mjs …   the command is declared in
 //       cli/surface.mjs (the declaration help, the reference docs and the
 //       parsers read), or is a group of declared commands asked for help; and,
-//       where the command declares its flags, every `--flag` is one of them,
-//       or a global option, or --help.
+//       where the command declares its flags, every `--flag` and `-x` alias is
+//       one of them, or a global option, or --help. Where it also declares its
+//       arguments, the invocation is parsed by the command's own declared
+//       parser (cli/lib/flags.mjs), so its positionals are checked too.
 //   task …                                every task named exists, as Task
 //       itself reports (`task --list-all --json`): the Taskfiles are not
 //       re-parsed here.
 //
-// What it does not prove: that a documented command succeeds, or that its
-// positional arguments are right. cli/surface.mjs does not declare
-// positionals, so their count is not checked. A command whose entry declares
-// no flags has its words checked and its flags not; the report counts them,
-// so that number can be watched going down.
+// What it does not prove: that a documented command succeeds, or, for a
+// command that does not declare its arguments yet, that its positionals are
+// right. A command whose entry declares no flags has its words checked and its
+// flags not; the report counts them, so that number can be watched going down.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -41,6 +42,7 @@ import { fileURLToPath } from "node:url";
 
 import { parse as parseShell } from "shell-quote";
 
+import { FlagsError, parseFlags } from "../cli/lib/flags.mjs";
 import { COMMANDS, GLOBAL_OPTIONS, commandFor } from "../cli/surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,13 +97,30 @@ export function shellFences(markdown) {
   return commands;
 }
 
+// A placeholder the docs write for an argument, as the CLI's own usage lines
+// do: `<ref>`, `<abs-path>`, `<sha256:…>`. A shell would read it as two
+// redirections and drop the word, so `cloister add <ref>` would look as if it
+// named no ref. It is a word here: set aside before the line is tokenized,
+// and put back after. A real redirection has a space after its `<` or no
+// closing `>`, and stays one.
+const PLACEHOLDER = /(^|[\s=[(,])<([A-Za-z][\w.:…-]*)>(?=$|[\s\]),]|\.\.\.)/g;
+
 /**
  * The simple commands in one shell line, each an argv of strings. Parameters
  * stay as `$NAME`; operators, redirections and comments separate or end
- * commands. Leading `NAME=value` assignments are dropped.
+ * commands. Leading `NAME=value` assignments are dropped. A `<placeholder>`
+ * is a word.
  */
 export function simpleCommands(text) {
-  const tokens = parseShell(text, (name) => `$${name}`);
+  const held = [];
+  const masked = text.replace(PLACEHOLDER, (_, before, name) => {
+    held.push(`<${name}>`);
+    return `${before}CLOISTERPLACEHOLDER${held.length - 1}X`;
+  });
+  const restore = (token) => typeof token === "string"
+    ? token.replace(/CLOISTERPLACEHOLDER(\d+)X/g, (_, i) => held[Number(i)])
+    : token;
+  const tokens = parseShell(masked, (name) => `$${name}`).map(restore);
   const commands = [];
   let argv = [];
   const end = () => { if (argv.length) commands.push(argv); argv = []; };
@@ -164,11 +183,20 @@ export function cloisterProblem(args) {
     return `\`cloister ${words.join(" ")}\` is not a declared command (cli/surface.mjs)`;
   }
   if (!declared.flags) return null;
-  const byFlag = new Map(declared.flags.map((f) => [f.flag, f]));
   const after = rest.slice(declared.name.split(" ").length);
+  if (declared.arguments) return parsedProblem(declared, after);
+  const byFlag = new Map(declared.flags.map((f) => [f.flag, f]));
+  const byShort = new Map(declared.flags.filter((f) => f.short).map((f) => [f.short, f]));
   for (let k = 0; k < after.length; k++) {
     const a = after[k];
     if (a === "--") break; // what follows belongs to something else (`cloister run -- tool`)
+    if (/^-[a-zA-Z]$/.test(a)) {
+      if (a === "-h") continue;
+      const flag = byShort.get(a);
+      if (!flag) return `\`cloister ${declared.name}\` declares no flag ${a}`;
+      if (flag.value) k += 1;
+      continue;
+    }
     if (!a.startsWith("--")) continue;
     const name = a.split("=")[0];
     if (name === "--help" || GLOBAL_FLAGS.has(name)) continue;
@@ -177,6 +205,34 @@ export function cloisterProblem(args) {
     if (flag.value && !a.includes("=")) k += 1;
   }
   return null;
+}
+
+/**
+ * For a command that declares its arguments as well as its flags, the
+ * documented invocation is parsed by the command's own parser, so what the
+ * docs tell someone to type is what the command accepts. Global options and
+ * help are the CLI's, not the command's, and are set aside first.
+ */
+function parsedProblem(declared, after) {
+  const own = [];
+  for (let k = 0; k < after.length; k++) {
+    const a = after[k];
+    if (a === "--help" || a === "-h") return null; // help answers whatever else is given
+    const name = a.split("=")[0];
+    if (GLOBAL_FLAGS.has(name)) {
+      const option = GLOBAL_OPTIONS.find((o) => o.flag === name);
+      if (option.value && !a.includes("=")) k += 1;
+      continue;
+    }
+    own.push(a);
+  }
+  try {
+    parseFlags(declared.name, own);
+    return null;
+  } catch (error) {
+    if (!(error instanceof FlagsError)) throw error;
+    return `\`cloister ${declared.name} ${own.join(" ")}\` does not parse: ${error.message}`;
+  }
 }
 
 /**

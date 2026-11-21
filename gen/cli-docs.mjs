@@ -18,9 +18,14 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeGeneratedFile } from "../cli/lib/atomic-write.mjs";
-import { COMMANDS, GLOBAL_OPTIONS } from "../cli/surface.mjs";
+import { COMMANDS, GLOBAL_OPTIONS, argumentLabel, flagLabel } from "../cli/surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// A table cell's text. GitHub splits a table row on every `|`, inside a code
+// span too, so `<auto|always|never>` drew four cells where one was meant.
+// `\|` is the escape GFM honours there.
+const cell = (text) => String(text).replaceAll("|", "\\|");
 const OUTPUT = resolve(ROOT, "docs/reference/cli.md");
 
 function render() {
@@ -47,7 +52,7 @@ function render() {
   out.push("|---|---|");
   for (const option of GLOBAL_OPTIONS) {
     const value = option.value ? ` \`${option.value}\`` : "";
-    out.push(`| \`${option.flag}\`${value} | ${option.summary} |`);
+    out.push(`| ${cell(`\`${option.flag}\`${value}`)} | ${cell(option.summary)} |`);
   }
   out.push("");
   out.push(
@@ -59,7 +64,7 @@ function render() {
   out.push("| Command | What it does |");
   out.push("|---|---|");
   for (const c of COMMANDS) {
-    out.push(`| [\`cloister ${c.name}\`](#cloister-${c.name.replace(/\s+/g, "-")}) | ${c.summary} |`);
+    out.push(`| [\`cloister ${c.name}\`](#cloister-${c.name.replace(/\s+/g, "-")}) | ${cell(c.summary)} |`);
   }
   out.push("");
 
@@ -72,13 +77,29 @@ function render() {
     out.push("");
     out.push(c.detail ?? c.summary);
     out.push("");
+    if (c.arguments?.length) {
+      out.push("| Argument | | |");
+      out.push("|---|---|---|");
+      for (const a of c.arguments) {
+        out.push(`| ${cell(`\`${argumentLabel(a)}\``)} | ${a.required ? "**required**" : ""} | ${cell(a.summary)} |`);
+      }
+      out.push("");
+    }
     if (c.flags?.length) {
       out.push("| Flag | | |");
       out.push("|---|---|---|");
       for (const f of c.flags) {
-        const val = f.value ? ` \`${f.value}\`` : "";
-        out.push(`| \`${f.flag}\`${val} | ${f.required ? "**required**" : ""} | ${f.summary} |`);
+        // The same label help prints: `-y, --yes`, `--dir <path>`.
+        const notes = [f.required ? "**required**" : "", f.repeatable ? "repeatable" : ""].filter(Boolean).join(", ");
+        const fallback = f.default !== undefined ? ` (default: \`${f.default}\`)` : "";
+        out.push(`| ${cell(`\`${flagLabel(f)}\``)} | ${notes} | ${cell(`${f.summary}${fallback}`)} |`);
       }
+      out.push("");
+    }
+    if (c.examples?.length) {
+      out.push("```sh");
+      for (const example of c.examples) out.push(example);
+      out.push("```");
       out.push("");
     }
     if (c.seeAlso) {

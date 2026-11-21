@@ -123,6 +123,7 @@ test("parsePullArgs: safe defaults require interactive confirmation and immutabl
     printOnly: false,
     yes: false,
     allowUnpinned: false,
+    inputs: [],
   });
 });
 
@@ -135,8 +136,17 @@ test("parsePullArgs: automation and explicit downgrade are separate flags", () =
   });
 });
 
-test("parsePullArgs: unknown flags fail loud", () => {
-  assert.throws(() => parsePullArgs(["--surprise"]), /unknown argument/);
+test("parsePullArgs: unknown flags fail loud, in the declared parser's words", () => {
+  assert.throws(() => parsePullArgs(["--surprise"]), /unknown option "--surprise" for `cloister artifacts pull`/);
+});
+
+test("parsePullArgs: -y is --yes, and inputs may sit among the flags", () => {
+  assert.deepEqual(parsePullArgs(["llo", "-y", "mache", "--print"]), {
+    printOnly: true,
+    yes: true,
+    allowUnpinned: false,
+    inputs: ["llo", "mache"],
+  });
 });
 
 test("validatePullSafety: digest-pinned rows are accepted", () => {

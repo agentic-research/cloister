@@ -126,6 +126,24 @@ entry, so help and parser cannot disagree about it. This moves one command at
 a time, starting with `cluster graph`; `cli/test/flags.test.mjs` holds each
 moved command to its declaration.
 
+**Amended 2026-11-21: arguments, short aliases and examples are declared too.**
+A command's positionals are declared as `arguments`, each `<name>`, required
+or not; only the last may repeat. A flag may declare a `short` alias (`-y`),
+and a command may declare `examples`. Help and `docs/reference/cli.md` render
+all three, and the parser accepts exactly what is declared. `lint:doc-invocations`
+parses a documented invocation of a command that declares its arguments with
+that command's own parser.
+
+`cli/test/flags.test.mjs` holds every declared command to its declaration
+through the real entry point, except an explicit list of commands that still
+parse by hand. That list only shrinks: a new command is parsed from its
+declaration, or is added to the list where a reviewer sees it.
+
+Moving `add` and `artifacts pull` found what Context predicts. Each accepted
+flags its declaration did not list, so help hid them:
+- `add` accepted `--provides` and `--requires`;
+- `artifacts pull` accepted `--print`, `--yes` and `--allow-unpinned`.
+
 ## Consequences
 
 - Two declarations, each said once: `cli/surface.mjs` for the commands (help,

@@ -41,6 +41,9 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { resolveInput, buildLockfile } from "../lib/cluster/resolve-inputs.mjs";
 import { writeLockfile } from "../lib/cluster/lockfile.mjs";
 import { startedAsScript } from "../lib/started-as-script.mjs";
+import { FlagsError, parseFlags } from "../lib/flags.mjs";
+import { helpFor } from "../help.mjs";
+import { renderCommandHelp } from "../surface.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -65,52 +68,29 @@ class AddError extends Error {}
 // ── Argument parsing ────────────────────────────────────────────────────
 
 /**
- * Parse the `cloister add` flag set. Hand-rolled (matches the style
- * of cli/commands/init.mjs); the surface is small enough that a
- * yargs/commander dep would cost more than it saves.
- *
- * Shape:
- *   <ref>                        positional, required
- *   --name <s>                   optional, defaults to deriveName(ref)
- *   --version <s>                optional, defaults to ""
- *   --provides <s> (repeatable)  optional, lane-3 capability names
- *   --requires <s> (repeatable)  optional, lane-3 capability names
+ * Parse `cloister add`'s arguments from its declaration in cli/surface.mjs
+ * (cli/lib/flags.mjs, ADR-0077 Part 3): the required `<ref>`, `--name`,
+ * `--version`, and the repeatable `--provides` and `--requires`. Anything else
+ * is refused by name, as a UsageError. `--name` defaults to a name derived from
+ * the ref, and is required when none can be.
  *
  * Exported for unit tests.
  */
 export function parseArgs(argv) {
+  let flags;
+  try {
+    flags = parseFlags("add", argv);
+  } catch (error) {
+    if (error instanceof FlagsError) throw new UsageError(error.message);
+    throw error;
+  }
   const args = {
-    ref:      "",
-    name:     "",
-    version:  "",
-    provides: /** @type {string[]} */ ([]),
-    requires: /** @type {string[]} */ ([]),
+    ref:      flags.ref,
+    name:     flags.name ?? "",
+    version:  flags.version ?? "",
+    provides: flags.provides,
+    requires: flags.requires,
   };
-  let i = 0;
-  while (i < argv.length) {
-    const a = argv[i];
-    if (a === "--help" || a === "-h") {
-      throw new UsageError("__HELP__");
-    } else if (a === "--name") {
-      args.name = mustValue(argv, ++i, "--name");
-    } else if (a === "--version") {
-      args.version = mustValue(argv, ++i, "--version");
-    } else if (a === "--provides") {
-      args.provides.push(mustValue(argv, ++i, "--provides"));
-    } else if (a === "--requires") {
-      args.requires.push(mustValue(argv, ++i, "--requires"));
-    } else if (a.startsWith("-")) {
-      throw new UsageError(`unknown flag: ${a}`);
-    } else if (args.ref === "") {
-      args.ref = a;
-    } else {
-      throw new UsageError(`unexpected positional argument: ${a} (only one <ref> allowed)`);
-    }
-    i++;
-  }
-  if (args.ref === "") {
-    throw new UsageError("missing required <ref> positional argument");
-  }
   if (args.name === "") {
     args.name = deriveName(args.ref);
   }
@@ -121,11 +101,6 @@ export function parseArgs(argv) {
     );
   }
   return args;
-}
-
-function mustValue(argv, idx, flag) {
-  if (idx >= argv.length) throw new UsageError(`${flag} requires a value`);
-  return argv[idx];
 }
 
 /**
@@ -229,45 +204,23 @@ export function addInputToClusterToml(tomlString, name, spec) {
 
 // ── Entry ───────────────────────────────────────────────────────────────
 
-function printHelp(log) {
-  log("Usage: cloister add <ref> [--name <name>] [--version <ver>]");
-  log("                          [--provides <cap>...] [--requires <cap>...]");
-  log("");
-  log("Add an input to cluster.toml and resolve it into cluster.lock.toml.");
-  log("");
-  log("Positional:");
-  log("  <ref>                  Required. file://, https://, or github://owner/repo[/path]@<ref>");
-  log("");
-  log("Options:");
-  log("  --name <name>          Input name (default: derived from <ref> basename)");
-  log("  --version <ver>        Semver range or exact version (default: \"\")");
-  log("  --provides <cap>       Capability this input PROVIDES (repeatable); lane-3");
-  log("                         shape per ADR-0028 (cloister/<name>/v<n>)");
-  log("  --requires <cap>       Capability this input REQUIRES (repeatable)");
-  log("  -h, --help             Show this help");
-  log("");
-  log("Examples:");
-  log("  cloister add github://anthropic/skills@main");
-  log("  cloister add github://anthropic/skills/python-bridge.md@v1.2.0 \\");
-  log("               --name python-bridge --provides cloister/skill/v1");
-  log("  cloister add file:///abs/path/to/skill --name local-skill");
-}
-
 export async function main(argv, deps = {}) {
   const log = deps.log ?? ((line) => console.log(line));
   const errLog = deps.errLog ?? ((line) => console.error(line));
+  // Help is the declaration's (cli/help.mjs), however main is reached.
+  const help = helpFor(["add", ...argv]);
+  if (help !== undefined) {
+    log(help);
+    return 0;
+  }
   let opts;
   try {
     opts = parseArgs(argv);
   } catch (e) {
-    if (e instanceof UsageError && e.message === "__HELP__") {
-      printHelp(log);
-      return 0;
-    }
     if (e instanceof UsageError) {
       errLog(`error: ${e.message}`);
       errLog("");
-      printHelp(errLog);
+      errLog(renderCommandHelp("add"));
       return 2;
     }
     throw e;

@@ -11,7 +11,7 @@ Global options may appear before or after a command. Cloister stops reading them
 
 | Flag | What it does |
 |---|---|
-| `--color` `<auto|always|never>` | color human-readable output (default: auto; auto colors only a terminal) |
+| `--color` `<auto\|always\|never>` | color human-readable output (default: auto; auto colors only a terminal) |
 | `--no-color` | plain output; alias for --color never (NO_COLOR=1 also works) |
 
 `NO_COLOR=1` also disables color. `--color always` is the explicit override. Piped output is plain in the default `auto` mode, and JSON output is always plain.
@@ -77,15 +77,15 @@ Executes a harness with the named repositories as its ONLY readable and writable
 
 | Flag | | |
 |---|---|---|
-| `--repo` `<abs>` | **required** | a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has |
-| `--harness` `<name>` |  | harness to launch (default: the declared default target) |
-| `--target` `<name>` |  | deprecated spelling of --harness; accepted during migration and warns once |
+| `--repo <abs>` | **required** | a directory the harness may read and write; repeat for more, and the first is the primary (the harness's cwd). Must be absolute — a relative path is rejected rather than resolved against the current directory, because the confinement boundary is not something to infer. Duplicate or nested paths are refused: they would make the attested shape claim more roots than the confinement has |
+| `--harness <name>` |  | harness to launch (default: the declared default target) |
+| `--target <name>` |  | deprecated spelling of --harness; accepted during migration and warns once |
 | `--dry-run` |  | print what would be confined; mint nothing, launch nothing |
 | `--setup-only` |  | mint the identity and write .dev.vars, do not launch |
 | `--audit` |  | forward harness auth and emit a receipt; no key vaulted |
-| `--harness-bin` `<abs>` |  | absolute path to the harness executable. Required under confinement when the target declares no entryPoint, because there is no $PATH inside the sandbox — and the path is machine-local, so it belongs on the invocation rather than in a shared manifest |
+| `--harness-bin <abs>` |  | absolute path to the harness executable. Required under confinement when the target declares no entryPoint, because there is no $PATH inside the sandbox — and the path is machine-local, so it belongs on the invocation rather than in a shared manifest |
 | `--no-sandbox` |  | DANGEROUS: skip kernel confinement (debugging only) |
-| `--` `<args...>` |  | everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read |
+| `-- <args...>` |  | everything after this is passed to the harness itself. Required for a non-interactive run: with no TTY inside the sandbox the harness has no prompt to read |
 
 See also: [`docs/reference/confinement-model.md`](confinement-model.md)
 
@@ -99,7 +99,7 @@ Creates or refreshes the gitignored .env.local file needed by the local Worker. 
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
+| `--dir <checkout>` |  | Cloister checkout (default: the current directory) |
 
 ## cloister dev serve
 
@@ -111,7 +111,7 @@ Loads .env.local without a shell, checks for conflicting configuration sources, 
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
+| `--dir <checkout>` |  | Cloister checkout (default: the current directory) |
 
 ## cloister dev test
 
@@ -123,7 +123,7 @@ Finds every *.test.mjs file under cli/test, lint/test, gen/test and dev/test, pl
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<checkout>` |  | Cloister checkout (default: the current directory) |
+| `--dir <checkout>` |  | Cloister checkout (default: the current directory) |
 
 ## cloister init
 
@@ -135,22 +135,34 @@ Scaffold a cluster recipe
 
 | Flag | | |
 |---|---|---|
-| `--recipe` `<name>` | **required** | recipe to instantiate |
-| `--out` `<dir>` | **required** | destination directory |
-| `--port` `<N>` |  | port to expose |
+| `--recipe <name>` | **required** | recipe to instantiate |
+| `--out <dir>` | **required** | destination directory |
+| `--port <N>` |  | port to expose |
 
 ## cloister add
 
 ```
-cloister add <ref> [--name <name>] [--version <ver>]
+cloister add <ref> [--name <name>] [--version <ver>] [--provides <cap>]... [--requires <cap>]...
 ```
 
-Resolves the ref, records its content digest in cluster.lock.toml, and derives the backend declarations from the tool's own server.json. Refuses rather than guesses when the input declares no transport.
+Adds the input to cluster.toml, resolves the ref, records its content digest in cluster.lock.toml, and derives the backend declarations from the tool's own server.json. Refuses rather than guesses when the input declares no transport.
+
+| Argument | | |
+|---|---|---|
+| `<ref>` | **required** | the input: file://<abs-path>, https://<url>, github://owner/repo[/path]@<ref>, or its registry name io.github.org/owner/repo[/path]@<ref>; a GitHub ref must pin a git ref |
 
 | Flag | | |
 |---|---|---|
-| `--name` `<name>` |  | input name (default: derived from the ref) |
-| `--version` `<ver>` |  | expected version |
+| `--name <name>` |  | input name (default: derived from the ref's basename) |
+| `--version <ver>` |  | the version to record for the input, as a semver range or an exact version; it is recorded, not checked |
+| `--provides <cap>` | repeatable | a capability this input provides, in the lane-3 shape cloister/<name>/v<n> (ADR-0028) |
+| `--requires <cap>` | repeatable | a capability this input requires, in the same shape |
+
+```sh
+cloister add github://anthropic/skills@main
+cloister add github://anthropic/skills/python-bridge.md@v1.2.0 --name python-bridge --provides cloister/skill/v1
+cloister add file:///abs/path/to/skill --name local-skill
+```
 
 ## cloister skills list
 
@@ -162,8 +174,8 @@ Surveys the harness skills directory against a cluster's `[[gateway.skills]]` de
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<cluster>` |  | cluster directory holding cluster.toml (default: the current directory) |
-| `--state-dir` `<path>` |  | harness state dir; skills are read from <path>/skills (default: ~/.claude) |
+| `--dir <cluster>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--state-dir <path>` |  | harness state dir; skills are read from <path>/skills (default: ~/.claude) |
 
 See also: [`docs/adr/0061-skills-declared-and-verified.md`](../adr/0061-skills-declared-and-verified.md)
 
@@ -179,8 +191,8 @@ Name one or more skills to pin only those skills; with no names, every discovere
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<cluster>` |  | cluster directory holding cluster.toml (default: the current directory) |
-| `--state-dir` `<path>` |  | harness state dir; skills are read from <path>/skills (default: ~/.claude) |
+| `--dir <cluster>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--state-dir <path>` |  | harness state dir; skills are read from <path>/skills (default: ~/.claude) |
 | `--write` |  | append to cluster.toml instead of printing |
 | `--force` |  | also re-pin skills whose bytes changed under an existing pin |
 
@@ -196,7 +208,7 @@ Reads cluster.toml once, validates it, then produces canonical cluster.toml, src
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: the current directory) |
 | `--check` |  | report drift without writing any file |
 
 ## cloister cluster resolve
@@ -209,7 +221,7 @@ Reads [inputs.*] from cluster.toml, fetches or reads each declared ref, and reco
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: the current directory) |
 
 ## cloister cluster up
 
@@ -226,9 +238,9 @@ A scaffolded cluster includes a small Taskfile, and its `task up` command delega
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<path>` |  | cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it |
+| `--dir <path>` |  | cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it |
 | `--detach` |  | run in the background (compose -d); not with --env |
-| `--env` `<name>` |  | start the microVM-placed bundles of this env instead of compose |
+| `--env <name>` |  | start the microVM-placed bundles of this env instead of compose |
 
 ## cloister cluster down
 
@@ -240,7 +252,7 @@ Stops the cluster and KEEPS its volumes. Durable-Object SQLite state lives in th
 
 | Flag | | |
 |---|---|---|
-| `--dir` `<path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: the current directory) |
 | `--destroy` |  | ALSO remove volumes — unrecoverable; DO state lives there |
 
 ## cloister cluster k8s
@@ -253,9 +265,9 @@ For each bundle placed "kubernetes" in --env, checks its rendered manifest's Ser
 
 | Flag | | |
 |---|---|---|
-| `--out` `<dir>` | **required** | output directory (may exist, but only with files this run writes) |
-| `--env` `<name>` |  | environment whose placements and targets are lowered (default: local) |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--out <dir>` | **required** | output directory (may exist, but only with files this run writes) |
+| `--env <name>` |  | environment whose placements and targets are lowered (default: local) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: the current directory) |
 
 See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-placements-and-channel-strength.md)
 
@@ -269,8 +281,8 @@ Reads cluster.toml and prints one graph: every [[connections]] row that has a ta
 
 | Flag | | |
 |---|---|---|
-| `--env` `<name>` |  | environment whose connection targets and placements are read |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml |
+| `--env <name>` |  | environment whose connection targets and placements are read (default: `local`) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: `.`) |
 | `--json` |  | print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion |
 
 See also: [`docs/adr/0075-one-graph.md`](../adr/0075-one-graph.md)
@@ -285,8 +297,8 @@ For each bundle placed "kubernetes" or "knative" in --env, writes the manifest i
 
 | Flag | | |
 |---|---|---|
-| `--env` `<name>` |  | environment whose kubernetes and knative placements are lowered (default: local) |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--env <name>` |  | environment whose kubernetes and knative placements are lowered (default: local) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: the current directory) |
 
 See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 
@@ -300,26 +312,36 @@ Reads the output of `terraform show -json` (or `tofu show -json`), state or plan
 
 | Flag | | |
 |---|---|---|
-| `--terraform` `<file>` |  | `terraform show -json` output (state or plan); must not be tracked by git |
-| `--wrangler` `<file>` |  | a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required) |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory, if it has one) |
-| `--env` `<name>` |  | the environment these inputs describe; declared connections are compared for that environment only (default: every environment) |
+| `--terraform <file>` |  | `terraform show -json` output (state or plan); must not be tracked by git |
+| `--wrangler <file>` |  | a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: the current directory, if it has one) |
+| `--env <name>` |  | the environment these inputs describe; declared connections are compared for that environment only (default: every environment) |
 | `--json` |  | print the report as JSON: the InspectReport format in schema/cli.schema.json, versioned by formatVersion |
-| `--fail-on` `<kinds>` |  | exit 3 when a finding of these kinds is reported, a comma list of undeclared, contradicted, unknown (for CI). Needs a cluster.toml. Exit 1 means the check could not run, 2 that it was called wrongly |
+| `--fail-on <kinds>` |  | exit 3 when a finding of these kinds is reported, a comma list of undeclared, contradicted, unknown (for CI). Needs a cluster.toml. Exit 1 means the check could not run, 2 that it was called wrongly |
 | `--draft` |  | print a cluster.toml drafted from --terraform, for you to review and commit; needs --env |
-| `--local` `<env>` |  | with --draft: also place every bundle in this environment, for `cluster lower` |
-| `--local-kind` `<kind>` |  | with --local: kubernetes (default) or knative. A job is always placed kubernetes |
-| `--name` `<name>` |  | with --draft: the cluster name in [metadata] (default: drafted) |
+| `--local <env>` |  | with --draft: also place every bundle in this environment, for `cluster lower` |
+| `--local-kind <kind>` |  | with --local: kubernetes (default) or knative. A job is always placed kubernetes |
+| `--name <name>` |  | with --draft: the cluster name in [metadata] (default: drafted) |
 
 See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 
 ## cloister artifacts pull
 
 ```
-cloister artifacts pull [options]
+cloister artifacts pull [<input>...] [--print] [--yes] [--allow-unpinned]
 ```
 
-Acquire lockfile-pinned OCI artifacts
+Pulls every image cluster.lock.toml pins into the local container store ($CONTAINER_CMD, else docker, nerdctl or podman), so `cloister cluster up`, which emits pull_policy: never, can boot offline. That includes each image a multi-image producer names for a bundle in [[inputs.<input>.ociBundles]]. It shows the plan and asks before downloading; without a terminal to ask on, it refuses unless --yes is given. A tag-pinned or bare reference is refused unless --allow-unpinned is given too: consent to download is not consent to weaker provenance.
+
+| Argument | | |
+|---|---|---|
+| `<input>...` |  | an input whose images to pull (default: every input). Naming inputs does not weaken the check on the others' references |
+
+| Flag | | |
+|---|---|---|
+| `--print` |  | show the plan and download nothing |
+| `-y, --yes` |  | approve the plan shown (required without a terminal) |
+| `--allow-unpinned` |  | permit tag-pinned or bare references, which are not content-addressed |
 
 ## cloister runtime plan
 
@@ -331,12 +353,12 @@ Emit a fail-closed host launch plan
 
 | Flag | | |
 |---|---|---|
-| `--workspace` `<abs>` | **required** | workspace the plan is scoped to |
-| `--control-socket` `<path>` |  | host-runtime control socket |
-| `--env` `<name>` |  | environment whose connection targets are lowered (default: local) |
-| `--channel-dir` `<abs>` |  | directory of declared-channel sockets (default: /tmp/cloister-host-runtime/ch) |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml + cluster.lock.toml (default: this checkout) |
-| `--output` `<path>` |  | write the JSON plan here |
+| `--workspace <abs>` | **required** | workspace the plan is scoped to |
+| `--control-socket <path>` |  | host-runtime control socket |
+| `--env <name>` |  | environment whose connection targets are lowered (default: local) |
+| `--channel-dir <abs>` |  | directory of declared-channel sockets (default: /tmp/cloister-host-runtime/ch) |
+| `--dir <path>` |  | cluster directory holding cluster.toml + cluster.lock.toml (default: this checkout) |
+| `--output <path>` |  | write the JSON plan here |
 
 ## cloister runtime install
 
@@ -356,11 +378,11 @@ With --bundle, imports that bundle's pinned image (in cluster.lock.toml, the dig
 
 | Flag | | |
 |---|---|---|
-| `--layout` `<dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry |
-| `--bundle` `<name>` |  | record the rootfs for this bundle in cluster.lock.toml |
-| `--dir` `<cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
-| `--image` `<sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |
-| `--symlinks` `<preserve|refuse|resolve>` |  | keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default |
+| `--layout <dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry |
+| `--bundle <name>` |  | record the rootfs for this bundle in cluster.lock.toml |
+| `--dir <cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
+| `--image <sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |
+| `--symlinks <preserve\|refuse\|resolve>` |  | keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default |
 
 ## cloister runtime run
 

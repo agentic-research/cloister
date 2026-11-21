@@ -81,9 +81,13 @@ export const HARNESS_ENV = Object.freeze({
 });
 
 /**
- * @typedef {{flag: string, value?: string, summary: string, required?: boolean}} Flag
+ * @typedef {{flag: string, value?: string, summary: string, required?: boolean,
+ *            repeatable?: boolean, default?: string, short?: string}} Flag
+ * @typedef {{name: string, summary: string, required?: boolean, repeatable?: boolean}} Argument
+ *   A positional, named `<like-this>`; only a command's last may be repeatable.
  * @typedef {{name: string, usage: string, summary: string, detail?: string,
- *            flags?: Flag[], seeAlso?: string}} Command
+ *            arguments?: Argument[], flags?: Flag[], examples?: string[],
+ *            seeAlso?: string}} Command
  */
 
 /** Global flags are plain declaration data so terminal help and Markdown agree. */
@@ -198,15 +202,25 @@ export const COMMANDS = [
   },
   {
     name: "add",
-    usage: "cloister add <ref> [--name <name>] [--version <ver>]",
+    usage: "cloister add <ref> [--name <name>] [--version <ver>] [--provides <cap>]... [--requires <cap>]...",
     summary: "Add and resolve a tool input",
     detail:
-      "Resolves the ref, records its content digest in cluster.lock.toml, and " +
-      "derives the backend declarations from the tool's own server.json. " +
-      "Refuses rather than guesses when the input declares no transport.",
+      "Adds the input to cluster.toml, resolves the ref, records its content digest in " +
+      "cluster.lock.toml, and derives the backend declarations from the tool's own " +
+      "server.json. Refuses rather than guesses when the input declares no transport.",
+    arguments: [
+      { name: "<ref>", required: true, summary: "the input: file://<abs-path>, https://<url>, github://owner/repo[/path]@<ref>, or its registry name io.github.org/owner/repo[/path]@<ref>; a GitHub ref must pin a git ref" },
+    ],
     flags: [
-      { flag: "--name", value: "<name>", summary: "input name (default: derived from the ref)" },
-      { flag: "--version", value: "<ver>", summary: "expected version" },
+      { flag: "--name", value: "<name>", summary: "input name (default: derived from the ref's basename)" },
+      { flag: "--version", value: "<ver>", summary: "the version to record for the input, as a semver range or an exact version; it is recorded, not checked" },
+      { flag: "--provides", value: "<cap>", repeatable: true, summary: "a capability this input provides, in the lane-3 shape cloister/<name>/v<n> (ADR-0028)" },
+      { flag: "--requires", value: "<cap>", repeatable: true, summary: "a capability this input requires, in the same shape" },
+    ],
+    examples: [
+      "cloister add github://anthropic/skills@main",
+      "cloister add github://anthropic/skills/python-bridge.md@v1.2.0 --name python-bridge --provides cloister/skill/v1",
+      "cloister add file:///abs/path/to/skill --name local-skill",
     ],
   },
   {
@@ -470,8 +484,27 @@ export const COMMANDS = [
     ],
     seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
   },
-  { name: "artifacts pull", usage: "cloister artifacts pull [options]",
-    summary: "Acquire lockfile-pinned OCI artifacts" },
+  {
+    name: "artifacts pull",
+    usage: "cloister artifacts pull [<input>...] [--print] [--yes] [--allow-unpinned]",
+    summary: "Acquire lockfile-pinned OCI artifacts",
+    detail:
+      "Pulls every image cluster.lock.toml pins into the local container store " +
+      "($CONTAINER_CMD, else docker, nerdctl or podman), so `cloister cluster up`, which " +
+      "emits pull_policy: never, can boot offline. That includes each image a multi-image " +
+      "producer names for a bundle in [[inputs.<input>.ociBundles]]. It shows the plan " +
+      "and asks before downloading; without a terminal to ask on, it refuses unless --yes " +
+      "is given. A tag-pinned or bare reference is refused unless --allow-unpinned is " +
+      "given too: consent to download is not consent to weaker provenance.",
+    arguments: [
+      { name: "<input>", repeatable: true, summary: "an input whose images to pull (default: every input). Naming inputs does not weaken the check on the others' references" },
+    ],
+    flags: [
+      { flag: "--print", summary: "show the plan and download nothing" },
+      { flag: "--yes", short: "-y", summary: "approve the plan shown (required without a terminal)" },
+      { flag: "--allow-unpinned", summary: "permit tag-pinned or bare references, which are not content-addressed" },
+    ],
+  },
   { name: "runtime plan", usage: "cloister runtime plan <bundle> --workspace <absolute-path> [options]",
     summary: "Emit a fail-closed host launch plan",
     flags: [
@@ -542,19 +575,33 @@ export const COMMANDS = [
  * @param {string} name
  * @returns {string}
  */
+/** A flag as help and the reference page show it: `-y, --yes`, `--dir <path>`. */
+export const flagLabel = (f) => `${f.short ? `${f.short}, ` : ""}${f.flag}${f.value ? ` ${f.value}` : ""}`;
+
+/** An argument as help and the reference page show it: `<ref>`, `<input>...`. */
+export const argumentLabel = (a) => `${a.name}${a.repeatable ? "..." : ""}`;
+
 export function renderCommandHelp(name) {
   const c = COMMANDS.find((x) => x.name === name);
   if (!c) throw new Error(`no declared command ${JSON.stringify(name)}`);
   const lines = [`Usage: ${c.usage}`, "", c.detail ?? c.summary, ""];
   const required = (c.flags ?? []).filter((f) => f.required);
   const optional = (c.flags ?? []).filter((f) => !f.required);
-  const width = Math.max(...(c.flags ?? []).map((f) => `${f.flag} ${f.value ?? ""}`.trim().length), 10) + 2;
+  const args = c.arguments ?? [];
+  const width = Math.max(
+    ...(c.flags ?? []).map((f) => flagLabel(f).length),
+    ...args.map((a) => argumentLabel(a).length),
+    10,
+  ) + 2;
   // A declared default is shown from the declaration, so the text cannot
   // name one default while the parser applies another (cli/lib/flags.mjs).
-  const row = (f) => `  ${`${f.flag} ${f.value ?? ""}`.trim().padEnd(width)} ${f.summary}${f.default !== undefined ? ` (default: ${f.default})` : ""}`;
+  const row = (f) => `  ${flagLabel(f).padEnd(width)} ${f.summary}${f.repeatable ? " (repeatable)" : ""}${f.default !== undefined ? ` (default: ${f.default})` : ""}`;
+  const argumentRow = (a) => `  ${argumentLabel(a).padEnd(width)} ${a.summary}${a.required ? " (required)" : ""}`;
+  if (args.length) { lines.push("Arguments:", ...args.map(argumentRow), ""); }
   if (required.length) { lines.push("Required:", ...required.map(row), ""); }
   if (optional.length) { lines.push("Options:", ...optional.map(row), ""); }
   lines.push("  --help".padEnd(width + 2) + " this text — mints nothing, writes nothing", "");
+  if (c.examples?.length) { lines.push("Examples:", ...c.examples.map((e) => `  ${e}`), ""); }
   return lines.join("\n");
 }
 
