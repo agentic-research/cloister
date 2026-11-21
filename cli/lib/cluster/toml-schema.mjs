@@ -16,7 +16,7 @@
 // values.
 
 // Imported, not read from disk next to this file, so a bundler carries it:
-// the plan checker ships as one file (gen/bundle-plan.mjs) with no `schema/`
+// the plan checker ships as one file (gen/bundle.mjs) with no `schema/`
 // directory beside it.
 import TOML_SCHEMA from "../../../schema/cluster.toml.schema.json" with { type: "json" };
 

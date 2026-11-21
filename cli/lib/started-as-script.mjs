@@ -13,7 +13,7 @@
 // contained, in turn.
 //
 // So they all ask here, and a bundle build turns the answer off by defining
-// `globalThis.__CLOISTER_BUNDLE__` as `true` (gen/bundle-plan.mjs). A bundle has exactly one entry
+// `globalThis.__CLOISTER_BUNDLE__` as `true` (gen/bundle.mjs). A bundle has exactly one entry
 // point, and it calls what it means to call. `cli/test/started-as-script.test.mjs`
 // fails on any module that compares `process.argv[1]` itself.
 

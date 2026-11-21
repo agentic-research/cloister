@@ -6,7 +6,7 @@
 // It is TypeScript, and plain Node does not load TypeScript, so a checkout
 // loads it through tsx. A bundle cannot follow that: the path is a runtime
 // value. So a bundle build defines `globalThis.__CLOISTER_BUNDLE__` as `true`
-// (gen/bundle-plan.mjs): the bundler folds the test, keeps only the literal
+// (gen/bundle.mjs): the bundler folds the test, keeps only the literal
 // import, and drops the tsx branch, so the bundle needs no tsx. The two
 // branches load the same file.
 

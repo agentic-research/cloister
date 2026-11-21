@@ -657,14 +657,14 @@ jobs:
       - name: Build the checker, and put the plan where git does not track it
         # The checker refuses a plan git tracks, as a real plan must be.
         run: |
-          node gen/bundle-plan.mjs
+          node gen/bundle.mjs
           cp test/fixtures/terraform/kubernetes-plan.show.json "$RUNNER_TEMP/plan.json"
 
       - name: A plan that matches cluster.toml passes
         id: matches
         uses: ./actions/plan-check
         with:
-          checker: dist/cloister-plan.mjs
+          checker: dist/cloister.mjs
           plan: ${{ runner.temp }}/plan.json
           dir: test/e2e/plan-check/matches
           env: prod
@@ -674,7 +674,7 @@ jobs:
         continue-on-error: true
         uses: ./actions/plan-check
         with:
-          checker: dist/cloister-plan.mjs
+          checker: dist/cloister.mjs
           plan: ${{ runner.temp }}/plan.json
           dir: test/e2e/plan-check/undeclared
           env: prod

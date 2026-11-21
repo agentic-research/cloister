@@ -476,18 +476,18 @@ tasks:
       - gen/cli-docs.mjs
       - docs/reference/cli.md
 
-  plan:bundle:
-    desc: "Build the plan checker (`cloister inspect`) as ONE file that needs only Node 22: dist/cloister-plan.mjs. Fails if the bundle would import anything at run time but Node's own modules. Guide: docs/plan-checker.md."
+  bundle:
+    desc: "Build the cloister CLI as ONE file that needs only Node 22: dist/cloister.mjs. It runs the commands cli/surface.mjs marks standalone (the plan checker, `cloister inspect`, first) and refuses the rest by name. Fails if the file would import anything at run time but Node's own modules. Guide: docs/plan-checker.md."
     cmds:
-      - node gen/bundle-plan.mjs
+      - node gen/bundle.mjs
     sources:
       - cli/**/*.mjs
-      - cli/lib/facts/**/*.json
-      - src/generated/cluster.zod.ts
+      - cli/**/*.json
+      - src/generated/**
       - schema/cluster.toml.schema.json
-      - gen/bundle-plan.mjs
+      - gen/bundle.mjs
     generates:
-      - dist/cloister-plan.mjs
+      - dist/cloister.mjs
 
   adr:index:
     desc: "Generate docs/adr/INDEX.md from each ADR's own frontmatter — the ADR index is DERIVED, never hand-maintained (cloister-1d2e0e). Design-status comes from the ADR; impl-status lives in beads + git, not here. Replaces the per-ADR status lists STATUS/README/CLAUDE hand-copied and let drift."

@@ -22,23 +22,26 @@ what.
 
 ## Get it
 
-Download `cloister-plan.mjs` and `cloister-plan.mjs.sha256` from a
-[`plan-checker/v*` release](https://github.com/agentic-research/cloister/releases),
+Download `cloister.mjs` and `cloister.mjs.sha256` from a
+[`cli/v*` release](https://github.com/agentic-research/cloister/releases),
 and check one against the other:
 
 ```sh
-sha256sum --check cloister-plan.mjs.sha256
+sha256sum --check cloister.mjs.sha256
 ```
 
-That file is the whole checker. Run it with `node`, from anywhere.
+That file is the cloister CLI, built to need nothing but Node. Run it with
+`node`, from anywhere. It runs the commands that read nothing from a cloister
+checkout, the plan checker (`inspect`) first among them, and says so by name
+for the others; `node cloister.mjs --help` lists which.
 
 Or build it from a checkout:
 
 ```sh
-task plan:bundle        # writes dist/cloister-plan.mjs
+task bundle        # writes dist/cloister.mjs
 ```
 
-Either way, it is the same code as `cloister inspect`. A test runs every
+Either way, it is the same code as the `cloister` command. A test runs every
 sample plan in this repository through both, and requires the same output.
 
 ## Try it on the sample
@@ -52,10 +55,10 @@ The sample is a rendered plan for a small Kubernetes app: a `server`, a
 cp test/fixtures/terraform/kubernetes-plan.show.json plan.json
 
 # Draft the file.
-node cloister-plan.mjs --terraform plan.json --draft --env prod --name sample > cluster.toml
+node cloister.mjs inspect --terraform plan.json --draft --env prod --name sample > cluster.toml
 
 # Check the plan against it. Both calls are evidenced.
-node cloister-plan.mjs --terraform plan.json --env prod --dir .
+node cloister.mjs inspect --terraform plan.json --env prod --dir .
 ```
 
 Now take `probe`'s connection out of `cluster.toml`: the `[[connections]]`
@@ -75,7 +78,7 @@ That second line is the point: the plan makes a call nobody declared.
 ```sh
 terraform plan -out plan.out
 terraform show -json plan.out > plan.json
-node cloister-plan.mjs --terraform plan.json --draft --env prod > cluster.toml
+node cloister.mjs inspect --terraform plan.json --draft --env prod > cluster.toml
 ```
 
 Keep `plan.json` out of git: a rendered plan can hold values from your
@@ -94,7 +97,7 @@ it was called wrongly. It needs a `cluster.toml`, because with nothing
 declared nothing could be undeclared.
 
 ```sh
-node cloister-plan.mjs --terraform plan.json --env prod --dir . --fail-on undeclared,contradicted
+node cloister.mjs inspect --terraform plan.json --env prod --dir . --fail-on undeclared,contradicted
 ```
 
 In a GitHub workflow, the action does the download, the digest check and the
@@ -102,7 +105,7 @@ job summary:
 
 ```yaml
 - run: terraform show -json plan.out > "$RUNNER_TEMP/plan.json"
-- uses: agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0
+- uses: agentic-research/cloister/actions/plan-check@cli/v0.1.0
   with:
     plan: ${{ runner.temp }}/plan.json
     dir: infra          # where cluster.toml is
@@ -111,7 +114,7 @@ job summary:
 ```
 
 The result is the job's status and its summary. It comments on nothing. Pin a
-`plan-checker/v*` tag: the action downloads that tag's release, and refuses
+`cli/v*` tag: the action downloads that tag's release, and refuses
 any other ref.
 
 ## Then what
