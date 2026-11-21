@@ -356,11 +356,11 @@ With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest 
 
 | Flag | | |
 |---|---|---|
-| `--layout <dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry |
-| `--bundle <name>` |  | record the rootfs for this bundle in cluster.lock.toml |
-| `--dir <cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
-| `--image <sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |
-| `--symlinks <preserve|refuse|resolve>` |  | keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default |
+| `--layout` `<dir>` |  | an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry |
+| `--bundle` `<name>` |  | record the rootfs for this bundle in cluster.lock.toml |
+| `--dir` `<cluster>` |  | with --bundle: cluster directory holding cluster.lock.toml (default: the current directory) |
+| `--image` `<sha256:…>` |  | index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest) |
+| `--symlinks` `<preserve|refuse|resolve>` |  | keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default |
 
 ## cloister runtime run
 

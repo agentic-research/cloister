@@ -8,6 +8,18 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the docs are held to the CLI
+
+- `lint:doc-invocations` (in `task lint`) reads every shell fence in the
+  docs, ADRs, the CHANGELOG and dated plans excepted, and holds each
+  `cloister …` and `task …` line to `cli/surface.mjs` and to Task's own task
+  list. It is mache's doc-vs-CLI gate. 128 documented invocations hold.
+- It found `cloister runtime import`'s flags declared as `"--layout <dir>"`
+  rather than `--layout` with a `value`, which no parser could match; fixed,
+  with a test that every declared flag is a bare `--name`.
+- `cli/lib/flags.mjs` reads a declared `--` as the end of options and returns
+  what follows as `passthrough`.
+
 ### 2026-11 — every vendored LLO file is the pinned release's, and CI checks it
 
 - Two vendored copies of ley-line-open spec files were behind the v0.30.0

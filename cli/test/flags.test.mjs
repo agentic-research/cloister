@@ -69,3 +69,13 @@ test("a flag's key is its name in camelCase", () => {
   assert.equal(flagKey("--min-strength"), "minStrength");
   assert.equal(flagKey("--json"), "json");
 });
+
+test("a declared `--` passes what follows through, unparsed", () => {
+  const run = COMMANDS.find((c) => c.name === "run");
+  assert.ok(run.flags.some((f) => f.flag === "--"), "run declares --");
+  const out = parseFlags("run", ["--repo", ".", "--", "some-tool", "--its-own-flag", "x"]);
+  assert.equal(out.repo, ".");
+  assert.deepEqual(out.passthrough, ["some-tool", "--its-own-flag", "x"]);
+  // Without a declared `--`, a stray `--` and what follows are refused as for any argument.
+  assert.throws(() => parseFlags("cluster graph", ["--", "x"]), FlagsError);
+});

@@ -251,6 +251,16 @@ tasks:
       - cluster.lock.toml
       - lint/lockfile-drift.mjs
 
+  lint:doc-invocations:
+    desc: "mache's doc-vs-CLI gate, for cloister: every `cloister …` / `node …/cloister.mjs …` and `task …` line in a shell fence of a tracked markdown file (ADRs, the CHANGELOG and docs/superpowers/ excepted, as dated records) names a command declared in cli/surface.mjs with flags it declares, and tasks Task itself lists, the scaffold's included. A recipe README once told users to run a command the CLI refused (cloister-449f82). Lines are read with a shell tokenizer (shell-quote), not split on spaces."
+    cmds:
+      - node lint/doc-invocations.mjs
+    sources:
+      - "**/*.md"
+      - cli/surface.mjs
+      - "**/Taskfile.yml"
+      - lint/doc-invocations.mjs
+
   lint:doc-links:
     desc: "Drift gate for markdown cross-references — asserts every relative link in docs/**/*.md + the canonical top-level docs (README, CHANGELOG, CLAUDE, AGENTS, GETTING-STARTED) resolves to an existing file. Skips code-block content (fenced + inline) so example snippets aren't false-flagged. Catches the PR-#94 class of bug where deleting a doc leaves dangling [foo](foo.md) refs in sibling pages."
     cmds:

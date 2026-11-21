@@ -33,7 +33,13 @@ export const flagKey = (flag) => flag.replace(/^--/, "").replace(/-([a-z0-9])/g,
 export function parseFlags(name, argv) {
   const command = COMMANDS.find((c) => c.name === name);
   if (!command) throw new Error(`flags: no command ${JSON.stringify(name)} is declared in cli/surface.mjs`);
-  const declared = command.flags ?? [];
+  // A declared `--` is the end of options: what follows is passed through, as
+  // `passthrough`, and is not parsed (`cloister run -- <tool> <its args>`).
+  const passes = (command.flags ?? []).some((f) => f.flag === "--");
+  const declared = (command.flags ?? []).filter((f) => f.flag !== "--");
+  const end = passes ? argv.indexOf("--") : -1;
+  const passthrough = end === -1 ? [] : argv.slice(end + 1);
+  if (end !== -1) argv = argv.slice(0, end);
   const options = {};
   for (const f of declared) {
     if (!f.flag.startsWith("--")) throw new Error(`flags: ${name} declares ${JSON.stringify(f.flag)}, which is not a --long flag`);
@@ -60,6 +66,7 @@ export function parseFlags(name, argv) {
     if (given === undefined && f.required) throw new FlagsError(`${f.flag} is required`);
     out[flagKey(f.flag)] = given !== undefined ? given : f.default !== undefined ? f.default : f.value ? (f.repeatable ? [] : undefined) : false;
   }
+  if (passes) out.passthrough = passthrough;
   return out;
 }
 
