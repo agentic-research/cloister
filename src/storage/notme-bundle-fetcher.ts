@@ -18,7 +18,7 @@
 // keeps the trust-decision logic in one place — this fetcher cannot
 // accidentally accept an unverified bundle.
 
-import type { Env } from "../types.js";
+import type { CoreEnv } from "../core-env.js";
 import type { BundleFetcher, CABundle } from "./ca-bundle-cache.js";
 import { logEvent } from "../obs/log.js";
 
@@ -31,7 +31,7 @@ import { logEvent } from "../obs/log.js";
 export const NOTME_BUNDLE_PATH = "/internal/ca-bundle";
 
 /**
- * Build a `BundleFetcher` callback bound to this Env's NOTME service
+ * Build a `BundleFetcher` callback bound to this environment's NOTME
  * binding. Returns null on any failure (network, non-200, JSON parse,
  * shape mismatch). Calling code (`getCABundle`) treats null + cache-
  * stale as `CaUnavailableError`, so the caller never sees an
@@ -41,7 +41,7 @@ export const NOTME_BUNDLE_PATH = "/internal/ca-bundle";
  * root pubkey — that's passed to `getCABundle` separately so the
  * signature-verification step is visible at the cache layer, not here.
  */
-export function notmeBundleFetcher(env: Env): BundleFetcher {
+export function notmeBundleFetcher(env: CoreEnv): BundleFetcher {
   return async () => {
     // cloister-bd7210 (Phase 2) + bd7e51: surface WHY on every null return as a
     // structured event. A bare `catch {}` here once hid the real env.NOTME.fetch

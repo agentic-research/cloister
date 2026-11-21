@@ -29,7 +29,7 @@
 // status codes flow through unchanged. The caller is responsible for
 // supplying the right context.
 
-import type { Env } from "../types.js";
+import type { CoreEnv } from "../core-env.js";
 import {
   HEADER_ALLOWLIST,
   INTERLACE_RECEIPT_HEADER,
@@ -113,7 +113,7 @@ export interface ReceiptEmissionContext {
  * middleware before this is called).
  */
 export async function buildEmissionContext(args: {
-  env:          Env;
+  env:          CoreEnv;
   nowMs:        number;
   requestCanon: Uint8Array;
   nonce:        Uint8Array;
@@ -183,7 +183,7 @@ export async function buildEmissionContext(args: {
  * `/internal/` prefix is publicly routable and a prefix is not an access
  * control. Per cloister-35ccf7.
  */
-export async function loadReceiptSigner(env: Env): Promise<ReceiptSigner | null> {
+export async function loadReceiptSigner(env: CoreEnv): Promise<ReceiptSigner | null> {
   const raw = env.RECEIPT_SIGNING_KEY;
   if (!raw || raw.length === 0) {
     // cloister-21e42e: an empty RECEIPT_SIGNING_KEY disables receipt emission —
@@ -218,7 +218,7 @@ export async function loadReceiptSigner(env: Env): Promise<ReceiptSigner | null>
  *   1. env.RECEIPT_ACTOR_FP (hex, 64 chars) — operator pin
  *   2. SHA-256(pubkey)                       — derived from signer
  */
-async function resolveActorFingerprint(env: Env, pubkey: Uint8Array): Promise<Uint8Array> {
+async function resolveActorFingerprint(env: CoreEnv, pubkey: Uint8Array): Promise<Uint8Array> {
   if (env.RECEIPT_ACTOR_FP && /^[0-9a-fA-F]{64}$/.test(env.RECEIPT_ACTOR_FP)) {
     const out = new Uint8Array(32);
     for (let i = 0; i < 32; i++) {
@@ -229,7 +229,7 @@ async function resolveActorFingerprint(env: Env, pubkey: Uint8Array): Promise<Ui
   return sha256(pubkey);
 }
 
-function resolveEpoch(env: Env): number {
+function resolveEpoch(env: CoreEnv): number {
   if (!env.RECEIPT_EPOCH) return 1;
   const n = Number.parseInt(env.RECEIPT_EPOCH, 10);
   if (!Number.isFinite(n) || n < 0) return 1;

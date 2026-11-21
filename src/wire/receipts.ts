@@ -51,7 +51,7 @@
 //          with its own, so they must come from the enforcing side
 //
 //      ⚠ The entrypoint does NOT go on the existing `NOTME` binding.
-//      `env.NOTME` is live for the `/identity/*` proxy (typed `Fetcher`,
+//      `env.NOTME` is live for the `/identity/*` proxy (an HTTP endpoint,
 //      wired in runtime.ts's NotmeIdentityRoute) and pinning it to an
 //      entrypoint would redirect that traffic away from notme's default
 //      handler. This needs a SECOND binding to the same service.

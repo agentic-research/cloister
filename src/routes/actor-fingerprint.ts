@@ -46,7 +46,7 @@
 // depended on which one you looked at. Two routes need this value; two inline
 // `env.INTERLACE_ACTOR_FP` reads would be that same shape at a smaller scale.
 
-import type { Env } from "../types.js";
+import type { CoreEnv } from "../core-env.js";
 import type { Gateway } from "../manifest/types.js";
 
 /** Manifest-declared fingerprint wins; env is the fallback. */
@@ -72,7 +72,7 @@ const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
  * identity; the fallback exists for the case where the manifest says nothing,
  * not to override what it does say.
  */
-export function resolveActorFingerprint(manifest: Gateway, env: Env): string | null {
+export function resolveActorFingerprint(manifest: Gateway, env: CoreEnv): string | null {
   const declared = manifest.actor.fingerprint;
   if (declared) return declared;
 

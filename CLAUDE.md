@@ -23,7 +23,9 @@ kubernetes). Features build on both. `lint/layers.mjs` maps every source file
 to its layer, and `task lint` refuses a file with none, an import that points
 outward, and core larger than the `core-budget` in ADR-0081's frontmatter.
 Give a new file the right layer. A new core file needs a reason, and growing
-core raises the budget in the same change.
+core raises the budget in the same change. Core reads its environment through
+`CoreEnv` (`src/core-env.ts`), which the workerd `Env` extends: declare a new
+core need there, typed by the calls core makes, not by a platform's binding.
 
 Read [README.md](README.md) → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) → ADRs in
 order if you're new. The ADRs are the source of truth for *why*; the
