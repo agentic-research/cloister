@@ -90,7 +90,9 @@ flags with defaults and required-ness, and, for some, a typed output.
    `cli/surface.mjs` becomes a projection of it: it reads the generated list
    instead of holding one.
 3. What `_traits.capnp` cannot say today, and is asked of LLO because LLO owns
-   that vocabulary:
+   that vocabulary
+   ([agentic-research/ley-line-open#599](https://github.com/agentic-research/ley-line-open/issues/599),
+   with the schema-bridge limits Part 1 met):
    - a **positional** argument (`runtime plan <bundle>`), with its order;
    - a flag's **value placeholder** in help (`<file>`, `<name>`);
    - a free **tag** on an op, so cloister can mark a command `standalone`
@@ -101,11 +103,14 @@ flags with defaults and required-ness, and, for some, a typed output.
 
 ### Part 3: parsers are generated
 
-Each command's flags are parsed from the generated input schema (Node's
-`util.parseArgs` options, then the generated zod schema for types and
-defaults) instead of by hand. This moves one command at a time. Until a
-command moves, a rail requires its hand parser to accept exactly the flags its
-declaration lists.
+Each command's flags are parsed from the generated input schema instead of by
+hand: `cli/lib/flags.mjs` reads the command's entry in
+`src/generated/cli.tools.json` and parses with Node's `util.parseArgs`, strict.
+A field `fooBar` is `--foo-bar`, a Bool is a switch, a default is capnp's own
+`= value`; an undeclared flag, a missing value, a stray argument or a flag
+given twice is refused by name. This moves one command at a time, starting
+with `cluster graph`. Until Part 2 generates `cli/surface.mjs`, a test holds
+the flags it lists for each declared command equal to the declaration.
 
 ## Consequences
 

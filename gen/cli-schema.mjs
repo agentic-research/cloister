@@ -4,8 +4,10 @@
 // gen/cli-schema.mjs — generate the CLI's schemas from manifest/cli.capnp,
 // and hold each JSON output's format version to its shape (ADR-0077).
 //
-//   node gen/cli-schema.mjs              write src/generated/cli.zod.ts and
-//                                        schema/cli.schema.json
+//   node gen/cli-schema.mjs              write src/generated/cli.zod.ts,
+//                                        schema/cli.schema.json and
+//                                        src/generated/cli.tools.json (the
+//                                        commands, for cli/lib/flags.mjs)
 //   node gen/cli-schema.mjs --check      fail if either differs from what
 //                                        schema-bridge generates, or if an
 //                                        output's shape changed and its
@@ -36,6 +38,7 @@ const SOURCE = "manifest/cli.capnp";
 export const ZOD = "src/generated/cli.zod.ts";
 export const JSON_SCHEMA = "schema/cli.schema.json";
 export const LOCK = "schema/cli-formats.lock.json";
+export const TOOLS = "src/generated/cli.tools.json";
 
 const plugin = (name) => execFileSync(process.execPath, [resolve(ROOT, "gen/fetch-schema-bridge.mjs"), name], { cwd: ROOT, encoding: "utf8" }).trim();
 
@@ -44,7 +47,7 @@ export function generate() {
   const out = mkdtempSync(join(tmpdir(), "cli-schema-"));
   try {
     const files = {};
-    for (const [target, file, name] of [["zod", ZOD, "cli.zod.ts"], ["jsonschema", JSON_SCHEMA, "cli.schema.json"]]) {
+    for (const [target, file, name] of [["zod", ZOD, "cli.zod.ts"], ["jsonschema", JSON_SCHEMA, "cli.schema.json"], ["tooldefs", TOOLS, "cli.tools.json"]]) {
       // `capnp compile` exits 0 when a plugin fails and writes nothing, so
       // the file's absence is the error, read below.
       try {
@@ -167,7 +170,7 @@ function main(argv) {
     const problems = check();
     for (const p of problems) console.error(`cli-schema: ${p}`);
     if (problems.length) process.exit(1);
-    console.log(`cli-schema: OK — ${ZOD}, ${JSON_SCHEMA} and ${LOCK} match ${SOURCE}`);
+    console.log(`cli-schema: OK — ${ZOD}, ${JSON_SCHEMA}, ${TOOLS} and ${LOCK} match ${SOURCE}`);
     return;
   }
   if (argv[0] === "--bump") {
@@ -191,7 +194,7 @@ function main(argv) {
     return;
   }
   for (const [file, text] of Object.entries(generate())) writeGeneratedFile(resolve(ROOT, file), text);
-  console.log(`cli-schema: wrote ${ZOD} and ${JSON_SCHEMA}`);
+  console.log(`cli-schema: wrote ${ZOD}, ${JSON_SCHEMA} and ${TOOLS}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2));

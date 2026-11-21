@@ -325,3 +325,21 @@ struct InspectReport $Traits.doc("The output of `cloister inspect --json`.") {
   findings                  @16 :List(Finding);
   skipped                   @17 :List(SkippedType);
 }
+
+# ── Commands (ADR-0077 Part 2 and 3) ─────────────────────────────────────────
+#
+# A command is a struct annotated `$Traits.op`: `name` is its words, `input`
+# the struct of its flags, `output` its --json struct. schema-bridge's
+# tool-definitions output turns each into {name, description, inputSchema}
+# (src/generated/cli.tools.json), and cli/lib/flags.mjs parses the command's
+# flags from it: a field `fooBar` is the flag `--foo-bar`, a Bool is a switch,
+# and a default is capnp's own `= value`. A command moves here one at a time;
+# until it does, its flags are parsed by hand.
+
+struct ClusterGraphFlags $Traits.doc("Reads cluster.toml and prints one graph: every connection that has a target in --env, and every wire, with what carries it and what holds it.") {
+  env  @0 :Text = "local" $Traits.doc("environment whose connection targets and placements are read");
+  dir  @1 :Text = "."     $Traits.doc("cluster directory holding cluster.toml");
+  json @2 :Bool = false   $Traits.doc("print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion");
+}
+
+struct ClusterGraph $Traits.op((name = "cluster graph", input = "ClusterGraphFlags", output = "Graph")) $Traits.doc("Show every edge, what carries it, and what holds it") {}
