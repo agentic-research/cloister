@@ -98,11 +98,44 @@ The command that starts a run resolves every image it is about to start:
 
 It refuses, by name, an image it cannot resolve. It records the digests it
 started, so correctness does not depend on a tag standing still. For compose,
-that command becomes `cloister cluster up`: it renders the run's compose file
-into the run's directory and starts it, instead of leaving compose bundles to
-a separate `docker compose up`. A developer rebuilds an image and runs
+that command is `cloister cluster up`. A developer rebuilds an image and runs
 `cluster up` as before, and the new digest is what runs. `cluster up` prints
 the change when the digest has moved.
+
+For compose, it works like this (`cli/lib/cluster/compose-up.mjs`):
+
+- **The committed file runs as it is, with one override.** The override names
+  each service's image by its content address and records it on the
+  container. The run's directory holds it, and the run's end removes it. The
+  committed file comes first, so the cluster root stays the project directory,
+  and relative paths and `.env` keep their meaning. Every compose
+  implementation merges `-f` files.
+- **Images are resolved through the engine compose drives** (docker, podman or
+  nerdctl):
+  - an image written by digest runs as written;
+  - an image the engine holds runs by its registry digest, when it came from
+    that repository;
+  - otherwise it runs by its image ID, under a tag made from the ID
+    (`cloister:sha256-<hex>`), so a rebuild while compose starts cannot change
+    what runs. ko (`ko.local/…:<digest>`) and Tilt (`:tilt-<hash>`) tag local
+    builds the same way.
+- **Only cloister pulls, and only what is safe to pull.** The emitter writes
+  `pull_policy: never`, so compose pulls nothing. Cloister pulls an image
+  written by digest by that digest alone. It pulls an image that names a
+  registry by its tag, with the engine's own credentials, and then runs the
+  digest the engine records. A bare name is never pulled. That closes, at run
+  time, the hole the Context names: compose would fetch Docker Hub's
+  `library/<name>` for a local build that is missing.
+- **It refuses before it changes anything.** Every image is inspected first. A
+  bare name the engine does not hold is refused by name, and then nothing is
+  pulled, tagged or started.
+- **The record lives on the container, so `up` keeps no state file.** Labels
+  hold it: `cloister.image` (the image as the compose file names it),
+  `cloister.image.digest` (the content address that ran) and
+  `cloister.image.by` (`pinned`, `registry` or `local`). The next `up` reads
+  them back to print what moved. It then removes the tag the previous local
+  build ran under, so rebuilds do not pile up images that
+  `docker image prune` would keep.
 
 ### 5. `--locked` makes the lock authoritative
 
@@ -147,3 +180,9 @@ lock and a build that must not.
   is how a stranger's image takes the place of a local one.
 - **Leave compose bundles to `docker compose up`.** Then the run is outside
   cloister, and nothing resolves or records what it starts.
+- **Run a local build by its bare image ID** (`image: sha256:…`). Docker
+  accepts it, but not every engine compose can drive is known to, and
+  `docker ps` would show an ID where the image's name was. Every engine runs a
+  tag.
+- **Keep the record in a state file.** It would disagree with the containers
+  the moment someone ran compose by hand. Labels are on the thing that runs.

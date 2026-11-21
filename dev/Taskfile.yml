@@ -277,6 +277,11 @@ tasks:
     cmds:
       - node --import tsx dev/compose-hold.mjs
 
+  smoke:compose-up-images:
+    desc: "`cloister cluster up` against a real engine (ADR-0083 §4): a local build runs by the image ID the engine holds when up starts it, and its container records that ID; an image written name:tag@sha256 runs by its digest; a rebuild is what the next up runs, with the move printed and the old build's tag removed; an up with nothing rebuilt changes nothing; a bare name the engine does not hold is refused, never pulled, and the running containers are left alone. Needs docker with the compose plugin. KEEP_CLUSTER=1 leaves it up. Runs in the compose-hold CI job."
+    cmds:
+      - node dev/compose-up-images.mjs
+
   smoke:lowered-drafted:
     desc: "The whole path, from a plan to an enforcing cluster: `inspect --draft` writes cluster.toml from the rendered Terraform plan in test/e2e/drafted-kind, it is lowered unedited, applied to a kind cluster, and the graph the plan implies is observed (declared caller connects, declared Job completes, undeclared pod is refused). Needs kind, kubectl, docker. Runs in the lowered-kind CI job."
     cmds:
