@@ -124,7 +124,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "../cli/lib/canonical-path.mjs";
 import { resolveTenancy } from "../cli/lib/cluster/emit-compose.mjs";
-import { staleCitations } from "./lib/citations.mjs";
+import { namedExits, retiredLabel, staleCitations } from "./lib/citations.mjs";
 import { trackedFiles } from "./lib/tracked-files.mjs";
 
 const REPO = process.cwd();
@@ -1203,15 +1203,36 @@ function checkInvariant13(cluster, violations, warnings) {
       //
       // Presence, not prose: a rail cannot judge whether an argument is good,
       // only that someone was made to write one. That is enough here.
-      if (!b.kind.external.executionModeRationale?.trim()) {
+      const rationale = b.kind.external.executionModeRationale?.trim() ?? "";
+      if (!rationale) {
         violations.push(
           `bundle "${b.name}" (external) declares executionMode "process" with no ` +
-          `executionModeRationale. "process" means NO ISOLATION — per ADR-0062 it is an ` +
-          `exemption from the microvm posture, not a peer of it, so it must say why ` +
-          `isolation is impossible for this bundle. Same shape as hypervisorRationale ` +
-          `(ADR-0011). If the honest answer is "nobody has decided yet", write that — ` +
-          `an undecided posture recorded beats an undecided posture that reads as chosen.`,
+          `executionModeRationale. "process" means NO ISOLATION: per ADR-0080 it is a ` +
+          `bundle that is not yet a guest, so it must say what it needs that no guest ` +
+          `placement gives it yet, and name the work that ends the exemption. Same shape ` +
+          `as hypervisorRationale (ADR-0011).`,
         );
+      } else {
+        // ADR-0080: an exemption is something to finish, so its rationale names
+        // the work that finishes it. "Structural" and "permanent" claimed that
+        // no such work existed, and both claims turned out wrong.
+        if (namedExits(rationale).length === 0) {
+          violations.push(
+            `bundle "${b.name}" (external) runs as "process" and its executionModeRationale ` +
+            `names no exit. Per ADR-0080 a process bundle is not yet a guest, and its ` +
+            `rationale names the work that makes it one: a bead (cloister-xxxxxx), an issue ` +
+            `in a named repository (repo#N) or an ADR (ADR-NNNN) (Inv 13).`,
+          );
+        }
+        const label = retiredLabel(rationale);
+        if (label) {
+          violations.push(
+            `bundle "${b.name}" (external) executionModeRationale opens with ${JSON.stringify(label)}, ` +
+            `a label ADR-0080 retires with STRUCTURAL, PERMANENT, CONTINGENT and UNDECIDED. ` +
+            `Say what the bundle needs that no guest placement gives it yet, and name the ` +
+            `exit (Inv 13).`,
+          );
+        }
       }
     }
     if (!mode) {

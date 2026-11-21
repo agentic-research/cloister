@@ -141,7 +141,7 @@ function clusterTs({ bundles, wires = [], inputs = [], routes = [] }) {
       // mode IS "process" — so ~30 fixtures that predate the rule would all
       // start failing on a field none of them is about. Defaulted for the same
       // reason executionMode is. Tests exercising the rule pass "" explicitly.
-      executionModeRationale = "test exemption rationale",
+      executionModeRationale = "test exemption rationale (cloister-000000)",
     }) => ({
       name,
       description: `${name} test bundle`,
@@ -2307,7 +2307,7 @@ test("ADR-0062 — the exemption COUNT is reported, not just individual failures
     clusterTs: clusterTs({
       bundles: [
         { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
-        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale: "stated" },
+        { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale: "stated (cloister-000000)" },
       ],
     }),
     configCapnp: configCapnp(INV13_CONFIG),
@@ -2352,6 +2352,55 @@ test("Inv 15 — a rationale citing a file that is gone is a violation; one that
   assert.match(pastTheEnd.stderr, /lint\/bundle-isolation\.mjs has fewer than 999999 lines/);
   // A real file, a bare name that exists, and another repository's file
   // (written repo:path) all pass.
-  const fine = lint("See lint/bundle-isolation.mjs:1, cluster.toml and rosary:src/cloister_provider.rs.");
+  const fine = lint("See lint/bundle-isolation.mjs:1, cluster.toml and rosary:src/cloister_provider.rs (cloister-000000).");
   assert.equal(fine.status, 0, fine.stderr);
+});
+
+// ── ADR-0080: a process bundle is not yet a guest, and names its exit ──────
+
+test("ADR-0080 — a process rationale names its exit, and opens with no retired label", () => {
+  // "Structural" and "permanent" claimed no work could end an exemption, and
+  // both were wrong for the gateway. An exemption is something to finish, so
+  // its rationale names the work that finishes it.
+  const lint = (executionModeRationale) => {
+    const scenario = makeScenario({
+      clusterTs: clusterTs({
+        bundles: [
+          { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+          { name: "svc", tier: "cluster", image: "svc:1", executionMode: "process", executionModeRationale },
+        ],
+      }),
+      configCapnp: configCapnp(INV13_CONFIG),
+    });
+    try {
+      return runLint(scenario.workDir, scenario.clusterTsPath);
+    } finally {
+      scenario.cleanup();
+    }
+  };
+  const noExit = lint("It cannot be isolated.");
+  assert.notEqual(noExit.status, 0, "an exemption with no exit must FAIL");
+  assert.match(noExit.stderr, /bundle "svc" \(external\) runs as "process" and its executionModeRationale names no exit/);
+  // A bare #262 names a change already made, not work that ends the exemption.
+  assert.notEqual(lint("The blocker was removed in #262.").status, 0);
+  const labelled = lint("STRUCTURAL and permanent; see cloister-000000.");
+  assert.notEqual(labelled.status, 0, "a retired label must FAIL even beside an exit");
+  assert.match(labelled.stderr, /opens with "STRUCTURAL", a label ADR-0080 retires/);
+  for (const exit of ["a bead (cloister-000000)", "an issue (ley-line-open#600)", "an ADR (ADR-0079)"]) {
+    const r = lint(`It needs state across runs: ${exit}.`);
+    assert.equal(r.status, 0, `${exit}: ${r.stderr}`);
+  }
+});
+
+test("ADR-0080 — every shipped process rationale names an exit and opens with no retired label", async () => {
+  const { namedExits, retiredLabel } = await import("../lib/citations.mjs");
+  const { cluster } = await import(pathToFileURL(resolve(REPO_ROOT, "src/generated/cluster.ts")).href);
+  const process = (cluster.bundles ?? []).filter((b) => b.kind?.external?.executionMode === "process");
+  assert.ok(process.length > 0, "sanity: the shipped tree still has process bundles to check");
+  for (const b of process) {
+    const rationale = b.kind.external.executionModeRationale;
+    assert.ok(namedExits(rationale).length > 0, `${b.name} names no exit`);
+    assert.equal(retiredLabel(rationale), null, `${b.name} opens with a retired label`);
+    assert.doesNotMatch(rationale, /\b(structural|permanent)\b/i, `${b.name} still calls itself structural or permanent`);
+  }
 });

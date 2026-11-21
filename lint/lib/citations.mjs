@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// File citations in prose a rail holds to the tree (Inv 15).
+// File citations in prose a rail holds to the tree (Inv 15), and the exits an
+// exemption's rationale names (Inv 13, ADR-0080).
 //
 // A rationale records why something is so, and a citation is its evidence.
 // When the cited file is deleted or the cited line is gone, the rationale
@@ -49,4 +50,25 @@ export function staleCitations(text, tracked, lineCount) {
     }
   }
   return problems;
+}
+
+// A work item an exemption's rationale names as its exit (ADR-0080): a bead
+// (`cloister-5fe44f`, `ley-line-open-e6b1bb`), an issue in a named repository
+// (`ley-line-open#600`) or an ADR (`ADR-0079`). A bare `#262` is not one: it
+// names a change already made, not the work that ends an exemption.
+const EXIT = /\b(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[0-9a-f]{6}|[a-z][a-z0-9-]*#\d+|ADR-\d{4})\b/g;
+
+/** The work items `text` names as exits, in order. */
+export function namedExits(text) {
+  return [...text.matchAll(EXIT)].map((match) => match[0]);
+}
+
+// The category labels exemption rationales opened with before ADR-0080. Each
+// claimed something about the exemption instead of naming its exit, and
+// "structural" and "permanent" claimed that no exit existed.
+const RETIRED_LABEL = /^\s*(STRUCTURAL|PERMANENT|CONTINGENT|UNDECIDED)\b/i;
+
+/** The retired label `text` opens with, or null. */
+export function retiredLabel(text) {
+  return RETIRED_LABEL.exec(text)?.[1] ?? null;
 }

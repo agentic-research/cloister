@@ -78,7 +78,9 @@ where the rail can check that a reason exists.
 Three of today's four exemptions are, or may be, legitimate:
 
 - `cloister-router` is the host. This is structural and permanent — you cannot
-  put the hypervisor inside its own guest.
+  put the hypervisor inside its own guest. **Withdrawn by ADR-0080** (see the
+  amendment below): this confused workerd's V8 isolates with a microVM's
+  hypervisor, libkrun, and the gateway can be a guest of the latter.
 - `rosary` dispatches host subprocesses. This ADR first called that exemption
   **contingent** on `rosary-56b557` making cloister a `ComputeProvider`, on the
   reasoning that it would remove the requirement. **That was wrong.** The work
@@ -105,7 +107,9 @@ easier because it is what already worked.
 
 **Forbid `process` outright.** Rejected: `cloister-router` is a permanent,
 structural counter-example. A rule with a standing exception needs to model the
-exception, or the exception becomes an ignored rule.
+exception, or the exception becomes an ignored rule. **The counter-example is
+withdrawn by ADR-0080**, which makes forbidding `process` the end state,
+reached by retiring each exemption.
 
 **Make `process` dev-only, behind `CLOISTER_MODE=dev`** — the operator's first
 instinct, and the ADR-0042 `lint:no-dev-mode` pattern. Rejected for the same
@@ -167,3 +171,22 @@ gap it was built to close.** Tracked as `cloister-8ae1f2`.
 The two `UNDECIDED` rationales now in `cluster.toml` say precisely that. Writing
 the field is what forced the distinction between "we decided not to isolate
 this" and "nobody decided anything", and the answer was the second one.
+
+## Amendment (2026-11-21): ADR-0080
+
+ADR-0080 withdraws this ADR's one "structural and permanent" exemption and the
+two rejections that rested on it. The gateway is workerd, a V8-isolate
+hypervisor that starts no microVMs, so it can be a guest of libkrun, keeping its
+isolates and gaining a kernel boundary. "You cannot put the hypervisor inside
+its own guest" is true of libkrun and not of workerd.
+
+From ADR-0080 on:
+
+- the host runs only the platform, and every bundle is a guest;
+- `process` means a bundle that is not yet a guest, not one for which isolation
+  is impossible;
+- its rationale names its exit: a bead, an issue or an ADR whose work removes
+  the exemption. Inv 13 checks that one is named. This adopts the "require a
+  reference" alternative deferred above, now that every exemption has a
+  rationale;
+- the STRUCTURAL, CONTINGENT and UNDECIDED labels are retired.

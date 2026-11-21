@@ -13,7 +13,7 @@ workerdServiceName = "cloister"
 
 [bundles.external]
 executionMode = "process"
-executionModeRationale = "CONTINGENT, and recorded wrong until now as permanent. It read that this IS the workerd host, and the hypervisor cannot be placed inside its own guest. Those are two hypervisors: the gateway is the V8-isolate one, and a microVM's is libkrun, which ley-line-open runs; the gateway starts no guests. workerd in a microVM keeps its isolates and gains a kernel boundary (ADR-0078). What stops it is engineering. Each wire to a bundle becomes a declared connection, and a connection between two placements needs the broker (ley-line-open-e2c5ce), as do its outbound fetches and its key helper on the host. Its Durable Object storage must survive a run (ley-line-open#600). A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb."
+executionModeRationale = "workerd keeps Workers in V8 isolates and starts no microVMs, so it can run inside one, keeping its isolates (ADR-0080). It needs, to run as a guest: its wires as declared connections, with the broker joining a connection between two placements and carrying its outbound fetches and its key helper on the host (ley-line-open-e2c5ce); Durable Object storage that survives a run (ley-line-open#600); and a service run with no wall-clock ceiling (ley-line-open-e6b1bb)."
 httpPort = 8787
 image = "cloister:0.1.0"
 ipcSocket = "/run/cloister-uds/router.sock"
@@ -33,7 +33,7 @@ tier = "hypervisor"
 
 [bundles.external]
 executionMode = "process"
-executionModeRationale = "CONTINGENT. It holds the Signet master CA, so it has the strongest case for isolation in the cluster. This read that only a missing entryPoint stopped it, and there is more. The entryPoint is known: notme's image runs /usr/bin/workerd serve /app/config.capnp --experimental. What remains is engineering. runtime import and runtime plan refuse a bundle pinned through a multi-image producer's [[inputs.notme.ociBundles]], as this one is. Its listener (8788) becomes a declared port, which the gateway reaches across placements through the broker (ley-line-open-e2c5ce), as do its key fetches and GitHub calls. Its Durable Object storage must survive a run (ley-line-open#600). A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb. Tracked in cloister-5fe44f."
+executionModeRationale = "It holds the Signet master CA, the strongest case for isolation in the cluster. Its entryPoint is known: notme's image runs /usr/bin/workerd serve /app/config.capnp --experimental. It needs, to run as a guest: runtime import and runtime plan to accept a bundle pinned through a multi-image producer's [[inputs.notme.ociBundles]], as this one is; its listener (8788) as a declared port, reached across placements, with its key fetches and GitHub calls, through the broker (ley-line-open-e2c5ce); Durable Object storage that survives a run (ley-line-open#600); and a service run with no wall-clock ceiling (ley-line-open-e6b1bb). Tracked in cloister-5fe44f."
 httpPort = 8788
 
 [[bundles]]
@@ -45,7 +45,7 @@ tier = "hypervisor"
 
 [bundles.external]
 executionMode = "process"
-executionModeRationale = "CONTINGENT, and the blocker this cited is gone. It read that the krunvm backend could not serve a bundle that listens only on a Unix socket. #262 replaced that backend with ley-line-open's execution API, which carries socket channels (confinement/v1 §6) and presents one to a guest as TCP on its loopback, and this proxy already listens on TCP (--listen). What remains is engineering. Its outbound mTLS goes through the broker (ley-line-open-e2c5ce). The bridge credential it holds has no path into a guest until ADR-0076 Part B. Its dial to rosary, a process bundle, crosses placements. A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb. Its entryPoint is undeclared (cloister-701b33)."
+executionModeRationale = "It holds the bridge credential and mediates every attested egress. It already listens on TCP (--listen), which is how a guest is handed a channel (confinement/v1 §6). It needs, to run as a guest: its outbound mTLS through the broker (ley-line-open-e2c5ce); a path for the bridge credential into a guest (ADR-0076, Part B); its dial to rosary joined across placements until rosary is a guest too; a service run with no wall-clock ceiling (ley-line-open-e6b1bb); and its entryPoint declared (cloister-701b33)."
 ipcSocket = "/run/cloister-uds/companion.sock"
 
 [[bundles]]
@@ -85,7 +85,7 @@ tier = "cluster"
 [bundles.external]
 args = [ "mcp", "--ipc-socket", "/run/cloister-uds/rosary/rosary.sock" ]
 executionMode = "process"
-executionModeRationale = "CONTINGENT, on engineering. rosary starts each agent by running cloister run as a host process (rosary:src/cloister_provider.rs), so it needs to spawn. That becomes a request to cloister over a declared channel, so cloister starts the agent's run instead of rosary forking it. Its git worktrees are a workspace (ADR-0078), and its Keychain use is a vault slice (ADR-0010). Its cluster transport (rsry mcp --ipc-socket) listens only on a Unix socket, and the microVM tier presents a channel to a guest only as TCP on its loopback, so either rosary listens on TCP or ley-line-open presents a socket inside the guest (ley-line-open#601). The krunvm limit this cited is gone: #262 replaced that backend with ley-line-open's execution API. A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb."
+executionModeRationale = "It starts each agent by running cloister run as a host process (rosary:src/cloister_provider.rs). It needs, to run as a guest: that spawn turned into a request to cloister over a declared channel, so cloister starts the agent's run; its git worktrees as a workspace (ADR-0078) and its Keychain use as a vault slice (ADR-0010); its cluster transport (rsry mcp --ipc-socket), which listens only on a Unix socket, handed to it inside the guest (ley-line-open#601); and a service run with no wall-clock ceiling (ley-line-open-e6b1bb)."
 ipcSocket = "/run/cloister-uds/rosary/rosary.sock"
 
 [[wires]]

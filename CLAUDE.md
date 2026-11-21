@@ -94,7 +94,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 | 10 | External bundle image derivable (operator `ext.image` OR a linked input's `packages[].oci`); WARN-level | ADR-0038 |
 | 11 | Confinement facet (fs.allow / allowHosts / port.bind) is valid + fail-closed | cloister-a34edc |
 | 12 | Every `durableObjectNamespace` binding on a bundle's Worker resolves to a declared `durableObjectNamespaces` entry (same-Worker or named cross-worker `serviceName`) | cloister-f9d473 |
-| 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`), and `process` — an EXEMPTION from isolation, not a peer of it — states why | ADR-0048 / ADR-0062 / cloister-54b834 |
+| 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`), and `process` — a bundle not yet a guest — names its exit (a bead, an issue or an ADR), with no STRUCTURAL / PERMANENT / CONTINGENT / UNDECIDED label | ADR-0048 / ADR-0062 / ADR-0080 / cloister-54b834 |
 | 14 | Bundle tier / kind / wire fact agrees with what the producing input declares; WARN-level, operator stays authoritative | cloister-d8e8fb |
 | 15 | A bundle description or rationale that cites a file in this repository names one that exists, at a line it has; another repository's file is cited `<repo>:<path>` | cloister-ca2582 |
 
