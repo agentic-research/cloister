@@ -324,6 +324,7 @@ export const COMMANDS = [
   },
   {
     name: "cluster k8s",
+    standalone: true,
     usage: "cloister cluster k8s --out <dir> [--env <name>] [--dir <path>]",
     summary: "Lower kubernetes placements to manifests + NetworkPolicy; check knative ones",
     detail:
@@ -364,6 +365,7 @@ export const COMMANDS = [
   },
   {
     name: "cluster graph",
+    standalone: true,
     usage: "cloister cluster graph [--env <name>] [--dir <path>] [--json]",
     summary: "Show every declared edge, what carries it, and what holds it",
     detail:
@@ -387,6 +389,7 @@ export const COMMANDS = [
   },
   {
     name: "cluster lower",
+    standalone: true,
     usage: "cloister cluster lower [--env <name>] [--dir <path>]",
     summary: "Write each kubernetes- or knative-placed bundle's manifest from cluster.toml",
     detail:
@@ -415,6 +418,7 @@ export const COMMANDS = [
   },
   {
     name: "inspect",
+    standalone: true,
     usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>] | cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind <kind>]] [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
@@ -550,6 +554,29 @@ export function renderCommandHelp(name) {
   return lines.join("\n");
 }
 
+/**
+ * The declared command `argv` names: the longest `name` whose words begin it.
+ * Undefined when none does.
+ *
+ * @param {string[]} argv the arguments after the global options
+ */
+export function commandFor(argv) {
+  let best;
+  for (const c of COMMANDS) {
+    const words = c.name.split(" ");
+    if (words.every((w, i) => argv[i] === w) && (!best || words.length > best.name.split(" ").length)) best = c;
+  }
+  return best;
+}
+
+/**
+ * The commands the one-file build runs (gen/bundle.mjs). A command is here
+ * because it reads nothing from a cloister checkout and needs nothing but
+ * Node, and gen/test/bundle.test.mjs runs each one from an empty directory.
+ * Every other command, run from that file, refuses by name.
+ */
+export const STANDALONE = Object.freeze(COMMANDS.filter((c) => c.standalone).map((c) => c.name));
+
 /** The top-level help text, derived. Colour is applied by the caller, not here. */
 export function renderHelp() {
   const width = Math.max(...COMMANDS.map((c) => c.name.length)) + 12;
@@ -566,5 +593,8 @@ export function renderHelp() {
     lines.push(`  ${label.padEnd(optionWidth)} ${option.summary}`);
   }
   lines.push("", "Run `cloister <command> --help` for command-specific options.");
+  if (globalThis.__CLOISTER_BUNDLE__ === true) {
+    lines.push(`This is the one-file build. It runs: ${STANDALONE.join(", ")}. The others need a cloister checkout.`);
+  }
   return lines.join("\n");
 }

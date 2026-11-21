@@ -1,14 +1,17 @@
-name: release-plan-checker
-# Publishes the plan checker (docs/plan-checker.md) as a GitHub release asset:
-# dist/cloister-plan.mjs, one file that needs only Node 22, and its sha256.
+name: release-cli
+# Publishes the cloister CLI as one file, as a GitHub release asset:
+# dist/cloister.mjs, which needs only Node 22, and its sha256. It runs the
+# commands cli/surface.mjs marks standalone (the plan checker, `cloister
+# inspect`, first; docs/plan-checker.md) and refuses the rest by name.
 #
-# Runs only on a pushed `plan-checker/v*` tag, so nothing is published until a
+# Runs only on a pushed `cli/v*` tag, so nothing is published until a
 # maintainer tags one. The tag namespace follows clients/go/cloister-schema/v*.
 # actions/plan-check downloads the asset of the tag it is pinned to and
 # verifies it against the digest file published here.
 #
-# The bundle is tested before it is published: gen/test/bundle-plan.test.mjs
-# runs every fixture through it and requires output identical to the CLI's.
+# The file is tested before it is published: gen/test/bundle.test.mjs runs
+# every standalone command from an empty directory and requires output
+# identical to the CLI's, and holds every other command to its refusal.
 #
 # No untrusted github.event input is interpolated into a run: block. The tag
 # name reaches the shell as an environment variable.
@@ -16,7 +19,7 @@ name: release-plan-checker
 on:
   push:
     tags:
-      - "plan-checker/v*"
+      - "cli/v*"
 
 permissions:
   contents: read
@@ -24,7 +27,7 @@ permissions:
 concurrency:
   # The repository's one shape (lint/test/ci-gate.test.mjs). A tag is never
   # main, and each tag is its own group, so one release never cancels another.
-  group: release-plan-checker-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  group: release-cli-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -50,16 +53,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Test the bundle
-        # Builds it into a temporary directory and runs every fixture through it.
-        run: node --test gen/test/bundle-plan.test.mjs
+      - name: Test the one file
+        # Builds it into a temporary directory and runs it from empty ones.
+        run: node --test gen/test/bundle.test.mjs
 
-      - name: Build the bundle
+      - name: Build the one file
         run: |
-          node gen/bundle-plan.mjs
+          node gen/bundle.mjs
           cd dist
-          sha256sum cloister-plan.mjs > cloister-plan.mjs.sha256
-          cat cloister-plan.mjs.sha256
+          sha256sum cloister.mjs > cloister.mjs.sha256
+          cat cloister.mjs.sha256
 
       - name: Publish the release
         env:
@@ -68,5 +71,5 @@ jobs:
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "$TAG" \
-            --notes "The plan checker as one file that needs only Node 22. Guide: docs/plan-checker.md. Verify: sha256sum --check cloister-plan.mjs.sha256. In a workflow: agentic-research/cloister/actions/plan-check@$TAG" \
-            dist/cloister-plan.mjs dist/cloister-plan.mjs.sha256
+            --notes "The cloister CLI as one file that needs only Node 22: node cloister.mjs --help. It runs the commands that need no checkout, starting with the plan checker (docs/plan-checker.md). Verify: sha256sum --check cloister.mjs.sha256. In a workflow: agentic-research/cloister/actions/plan-check@$TAG" \
+            dist/cloister.mjs dist/cloister.mjs.sha256

@@ -23,7 +23,7 @@
 
 // The mappings and specs are imported, not read from disk next to this file,
 // so that a bundler carries them: `cloister inspect` ships as one file
-// (gen/bundle-plan.mjs), and there is no directory beside it to read from.
+// (gen/bundle.mjs), and there is no directory beside it to read from.
 import cloudflareMapping from "./mappings/cloudflare.json" with { type: "json" };
 import googleMapping from "./mappings/google.json" with { type: "json" };
 import kubernetesMapping from "./mappings/kubernetes.json" with { type: "json" };

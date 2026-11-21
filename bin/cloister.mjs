@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { GlobalOptionsError, parseGlobalOptions } from "../cli/lib/global-options.mjs";
+import { helpFor } from "../cli/help.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -73,6 +74,13 @@ export async function run(argv = process.argv.slice(2), io = process) {
       if (!(cause instanceof GlobalOptionsError)) throw cause;
       io.stderr.write(`cloister: ${cause.message}\n`);
       return 2;
+    }
+    // Help answers before anything runs, `install`'s bootstrap included, and
+    // needs nothing installed (cli/help.mjs).
+    const help = helpFor(bootstrapArgv);
+    if (help !== undefined) {
+      io.stdout.write(`${help}\n`);
+      return 0;
     }
     if (bootstrapArgv[0] === "install") return await bootstrapInstall(bootstrapArgv, io);
     const { main } = await import("../cli/index.mjs");

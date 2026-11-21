@@ -17,7 +17,9 @@ import {
 } from "./lib/runtime/llo-client.mjs";
 import { verifyExecutionReceipt } from "./lib/runtime/llo-execution-adapter.mjs";
 import { main as runMain } from "./commands/run.mjs";
-import { renderCommandHelp, renderHelp } from "./surface.mjs";
+/// <reference path="./lib/bundle-globals.d.ts" />
+import { commandFor, renderCommandHelp, renderHelp, STANDALONE } from "./surface.mjs";
+import { helpFor } from "./help.mjs";
 import { GlobalOptionsError, parseGlobalOptions } from "./lib/global-options.mjs";
 import { createOutputContext } from "./lib/output.mjs";
 
@@ -51,9 +53,33 @@ export async function main(argv = process.argv.slice(2), context = {}) {
   });
   const { log, warn, error } = output;
   const [command, ...rest] = global.argv;
-  if (!command || command === "--help" || command === "-h" || command === "help") {
+  // Help first, from the declaration, before any command code (cli/help.mjs).
+  const help = helpFor(global.argv);
+  if (help !== undefined) {
+    log(help);
+    return 0;
+  }
+  if (!command) {
     printHelp(log);
     return 0;
+  }
+  if (globalThis.__CLOISTER_BUNDLE__ === true) {
+    // The one-file build (gen/bundle.mjs) carries every command's code, but
+    // only the STANDALONE ones work without a checkout. The rest read files
+    // that ship beside the source, and would fail on a missing path. Their
+    // `--help` was answered above, from the declaration.
+    const declared = commandFor(global.argv);
+    if (!declared) {
+      error(`cloister: unknown command: ${global.argv.join(" ")}`);
+      error("");
+      printHelp(error);
+      return 2;
+    }
+    if (!declared.standalone) {
+      error(`cloister ${declared.name}: this command needs a cloister checkout; the one-file build does not run it.`);
+      error(`  It runs: ${STANDALONE.join(", ")}. For the rest: https://github.com/agentic-research/cloister#readme`);
+      return 2;
+    }
   }
   if (command === "install" || command === "uninstall") {
     const { main: installMain } = await import("./commands/install.mjs");

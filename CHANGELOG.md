@@ -8,6 +8,20 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister is one file
+
+- `task bundle` builds the cloister CLI as `dist/cloister.mjs`, one file that
+  needs only Node 22. It replaces the plan-only `dist/cloister-plan.mjs`
+  before either was released, so there is one thing to download, not a
+  checker beside a CLI.
+- It runs the commands `cli/surface.mjs` marks `standalone` (`inspect`,
+  `cluster graph`, `cluster lower`, `cluster k8s`): each is run from an empty
+  directory by `gen/test/bundle.test.mjs` and must match the CLI's output and
+  files exactly. Every other command refuses by name, and answers `--help`
+  from its declaration rather than its own code.
+- Releases are `cli/v*` tags (`release-cli.yml`); `actions/plan-check` is
+  pinned to one and runs `cloister.mjs inspect`.
+
 ### 2026-11 — the plan checker in CI
 
 - `cloister inspect --fail-on undeclared,contradicted,unknown` exits 3 when a

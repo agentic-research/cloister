@@ -2,7 +2,7 @@
 #
 # Check a rendered Terraform plan against cluster.toml, in a GitHub workflow.
 #
-#   - uses: agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0
+#   - uses: agentic-research/cloister/actions/plan-check@cli/v0.1.0
 #     with:
 #       plan: plan.json        # `terraform show -json` output, NOT committed
 #       dir: infra             # the directory holding cluster.toml
@@ -10,9 +10,11 @@
 #
 # The check is the step's status and the job summary. It posts nothing to a
 # pull request. There is no `result` output: a composite action that fails
-# returns its outputs empty, so one would be missing exactly when it mattered. The checker is the one-file bundle (docs/plan-checker.md),
-# downloaded from the release this action is pinned to and verified against
-# the digest published beside it. Pin a plan-checker/v* tag: any other ref has
+# returns its outputs empty, so one would be missing exactly when it mattered.
+#
+# The checker is `cloister inspect`, from the one-file CLI (dist/cloister.mjs,
+# docs/plan-checker.md), downloaded from the release this action is pinned to
+# and verified against the digest published beside it. Pin a cli/v* tag: any other ref has
 # no release, and the action says so rather than guessing one.
 #
 # Every input reaches the shell as an environment variable, never
@@ -41,7 +43,7 @@ inputs:
     required: false
     default: undeclared,contradicted
   checker:
-    description: Path to a cloister-plan.mjs to run instead of downloading one. For testing this action.
+    description: Path to a cloister.mjs to run instead of downloading one. For testing this action.
     required: false
     default: ""
 
@@ -63,18 +65,18 @@ runs:
           exit 0
         fi
         case "$ACTION_REF" in
-          plan-checker/v*) ;;
+          cli/v*) ;;
           *)
-            echo "::error::cloister plan-check is pinned to '$ACTION_REF', which is not a release. Pin a plan-checker/v* tag, e.g. agentic-research/cloister/actions/plan-check@plan-checker/v0.1.0"
+            echo "::error::cloister plan-check is pinned to '$ACTION_REF', which is not a release. Pin a cli/v* tag, e.g. agentic-research/cloister/actions/plan-check@cli/v0.1.0"
             exit 1
             ;;
         esac
         out="$RUNNER_TEMP/cloister-plan"
         mkdir -p "$out"
         gh release download "$ACTION_REF" --repo "$ACTION_REPO" --dir "$out" \
-          --pattern cloister-plan.mjs --pattern cloister-plan.mjs.sha256
-        (cd "$out" && sha256sum --check --strict cloister-plan.mjs.sha256)
-        echo "path=$out/cloister-plan.mjs" >> "$GITHUB_OUTPUT"
+          --pattern cloister.mjs --pattern cloister.mjs.sha256
+        (cd "$out" && sha256sum --check --strict cloister.mjs.sha256)
+        echo "path=$out/cloister.mjs" >> "$GITHUB_OUTPUT"
 
     - name: Check the plan
       id: check
@@ -87,7 +89,7 @@ runs:
         FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set -uo pipefail
-        args=(--terraform "$PLAN" --dir "$DIR" --fail-on "$FAIL_ON")
+        args=(inspect --terraform "$PLAN" --dir "$DIR" --fail-on "$FAIL_ON")
         if [ -n "$ENV_NAME" ]; then args+=(--env "$ENV_NAME"); fi
         report="$RUNNER_TEMP/cloister-plan-report.txt"
         node "$CHECKER" "${args[@]}" > "$report" 2> "$report.err"

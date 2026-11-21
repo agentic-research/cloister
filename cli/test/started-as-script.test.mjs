@@ -5,7 +5,7 @@
 // with its own path is correct on its own, and wrong the moment it is
 // bundled: every module in a bundle shares the bundle's path, so each one
 // would run its main. The plan checker is shipped as a bundle
-// (gen/bundle-plan.mjs), and the first build of it did exactly that.
+// (gen/bundle.mjs), and the first build of it did exactly that.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
