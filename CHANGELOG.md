@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the CLI's outputs are declared (ADR-0077)
+
+- `manifest/cli.capnp` declares the CLI's JSON outputs; schema-bridge
+  generates `src/generated/cli.zod.ts` and the published
+  `schema/cli.schema.json` (`task cli:schema`, gated by `cli:schema:check`).
+- Every output carries `formatVersion` ("MAJOR.MINOR", after Terraform's
+  `format_version`). `schema/cli-formats.lock.json` records each version with
+  its shape; `node gen/cli-schema.mjs --bump <Output>` decides the bump from
+  the change (minor for an addition, major otherwise), and the gate fails a
+  shape that changed without one.
+- The CLI parses each output with its generated schema before printing it,
+  and refuses one that differs. First: `cluster graph --json`, at 1.0. A
+  `minStrength` of no minimum now reads `none` rather than an empty string.
+- `--help` always answers, from the declaration, before any command code
+  (`cli/help.mjs`).
+
 ### 2026-11 — cloister is one file
 
 - `task bundle` builds the cloister CLI as `dist/cloister.mjs`, one file that
