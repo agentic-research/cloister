@@ -312,8 +312,6 @@ export const OUTWARD = Object.freeze([
   // The OCI registry feature's state, kept in core's trust store.
   "src/trust-store.ts -> src/storage/registry-membership.ts",
   "src/trust-store.ts -> src/storage/registry-tags.ts",
-  // Core's lock writer carrying the microVM driver's rootfs rows.
-  "cli/lib/cluster/lockfile.mjs -> cli/lib/runtime/rootfs-lock.mjs",
 ]);
 
 /** ADR-0081, whose frontmatter states core's budget in lines. */

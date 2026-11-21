@@ -6,7 +6,7 @@ tags: [architecture, core, drivers, features, layering, tcb, budget]
 tracking-bead: cloister-ca2582
 # Core's size in lines, read by lint/layers.mjs (§4). Raising it is an
 # amendment to this ADR; the change that raises it says why.
-core-budget: 21164
+core-budget: 21198
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
   - 0011-hypervisor-bundle-boundary.md
@@ -51,6 +51,11 @@ No code moves.
 platform module that is one driver's own API, such as `cloudflare:workers`,
 is now an import of that driver (§3). A change that shrinks core lowers the
 budget with it (§4).
+
+**Amended a third time when the lock writer stopped importing the microVM
+driver.** The rule that carries a driver's records across a lock regeneration
+moved into core, not behind a hook (Consequences), and core's budget rose
+with it (§4).
 
 ## Context
 
@@ -187,10 +192,17 @@ Core's size in lines is `core-budget` in this file's frontmatter. The rail
 measures core from the same map and refuses core larger than its budget.
 Core may shrink freely, and a change that shrinks it lowers `core-budget` to
 match, so no headroom builds up. Core grows only by raising `core-budget`
-here, in the change that grows it, and that change says why. The number matters less
-than the habit: adding to what every deployment must trust becomes a
-decision someone writes down. The budget started at 21,363 lines, core's
-size when the rail landed.
+here, in the change that grows it, and that change says why. The number
+matters less than the habit: adding to what every deployment must trust
+becomes a decision someone writes down. The budget started at 21,363 lines,
+core's size when the rail landed.
+
+Raises so far:
+
+- 21,164 to 21,198 lines: the rule that carries a record derived from a
+  pinned image across a lock regeneration moved from the microVM driver into
+  the lock writer (Consequences). Core grew by 34 lines, and the microVM
+  driver shrank by 23.
 
 ### 5. Nothing moves yet
 
@@ -212,8 +224,12 @@ tidy them would churn history and every open branch.
     namespace. Each gets a port that core calls and the workerd driver hosts;
   - the OCI registry's tables leave the trust store;
   - core stops reading the MCP gateway's manifest types;
-  - the lock writer's rootfs carry-forward moves to the microVM driver,
-    behind a hook core calls.
+  - the lock writer stops importing the microVM driver. The rule that carries
+    a record a driver derives from a pinned image, such as a rootfs, across a
+    lock regeneration is core's: the record follows the image's digest. A
+    hook the driver registered would be skipped by any writer that never
+    loads the driver, which is the silent erasure the one lock writer exists
+    to prevent.
 - Two files hold more than one layer's code, and each will be split:
   - `src/types.ts`: the workerd driver's `Env`, beside JSON-RPC, MCP and bead
     types that belong to features;
