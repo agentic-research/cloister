@@ -103,7 +103,8 @@ From notme's and signet's design documents and code:
 
 The two jobs are separable, and only one of them needs a credential.
 
-1. **Asked of notme:** `notme-proxy` starts without `--cert` and `--key`.
+1. **Asked of notme** ([agentic-research/notme#79](https://github.com/agentic-research/notme/issues/79)):
+   `notme-proxy` starts without `--cert` and `--key`.
    With no credential it serves the socket bridge and refuses mTLS requests
    with an error that says it holds no credential. It does not reach for
    default file names. With a credential it behaves as today.
@@ -144,9 +145,34 @@ the exchange (its README rules out the proxy); whether renewal keeps the key
 or generates a fresh pair (signet generates fresh keys on every renewal); and
 whether a 24-hour session is the right ceiling for a long-running cluster.
 
-When notme settles it, cloister's part is to hand the companion its
-credential through the vault (ADR-0010) and to declare the companion's call to
-`notme-identity` as a wire. Neither is built before then.
+**Amendment (2026-11-21): notme's `goalzero` branch has a plan for this, and
+it is not the invite re-exchange above.** Read at `f616957`:
+
+- `proxy/src/main.rs` is unchanged there: it still exits without `--cert`.
+  Part A stands.
+- Design 019 resolves the contradiction this ADR found: "bridge cert" meant
+  four different things, and it now names each. Design 021 makes an invite the
+  gate for a principal, with its scopes taken from the invite and never from
+  the request. That is the constraint above, in notme's words.
+- The holder is notme's **mint path, phase 3** (`notme-bdd7f9`): the path runs
+  as a local service, and a workload asks it for a five-minute task
+  certificate instead of holding a tier key. Its transport is LLO's
+  `LeaseTransport` (`ley-line-open-92b56e`, not in v0.30.0), keys never enter
+  a confined guest (LLO ADR-0038), and HTTP is refused off loopback. Reshaping
+  `mintBridgeCertPair` into `/identity/lease` (`notme-bd2a72`) waits on it,
+  and may not be needed after it.
+
+So the companion should not redeem an invite and renew a session itself. It
+should be a workload that asks the host's path for its certificate. The open
+questions above are notme's phase 3, and cloister's part waits on it and on
+LLO's `LeaseTransport`. The constraints listed above are unchanged, and
+phase 3 as written meets them.
+
+When notme settles it, cloister's part is to give the companion a declared
+channel to the host's path (a connection, like any other edge, ADR-0069), so
+the companion holds a way to ask and never a key. The earlier plan, handing it
+a credential through the vault (ADR-0010), is superseded by the amendment
+above. Nothing is built before phase 3 ships.
 
 ## Consequences
 
