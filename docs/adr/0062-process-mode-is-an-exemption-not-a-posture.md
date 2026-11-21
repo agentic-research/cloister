@@ -28,7 +28,7 @@ What they declare is the problem:
 
 | bundle | mode | justified in the manifest? | what it holds |
 |---|---|---|---|
-| `cloister-router` | `process` | yes — it **is** the workerd host, so it cannot be a microVM of itself | Durable Object state |
+| `cloister-router` | `process` | yes — it **is** the workerd host, so it cannot be a microVM of itself (withdrawn by ADR-0080) | Durable Object state |
 | `rosary` | `process` | yes — dispatches host subprocess agents, git worktrees, Keychain | beads |
 | `notme-identity` | `process` | **no reason given** | Signet master CA, lease cert mint |
 | `notme-proxy` | `process` | **no reason given** | bridge cert + private key |
@@ -56,7 +56,9 @@ there.
 
 `process` stops being a peer of `microvm` and becomes a **declared exemption**:
 a bundle asserting that isolation is impossible for it, with the reason recorded
-where the rail can check that a reason exists.
+where the rail can check that a reason exists. (ADR-0080 amends this: a
+`process` bundle is one not yet a guest, and the reason names the engineering
+that ends the exemption. No exemption is an impossibility.)
 
 1. **`microvm` is the default posture.** A bundle that says nothing gets the
    isolated one. (Inv 13 currently fails an unstated mode; that stays, because

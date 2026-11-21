@@ -182,8 +182,8 @@
         "args": { "type": "array", "items": { "type": "string" }, "description": "Command-line arguments, passed to the entry point exactly as written." },
         "env": { "type": "array", "items": { "$ref": "#/$defs/EnvVar" }, "description": "Environment variables to set for the bundle. Stored in clear, so not for secrets." },
         "entryPoint": { "type": "string", "description": "Absolute path of the binary inside the image. Required for a microvm bundle." },
-        "executionMode": { "type": "string", "description": "'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale." },
-        "executionModeRationale": { "type": "string", "description": "Why this bundle cannot be isolated. Required when executionMode is 'process'." },
+        "executionMode": { "type": "string", "description": "'microvm' to run as a guest in a microVM, or 'process' for a bundle that is not yet a guest. 'process' needs executionModeRationale." },
+        "executionModeRationale": { "type": "string", "description": "What this bundle needs that no guest placement gives it yet, and the work that ends that: a bead, an issue or an ADR. Required when executionMode is 'process'." },
         "runs": { "type": "string", "description": "'service' to run until stopped, or 'job' to run to completion. Empty means 'service'." },
         "workspace": { "type": "string", "description": "The operator's workspace, given to the bundle at /work: 'read' or 'write'. Empty means none." }
       },

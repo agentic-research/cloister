@@ -317,9 +317,9 @@ type ExternalBundle struct {
 	Env []EnvVar `json:"env"`
 	// Absolute path of the binary inside the image. Required for a microvm bundle.
 	EntryPoint string `json:"entryPoint"`
-	// 'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale.
+	// 'microvm' to run as a guest in a microVM, or 'process' for a bundle that is not yet a guest. 'process' needs executionModeRationale.
 	ExecutionMode string `json:"executionMode"`
-	// Why this bundle cannot be isolated. Required when executionMode is 'process'.
+	// What this bundle needs that no guest placement gives it yet, and the work that ends that: a bead, an issue or an ADR. Required when executionMode is 'process'.
 	ExecutionModeRationale string `json:"executionModeRationale"`
 	// 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'.
 	Runs string `json:"runs"`

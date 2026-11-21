@@ -285,9 +285,9 @@ export const ExternalBundleSchema: z.ZodType<ExternalBundle> = z.lazy(() =>
     env: z.array(EnvVarSchema).readonly().default([]),
     /** Absolute path of the binary inside the image. Required for a microvm bundle. */
     entryPoint: z.string().default(""),
-    /** 'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale. */
+    /** 'microvm' to run as a guest in a microVM, or 'process' for a bundle that is not yet a guest. 'process' needs executionModeRationale. */
     executionMode: z.string().default(""),
-    /** Why this bundle cannot be isolated. Required when executionMode is 'process'. */
+    /** What this bundle needs that no guest placement gives it yet, and the work that ends that: a bead, an issue or an ADR. Required when executionMode is 'process'. */
     executionModeRationale: z.string().default(""),
     /** 'service' to run until stopped, or 'job' to run to completion. Empty means 'service'. */
     runs: z.string().default(""),

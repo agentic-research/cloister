@@ -428,23 +428,28 @@ struct ExternalBundle $Traits.doc("A bundle that runs its own image, outside the
   # "microvm" and "process"; the host runtime selects exactly and never
   # substitutes a weaker backend.
   #
-  # "microvm" is the POSTURE; "process" is an EXEMPTION from it (ADR-0062).
-  # They are not peers: one isolates, the other does not, and a schema that
-  # presents them as equal choices is how four of five bundles ended up
-  # unisolated without anyone deciding to.
-  executionMode @6 :Text $Traits.doc("'microvm' to run isolated, or 'process' to run without isolation. 'process' needs executionModeRationale.");
+  # "microvm" is the POSTURE; "process" is a bundle not yet a guest
+  # (ADR-0062, ADR-0080). They are not peers: one isolates, the other does
+  # not, and a schema that presents them as equal choices is how four of five
+  # bundles ended up unisolated without anyone deciding to. What "process"
+  # lacks is engineering, never an impossibility.
+  executionMode @6 :Text $Traits.doc("'microvm' to run as a guest in a microVM, or 'process' for a bundle that is not yet a guest. 'process' needs executionModeRationale.");
 
-  # Why this bundle cannot be isolated. Required whenever executionMode is
-  # "process"; ignored otherwise. Per ADR-0062.
+  # What this bundle needs that no guest placement gives it yet, and the work
+  # that ends that. Required whenever executionMode is "process"; ignored
+  # otherwise. Per ADR-0062 as amended by ADR-0080: the rationale names its
+  # exit (a bead, an issue in a named repository, or an ADR), and no
+  # exemption is structural or permanent, because each is an engineering
+  # effort to finish.
   #
-  # The rail checks PRESENCE, not prose — it cannot judge whether an argument
-  # is good, only that someone was made to write one. That is enough: when
-  # this field was introduced, two bundles holding the cluster's highest-value
-  # secrets had no reason at all, and writing one down is what revealed that
-  # nobody had decided rather than that anybody had.
+  # The rail checks PRESENCE, not prose: that an exit is named, not that it
+  # is the right one. That is enough. When this field was introduced, two
+  # bundles holding the cluster's highest-value secrets had no reason at all,
+  # and writing one down is what revealed that nobody had decided rather than
+  # that anybody had.
   #
   # Same shape and precedent as `hypervisorRationale` on Bundle (ADR-0011).
-  executionModeRationale @7 :Text $Traits.doc("Why this bundle cannot be isolated. Required when executionMode is 'process'.");
+  executionModeRationale @7 :Text $Traits.doc("What this bundle needs that no guest placement gives it yet, and the work that ends that: a bead, an issue or an ADR. Required when executionMode is 'process'.");
 
   # How long the workload runs (ADR-0074 §7). "service" runs until it is
   # stopped and may be reached on its ports. "job" runs to completion.
