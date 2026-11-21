@@ -53,7 +53,7 @@ const DEFAULT_WALL_TIME_MS: u64 = 15 * 60 * 1000;
 /// here — and the receipt still records the mechanism LLO actually applied.
 /// `outputBytes` and `pids` carry no cloister default (there was none before
 /// the OCI migration either), so they stay zero.
-fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
+pub fn default_limits(enforced: &EnforcedCeilings) -> ResourceLimits {
     let when = |mechanism: leyline_runtime::CeilingMechanism, value: u64| {
         if mechanism.is_enforced() {
             value
@@ -420,7 +420,7 @@ pub fn run_id(plan: &LaunchPlan) -> String {
 /// it is applied again here so a caller that drives this backend directly
 /// gets the same refusal from the same rule, not a run with grants silently
 /// dropped.
-fn to_execution_request(
+pub fn to_execution_request(
     plan: &LaunchPlan,
     enforced: &EnforcedCeilings,
     deployment: &Deployment,
@@ -446,18 +446,8 @@ fn to_execution_request(
             "LLO execution requires a blake3-256 artifact digest; refusing to submit a sha256 or mutable image reference".into(),
         ));
     }
-    let executable = plan.artifact.entrypoint.strip_prefix('/').ok_or_else(|| {
-        RuntimeError::InvalidPlan("artifact.entrypoint must be absolute in the host plan so it can be converted to a guest-relative LLO path".into())
-    })?;
-    if executable.is_empty()
-        || executable
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(RuntimeError::InvalidPlan(
-            "artifact.entrypoint cannot be converted to a safe guest-relative LLO path".into(),
-        ));
-    }
+    // One rule for both paths: the daemon path names the same executable.
+    let executable = crate::issue::guest_executable(&plan.artifact.entrypoint)?;
     if plan.workspace.as_os_str().is_empty() || plan.control_socket.as_os_str().is_empty() {
         return Err(RuntimeError::InvalidPlan(
             "workspace and control socket are required".into(),
@@ -505,10 +495,23 @@ pub fn carried_confinement(
     plan: &LaunchPlan,
     deployment: &Deployment,
 ) -> Result<(String, Option<String>), RuntimeError> {
-    let grants = &plan.confinement.unix_socket.allow;
-    if grants.is_empty() {
+    if plan.confinement.unix_socket.allow.is_empty() {
         return Ok((String::new(), None));
     }
+    let (digest, json) = confinement_document(plan, deployment)?;
+    Ok((digest, Some(json)))
+}
+
+/// The confinement document the worker applies to `plan`'s run, as canonical
+/// JSON, with its digest: the deployment's own document (built from the same
+/// runtime files and devices the backend was given) plus the plan's §6
+/// grants. Always built, with or without grants: a grant (ADR-0079 §2)
+/// commits to the policy even when the plan adds nothing to it.
+pub fn confinement_document(
+    plan: &LaunchPlan,
+    deployment: &Deployment,
+) -> Result<(String, String), RuntimeError> {
+    let grants = &plan.confinement.unix_socket.allow;
     let invalid = |error: ExecutionError| RuntimeError::InvalidPlan(error.to_string());
     let mut document = confinement_manifest(&deployment.runtime_files, &deployment.devices, None)
         .map_err(invalid)?;
@@ -531,7 +534,7 @@ pub fn carried_confinement(
     }
     let digest = document.confinement_digest().map_err(invalid)?;
     let json = document.to_canonical_json().map_err(invalid)?;
-    Ok((digest, Some(json)))
+    Ok((digest, json))
 }
 
 impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {

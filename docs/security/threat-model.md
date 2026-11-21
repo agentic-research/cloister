@@ -2027,3 +2027,52 @@ missing part.
 **Related:** ADR-0065; ADR-0013 (slice grants — what a compromised tool may
 reach, the mirror of this section's "what a correct tool was told"); §9
 (disclosure oracles); `cloister-16f81c`.
+
+## 22. Execution grant issuance (ADR-0079)
+
+ADR-0079 moves a microVM run from cloister's direct backend call to
+ley-line-open's execution daemon, on a RunSpec (intent) and a RunGrant
+(authority bound to the spec's digest) that cloister issues. The host
+runtime's `issue` module builds both, the evidence statement the grant cites,
+and the catalog entry the daemon resolves the executable through. The issuing
+key is held by the sign-only helper (ADR-0019, §17), under a key URL used for
+nothing but execution grants and their evidence. The daemon verifies with that
+key's public half (`--trust-key`) and the DSSE evidence in its CAS evidence
+store. Verification is ley-line-open's (`authorize_with_verifier`,
+`CasDsseEvidenceVerifier`, `CatalogResolver`); what is asked for is
+cloister's.
+
+**What a grant is worth.** Whoever holds a valid one starts one run of one
+executable in one rootfs, with the channels, ceilings and confinement document
+it names, until it expires. A grant cloister should not have issued is a run
+the operator did not declare.
+
+**Not live yet.** No run takes this path until ley-line-open#603 lands (the
+helper cannot yet sign the evidence envelope) and the daemon path reaches
+parity with the direct one (ADR-0079 §6). These rows are written before the
+seam opens, as this document requires.
+
+| # | Attack | Defense | Test |
+|---|---|---|---|
+| 22.1 | A grant from an issuer the daemon does not trust | The daemon checks the grant's signature against its trust keys only. The `keyId` is a hint and selects nothing. cloister never passes `--allow-unverified-evidence`, in development either (ADR-0079 §5) | `a_grant_signed_by_a_key_the_daemon_does_not_trust_is_refused` |
+| 22.2 | Evidence issued for one run, presented for another | The statement binds each of the three evidence roles to the run id, which `derive_run_id` takes over the spec digest, the grant id and the replay key. LLO's verifier requires the role's subject to name this run | `evidence_bound_to_another_run_does_not_authorize_this_one` |
+| 22.3 | Another executable run under the grant's name | The artifact digest is the entry point's `blake3`, read from the rootfs manifest after the manifest's bytes are checked against the rootfs digest the lock pins. The backend verifies the tree against the manifest when the run starts | `a_manifest_that_does_not_hash_to_its_rootfs_digest_names_no_executable` |
+| 22.4 | A wider policy than the plan's | The grant always carries the confinement document with its digest, including when the plan adds no §6 grant, and the worker compares the policy it will apply before the workload starts (ley-line-open `7a3109`) | `an_issued_run_is_authorized_by_llo_and_resolves_to_the_request_the_direct_path_builds` |
+| 22.5 | Arbitrary bytes signed with the issuer key | The helper signs whatever it is given, so separation is by key: the issuer key URL signs nothing else, and only the host runtime is to be listed as its caller (§17 Row 17.2's allow-list). A process that can call the helper as the host runtime can still have any bytes signed with that key, as for every helper key | — |
+| 22.6 | A catalog naming a rootfs the lock does not pin | The catalog is generated at each daemon start, from the lock's rootfs rows, and LLO's own reader validates it before it is written | `a_catalog_llo_would_refuse_is_refused_when_it_is_written` (the shape; generation from the lock is the next slice) |
+| 22.7 | A captured grant replayed | `expiresAtUnixMs` and the replay key, held by the daemon's replay protection | ley-line-open's |
+
+### Open, and deliberately named
+
+- **ley-line-open#603.** The evidence envelope can be signed only by an
+  in-process key, so the helper can sign a grant but not its evidence. cloister
+  will not write a second encoder of LLO's envelope.
+- **ley-line-open#602.** A workspace is named by its tree root, which the
+  daemon reports only once it is running, while its catalog must name the root
+  at start. A plan that declares a workspace is refused by name until then.
+- **The daemon's state directory.** The catalog and the evidence store live
+  there. Who may write it is stated when `cluster up` starts the daemon
+  (ADR-0079 §1), not before.
+
+**Related:** ADR-0079; ADR-0063 (execution/v1 is LLO's, in three structs);
+ADR-0019 and §17 (the helper); ADR-0007 (no auth bypass).

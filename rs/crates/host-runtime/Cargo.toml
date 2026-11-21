@@ -26,6 +26,15 @@ leyline-fs = { git = "https://github.com/agentic-research/ley-line-open", rev = 
 # krunvm shell-out. Same rev AND version as every other LLO pin: cargo resolves
 # on the pair, and `lint:upstream-pins` enforces ONE of each across all of them.
 leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "de638aeaf77133e6c14125a0f59f5f6b0acade00", version = "0.30.0", package = "leyline-runtime", optional = true }
+# ADR-0079 §2: the RunSpec and RunGrant are built with LLO's generated
+# execution/v1 builders, and the grant evidence is LLO's in-toto Statement.
+# Both crates are already in the graph through leyline-runtime; naming them
+# here pins them to the same rev and version. capnp and blake3 match LLO's
+# own workspace pins.
+leyline-public-schema = { git = "https://github.com/agentic-research/ley-line-open", rev = "de638aeaf77133e6c14125a0f59f5f6b0acade00", version = "0.30.0", package = "leyline-public-schema", optional = true }
+leyline-envelope = { git = "https://github.com/agentic-research/ley-line-open", rev = "de638aeaf77133e6c14125a0f59f5f6b0acade00", version = "0.30.0", package = "leyline-envelope", optional = true }
+capnp = { version = "=0.25.0", optional = true }
+blake3 = { version = "1.8.5", optional = true }
 
 [features]
 # Default is DELIBERATELY empty: no execution backend at all.
@@ -48,7 +57,13 @@ leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", r
 # degradation: an operator who has not opted into the closure has not opted into
 # executing tenants either.
 default = []
-llo-execution = ["dep:leyline-runtime"]
+llo-execution = [
+  "dep:leyline-runtime",
+  "dep:leyline-public-schema",
+  "dep:leyline-envelope",
+  "dep:capnp",
+  "dep:blake3",
+]
 
 [dev-dependencies]
 tempfile = "3"
