@@ -13,9 +13,12 @@
 // and records the resulting rootfs in cluster.lock.toml beside the image pin,
 // which is what `runtime plan` and `cluster up` run.
 //
-// The image is the lock's `[inputs.<bundle>.oci] digest`. `--image` may be
-// omitted (it is derived from the lock); if given it must equal that digest,
-// so the recorded rootfs can only ever come from the pinned image.
+// The image is the bundle's pin in the lock (lockedPin): the digest of the
+// `[[inputs.<input>.ociBundles]]` row naming it, for a producer that publishes
+// several images, else `[inputs.<bundle>.oci] digest`. The rootfs is recorded
+// on that same row. `--image` may be omitted (it is derived from the lock); if
+// given it must equal that digest, so the recorded rootfs can only ever come
+// from the pinned image.
 //
 // The row is recorded under the platform LLO reports for the image it
 // imported (`image.platform`, from the digest-verified config), never one the
@@ -40,6 +43,7 @@ import {
   DEFAULT_SYMLINKS,
   SYMLINK_MODES,
   lockedOci,
+  lockedPin,
   recordRootfs,
 } from "../lib/runtime/rootfs-lock.mjs";
 import { queryPlatformAdmits } from "../lib/runtime/guest-platform.mjs";
@@ -74,10 +78,10 @@ export function parseImportArgs(argv) {
  * image is refused by its registry and reported as such (no credentials in
  * this slice).
  */
-export function registryReference(bundle, oci) {
+export function registryReference(bundle, oci, table = `[inputs.${bundle}.oci]`) {
   const identifier = typeof oci.identifier === "string" ? oci.identifier.trim() : "";
   if (!identifier) {
-    throw new Error(`bundle "${bundle}" has no [inputs.${bundle}.oci] identifier to pull from`);
+    throw new Error(`bundle "${bundle}" has no ${table} identifier to pull from`);
   }
   const lastSegment = identifier.slice(identifier.lastIndexOf("/") + 1);
   if (identifier.includes("@") || lastSegment.includes(":")) {
@@ -122,10 +126,14 @@ export async function main(argv, deps = {}) {
       throw new Error(`no cluster.lock.toml in ${resolve(args.dir)}; --bundle records into the cluster's lock`);
     }
     const lockText = readFileSync(lockPath, "utf8");
-    const oci = lockedOci(parseToml(lockText), args.bundle);
+    const pin = lockedPin(parseToml(lockText), args.bundle);
+    const oci = pin?.oci;
     if (!oci?.digest) {
+      const where = pin
+        ? `${pin.table} digest`
+        : `[inputs.${args.bundle}.oci] digest, or an [[inputs.<input>.ociBundles]] row naming it`;
       throw new Error(
-        `cluster.lock.toml pins no image for bundle "${args.bundle}" ([inputs.${args.bundle}.oci] digest); ` +
+        `cluster.lock.toml pins no image for bundle "${args.bundle}" (${where}); ` +
           `resolve or pin it before importing`,
       );
     }
@@ -139,7 +147,7 @@ export async function main(argv, deps = {}) {
     const importOci = deps.importOci ?? ((a) => runCompatibilityJson(a, { env }).data);
     const source = args.layout
       ? ["--layout", args.layout, "--image", image]
-      : ["--from-registry", registryReference(args.bundle, oci)];
+      : ["--from-registry", registryReference(args.bundle, oci, pin.table)];
     const record = importOci(["import-oci", ...source, "--symlinks", args.symlinks]);
     const algorithm = record?.rootfs?.algorithm;
     const value = record?.rootfs?.value;

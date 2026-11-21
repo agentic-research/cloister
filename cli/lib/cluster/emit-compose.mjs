@@ -39,7 +39,7 @@ import { parse as parseToml } from "smol-toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import { resolveBundleImage } from "../oci-artifact.mjs";
+import { ociPins, resolveBundleImage } from "../oci-artifact.mjs";
 import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExposure, publishedPort, networkPlan, networksFor } from "./http-networks.mjs";
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { STRENGTHS, envSource } from "./connections.mjs";
@@ -530,20 +530,7 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
 // ── CLI ──────────────────────────────────────────────────────────────────
 
 export function parseOciPins(lockText) {
-  const lock = parseToml(lockText);
-  const ociByInput = new Map();
-  const ociByBundle = new Map();
-  for (const [name, row] of Object.entries(lock.inputs ?? {})) {
-    if (row && typeof row === "object" && row.oci && row.oci.identifier) {
-      ociByInput.set(name, row.oci);
-    }
-    for (const bundle of row?.ociBundles ?? []) {
-      if (bundle && typeof bundle === "object" && bundle.bundle && bundle.identifier) {
-        ociByBundle.set(bundle.bundle, bundle);
-      }
-    }
-  }
-  return { ociByInput, ociByBundle };
+  return ociPins(parseToml(lockText));
 }
 
 export async function main(_argv = process.argv.slice(2), deps = {}) {

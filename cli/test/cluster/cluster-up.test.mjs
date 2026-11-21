@@ -217,7 +217,7 @@ test("a re-import replaces the old flat record with a platform row", () => {
 });
 
 const recordRefusals = [
-  ["no pinned image", lockText({}), { bundle: "dolt", image: IMG("a"), rootfs: RFS("b"), symlinks: "preserve", platform: ARM }, /cluster.lock.toml pins no image for bundle "dolt" \(\[inputs.dolt.oci\] digest\)/],
+  ["no pinned image", lockText({}), { bundle: "dolt", image: IMG("a"), rootfs: RFS("b"), symlinks: "preserve", platform: ARM }, /cluster.lock.toml pins no image for bundle "dolt" \(\[inputs.dolt.oci\] digest, or an \[\[inputs.<input>.ociBundles\]\] row naming it\)/],
   ["a different image", lockText({ dolt: { digest: IMG("a") } }), { bundle: "dolt", image: IMG("c"), rootfs: RFS("b"), symlinks: "preserve", platform: ARM }, /--image sha256:c+ is not bundle "dolt"'s locked image sha256:a+/],
   ["a non-blake3 rootfs", lockText({ dolt: { digest: IMG("a") } }), { bundle: "dolt", image: IMG("a"), rootfs: IMG("b"), symlinks: "preserve", platform: ARM }, /the importer returned rootfs "sha256:b+", not a blake3-256 digest/],
   ["an unknown symlink mode", lockText({ dolt: { digest: IMG("a") } }), { bundle: "dolt", image: IMG("a"), rootfs: RFS("b"), symlinks: "follow", platform: ARM }, /--symlinks must be one of preserve, refuse, resolve/],
@@ -596,14 +596,121 @@ test("a hand-edited row symlinks is refused before it is echoed into a command",
   );
 });
 
-test("a bundle pinned only through [[inputs.<input>.ociBundles]] is refused by name, not treated as unpinned", async () => {
-  const lock = {
+// ── a bundle pinned through a multi-image producer ───────────────────────
+//
+// A producer that publishes several images names which bundle runs which, and
+// resolve-inputs records that as [[inputs.<input>.ociBundles]] rows. Its
+// input-level oci is merely its FIRST artifact; here that is neither bundle's
+// image, so a reader that fell back to it would run the wrong rootfs and fail
+// these tests.
+
+function producerLock({ dolt, orders } = {}) {
+  const entry = (bundle, c, rows) =>
+    ({ bundle, identifier: `x/${bundle}`, digest: IMG(c), ...(rows ? { rootfs: rows } : {}) });
+  return {
     schema: "cloister/lockfile/v1",
-    inputs: { producer: { ociBundles: [{ bundle: "dolt", identifier: "x/dolt", digest: IMG("a") }] } },
+    cluster: "t",
+    version: "0.0.1",
+    inputs: {
+      producer: {
+        oci: { identifier: "x/producer", digest: IMG("9") },
+        ociBundles: [entry("orders", "c", orders), entry("dolt", "a", dolt)],
+      },
+    },
   };
-  const pattern = /bundle "dolt" is pinned through \[\[inputs.producer.ociBundles\]\] \(a multi-image producer\), which runtime import \/ runtime plan \/ cluster up do not support yet/;
+}
+const ociBundlesOf = (lock) =>
+  Object.fromEntries(lock.inputs.producer.ociBundles.map((b) => [b.bundle, plain(b)]));
+
+test("a bundle pinned through [[inputs.<input>.ociBundles]] plans from that row's rootfs", async () => {
+  const lock = parseToml(stringifyToml(producerLock({ dolt: [{ platform: ARM, digest: RFS("b"), image: IMG("a") }] })));
+  const p = await planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) });
+  assert.equal(p.artifact.digest, RFS("b"));
+  assert.equal(p.artifact.image, "x/dolt", "the bundle's own image, not the producer's first artifact");
+});
+
+test("a refusal for an [[inputs.<input>.ociBundles]] pin names that row, not [inputs.<bundle>.oci]", async () => {
+  const opts = { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) };
   await assert.rejects(
-    planFromToml(DEMO_TOML, lock, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
+    planFromToml(DEMO_TOML, parseToml(stringifyToml(producerLock())), opts),
+    (e) => {
+      assert.match(e.message, /bundle "dolt" is a microvm bundle with no imported rootfs in cluster.lock.toml \(\[\[inputs.producer.ociBundles.rootfs\]\] \(bundle "dolt"\)\)\. Import its pinned image first:/);
+      assert.ok(e.message.includes("cloister runtime import --bundle dolt --dir demo [--layout <oci-layout-dir>]"), e.message);
+      return true;
+    },
+  );
+  // A row imported from another image than the one the producer pins now.
+  const stale = producerLock({ dolt: [{ platform: ARM, digest: RFS("b"), image: IMG("e") }] });
+  await assert.rejects(
+    planFromToml(DEMO_TOML, parseToml(stringifyToml(stale)), opts),
+    /was imported from sha256:e+ \(\[\[inputs.producer.ociBundles.rootfs\]\] \(bundle "dolt"\) image\), but the lock now pins sha256:a+/,
+  );
+  const badRow = producerLock({ dolt: [{ platform: "arm64", digest: RFS("b"), image: IMG("a") }] });
+  await assert.rejects(
+    planFromToml(DEMO_TOML, parseToml(stringifyToml(badRow)), opts),
+    /\[\[inputs.producer.ociBundles.rootfs\]\] \(bundle "dolt"\) row 1 has platform "arm64", not os\/architecture\[\/variant\]/,
+  );
+});
+
+test("runtime import --bundle records the rootfs on the [[inputs.<input>.ociBundles]] row that pins it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cloister-import-"));
+  try {
+    const lockPath = join(dir, "cluster.lock.toml");
+    writeFileSync(lockPath, stringifyToml(producerLock()));
+    const calls = [];
+    const { out, deps } = capture();
+    // No --layout: the bundle's own pinned reference is pulled from its registry.
+    assert.equal(await importMain(["--bundle", "dolt", "--dir", dir], {
+      ...deps,
+      importOci: (args) => { calls.push(args); return imported("b"); },
+    }), 0, out.err.join("\n"));
+    assert.deepEqual(calls, [["import-oci", "--from-registry", `x/dolt@${IMG("a")}`, "--symlinks", "preserve"]]);
+    const after = parseToml(readFileSync(lockPath, "utf8"));
+    const rows = ociBundlesOf(after);
+    assert.deepEqual(rows.dolt.rootfs, [{ platform: ARM, digest: RFS("b"), image: IMG("a") }]);
+    assert.equal(rows.orders.rootfs, undefined, "the producer's other bundle is untouched");
+    assert.equal(after.inputs.producer.oci.rootfs, undefined, "never recorded on the producer's first-artifact pin");
+    assert.equal(after.inputs.dolt, undefined, "no [inputs.dolt] is invented");
+    // What import wrote is what plan runs.
+    const p = await planFromToml(DEMO_TOML, after, { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) });
+    assert.equal(p.artifact.digest, RFS("b"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a lock regeneration carries an [[inputs.<input>.ociBundles]] row's rootfs while its pin holds, matched by bundle", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cloister-carry-"));
+  try {
+    const path = join(dir, "cluster.lock.toml");
+    writeFileSync(path, stringifyToml(producerLock({
+      dolt: [{ platform: ARM, digest: RFS("b"), image: IMG("a") }],
+      orders: [{ platform: ARM, digest: RFS("d"), image: IMG("c") }],
+    })));
+    // Regenerated with the bundles in the other order, and orders' image moved.
+    const doc = { inputs: { producer: {
+      oci: { identifier: "x/producer", digest: IMG("9") },
+      ociBundles: [
+        { bundle: "dolt", identifier: "x/dolt", digest: IMG("a") },
+        { bundle: "orders", identifier: "x/orders", digest: IMG("e") },
+      ],
+    } } };
+    carryRootfsFromPreviousLock(path, doc);
+    const [dolt, orders] = doc.inputs.producer.ociBundles;
+    assert.deepEqual(plain(dolt.rootfs), [{ platform: ARM, digest: RFS("b"), image: IMG("a") }]);
+    assert.equal(orders.rootfs, undefined, "a moved pin drops its rows");
+    assert.equal(doc.inputs.producer.oci.rootfs, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("two producers naming one bundle are refused by name: which one runs it would be a guess", async () => {
+  const lock = producerLock();
+  lock.inputs.other = { ociBundles: [{ bundle: "dolt", identifier: "y/dolt", digest: IMG("f") }] };
+  const pattern = /bundle "dolt" is pinned by two multi-image producers, \[\[inputs.producer.ociBundles\]\] and \[\[inputs.other.ociBundles\]\]; which one runs it would be a guess/;
+  await assert.rejects(
+    planFromToml(DEMO_TOML, parseToml(stringifyToml(lock)), { ...PLAN_OPTS, bundle: "dolt", rootfsInCas: () => ({ present: true, casRoot: "/cas" }) }),
     pattern,
   );
   const dir = mkdtempSync(join(tmpdir(), "cloister-import-"));

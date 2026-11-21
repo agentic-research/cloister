@@ -7,7 +7,9 @@
 // (ADR-0038 `packages[].oci`) into `cluster.lock.toml`. This script reads
 // those pinned rows and pulls the image BYTES into the local container store
 // so `task cluster:up` — which emits `pull_policy: never` for reproducible,
-// no-surprise-fetch boots — has everything it needs offline.
+// no-surprise-fetch boots — has everything it needs offline. A producer that
+// publishes several images names each bundle's in `[[inputs.<input>.ociBundles]]`,
+// and compose runs those too, so each is pulled with its input's own `oci`.
 //
 // Analogy: `cluster:resolve` is `npm install` writing the lockfile;
 // `inputs:pull` is `npm ci` materializing exactly what the lockfile pins.
@@ -40,7 +42,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { parse as parseToml } from "smol-toml";
-import { ociImageRef } from "../lib/oci-artifact.mjs";
+import { ociBundleClaims, ociImageRef } from "../lib/oci-artifact.mjs";
 import { createOutputContext } from "../lib/output.mjs";
 import {
   isAffirmative,
@@ -67,22 +69,34 @@ export function ociPullRef(oci) {
 }
 
 /**
- * Walk a parsed lockfile document's `[inputs.*]` tables and return one
- * row per input: `{ name, ref, pinned }`. `ref` is null when the input
- * carries no oci image; `pinned` is true only for digest-pinned refs
- * (content-addressed, reproducible).
+ * Walk a parsed lockfile document's `[inputs.*]` tables and return one row
+ * per image an input pins: `{ name, ref, pinned }`, plus `bundle` for an
+ * image only a multi-image producer's `[[inputs.<input>.ociBundles]]` row
+ * names (read through `ociBundleClaims`, as compose reads it). An image is
+ * listed once per input, however many rows name it. An input that pins no
+ * image is one row with `ref` null; `pinned` is true only for digest-pinned
+ * refs (content-addressed, reproducible).
  *
  * Exported for unit tests.
  */
 export function collectOciRefs(lockDoc) {
   const inputs = (lockDoc && typeof lockDoc === "object" && lockDoc.inputs) || {};
-  return Object.entries(inputs).map(([name, spec]) => {
+  const claimed = new Map();
+  for (const [bundle, { input, row }] of ociBundleClaims(lockDoc)) {
+    if (!claimed.has(input)) claimed.set(input, []);
+    claimed.get(input).push({ bundle, row });
+  }
+  return Object.entries(inputs).flatMap(([name, spec]) => {
     const oci = spec && typeof spec === "object" ? spec.oci : null;
-    return {
-      name,
-      ref: ociPullRef(oci),
-      pinned: !!(oci && typeof oci === "object" && oci.digest),
-    };
+    const rows = [];
+    const own = ociPullRef(oci);
+    if (own !== null) rows.push({ name, ref: own, pinned: !!(oci && typeof oci === "object" && oci.digest) });
+    for (const { bundle, row } of claimed.get(name) ?? []) {
+      const ref = ociPullRef(row);
+      if (ref === null || rows.some((r) => r.ref === ref)) continue;
+      rows.push({ name, bundle, ref, pinned: !!row.digest });
+    }
+    return rows.length > 0 ? rows : [{ name, ref: null, pinned: false }];
   });
 }
 
@@ -103,14 +117,15 @@ export function parsePullArgs(argv) {
   return opts;
 }
 
+/** The rows of the named inputs, every image of each; an unknown name is refused. */
 export function selectOciRefs(rows, inputNames = []) {
   if (inputNames.length === 0) return rows;
   const requested = new Set(inputNames);
-  const selected = rows.filter((row) => requested.delete(row.name));
-  if (requested.size > 0) {
-    throw new Error(`unknown input selection: ${[...requested].join(", ")}`);
+  const unknown = [...requested].filter((name) => !rows.some((row) => row.name === name));
+  if (unknown.length > 0) {
+    throw new Error(`unknown input selection: ${unknown.join(", ")}`);
   }
-  return selected;
+  return rows.filter((row) => requested.has(row.name));
 }
 
 export function validatePullSafety(rows, { allowUnpinned }) {
@@ -152,7 +167,8 @@ function printPlan(rows, log, style) {
     const trust = row.pinned
       ? style.green("digest-pinned")
       : style.yellow("MUTABLE / UNPINNED");
-    log(`  ${style.cyan(row.name)} → ${row.ref}  ${trust}`);
+    const label = row.bundle ? `${row.name} (bundle ${row.bundle})` : row.name;
+    log(`  ${style.cyan(label)} → ${row.ref}  ${trust}`);
   }
 }
 

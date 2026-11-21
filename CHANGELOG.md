@@ -8,6 +8,28 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a bundle pinned through a multi-image producer runs like any other
+
+- `runtime import --bundle`, `runtime plan` and `cluster up` accept a bundle
+  pinned through a multi-image producer, as both notme bundles are. They read
+  its pin from the `[[inputs.<input>.ociBundles]]` row that names it, as
+  compose already did, and refused such a bundle before.
+  - Its imported rootfs rows are recorded on that row.
+  - A lock regeneration carries them while the pin holds. Rows are matched by
+    bundle, not by position.
+  - Refusals name that row, not `[inputs.<bundle>.oci]`.
+- One reading of the lock's image pins (`ociBundleClaims` and `ociPins` in
+  `cli/lib/oci-artifact.mjs`) now serves compose, the isolation lint, the
+  runtime and `artifacts pull`. Each refuses, by name, two producers naming
+  one bundle.
+- `artifacts pull` pulls a multi-image producer's other images. It read only
+  each input's own `oci`, so notme-proxy's image was never pulled, though
+  compose runs it with `pull_policy: never`. Naming an input pulls every
+  image it pins.
+- The isolation lint says why it could not read a lockfile. It used to report
+  every image as underivable without saying why.
+- notme-identity's rationale no longer lists this as a need.
+
 ### 2026-11 — no exemption is described as an impossibility
 
 - The schema's own description of `executionModeRationale` read "Why this

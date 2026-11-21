@@ -495,9 +495,11 @@ export const COMMANDS = [
   { name: "runtime import", usage: "cloister runtime import [--layout <dir>] [--bundle <name> [--dir <cluster>]] [--image <sha256:…>] [--symlinks preserve|refuse|resolve]",
     summary: "Import a digest-pinned OCI image (layout or registry) as a microVM rootfs",
     detail:
-      "With --bundle, imports that bundle's pinned image ([inputs.<bundle>.oci] digest in " +
-      "cluster.lock.toml; --image may be omitted, and must equal it if given) and records " +
-      "the resulting blake3-256 rootfs beside the pin as a [[inputs.<bundle>.oci.rootfs]] row " +
+      "With --bundle, imports that bundle's pinned image (in cluster.lock.toml, the digest of " +
+      "the [[inputs.<input>.ociBundles]] row naming it when its producer publishes several " +
+      "images, else [inputs.<bundle>.oci] digest; --image may be omitted, and must equal it " +
+      "if given) and records the resulting blake3-256 rootfs beside the pin as a rootfs row " +
+      "([[inputs.<bundle>.oci.rootfs]], or [[inputs.<input>.ociBundles.rootfs]]) " +
       "for the platform LLO reports (other platforms' rows are kept); `runtime plan` and " +
       "`cluster up` run the row for the host runtime's guest platform. Idempotent. With --bundle and no --layout, the pinned `identifier@sha256:…` is " +
       "pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned " +

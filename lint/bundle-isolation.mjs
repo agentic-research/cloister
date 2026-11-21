@@ -124,6 +124,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "../cli/lib/canonical-path.mjs";
 import { resolveTenancy } from "../cli/lib/cluster/emit-compose.mjs";
+import { ociPins } from "../cli/lib/oci-artifact.mjs";
 import { namedExits, retiredLabel, staleCitations } from "./lib/citations.mjs";
 import { trackedFiles } from "./lib/tracked-files.mjs";
 
@@ -869,9 +870,10 @@ try {
 
 // ADR-0038 (Inv 10): load each input's self-declared oci image from the
 // lockfile (resolve-inputs records packages[].oci there). CLOISTER_LOCKFILE
-// overrides the path (test fixtures). Missing/unreadable lockfile → empty
-// map → Inv 10 treats every image-less external bundle as un-derivable.
-function loadOci() {
+// overrides the path (test fixtures). Missing lockfile → empty map → Inv 10
+// treats every image-less external bundle as un-derivable. An unreadable one
+// does the same and says why, as a warning: the reason is what to fix.
+function loadOci(warnings) {
   const byInput = new Map();
   // An input that publishes SEVERAL images names which bundle runs which, in
   // `_meta["art.cloister/v1"].bundles[]`. resolve-inputs records that as
@@ -881,17 +883,14 @@ function loadOci() {
   const lockfile = process.env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
   if (!existsSync(lockfile)) return { byInput, byBundle };
   try {
-    const lock = parseToml(readFileSync(lockfile, "utf8"));
-    for (const [name, row] of Object.entries(lock.inputs ?? {})) {
-      if (row && typeof row === "object" && row.oci && row.oci.identifier) {
-        byInput.set(name, row.oci);
-      }
-      for (const b of row?.ociBundles ?? []) {
-        if (b && typeof b === "object" && b.bundle && b.identifier) byBundle.set(b.bundle, b);
-      }
-    }
-  } catch {
+    // The one reading of the lock's pins, shared with compose and the runtime.
+    const { ociByInput, ociByBundle } = ociPins(parseToml(readFileSync(lockfile, "utf8")));
+    return { byInput: ociByInput, byBundle: ociByBundle };
+  } catch (e) {
     // Warn-level invariant: a bad lockfile never fails the substrate lint.
+    warnings.push(
+      `${lockfile} was not read (${e.message}), so Inv 10 derives no image from it (ADR-0038).`,
+    );
   }
   return { byInput, byBundle };
 }
@@ -1328,7 +1327,7 @@ checkInvariant6(cluster, violations);
 checkInvariant7(cluster, violations);
 checkInvariant8(cluster, violations);
 checkInvariant9(cluster, violations);
-const oci = loadOci();
+const oci = loadOci(warnings);
 checkInvariant10(cluster, oci.byInput, warnings, oci.byBundle);
 /**
  * Inv 14 (cloister-d8e8fb) — a bundle's tier / kind / wire fact must AGREE with
