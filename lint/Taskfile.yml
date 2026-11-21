@@ -148,6 +148,11 @@ tasks:
     cmds:
       - node lint/conflict-markers.mjs
 
+  lint:layers:
+    desc: "Every tracked source file has a layer (core, driver or feature, ADR-0081), by the map in lint/layers.mjs, and every map entry names a tracked file. Prints the inventory: each layer's size, and where core lives today."
+    cmds:
+      - node lint/layers.mjs
+
   lint:binding-parity:
     desc: "config.capnp and wrangler.toml must declare the same bindings for anything read in src/ (cloister-9aeb3f). CLAUDE.md called this a manual sync obligation and ADR-0001 recorded it as a known weakness; it had drifted — six trust-surface vars were CF-only, so the lease gate could not be exercised under workerd at all."
     cmds:
