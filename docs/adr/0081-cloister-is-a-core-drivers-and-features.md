@@ -4,6 +4,9 @@ status: Accepted (2026-11-21)
 date: 2026-11-21
 tags: [architecture, core, drivers, features, layering, tcb, budget]
 tracking-bead: cloister-ca2582
+# Core's size in lines, read by lint/layers.mjs (§4). Raising it is an
+# amendment to this ADR; the change that raises it says why.
+core-budget: 21363
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
   - 0011-hypervisor-bundle-boundary.md
@@ -25,7 +28,24 @@ external_refs:
 Accepted (2026-11-21). The owner made two decisions: cloister's core is
 separated from its features, and the gateway is not the core. The
 classification, the snapshot and the correction in Context are the
-implementer's. No code moves in this change.
+implementer's.
+
+**Amended the same day, when the import rail landed.** The rail checks which
+way imports point, and it found mistakes in the first map:
+
+- The MCP gateway's backend kinds, manifest and wires were counted as the
+  workerd driver.
+- The module that instantiates the gateway was counted as a driver.
+- The shared logging and script-entry helpers were counted as features.
+
+They are corrected here, in Context and in the Snapshot. The amendment also
+makes three changes:
+
+- core gains a seventh area, support;
+- features may import other features;
+- core's budget now lives in this file's frontmatter.
+
+No code moves.
 
 ## Context
 
@@ -34,16 +54,22 @@ question. Its security argument is that there is almost nothing in it to
 trust. Cloister's argument is a 2,078-line threat model, and nobody had
 measured what it asks a deployment to trust.
 
-The measurement, taken on 2026-11-21 (Snapshot, below), counts 52,788 lines
-of cloister's own runtime code. Tests, generated files, vendored files and
-the lint, gen and dev tooling are not counted. Three things stand out:
+The measurement (Snapshot, below) counts 52,788 lines of cloister's own
+runtime code. Tests, generated files, vendored files and the lint, gen and
+dev tooling are not counted. Four things stand out:
 
-- **Core is 42% of it.** That is 21,972 lines: the declaration, authority,
-  credentials, audit, confinement policy and content addressing.
-- **More than half of core lives in the worker.** 12,349 of core's lines are
-  in `src/`: leases, CA bundles, the trust store, the vault, receipts and
-  attestation. They are written as gateway code, beside the gateway's routes
-  and its isolate hosting.
+- **Core is 40% of it.** That is 21,363 lines: the declaration, authority,
+  credentials, audit, confinement policy, content addressing, and the support
+  code they share.
+- **More than half of core lives in the worker.** 12,094 of core's lines are
+  in `src/`: leases, the trust store, the vault, receipts and attestation.
+  They are written as gateway code, beside the gateway's routes.
+- **Every import that points outward starts in core.** There are 14 such
+  imports:
+  - nine core files are typed against the workerd driver's `Env`;
+  - the trust store keeps the OCI registry feature's tables;
+  - two core files read the MCP gateway's manifest types;
+  - core's lock writer carries the microVM driver's rootfs rows.
 - **The largest core file is `cli/lib/cluster/resolve-inputs.mjs`** (1,479
   lines). Pinning an input by content address is core. Its fetchers for
   GitHub, HTTPS and registries are feature-shaped.
@@ -60,24 +86,28 @@ choice.
 
 ### 1. Three layers, joined only at composition roots
 
-- **Core** is what cloister guarantees in every deployment (§2). It has six
-  areas, and a seventh is an amendment here:
+- **Core** is what cloister guarantees in every deployment (§2). It has seven
+  areas, and an eighth is an amendment here:
   - the declaration: its schema, parser, checker, canonical form and lock;
   - authority: identity, leases and grants;
   - credentials: the vault;
   - audit: receipts and attestation;
   - confinement policy;
-  - content addressing.
+  - content addressing;
+  - support: code core needs that carries no policy of its own. That is the
+    trust surface's structured log, atomic writes, canonical paths, and
+    telling a script from an import.
 - **Drivers** come one per placement. Each isolates bundles its own way, and
   each meets ADR-0078's contract: provide every declared need, or refuse it
   by name. The drivers today:
-  - workerd: V8 isolates and service bindings (ADR-0013). This holds the
-    gateway's own bundles and the whole Cloudflare deployment.
+  - workerd: V8 isolates and the bindings each isolate is given (ADR-0013).
+    This holds the gateway's own bundles and the whole Cloudflare deployment.
   - compose.
   - microVM, through ley-line-open (ADR-0079).
   - Kubernetes and Knative.
 - **Features** are built on core and drivers:
-  - the MCP gateway's routes;
+  - the MCP gateway: its routes, its backend kinds, its manifest, and the
+    wires its backends speak;
   - beads;
   - the OCI and MCP registries;
   - disclosure;
@@ -86,11 +116,15 @@ choice.
   - skills;
   - the CLI's own surface.
 - **Composition roots** are the only modules that wire layers together:
-  `src/index.ts`, `bin/cloister.mjs`, `cli/index.mjs` and `cluster generate`.
+  - `src/index.ts`;
+  - `src/manifest/runtime.ts`, which instantiates the gateway from its
+    manifest;
+  - `bin/cloister.mjs`;
+  - `cli/index.mjs`.
 
-So the gateway is not one thing. Its isolate hosting is a driver, its
-routes are features, and today it is where most of core happens to be
-written.
+So the gateway is not one thing. Its isolate hosting and bindings are the
+workerd driver. Its routes, backends and manifest are a feature. Today it is
+also where most of core happens to be written.
 
 The prior art draws the same line:
 
@@ -118,27 +152,36 @@ at their boundary, and no feature may weaken them.
 ### 3. Dependencies point inward
 
 - Core imports only core, and third-party code, ley-line-open included.
-- Drivers import core.
-- Features import core and drivers.
+- A driver imports core and itself, but not another driver.
+- Features import core, drivers and other features.
 - Composition roots import anything.
+- Runtime code imports no tooling, configuration or examples.
 - Tests are exempt.
 
-`lint/layers.mjs` holds a committed map that assigns every tracked source
-file to a layer, by path. Its rail, which is in `task lint` now, refuses a
-file the map does not classify and a map entry that names no tracked file.
+`lint/layers.mjs` holds a committed map that assigns every tracked code file
+to a layer, by path. A generated file takes the layer of the schema it is
+generated from. Its rail runs in `task lint` and refuses:
 
-The import-direction rail reads the same map and lands next. It will refuse
-an import that points outward. The outward imports that exist when it lands
-are listed where a reviewer sees them, and that list only shrinks. This is
-the ratchet `cli/test/flags.test.mjs` uses for unmoved commands.
+- a code file the map does not classify, and a map entry that names no
+  tracked file;
+- an import that points outward, unless the rail's `OUTWARD` list names it;
+- an `OUTWARD` entry that no longer exists, so that list only shrinks. This
+  is the ratchet `cli/test/flags.test.mjs` uses for unmoved commands.
+
+The rail reads imports with TypeScript's own pre-processor for scripts. For
+Rust it reads `mod` declarations and crate paths, after removing comments and
+strings. For Cap'n Proto it reads `import` statements, after removing
+comments.
 
 ### 4. Core has a budget
 
-Core's size is measured in CI from the same map. It may shrink freely. It
-grows only with an amendment here that says why. The number matters less
+Core's size in lines is `core-budget` in this file's frontmatter. The rail
+measures core from the same map and refuses core larger than its budget.
+Core may shrink freely. It grows only by raising `core-budget` here, in the
+change that grows it, and that change says why. The number matters less
 than the habit: adding to what every deployment must trust becomes a
-decision someone writes down. The budget lands with the import rail, and
-starts at core's size on that day.
+decision someone writes down. The budget started at 21,363 lines, core's
+size when the rail landed.
 
 ### 5. Nothing moves yet
 
@@ -148,14 +191,21 @@ tidy them would churn history and every open branch.
 
 ## Consequences
 
-- "Where does this go?" has an answer before code is written. A new source
-  file needs a layer to pass `task lint`, and a new core file states why it
-  is core.
-- The snapshot points at the first work:
-  - The worker's core-shaped half becomes a core module that the gateway
-    imports, instead of gateway code. Where it runs stays the driver's
-    choice: in the worker on Cloudflare, and with the platform on a host.
-  - `resolve-inputs.mjs` splits its fetchers (features) from pinning (core).
+- "Where does this go?" has an answer before code is written. A new code file
+  needs a layer to pass `task lint`. A new core file states why it is core,
+  and if it grows core past its budget, the change raises the budget here.
+- The 14 outward imports are the first work, in four parts:
+  - core gets an environment type of its own, so nine files stop typing
+    themselves against the workerd driver's `Env`;
+  - the OCI registry's tables leave the trust store;
+  - core stops reading the MCP gateway's manifest types;
+  - the lock writer's rootfs carry-forward moves to the microVM driver,
+    behind a hook core calls.
+- Two files hold more than one layer's code, and each will be split:
+  - `src/types.ts`: the workerd driver's `Env`, beside JSON-RPC, MCP and bead
+    types that belong to features;
+  - `resolve-inputs.mjs`: pinning, which is core, beside fetchers, which are
+    features.
 - README, `docs/ARCHITECTURE.md` and CLAUDE.md still describe cloister as the
   workerd gateway. They change when the code does. CLAUDE.md points here now.
 
@@ -172,38 +222,43 @@ tidy them would churn history and every open branch.
 - **A size budget with no dependency rule.** A number with no boundary
   measures the wrong thing. The rule is what keeps features from quietly
   growing back into core.
+- **A budget with headroom.** Every core change would then stay silent until
+  the headroom ran out. A budget at core's size makes each increase visible
+  in the change that makes it.
 
 ## Snapshot (2026-11-21)
 
-From `task lint:layers`. It counts lines of tracked `.ts`, `.mjs`, `.js`,
-`.rs` and `.capnp` files. Tests, generated files and `.d.ts` files are not
-counted, and the rows outside cloister's runtime code (tooling, config,
-examples, vendored) are not shown.
+From `task lint:layers`, with the map as corrected by the amendment. It
+counts lines of tracked `.ts`, `.mjs`, `.js`, `.rs` and `.capnp` files.
+Tests, generated files and `.d.ts` files are not counted, and the rows
+outside cloister's runtime code (tooling, config, examples, vendored) are
+not shown.
 
 | Layer | Lines | Files |
 |---|---:|---:|
-| core: declaration | 7,401 | 17 |
-| core: authority | 4,964 | 20 |
-| core: credentials | 4,083 | 12 |
+| core: declaration | 7,316 | 15 |
+| core: authority | 4,586 | 19 |
+| core: credentials | 3,635 | 11 |
 | core: audit | 3,550 | 11 |
-| core: content addressing | 1,491 | 8 |
+| core: content addressing | 1,570 | 9 |
 | core: confinement | 483 | 5 |
-| **core** | **21,972** | **73** |
-| driver: workerd | 5,308 | 18 |
-| driver: microVM | 5,014 | 18 |
+| core: support | 223 | 4 |
+| **core** | **21,363** | **74** |
+| driver: microVM | 5,081 | 19 |
 | driver: compose | 1,179 | 4 |
 | driver: Kubernetes and Knative | 1,076 | 3 |
-| **drivers** | **12,577** | **43** |
-| feature: CLI | 4,182 | 22 |
+| driver: workerd | 884 | 3 |
+| **drivers** | **8,220** | **29** |
+| feature: MCP gateway | 7,883 | 32 |
+| feature: CLI | 4,561 | 22 |
 | feature: harness | 3,546 | 9 |
-| feature: MCP gateway | 3,446 | 18 |
 | feature: plan checker | 2,581 | 11 |
-| feature: registries | 1,979 | 5 |
+| feature: registries | 1,832 | 4 |
 | feature: beads | 1,158 | 4 |
 | feature: disclosure | 537 | 2 |
 | feature: skills | 294 | 1 |
-| **features** | **17,723** | **72** |
-| composition roots | 516 | 4 |
+| **features** | **22,392** | **85** |
+| composition roots | 813 | 4 |
 
-Core's lines live in `src/` 12,349, `cli/` 4,978, `manifest/` 1,673,
-`rs/` 1,619 and `vault/` 1,353.
+Core's lines live in `src/` 12,094, `cli/` 5,010, `manifest/` 1,673,
+`vault/` 1,353 and `rs/` 1,233.

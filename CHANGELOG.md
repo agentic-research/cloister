@@ -8,6 +8,38 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — imports point inward, and core has a budget (ADR-0081 §3, §4)
+
+- `task lint` now refuses an import that points outward:
+  - core importing anything but core;
+  - a driver importing another driver, or a feature;
+  - a feature importing a composition root;
+  - runtime code importing tooling, configuration or examples.
+
+  It reads imports with
+  TypeScript's own pre-processor for scripts. For Rust it reads `mod`
+  declarations and crate paths, and for Cap'n Proto its `import` statements,
+  in both cases after comments are removed.
+- The 14 outward imports in the tree today are listed by name, and an entry
+  that no longer exists is refused, so the list only shrinks. All 14 start in
+  core:
+  - nine core files are typed against the workerd driver's `Env`;
+  - the trust store keeps the OCI registry's tables;
+  - two core files read the MCP gateway's manifest types;
+  - core's lock writer carries the microVM driver's rootfs rows.
+- Core's size is `core-budget` in ADR-0081's frontmatter, and `task lint`
+  refuses core larger than that. Core may shrink freely. Growing it raises the
+  budget in the same change, with a reason.
+- The rail found mistakes in the first map, which ADR-0081's amendment
+  corrects:
+  - the MCP gateway's backend kinds, manifest and wires had been counted as
+    the workerd driver;
+  - the module that instantiates the gateway had been counted as a driver;
+  - shared logging and script-entry helpers had been counted as features.
+
+  Core is 21,363 lines (40%), not 21,972, and core gains a seventh area,
+  support. Drivers are 8,220 lines and features 22,392. No code moved.
+
 ### 2026-11 — cloister is a core, drivers and features (ADR-0081)
 
 - ADR-0081 separates cloister into three layers, joined only at composition
