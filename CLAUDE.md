@@ -128,6 +128,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |
 | compose reach | a compose bundle the gateway's image dials at loopback (`config.capnp`) declares that it joins the gateway's network namespace | ADR-0075 §8 |
 | `mermaid:lint` | every mermaid diagram in a tracked markdown file parses, by mermaid's own parser, and avoids the shapes GitHub draws wrongly | `cloister-ca2582` |
+| `lint:doc-invocations` | every `cloister …` and `task …` line in the docs' shell fences names a declared command, flags it declares, and tasks Task lists (mache's doc-vs-CLI gate) | `cloister-ca2582` |
 
 The shared lesson: **an invariant with no rail is a comment.** When adding a
 substrate rule, add the rail in the same change — and give it a test that runs

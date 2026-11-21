@@ -503,11 +503,11 @@ export const COMMANDS = [
       "pulled from its registry (anonymous HTTPS, public images only; a tag-only or unpinned " +
       "image is refused). Without --bundle, prints LLO's import record and writes nothing.",
     flags: [
-      { flag: "--layout <dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry" },
-      { flag: "--bundle <name>", summary: "record the rootfs for this bundle in cluster.lock.toml" },
-      { flag: "--dir <cluster>", summary: "with --bundle: cluster directory holding cluster.lock.toml (default: the current directory)" },
-      { flag: "--image <sha256:…>", summary: "index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest)" },
-      { flag: "--symlinks <preserve|refuse|resolve>", summary: "keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default" },
+      { flag: "--layout", value: "<dir>", summary: "an OCI image layout (oci-layout + blobs/sha256); not a docker store. With --bundle, omit it to pull from the registry" },
+      { flag: "--bundle", value: "<name>", summary: "record the rootfs for this bundle in cluster.lock.toml" },
+      { flag: "--dir", value: "<cluster>", summary: "with --bundle: cluster directory holding cluster.lock.toml (default: the current directory)" },
+      { flag: "--image", value: "<sha256:…>", summary: "index or manifest digest to import; tags are refused (with --bundle: defaults to the locked digest)" },
+      { flag: "--symlinks", value: "<preserve|refuse|resolve>", summary: "keep links as links (default), refuse them, or copy in-image targets; recorded in the lock when not the default" },
     ] },
   { name: "runtime run", usage: "cloister runtime run <plan>",
     summary: "Run a compatibility plan or LLO execution envelope" },
