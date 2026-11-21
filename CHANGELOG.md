@@ -47,6 +47,10 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   direct path builds, so moving a run to the daemon loses nothing. A key the
   daemon does not trust, evidence bound to another run, and a manifest that
   is not the pinned one are each refused.
+- The threat model gains §22, execution grant issuance, before the seam is
+  live: what a grant is worth, seven attacks with their defenses and tests,
+  and what stays open (ley-line-open#602 and #603, and the daemon's state
+  directory).
 
 ### 2026-11 — a bundle pinned through a multi-image producer runs like any other
 

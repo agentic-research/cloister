@@ -124,7 +124,7 @@ placement or refused by name.
 | guests run until stopped | `runs = "service"` gets no wall-clock ceiling | ley-line-open-e6b1bb |
 | bridges and firewall | declared connections, through the broker | ley-line-open-e2c5ce |
 | a socket into the guest, as well as TCP | a channel presented as a Unix socket | ley-line-open#601 |
-| a guest's own disk image | a workspace served at `/work` | ADR-0079 |
+| a guest's own disk image | a workspace served at `/work` | ADR-0079, ley-line-open#602 |
 | migration refuses a missing need | every placement provides each need or refuses | ADR-0078 |
 | content-addressed backups, linked clones | CAS rootfs, per-run copy | shipped |
 
