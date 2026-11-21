@@ -403,11 +403,19 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw e;
   }
 
-  const composeArgs = args.sub === "up"
-    ? ["-f", file, "up", ...(args.detach ? ["-d"] : [])]
-    // Volumes survive by default: a `down` that silently destroyed DO SQLite
-    // state would be an unrecoverable action behind a routine-looking verb.
-    : ["-f", file, "down", ...(args.destroy ? ["-v"] : [])];
+  // `up`: every image resolved to a content address when it starts, and
+  // recorded on its container (ADR-0083 §4).
+  if (args.sub === "up") {
+    const { composeUp } = await import("../lib/cluster/compose-up.mjs");
+    return await composeUp(
+      { root, file, compose, detach: args.detach },
+      { log, errLog, spawn: spawnImpl, env: deps.env ?? process.env, ...(deps.exec ? { exec: deps.exec } : {}) },
+    );
+  }
+
+  // Volumes survive by default: a `down` that silently destroyed DO SQLite
+  // state would be an unrecoverable action behind a routine-looking verb.
+  const composeArgs = ["-f", file, "down", ...(args.destroy ? ["-v"] : [])];
 
   log(`cloister cluster ${args.sub}: ${compose.join(" ")} ${composeArgs.join(" ")}`);
   if (args.sub === "down" && !args.destroy) {

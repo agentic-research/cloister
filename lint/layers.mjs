@@ -146,6 +146,7 @@ export const LAYERS = Object.freeze({
   "src/routes/vault-do-credential-store.ts": "driver/workerd",
   "cli/lib/cluster/emit-compose.mjs": "driver/compose",
   "cli/lib/cluster/compose-placement.mjs": "driver/compose",
+  "cli/lib/cluster/compose-up.mjs": "driver/compose",
   "cli/lib/cluster/http-networks.mjs": "driver/compose",
   "cli/lib/cluster/socket-dirs.mjs": "driver/compose",
   "cli/lib/cluster/up.mjs": "driver/microvm",

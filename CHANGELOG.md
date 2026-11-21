@@ -8,6 +8,37 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cluster up` resolves each compose image when it starts it (ADR-0083 §4)
+
+- `cloister cluster up` (without `--env`) now resolves every image before it
+  starts compose, through the engine compose drives:
+  - an image written by digest, whether cluster.toml's own or the lock's
+    pin, runs as written, and is pulled by that digest when the engine does
+    not hold it;
+  - any other image the engine holds, a local build or a pulled one, runs by
+    its image ID, under a tag made from it (`cloister:sha256-<hex>`), so a
+    rebuild while compose starts cannot change what runs. One rule serves
+    docker's classic and containerd image stores;
+  - an image that names a registry and is missing is pulled with the
+    engine's own credentials, then runs by its ID;
+  - a bare name the engine does not hold is refused by name, and never
+    pulled. Nothing starts.
+- The committed compose file runs as it is, plus one override in the run's
+  directory that names each image by its content address. The cluster root
+  stays the project directory, so relative paths and `.env` are unchanged.
+- Each container records what it runs in labels: `cloister.image`,
+  `cloister.image.digest` and `cloister.image.by`. There is no state file.
+  The next `up` prints each digest that moved, and removes the tag the
+  previous local build ran under.
+- `CONTAINER_CMD`, which `artifacts pull` reads, names the engine for `up`
+  too.
+- `task smoke:compose-up-images` runs `cluster up` against docker in CI's
+  compose-hold job. It checks:
+  - what each container actually runs;
+  - that a rebuild is picked up, and its move printed;
+  - that an `up` with nothing rebuilt changes nothing;
+  - that a bare name is refused and nothing is pulled for it.
+
 ### 2026-11 — every placement runs images by digest, resolved for you (ADR-0083 §1–§3)
 
 - A manifest `cluster lower` writes now runs the lock's pins. Before, a

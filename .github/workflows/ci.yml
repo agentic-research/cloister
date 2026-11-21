@@ -445,6 +445,9 @@ jobs:
       - name: Emit, start, and have every bundle try every wired socket
         run: task smoke:compose-hold
 
+      - name: cluster up runs each image by what it resolved when it started it (ADR-0083 §4)
+        run: task smoke:compose-up-images
+
   # The same, for the Knative lowering and for edges between the two
   # placements a cluster can hold. Separate from lowered-kind on purpose:
   # installing Knative is minutes of setup with its own ways to fail, and the
