@@ -2320,3 +2320,38 @@ test("ADR-0062 — the exemption COUNT is reported, not just individual failures
     scenario.cleanup();
   }
 });
+
+// ── Inv 15 (cloister-ca2582): a rationale's citations name files that exist ──
+
+test("Inv 15 — a rationale citing a file that is gone is a violation; one that exists is not", () => {
+  // Two exemptions cited krunvm.rs:769 as their structural blocker long after
+  // #262 deleted it. A rationale whose evidence is gone reads as justified and
+  // justifies nothing.
+  const lint = (executionModeRationale) => {
+    const scenario = makeScenario({
+      clusterTs: clusterTs({
+        bundles: [
+          { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+          { name: "svc", tier: "cluster", image: "svc:1", executionModeRationale },
+        ],
+      }),
+      configCapnp: configCapnp(INV13_CONFIG),
+    });
+    try {
+      return runLint(scenario.workDir, scenario.clusterTsPath);
+    } finally {
+      scenario.cleanup();
+    }
+  };
+  const gone = lint("STRUCTURAL: rs/crates/host-runtime/src/krunvm.rs:769 cannot serve it.");
+  assert.notEqual(gone.status, 0, "a citation to a deleted file must FAIL");
+  assert.match(gone.stderr, /bundle "svc" executionModeRationale cites "rs\/crates\/host-runtime\/src\/krunvm\.rs:769", and no tracked file is at that path/);
+  assert.match(gone.stderr, /Inv 15/);
+  const pastTheEnd = lint("See lint/bundle-isolation.mjs:999999.");
+  assert.notEqual(pastTheEnd.status, 0);
+  assert.match(pastTheEnd.stderr, /lint\/bundle-isolation\.mjs has fewer than 999999 lines/);
+  // A real file, a bare name that exists, and another repository's file
+  // (written repo:path) all pass.
+  const fine = lint("See lint/bundle-isolation.mjs:1, cluster.toml and rosary:src/cloister_provider.rs.");
+  assert.equal(fine.status, 0, fine.stderr);
+});

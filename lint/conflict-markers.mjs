@@ -20,10 +20,11 @@
 //
 // Exit 0 clean, 1 on violations.
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { trackedFiles as gitTrackedFiles } from "./lib/tracked-files.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,9 +51,7 @@ export function isBinary(buf) {
 
 /** Every tracked file, via git, relative to `root`. */
 export function trackedFiles(root = ROOT) {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
-    .split("\0")
-    .filter(Boolean);
+  return gitTrackedFiles(root);
 }
 
 /** Violations across the tracked tree: [{file, line, text}]. */

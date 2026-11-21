@@ -121,11 +121,17 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { parse as parseToml } from "smol-toml";
 import { resolve, dirname } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { isCanonicalAbsolutePath } from "../cli/lib/canonical-path.mjs";
 import { resolveTenancy } from "../cli/lib/cluster/emit-compose.mjs";
+import { staleCitations } from "./lib/citations.mjs";
+import { trackedFiles } from "./lib/tracked-files.mjs";
 
 const REPO = process.cwd();
+// The repository this rail ships in. A file a rationale cites is resolved
+// against it rather than against the working directory, which a test sets to
+// a scratch tree (Inv 15).
+const SOURCE_REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Network services in config.capnp that grant unrestricted egress — used
 // by Inv 1 to detect when a cluster-tier Worker's globalOutbound is
@@ -1352,9 +1358,50 @@ function checkInvariant14(cluster, ociByBundle, warnings) {
   }
 }
 
+/**
+ * Inv 15 (cloister-ca2582) — a bundle's description or rationale that cites a
+ * file in this repository names one that exists, at a line it has.
+ *
+ * An exemption is a work item (ADR-0078), and its rationale is the record of
+ * what blocks it. Two of them cited `krunvm.rs:769` as a structural blocker
+ * long after #262 deleted krunvm.rs and replaced what it could not do, so
+ * both read as justified while justifying nothing. FAIL-level: a rationale
+ * whose evidence is gone is a claim nobody can check. Another repository's
+ * file is cited `<repo>:<path>` and is not checked here.
+ */
+function checkInvariant15(cluster, violations) {
+  const tracked = trackedFiles(SOURCE_REPO);
+  const lines = new Map();
+  const lineCount = (file) => {
+    if (!lines.has(file)) {
+      const text = readFileSync(resolve(SOURCE_REPO, file), "utf8");
+      lines.set(file, text.split("\n").length - (text.endsWith("\n") ? 1 : 0));
+    }
+    return lines.get(file);
+  };
+  for (const b of cluster.bundles ?? []) {
+    const fields = [
+      ["description", b.description],
+      ["hypervisorRationale", b.hypervisorRationale],
+      ["executionModeRationale", b.kind?.external?.executionModeRationale],
+    ];
+    for (const [field, text] of fields) {
+      if (typeof text !== "string" || text === "") continue;
+      for (const problem of staleCitations(text, tracked, lineCount)) {
+        violations.push(
+          `bundle "${b.name}" ${field} cites ${problem}. A rationale's evidence must ` +
+            `exist, or the rationale is a claim nobody can check: say what blocks it now, ` +
+            `and cite another repository's file as <repo>:<path> (Inv 15).`,
+        );
+      }
+    }
+  }
+}
+
 checkInvariant11(cluster, violations);
 checkInvariant14(cluster, oci.byBundle, warnings);
 checkInvariant13(cluster, violations, warnings);
+checkInvariant15(cluster, violations);
 
 const services = config.services ?? [];
 for (const wsvc of workersIn(config)) {
