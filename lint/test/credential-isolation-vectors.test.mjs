@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { parseVectors } from "../../gen/vendor-llo-spec.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const VECTOR_DIR = join(ROOT, "test/fixtures/llo-credential-isolation-v1");
@@ -44,17 +45,8 @@ const MANIFEST = join(VECTOR_DIR, "VECTORS.sha256");
  * comments and blanks skipped. The format is sha256sum(1)'s, so it is parsed
  * rather than hand-matched (lint:structured-parse's rule, and cheap here).
  */
-export function parseManifest(text) {
-  const rows = [];
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
-    const m = /^([0-9a-f]{64})\s+(\S.*)$/.exec(trimmed);
-    if (!m) throw new Error(`unparseable VECTORS.sha256 line: ${line}`);
-    rows.push({ sha256: m[1], path: m[2] });
-  }
-  return rows;
-}
+/** The vendored VECTORS.sha256, parsed by the one parser gen/vendor-llo-spec.mjs writes it for. */
+export const parseManifest = parseVectors;
 
 const manifest = parseManifest(readFileSync(MANIFEST, "utf8"));
 

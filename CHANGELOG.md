@@ -8,6 +8,26 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every vendored LLO file is the pinned release's, and CI checks it
+
+- Two vendored copies of ley-line-open spec files were behind the v0.30.0
+  cloister pins: the confinement/v1 schema (v0.21.1's, without `guestPort`,
+  which cloister's own `runtime plan` emits) and the execution/v1 vectors
+  (v0.29.0's, rootfs manifest v1 only). Nothing re-vendored them on a bump,
+  and the check that compared them by tag ran only beside an LLO checkout,
+  which CI never has. Both are now v0.30.0's; cloister's tests pass against
+  them unchanged.
+- `gen/vendor-llo-spec.mjs` is the one way to vendor an LLO spec file: from
+  git at the pinned commit, checked against LLO's own `VECTORS.sha256`, into
+  a directory whose generated `VECTORS.sha256` is headed by the release.
+  `task llo:bump` runs it; `task llo:vendor:check` compares; each fixture
+  directory is a `lint:upstream-pins` channel.
+- The new CI job `llo-checked` clones LLO at the pinned tag and runs the
+  vendor check, `lint:spec-citation` and `lint:sibling-bead-refs` with
+  `CLOISTER_LLO_REQUIRED=1`, under which a missing checkout fails instead of
+  skipping. The harness confinement test reads the vendored schema and no
+  longer skips.
+
 ### 2026-11 — the CLI's outputs are declared (ADR-0077)
 
 - `manifest/cli.capnp` declares the CLI's JSON outputs; schema-bridge

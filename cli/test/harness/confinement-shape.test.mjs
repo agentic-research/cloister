@@ -24,7 +24,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -461,17 +461,15 @@ test("the real wrangler.toml resolves one process per distinct service", () => {
 // is read, not copied — if LLO tightens it, this tightens with it, and a
 // dimension cloister has not thought about is still covered.
 //
-// Local-only, matching `lint:spec-citation`'s existence half: a CI runner has
-// cloister and no sibling checkout. The portable checks above (pinned literal,
-// §5 schemes) stay unconditional.
+// Read from the vendored copy of the pinned release's schema
+// (test/fixtures/llo-confinement-v1, written by gen/vendor-llo-spec.mjs and
+// checked against LLO itself in CI's llo-checked job), so it runs everywhere.
+// It used to read a sibling LLO checkout and skip without one, which is every
+// CI run.
 
-const SCHEMA_PATH = resolve(
-  process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open"),
-  "rs/ll-core/schema-spec/confinement/v1/confinement.schema.json",
-);
-const schemaMissing = !existsSync(SCHEMA_PATH);
+const SCHEMA_PATH = resolve(ROOT, "test/fixtures/llo-confinement-v1/confinement.schema.json");
 
-test("the emitted document satisfies the constraints LLO's schema declares", { skip: schemaMissing }, () => {
+test("the emitted document satisfies the constraints LLO's schema declares", () => {
   const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
   const manifest = confinementManifest(3);
 
@@ -500,7 +498,7 @@ test("the emitted document satisfies the constraints LLO's schema declares", { s
   }
 });
 
-test("Inv 11's hand-held §5 scheme list has not diverged from the schema", { skip: schemaMissing }, () => {
+test("Inv 11's hand-held §5 scheme list has not diverged from the schema", () => {
   // Inv 11 must run WITHOUT a sibling checkout, so it cannot read the schema and
   // the six strings are hand-held there of necessity. That is the same shape as
   // `cluster-types.ts` vs the generated zod: one justified hand copy, plus a
@@ -524,7 +522,7 @@ test("Inv 11's hand-held §5 scheme list has not diverged from the schema", { sk
   }
 });
 
-test("the schema-driven check is not vacuous — it rejects what it should", { skip: schemaMissing }, () => {
+test("the schema-driven check is not vacuous — it rejects what it should", () => {
   // The check is only worth having if the old document would have failed it.
   const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
   const absolute = new RegExp(schema.$defs.AbsolutePath.pattern);

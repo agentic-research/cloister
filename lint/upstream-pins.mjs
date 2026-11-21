@@ -3,7 +3,7 @@
 //
 // ONE upstream, ONE version — across every channel that states it.
 //
-// cloister consumes ley-line-open through FIVE independent channels, and each
+// cloister consumes ley-line-open through SIX independent channels, and each
 // used to carry its own version string:
 //
 //   1. [inputs.llo] in cluster.toml       server.json @ git SHA
@@ -11,9 +11,13 @@
 //   3. schema-bridge.lock.json            generator binaries @ release tag
 //   4. [inputs.llo.oci] in the lockfile   image, DERIVED from (1) — not checked here
 //   5. test/wire/fixtures/llo-net-vectors.json  leyline-net/v1 vectors @ release tag
+//   6. test/fixtures/llo-*-v1/VECTORS.sha256    spec fixtures @ release tag, one per spec
 //
-// (5) is vendored by a script, but its version is committed text like the
-// others, and a bump can skip the script. So it is checked with (1)–(3).
+// (5) and (6) are vendored by gen/vendor-llo-spec.mjs, but each records its
+// release as committed text like the others, and a bump can skip the script.
+// So they are checked with (1)–(3). (6) is one channel per vendored spec: the
+// confinement schema and the execution vectors each sat at an older release
+// than every other channel claimed, and nothing reported it.
 //
 // Channel 4 is already derived, which is why it never drifts. The other three
 // are hand-stated, and on 2026-07-29 they read 0.11.3, 0.12.0 and 0.12.1
@@ -51,6 +55,7 @@
 // in exactly the same way, and a reader diffing manifests sees a version that
 // misdescribes the code.
 
+import { LLO_SPECS, vendoredFrom } from "../gen/vendor-llo-spec.mjs";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -151,6 +156,7 @@ export function upstreamChannels() {
   for (const c of readInputVersion()) out.push({ kind: "input", file: "cluster.toml", detail: c.name });
   for (const c of readGeneratorVersion()) out.push({ kind: "generator", file: "schema-bridge.lock.json", detail: c.name });
   for (const c of readVectorsVersion()) out.push({ kind: "vectors", file: VECTORS_REL, detail: c.name });
+  for (const c of readSpecFixtureVersions()) out.push({ kind: "spec-fixture", file: c.file, detail: c.name });
   return out;
 }
 
@@ -222,14 +228,16 @@ function main() {
     ...readInputVersion(),
     ...readGeneratorVersion(),
     ...readVectorsVersion(),
+    ...readSpecFixtureVersions(),
   ];
 
   // Non-vacuity: with only the Cargo channel readable, the comparison below is
   // over a one-element set and proves nothing — the same silent-pass shape the
   // MIN_EXPECTED_PINS floor guards against upstream of it.
-  if (channels.length < 4) {
+  const expected = 4 + LLO_SPECS.length;
+  if (channels.length < expected) {
     fail(
-      `only ${channels.length} of the 4 hand-stated channels were readable ` +
+      `only ${channels.length} of the ${expected} hand-stated channels were readable ` +
       `(${channels.map((c) => c.name).join(", ")}). The cross-channel comparison ` +
       `would pass over a set too small to disagree. Either a channel moved, or ` +
       `this lint's readers need updating.`,
@@ -292,7 +300,7 @@ export function readGeneratorVersion() {
 
 /**
  * Channel 5 — LLO's leyline-net/v1 wire vectors, vendored by
- * gen/vendor-llo-net-vectors.mjs. A bump that left them behind would test
+ * gen/vendor-llo-net-vectors.mjs (via gen/vendor-llo-spec.mjs). A bump that left them behind would test
  * cloister's codecs against the previous release's wire while every other
  * channel claimed the new one.
  */
@@ -306,6 +314,23 @@ export function readVectorsVersion() {
     // lint-allow-silent: the vectors test owns an unreadable fixture.
     return [];
   }
+}
+
+/**
+ * Channel 6 — each spec fixture directory gen/vendor-llo-spec.mjs writes, by
+ * the release its VECTORS.sha256 is headed with. A directory with no header
+ * yields no channel, and the floor above then fails by count.
+ */
+export function readSpecFixtureVersions() {
+  const out = [];
+  for (const { spec, into } of LLO_SPECS) {
+    const file = `${into}/VECTORS.sha256`;
+    const p = resolve(ROOT, file);
+    if (!existsSync(p)) continue;
+    const from = vendoredFrom(readFileSync(p, "utf8"));
+    if (from) out.push({ name: `${spec} fixtures (${file})`, file, version: normalize(from.tag) });
+  }
+  return out;
 }
 
 /**

@@ -158,21 +158,14 @@ tasks:
       - wrangler.toml
 
   lint:spec-citation:
-    desc: "cloister-e83a33 rail — every `leyline-schema-spec/...` citation must resolve. That root is a declared ALIAS for ley-line-open's `rs/ll-core/schema-spec/`; no directory of that literal name exists anywhere. Two halves: the SHAPE check (every citation uses the declared root) runs everywhere; the EXISTENCE check needs an LLO checkout and skips without one, so it is a local cross-check rather than a CI-vacuous gate. A deliberate forward reference carries `lint-allow-unresolved: <reason>` on the preceding line."
+    desc: "cloister-e83a33 rail — every `leyline-schema-spec/...` citation must resolve. That root is a declared ALIAS for ley-line-open's `rs/ll-core/schema-spec/`; no directory of that literal name exists anywhere. Two halves: the SHAPE check (every citation uses the declared root) runs everywhere; the EXISTENCE check needs an LLO checkout and skips without one; CI's llo-checked job clones LLO at the pinned tag and runs it with CLOISTER_LLO_REQUIRED=1, under which a missing checkout fails. A deliberate forward reference carries `lint-allow-unresolved: <reason>` on the preceding line. No `sources:`: whether it passes depends on the LLO checkout, which Task cannot fingerprint, so a skip would otherwise be cached as up to date."
     cmds:
       - node lint/spec-citation.mjs
-    sources:
-      - lint/spec-citation.mjs
-      - "src/**/*.ts"
-      - "docs/**/*.md"
-      - CLAUDE.md
 
   lint:sibling-bead-refs:
-    desc: "cloister-4c057a rail — a sibling repo's ADR must not decide work we hold OPEN without us noticing. ley-line-open ADR-0035's Related block reads `cloister-043eb8 (multi-root — resolved by §4 below)`; the bead was open here, a cloister ADR arguing the WRONG answer got drafted, and nothing surfaced that LLO had already settled it with a third option neither side proposed. Second instance of the class — the first designed ADR-0045 work that had shipped in LLO a month earlier. A rule stated twice and violated twice is not a rule anyone is enforcing. Scans the sibling's ADRs (main tree + `.worktrees/*`, because a decision reaches us before it reaches their default branch) for `cloister-<hex>` and FAILS when one names an open bead. A referenced bead we never had is REPORTED, not fatal — that is the sibling's rot, and failing our gate on their typo trains people to bypass the gate. Skips with exit 0 when no LLO checkout, like lint:spec-citation."
+    desc: "cloister-4c057a rail — a sibling repo's ADR must not decide work we hold OPEN without us noticing. ley-line-open ADR-0035's Related block reads `cloister-043eb8 (multi-root — resolved by §4 below)`; the bead was open here, a cloister ADR arguing the WRONG answer got drafted, and nothing surfaced that LLO had already settled it with a third option neither side proposed. Second instance of the class — the first designed ADR-0045 work that had shipped in LLO a month earlier. A rule stated twice and violated twice is not a rule anyone is enforcing. Scans the sibling's ADRs (main tree + `.worktrees/*`, because a decision reaches us before it reaches their default branch) for `cloister-<hex>` and FAILS when one names an open bead. A referenced bead we never had is REPORTED, not fatal — that is the sibling's rot, and failing our gate on their typo trains people to bypass the gate. Skips with exit 0 when no LLO checkout, like lint:spec-citation, and CI's llo-checked job runs it with CLOISTER_LLO_REQUIRED=1 against LLO at the pinned tag. No `sources:`, for the same reason as lint:spec-citation."
     cmds:
       - node lint/sibling-bead-refs.mjs
-    sources:
-      - lint/sibling-bead-refs.mjs
 
   lint:harness-target-literals:
     desc: "cloister-742e19 / ADR-0057 rail — provider literals live only in cluster.toml harness and vault declarations. A harness is a lattice participant, not a special case: adding one must be a new declared row, never an edit to the harness path. Comments are exempt — usage examples naming both harnesses are documentation worth keeping."

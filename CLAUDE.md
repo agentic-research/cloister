@@ -114,7 +114,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
-| `lint:upstream-pins` | ONE ley-line-open version across all three hand-stated channels (input ref, Cargo deps, generator lock) + one rev across the Cargo pins | `cloister-9170d0` |
+| `lint:upstream-pins` | ONE ley-line-open version across every hand-stated channel (input ref, Cargo deps, generator lock, and each vendored spec fixture) + one rev across the Cargo pins | `cloister-9170d0` |
 | `cluster:emit:check-drift` | `cluster.compose.yaml` matches the emitter — it is generated, committed, and `lint:tenant-docs` READS it | `cloister-cb735c` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
 | `cluster:jsonschema:check-drift` + `cluster:toml:schema:check` | `schema/cluster.toml.schema.json` (the published cluster.toml schema) matches LLO schema-bridge's output for `cluster.capnp`, reshaped for TOML; the parser refuses any key it does not define | [`docs/reference/cluster-toml-schema.md`](docs/reference/cluster-toml-schema.md) |
@@ -122,6 +122,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | gate-integrity properties | every test file runs; every recipe is instantiable; an explicit declaration is never contradicted | `846228` / `70df69` / `61c638` |
 | `type-duplication` | `cluster-types.ts` never diverges from generated `cluster.zod.ts` (both mirror `cluster.capnp`) | `cloister-204ac9` |
 | `lint:spec-citation` | every `leyline-schema-spec/...` citation resolves to a real file in LLO | `cloister-e83a33` |
+| `llo-checked` (CI job) | every vendored LLO spec file is the pinned release's (`gen/vendor-llo-spec.mjs --check` against a fresh clone at the tag), and `lint:spec-citation` / `lint:sibling-bead-refs` run with `CLOISTER_LLO_REQUIRED=1`, so they fail rather than skip without a checkout | `cloister-ca2582` |
 | `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 | `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |

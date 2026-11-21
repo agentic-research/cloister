@@ -694,10 +694,58 @@ jobs:
           # Each step has its own summary file; the action keeps its stderr here.
           grep -q '1 undeclared (--fail-on undeclared,contradicted)' "$RUNNER_TEMP/cloister-plan-report.txt.err"
 
+  llo-checked:
+    name: llo-checked (vendored LLO files and spec citations, against LLO at the pinned tag)
+    # Every check here used to run only when a ley-line-open checkout sat
+    # beside cloister, so CI skipped all of them, and two vendored copies went
+    # stale behind the version cloister pinned. This clones LLO at that tag
+    # and runs them with CLOISTER_LLO_REQUIRED=1, under which a missing
+    # checkout fails instead of skipping.
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Clone ley-line-open at the pinned tag
+        # The tag is the one schema-bridge.lock.json pins; lint:upstream-pins
+        # holds every other channel to it.
+        run: |
+          set -euo pipefail
+          tag="$(node -p 'require("./schema-bridge.lock.json").version')"
+          git clone --quiet --depth 1 --branch "$tag" https://github.com/agentic-research/ley-line-open "$RUNNER_TEMP/ley-line-open"
+          echo "CLOISTER_LLO_ROOT=$RUNNER_TEMP/ley-line-open" >> "$GITHUB_ENV"
+          echo "CLOISTER_LLO_REQUIRED=1" >> "$GITHUB_ENV"
+
+      - name: Every vendored LLO file is the pinned release's
+        run: task llo:vendor:check -- "$CLOISTER_LLO_ROOT"
+
+      - name: Every spec citation resolves in LLO, and no LLO ADR decides a cloister bead still open
+        run: task lint:spec-citation lint:sibling-bead-refs
+
   ci-ok:
     name: ci-ok (every job passed)
     if: ${{ !cancelled() }}
-    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, plan-check-action, smoke-e2e]
+    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, plan-check-action, llo-checked, smoke-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

@@ -57,7 +57,7 @@ import { fileURLToPath } from "node:url";
 import TOML from "smol-toml";
 
 import { upstreamChannels, collectLloPins } from "../lint/upstream-pins.mjs";
-import { vendorNetVectors } from "./vendor-llo-net-vectors.mjs";
+import { LLO_SPECS, vendorLloSpecs } from "./vendor-llo-spec.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO = "agentic-research/ley-line-open";
@@ -353,14 +353,14 @@ function main(argv) {
   writeGeneratorLock(tag, digests, dry, wasmDigests(tag, wasmNames));
   // Needs only the checkout, so it is never skipped. It refuses unless the
   // checkout is at the tag being bumped to.
-  const vectors = vendorNetVectors(lloRoot, { tag, commit, dry });
+  const vendored = vendorLloSpecs(lloRoot, { tag, commit, dry });
 
   process.stdout.write(
     `${dry ? "  DRY RUN — nothing written\n" : ""}` +
     `  cargo: ${n} manifest(s) @ ${commit.slice(0, 8)} / ${version}\n` +
     `  input: cluster.toml @ ${commit.slice(0, 8)} / ${version}\n` +
     `  generator: schema-bridge.lock.json @ ${tag}, ${families.length} famil(ies) + ${wasmNames.length} wasm module(s) re-digested\n` +
-    `  vectors: ${vectors.count} leyline-net/v1 vector(s), ${vectors.unchanged ? "unchanged" : "re-vendored"}\n`,
+    `  spec fixtures: ${LLO_SPECS.length} spec(s) + leyline-net/v1 vectors, ${vendored.written.length ? `re-vendored ${vendored.written.length} file(s)` : "unchanged"}\n`,
   );
   // The artifact is generated, so it is part of the bump rather than a
   // follow-up. Skippable only because `capnp` is not everywhere.

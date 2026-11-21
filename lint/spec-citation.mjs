@@ -298,6 +298,12 @@ function main() {
     return 0;
   }
 
+  if (!lloPresent && process.env.CLOISTER_LLO_REQUIRED === "1") {
+    // CI's llo-checked job clones LLO for exactly this check; a missing
+    // checkout there is a broken job, not a reason to skip.
+    console.error(`lint-spec-citation: CLOISTER_LLO_REQUIRED=1 and no ley-line-open checkout at ${lloPath}`);
+    return 1;
+  }
   if (!lloPresent) {
     console.log("lint-spec-citation: shape ✓");
     console.log(`  ${citations.length} citation(s) use the declared root ${JSON.stringify(SPEC_ALIAS)}`);

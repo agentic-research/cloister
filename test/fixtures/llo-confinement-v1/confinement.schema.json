@@ -122,7 +122,7 @@
       ]
     },
     "UnixSocketEntry": {
-      "description": "One socket grant: a bare string is connect-only, an object carries an explicit mode. Connect-only is the shorter form on purpose — as in FsEntry, the cheaper spelling is the safer one. `connect` requires the socket to already exist and grants only connect(2). `bind` grants bind(2), which CREATES the socket file, and withholds connect(2) — the serving half alone. `connect-bind` is both. A capability that dials a shim wants connect; the shim itself wants bind; only a process that must own an endpoint and dial through it wants connect-bind. A runner that cannot withhold connect(2) MUST refuse `bind` rather than widen it to connect-bind (§9 condition 5).",
+      "description": "One socket grant: a bare string is connect-only, an object carries an explicit mode. Connect-only is the shorter form on purpose — as in FsEntry, the cheaper spelling is the safer one. `connect` requires the socket to already exist and grants only connect(2). `bind` grants bind(2), which CREATES the socket file, and withholds connect(2) — the serving half alone. `connect-bind` is both. A capability that dials a shim wants connect; the shim itself wants bind; only a process that must own an endpoint and dial through it wants connect-bind. A runner that cannot withhold connect(2) MUST refuse `bind` rather than widen it to connect-bind (§9 condition 6). The object form may carry `guestPort` (README §6, ADR-0046 Q7): the guest loopback TCP port where a guest-tier runner presents the channel to an unmodified workload.",
       "oneOf": [
         { "$ref": "#/$defs/AbsolutePath" },
         {
@@ -136,8 +136,25 @@
               "enum": ["bind", "connect-bind"]
             }
           }
+        },
+        {
+          "description": "A connect or bind grant presented on the guest's loopback (README §6 `guestPort`). `connect` is spelled as an object only here, beside a guestPort, because the bare string cannot carry one. `connect-bind` cannot carry a guestPort: one guest port cannot be both the presentation's listener and the workload's. Two grants in one document presenting the same guestPort are refused; JSON Schema cannot express that, so it is the parser's refusal.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "mode", "guestPort"],
+          "properties": {
+            "path": { "$ref": "#/$defs/AbsolutePath" },
+            "mode": { "enum": ["connect", "bind"] },
+            "guestPort": { "$ref": "#/$defs/GuestPort" }
+          }
         }
       ]
+    },
+    "GuestPort": {
+      "description": "A TCP port on a guest's loopback interface, chosen by the issuer and committed by the digest. No 1024 floor: the port is inside the guest, where the runner, not the workload, binds a dial presentation.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
     },
     "AbsolutePath": {
       "description": "An absolute, canonical path prefix. Canonicalization (symlinks resolved, `.` and `..` collapsed) happens at manifest-compile time; a manifest containing a non-canonical prefix is rejected. The `..` exclusion is expressible here and enforced; symlink resolution is not expressible in JSON Schema and remains the runner's obligation.",

@@ -166,6 +166,12 @@ export function main({
   runComments = defaultRunComments,
 } = {}) {
   const root = lloRoot(env);
+  if (!existsSync(root) && env.CLOISTER_LLO_REQUIRED === "1") {
+    // CI's llo-checked job clones LLO for exactly this check; a missing
+    // checkout there is a broken job, not a reason to skip.
+    err(`lint-sibling-bead-refs: CLOISTER_LLO_REQUIRED=1 and no sibling checkout at ${root}`);
+    return 1;
+  }
   if (!existsSync(root)) {
     log(`lint-sibling-bead-refs: SKIPPED — no sibling checkout at ${root}`);
     log("  (set CLOISTER_LLO_ROOT to enable it)");

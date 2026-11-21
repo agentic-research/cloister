@@ -70,10 +70,15 @@ tasks:
     cmds:
       - node gen/llo-bump.mjs {{.CLI_ARGS | default "--help"}}
 
-  wire:llo-vectors:
-    desc: "Re-vendor ley-line-open's leyline-net/v1 wire vectors (both byte forms, digest-checked against LLO's VECTORS.sha256) into test/wire/fixtures/llo-net-vectors.json, at the release schema-bridge.lock.json pins. Usage: task wire:llo-vectors -- <ley-line-open checkout>. `task llo:bump` does this itself; this is for re-vendoring without a bump."
+  llo:vendor:
+    desc: "Re-vendor every ley-line-open spec file cloister tests against (confinement/v1 schema, execution/v1, credential-isolation/v1 and leyline-net/v1 vectors) from git at the release schema-bridge.lock.json pins, checked against LLO's own VECTORS.sha256 where it lists a file. Usage: task llo:vendor -- <ley-line-open checkout>. `task llo:bump` does this itself."
     cmds:
-      - node gen/vendor-llo-net-vectors.mjs {{.CLI_ARGS}}
+      - node gen/vendor-llo-spec.mjs {{.CLI_ARGS}}
+
+  llo:vendor:check:
+    desc: "Fail unless every vendored ley-line-open spec file is the pinned release's. Usage: task llo:vendor:check -- <ley-line-open checkout>. CI's llo-checked job runs it against a fresh clone at the pinned tag, so it never skips for want of a checkout."
+    cmds:
+      - node gen/vendor-llo-spec.mjs --check {{.CLI_ARGS}}
 
   schema-bridge:build:
     desc: "Fetch LLO's schema-bridge capnp plugins (zod + go + jsonschema) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."
