@@ -8,6 +8,33 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — ADR-0079 accepted: microVM runs on signed grants
+
+- ADR-0079 is accepted, with its open questions decided:
+  - the sign-only helper holds the issuing key, under a key URL used only for
+    execution grants (Q1);
+  - every grant is signed, in development too, by a development key the helper
+    holds, and cloister never passes `--allow-unverified-evidence` (Q2);
+  - one execution daemon serves each distinct workspace, plus one for the runs
+    that declare none (Q3).
+- Two facts from ley-line-open v0.30.0 correct it:
+  - a run's executable is named by the `blake3-256` of its bytes, which the
+    host runtime hashes from the rootfs in the CAS;
+  - a workspace is named by its tree root, which moves with every accepted
+    proposal. So a daemon's catalog is generated at each start, not from the
+    lock alone.
+- A daemon serving a workspace needs the tree's root in its catalog before it
+  starts, and ley-line-open reports the root only from a running daemon.
+  cloister will not start a daemon twice to learn it; ley-line-open#602 asks
+  for the root to be reported at start. Until then, a microVM bundle that
+  declares a workspace stays refused by name. Signed runs without a workspace
+  are built first.
+- The helper can sign a grant, but not the DSSE evidence it references:
+  ley-line-open's envelope is signed only by an in-process key.
+  ley-line-open#603 asks for a way to build it from a signature made outside
+  the process. Until then the daemon path is built and tested with a key held
+  by the test, and no run takes it.
+
 ### 2026-11 — a bundle pinned through a multi-image producer runs like any other
 
 - `runtime import --bundle`, `runtime plan` and `cluster up` accept a bundle
