@@ -383,7 +383,7 @@ export const COMMANDS = [
     flags: [
       { flag: "--env", value: "<name>", summary: "environment whose connection targets and placements are read (default: local)" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
-      { flag: "--json", summary: "print the graph as JSON" },
+      { flag: "--json", summary: "print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion" },
     ],
     seeAlso: "docs/adr/0075-one-graph.md",
   },

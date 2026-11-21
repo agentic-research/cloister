@@ -310,7 +310,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     const env = args.env ?? "local";
     try {
       const graph = await graphDir({ root: selectedRoot, env });
-      if (args.json) log(JSON.stringify(graph, null, 2));
+      if (args.json) {
+        const { declaredOutput } = await import("../lib/output-format.mjs");
+        log(JSON.stringify(await declaredOutput("Graph", graph), null, 2));
+      }
       else {
         const { renderGraph } = await import("../lib/cluster/graph.mjs");
         log(renderGraph(graph));

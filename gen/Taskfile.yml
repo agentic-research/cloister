@@ -375,6 +375,25 @@ tasks:
       - schema-bridge.lock.json
       - pkg/identity/identity.go
 
+  cli:schema:
+    desc: "Regenerate src/generated/cli.zod.ts and the published schema/cli.schema.json from manifest/cli.capnp, the declaration of the CLI's JSON outputs (ADR-0077). After an output's shape changes, also run `node gen/cli-schema.mjs --bump <Output>`: it records the new shape in schema/cli-formats.lock.json and decides the bump, minor for an addition, major for anything removed or retyped."
+    deps: [schema-bridge:build]
+    cmds:
+      - node gen/cli-schema.mjs
+    sources:
+      - manifest/cli.capnp
+      - schema-bridge.lock.json
+      - gen/cli-schema.mjs
+    generates:
+      - src/generated/cli.zod.ts
+      - schema/cli.schema.json
+
+  cli:schema:check:
+    desc: "Drift and version gate for the CLI's JSON outputs (ADR-0077): the committed cli.zod.ts and cli.schema.json are what schema-bridge generates from manifest/cli.capnp, and no output's shape changed without its formatVersion changing. IN `task lint`. Requires the `capnp` CLI."
+    deps: [schema-bridge:build]
+    cmds:
+      - node gen/cli-schema.mjs --check
+
   cluster:jsonschema:
     desc: "Regenerate src/generated/cluster.schema.json, LLO schema-bridge's JSON Schema for cluster.capnp (the capnp shape). Run after cluster.capnp edits, then `task cluster:toml:schema`."
     deps: [schema-bridge:build]

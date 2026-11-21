@@ -192,8 +192,9 @@ export function clusterGraph(cluster, env) {
       name: c.name,
       carrier: `${fromKind ?? "unplaced"} → ${toKind ?? "unplaced"}, port "${target.port}"`,
       strength,
-      minStrength: c.minStrength,
-      meetsMinimum: c.minStrength === "" || STRENGTHS.indexOf(strength) >= STRENGTHS.indexOf(c.minStrength),
+      // "none" when cluster.toml asks for no minimum: every edge meets it.
+      minStrength: c.minStrength || "none",
+      meetsMinimum: STRENGTHS.indexOf(strength) >= STRENGTHS.indexOf(c.minStrength || "none"),
       why: composed ? composed.why : connectionWhy(fromKind, toKind, strength, unwritten),
     });
   }
@@ -212,7 +213,7 @@ export function clusterGraph(cluster, env) {
       carrier: `${WIRE_PLACEMENT}, binding ${w.binding}, ${reach.over}`,
       strength: reach.strength,
       // A wire cannot ask for a strength yet (ADR-0075 §4).
-      minStrength: "",
+      minStrength: "none",
       meetsMinimum: true,
       why: reach.why,
     });

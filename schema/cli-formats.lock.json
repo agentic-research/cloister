@@ -1,0 +1,59 @@
+{
+  "$comment": "The format version of each JSON output the cloister CLI prints, and the shape it was recorded at (ADR-0077). Written by `node gen/cli-schema.mjs --bump <Output>`; checked by `task cli:schema:check`. Do not edit by hand.",
+  "outputs": {
+    "Graph": {
+      "formatVersion": "1.0",
+      "shape": {
+        "EdgeDeclaration": {
+          "enum": [
+            "connection",
+            "wire"
+          ]
+        },
+        "Graph": {
+          "fields": {
+            "formatVersion": "string",
+            "env": "string",
+            "edges": "GraphEdge[]",
+            "elsewhere": "GraphElsewhere[]",
+            "counts": "StrengthCounts"
+          }
+        },
+        "GraphEdge": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "declaredAs": "EdgeDeclaration",
+            "name": "string",
+            "carrier": "string",
+            "strength": "Strength",
+            "minStrength": "Strength",
+            "meetsMinimum": "boolean",
+            "why": "string"
+          }
+        },
+        "GraphElsewhere": {
+          "fields": {
+            "from": "string",
+            "name": "string",
+            "envs": "string[]"
+          }
+        },
+        "Strength": {
+          "enum": [
+            "capability",
+            "none",
+            "policy"
+          ]
+        },
+        "StrengthCounts": {
+          "fields": {
+            "none": "integer",
+            "policy": "integer",
+            "capability": "integer"
+          }
+        }
+      }
+    }
+  }
+}
