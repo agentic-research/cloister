@@ -32,12 +32,6 @@ const NOT_YET_MOVED = new Set([
   "init",
   "skills list",
   "skills pin",
-  "cluster generate",
-  "cluster resolve",
-  "cluster up",
-  "cluster down",
-  "cluster k8s",
-  "cluster lower",
   "inspect",
   "runtime plan",
   "runtime install",
@@ -93,7 +87,7 @@ test("every declared command but the listed ones is held by the CLI to its decla
   // what a unit test calls. An unmoved command is never run here: a hand
   // parser might ignore the flag and go on to do real work.
   const moved = COMMANDS.filter((c) => !NOT_YET_MOVED.has(c.name));
-  assert.ok(moved.length >= 3, "cluster graph, add and artifacts pull have moved");
+  assert.ok(moved.length >= 9, "every cluster subcommand, add and artifacts pull have moved");
   for (const c of moved) {
     const r = spawnSync(process.execPath, [resolve(ROOT, "bin/cloister.mjs"), ...c.name.split(" "), "--no-such-flag"], { cwd: resolve(ROOT, "test/e2e/lowered-kind"), encoding: "utf8" });
     assert.equal(r.status, 2, `${c.name}: ${r.stderr}`);

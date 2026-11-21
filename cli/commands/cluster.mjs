@@ -29,12 +29,12 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve, isAbsolute, join } from "node:path";
-import { renderCommandHelp } from "../surface.mjs";
 import { FlagsError, parseFlags } from "../lib/flags.mjs";
 
-/** The `cluster` subcommands whose flags are parsed from their declaration. */
-export const DECLARED_PARSE = Object.freeze(["graph"]);
+/** The `cluster` subcommands, each parsed from its declaration in cli/surface.mjs. */
+export const DECLARED_PARSE = Object.freeze(["generate", "resolve", "up", "down", "k8s", "lower", "graph"]);
 import { startedAsScript } from "../lib/started-as-script.mjs";
+import { helpFor } from "../help.mjs";
 
 export class ClusterUsageError extends Error {}
 
@@ -74,53 +74,34 @@ function spawnSyncSafe(bin, args) {
 }
 
 /**
+ * Parse `cloister cluster <sub> …`: each subcommand's flags from its
+ * declaration in cli/surface.mjs (ADR-0077 Part 3), and only those. A flag the
+ * declaration gives no default and the user does not give keeps the base value
+ * here, so `env` and `out` stay null when absent: `up` without `--env` is the
+ * compose path, as it always was.
+ *
  * @param {string[]} argv
- * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, passthrough:string[]}}
+ * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, passthrough:string[], env:string|null, out:string|null, json:boolean}}
  */
 export function parseArgs(argv) {
-  // A subcommand that has moved has its flags parsed from its declaration in
-  // cli/surface.mjs, and accepts only those (ADR-0077 Part 3). The rest are
-  // parsed below until each moves.
-  if (DECLARED_PARSE.includes(argv[0])) {
-    const sub = argv[0];
-    let flags;
-    try {
-      flags = parseFlags(`cluster ${sub}`, argv.slice(1));
-    } catch (error) {
-      if (error instanceof FlagsError) throw new ClusterUsageError(error.message);
-      throw error;
-    }
-    return {
-      help: false, sub, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
-      env: null, out: null, json: false, ...flags,
-    };
-  }
-  const out = {
+  const base = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
     env: null, out: null, json: false,
   };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--help" || a === "-h") { out.help = true; continue; }
-    if (a === "--detach" || a === "-d") { out.detach = true; continue; }
-    if (a === "--destroy") { out.destroy = true; continue; }
-    if (a === "--check") { out.check = true; continue; }
-    if (a === "--dir") {
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith("--")) throw new ClusterUsageError("--dir requires a value");
-      out.dir = v; i++; continue;
-    }
-    if (a === "--env" || a === "--out") {
-      const v = argv[i + 1];
-      if (v === undefined || v.startsWith("--")) throw new ClusterUsageError(`${a} requires a value`);
-      out[a.slice(2)] = v; i++; continue;
-    }
-    if (a === "--json") { out.json = true; continue; }
-    if (!out.sub && ["generate", "resolve", "up", "down", "k8s", "lower", "graph"].includes(a)) { out.sub = a; continue; }
-    if (a.startsWith("-")) throw new ClusterUsageError(`unknown option ${JSON.stringify(a)}`);
-    throw new ClusterUsageError(`unexpected argument ${JSON.stringify(a)}`);
+  const [sub, ...rest] = argv;
+  if (sub === undefined) return base;
+  if (!DECLARED_PARSE.includes(sub)) {
+    throw new ClusterUsageError(sub.startsWith("-") ? `unknown option ${JSON.stringify(sub)}` : `unexpected argument ${JSON.stringify(sub)}`);
   }
-  return out;
+  let flags;
+  try {
+    flags = parseFlags(`cluster ${sub}`, rest);
+  } catch (error) {
+    if (error instanceof FlagsError) throw new ClusterUsageError(error.message);
+    throw error;
+  }
+  const given = Object.fromEntries(Object.entries(flags).filter(([, value]) => value !== undefined));
+  return { ...base, sub, ...given };
 }
 
 /**
@@ -255,6 +236,12 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   const errLog = deps.errLog ?? console.error;
   const spawnImpl = deps.spawn ?? spawn;
 
+  // Help is the declaration's (cli/help.mjs), however main is reached.
+  const help = helpFor(["cluster", ...argv]);
+  if (help !== undefined) {
+    log(help);
+    return 0;
+  }
   let args;
   try {
     args = parseArgs(argv);
@@ -262,10 +249,10 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     if (e instanceof ClusterUsageError) { errLog(`cloister cluster: ${e.message}`); return 2; }
     throw e;
   }
-  if (args.help || !args.sub) {
-    const helpCommand = args.sub ? `cluster ${args.sub}` : "cluster generate";
-    log(renderCommandHelp(helpCommand));
-    return args.sub ? 0 : 2;
+  if (!args.sub) {
+    // `cloister cluster` names no subcommand: say which there are.
+    errLog(helpFor(["cluster", "--help"]));
+    return 2;
   }
 
   const selectedRoot = isAbsolute(args.dir) ? args.dir : resolve(process.cwd(), args.dir);
@@ -315,7 +302,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 
   if (args.sub === "lower") {
     try {
-      const env = args.env ?? "local";
+      const env = args.env;
       const { written, kept } = await lowerDir({ root: selectedRoot, env });
       for (const f of written) log(`cloister cluster lower: wrote ${join(args.dir, f)}`);
       for (const f of kept) log(`cloister cluster lower: kept ${join(args.dir, f)} (it exists; a manifest is never overwritten)`);
@@ -349,8 +336,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
 
   if (args.sub === "k8s") {
     try {
-      const outDir = args.out ?? (() => { throw new ClusterUsageError("--out <dir> is required"); })();
-      const written = await emitK8sDir({ root: selectedRoot, env: args.env ?? "local", out: resolve(process.cwd(), outDir) });
+      // --out is required and --env defaults to local, both by the declaration.
+      const outDir = args.out;
+      const written = await emitK8sDir({ root: selectedRoot, env: args.env, out: resolve(process.cwd(), outDir) });
       for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
       for (const a of written.applies) log(`  kubectl apply ${a.namespace ? `-n ${a.namespace} ` : ""}-f ${join(outDir, a.bundle)}`);
       for (const k of written.checked) {

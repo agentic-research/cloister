@@ -208,7 +208,7 @@ Reads cluster.toml once, validates it, then produces canonical cluster.toml, src
 
 | Flag | | |
 |---|---|---|
-| `--dir <path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: `.`) |
 | `--check` |  | report drift without writing any file |
 
 ## cloister cluster resolve
@@ -221,7 +221,7 @@ Reads [inputs.*] from cluster.toml, fetches or reads each declared ref, and reco
 
 | Flag | | |
 |---|---|---|
-| `--dir <path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: `.`) |
 
 ## cloister cluster up
 
@@ -238,8 +238,8 @@ A scaffolded cluster includes a small Taskfile, and its `task up` command delega
 
 | Flag | | |
 |---|---|---|
-| `--dir <path>` |  | cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it |
-| `--detach` |  | run in the background (compose -d); not with --env |
+| `--dir <path>` |  | cluster directory. Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it (default: `.`) |
+| `-d, --detach` |  | run in the background (compose -d); not with --env |
 | `--env <name>` |  | start the microVM-placed bundles of this env instead of compose |
 
 ## cloister cluster down
@@ -252,7 +252,7 @@ Stops the cluster and KEEPS its volumes. Durable-Object SQLite state lives in th
 
 | Flag | | |
 |---|---|---|
-| `--dir <path>` |  | cluster directory (default: the current directory) |
+| `--dir <path>` |  | cluster directory (default: `.`) |
 | `--destroy` |  | ALSO remove volumes — unrecoverable; DO state lives there |
 
 ## cloister cluster k8s
@@ -266,8 +266,8 @@ For each bundle placed "kubernetes" in --env, checks its rendered manifest's Ser
 | Flag | | |
 |---|---|---|
 | `--out <dir>` | **required** | output directory (may exist, but only with files this run writes) |
-| `--env <name>` |  | environment whose placements and targets are lowered (default: local) |
-| `--dir <path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--env <name>` |  | environment whose placements and targets are lowered (default: `local`) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: `.`) |
 
 See also: [`docs/adr/0070-placements-and-channel-strength.md`](../adr/0070-placements-and-channel-strength.md)
 
@@ -297,8 +297,8 @@ For each bundle placed "kubernetes" or "knative" in --env, writes the manifest i
 
 | Flag | | |
 |---|---|---|
-| `--env <name>` |  | environment whose kubernetes and knative placements are lowered (default: local) |
-| `--dir <path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--env <name>` |  | environment whose kubernetes and knative placements are lowered (default: `local`) |
+| `--dir <path>` |  | cluster directory holding cluster.toml (default: `.`) |
 
 See also: [`docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md`](../adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md)
 

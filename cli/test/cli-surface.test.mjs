@@ -16,6 +16,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { COMMANDS, GLOBAL_OPTIONS, renderHelp, HARNESS_ENV } from "../surface.mjs";
+import { render as renderReference } from "../../gen/cli-docs.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -51,10 +52,13 @@ test("the rendered help lists every declared command", () => {
 
 test("the committed docs page matches the declaration", () => {
   // Same property the cli:docs:check gate enforces, asserted here too so a
-  // developer sees it in the test run rather than only from the task.
+  // developer sees it in the test run rather than only from the task. It used
+  // to check only that each command had a section, so a stale flag, default or
+  // summary passed here and failed only in the gate.
   const page = readFileSync(resolve(ROOT, "docs/reference/cli.md"), "utf8");
   const missing = COMMANDS.filter((c) => !page.includes(`## cloister ${c.name}`)).map((c) => c.name);
   assert.deepEqual(missing, [], `declared but absent from docs/reference/cli.md: ${missing}`);
+  assert.equal(page, renderReference(), "docs/reference/cli.md is stale; regenerate it with `task cli:docs`");
 });
 
 test("global color controls appear in both terminal help and generated docs", () => {

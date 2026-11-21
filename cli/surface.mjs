@@ -274,7 +274,7 @@ export const COMMANDS = [
       "cluster.compose.yaml. If validation or rendering fails, the existing " +
       "generated files are left alone.",
     flags: [
-      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory" },
       { flag: "--check", summary: "report drift without writing any file" },
     ],
   },
@@ -286,7 +286,7 @@ export const COMMANDS = [
       "Reads [inputs.*] from cluster.toml, fetches or reads each declared ref, " +
       "and records its content digest in cluster.lock.toml.",
     flags: [
-      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory" },
     ],
   },
   {
@@ -318,8 +318,8 @@ export const COMMANDS = [
       "delegates to this CLI command. Both paths therefore use one implementation " +
       "of starting a cluster.",
     flags: [
-      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory). Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
-      { flag: "--detach", summary: "run in the background (compose -d); not with --env" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory. Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
+      { flag: "--detach", short: "-d", summary: "run in the background (compose -d); not with --env" },
       { flag: "--env", value: "<name>", summary: "start the microVM-placed bundles of this env instead of compose" },
     ],
   },
@@ -332,7 +332,7 @@ export const COMMANDS = [
       "lives in those volumes, so removing them is unrecoverable and is never " +
       "the default for a routine-looking verb — pass --destroy to opt in.",
     flags: [
-      { flag: "--dir", value: "<path>", summary: "cluster directory (default: the current directory)" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory" },
       { flag: "--destroy", summary: "ALSO remove volumes — unrecoverable; DO state lives there" },
     ],
   },
@@ -372,8 +372,8 @@ export const COMMANDS = [
       "printed. ADR-0070 §2-4.",
     flags: [
       { flag: "--out", value: "<dir>", required: true, summary: "output directory (may exist, but only with files this run writes)" },
-      { flag: "--env", value: "<name>", summary: "environment whose placements and targets are lowered (default: local)" },
-      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--env", value: "<name>", default: "local", summary: "environment whose placements and targets are lowered" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory holding cluster.toml" },
     ],
     seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
   },
@@ -425,8 +425,8 @@ export const COMMANDS = [
       "these manifests to the declared connections and writes the NetworkPolicies. An " +
       "address that crosses placements is refused. ADR-0074 §7.",
     flags: [
-      { flag: "--env", value: "<name>", summary: "environment whose kubernetes and knative placements are lowered (default: local)" },
-      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--env", value: "<name>", default: "local", summary: "environment whose kubernetes and knative placements are lowered" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory holding cluster.toml" },
     ],
     seeAlso: "docs/adr/0074-the-graph-is-derived-cluster-toml-holds-intent.md",
   },

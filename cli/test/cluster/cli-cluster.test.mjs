@@ -174,6 +174,36 @@ test("parseArgs: --dir is present from the start, for the many-cloisters case", 
   assert.throws(() => parseArgs(["up", "--bogus"]), /unknown option/);
 });
 
+test("each subcommand accepts its own flags only, as declared", () => {
+  // The shared hand parser took every subcommand's flags for every other, and
+  // ignored the ones that did not apply: `generate --destroy` ran a generate.
+  assert.throws(() => parseArgs(["generate", "--destroy"]), /unknown option "--destroy" for `cloister cluster generate`/);
+  assert.throws(() => parseArgs(["down", "--json"]), /unknown option "--json" for `cloister cluster down`/);
+  assert.throws(() => parseArgs(["k8s"]), /--out is required/);
+  assert.equal(parseArgs(["up", "-d"]).detach, true, "-d is --detach");
+  // `up` without --env is the compose path: env stays null, not undefined.
+  assert.equal(parseArgs(["up"]).env, null);
+  assert.equal(parseArgs(["lower"]).env, "local", "lower's --env defaults to local, by its declaration");
+  assert.equal(parseArgs(["k8s", "--out", "o"]).env, "local", "so does k8s's");
+});
+
+test("up --env refuses --detach before anything starts", async () => {
+  const errors = [];
+  const code = await main(["up", "--env", "local", "--detach"], {
+    log: () => {},
+    errLog: (line) => errors.push(line),
+    clusterUp: () => assert.fail("nothing is started"),
+  });
+  assert.equal(code, 2);
+  assert.match(errors.join("\n"), /--detach is a compose option; `up --env` runs in the foreground/);
+});
+
+test("`cloister cluster` with no subcommand names the subcommands, and exits 2", async () => {
+  const errors = [];
+  assert.equal(await main([], { log: () => assert.fail("not on stdout"), errLog: (line) => errors.push(line) }), 2);
+  assert.match(errors.join("\n"), /Usage: cloister cluster <command>[\s\S]*cloister cluster up \.\.\./);
+});
+
 // ── the scaffold must actually be runnable ────────────────────────────────
 
 test("PROPERTY: every scaffold ships the Taskfile, and it delegates to the CLI", () => {

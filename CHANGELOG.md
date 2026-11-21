@@ -8,6 +8,23 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every `cluster` subcommand is parsed from its declaration
+
+- One hand parser served every `cluster` subcommand. It accepted each
+  subcommand's flags for all of them, and ignored the ones that did not
+  apply: `cluster generate --destroy` ran a generate. Each subcommand now
+  accepts only its declared flags (ADR-0077 Part 3).
+- Defaults are stated once, in the declaration, and help shows them:
+  - `--dir` defaults to `.`;
+  - `--env` defaults to `local` for `k8s` and `lower`.
+- `up -d` is declared as `--detach`'s alias. `up` without `--env` is still
+  the compose path.
+- `cloister cluster` with no subcommand lists the subcommands. It printed
+  `cluster generate`'s help instead.
+- The test that the committed CLI reference matches the declaration now
+  compares the whole page. It checked only that each command had a section,
+  so a stale flag or default passed it and failed only in the gate.
+
 ### 2026-11 — `add` and `artifacts pull` are parsed from their declaration
 
 - `cloister artifacts pull --help` listed no option but `--help`. Its
