@@ -15,13 +15,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   - an image written by digest, whether cluster.toml's own or the lock's
     pin, runs as written, and is pulled by that digest when the engine does
     not hold it;
-  - an image the engine holds runs by its registry digest when it came from
-    that repository;
-  - a local build runs by its image ID, under a tag made from it
-    (`cloister:sha256-<hex>`), so a rebuild while compose starts cannot
-    change what runs;
+  - any other image the engine holds, a local build or a pulled one, runs by
+    its image ID, under a tag made from it (`cloister:sha256-<hex>`), so a
+    rebuild while compose starts cannot change what runs. One rule serves
+    docker's classic and containerd image stores;
   - an image that names a registry and is missing is pulled with the
-    engine's own credentials;
+    engine's own credentials, then runs by its ID;
   - a bare name the engine does not hold is refused by name, and never
     pulled. Nothing starts.
 - The committed compose file runs as it is, plus one override in the run's

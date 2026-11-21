@@ -316,9 +316,9 @@ export const COMMANDS = [
       "present, or COMPOSE_CMD if set. Each image is resolved when it starts " +
       "(ADR-0083 §4), through the engine compose drives (or CONTAINER_CMD). An " +
       "image written by digest runs as written, pulled by that digest if missing. " +
-      "An image the engine holds runs by its registry digest, or a local build by " +
-      "its image ID, under a tag made from that ID. One that names a registry is " +
-      "pulled with the engine's credentials. A bare name the engine does not hold " +
+      "Any other image the engine holds runs by its image ID, under a tag made from " +
+      "that ID; one that names a registry and is not held is first pulled with the " +
+      "engine's credentials. A bare name the engine does not hold " +
       "is refused by name and never pulled, and then nothing starts. Each container " +
       "records what it runs in its cloister.image labels, and `up` prints each " +
       "digest that moved since the last run.\n\n" +

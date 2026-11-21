@@ -83,6 +83,8 @@ test("the compose file's services and project are read from it", () => {
 });
 
 test("each image is resolved by what the engine holds, pinned by digest or ID", () => {
+  // The API image came from a registry and carries its digest, as a local
+  // build also does in docker's containerd image store. Both run by their ID.
   const e = engine({
     images: {
       [`ghcr.io/acme/db@${MANIFEST}`]: { Id: ID_B, RepoDigests: [`ghcr.io/acme/db@${MANIFEST}`] },
@@ -98,8 +100,8 @@ test("each image is resolved by what the engine holds, pinned by digest or ID", 
   assert.deepEqual(failures, []);
   assert.deepEqual(resolved, [
     { service: "db", image: `ghcr.io/acme/db@${MANIFEST}`, run: `ghcr.io/acme/db@${MANIFEST}`, digest: MANIFEST, by: "pinned" },
-    { service: "router", image: "cloister:0.1.0", run: `cloister:sha256-${hex("a")}`, digest: ID_A, by: "local" },
-    { service: "api", image: "ghcr.io/acme/api:1.4", run: `ghcr.io/acme/api:1.4@${MANIFEST}`, digest: MANIFEST, by: "registry" },
+    { service: "router", image: "cloister:0.1.0", run: `cloister:sha256-${hex("a")}`, digest: ID_A, by: "id" },
+    { service: "api", image: "ghcr.io/acme/api:1.4", run: `ghcr.io/acme/api:sha256-${hex("b")}`, digest: ID_B, by: "id" },
   ]);
   // What the engine holds is never pulled again.
   assert.ok(!e.calls.some((c) => c.startsWith("docker pull")), e.calls.join("\n"));
@@ -110,7 +112,7 @@ test("an image that names a registry and is not held is pulled with the engine's
   const e = engine({ pulls: { "ghcr.io/acme/api:1.4": { Id: ID_B, RepoDigests: [`ghcr.io/acme/api@${MANIFEST}`] } } });
   const { resolved, failures } = resolveRunImages([{ service: "api", image: "ghcr.io/acme/api:1.4" }], { exec: e.exec, engine: "docker" });
   assert.deepEqual(failures, []);
-  assert.equal(resolved[0].run, `ghcr.io/acme/api:1.4@${MANIFEST}`);
+  assert.deepEqual(resolved, [{ service: "api", image: "ghcr.io/acme/api:1.4", run: `ghcr.io/acme/api:sha256-${hex("b")}`, digest: ID_B, by: "id" }]);
   assert.ok(e.calls.includes("docker pull --quiet ghcr.io/acme/api:1.4"));
 
   const denied = engine();
@@ -156,18 +158,19 @@ const recorded = (service, image, digest, by) => ({
 });
 
 test("the previous run's record is read back from its containers' labels", () => {
-  const e = engine({ containers: [recorded("router", "cloister:0.1.0", ID_A, "local")] });
+  const e = engine({ containers: [recorded("router", "cloister:0.1.0", ID_A, "id")] });
   const records = previousRecords({ exec: e.exec, engine: "docker", project: "shop" });
-  assert.deepEqual([...records], [["router", { image: "cloister:0.1.0", digest: ID_A, by: "local" }]]);
+  assert.deepEqual([...records], [["router", { image: "cloister:0.1.0", digest: ID_A, by: "id" }]]);
   assert.ok(e.calls.includes("docker ps -a -q --filter label=com.docker.compose.project=shop"));
   assert.equal(previousRecords({ exec: e.exec, engine: "docker", project: null }).size, 0);
 });
 
 test("only a moved local build's old tag is stale", () => {
-  const now = [{ service: "router", image: "cloister:0.1.0", run: `cloister:sha256-${hex("b")}`, digest: ID_B, by: "local" }];
-  assert.deepEqual(staleTags(now, new Map([["router", { image: "cloister:0.1.0", digest: ID_A, by: "local" }]])), [`cloister:sha256-${hex("a")}`]);
-  assert.deepEqual(staleTags(now, new Map([["router", { image: "cloister:0.1.0", digest: ID_B, by: "local" }]])), []);
-  assert.deepEqual(staleTags(now, new Map([["router", { image: "ghcr.io/acme/r:1", digest: MANIFEST, by: "registry" }]])), []);
+  const now = [{ service: "router", image: "cloister:0.1.0", run: `cloister:sha256-${hex("b")}`, digest: ID_B, by: "id" }];
+  assert.deepEqual(staleTags(now, new Map([["router", { image: "cloister:0.1.0", digest: ID_A, by: "id" }]])), [`cloister:sha256-${hex("a")}`]);
+  assert.deepEqual(staleTags(now, new Map([["router", { image: "cloister:0.1.0", digest: ID_B, by: "id" }]])), []);
+  // A pinned image never ran under a tag cloister made.
+  assert.deepEqual(staleTags(now, new Map([["router", { image: `ghcr.io/acme/r@${MANIFEST}`, digest: MANIFEST, by: "pinned" }]])), []);
 });
 
 function clusterDir(compose) {
@@ -196,7 +199,7 @@ test("up starts the committed file with an override that pins and records each i
   try {
     const e = engine({
       images: { "cloister:0.1.0": { Id: ID_B, RepoDigests: [] }, [`cloister:sha256-${hex("a")}`]: { Id: ID_A, RepoDigests: [] } },
-      containers: [recorded("router", "cloister:0.1.0", ID_A, "local")],
+      containers: [recorded("router", "cloister:0.1.0", ID_A, "id")],
     });
     const { spawn, seen } = fakeCompose(0);
     const logs = [];
@@ -210,9 +213,9 @@ test("up starts the committed file with an override that pins and records each i
     const override = parseYaml(seen.overrideText);
     assert.deepEqual(override.services.router, {
       image: `cloister:sha256-${hex("b")}`,
-      labels: [`${IMAGE_LABELS.image}=cloister:0.1.0`, `${IMAGE_LABELS.digest}=${ID_B}`, `${IMAGE_LABELS.by}=local`],
+      labels: [`${IMAGE_LABELS.image}=cloister:0.1.0`, `${IMAGE_LABELS.digest}=${ID_B}`, `${IMAGE_LABELS.by}=id`],
     });
-    assert.ok(logs.some((l) => l === `  router: cloister:0.1.0 runs as sha256:${"b".repeat(12)} (local, moved from sha256:${"a".repeat(12)})`), logs.join("\n"));
+    assert.ok(logs.some((l) => l === `  router: cloister:0.1.0 runs as sha256:${"b".repeat(12)} (image ID, moved from sha256:${"a".repeat(12)})`), logs.join("\n"));
     // The run's directory goes when the run ends, and so does the old build's tag.
     assert.equal(existsSync(dirname(seen.override)), false);
     assert.ok(e.calls.includes(`docker image rm cloister:sha256-${hex("a")}`), e.calls.join("\n"));

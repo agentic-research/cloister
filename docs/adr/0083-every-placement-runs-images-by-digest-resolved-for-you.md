@@ -113,17 +113,20 @@ For compose, it works like this (`cli/lib/cluster/compose-up.mjs`):
 - **Images are resolved through the engine compose drives** (docker, podman or
   nerdctl):
   - an image written by digest runs as written;
-  - an image the engine holds runs by its registry digest, when it came from
-    that repository;
-  - otherwise it runs by its image ID, under a tag made from the ID
-    (`cloister:sha256-<hex>`), so a rebuild while compose starts cannot change
-    what runs. ko (`ko.local/…:<digest>`) and Tilt (`:tilt-<hash>`) tag local
-    builds the same way.
+  - any other image the engine holds runs by its image ID, under a tag made
+    from the ID (`cloister:sha256-<hex>`), so a rebuild while compose starts
+    cannot change what runs. ko (`ko.local/…:<digest>`) and Tilt
+    (`:tilt-<hash>`) tag local builds the same way. The ID is a content
+    address in docker's classic image store and in its containerd store. In
+    the containerd store a local build also carries a repository digest, so
+    "use the repository digest when there is one" would treat a local build
+    as a pulled image in one store and not in the other. One rule serves
+    both.
 - **Only cloister pulls, and only what is safe to pull.** The emitter writes
   `pull_policy: never`, so compose pulls nothing. Cloister pulls an image
   written by digest by that digest alone. It pulls an image that names a
-  registry by its tag, with the engine's own credentials, and then runs the
-  digest the engine records. A bare name is never pulled. That closes, at run
+  registry by its tag, with the engine's own credentials, and then runs it by
+  its image ID, as it runs one already held. A bare name is never pulled. That closes, at run
   time, the hole the Context names: compose would fetch Docker Hub's
   `library/<name>` for a local build that is missing.
 - **It refuses before it changes anything.** Every image is inspected first. A
@@ -132,7 +135,9 @@ For compose, it works like this (`cli/lib/cluster/compose-up.mjs`):
 - **The record lives on the container, so `up` keeps no state file.** Labels
   hold it: `cloister.image` (the image as the compose file names it),
   `cloister.image.digest` (the content address that ran) and
-  `cloister.image.by` (`pinned`, `registry` or `local`). The next `up` reads
+  `cloister.image.by` (`pinned` or `id`). Neither value changes between runs
+  of the same image, so the record never makes compose recreate a container.
+  The next `up` reads
   them back to print what moved. It then removes the tag the previous local
   build ran under, so rebuilds do not pile up images that
   `docker image prune` would keep.

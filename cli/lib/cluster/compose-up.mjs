@@ -14,13 +14,14 @@
 // Each image, in order:
 //   1. One the compose file writes by digest (cluster.toml's own, or the
 //      lock's pin) runs as written, pulled by that digest when it is missing.
-//   2. One the engine holds runs by what it holds. That is its registry digest
-//      when it came from that repository, and otherwise its image ID, under a
-//      tag made from the ID, so a rebuild while compose starts cannot change
-//      what runs. ko (`ko.local/…:<digest>`) and Tilt (`:tilt-<hash>`) tag
-//      local builds the same way.
-//   3. One that names a registry is pulled, with the engine's own
-//      credentials, and then runs by its registry digest.
+//   2. One the engine holds runs by its image ID, under a tag made from the
+//      ID, so a rebuild while compose starts cannot change what runs. ko
+//      (`ko.local/…:<digest>`) and Tilt (`:tilt-<hash>`) tag local builds the
+//      same way. The ID is a content address in docker's classic image store
+//      and in its containerd one, where a local build also has a digest, so
+//      one rule serves both.
+//   3. One that names a registry and is not held is pulled, with the engine's
+//      own credentials, and then runs as 2.
 //   4. A bare name the engine does not hold is refused by name, and never
 //      pulled. Docker would fetch Docker Hub's `library/<name>`, an image
 //      anyone could publish.
@@ -30,7 +31,9 @@
 // (the microVM `up` keeps none either):
 //   - `cloister.image`: the image as the compose file names it;
 //   - `cloister.image.digest`: the content address that ran;
-//   - `cloister.image.by`: how it was resolved.
+//   - `cloister.image.by`: `pinned` (the compose file's digest) or `id` (the
+//     engine's image ID). Neither changes between runs of the same image, so
+//     the record never makes compose recreate a container.
 // The next `up` reads them back, prints each digest that moved, and removes
 // the tag the previous local build ran under.
 
@@ -94,9 +97,8 @@ export function execCollect(bin, args) {
 }
 
 /**
- * What the engine holds under `ref`: its image ID and the registry digests it
- * knows it by. Null, with the engine's words, when it holds nothing by that
- * name or cannot be asked.
+ * What the engine holds under `ref`: its image ID. Null, with the engine's
+ * words, when it holds nothing by that name or cannot be asked.
  */
 export function inspectImage(exec, engine, ref) {
   const r = exec(engine, ["image", "inspect", ref]);
@@ -110,19 +112,7 @@ export function inspectImage(exec, engine, ref) {
   const row = Array.isArray(rows) ? rows[0] : null;
   const id = imageId(row?.Id ?? row?.ID);
   if (!id) return { held: null, said: ` (it reported no sha256 image ID for ${ref})` };
-  const repoDigests = Array.isArray(row.RepoDigests) ? row.RepoDigests.filter((d) => typeof d === "string") : [];
-  return { held: { id, repoDigests }, said: "" };
-}
-
-/** The registry digest the engine knows `ref` by, when it came from that repository. */
-function registryDigest(ref, repoDigests) {
-  const { registry, repository } = parseImageRef(ref);
-  const name = registry ? `${registry}/${repository}` : repository;
-  for (const entry of repoDigests) {
-    const at = entry.lastIndexOf("@");
-    if (at > 0 && entry.slice(0, at) === name && isSha256Digest(entry.slice(at + 1))) return entry.slice(at + 1);
-  }
-  return null;
+  return { held: { id }, said: "" };
 }
 
 /**
@@ -154,7 +144,7 @@ function byDigest(image) {
  *   - an image written by digest is pulled by that digest when it is missing,
  *     since a digest names exactly one set of bytes;
  *   - an image that names a registry is pulled by its tag, with the engine's
- *     own credentials, and then runs by the digest the engine records;
+ *     own credentials, and then runs by its image ID, as a held one does;
  *   - a bare name is never pulled.
  *
  * Every image is inspected before anything changes. A bare name the engine
@@ -202,19 +192,13 @@ export function resolveRunImages(services, { exec, engine }) {
       resolved.push({ service, image, run: image, digest: ref.digest, by: "pinned" });
       continue;
     }
-    const digest = registryDigest(image, held.repoDigests);
-    if (digest) {
-      // `name:tag@sha256:…`, as §1 writes a pin: the digest runs, the tag stays readable.
-      resolved.push({ service, image, run: `${image}@${digest}`, digest, by: "registry" });
-      continue;
-    }
     const tag = contentTag(image, held.id);
     const r = exec(engine, ["tag", held.id, tag]);
     if (r.status !== 0) {
       failures.push(`image ${image} (service ${service}) could not be tagged ${tag}${said(r)}`);
       continue;
     }
-    resolved.push({ service, image, run: tag, digest: held.id, by: "local" });
+    resolved.push({ service, image, run: tag, digest: held.id, by: "id" });
   }
   return failures.length > 0 ? { resolved: [], failures } : { resolved, failures };
 }
@@ -267,13 +251,14 @@ export function runOverride(resolved) {
 }
 
 const short = (digest) => digest.slice(0, "sha256:".length + 12);
+const HOW = Object.freeze({ pinned: "pinned", id: "image ID" });
 
 /** One line per service: what it runs, how that was resolved, and what moved. */
 export function describeRun(resolved, previous) {
   return resolved.map((r) => {
     const before = previous.get(r.service);
     const moved = before && before.digest !== r.digest ? `, moved from ${short(before.digest)}` : "";
-    return `  ${r.service}: ${r.image} runs as ${short(r.digest)} (${r.by}${moved})`;
+    return `  ${r.service}: ${r.image} runs as ${short(r.digest)} (${HOW[r.by]}${moved})`;
   });
 }
 
@@ -287,7 +272,7 @@ export function staleTags(resolved, previous) {
   const stale = new Set();
   for (const r of resolved) {
     const before = previous.get(r.service);
-    if (!before || before.by !== "local" || before.digest === r.digest || !before.image) continue;
+    if (!before || before.by !== "id" || before.digest === r.digest || !before.image) continue;
     const tag = contentTag(before.image, before.digest);
     if (!current.has(tag)) stale.add(tag);
   }
