@@ -100,6 +100,12 @@ declared nothing could be undeclared.
 node cloister.mjs inspect --terraform plan.json --env prod --dir . --fail-on undeclared,contradicted
 ```
 
+`--json` prints the report in a published format: `InspectReport` in
+[`schema/cli.schema.json`](../schema/cli.schema.json), with a
+`formatVersion`. A minor version only adds fields; refuse a major version you
+do not know. Each finding names its kind, what it is about (`subject`) and
+what it rests on (`basis`).
+
 In a GitHub workflow, the action does the download, the digest check and the
 job summary:
 

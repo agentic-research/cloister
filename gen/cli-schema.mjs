@@ -47,7 +47,11 @@ export function generate() {
     for (const [target, file, name] of [["zod", ZOD, "cli.zod.ts"], ["jsonschema", JSON_SCHEMA, "cli.schema.json"]]) {
       // `capnp compile` exits 0 when a plugin fails and writes nothing, so
       // the file's absence is the error, read below.
-      execFileSync("capnp", ["compile", `-o${plugin(`capnpc-schema-bridge-${target}`)}:${out}`, SOURCE], { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
+      try {
+        execFileSync("capnp", ["compile", `-o${plugin(`capnpc-schema-bridge-${target}`)}:${out}`, SOURCE], { cwd: ROOT, stdio: ["ignore", "inherit", "inherit"] });
+      } catch {
+        throw new Error(`cli-schema: schema-bridge's ${target} output refused ${SOURCE}; its error is on stderr above`);
+      }
       try {
         files[file] = readFileSync(join(out, name), "utf8");
       } catch {
@@ -83,8 +87,14 @@ export function signatureOf(schema, output) {
     if (sig[name]) return;
     const def = schema.$defs[name];
     if (def.enum) { sig[name] = { enum: [...def.enum].sort() }; return; }
-    sig[name] = { fields: Object.fromEntries(Object.entries(def.properties ?? {}).map(([k, p]) => [k, typeOf(p)])) };
-    for (const p of Object.values(def.properties ?? {})) {
+    // A union is a oneOf of one-key objects; each variant is a field of the
+    // union, so adding, removing or retyping one is a change like any other.
+    const properties = def.oneOf
+      ? Object.assign({}, ...def.oneOf.map((variant) => variant.properties))
+      : def.properties ?? {};
+    if (def.oneOf) sig[name] = { union: Object.fromEntries(Object.entries(properties).map(([k, p]) => [k, typeOf(p)])) };
+    else sig[name] = { fields: Object.fromEntries(Object.entries(properties).map(([k, p]) => [k, typeOf(p)])) };
+    for (const p of Object.values(properties)) {
       const ref = (p.$ref ?? p.items?.$ref)?.replace("#/$defs/", "");
       if (ref) visit(ref);
     }
@@ -108,11 +118,16 @@ export function changeBetween(prev, next) {
       for (const v of now.enum ?? []) if (!was.enum.includes(v)) changes.push(`${name}: value "${v}" added`);
       continue;
     }
-    for (const [field, type] of Object.entries(was.fields)) {
-      if (!(field in (now.fields ?? {}))) { major = true; changes.push(`${name}.${field} removed`); }
-      else if (now.fields[field] !== type) { major = true; changes.push(`${name}.${field}: ${type} became ${now.fields[field]}`); }
+    // A union's variants are its fields: a variant added is additive for a
+    // reader that ignores what it does not know; one removed is not.
+    const wasFields = was.fields ?? was.union;
+    const nowFields = now.fields ?? now.union ?? {};
+    if (Boolean(was.union) !== Boolean(now.union)) { major = true; changes.push(`${name}: ${was.union ? "union" : "struct"} became ${now.union ? "union" : "struct"}`); }
+    for (const [field, type] of Object.entries(wasFields)) {
+      if (!(field in nowFields)) { major = true; changes.push(`${name}.${field} removed`); }
+      else if (nowFields[field] !== type) { major = true; changes.push(`${name}.${field}: ${type} became ${nowFields[field]}`); }
     }
-    for (const field of Object.keys(now.fields ?? {})) if (!(field in was.fields)) changes.push(`${name}.${field} added`);
+    for (const field of Object.keys(nowFields)) if (!(field in wasFields)) changes.push(`${name}.${field} added`);
   }
   for (const name of Object.keys(next)) if (!prev[name]) changes.push(`${name} added`);
   return { kind: changes.length === 0 ? "same" : major ? "major" : "minor", changes };

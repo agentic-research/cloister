@@ -304,7 +304,7 @@ Reads the output of `terraform show -json` (or `tofu show -json`), state or plan
 | `--wrangler` `<file>` |  | a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required) |
 | `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory, if it has one) |
 | `--env` `<name>` |  | the environment these inputs describe; declared connections are compared for that environment only (default: every environment) |
-| `--json` |  | print the report as JSON |
+| `--json` |  | print the report as JSON: the InspectReport format in schema/cli.schema.json, versioned by formatVersion |
 | `--fail-on` `<kinds>` |  | exit 3 when a finding of these kinds is reported, a comma list of undeclared, contradicted, unknown (for CI). Needs a cluster.toml. Exit 1 means the check could not run, 2 that it was called wrongly |
 | `--draft` |  | print a cluster.toml drafted from --terraform, for you to review and commit; needs --env |
 | `--local` `<env>` |  | with --draft: also place every bundle in this environment, for `cluster lower` |

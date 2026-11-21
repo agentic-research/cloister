@@ -64,3 +64,264 @@ struct Graph $Traits.doc("The output of `cloister cluster graph --json`.") {
   elsewhere     @3 :List(GraphElsewhere) $Traits.doc("Connections with no target in env, listed rather than dropped.");
   counts        @4 :StrengthCounts       $Traits.doc("Edges by strength.");
 }
+
+# ── cloister inspect --json (ADR-0073, ADR-0074) ────────────────────────────
+#
+# The report is a projection of what the checker builds, chosen field by
+# field (cli/lib/facts/report-json.mjs). Nothing passes through from a
+# provider's document unchosen: a field the provider adds does not appear
+# here until it is declared.
+
+enum FindingKind $Traits.doc("What the inputs say about a declared edge, or one cluster.toml does not declare.") {
+  evidenced    @0 $Traits.doc("Declared, and the inputs show it.");
+  unknown      @1 $Traits.doc("Declared, and these inputs show nothing either way. Absence of evidence, never of the edge.");
+  undeclared   @2 $Traits.doc("The inputs make it, and cluster.toml does not say it may.");
+  contradicted @3 $Traits.doc("The inputs show something the declaration rules out.");
+}
+
+enum DialBasis $Traits.doc("How an address was found.") {
+  address       @0 $Traits.doc("The workload is started with it: an env value or an argument.");
+  configuration @1 $Traits.doc("The configuration references the target, and the value is not known until apply.");
+}
+
+struct Dial $Traits.doc("Where a workload was seen to dial another.") {
+  section @0 :Text      $Traits.doc("The report section of the resource that dials.");
+  by      @1 :DialBasis $Traits.doc("How the address was found.");
+  where   @2 :Text      $Traits.doc("Where: an env name, an argument, or the configuration path.");
+}
+
+struct WireRef $Traits.doc("A [[wires]] row.") {
+  from    @0 :Text;
+  to      @1 :Text;
+  binding @2 :Text $Traits.doc("The binding name the wire grants.");
+}
+
+struct ConnectionRef $Traits.doc("A [[connections]] row's target in one environment.") {
+  from @0 :Text;
+  to   @1 :Text;
+  name @2 :Text $Traits.doc("The connection's name.");
+  env  @3 :Text $Traits.doc("The environment of the target.");
+}
+
+struct AccessRef $Traits.doc("A declared connection, beside the access rows that admit its caller.") {
+  from  @0 :Text;
+  to    @1 :Text;
+  name  @2 :Text $Traits.doc("The connection's name.");
+  env   @3 :Text $Traits.doc("The environment of the target.");
+  label @4 :Text $Traits.doc("What the access rows grant, for example run.invoker.");
+}
+
+struct AccessRowRef $Traits.doc("An access row that admits a workload with no declared connection to the target.") {
+  from  @0 :Text $Traits.doc("The workload the row admits.");
+  to    @1 :Text;
+  label @2 :Text;
+}
+
+struct ExposureRef $Traits.doc("A port's expose, beside what the inputs say about reaching it from outside its network.") {
+  bundle  @0 :Text;
+  port    @1 :Text;
+  expose  @2 :Text $Traits.doc("What cluster.toml declares: cluster or edge.");
+  section @3 :Text $Traits.doc("The report section of the resource read.");
+}
+
+struct BindingRef $Traits.doc("A binding the inputs give a Worker.") {
+  from   @0 :Text $Traits.doc("The bundle that holds it.");
+  name   @1 :Text;
+  type   @2 :Text;
+  target @3 :Text $Traits.doc("What it names, where the inputs state it.");
+}
+
+struct DialRef $Traits.doc("A dial the inputs show.") {
+  from    @0 :Text;
+  to      @1 :Text;
+  section @2 :Text;
+  by      @3 :DialBasis;
+  where   @4 :Text;
+}
+
+# Union variants carry no $Traits.doc: schema-bridge v0.30.0 maps no
+# annotation on a union variant. Their meanings are in the struct's doc.
+struct FindingSubject $Traits.doc("What a finding is about; exactly one of: unchecked (no one edge, the inputs could not be checked as asked), wire, connection, access (a declared connection beside its access rows), accessRow (a row admitting a workload with no declared connection), exposure, binding (a binding to another workload no wire declares), dial (a dial no connection declares).") {
+  union {
+    unchecked  @0 :Void;
+    wire       @1 :WireRef;
+    connection @2 :ConnectionRef;
+    access     @3 :AccessRef;
+    accessRow  @4 :AccessRowRef;
+    exposure   @5 :ExposureRef;
+    binding    @6 :BindingRef;
+    dial       @7 :DialRef;
+  }
+}
+
+struct BoundAs $Traits.doc("The binding that evidences a wire.") {
+  type   @0 :Text;
+  target @1 :Text;
+}
+
+struct SecretRef $Traits.doc("Where cluster.toml says an address is kept. A secret's value is never read.") {
+  secret   @0 :Text $Traits.doc("The secret's name.");
+  variable @1 :Text $Traits.doc("The environment variable it is read into.");
+}
+
+struct FindingBasis $Traits.doc("What the finding rests on; exactly one of: reason (why there is no evidence, or what contradicts the declaration, in a sentence), dial (the dial that evidences a connection), boundAs (the binding that evidences a wire), principal (the principal an access row admits, which the caller runs as), setting (the setting that evidences an exposure), secret (nothing observed, because cluster.toml says the address is in a secret).") {
+  union {
+    reason    @0 :Text;
+    dial      @1 :Dial;
+    boundAs   @2 :BoundAs;
+    principal @3 :Text;
+    setting   @4 :Text;
+    secret    @5 :SecretRef;
+  }
+}
+
+struct Finding $Traits.doc("One finding.") {
+  kind    @0 :FindingKind;
+  subject @1 :FindingSubject;
+  basis   @2 :FindingBasis;
+}
+
+struct TerraformDocument $Traits.doc("The rendered Terraform document read, if any.") {
+  kind                   @0 :Text $Traits.doc("plan or state; empty when no document was given.");
+  terraformFormatVersion @1 :Text $Traits.doc("The document's own format_version; empty when no document was given.");
+}
+
+enum BindingSource $Traits.doc("Where a Worker's bindings were read.") {
+  terraform @0;
+  wrangler  @1;
+  both      @2;
+}
+
+struct WorkerBinding {
+  name     @0 :Text;
+  type     @1 :Text;
+  target   @2 :Text $Traits.doc("What it names, by name, never a raw id.");
+  workload @3 :Bool $Traits.doc("True when the target is another workload, so the binding is an edge.");
+}
+
+struct Workload $Traits.doc("A Worker the inputs describe.") {
+  name             @0 :Text;
+  bundle           @1 :Text $Traits.doc("The cluster.toml bundle it is; empty when none.");
+  source           @2 :BindingSource;
+  bindingsWithheld @3 :Bool $Traits.doc("True when the document marks its bindings sensitive, so they were not read.");
+  bindings         @4 :List(WorkerBinding);
+}
+
+struct Attribute {
+  key   @0 :Text $Traits.doc("The attribute's path in the provider's schema, dotted.");
+  value @1 :Text;
+}
+
+struct AccessRow {
+  label     @0 :Text;
+  principal @1 :Text;
+  public    @2 :Bool $Traits.doc("True when the row admits anyone.");
+}
+
+struct ReportResource $Traits.doc("A resource in a report section.") {
+  name         @0 :Text;
+  attributes   @1 :List(Attribute)  $Traits.doc("The non-secret attributes the mapping reads.");
+  identity     @2 :Text             $Traits.doc("Who the workload runs as; empty when the inputs do not say.");
+  access       @3 :List(AccessRow);
+  accessLabels @4 :List(Text)       $Traits.doc("The kinds of access row this resource can have. One with no row is unknown, not refused.");
+  withheld     @5 :List(Text)       $Traits.doc("Attributes the document marks sensitive, which were not read.");
+  dials        @6 :List(DialRef);
+}
+
+struct ReportSection {
+  title     @0 :Text;
+  resources @1 :List(ReportResource);
+}
+
+struct WorkerRoute {
+  pattern  @0 :Text;
+  script   @1 :Text;
+  resolved @2 :Bool $Traits.doc("False when the script it names is not in the inputs.");
+}
+
+struct RequestPath $Traits.doc("A route and a tunnel ingress rule that name the same host.") {
+  host    @0 :Text;
+  script  @1 :Text;
+  tunnel  @2 :Text;
+  service @3 :Text;
+}
+
+struct IngressRule {
+  hostname @0 :Text $Traits.doc("Empty for the catch-all rule.");
+  path     @1 :Text;
+  service  @2 :Text;
+}
+
+struct PrivateService {
+  name      @0 :Text;
+  type      @1 :Text;
+  httpPort  @2 :UInt32 $Traits.doc("0 when not stated.");
+  httpsPort @3 :UInt32 $Traits.doc("0 when not stated.");
+}
+
+struct AccessPolicy {
+  name       @0 :Text;
+  decision   @1 :Text;
+  precedence @2 :Int64;
+}
+
+struct AccessApplication {
+  name     @0 :Text;
+  domain   @1 :Text;
+  type     @2 :Text;
+  policies @3 :List(AccessPolicy);
+}
+
+enum StorageKind {
+  kv @0;
+  d1 @1;
+  r2 @2;
+}
+
+struct Storage {
+  kind @0 :StorageKind;
+  name @1 :Text;
+}
+
+struct DnsRecord {
+  name    @0 :Text;
+  type    @1 :Text;
+  proxied @2 :Bool;
+}
+
+struct UnlistedResource $Traits.doc("A workload in the inputs with no bundle in cluster.toml.") {
+  name    @0 :Text;
+  section @1 :Text;
+}
+
+struct SkippedType $Traits.doc("A resource type no mapping reads, and how many there were.") {
+  type  @0 :Text;
+  count @1 :UInt32;
+}
+
+struct ConfigurationReference $Traits.doc("A resource the configuration wires into a Worker beyond what its bindings resolve to.") {
+  workload @0 :Text;
+  type     @1 :Text;
+  name     @2 :Text;
+}
+
+struct InspectReport $Traits.doc("The output of `cloister inspect --json`.") {
+  formatVersion             @0  :Text $Traits.doc("\"MAJOR.MINOR\". Refuse a major you do not know; ignore fields you do not know.");
+  document                  @1  :TerraformDocument;
+  workloads                 @2  :List(Workload);
+  referencedByConfiguration @3  :List(ConfigurationReference);
+  routes                    @4  :List(WorkerRoute);
+  requestPaths              @5  :List(RequestPath);
+  tunnels                   @6  :List(Text);
+  ingress                   @7  :List(IngressRule);
+  privateServices           @8  :List(PrivateService);
+  accessApplications        @9  :List(AccessApplication);
+  storage                   @10 :List(Storage);
+  sections                  @11 :List(ReportSection) $Traits.doc("The resources each mapping reads, by section.");
+  dns                       @12 :List(DnsRecord);
+  declaredWires             @13 :List(WireRef)       $Traits.doc("The [[wires]] rows of cluster.toml; empty without one.");
+  declaredConnections       @14 :List(ConnectionRef) $Traits.doc("The [[connections]] targets compared, for --env or every environment.");
+  unlisted                  @15 :List(UnlistedResource);
+  findings                  @16 :List(Finding);
+  skipped                   @17 :List(SkippedType);
+}

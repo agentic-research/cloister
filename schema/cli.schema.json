@@ -5,6 +5,10 @@
   "$defs": {
     "Strength": { "type": "string", "description": "What stops a bundle that is not the declared caller from reaching the target (ADR-0070 §3).", "enum": ["none", "policy", "capability"] },
     "EdgeDeclaration": { "type": "string", "description": "How cluster.toml declares the edge.", "enum": ["connection", "wire"] },
+    "FindingKind": { "type": "string", "description": "What the inputs say about a declared edge, or one cluster.toml does not declare.", "enum": ["evidenced", "unknown", "undeclared", "contradicted"] },
+    "DialBasis": { "type": "string", "description": "How an address was found.", "enum": ["address", "configuration"] },
+    "BindingSource": { "type": "string", "description": "Where a Worker's bindings were read.", "enum": ["terraform", "wrangler", "both"] },
+    "StorageKind": { "type": "string", "enum": ["kv", "d1", "r2"] },
     "GraphEdge": {
       "type": "object",
       "description": "One edge: what carries it where it runs, and what holds it.",
@@ -55,6 +59,371 @@
         "counts": { "$ref": "#/$defs/StrengthCounts", "description": "Edges by strength." }
       },
       "required": ["formatVersion", "env", "edges", "elsewhere", "counts"],
+      "additionalProperties": false
+    },
+    "Dial": {
+      "type": "object",
+      "description": "Where a workload was seen to dial another.",
+      "properties": {
+        "section": { "type": "string", "description": "The report section of the resource that dials." },
+        "by": { "$ref": "#/$defs/DialBasis", "description": "How the address was found." },
+        "where": { "type": "string", "description": "Where: an env name, an argument, or the configuration path." }
+      },
+      "required": ["section", "by", "where"],
+      "additionalProperties": false
+    },
+    "WireRef": {
+      "type": "object",
+      "description": "A [[wires]] row.",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "binding": { "type": "string", "description": "The binding name the wire grants." }
+      },
+      "required": ["from", "to", "binding"],
+      "additionalProperties": false
+    },
+    "ConnectionRef": {
+      "type": "object",
+      "description": "A [[connections]] row's target in one environment.",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "name": { "type": "string", "description": "The connection's name." },
+        "env": { "type": "string", "description": "The environment of the target." }
+      },
+      "required": ["from", "to", "name", "env"],
+      "additionalProperties": false
+    },
+    "AccessRef": {
+      "type": "object",
+      "description": "A declared connection, beside the access rows that admit its caller.",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "name": { "type": "string", "description": "The connection's name." },
+        "env": { "type": "string", "description": "The environment of the target." },
+        "label": { "type": "string", "description": "What the access rows grant, for example run.invoker." }
+      },
+      "required": ["from", "to", "name", "env", "label"],
+      "additionalProperties": false
+    },
+    "AccessRowRef": {
+      "type": "object",
+      "description": "An access row that admits a workload with no declared connection to the target.",
+      "properties": {
+        "from": { "type": "string", "description": "The workload the row admits." },
+        "to": { "type": "string" },
+        "label": { "type": "string" }
+      },
+      "required": ["from", "to", "label"],
+      "additionalProperties": false
+    },
+    "ExposureRef": {
+      "type": "object",
+      "description": "A port's expose, beside what the inputs say about reaching it from outside its network.",
+      "properties": {
+        "bundle": { "type": "string" },
+        "port": { "type": "string" },
+        "expose": { "type": "string", "description": "What cluster.toml declares: cluster or edge." },
+        "section": { "type": "string", "description": "The report section of the resource read." }
+      },
+      "required": ["bundle", "port", "expose", "section"],
+      "additionalProperties": false
+    },
+    "BindingRef": {
+      "type": "object",
+      "description": "A binding the inputs give a Worker.",
+      "properties": {
+        "from": { "type": "string", "description": "The bundle that holds it." },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "target": { "type": "string", "description": "What it names, where the inputs state it." }
+      },
+      "required": ["from", "name", "type", "target"],
+      "additionalProperties": false
+    },
+    "DialRef": {
+      "type": "object",
+      "description": "A dial the inputs show.",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "section": { "type": "string" },
+        "by": { "$ref": "#/$defs/DialBasis" },
+        "where": { "type": "string" }
+      },
+      "required": ["from", "to", "section", "by", "where"],
+      "additionalProperties": false
+    },
+    "FindingSubject": {
+      "oneOf": [
+        { "type": "object", "properties": { "unchecked": { "type": "null" } }, "required": ["unchecked"], "additionalProperties": false },
+        { "type": "object", "properties": { "wire": { "$ref": "#/$defs/WireRef" } }, "required": ["wire"], "additionalProperties": false },
+        { "type": "object", "properties": { "connection": { "$ref": "#/$defs/ConnectionRef" } }, "required": ["connection"], "additionalProperties": false },
+        { "type": "object", "properties": { "access": { "$ref": "#/$defs/AccessRef" } }, "required": ["access"], "additionalProperties": false },
+        { "type": "object", "properties": { "accessRow": { "$ref": "#/$defs/AccessRowRef" } }, "required": ["accessRow"], "additionalProperties": false },
+        { "type": "object", "properties": { "exposure": { "$ref": "#/$defs/ExposureRef" } }, "required": ["exposure"], "additionalProperties": false },
+        { "type": "object", "properties": { "binding": { "$ref": "#/$defs/BindingRef" } }, "required": ["binding"], "additionalProperties": false },
+        { "type": "object", "properties": { "dial": { "$ref": "#/$defs/DialRef" } }, "required": ["dial"], "additionalProperties": false }
+      ]
+    },
+    "BoundAs": {
+      "type": "object",
+      "description": "The binding that evidences a wire.",
+      "properties": {
+        "type": { "type": "string" },
+        "target": { "type": "string" }
+      },
+      "required": ["type", "target"],
+      "additionalProperties": false
+    },
+    "SecretRef": {
+      "type": "object",
+      "description": "Where cluster.toml says an address is kept. A secret's value is never read.",
+      "properties": {
+        "secret": { "type": "string", "description": "The secret's name." },
+        "variable": { "type": "string", "description": "The environment variable it is read into." }
+      },
+      "required": ["secret", "variable"],
+      "additionalProperties": false
+    },
+    "FindingBasis": {
+      "oneOf": [
+        { "type": "object", "properties": { "reason": { "type": "string" } }, "required": ["reason"], "additionalProperties": false },
+        { "type": "object", "properties": { "dial": { "$ref": "#/$defs/Dial" } }, "required": ["dial"], "additionalProperties": false },
+        { "type": "object", "properties": { "boundAs": { "$ref": "#/$defs/BoundAs" } }, "required": ["boundAs"], "additionalProperties": false },
+        { "type": "object", "properties": { "principal": { "type": "string" } }, "required": ["principal"], "additionalProperties": false },
+        { "type": "object", "properties": { "setting": { "type": "string" } }, "required": ["setting"], "additionalProperties": false },
+        { "type": "object", "properties": { "secret": { "$ref": "#/$defs/SecretRef" } }, "required": ["secret"], "additionalProperties": false }
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "description": "One finding.",
+      "properties": {
+        "kind": { "$ref": "#/$defs/FindingKind" },
+        "subject": { "$ref": "#/$defs/FindingSubject" },
+        "basis": { "$ref": "#/$defs/FindingBasis" }
+      },
+      "required": ["kind", "subject", "basis"],
+      "additionalProperties": false
+    },
+    "TerraformDocument": {
+      "type": "object",
+      "description": "The rendered Terraform document read, if any.",
+      "properties": {
+        "kind": { "type": "string", "description": "plan or state; empty when no document was given." },
+        "terraformFormatVersion": { "type": "string", "description": "The document's own format_version; empty when no document was given." }
+      },
+      "required": ["kind", "terraformFormatVersion"],
+      "additionalProperties": false
+    },
+    "WorkerBinding": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "target": { "type": "string", "description": "What it names, by name, never a raw id." },
+        "workload": { "type": "boolean", "description": "True when the target is another workload, so the binding is an edge." }
+      },
+      "required": ["name", "type", "target", "workload"],
+      "additionalProperties": false
+    },
+    "Workload": {
+      "type": "object",
+      "description": "A Worker the inputs describe.",
+      "properties": {
+        "name": { "type": "string" },
+        "bundle": { "type": "string", "description": "The cluster.toml bundle it is; empty when none." },
+        "source": { "$ref": "#/$defs/BindingSource" },
+        "bindingsWithheld": { "type": "boolean", "description": "True when the document marks its bindings sensitive, so they were not read." },
+        "bindings": { "type": "array", "items": { "$ref": "#/$defs/WorkerBinding" } }
+      },
+      "required": ["name", "bundle", "source", "bindingsWithheld", "bindings"],
+      "additionalProperties": false
+    },
+    "Attribute": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "description": "The attribute's path in the provider's schema, dotted." },
+        "value": { "type": "string" }
+      },
+      "required": ["key", "value"],
+      "additionalProperties": false
+    },
+    "AccessRow": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string" },
+        "principal": { "type": "string" },
+        "public": { "type": "boolean", "description": "True when the row admits anyone." }
+      },
+      "required": ["label", "principal", "public"],
+      "additionalProperties": false
+    },
+    "ReportResource": {
+      "type": "object",
+      "description": "A resource in a report section.",
+      "properties": {
+        "name": { "type": "string" },
+        "attributes": { "type": "array", "items": { "$ref": "#/$defs/Attribute" }, "description": "The non-secret attributes the mapping reads." },
+        "identity": { "type": "string", "description": "Who the workload runs as; empty when the inputs do not say." },
+        "access": { "type": "array", "items": { "$ref": "#/$defs/AccessRow" } },
+        "accessLabels": { "type": "array", "items": { "type": "string" }, "description": "The kinds of access row this resource can have. One with no row is unknown, not refused." },
+        "withheld": { "type": "array", "items": { "type": "string" }, "description": "Attributes the document marks sensitive, which were not read." },
+        "dials": { "type": "array", "items": { "$ref": "#/$defs/DialRef" } }
+      },
+      "required": ["name", "attributes", "identity", "access", "accessLabels", "withheld", "dials"],
+      "additionalProperties": false
+    },
+    "ReportSection": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "resources": { "type": "array", "items": { "$ref": "#/$defs/ReportResource" } }
+      },
+      "required": ["title", "resources"],
+      "additionalProperties": false
+    },
+    "WorkerRoute": {
+      "type": "object",
+      "properties": {
+        "pattern": { "type": "string" },
+        "script": { "type": "string" },
+        "resolved": { "type": "boolean", "description": "False when the script it names is not in the inputs." }
+      },
+      "required": ["pattern", "script", "resolved"],
+      "additionalProperties": false
+    },
+    "RequestPath": {
+      "type": "object",
+      "description": "A route and a tunnel ingress rule that name the same host.",
+      "properties": {
+        "host": { "type": "string" },
+        "script": { "type": "string" },
+        "tunnel": { "type": "string" },
+        "service": { "type": "string" }
+      },
+      "required": ["host", "script", "tunnel", "service"],
+      "additionalProperties": false
+    },
+    "IngressRule": {
+      "type": "object",
+      "properties": {
+        "hostname": { "type": "string", "description": "Empty for the catch-all rule." },
+        "path": { "type": "string" },
+        "service": { "type": "string" }
+      },
+      "required": ["hostname", "path", "service"],
+      "additionalProperties": false
+    },
+    "PrivateService": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "httpPort": { "type": "integer", "minimum": 0, "description": "0 when not stated." },
+        "httpsPort": { "type": "integer", "minimum": 0, "description": "0 when not stated." }
+      },
+      "required": ["name", "type", "httpPort", "httpsPort"],
+      "additionalProperties": false
+    },
+    "AccessPolicy": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "decision": { "type": "string" },
+        "precedence": { "type": "integer" }
+      },
+      "required": ["name", "decision", "precedence"],
+      "additionalProperties": false
+    },
+    "AccessApplication": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "type": { "type": "string" },
+        "policies": { "type": "array", "items": { "$ref": "#/$defs/AccessPolicy" } }
+      },
+      "required": ["name", "domain", "type", "policies"],
+      "additionalProperties": false
+    },
+    "Storage": {
+      "type": "object",
+      "properties": {
+        "kind": { "$ref": "#/$defs/StorageKind" },
+        "name": { "type": "string" }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "DnsRecord": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "proxied": { "type": "boolean" }
+      },
+      "required": ["name", "type", "proxied"],
+      "additionalProperties": false
+    },
+    "UnlistedResource": {
+      "type": "object",
+      "description": "A workload in the inputs with no bundle in cluster.toml.",
+      "properties": {
+        "name": { "type": "string" },
+        "section": { "type": "string" }
+      },
+      "required": ["name", "section"],
+      "additionalProperties": false
+    },
+    "SkippedType": {
+      "type": "object",
+      "description": "A resource type no mapping reads, and how many there were.",
+      "properties": {
+        "type": { "type": "string" },
+        "count": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["type", "count"],
+      "additionalProperties": false
+    },
+    "ConfigurationReference": {
+      "type": "object",
+      "description": "A resource the configuration wires into a Worker beyond what its bindings resolve to.",
+      "properties": {
+        "workload": { "type": "string" },
+        "type": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["workload", "type", "name"],
+      "additionalProperties": false
+    },
+    "InspectReport": {
+      "type": "object",
+      "description": "The output of `cloister inspect --json`.",
+      "properties": {
+        "formatVersion": { "type": "string", "description": "\"MAJOR.MINOR\". Refuse a major you do not know; ignore fields you do not know." },
+        "document": { "$ref": "#/$defs/TerraformDocument" },
+        "workloads": { "type": "array", "items": { "$ref": "#/$defs/Workload" } },
+        "referencedByConfiguration": { "type": "array", "items": { "$ref": "#/$defs/ConfigurationReference" } },
+        "routes": { "type": "array", "items": { "$ref": "#/$defs/WorkerRoute" } },
+        "requestPaths": { "type": "array", "items": { "$ref": "#/$defs/RequestPath" } },
+        "tunnels": { "type": "array", "items": { "type": "string" } },
+        "ingress": { "type": "array", "items": { "$ref": "#/$defs/IngressRule" } },
+        "privateServices": { "type": "array", "items": { "$ref": "#/$defs/PrivateService" } },
+        "accessApplications": { "type": "array", "items": { "$ref": "#/$defs/AccessApplication" } },
+        "storage": { "type": "array", "items": { "$ref": "#/$defs/Storage" } },
+        "sections": { "type": "array", "items": { "$ref": "#/$defs/ReportSection" }, "description": "The resources each mapping reads, by section." },
+        "dns": { "type": "array", "items": { "$ref": "#/$defs/DnsRecord" } },
+        "declaredWires": { "type": "array", "items": { "$ref": "#/$defs/WireRef" }, "description": "The [[wires]] rows of cluster.toml; empty without one." },
+        "declaredConnections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionRef" }, "description": "The [[connections]] targets compared, for --env or every environment." },
+        "unlisted": { "type": "array", "items": { "$ref": "#/$defs/UnlistedResource" } },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+        "skipped": { "type": "array", "items": { "$ref": "#/$defs/SkippedType" } }
+      },
+      "required": ["formatVersion", "document", "workloads", "referencedByConfiguration", "routes", "requestPaths", "tunnels", "ingress", "privateServices", "accessApplications", "storage", "sections", "dns", "declaredWires", "declaredConnections", "unlisted", "findings", "skipped"],
       "additionalProperties": false
     }
   }
