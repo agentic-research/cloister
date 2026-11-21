@@ -39,7 +39,7 @@ import { parse as parseToml } from "smol-toml";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
-import { ociPins, resolveBundleImage } from "../oci-artifact.mjs";
+import { ociPins, parseImageRef, resolveBundleImage } from "../oci-artifact.mjs";
 import { PUBLISH_ADDRESS, connectionEdgeOf, edgePortsOf, httpEdgeOf, networkExposure, publishedPort, networkPlan, networksFor } from "./http-networks.mjs";
 import { assertWiresRun, composeView } from "./compose-placement.mjs";
 import { STRENGTHS, envSource } from "./connections.mjs";
@@ -170,6 +170,9 @@ export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
   const cluster = view.cluster;
   const ociByBundle = opts.ociByBundle ?? new Map();
   const warn = opts.warn ?? console.warn;
+  // ADR-0083: the lock's pins for operator images, and every image this file
+  // cannot pin, which its header names.
+  const pins = { images: opts.images ?? new Map(), unpinned: new Map() };
   // CLOISTER_DO_BIND: when set to a host path, /data/do is mounted from host
   // bind-mounts rooted there (one subdir per store) instead of named docker
   // volumes — making the cluster's data an owned, backup-able, dev:securevol-
@@ -205,6 +208,7 @@ export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
     lines.push(`# Runs the bundles placed "compose" for env "${view.env}".`);
     for (const s of view.skipped) lines.push(`# Not run: ${s.name} — ${s.reason}.`);
   }
+  const headerEnd = lines.length;
   lines.push(``);
   lines.push(`name: ${cluster.metadata.name}`);
   lines.push(``);
@@ -236,12 +240,13 @@ export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
     const tenants = b.perTenant === true ? tenantInstances(b.name, cluster) : [];
     if (tenants.length > 0) {
       for (const tenant of tenants) {
-        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan);
+        emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan, pins);
       }
     } else {
-      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan);
+      emitBundleContainer(lines, b, cluster, colocation, null, perTenantDoVolumes, ociByInput, doBindPath, ociByBundle, warn, udsPlan, netPlan, pins);
     }
   }
+  lines.splice(headerEnd, 0, ...unpinnedHeader(pins.unpinned));
 
   const topVolumes = [];
   // tmpfs with /tmp semantics (mode 1777), and BOTH halves are load-bearing.
@@ -316,8 +321,8 @@ export function emitCompose(declared, ociByInput = new Map(), opts = {}) {
  *   3. else warn loudly and return the (empty) `ext.image` — `compose up`
  *      fails, not this emitter, and a blank image is never shipped silently.
  */
-function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName, ociByBundle = new Map(), warn = console.warn) {
-  const image = resolveBundleImage(ext.image, colocatedInputs, ociByInput, bundleName, ociByBundle);
+function resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, bundleName, ociByBundle = new Map(), warn = console.warn, images = new Map()) {
+  const image = resolveBundleImage(ext.image, colocatedInputs, ociByInput, bundleName, ociByBundle, images);
   if (image) return image;
   warn(
     `emit-compose: bundle "${bundleName}" has no image — no operator ext.image ` +
@@ -374,14 +379,18 @@ function yamlStr(value) {
   return JSON.stringify(String(value));
 }
 
-function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsPlan = socketPlan(cluster), netPlan = networkPlan(cluster)) {
+function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoVolumes, ociByInput = new Map(), doBindPath = "", ociByBundle = new Map(), warn = console.warn, udsPlan = socketPlan(cluster), netPlan = networkPlan(cluster), pins = { images: new Map(), unpinned: new Map() }) {
   const ext = b.kind.external;
   const colocatedInputs = colocation.get(b.name) ?? [];
   const serviceName = tenant ? `${b.name}-${tenant.name}` : b.name;
   const containerName = `cloister-${serviceName}`;
   // ADR-0038: operator ext.image wins; else derive from a linked input's
-  // self-declared packages[].oci; else a loud warning + empty image.
-  const image = resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, b.name, ociByBundle, warn);
+  // self-declared packages[].oci; else a loud warning + empty image. Either
+  // way the lock's digest is what runs when it pins one (ADR-0083 §1).
+  const image = resolveBundleImageOrWarn(ext, colocatedInputs, ociByInput, b.name, ociByBundle, warn, pins.images);
+  if (image && !parseImageRef(image).digest) {
+    pins.unpinned.set(image, [...(pins.unpinned.get(image) ?? []), serviceName]);
+  }
 
   lines.push(`  ${serviceName}:`);
   lines.push(`    image: ${image}`);
@@ -527,6 +536,21 @@ function emitBundleContainer(lines, b, cluster, colocation, tenant, perTenantDoV
   lines.push(``);
 }
 
+/**
+ * The header lines naming each image this file cannot pin by digest, with the
+ * services that run it (ADR-0083 §3). Empty when every image is pinned.
+ */
+function unpinnedHeader(unpinned) {
+  if (unpinned.size === 0) return [];
+  return [
+    `#`,
+    `# Not pinned by digest, so each runs whatever its tag names when compose starts it (ADR-0083):`,
+    ...[...unpinned].map(([image, services]) => `#   - ${image} (${services.join(", ")})`),
+    `# \`cloister cluster resolve\` pins an image that names a registry. A bare name is a local build,`,
+    `# which a committed file cannot pin.`,
+  ];
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────
 
 export function parseOciPins(lockText) {
@@ -571,10 +595,11 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
   // before (fully back-compat).
   let ociByInput = new Map();
   let ociByBundle = new Map();
+  let images = new Map();
   const LOCKFILE = env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
   if (existsSync(LOCKFILE)) {
     try {
-      ({ ociByInput, ociByBundle } = parseOciPins(readFileSync(LOCKFILE, "utf8")));
+      ({ ociByInput, ociByBundle, images } = parseOciPins(readFileSync(LOCKFILE, "utf8")));
     } catch (e) {
       errLog(`emit-compose: could not read oci packages from ${LOCKFILE}: ${e.message}`);
     }
@@ -582,7 +607,7 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
 
   let body;
   try {
-    body = emitCompose(cluster, ociByInput, { doBindPath: env.CLOISTER_DO_BIND || "", ociByBundle });
+    body = emitCompose(cluster, ociByInput, { doBindPath: env.CLOISTER_DO_BIND || "", ociByBundle, images });
   } catch (e) {
     errLog(e.message);
     return 1;

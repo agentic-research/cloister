@@ -145,9 +145,14 @@ export async function lowerDir({ root, env }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { placementFor, requireManifest } = await import("../lib/cluster/connections.mjs");
   const { kubernetesWorkload, knativeWorkload, LOWERED_KINDS } = await import("../lib/cluster/emit-workload.mjs");
+  const { lockedImages } = await import("../lib/oci-artifact.mjs");
+  const { parse: parseToml } = await import("smol-toml");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
   const bundles = cluster.bundles.map(checkableBundle);
   const connections = cluster.connections ?? [];
+  // The lock's image pins, so a lowered workload runs by digest (ADR-0083 §1).
+  const lockPath = resolve(root, "cluster.lock.toml");
+  const images = existsSync(lockPath) ? lockedImages(parseToml(readFileSync(lockPath, "utf8"))) : new Map();
   const written = [];
   const kept = [];
   const pending = [];
@@ -158,7 +163,7 @@ export async function lowerDir({ root, env }) {
     const manifest = requireManifest(checkable, env, "cloister cluster lower");
     const dest = resolve(root, manifest);
     if (existsSync(dest)) { kept.push(manifest); continue; }
-    pending.push({ manifest, dest, content: (kind === "knative" ? knativeWorkload : kubernetesWorkload)(bundle, { bundles, connections, env }) });
+    pending.push({ manifest, dest, content: (kind === "knative" ? knativeWorkload : kubernetesWorkload)(bundle, { bundles, connections, env, images }) });
   }
   // Every manifest is worked out before any is written: a bundle that cannot
   // be lowered stops the run with nothing half-done on disk.

@@ -27,6 +27,7 @@ import { stringify as stringifyYaml } from "yaml";
 
 import { URL_SCHEMES as SCHEMES, envSource, isExposed, joinable, placementFor, portsFor } from "./connections.mjs";
 import { KNATIVE_CLUSTER_LOCAL, KNATIVE_VISIBILITY_LABEL, KNATIVE_WIRES } from "./emit-k8s.mjs";
+import { parseImageRef, pinnedImage } from "../oci-artifact.mjs";
 
 
 /** A Kubernetes Secret name is a DNS subdomain; a key is a short identifier. */
@@ -109,11 +110,18 @@ function podEnv(bundle, { byName, connections, env, kind }) {
 }
 
 /** The header every lowered manifest starts with: where each part came from. */
-function headerOf({ name, env, what, external, literal, bound, secrets, tail }) {
+function headerOf({ name, env, what, external, literal, bound, secrets, tail, pinnedBy }) {
   const section = (title, items) => (items.length ? [`# ${title}`, ...items.map((i) => `#   - ${i}`)] : []);
   return [
     `# LOWERED. Written by \`cloister cluster lower\` from cluster.toml, for env "${env}".`,
     `# "${name}" as ${what}. Read it before you apply it.`,
+    "#",
+    ...(pinnedBy
+      ? [`# Its image runs by the digest ${pinnedBy} (ADR-0083).`]
+      : [
+        `# Its image ${external.image} is not pinned by digest: it runs whatever its tag names`,
+        "# when the pod starts. `cloister cluster resolve` pins one that names a registry (ADR-0083).",
+      ]),
     "#",
     ...section("As cluster.toml declares it:", ["image", ...(external.entryPoint ? ["command"] : []), ...(external.args?.length ? ["args"] : []), ...literal]),
     ...section("Written for this placement:", bound),
@@ -133,16 +141,28 @@ function requireWorkload(bundle) {
 }
 
 /**
+ * The image a workload runs (ADR-0083 §1), and which file pins its digest:
+ * cluster.toml when the declaration writes it, otherwise the lock.
+ */
+function workloadImage(external, images) {
+  const pinned = pinnedImage(external.image, images);
+  if (pinned === null) return { image: external.image, pinnedBy: null };
+  return { image: pinned, pinnedBy: parseImageRef(external.image).digest ? "cluster.toml writes" : "cluster.lock.toml pins" };
+}
+
+/**
  * One kubernetes-placed bundle as a manifest: a Deployment and a Service, or
  * a Job when the bundle runs to completion.
  *
  * @param {object} bundle a validated bundle (the zod shape)
- * @param {{bundles: Array, connections: Array, env: string}} cluster the
- *   checkable bundles (see `checkableBundle`) and normalized connections
+ * @param {{bundles: Array, connections: Array, env: string, images?: Map<string, string>}} cluster the
+ *   checkable bundles (see `checkableBundle`), normalized connections, and the
+ *   lock's image pins (`lockedImages`)
  * @returns {string} YAML, with a header saying where each part came from
  */
-export function kubernetesWorkload(bundle, { bundles, connections, env }) {
+export function kubernetesWorkload(bundle, { bundles, connections, env, images = new Map() }) {
   const external = requireWorkload(bundle);
+  const { image, pinnedBy } = workloadImage(external, images);
   const name = bundle.name;
   const byName = new Map(bundles.map((b) => [b.name, b]));
   const ports = portsFor(byName.get(name), env).filter(isExposed);
@@ -151,7 +171,7 @@ export function kubernetesWorkload(bundle, { bundles, connections, env }) {
 
   const container = {
     name,
-    image: external.image,
+    image,
     ...(external.entryPoint ? { command: [external.entryPoint] } : {}),
     ...(external.args?.length ? { args: [...external.args] } : {}),
     ...(ports.length ? { ports: ports.map((p) => ({ name: p.name, containerPort: p.listen })) } : {}),
@@ -187,7 +207,7 @@ export function kubernetesWorkload(bundle, { bundles, connections, env }) {
 
   const callers = connections.filter((c) => c.targets.some((t) => t.env === env && t.bundle === name)).map((c) => c.from);
   const header = headerOf({
-    name, env, external, literal, bound, secrets,
+    name, env, external, literal, bound, secrets, pinnedBy,
     what: `a ${job ? "Job" : "Deployment"}${ports.length ? " and a Service" : ""}`,
     tail: [`\`cloister cluster k8s\` admits only its declared callers: ${callers.length ? callers.join(", ") : "none"}.`],
   });
@@ -202,8 +222,9 @@ export function kubernetesWorkload(bundle, { bundles, connections, env }) {
  * protocol Knative has a wire for. A job is not a Knative Service: it has no
  * requests to scale on.
  */
-export function knativeWorkload(bundle, { bundles, connections, env }) {
+export function knativeWorkload(bundle, { bundles, connections, env, images = new Map() }) {
   const external = requireWorkload(bundle);
+  const { image, pinnedBy } = workloadImage(external, images);
   const name = bundle.name;
   const where = `bundle "${name}"`;
   if (external.runs === "job") {
@@ -222,7 +243,7 @@ export function knativeWorkload(bundle, { bundles, connections, env }) {
   const { rows, literal, bound, secrets } = podEnv(bundle, { byName, connections, env, kind: "knative" });
   const container = {
     name,
-    image: external.image,
+    image,
     ...(external.entryPoint ? { command: [external.entryPoint] } : {}),
     ...(external.args?.length ? { args: [...external.args] } : {}),
     // Knative reads the wire from the port's name, and routes to this number.
@@ -237,7 +258,7 @@ export function knativeWorkload(bundle, { bundles, connections, env }) {
     spec: { template: { metadata: { labels: { [LABEL]: name } }, spec: { containers: [container] } } },
   };
   const header = headerOf({
-    name, env, external, literal, bound, secrets,
+    name, env, external, literal, bound, secrets, pinnedBy,
     what: "a Knative Service",
     tail: [
       `Peers dial it on port ${port.port}; its container listens on ${port.listen}.`,
