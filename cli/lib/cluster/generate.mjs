@@ -44,12 +44,15 @@ export async function generateClusterArtifacts({
     throw new ClusterGenerationError(`${paths.toml}: ${error.message}`);
   }
 
-  let ociByInput = new Map();
-  let ociByBundle = new Map();
+  // Every pin the lock holds reaches the render as one object, so a pin added
+  // to `ociPins` cannot be dropped by a destructuring list here. One was:
+  // operator image pins (ADR-0083 §2) reached emit-compose's own main and not
+  // this path, which writes the committed file.
+  let pins = { ociByInput: new Map(), ociByBundle: new Map(), images: new Map() };
   const lockText = readOptional(paths.lockfile);
   if (lockText !== null) {
     try {
-      ({ ociByInput, ociByBundle } = parseOciPins(lockText));
+      pins = parseOciPins(lockText);
     } catch (error) {
       throw new ClusterGenerationError(`${paths.lockfile}: ${error.message}`);
     }
@@ -61,9 +64,9 @@ export async function generateClusterArtifacts({
     toml: clusterToToml(cluster),
     clusterTs: renderClusterTs(cluster),
     capnp: emitCloisterCapnp(cluster, { quiet: true }),
-    compose: emitCompose(cluster, ociByInput, {
+    compose: emitCompose(cluster, pins.ociByInput, {
+      ...pins,
       doBindPath: env.CLOISTER_DO_BIND || "",
-      ociByBundle,
       warn,
     }),
   };

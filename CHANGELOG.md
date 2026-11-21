@@ -28,6 +28,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
     looked up, since Docker would read it as Docker Hub's `library/cloister`.
 
   An image the registry does not resolve is refused by name, as an input's is.
+- `cluster generate` carries those pins too. It writes the committed compose
+  file and runs the drift check, but it read only the input pins, so an
+  operator's pinned image was written by its tag. Both render paths now take
+  every pin the lock holds as one object, so no list of pin kinds can drop
+  one. A test runs `cluster resolve` and then `cluster generate`, as a user
+  does.
 - A committed compose file or Kubernetes manifest names, in its header, each
   image it does not pin, with the fix. Renders stay deterministic, so
   `cluster:emit:check-drift` holds. Every shipped configuration's images are

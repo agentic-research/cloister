@@ -593,13 +593,11 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
   // (resolve-inputs records packages[].oci there). Absent lockfile / no oci
   // → empty map → emitCompose falls back to the operator's ext.image as
   // before (fully back-compat).
-  let ociByInput = new Map();
-  let ociByBundle = new Map();
-  let images = new Map();
+  let pins = { ociByInput: new Map(), ociByBundle: new Map(), images: new Map() };
   const LOCKFILE = env.CLOISTER_LOCKFILE ?? resolve(REPO, "cluster.lock.toml");
   if (existsSync(LOCKFILE)) {
     try {
-      ({ ociByInput, ociByBundle, images } = parseOciPins(readFileSync(LOCKFILE, "utf8")));
+      pins = parseOciPins(readFileSync(LOCKFILE, "utf8"));
     } catch (e) {
       errLog(`emit-compose: could not read oci packages from ${LOCKFILE}: ${e.message}`);
     }
@@ -607,7 +605,8 @@ export async function main(_argv = process.argv.slice(2), deps = {}) {
 
   let body;
   try {
-    body = emitCompose(cluster, ociByInput, { doBindPath: env.CLOISTER_DO_BIND || "", ociByBundle, images });
+    // Every pin, as one object (see generate.mjs).
+    body = emitCompose(cluster, pins.ociByInput, { ...pins, doBindPath: env.CLOISTER_DO_BIND || "" });
   } catch (e) {
     errLog(e.message);
     return 1;
