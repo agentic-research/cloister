@@ -105,9 +105,12 @@ LLO's generated Rust types, never a hand-written mirror (ADR-0063 §1):
 
 - the executable artifact: the `blake3-256` of the entry point's bytes in the
   bundle's imported rootfs, with the media type
-  `application/vnd.leyline.executable`. cloister-host-runtime hashes the file
-  in the CAS when it builds the spec. The lock does not restate it, so it
-  cannot disagree with the rootfs it came from;
+  `application/vnd.leyline.executable`. cloister-host-runtime reads it from
+  that rootfs's manifest, which records every file's `blake3`, after checking
+  the manifest's bytes against the rootfs digest the lock pins. The entry
+  point is followed through the rootfs's links as the guest's kernel follows
+  them (`RootfsSpec::resolve_file`). The lock does not restate the digest, so
+  it cannot disagree with the rootfs it came from;
 - the arguments and environment from the launch plan;
 - the confinement digest and its §6 grants, as today;
 - for a declared workspace, a workspace grant whose `graphRoot` is the
@@ -145,7 +148,7 @@ built and tested with a key held by the test, and no run takes it.
 The daemon's catalog is generated at each start, from three things:
 
 - the lock's imported rootfs rows for the host's guest platform;
-- each rootfs's executable digest, hashed from that rootfs in the CAS (§2);
+- each rootfs's executable digest, read from that rootfs's manifest (§2);
 - for a daemon serving a workspace, the workspace's root at that start.
 
 So the daemon resolves exactly the executables the lock pins, and nothing it
@@ -240,5 +243,5 @@ is added to them when #602 lands.
   root (§7).
 - **Record the executable's digest in the lock at import.** That would be a
   second statement of a fact the rootfs already holds, which could disagree
-  with it after a hand edit. Hashing the file in the CAS at spec time cannot
-  disagree (§2).
+  with it after a hand edit. Reading it from the manifest the rootfs digest
+  names cannot disagree (§2).

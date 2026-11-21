@@ -613,7 +613,11 @@ name = "cloister-host-runtime"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "blake3",
+ "capnp",
+ "leyline-envelope",
  "leyline-fs",
+ "leyline-public-schema",
  "leyline-runtime",
  "libc",
  "parking_lot",

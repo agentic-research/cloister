@@ -19,7 +19,7 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
     that declare none (Q3).
 - Two facts from ley-line-open v0.30.0 correct it:
   - a run's executable is named by the `blake3-256` of its bytes, which the
-    host runtime hashes from the rootfs in the CAS;
+    host runtime reads from the manifest of the rootfs the lock pins;
   - a workspace is named by its tree root, which moves with every accepted
     proposal. So a daemon's catalog is generated at each start, not from the
     lock alone.
@@ -34,6 +34,19 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   ley-line-open#603 asks for a way to build it from a signature made outside
   the process. Until then the daemon path is built and tested with a key held
   by the test, and no run takes it.
+- **The host runtime builds what a signed run needs** (`issue`, behind
+  `llo-execution`), with ley-line-open's own types:
+  - the RunSpec;
+  - the unsigned RunGrant, and the bytes the helper signs for it;
+  - the evidence statement, which binds each evidence role to the run;
+  - the catalog entry for the run's executable, read from the rootfs
+    manifest.
+- Its tests run ley-line-open's own authorization, with the DSSE evidence
+  verifier, and its catalog on what the host runtime issues for the emitted
+  dolt and orders plans. The request they resolve must equal the one the
+  direct path builds, so moving a run to the daemon loses nothing. A key the
+  daemon does not trust, evidence bound to another run, and a manifest that
+  is not the pinned one are each refused.
 
 ### 2026-11 — a bundle pinned through a multi-image producer runs like any other
 
