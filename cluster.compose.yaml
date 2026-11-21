@@ -6,6 +6,11 @@
 # 5 input(s); tenancy resolved per ADR-0030 §A5
 #
 # Runs the bundles placed "compose" for env "compose".
+#
+# Not pinned by digest, so each runs whatever its tag names when compose starts it (ADR-0083):
+#   - cloister:0.1.0 (cloister-router)
+# `cloister cluster resolve` pins an image that names a registry. A bare name is a local build,
+# which a committed file cannot pin.
 
 name: art-default
 

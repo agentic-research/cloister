@@ -8,6 +8,33 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every placement runs images by digest, resolved for you (ADR-0083 §1–§3)
+
+- A manifest `cluster lower` writes now runs the lock's pins. Before, a
+  lowered workload ran the `image` string from `cluster.toml` verbatim, and
+  never read the lock. A manifest lowered earlier is left alone, as lowering
+  always does. Compose pinned only an image derived from an input, so an
+  operator's own `image` ran by its tag.
+- One image resolution serves compose and Kubernetes
+  (`cli/lib/oci-artifact.mjs`): a digest the declaration writes, then the
+  lock's pin, then unpinned. A pinned image is written `name:tag@sha256:…`, so
+  the digest runs and the tag stays readable.
+- `cluster resolve` pins an operator image that names a registry, through the
+  probe inputs already use, into `[[images]]` rows of `cluster.lock.toml`.
+  Docker's rules decide what a reference means:
+  - an untagged image is `latest`;
+  - `docker.io` is asked at `registry-1.docker.io`, a fix inputs share;
+  - a bare name such as `cloister:0.1.0` is a local build, and is never
+    looked up, since Docker would read it as Docker Hub's `library/cloister`.
+
+  An image the registry does not resolve is refused by name, as an input's is.
+- A committed compose file or Kubernetes manifest names, in its header, each
+  image it does not pin, with the fix. Renders stay deterministic, so
+  `cluster:emit:check-drift` holds. Every shipped configuration's images are
+  local builds, so their compose files now say so.
+- Next (ADR-0083 §4 and §5): a run resolves a local build's digest when it
+  starts it, and `--locked` refuses anything the lock does not pin.
+
 ### 2026-11 — one credential injection, applied by the vault as declared (ADR-0082)
 
 - Production now does what a service declares. Before, the vault's Durable

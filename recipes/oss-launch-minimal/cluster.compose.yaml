@@ -6,6 +6,12 @@
 #
 # No bundle declares a placement, so every external bundle is run here.
 # Once one does, only bundles placed "compose" for env "compose" are.
+#
+# Not pinned by digest, so each runs whatever its tag names when compose starts it (ADR-0083):
+#   - cloister:0.1.0 (cloister-router)
+#   - mache:0.8.0 (mache)
+# `cloister cluster resolve` pins an image that names a registry. A bare name is a local build,
+# which a committed file cannot pin.
 
 name: cloister-oss-minimal
 

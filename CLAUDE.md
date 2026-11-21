@@ -358,6 +358,13 @@ been. Decided once already on `cloister-aa6a71`.
   `test/routes/credential-isolation-conformance.test.ts`. Don't add a second
   injection path; the egress boundary that will share this one is the north
   star ADR-0082 names.
+- **A placement runs a bundle's image by digest, through one resolution:
+  `resolveBundleImage` / `pinnedImage` in `cli/lib/oci-artifact.mjs`**
+  (ADR-0083). The order is: a digest the declaration writes, then the lock's
+  pin, then unpinned, named in the render's header. `cluster resolve` pins an
+  operator image that names a registry into `[[images]]`. A bare name is a
+  local build, and is never looked up in any registry, because Docker would
+  read it as Docker Hub's. Don't have a placement read `image` directly.
 - **Two CAS hash algorithms, intentionally distinct.** SHA-256
   (`crypto.subtle.digest`) is the application-layer digest: bead
   `content_hash`, attestation references, default BlobStore keying.
