@@ -14,7 +14,7 @@
 // are still route-side; unifying all three behind one authority-source selector
 // is the follow-on design (see the 5-whys analysis in cloister-d2e89a's thread).
 
-import type { Env } from "../types.js";
+import type { CoreEnv } from "../core-env.js";
 import { CaUnavailableError, getCABundle, type CABundle } from "./ca-bundle-cache.js";
 import { notmeBundleFetcher } from "./notme-bundle-fetcher.js";
 
@@ -29,7 +29,7 @@ import { notmeBundleFetcher } from "./notme-bundle-fetcher.js";
  * per-request verification (ADR-0042 safety rail). Returns null outside dev
  * mode, so production always takes the notme-fetch path.
  */
-export function devCaBundle(env: Env): CABundle | null {
+export function devCaBundle(env: CoreEnv): CABundle | null {
   if (env.CLOISTER_MODE !== "dev" || !env.DEV_CA_MASTER) return null;
   const epoch = Number.parseInt(env.DEV_CA_EPOCH ?? "1", 10);
   return {
@@ -52,7 +52,7 @@ export function devCaBundle(env: Env): CABundle | null {
  * set) or in dev mode, so the fetch path always carries a pinned `rootPubkey` —
  * the "empty rootPubkey skips verification" affordance is never exercised here.
  */
-export async function resolveCABundle(env: Env, nowMs: number): Promise<CABundle> {
+export async function resolveCABundle(env: CoreEnv, nowMs: number): Promise<CABundle> {
   const dev = devCaBundle(env);
   if (dev) return dev;
   if (!env.INTERLACE_ROOT_PUBKEY) {

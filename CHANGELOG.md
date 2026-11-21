@@ -8,6 +8,28 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — core declares the environment it reads (ADR-0081)
+
+- `src/core-env.ts` declares `CoreEnv`: the configuration core reads, and the
+  endpoints it calls, typed by those calls rather than by workerd's binding
+  types. The workerd driver's `Env` extends it, and each field's documentation
+  moved with it.
+- Five core files that only read configuration now take `CoreEnv`: the
+  actor fingerprint, the lease gate, the CA bundle source and its notme
+  fetcher, and the receipt emitter. The vault's key source reads its two HTTP
+  endpoints by that shape too, not as workerd `Fetcher`s. The vault no longer
+  casts to reach `VAULT_KEK_TENANT_SCOPED`, which is now declared.
+- `src/routes/vault-do-credential-store.ts` is classified as the workerd
+  driver. It is how that driver provides core's `CredentialStore` port over
+  the vault's Durable Object.
+- The layer rail now counts an import of `cloudflare:*` as an import of the
+  workerd driver. That makes two imports visible that it had missed: the trust
+  store and the vault are Durable Object classes.
+- Outward imports went from 14 to 10. The ones left are core hosted as
+  Durable Objects, the registry tables, the gateway's manifest types, and the
+  lock writer. Core shrank to 21,351 lines, and its budget was lowered to
+  match.
+
 ### 2026-11 — imports point inward, and core has a budget (ADR-0081 §3, §4)
 
 - `task lint` now refuses an import that points outward:

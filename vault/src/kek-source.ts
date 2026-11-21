@@ -45,12 +45,20 @@
  *
  * The `unknown` value type accommodates the fact that the cloudflare
  * `Env` interface doesn't have a string index signature; the resolver
- * narrows to `string`/`Fetcher` at access time and throws on type
+ * narrows to `string`/`KekEndpoint` at access time and throws on type
  * mismatch.
  */
 export type KekSourceEnv = {
   readonly [name: string]: unknown;
 };
+
+/**
+ * What KEK_DISK and KEK_HELPER must answer: an HTTP request. A workerd
+ * service binding does, and so does any client another placement passes.
+ * Declared here rather than imported, so this module stays free of src/
+ * (the same structural shape as `HttpEndpoint` in src/core-env.ts).
+ */
+type KekEndpoint = { fetch(request: Request): Promise<Response> };
 
 /**
  * Public contract: resolve a URL spec to the raw KEK secret bytes.
@@ -178,7 +186,7 @@ class FileKekSource implements KekSource {
   }
 
   async resolve(): Promise<string> {
-    const disk = this.env.KEK_DISK as Fetcher | undefined;
+    const disk = this.env.KEK_DISK as KekEndpoint | undefined;
     if (!disk) {
       throw new Error(
         "kek-source: file:// requires the KEK_DISK service binding (a workerd disk service)",
@@ -216,7 +224,7 @@ class HelperKekSource implements KekSource {
   ) {}
 
   async resolve(): Promise<string> {
-    const helper = this.env.KEK_HELPER as Fetcher | undefined;
+    const helper = this.env.KEK_HELPER as KekEndpoint | undefined;
     if (!helper) {
       throw new Error(
         `kek-source: ${schemeOf(this.spec)} requires the KEK_HELPER service binding ` +

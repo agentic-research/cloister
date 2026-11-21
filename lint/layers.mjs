@@ -97,7 +97,6 @@ export const LAYERS = Object.freeze({
   "src/vault-store.ts": "core/credentials",
   "src/routes/vault-proxy.ts": "core/credentials",
   "src/routes/vault-proxy-credential-store.ts": "core/credentials",
-  "src/routes/vault-do-credential-store.ts": "core/credentials",
   "src/manifest/vault-proxy-services.ts": "core/credentials",
 
   // ── core: audit ────────────────────────────────────────────────────────
@@ -126,7 +125,9 @@ export const LAYERS = Object.freeze({
   // ── core: support ──────────────────────────────────────────────────────
   // What core needs and that carries no policy of its own: the structured
   // log the trust surface writes (lint:log-shape), atomic file writes,
-  // canonical paths, and telling a script from an import.
+  // canonical paths, telling a script from an import, and the environment
+  // core reads, which every placement provides.
+  "src/core-env.ts": "core/support",
   "src/obs/": "core/support",
   "cli/lib/canonical-path.mjs": "core/support",
   "cli/lib/atomic-write.mjs": "core/support",
@@ -141,6 +142,9 @@ export const LAYERS = Object.freeze({
   // split, which ADR-0081's import rail lists.
   "src/types.ts": "driver/workerd",
   "src/storage/workerd.ts": "driver/workerd",
+  // The vault's CredentialStore, implemented over its Durable Object: core's
+  // port (vault-proxy-credential-store.ts), as this driver provides it.
+  "src/routes/vault-do-credential-store.ts": "driver/workerd",
   "cli/lib/cluster/emit-compose.mjs": "driver/compose",
   "cli/lib/cluster/compose-placement.mjs": "driver/compose",
   "cli/lib/cluster/http-networks.mjs": "driver/compose",
@@ -273,21 +277,35 @@ export const CORE_AREAS = Object.freeze([
 export const RUNTIME = Object.freeze(["core", "driver", "feature", "root"]);
 
 /**
+ * Platform modules that are one driver's own API, by specifier prefix
+ * (ADR-0081 §3): importing one is importing that driver. `node:` is not here,
+ * because Node runs the CLI and is no placement.
+ */
+export const PLATFORM = Object.freeze({
+  "cloudflare:": "driver/workerd",
+});
+
+/** The layer of a platform module specifier, or null when it names none. */
+export function platformLayer(spec) {
+  const prefix = Object.keys(PLATFORM).find((p) => spec.startsWith(p));
+  return prefix === undefined ? null : PLATFORM[prefix];
+}
+
+/**
  * The imports that point outward today (ADR-0081 §3), each `importer -> target`.
  * Any other outward import is refused, and so is an entry here that no longer
  * exists: this list only shrinks. Each is work ADR-0081 names.
  */
 export const OUTWARD = Object.freeze([
-  // Core typed against the workerd driver's Env (src/types.ts).
-  "src/routes/actor-fingerprint.ts -> src/types.ts",
-  "src/routes/lease-gate.ts -> src/types.ts",
+  // Core hosted as the workerd driver's Durable Objects: the trust store and
+  // the vault are DO classes, and the lease middleware reaches the trust store
+  // through its namespace in Env (src/types.ts), which also holds the JSON-RPC
+  // answer the middleware returns.
   "src/routes/lease-middleware.ts -> src/types.ts",
-  "src/routes/receipt-emitter.ts -> src/types.ts",
-  "src/routes/vault-do-credential-store.ts -> src/types.ts",
-  "src/storage/ca-bundle-source.ts -> src/types.ts",
-  "src/storage/notme-bundle-fetcher.ts -> src/types.ts",
   "src/trust-store.ts -> src/types.ts",
+  "src/trust-store.ts -> cloudflare:workers",
   "src/vault-store.ts -> src/types.ts",
+  "src/vault-store.ts -> cloudflare:workers",
   // The OCI registry feature's state, kept in core's trust store.
   "src/trust-store.ts -> src/storage/registry-membership.ts",
   "src/trust-store.ts -> src/storage/registry-tags.ts",
@@ -405,7 +423,8 @@ export function allowedImport(from, to) {
 
 /** A relative script specifier, resolved to a tracked file the way Node and TypeScript do here. */
 function resolveScript(importer, spec, tracked) {
-  if (!spec.startsWith(".")) return null; // a package or a platform module
+  // A package is no layer's; a driver's platform module stands for that driver.
+  if (!spec.startsWith(".")) return platformLayer(spec) === null ? null : spec;
   const base = posix.normalize(posix.join(posix.dirname(importer), spec));
   const extension = /\.[A-Za-z0-9]+$/.test(base);
   const candidates = [base];
@@ -481,7 +500,7 @@ function rustImports(file, text, tracked, crates) {
   return targets;
 }
 
-/** The tracked files `file` imports, or `{unresolved}` for an import that names none. */
+/** The tracked files and driver platform modules `file` imports, or `{unresolved}` for an import that names none. */
 export function importsOf(root, file, tracked, crates) {
   const text = readFileSync(resolve(root, file), "utf8");
   if (file.endsWith(".rs")) return rustImports(file, text, tracked, crates);
@@ -510,7 +529,7 @@ export function directionProblems(root = ROOT, layers = LAYERS, outward = OUTWAR
     for (const target of importsOf(root, file, tracked, crates)) {
       if (typeof target === "object") { unresolved.push(`${file} imports ${target.unresolved}, which is no tracked file`); continue; }
       if (target === file) continue;
-      const to = layerOf(target, layers);
+      const to = layerOf(target, layers) ?? platformLayer(target);
       // A target with no layer is a test or a declaration file; an unclassified code file is refused by the inventory.
       if (to === null || allowedImport(from, to)) continue;
       found.set(`${file} -> ${target}`, { from, to });

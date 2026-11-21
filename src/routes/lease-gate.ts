@@ -12,7 +12,7 @@
 // stay in resolveCABundle (cloister-d2db6d), which the enforce path calls and
 // which already fails closed on a missing anchor.
 
-import type { Env } from "../types.js";
+import type { CoreEnv } from "../core-env.js";
 
 /** The two gate modes — a named type so call sites reference it, not literals. */
 export type LeaseMode = "off" | "enforce";
@@ -50,7 +50,7 @@ export interface LeaseGate {
  *                                       falls to (5) fail-closed; lint:no-dev-mode
  *                                       also rejects committed dev material.
  */
-export function resolveLeaseGate(env: Env): LeaseGate {
+export function resolveLeaseGate(env: CoreEnv): LeaseGate {
   const isDev = env.CLOISTER_MODE === "dev";
   const hasAuthority = !!env.DEV_CA_MASTER || !!env.INTERLACE_ROOT_PUBKEY;
 
@@ -67,6 +67,6 @@ export function resolveLeaseGate(env: Env): LeaseGate {
  * literal, so all call sites phrase the condition identically. The per-route
  * *action* when not enforcing (pass through vs deny) stays route-local.
  */
-export function leaseEnforced(env: Env): boolean {
+export function leaseEnforced(env: CoreEnv): boolean {
   return resolveLeaseGate(env).mode === "enforce";
 }

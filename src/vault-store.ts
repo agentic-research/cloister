@@ -690,10 +690,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
    * recovery semantics.
    */
   #assertKekSourceSpecPinned(): void {
-    const env = this.env as Env & {
-      VAULT_KEK_SOURCE?: string;
-      VAULT_KEK_TENANT_SCOPED?: string;
-    };
+    const env = this.env as Env;
     const currentSpec = typeof env.VAULT_KEK_SOURCE === "string"
       ? env.VAULT_KEK_SOURCE.trim()
       : "";
@@ -794,10 +791,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
    * makes explicit.
    */
   #resolveKekSource(): KekSource {
-    const env = this.env as Env & {
-      VAULT_KEK_SOURCE?: string;
-      VAULT_KEK_TENANT_SCOPED?: string;
-    };
+    const env = this.env as Env;
     const kekEnv = this.env as unknown as Record<string, unknown>;
     const explicit = typeof env.VAULT_KEK_SOURCE === "string"
       ? env.VAULT_KEK_SOURCE.trim()

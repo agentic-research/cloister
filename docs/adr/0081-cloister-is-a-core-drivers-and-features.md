@@ -6,7 +6,7 @@ tags: [architecture, core, drivers, features, layering, tcb, budget]
 tracking-bead: cloister-ca2582
 # Core's size in lines, read by lint/layers.mjs (§4). Raising it is an
 # amendment to this ADR; the change that raises it says why.
-core-budget: 21363
+core-budget: 21351
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
   - 0011-hypervisor-bundle-boundary.md
@@ -46,6 +46,11 @@ makes three changes:
 - core's budget now lives in this file's frontmatter.
 
 No code moves.
+
+**Amended again when core declared its own environment.** An import of a
+platform module that is one driver's own API, such as `cloudflare:workers`,
+is now an import of that driver (§3). A change that shrinks core lowers the
+budget with it (§4).
 
 ## Context
 
@@ -156,6 +161,9 @@ at their boundary, and no feature may weaken them.
 - Features import core, drivers and other features.
 - Composition roots import anything.
 - Runtime code imports no tooling, configuration or examples.
+- A platform module that is one driver's own API counts as that driver.
+  Importing `cloudflare:workers` is importing the workerd driver. Node's
+  `node:` modules do not count: Node runs the CLI and is no placement.
 - Tests are exempt.
 
 `lint/layers.mjs` holds a committed map that assigns every tracked code file
@@ -177,8 +185,9 @@ comments.
 
 Core's size in lines is `core-budget` in this file's frontmatter. The rail
 measures core from the same map and refuses core larger than its budget.
-Core may shrink freely. It grows only by raising `core-budget` here, in the
-change that grows it, and that change says why. The number matters less
+Core may shrink freely, and a change that shrinks it lowers `core-budget` to
+match, so no headroom builds up. Core grows only by raising `core-budget`
+here, in the change that grows it, and that change says why. The number matters less
 than the habit: adding to what every deployment must trust becomes a
 decision someone writes down. The budget started at 21,363 lines, core's
 size when the rail landed.
@@ -194,9 +203,13 @@ tidy them would churn history and every open branch.
 - "Where does this go?" has an answer before code is written. A new code file
   needs a layer to pass `task lint`. A new core file states why it is core,
   and if it grows core past its budget, the change raises the budget here.
-- The 14 outward imports are the first work, in four parts:
-  - core gets an environment type of its own, so nine files stop typing
-    themselves against the workerd driver's `Env`;
+- The outward imports are the first work:
+  - core declares the environment it reads, in `src/core-env.ts`, and the
+    workerd driver's `Env` extends it. Configuration and the endpoints core
+    calls are typed there, never by a platform's binding types;
+  - the trust store and the vault are written as Durable Object classes, and
+    the lease middleware reaches the trust store through a Durable Object
+    namespace. Each gets a port that core calls and the workerd driver hosts;
   - the OCI registry's tables leave the trust store;
   - core stops reading the MCP gateway's manifest types;
   - the lock writer's rootfs carry-forward moves to the microVM driver,

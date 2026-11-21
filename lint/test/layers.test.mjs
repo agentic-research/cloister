@@ -20,6 +20,7 @@ import {
   LAYERS,
   LAYER_SHAPE,
   OUTWARD,
+  PLATFORM,
   RUNTIME,
   allowedImport,
   budgetProblem,
@@ -28,6 +29,7 @@ import {
   groupLines,
   inventory,
   layerOf,
+  platformLayer,
 } from "../layers.mjs";
 
 /** A git repository holding `files` (path → text), all tracked; removed afterwards. */
@@ -107,6 +109,14 @@ test("which way an import may point (ADR-0081 §3)", () => {
   for (const [from, to, allowed, why] of cases) assert.equal(allowedImport(from, to), allowed, `${from} -> ${to}${why ? ` (${why})` : ""}`);
 });
 
+test("a platform module is its driver's, and Node's are no placement's", () => {
+  assert.equal(platformLayer("cloudflare:workers"), "driver/workerd");
+  assert.equal(platformLayer("cloudflare:sockets"), "driver/workerd");
+  assert.equal(platformLayer("node:fs"), null);
+  assert.equal(platformLayer("smol-toml"), null);
+  for (const layer of Object.values(PLATFORM)) assert.match(layer, /^driver\//, "a platform module belongs to a driver");
+});
+
 test("imports in this tree point inward, except the listed ones, and each listed one still exists", () => {
   const { found, unlisted, stale, unresolved } = directionProblems();
   assert.deepEqual(unlisted, [], "an outward import ADR-0081 does not list");
@@ -118,9 +128,9 @@ test("imports in this tree point inward, except the listed ones, and each listed
 
 test("on a fixture tree, an outward import is caught in a script, in Rust and in Cap'n Proto; a listed one is not, and a stale one is", () => {
   const files = {
-    "core.mjs": "import { d } from './driver.mjs';\nimport data from './data.json' with { type: 'json' };\nexport const c = d;\n",
+    "core.mjs": "import { d } from './driver.mjs';\nimport data from './data.json' with { type: 'json' };\nimport { DurableObject } from 'cloudflare:workers';\nimport { readFileSync } from 'node:fs';\nimport { parse } from 'smol-toml';\nexport const c = d;\n",
     "driver.mjs": "import { c } from './core.mjs';\nexport const d = 1;\n",
-    "feature.mjs": "import { d } from './driver.mjs';\nimport { o } from './other.mjs';\nimport { m } from './missing.mjs';\n",
+    "feature.mjs": "import { d } from './driver.mjs';\nimport { o } from './other.mjs';\nimport { m } from './missing.mjs';\nimport { connect } from 'cloudflare:sockets';\n",
     "other.mjs": "export const o = 1;\n",
     "data.json": "{}\n",
     "crate/Cargo.toml": "[package]\nname = \"fixture-crate\"\nversion = \"0.0.0\"\n",
@@ -145,11 +155,13 @@ test("on a fixture tree, an outward import is caught in a script, in Rust and in
     const listed = ["core.mjs -> driver.mjs", "gone.mjs -> core.mjs"];
     const { found, unlisted, stale, unresolved } = directionProblems(dir, map, listed);
     assert.deepEqual([...found.keys()].sort(), [
+      "core.mjs -> cloudflare:workers",
       "core.mjs -> driver.mjs",
       "crate/src/core.rs -> crate/src/driver.rs",
       "schema/core.capnp -> schema/driver.capnp",
-    ]);
+    ], "a feature may use a driver's platform module; Node and packages are no driver");
     assert.deepEqual(unlisted, [
+      "core.mjs -> cloudflare:workers (core/declaration -> driver/workerd)",
       "crate/src/core.rs -> crate/src/driver.rs (core/confinement -> driver/microvm)",
       "schema/core.capnp -> schema/driver.capnp (core/declaration -> driver/workerd)",
     ]);
