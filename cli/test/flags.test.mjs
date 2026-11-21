@@ -13,10 +13,44 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DECLARED_PARSE } from "../commands/cluster.mjs";
-import { FlagsError, flagKey, parseFlags } from "../lib/flags.mjs";
+import { FlagsError, argumentKey, flagKey, parseFlags } from "../lib/flags.mjs";
 import { COMMANDS, renderCommandHelp } from "../surface.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+// The commands that still parse their arguments by hand (ADR-0077 Part 3).
+// Every other declared command is held below to its declaration. This list
+// only shrinks: a command added to cli/surface.mjs is parsed from its
+// declaration, or is added here where a reviewer sees it.
+const NOT_YET_MOVED = new Set([
+  "install",
+  "uninstall",
+  "run",
+  "dev bootstrap",
+  "dev serve",
+  "dev test",
+  "init",
+  "skills list",
+  "skills pin",
+  "cluster generate",
+  "cluster resolve",
+  "cluster up",
+  "cluster down",
+  "cluster k8s",
+  "cluster lower",
+  "inspect",
+  "runtime plan",
+  "runtime install",
+  "runtime import",
+  "runtime run",
+  "runtime inspect",
+  "runtime collect",
+  "runtime cancel",
+  "runtime cleanup",
+  "runtime doctor",
+  "runtime storage init",
+  "runtime storage status",
+]);
 
 test("an absent flag takes its declared default, and a given one its value", () => {
   assert.deepEqual(parseFlags("cluster graph", []), { env: "local", dir: ".", json: false });
@@ -54,15 +88,64 @@ test("help shows a declared default from the declaration", () => {
   for (const f of graph.flags) assert.doesNotMatch(f.summary, /default:/, f.flag);
 });
 
-test("every cluster subcommand that has moved is declared, and the CLI holds it to its flags", () => {
+test("every declared command but the listed ones is held by the CLI to its declaration", () => {
+  // Run through the real entry point, so this holds what a user types, not
+  // what a unit test calls. An unmoved command is never run here: a hand
+  // parser might ignore the flag and go on to do real work.
+  const moved = COMMANDS.filter((c) => !NOT_YET_MOVED.has(c.name));
+  assert.ok(moved.length >= 3, "cluster graph, add and artifacts pull have moved");
+  for (const c of moved) {
+    const r = spawnSync(process.execPath, [resolve(ROOT, "bin/cloister.mjs"), ...c.name.split(" "), "--no-such-flag"], { cwd: resolve(ROOT, "test/e2e/lowered-kind"), encoding: "utf8" });
+    assert.equal(r.status, 2, `${c.name}: ${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`unknown option "--no-such-flag" for \`cloister ${c.name}\``), c.name);
+  }
+});
+
+test("the list of unmoved commands names only declared commands, and none cluster parses from its declaration", () => {
+  const declared = new Set(COMMANDS.map((c) => c.name));
+  for (const name of NOT_YET_MOVED) assert.ok(declared.has(name), `${name} is listed as unmoved but is not declared`);
   assert.ok(DECLARED_PARSE.length >= 1);
   for (const sub of DECLARED_PARSE) {
-    const command = COMMANDS.find((c) => c.name === `cluster ${sub}`);
-    assert.ok(command, `cluster ${sub} is parsed from a declaration it does not have`);
-    const r = spawnSync(process.execPath, [resolve(ROOT, "bin/cloister.mjs"), "cluster", sub, "--no-such-flag"], { cwd: resolve(ROOT, "test/e2e/lowered-kind"), encoding: "utf8" });
-    assert.equal(r.status, 2, r.stderr);
-    assert.match(r.stderr, new RegExp(`unknown option "--no-such-flag" for \`cloister cluster ${sub}\``));
+    assert.ok(declared.has(`cluster ${sub}`), `cluster ${sub} is parsed from a declaration it does not have`);
+    assert.ok(!NOT_YET_MOVED.has(`cluster ${sub}`), `cluster ${sub} has moved; take it off the list`);
   }
+});
+
+test("declared arguments are the positionals, in order; only the last repeats", () => {
+  assert.deepEqual(parseFlags("add", ["github://o/r@main"]), { ref: "github://o/r@main", name: undefined, version: undefined, provides: [], requires: [] });
+  assert.deepEqual(parseFlags("artifacts pull", []).input, []);
+  assert.deepEqual(parseFlags("artifacts pull", ["a", "--print", "b"]).input, ["a", "b"]);
+  for (const [name, argv, message] of [
+    ["add", [], /<ref> is required/],
+    ["add", ["a", "b"], /unexpected argument "b" for `cloister add`/],
+    // `--` ends the options only where it is declared; elsewhere it would
+    // turn what follows into an argument without saying so.
+    ["add", ["--", "github://o/r@main"], /unexpected argument "--" for `cloister add`/],
+  ]) {
+    assert.throws(() => parseFlags(name, argv), (e) => e instanceof FlagsError && message.test(e.message), JSON.stringify(argv));
+  }
+});
+
+test("a declared short alias means its flag, and a repeatable flag collects every value", () => {
+  assert.equal(parseFlags("artifacts pull", ["-y"]).yes, true);
+  assert.throws(() => parseFlags("artifacts pull", ["-y", "--yes"]), /--yes is given more than once/);
+  assert.throws(() => parseFlags("artifacts pull", ["-x"]), /unknown option "-x" for `cloister artifacts pull`/);
+  assert.deepEqual(parseFlags("add", ["r", "--provides", "a/b/v1", "--provides", "c/d/v1"]).provides, ["a/b/v1", "c/d/v1"]);
+});
+
+test("help shows declared arguments, short aliases, repeatable flags and examples from the declaration", () => {
+  const add = renderCommandHelp("add");
+  assert.match(add, /Arguments:\n {2}<ref> +the input: file:\/\/<abs-path>, .*io\.github\.org\/owner\/repo.* \(required\)/);
+  assert.match(add, /--provides <cap> +a capability this input provides, .* \(repeatable\)/);
+  assert.match(add, /Examples:\n {2}cloister add github:\/\/anthropic\/skills@main/);
+  const pull = renderCommandHelp("artifacts pull");
+  assert.match(pull, / {2}<input>\.\.\. +an input whose images to pull/);
+  assert.match(pull, / {2}-y, --yes +approve the plan shown/);
+});
+
+test("an argument's key is its name in camelCase, without the angle brackets", () => {
+  assert.equal(argumentKey("<run-id>"), "runId");
+  assert.equal(argumentKey("<ref>"), "ref");
 });
 
 test("a flag's key is its name in camelCase", () => {

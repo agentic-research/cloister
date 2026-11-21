@@ -74,6 +74,29 @@ test("a cloister invocation is held to the declared commands and flags", () => {
   assert.equal(cloisterProblem(["run", "--repo", ".", "--", "some-tool", "--its-own-flag"]), null);
 });
 
+test("a <placeholder> is a word, not two redirections", () => {
+  assert.deepEqual(simpleCommands("cloister add <ref>   # add a tool"), [["cloister", "add", "<ref>"]]);
+  assert.deepEqual(simpleCommands("cloister runtime import --image <sha256:…> --dir <cluster>"), [
+    ["cloister", "runtime", "import", "--image", "<sha256:…>", "--dir", "<cluster>"],
+  ]);
+  // A real redirection stays one.
+  assert.deepEqual(simpleCommands("cat < in > out"), [["cat"]]);
+});
+
+test("a declared short alias is checked like its flag", () => {
+  assert.equal(cloisterProblem(["artifacts", "pull", "-y"]), null);
+  assert.match(cloisterProblem(["artifacts", "pull", "-z"]), /does not parse: unknown option "-z" for `cloister artifacts pull`/);
+  assert.equal(cloisterProblem(["artifacts", "pull", "-h"]), null, "-h asks for help");
+});
+
+test("a command that declares its arguments is parsed by its own parser", () => {
+  assert.equal(cloisterProblem(["add", "<ref>", "--name", "x", "--provides", "cloister/skill/v1"]), null);
+  assert.equal(cloisterProblem(["add", "github://o/r@main", "--color", "never"]), null, "a global option is the CLI's");
+  assert.match(cloisterProblem(["add"]), /`cloister add ` does not parse: <ref> is required/);
+  assert.match(cloisterProblem(["add", "a", "b"]), /does not parse: unexpected argument "b" for `cloister add`/);
+  assert.equal(cloisterProblem(["add", "--help"]), null, "help answers whatever else is given");
+});
+
 test("a task invocation names tasks Task knows, including a scaffold's", () => {
   const names = taskNames();
   assert.ok(names.has("lint") && names.has("bundle"), "the repository's tasks");

@@ -49,6 +49,8 @@ import {
   requestOperatorConsent,
 } from "../lib/operator-consent.mjs";
 import { startedAsScript } from "../lib/started-as-script.mjs";
+import { parseFlags } from "../lib/flags.mjs";
+import { helpFor } from "../help.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolvePath(HERE, "../..");
@@ -100,21 +102,20 @@ export function collectOciRefs(lockDoc) {
   });
 }
 
+/**
+ * `cloister artifacts pull`'s arguments, parsed from its declaration in
+ * cli/surface.mjs (cli/lib/flags.mjs, ADR-0077 Part 3): the inputs to pull,
+ * `--print`, `--yes` (`-y`) and `--allow-unpinned`. Anything else is refused
+ * by name.
+ */
 export function parsePullArgs(argv) {
-  const opts = {
-    printOnly: false,
-    yes: false,
-    allowUnpinned: false,
+  const flags = parseFlags("artifacts pull", argv);
+  return {
+    printOnly: flags.print,
+    yes: flags.yes,
+    allowUnpinned: flags.allowUnpinned,
+    inputs: flags.input,
   };
-  for (const arg of argv) {
-    if (arg === "--print") opts.printOnly = true;
-    else if (arg === "--yes" || arg === "-y") opts.yes = true;
-    else if (arg === "--allow-unpinned") opts.allowUnpinned = true;
-    else if (arg === "--help" || arg === "-h") opts.help = true;
-    else if (!arg.startsWith("-")) (opts.inputs ??= []).push(arg);
-    else throw new Error(`unknown argument: ${arg}`);
-  }
-  return opts;
 }
 
 /** The rows of the named inputs, every image of each; an unknown name is refused. */
@@ -149,18 +150,6 @@ function detectRuntime() {
   return null;
 }
 
-function printHelp(log) {
-  log("Usage: cloister artifacts pull [input ...] [--print] [--yes] [--allow-unpinned]");
-  log("");
-  log("Materialize the OCI artifacts pinned by cluster.lock.toml.");
-  log("");
-  log("  --print             Preview the acquisition plan; download nothing");
-  log("  -y, --yes           Approve the displayed plan (required without a TTY)");
-  log("  --allow-unpinned    Permit mutable tag/bare refs (unsafe downgrade)");
-  log("");
-  log("Input names scope the plan without weakening unrelated mutable references.");
-}
-
 function printPlan(rows, log, style) {
   log(style.bold("Artifacts requested by cluster.lock.toml:"));
   for (const row of rows) {
@@ -193,16 +182,18 @@ export async function main(argv = process.argv.slice(2), io = {}) {
   const output = io.output ?? process.stdout;
   const style = io.style ?? createOutputContext({ stdout: output }).style;
 
+  // Help is the declaration's (cli/help.mjs), however main is reached.
+  const help = helpFor(["artifacts", "pull", ...argv]);
+  if (help !== undefined) {
+    log(help);
+    return 0;
+  }
   let opts;
   try {
     opts = parsePullArgs(argv);
   } catch (e) {
     error(`pull-inputs: ${e.message}`);
     return 2;
-  }
-  if (opts.help) {
-    printHelp(log);
-    return 0;
   }
 
   if (!existsSync(LOCKFILE_PATH)) {

@@ -6,12 +6,15 @@
 // cli/surface.mjs is the one declaration of the command line: help, the
 // reference docs, the one-file build's `standalone` set and `--help` are all
 // read from it. This parses argv against a command's declared flags and
-// nothing else: a flag with a `value` takes one, a flag without is a switch, a
-// `repeatable` flag may be given more than once, an absent flag takes its
-// declared `default`, and a `required` one must be given. An undeclared flag,
-// a missing value, a stray argument, a flag given twice and a switch given a
-// value are each refused by name. So the flags a command accepts are exactly
-// the flags its help lists: both are read from the same entry.
+// arguments and nothing else: a flag with a `value` takes one, a flag without
+// is a switch, a `repeatable` flag may be given more than once, a declared
+// `short` alias (`-y`) means its flag, an absent flag takes its declared
+// `default`, and a `required` one must be given. Declared `arguments` are the
+// positionals, in order; only the last may be `repeatable`. An undeclared
+// flag, a missing value, a stray argument, a missing required argument, a flag
+// given twice and a switch given a value are each refused by name. So what a
+// command accepts is exactly what its help lists: both are read from the same
+// entry.
 
 import { parseArgs } from "node:util";
 
@@ -21,6 +24,9 @@ export class FlagsError extends Error {}
 
 /** The key a flag's value is returned under: `--min-strength` → `minStrength`. */
 export const flagKey = (flag) => flag.replace(/^--/, "").replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+
+/** The key an argument's value is returned under: `<run-id>` → `runId`. */
+export const argumentKey = (name) => flagKey(`--${name.replace(/^<|>$/g, "")}`);
 
 /**
  * Parse `argv`, the arguments after the command's words, as the flags of the
@@ -43,14 +49,31 @@ export function parseFlags(name, argv) {
   const options = {};
   for (const f of declared) {
     if (!f.flag.startsWith("--")) throw new Error(`flags: ${name} declares ${JSON.stringify(f.flag)}, which is not a --long flag`);
-    options[f.flag.slice(2)] = { type: f.value ? "string" : "boolean", multiple: f.repeatable === true };
+    const option = { type: f.value ? "string" : "boolean", multiple: f.repeatable === true };
+    if (f.short !== undefined) {
+      if (!/^-[a-zA-Z]$/.test(f.short)) throw new Error(`flags: ${name} declares ${f.flag} with short ${JSON.stringify(f.short)}, which is not -<letter>`);
+      option.short = f.short.slice(1);
+    }
+    options[f.flag.slice(2)] = option;
+  }
+  const args = command.arguments ?? [];
+  for (const [index, a] of args.entries()) {
+    if (!/^<[a-z][a-z0-9-]*>$/.test(a.name)) throw new Error(`flags: ${name} declares argument ${JSON.stringify(a.name)}, which is not <name>`);
+    if (a.repeatable && index !== args.length - 1) throw new Error(`flags: ${name} declares ${a.name} repeatable, and only its last argument can be`);
+    if (declared.some((f) => flagKey(f.flag) === argumentKey(a.name))) throw new Error(`flags: ${name} declares both ${a.name} and a flag of the same key`);
   }
   let values;
+  let positionals;
   let tokens;
   try {
-    ({ values, tokens } = parseArgs({ args: argv, options, strict: true, allowPositionals: false, tokens: true }));
+    ({ values, positionals, tokens } = parseArgs({ args: argv, options, strict: true, allowPositionals: args.length > 0, tokens: true }));
   } catch (error) {
     throw new FlagsError(sentence(error, name));
+  }
+  // `--` ends the options only where the command declares it (above). Taken
+  // anywhere else, it would make what follows an argument without saying so.
+  if (tokens.some((token) => token.kind === "option-terminator")) {
+    throw new FlagsError(`unexpected argument "--" for \`cloister ${name}\``);
   }
   // parseArgs keeps the last of a repeated flag. Which one was meant is a
   // guess, so a flag given twice is refused unless it is declared repeatable.
@@ -65,6 +88,24 @@ export function parseFlags(name, argv) {
     const given = values[f.flag.slice(2)];
     if (given === undefined && f.required) throw new FlagsError(`${f.flag} is required`);
     out[flagKey(f.flag)] = given !== undefined ? given : f.default !== undefined ? f.default : f.value ? (f.repeatable ? [] : undefined) : false;
+  }
+  let next = 0;
+  for (const a of args) {
+    const key = argumentKey(a.name);
+    if (a.repeatable) {
+      out[key] = positionals.slice(next);
+      next = positionals.length;
+      if (a.required && out[key].length === 0) throw new FlagsError(`${a.name} is required`);
+    } else if (next < positionals.length) {
+      out[key] = positionals[next++];
+    } else if (a.required) {
+      throw new FlagsError(`${a.name} is required`);
+    } else {
+      out[key] = undefined;
+    }
+  }
+  if (next < positionals.length) {
+    throw new FlagsError(`unexpected argument ${JSON.stringify(positionals[next])} for \`cloister ${name}\``);
   }
   if (passes) out.passthrough = passthrough;
   return out;

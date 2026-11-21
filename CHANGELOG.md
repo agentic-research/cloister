@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `add` and `artifacts pull` are parsed from their declaration
+
+- `cloister artifacts pull --help` listed no option but `--help`. Its
+  declaration named none, while the command accepted `--print`, `--yes`
+  (`-y`), `--allow-unpinned` and input names. `cloister add` accepted
+  `--provides` and `--requires`, which its help did not list.
+- Both are now declared in full and parsed from the declaration (ADR-0077
+  Part 3), so what help lists is what they accept. `add`'s hand-kept help,
+  with its ref forms and examples, moved into the declaration.
+- A declaration can now state a command's positional arguments, a flag's short
+  alias, and examples. Help and `docs/reference/cli.md` render them.
+- Every declared command is held to its declaration through the real entry
+  point, except an explicit list of commands that still parse by hand. The
+  list can only shrink.
+- `lint:doc-invocations` checks short aliases. It parses a documented
+  invocation of a command that declares its arguments with that command's own
+  parser. A `<placeholder>` in a shell fence is read as a word, not as two
+  redirections.
+- The CLI reference escapes `|` in its tables. Rows such as
+  `--color <auto|always|never>` were split into extra cells.
+
 ### 2026-11 — ADR-0079 accepted: microVM runs on signed grants
 
 - ADR-0079 is accepted, with its open questions decided:
