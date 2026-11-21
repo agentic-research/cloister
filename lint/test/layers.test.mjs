@@ -170,11 +170,11 @@ test("on a fixture tree, an outward import is caught in a script, in Rust and in
   });
 });
 
-test("core fits ADR-0081's budget, which its frontmatter states", () => {
+test("core is under ADR-0081's ceiling, which its frontmatter states", () => {
   const budget = coreBudget();
   assert.ok(Number.isInteger(budget) && budget > 0);
   const { byLayer } = inventory();
   assert.equal(budgetProblem(groupLines(byLayer, "core"), budget), null);
-  assert.equal(budgetProblem(budget, budget), null, "at the budget is within it");
-  assert.match(budgetProblem(budget + 1, budget), new RegExp(`core is ${budget + 1} lines, over ADR-0081's budget of ${budget}. Shrink it, or raise core-budget`));
+  assert.equal(budgetProblem(budget, budget), null, "at the ceiling is under it");
+  assert.match(budgetProblem(budget + 1, budget), new RegExp(`core is ${budget + 1} lines, over ADR-0081's ceiling of ${budget}. Shrink it, or raise core-budget`));
 });

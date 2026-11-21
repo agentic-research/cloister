@@ -12,16 +12,50 @@
 //
 // `runtime import --bundle` does not regenerate; it edits one row of the lock
 // it re-read after importing, and writes that with the same atomic writer.
+//
+// The carry rule is core's, not a driver's (ADR-0081): a record a driver
+// derives from a pinned image follows that image's digest. A hook the driver
+// registered would be skipped by any writer that never loads the driver,
+// which is the silent erasure this module exists to prevent.
 
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { writeGeneratedFile } from "../atomic-write.mjs";
-import { carryRootfs } from "../runtime/rootfs-lock.mjs";
+
+/** The microVM driver's rootfs rows, one per guest platform (cli/lib/runtime/rootfs-lock.mjs). */
+export const ROOTFS_KEY = "rootfs";
+/** That driver's flat, platform-less keys from before cloister-1c4ef5. */
+export const LEGACY_ROOTFS_KEYS = Object.freeze(["rootfsImage", "rootfsSymlinks"]);
+const DERIVED_KEYS = Object.freeze([ROOTFS_KEY, ...LEGACY_ROOTFS_KEYS]);
+
+/**
+ * Carry the records derived from a pinned image across a lock regeneration
+ * (`cluster resolve`, `cloister add`, a demo re-pin): EVERY one while the
+ * image pin is unchanged, NONE when it moved. Each is a derivation of the
+ * pinned image, so a moved pin makes it stale, and the driver that made it
+ * then asks for a fresh one by name (`runtime plan` does). A row that already
+ * carries one (a fresh import) is never overwritten. A flat pre-cloister-1c4ef5
+ * record is carried as it is, so plan can refuse it by name rather than report
+ * it missing.
+ *
+ * @param {object} previousPin the old lock's pin row (`[inputs.<n>.oci]`, or the
+ *   `[[inputs.<input>.ociBundles]]` entry naming the same bundle), or undefined
+ * @param {object} nextPin the freshly built row (mutated and returned)
+ */
+export function carryDerived(previousPin, nextPin) {
+  if (!previousPin || !nextPin) return nextPin;
+  if (DERIVED_KEYS.some((key) => nextPin[key] !== undefined)) return nextPin;
+  if (!nextPin.digest || previousPin.digest !== nextPin.digest) return nextPin;
+  for (const key of DERIVED_KEYS) {
+    if (previousPin[key] !== undefined) nextPin[key] = structuredClone(previousPin[key]);
+  }
+  return nextPin;
+}
 
 /**
  * Carry recorded rootfs rows (one per platform) from the lock currently at
- * `lockfilePath` into `doc` (mutated, returned). See `carryRootfs` for when
+ * `lockfilePath` into `doc` (mutated, returned). See `carryDerived` for when
  * rows are kept.
  */
 export function carryRootfsFromPreviousLock(lockfilePath, doc) {
@@ -37,13 +71,13 @@ export function carryRootfsFromPreviousLock(lockfilePath, doc) {
   }
   for (const [name, row] of Object.entries(doc.inputs ?? {})) {
     const before = previous?.inputs?.[name];
-    if (row?.oci) carryRootfs(before?.oci, row.oci);
+    if (row?.oci) carryDerived(before?.oci, row.oci);
     // A multi-image producer's per-bundle pins hold their bundle's rows (see
     // lockedPin), and carry the same way. They are matched by the bundle each
     // names, never by position: a producer may list its bundles in any order.
     for (const entry of row?.ociBundles ?? []) {
       const prior = (before?.ociBundles ?? []).find((b) => b?.bundle === entry?.bundle);
-      carryRootfs(prior, entry);
+      carryDerived(prior, entry);
     }
   }
   return doc;

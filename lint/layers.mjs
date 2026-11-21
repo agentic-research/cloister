@@ -97,7 +97,6 @@ export const LAYERS = Object.freeze({
   "src/vault-store.ts": "core/credentials",
   "src/routes/vault-proxy.ts": "core/credentials",
   "src/routes/vault-proxy-credential-store.ts": "core/credentials",
-  "src/manifest/vault-proxy-services.ts": "core/credentials",
 
   // ── core: audit ────────────────────────────────────────────────────────
   "src/routes/receipt-emitter.ts": "core/audit",
@@ -177,6 +176,10 @@ export const LAYERS = Object.freeze({
   "src/wire/manifest.ts": "feature/mcp-gateway",
   "wire/": "feature/mcp-gateway",
   "src/routes/vault-proxy-route.ts": "feature/mcp-gateway",
+  // Turns the gateway manifest's vaultProxyServices rows into the vault
+  // proxy's registry, at build time and at boot: the gateway's reading of its
+  // own declaration. The proxy it feeds (vault-proxy.ts) is core.
+  "src/manifest/vault-proxy-services.ts": "feature/mcp-gateway",
   "src/routes/ca-bundle.ts": "feature/mcp-gateway",
   "src/routes/roots-state.ts": "feature/mcp-gateway",
   "src/routes/health.ts": "feature/mcp-gateway",
@@ -309,14 +312,9 @@ export const OUTWARD = Object.freeze([
   // The OCI registry feature's state, kept in core's trust store.
   "src/trust-store.ts -> src/storage/registry-membership.ts",
   "src/trust-store.ts -> src/storage/registry-tags.ts",
-  // Core reading the MCP gateway's manifest types.
-  "src/manifest/vault-proxy-services.ts -> src/manifest/types.ts",
-  "src/routes/actor-fingerprint.ts -> src/manifest/types.ts",
-  // Core's lock writer carrying the microVM driver's rootfs rows.
-  "cli/lib/cluster/lockfile.mjs -> cli/lib/runtime/rootfs-lock.mjs",
 ]);
 
-/** ADR-0081, whose frontmatter states core's budget in lines. */
+/** ADR-0081, whose frontmatter states core's ceiling in lines. */
 export const BUDGET_ADR = "docs/adr/0081-cloister-is-a-core-drivers-and-features.md";
 
 const CODE = /\.(ts|mjs|js|rs|capnp)$/;
@@ -543,7 +541,7 @@ export function directionProblems(root = ROOT, layers = LAYERS, outward = OUTWAR
 
 // ── budget ────────────────────────────────────────────────────────────────
 
-/** Core's budget in lines: `core-budget` in ADR-0081's frontmatter. */
+/** Core's ceiling in lines: `core-budget` in ADR-0081's frontmatter, a coarse tripwire (§4). */
 export function coreBudget(root = ROOT) {
   const text = readFileSync(resolve(root, BUDGET_ADR), "utf8");
   const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1];
@@ -555,7 +553,7 @@ export function coreBudget(root = ROOT) {
 /** The refusal for core at `lines` against `budget`, or null when it fits. */
 export function budgetProblem(lines, budget) {
   if (lines <= budget) return null;
-  return `core is ${lines} lines, over ADR-0081's budget of ${budget}. Shrink it, or raise core-budget in ` +
+  return `core is ${lines} lines, over ADR-0081's ceiling of ${budget}. Shrink it, or raise core-budget in ` +
     `${BUDGET_ADR} and say why in the change (ADR-0081 §4)`;
 }
 
@@ -591,7 +589,7 @@ function main() {
     process.exit(1);
   }
   const runtime = RUNTIME.reduce((sum, g) => sum + groupLines(byLayer, g), 0);
-  console.log(`lint-layers: OK — every code file has a layer, ${direction.found.size} outward import(s) remain and each is listed, core is ${core} of its ${budget}-line budget (ADR-0081)`);
+  console.log(`lint-layers: OK — every code file has a layer, ${direction.found.size} outward import(s) remain and each is listed, core is ${core} lines, under its ${budget}-line ceiling (ADR-0081)`);
   for (const [layer, row] of [...byLayer].sort(([a], [b]) => a.localeCompare(b))) {
     console.log(`  ${String(row.lines).padStart(6)} lines ${String(row.files).padStart(3)} files  ${layer}`);
   }

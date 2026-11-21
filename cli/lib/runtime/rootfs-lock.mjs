@@ -45,12 +45,12 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { isPlatform } from "./platform.mjs";
 import { ociBundleClaims } from "../oci-artifact.mjs";
+// The lock's keys for these rows are core's, with the rule that carries them
+// across a regeneration (ADR-0081).
+import { LEGACY_ROOTFS_KEYS as LEGACY_KEYS, ROOTFS_KEY } from "../cluster/lockfile.mjs";
 
-export const ROOTFS_KEY = "rootfs";
 export const DEFAULT_SYMLINKS = "preserve";
 export const SYMLINK_MODES = Object.freeze(["preserve", "refuse", "resolve"]);
-/** Keys of the flat, platform-less shape before cloister-1c4ef5. */
-export const LEGACY_KEYS = Object.freeze(["rootfsImage", "rootfsSymlinks"]);
 
 const BLAKE3_PREFIX = "blake3-256:";
 const HEX = "0123456789abcdef";
@@ -304,27 +304,4 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
     changed: true,
     previous: replaced.length ? replaced.map((r) => r.digest).join(", ") : null,
   };
-}
-
-/**
- * Carry recorded rootfs rows forward across a lock regeneration (`cluster
- * resolve`, `cloister add`, a demo re-pin): EVERY row while the image pin is
- * unchanged, NONE when it moved — a row is a derivation of the pinned image,
- * and `runtime plan` then asks for a fresh import by name. A row that already
- * carries rootfs (a fresh import) is never overwritten. A flat
- * pre-cloister-1c4ef5 record is carried as it is, so plan can refuse it by
- * name rather than report it missing.
- *
- * @param {object} previousOci the old lock's pin row (`[inputs.<n>.oci]`, or the
- *   `[[inputs.<input>.ociBundles]]` entry naming the same bundle), or undefined
- * @param {object} nextOci the freshly built row (mutated and returned)
- */
-export function carryRootfs(previousOci, nextOci) {
-  if (!previousOci || !nextOci) return nextOci;
-  if (nextOci[ROOTFS_KEY] !== undefined) return nextOci;
-  if (!nextOci.digest || previousOci.digest !== nextOci.digest) return nextOci;
-  for (const key of [ROOTFS_KEY, ...LEGACY_KEYS]) {
-    if (previousOci[key] !== undefined) nextOci[key] = structuredClone(previousOci[key]);
-  }
-  return nextOci;
 }

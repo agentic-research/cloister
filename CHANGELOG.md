@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — core no longer reads the gateway's manifest types or the microVM driver's lock rows (ADR-0081)
+
+- The actor-fingerprint resolver takes the declared fingerprint, which the
+  gateway's routes pass it, instead of the whole gateway manifest.
+- `src/manifest/vault-proxy-services.ts` is classified as the MCP gateway
+  feature. It turns the gateway manifest's `vaultProxyServices` rows into the
+  vault proxy's registry, so it is the gateway reading its own declaration.
+  The proxy it feeds stays core.
+- The lock writer no longer imports the microVM driver. The rule that carries
+  a record derived from a pinned image (a rootfs) across a lock regeneration
+  is core's: the record follows the image's digest. It moved from the driver
+  into `cli/lib/cluster/lockfile.mjs`, rather than behind a hook the driver
+  registers, because a writer that never loads the driver would skip a hook
+  and silently drop the rows.
+- Outward imports went from 10 to 7.
+- Core's budget is now a coarse ceiling of 22,000 lines, above core's 21,198,
+  instead of core's exact size. Lines are a proxy: the ceiling catches
+  something large landing in core and is not managed line by line. What core
+  must do is checked by tests of its guarantees and by the import rule
+  (ADR-0081 §4, amended).
+
 ### 2026-11 — core declares the environment it reads (ADR-0081)
 
 - `src/core-env.ts` declares `CoreEnv`: the configuration core reads, and the

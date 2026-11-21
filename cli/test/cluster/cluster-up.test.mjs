@@ -19,7 +19,6 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { parseTomlToCluster } from "../../lib/cluster/toml-to-cluster.mjs";
 import { startOrder, clusterUp, makeChannelDir, bindPaths } from "../../lib/cluster/up.mjs";
 import {
-  carryRootfs,
   importCommand,
   isBlake3Digest,
   recordRootfs,
@@ -27,6 +26,7 @@ import {
 import { main as importMain, parseImportArgs, registryReference } from "../../commands/runtime-import.mjs";
 import { planFromToml } from "../../commands/runtime-plan.mjs";
 import { carryRootfsFromPreviousLock } from "../../lib/cluster/resolve-inputs.mjs";
+import { carryDerived } from "../../lib/cluster/lockfile.mjs";
 import { tableAdmits } from "../fixtures/platform-admits-table.mjs";
 
 // What the host runtime's `platform-admits` would answer for the platforms
@@ -229,22 +229,22 @@ for (const [label, text, rec, pattern] of recordRefusals) {
   });
 }
 
-test("carryRootfs keeps EVERY platform's row while the pin is unchanged, and drops them all when it moves", () => {
+test("carryDerived keeps EVERY platform's rootfs row while the pin is unchanged, and drops them all when it moves", () => {
   const rows = [
     { platform: AMD, digest: RFS("c"), image: IMG("a") },
     { platform: ARM, digest: RFS("b"), image: IMG("a"), symlinks: "resolve" },
   ];
   const prev = { digest: IMG("a"), rootfs: rows };
-  const kept = carryRootfs(prev, { identifier: "x", digest: IMG("a") });
+  const kept = carryDerived(prev, { identifier: "x", digest: IMG("a") });
   assert.deepEqual(kept, { identifier: "x", digest: IMG("a"), rootfs: rows });
   assert.notEqual(kept.rootfs, rows, "carried by value, not shared");
-  assert.deepEqual(carryRootfs(prev, { identifier: "x", digest: IMG("e") }), { identifier: "x", digest: IMG("e") });
+  assert.deepEqual(carryDerived(prev, { identifier: "x", digest: IMG("e") }), { identifier: "x", digest: IMG("e") });
   // A fresh import in the new row is never overwritten by the old ones.
   const fresh = [{ platform: ARM, digest: RFS("f"), image: IMG("a") }];
-  assert.deepEqual(carryRootfs(prev, { identifier: "x", digest: IMG("a"), rootfs: fresh }).rootfs, fresh);
+  assert.deepEqual(carryDerived(prev, { identifier: "x", digest: IMG("a"), rootfs: fresh }).rootfs, fresh);
   // The old flat record rides along unchanged, so plan refuses it by name.
   const legacy = { digest: IMG("a"), rootfs: RFS("b"), rootfsImage: IMG("a") };
-  assert.deepEqual(carryRootfs(legacy, { identifier: "x", digest: IMG("a") }), { identifier: "x", ...legacy });
+  assert.deepEqual(carryDerived(legacy, { identifier: "x", digest: IMG("a") }), { identifier: "x", ...legacy });
 });
 
 test("cluster resolve's lock rewrite carries a recorded rootfs forward (carryRootfsFromPreviousLock)", () => {

@@ -47,7 +47,6 @@
 // `env.INTERLACE_ACTOR_FP` reads would be that same shape at a smaller scale.
 
 import type { CoreEnv } from "../core-env.js";
-import type { Gateway } from "../manifest/types.js";
 
 /** Manifest-declared fingerprint wins; env is the fallback. */
 export const ACTOR_FP_BINDING = "INTERLACE_ACTOR_FP";
@@ -71,9 +70,11 @@ const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
  * declaration and an env var must not be able to silently repoint a published
  * identity; the fallback exists for the case where the manifest says nothing,
  * not to override what it does say.
+ *
+ * `declared` is the manifest's `actor.fingerprint`, passed by the caller, so
+ * this resolver (core, ADR-0081) does not read the gateway's manifest types.
  */
-export function resolveActorFingerprint(manifest: Gateway, env: CoreEnv): string | null {
-  const declared = manifest.actor.fingerprint;
+export function resolveActorFingerprint(declared: string, env: CoreEnv): string | null {
   if (declared) return declared;
 
   const fromEnv = env.INTERLACE_ACTOR_FP;

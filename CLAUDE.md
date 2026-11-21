@@ -22,8 +22,9 @@ and content addressing. Drivers are placements (workerd, compose, microVM,
 kubernetes). Features build on both. `lint/layers.mjs` maps every source file
 to its layer, and `task lint` refuses a file with none, an import that points
 outward, and core larger than the `core-budget` in ADR-0081's frontmatter.
-Give a new file the right layer. A new core file needs a reason, and growing
-core raises the budget in the same change. Core reads its environment through
+Give a new file the right layer. A new core file needs a reason. The budget
+is a coarse ceiling, not a target; what core must do is checked by tests of
+its guarantees and by the import rule. Core reads its environment through
 `CoreEnv` (`src/core-env.ts`), which the workerd `Env` extends: declare a new
 core need there, typed by the calls core makes, not by a platform's binding.
 
@@ -140,7 +141,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 | `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |
-| `lint:layers` | every tracked source file has a layer (core, driver or feature), by the map in `lint/layers.mjs`, and every map entry names a tracked file; imports point inward, except the ones its `OUTWARD` list names, and that list only shrinks; core stays within ADR-0081's `core-budget` | ADR-0081 |
+| `lint:layers` | every tracked source file has a layer (core, driver or feature), by the map in `lint/layers.mjs`, and every map entry names a tracked file; imports point inward, except the ones its `OUTWARD` list names, and that list only shrinks; core stays under ADR-0081's coarse `core-budget` ceiling | ADR-0081 |
 | compose reach | a compose bundle the gateway's image dials at loopback (`config.capnp`) declares that it joins the gateway's network namespace | ADR-0075 §8 |
 | `mermaid:lint` | every mermaid diagram in a tracked markdown file parses, by mermaid's own parser, and avoids the shapes GitHub draws wrongly | `cloister-ca2582` |
 | `lint:doc-invocations` | every `cloister …` and `task …` line in the docs' shell fences names a declared command, flags it declares, and tasks Task lists (mache's doc-vs-CLI gate) | `cloister-ca2582` |
