@@ -4,9 +4,9 @@ status: Accepted (2026-11-21)
 date: 2026-11-21
 tags: [architecture, core, drivers, features, layering, tcb, budget]
 tracking-bead: cloister-ca2582
-# Core's size in lines, read by lint/layers.mjs (§4). Raising it is an
-# amendment to this ADR; the change that raises it says why.
-core-budget: 21198
+# A coarse ceiling on core's size in lines, read by lint/layers.mjs (§4). A
+# tripwire, not a target: raising it is a change here that says why.
+core-budget: 22000
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
   - 0011-hypervisor-bundle-boundary.md
@@ -49,13 +49,13 @@ No code moves.
 
 **Amended again when core declared its own environment.** An import of a
 platform module that is one driver's own API, such as `cloudflare:workers`,
-is now an import of that driver (§3). A change that shrinks core lowers the
-budget with it (§4).
+is now an import of that driver (§3).
 
 **Amended a third time when the lock writer stopped importing the microVM
 driver.** The rule that carries a driver's records across a lock regeneration
-moved into core, not behind a hook (Consequences), and core's budget rose
-with it (§4).
+moved into core, not behind a hook (Consequences). The budget became a coarse
+ceiling (§4). Lines are a proxy; what core does is checked by its guarantees
+(§2) and the import rule (§3), not by managing a number line by line.
 
 ## Context
 
@@ -186,23 +186,18 @@ Rust it reads `mod` declarations and crate paths, after removing comments and
 strings. For Cap'n Proto it reads `import` statements, after removing
 comments.
 
-### 4. Core has a budget
+### 4. Core has a ceiling
 
-Core's size in lines is `core-budget` in this file's frontmatter. The rail
-measures core from the same map and refuses core larger than its budget.
-Core may shrink freely, and a change that shrinks it lowers `core-budget` to
-match, so no headroom builds up. Core grows only by raising `core-budget`
-here, in the change that grows it, and that change says why. The number
-matters less than the habit: adding to what every deployment must trust
-becomes a decision someone writes down. The budget started at 21,363 lines,
-core's size when the rail landed.
+Core's size in lines has a coarse ceiling, `core-budget` in this file's
+frontmatter, and the rail refuses core larger than it. It is a tripwire, not
+a target. Lines are a proxy for what core does, so the ceiling sits above
+core's size with headroom: it catches something large landing in core, such
+as a whole feature, and stays quiet otherwise. It is not lowered when core
+shrinks. Raising it is a change here that says why.
 
-Raises so far:
-
-- 21,164 to 21,198 lines: the rule that carries a record derived from a
-  pinned image across a lock regeneration moved from the microVM driver into
-  the lock writer (Consequences). Core grew by 34 lines, and the microVM
-  driver shrank by 23.
+What core must do is checked another way: by tests of its guarantees (§2),
+and by the import rule (§3), which keeps any one driver or feature out of
+core.
 
 ### 5. Nothing moves yet
 
@@ -214,7 +209,7 @@ tidy them would churn history and every open branch.
 
 - "Where does this go?" has an answer before code is written. A new code file
   needs a layer to pass `task lint`. A new core file states why it is core,
-  and if it grows core past its budget, the change raises the budget here.
+  and if it grows core past its ceiling, the change raises the ceiling here.
 - The outward imports are the first work:
   - core declares the environment it reads, in `src/core-env.ts`, and the
     workerd driver's `Env` extends it. Configuration and the endpoints core
@@ -251,9 +246,10 @@ tidy them would churn history and every open branch.
 - **A size budget with no dependency rule.** A number with no boundary
   measures the wrong thing. The rule is what keeps features from quietly
   growing back into core.
-- **A budget with headroom.** Every core change would then stay silent until
-  the headroom ran out. A budget at core's size makes each increase visible
-  in the change that makes it.
+- **A budget at core's exact size, kept there.** Tried first. Every change
+  to core's size then edited this file, lowering it on a shrink and recording
+  each raise. That made the number the work, rather than what core does, so
+  the budget became a coarse ceiling (§4).
 
 ## Snapshot (2026-11-21)
 

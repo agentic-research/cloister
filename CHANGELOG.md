@@ -22,9 +22,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   into `cli/lib/cluster/lockfile.mjs`, rather than behind a hook the driver
   registers, because a writer that never loads the driver would skip a hook
   and silently drop the rows.
-- Outward imports went from 10 to 7. Core is 21,198 lines. That is 34 more
-  than after the gateway-manifest change, all from the carry rule, and the
-  budget was raised by that amount with the reason recorded in ADR-0081 §4.
+- Outward imports went from 10 to 7.
+- Core's budget is now a coarse ceiling of 22,000 lines, above core's 21,198,
+  instead of core's exact size. Lines are a proxy: the ceiling catches
+  something large landing in core and is not managed line by line. What core
+  must do is checked by tests of its guarantees and by the import rule
+  (ADR-0081 §4, amended).
 
 ### 2026-11 — core declares the environment it reads (ADR-0081)
 
