@@ -19,6 +19,7 @@ import { lockedImages, parseImageRef, pinnedImage, registryApi } from "../../lib
 import { ResolutionFailedError, operatorImagesToPin, resolveClusterInputs } from "../../lib/cluster/resolve-inputs.mjs";
 import { emitCompose } from "../../lib/cluster/emit-compose.mjs";
 import { lowerDir } from "../../commands/cluster.mjs";
+import { generateClusterArtifacts } from "../../lib/cluster/generate.mjs";
 
 const DIGEST = `sha256:${"e".repeat(64)}`;
 const quiet = { log: () => {}, errLog: () => {} };
@@ -230,5 +231,43 @@ test("a declaration's own digest is used as written, by every placement", async 
     const manifest = readFileSync(join(dir, "orders.yaml"), "utf8");
     assert.match(manifest, new RegExp(`image: example\\.com/orders@${DIGEST}\\n`));
     assert.match(manifest, /# Its image runs by the digest cluster\.toml writes \(ADR-0083\)\./);
+  });
+});
+
+test("cluster resolve, then cluster generate: the committed compose file runs the pinned operator image", async () => {
+  // The path a user takes. Pins once reached emit-compose's own main and not
+  // `cluster generate`, which writes the committed file and runs the drift check.
+  const toml = `
+[metadata]
+name = "pins"
+version = "0.1.0"
+
+[storage]
+
+[[bundles]]
+name = "api"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "ghcr.io/acme/api:1.4"
+
+[[bundles]]
+name = "local"
+kind = "external"
+tier = "cluster"
+
+[bundles.external]
+image = "cloister:0.1.0"
+`;
+  await inDir({ "cluster.toml": toml }, async (dir) => {
+    await resolveClusterInputs({ root: dir, fetchImpl: registry(DIGEST).fetchImpl, env: {}, ...quiet });
+    await generateClusterArtifacts({ root: dir, env: {}, warn: () => {} });
+    const compose = readFileSync(join(dir, "cluster.compose.yaml"), "utf8");
+    assert.match(compose, new RegExp(`\\n    image: ghcr\\.io/acme/api:1\\.4@${DIGEST}\\n`));
+    assert.match(compose, /# Not pinned by digest[^\n]*\n# {3}- cloister:0\.1\.0 \(local\)\n# `cloister cluster resolve`/);
+    // And the drift check agrees with what generate wrote.
+    const check = await generateClusterArtifacts({ root: dir, env: {}, check: true, warn: () => {} });
+    assert.deepEqual(check.changed, []);
   });
 });
