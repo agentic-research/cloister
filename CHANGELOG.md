@@ -8,6 +8,23 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the host runs the platform; every bundle is a guest
+
+- ADR-0080, with Proxmox VE as prior art. The host runs only the platform: the
+  host runtime and ley-line-open's execution daemon, the broker and the signing
+  helpers. Every bundle is a guest, the gateway included, as a router VM
+  fronts a Proxmox cluster. What Proxmox gives every guest is listed as a
+  need cloister owes: volumes that outlive a run, services with no wall-clock
+  ceiling, channels between guests, and a socket handed into the guest.
+- It amends ADR-0062, withdrawing its one "structural and permanent"
+  exemption and the two rejections that rested on it. The gateway is workerd,
+  which starts no microVMs, so it can be a guest of one.
+- `process` now means a bundle that is not yet a guest. Inv 13 refuses a
+  `process` rationale that names no exit (a bead, an issue in a named
+  repository, or an ADR), or that opens with a retired label: STRUCTURAL,
+  PERMANENT, CONTINGENT or UNDECIDED. The four rationales now say what each
+  bundle needs to run as a guest.
+
 ### 2026-11 — every isolation exemption says what blocks it now
 
 - Two exemptions cited `krunvm.rs:769` as their structural blocker long after
