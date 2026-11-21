@@ -15,6 +15,21 @@ export type Strength = "none" | "policy" | "capability";
 export const EdgeDeclarationSchema = z.enum(["connection", "wire"]);
 export type EdgeDeclaration = "connection" | "wire";
 
+/** What the inputs say about a declared edge, or one cluster.toml does not declare. */
+export const FindingKindSchema = z.enum(["evidenced", "unknown", "undeclared", "contradicted"]);
+export type FindingKind = "evidenced" | "unknown" | "undeclared" | "contradicted";
+
+/** How an address was found. */
+export const DialBasisSchema = z.enum(["address", "configuration"]);
+export type DialBasis = "address" | "configuration";
+
+/** Where a Worker's bindings were read. */
+export const BindingSourceSchema = z.enum(["terraform", "wrangler", "both"]);
+export type BindingSource = "terraform" | "wrangler" | "both";
+
+export const StorageKindSchema = z.enum(["kv", "d1", "r2"]);
+export type StorageKind = "kv" | "d1" | "r2";
+
 /** One edge: what carries it where it runs, and what holds it. */
 export const GraphEdgeSchema: z.ZodType<GraphEdge> = z.lazy(() =>
   z.object({
@@ -102,5 +117,554 @@ export interface Graph {
   edges: readonly GraphEdge[];
   elsewhere: readonly GraphElsewhere[];
   counts: StrengthCounts;
+}
+
+/** Where a workload was seen to dial another. */
+export const DialSchema: z.ZodType<Dial> = z.lazy(() =>
+  z.object({
+    /** The report section of the resource that dials. */
+    section: z.string().default(""),
+    /** How the address was found. */
+    by: DialBasisSchema.default("address"),
+    /** Where: an env name, an argument, or the configuration path. */
+    where: z.string().default(""),
+  }).strict());
+
+export interface Dial {
+  section: string;
+  by: DialBasis;
+  where: string;
+}
+
+/** A [[wires]] row. */
+export const WireRefSchema: z.ZodType<WireRef> = z.lazy(() =>
+  z.object({
+    from: z.string().default(""),
+    to: z.string().default(""),
+    /** The binding name the wire grants. */
+    binding: z.string().default(""),
+  }).strict());
+
+export interface WireRef {
+  from: string;
+  to: string;
+  binding: string;
+}
+
+/** A [[connections]] row's target in one environment. */
+export const ConnectionRefSchema: z.ZodType<ConnectionRef> = z.lazy(() =>
+  z.object({
+    from: z.string().default(""),
+    to: z.string().default(""),
+    /** The connection's name. */
+    name: z.string().default(""),
+    /** The environment of the target. */
+    env: z.string().default(""),
+  }).strict());
+
+export interface ConnectionRef {
+  from: string;
+  to: string;
+  name: string;
+  env: string;
+}
+
+/** A declared connection, beside the access rows that admit its caller. */
+export const AccessRefSchema: z.ZodType<AccessRef> = z.lazy(() =>
+  z.object({
+    from: z.string().default(""),
+    to: z.string().default(""),
+    /** The connection's name. */
+    name: z.string().default(""),
+    /** The environment of the target. */
+    env: z.string().default(""),
+    /** What the access rows grant, for example run.invoker. */
+    label: z.string().default(""),
+  }).strict());
+
+export interface AccessRef {
+  from: string;
+  to: string;
+  name: string;
+  env: string;
+  label: string;
+}
+
+/** An access row that admits a workload with no declared connection to the target. */
+export const AccessRowRefSchema: z.ZodType<AccessRowRef> = z.lazy(() =>
+  z.object({
+    /** The workload the row admits. */
+    from: z.string().default(""),
+    to: z.string().default(""),
+    label: z.string().default(""),
+  }).strict());
+
+export interface AccessRowRef {
+  from: string;
+  to: string;
+  label: string;
+}
+
+/** A port's expose, beside what the inputs say about reaching it from outside its network. */
+export const ExposureRefSchema: z.ZodType<ExposureRef> = z.lazy(() =>
+  z.object({
+    bundle: z.string().default(""),
+    port: z.string().default(""),
+    /** What cluster.toml declares: cluster or edge. */
+    expose: z.string().default(""),
+    /** The report section of the resource read. */
+    section: z.string().default(""),
+  }).strict());
+
+export interface ExposureRef {
+  bundle: string;
+  port: string;
+  expose: string;
+  section: string;
+}
+
+/** A binding the inputs give a Worker. */
+export const BindingRefSchema: z.ZodType<BindingRef> = z.lazy(() =>
+  z.object({
+    /** The bundle that holds it. */
+    from: z.string().default(""),
+    name: z.string().default(""),
+    type: z.string().default(""),
+    /** What it names, where the inputs state it. */
+    target: z.string().default(""),
+  }).strict());
+
+export interface BindingRef {
+  from: string;
+  name: string;
+  type: string;
+  target: string;
+}
+
+/** A dial the inputs show. */
+export const DialRefSchema: z.ZodType<DialRef> = z.lazy(() =>
+  z.object({
+    from: z.string().default(""),
+    to: z.string().default(""),
+    section: z.string().default(""),
+    by: DialBasisSchema.default("address"),
+    where: z.string().default(""),
+  }).strict());
+
+export interface DialRef {
+  from: string;
+  to: string;
+  section: string;
+  by: DialBasis;
+  where: string;
+}
+
+/** What a finding is about; exactly one of: unchecked (no one edge, the inputs could not be checked as asked), wire, connection, access (a declared connection beside its access rows), accessRow (a row admitting a workload with no declared connection), exposure, binding (a binding to another workload no wire declares), dial (a dial no connection declares). */
+export const FindingSubjectSchema: z.ZodType<FindingSubject> = z.lazy(() =>
+  z.union([
+    z.object({
+      unchecked: z.null(),
+    }).strict(),
+    z.object({
+      wire: WireRefSchema,
+    }).strict(),
+    z.object({
+      connection: ConnectionRefSchema,
+    }).strict(),
+    z.object({
+      access: AccessRefSchema,
+    }).strict(),
+    z.object({
+      accessRow: AccessRowRefSchema,
+    }).strict(),
+    z.object({
+      exposure: ExposureRefSchema,
+    }).strict(),
+    z.object({
+      binding: BindingRefSchema,
+    }).strict(),
+    z.object({
+      dial: DialRefSchema,
+    }).strict(),
+  ]));
+
+export type FindingSubject = { unchecked: null } | { wire: WireRef } | { connection: ConnectionRef } | { access: AccessRef } | { accessRow: AccessRowRef } | { exposure: ExposureRef } | { binding: BindingRef } | { dial: DialRef };
+
+/** The binding that evidences a wire. */
+export const BoundAsSchema: z.ZodType<BoundAs> = z.lazy(() =>
+  z.object({
+    type: z.string().default(""),
+    target: z.string().default(""),
+  }).strict());
+
+export interface BoundAs {
+  type: string;
+  target: string;
+}
+
+/** Where cluster.toml says an address is kept. A secret's value is never read. */
+export const SecretRefSchema: z.ZodType<SecretRef> = z.lazy(() =>
+  z.object({
+    /** The secret's name. */
+    secret: z.string().default(""),
+    /** The environment variable it is read into. */
+    variable: z.string().default(""),
+  }).strict());
+
+export interface SecretRef {
+  secret: string;
+  variable: string;
+}
+
+/** What the finding rests on; exactly one of: reason (why there is no evidence, or what contradicts the declaration, in a sentence), dial (the dial that evidences a connection), boundAs (the binding that evidences a wire), principal (the principal an access row admits, which the caller runs as), setting (the setting that evidences an exposure), secret (nothing observed, because cluster.toml says the address is in a secret). */
+export const FindingBasisSchema: z.ZodType<FindingBasis> = z.lazy(() =>
+  z.union([
+    z.object({
+      reason: z.string(),
+    }).strict(),
+    z.object({
+      dial: DialSchema,
+    }).strict(),
+    z.object({
+      boundAs: BoundAsSchema,
+    }).strict(),
+    z.object({
+      principal: z.string(),
+    }).strict(),
+    z.object({
+      setting: z.string(),
+    }).strict(),
+    z.object({
+      secret: SecretRefSchema,
+    }).strict(),
+  ]));
+
+export type FindingBasis = { reason: string } | { dial: Dial } | { boundAs: BoundAs } | { principal: string } | { setting: string } | { secret: SecretRef };
+
+/** One finding. */
+export const FindingSchema: z.ZodType<Finding> = z.lazy(() =>
+  z.object({
+    kind: FindingKindSchema.default("evidenced"),
+    subject: FindingSubjectSchema,
+    basis: FindingBasisSchema,
+  }).strict());
+
+export interface Finding {
+  kind: FindingKind;
+  subject: FindingSubject;
+  basis: FindingBasis;
+}
+
+/** The rendered Terraform document read, if any. */
+export const TerraformDocumentSchema: z.ZodType<TerraformDocument> = z.lazy(() =>
+  z.object({
+    /** plan or state; empty when no document was given. */
+    kind: z.string().default(""),
+    /** The document's own format_version; empty when no document was given. */
+    terraformFormatVersion: z.string().default(""),
+  }).strict());
+
+export interface TerraformDocument {
+  kind: string;
+  terraformFormatVersion: string;
+}
+
+export const WorkerBindingSchema: z.ZodType<WorkerBinding> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    type: z.string().default(""),
+    /** What it names, by name, never a raw id. */
+    target: z.string().default(""),
+    /** True when the target is another workload, so the binding is an edge. */
+    workload: z.boolean().default(false),
+  }).strict());
+
+export interface WorkerBinding {
+  name: string;
+  type: string;
+  target: string;
+  workload: boolean;
+}
+
+/** A Worker the inputs describe. */
+export const WorkloadSchema: z.ZodType<Workload> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    /** The cluster.toml bundle it is; empty when none. */
+    bundle: z.string().default(""),
+    source: BindingSourceSchema.default("terraform"),
+    /** True when the document marks its bindings sensitive, so they were not read. */
+    bindingsWithheld: z.boolean().default(false),
+    bindings: z.array(WorkerBindingSchema).readonly().default([]),
+  }).strict());
+
+export interface Workload {
+  name: string;
+  bundle: string;
+  source: BindingSource;
+  bindingsWithheld: boolean;
+  bindings: readonly WorkerBinding[];
+}
+
+export const AttributeSchema: z.ZodType<Attribute> = z.lazy(() =>
+  z.object({
+    /** The attribute's path in the provider's schema, dotted. */
+    key: z.string().default(""),
+    value: z.string().default(""),
+  }).strict());
+
+export interface Attribute {
+  key: string;
+  value: string;
+}
+
+export const AccessRowSchema: z.ZodType<AccessRow> = z.lazy(() =>
+  z.object({
+    label: z.string().default(""),
+    principal: z.string().default(""),
+    /** True when the row admits anyone. */
+    public: z.boolean().default(false),
+  }).strict());
+
+export interface AccessRow {
+  label: string;
+  principal: string;
+  public: boolean;
+}
+
+/** A resource in a report section. */
+export const ReportResourceSchema: z.ZodType<ReportResource> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    /** The non-secret attributes the mapping reads. */
+    attributes: z.array(AttributeSchema).readonly().default([]),
+    /** Who the workload runs as; empty when the inputs do not say. */
+    identity: z.string().default(""),
+    access: z.array(AccessRowSchema).readonly().default([]),
+    /** The kinds of access row this resource can have. One with no row is unknown, not refused. */
+    accessLabels: z.array(z.string()).readonly().default([]),
+    /** Attributes the document marks sensitive, which were not read. */
+    withheld: z.array(z.string()).readonly().default([]),
+    dials: z.array(DialRefSchema).readonly().default([]),
+  }).strict());
+
+export interface ReportResource {
+  name: string;
+  attributes: readonly Attribute[];
+  identity: string;
+  access: readonly AccessRow[];
+  accessLabels: readonly string[];
+  withheld: readonly string[];
+  dials: readonly DialRef[];
+}
+
+export const ReportSectionSchema: z.ZodType<ReportSection> = z.lazy(() =>
+  z.object({
+    title: z.string().default(""),
+    resources: z.array(ReportResourceSchema).readonly().default([]),
+  }).strict());
+
+export interface ReportSection {
+  title: string;
+  resources: readonly ReportResource[];
+}
+
+export const WorkerRouteSchema: z.ZodType<WorkerRoute> = z.lazy(() =>
+  z.object({
+    pattern: z.string().default(""),
+    script: z.string().default(""),
+    /** False when the script it names is not in the inputs. */
+    resolved: z.boolean().default(false),
+  }).strict());
+
+export interface WorkerRoute {
+  pattern: string;
+  script: string;
+  resolved: boolean;
+}
+
+/** A route and a tunnel ingress rule that name the same host. */
+export const RequestPathSchema: z.ZodType<RequestPath> = z.lazy(() =>
+  z.object({
+    host: z.string().default(""),
+    script: z.string().default(""),
+    tunnel: z.string().default(""),
+    service: z.string().default(""),
+  }).strict());
+
+export interface RequestPath {
+  host: string;
+  script: string;
+  tunnel: string;
+  service: string;
+}
+
+export const IngressRuleSchema: z.ZodType<IngressRule> = z.lazy(() =>
+  z.object({
+    /** Empty for the catch-all rule. */
+    hostname: z.string().default(""),
+    path: z.string().default(""),
+    service: z.string().default(""),
+  }).strict());
+
+export interface IngressRule {
+  hostname: string;
+  path: string;
+  service: string;
+}
+
+export const PrivateServiceSchema: z.ZodType<PrivateService> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    type: z.string().default(""),
+    /** 0 when not stated. */
+    httpPort: z.number().int().nonnegative().default(0),
+    /** 0 when not stated. */
+    httpsPort: z.number().int().nonnegative().default(0),
+  }).strict());
+
+export interface PrivateService {
+  name: string;
+  type: string;
+  httpPort: number;
+  httpsPort: number;
+}
+
+export const AccessPolicySchema: z.ZodType<AccessPolicy> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    decision: z.string().default(""),
+    precedence: z.number().int().default(0),
+  }).strict());
+
+export interface AccessPolicy {
+  name: string;
+  decision: string;
+  precedence: number;
+}
+
+export const AccessApplicationSchema: z.ZodType<AccessApplication> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    domain: z.string().default(""),
+    type: z.string().default(""),
+    policies: z.array(AccessPolicySchema).readonly().default([]),
+  }).strict());
+
+export interface AccessApplication {
+  name: string;
+  domain: string;
+  type: string;
+  policies: readonly AccessPolicy[];
+}
+
+export const StorageSchema: z.ZodType<Storage> = z.lazy(() =>
+  z.object({
+    kind: StorageKindSchema.default("kv"),
+    name: z.string().default(""),
+  }).strict());
+
+export interface Storage {
+  kind: StorageKind;
+  name: string;
+}
+
+export const DnsRecordSchema: z.ZodType<DnsRecord> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    type: z.string().default(""),
+    proxied: z.boolean().default(false),
+  }).strict());
+
+export interface DnsRecord {
+  name: string;
+  type: string;
+  proxied: boolean;
+}
+
+/** A workload in the inputs with no bundle in cluster.toml. */
+export const UnlistedResourceSchema: z.ZodType<UnlistedResource> = z.lazy(() =>
+  z.object({
+    name: z.string().default(""),
+    section: z.string().default(""),
+  }).strict());
+
+export interface UnlistedResource {
+  name: string;
+  section: string;
+}
+
+/** A resource type no mapping reads, and how many there were. */
+export const SkippedTypeSchema: z.ZodType<SkippedType> = z.lazy(() =>
+  z.object({
+    type: z.string().default(""),
+    count: z.number().int().nonnegative().default(0),
+  }).strict());
+
+export interface SkippedType {
+  type: string;
+  count: number;
+}
+
+/** A resource the configuration wires into a Worker beyond what its bindings resolve to. */
+export const ConfigurationReferenceSchema: z.ZodType<ConfigurationReference> = z.lazy(() =>
+  z.object({
+    workload: z.string().default(""),
+    type: z.string().default(""),
+    name: z.string().default(""),
+  }).strict());
+
+export interface ConfigurationReference {
+  workload: string;
+  type: string;
+  name: string;
+}
+
+/** The output of `cloister inspect --json`. */
+export const InspectReportSchema: z.ZodType<InspectReport> = z.lazy(() =>
+  z.object({
+    /** "MAJOR.MINOR". Refuse a major you do not know; ignore fields you do not know. */
+    formatVersion: z.string().default(""),
+    document: TerraformDocumentSchema,
+    workloads: z.array(WorkloadSchema).readonly().default([]),
+    referencedByConfiguration: z.array(ConfigurationReferenceSchema).readonly().default([]),
+    routes: z.array(WorkerRouteSchema).readonly().default([]),
+    requestPaths: z.array(RequestPathSchema).readonly().default([]),
+    tunnels: z.array(z.string()).readonly().default([]),
+    ingress: z.array(IngressRuleSchema).readonly().default([]),
+    privateServices: z.array(PrivateServiceSchema).readonly().default([]),
+    accessApplications: z.array(AccessApplicationSchema).readonly().default([]),
+    storage: z.array(StorageSchema).readonly().default([]),
+    /** The resources each mapping reads, by section. */
+    sections: z.array(ReportSectionSchema).readonly().default([]),
+    dns: z.array(DnsRecordSchema).readonly().default([]),
+    /** The [[wires]] rows of cluster.toml; empty without one. */
+    declaredWires: z.array(WireRefSchema).readonly().default([]),
+    /** The [[connections]] targets compared, for --env or every environment. */
+    declaredConnections: z.array(ConnectionRefSchema).readonly().default([]),
+    unlisted: z.array(UnlistedResourceSchema).readonly().default([]),
+    findings: z.array(FindingSchema).readonly().default([]),
+    skipped: z.array(SkippedTypeSchema).readonly().default([]),
+  }).strict());
+
+export interface InspectReport {
+  formatVersion: string;
+  document: TerraformDocument;
+  workloads: readonly Workload[];
+  referencedByConfiguration: readonly ConfigurationReference[];
+  routes: readonly WorkerRoute[];
+  requestPaths: readonly RequestPath[];
+  tunnels: readonly string[];
+  ingress: readonly IngressRule[];
+  privateServices: readonly PrivateService[];
+  accessApplications: readonly AccessApplication[];
+  storage: readonly Storage[];
+  sections: readonly ReportSection[];
+  dns: readonly DnsRecord[];
+  declaredWires: readonly WireRef[];
+  declaredConnections: readonly ConnectionRef[];
+  unlisted: readonly UnlistedResource[];
+  findings: readonly Finding[];
+  skipped: readonly SkippedType[];
 }
 

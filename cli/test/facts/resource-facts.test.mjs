@@ -438,7 +438,8 @@ test("inspect accepts --wrangler alone, with --terraform, and does not refuse a 
     const io = { log: (m) => out.push(m), errLog: (m) => errors.push(m), isGitTracked: () => true };
     assert.equal(await inspectMain(["--wrangler", WRANGLER_FIXTURE, "--json"], io), 0);
     const alone = JSON.parse(out.pop());
-    assert.equal(alone.document.kind, null);
+    // No document: the declared report says so with an empty kind (ADR-0077).
+    assert.equal(alone.document.kind, "");
     assert.equal(alone.workloads[0].name, "cloister");
 
     const tf = join(dir, "state.json");

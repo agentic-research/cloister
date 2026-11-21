@@ -84,3 +84,14 @@ test("an output missing a declared field is refused, though the schema has a def
 test("an output with a value outside an enum is refused", async () => {
   await assert.rejects(declaredOutput("Graph", { ...graph, edges: [{ ...edge, strength: "strong" }] }), /does not match/);
 });
+
+test("a union's variants are part of its shape: added is minor, removed is major", () => {
+  const prev = signatureOf(schema, "InspectReport");
+  assert.ok(prev.FindingSubject.union?.wire, "the union's variants are recorded");
+  const added = structuredClone(prev);
+  added.FindingSubject.union.route = "string";
+  assert.equal(changeBetween(prev, added).kind, "minor");
+  const removed = structuredClone(prev);
+  delete removed.FindingSubject.union.wire;
+  assert.equal(changeBetween(prev, removed).kind, "major");
+});

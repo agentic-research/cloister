@@ -181,7 +181,14 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       return 2;
     }
     const report = buildReport(imported, cluster, { env: opts.env });
-    log(opts.json ? JSON.stringify(report, null, 2) : renderReport(report));
+    if (opts.json) {
+      // The declared projection, checked against its schema (ADR-0077).
+      const { declaredOutput } = await import("../lib/output-format.mjs");
+      const { declaredReport } = await import("../lib/facts/report-json.mjs");
+      log(JSON.stringify(await declaredOutput("InspectReport", declaredReport(report)), null, 2));
+    } else {
+      log(renderReport(report));
+    }
     if (opts.failOn) {
       const failing = report.findings.filter((f) => opts.failOn.includes(f.kind));
       if (failing.length) {

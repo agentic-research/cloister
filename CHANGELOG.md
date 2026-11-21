@@ -23,6 +23,12 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `minStrength` of no minimum now reads `none` rather than an empty string.
 - `--help` always answers, from the declaration, before any command code
   (`cli/help.mjs`).
+- `inspect --json` is declared too (`InspectReport`, 1.0), as a projection
+  chosen field by field (`cli/lib/facts/report-json.mjs`) rather than the
+  internal report: nothing from a provider's document passes through
+  unchosen. Each finding is `{kind, subject, basis}`, with one variant in each
+  union, so its shape no longer depends on which keys happen to be present.
+  With no Terraform document, `document.kind` is `""`.
 
 ### 2026-11 — cloister is one file
 

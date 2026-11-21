@@ -54,6 +54,295 @@
           }
         }
       }
+    },
+    "InspectReport": {
+      "formatVersion": "1.0",
+      "shape": {
+        "AccessApplication": {
+          "fields": {
+            "name": "string",
+            "domain": "string",
+            "type": "string",
+            "policies": "AccessPolicy[]"
+          }
+        },
+        "AccessPolicy": {
+          "fields": {
+            "name": "string",
+            "decision": "string",
+            "precedence": "integer"
+          }
+        },
+        "AccessRef": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "name": "string",
+            "env": "string",
+            "label": "string"
+          }
+        },
+        "AccessRow": {
+          "fields": {
+            "label": "string",
+            "principal": "string",
+            "public": "boolean"
+          }
+        },
+        "AccessRowRef": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "label": "string"
+          }
+        },
+        "Attribute": {
+          "fields": {
+            "key": "string",
+            "value": "string"
+          }
+        },
+        "BindingRef": {
+          "fields": {
+            "from": "string",
+            "name": "string",
+            "type": "string",
+            "target": "string"
+          }
+        },
+        "BindingSource": {
+          "enum": [
+            "both",
+            "terraform",
+            "wrangler"
+          ]
+        },
+        "BoundAs": {
+          "fields": {
+            "type": "string",
+            "target": "string"
+          }
+        },
+        "ConfigurationReference": {
+          "fields": {
+            "workload": "string",
+            "type": "string",
+            "name": "string"
+          }
+        },
+        "ConnectionRef": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "name": "string",
+            "env": "string"
+          }
+        },
+        "Dial": {
+          "fields": {
+            "section": "string",
+            "by": "DialBasis",
+            "where": "string"
+          }
+        },
+        "DialBasis": {
+          "enum": [
+            "address",
+            "configuration"
+          ]
+        },
+        "DialRef": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "section": "string",
+            "by": "DialBasis",
+            "where": "string"
+          }
+        },
+        "DnsRecord": {
+          "fields": {
+            "name": "string",
+            "type": "string",
+            "proxied": "boolean"
+          }
+        },
+        "ExposureRef": {
+          "fields": {
+            "bundle": "string",
+            "port": "string",
+            "expose": "string",
+            "section": "string"
+          }
+        },
+        "Finding": {
+          "fields": {
+            "kind": "FindingKind",
+            "subject": "FindingSubject",
+            "basis": "FindingBasis"
+          }
+        },
+        "FindingBasis": {
+          "union": {
+            "reason": "string",
+            "dial": "Dial",
+            "boundAs": "BoundAs",
+            "principal": "string",
+            "setting": "string",
+            "secret": "SecretRef"
+          }
+        },
+        "FindingKind": {
+          "enum": [
+            "contradicted",
+            "evidenced",
+            "undeclared",
+            "unknown"
+          ]
+        },
+        "FindingSubject": {
+          "union": {
+            "unchecked": "null",
+            "wire": "WireRef",
+            "connection": "ConnectionRef",
+            "access": "AccessRef",
+            "accessRow": "AccessRowRef",
+            "exposure": "ExposureRef",
+            "binding": "BindingRef",
+            "dial": "DialRef"
+          }
+        },
+        "IngressRule": {
+          "fields": {
+            "hostname": "string",
+            "path": "string",
+            "service": "string"
+          }
+        },
+        "InspectReport": {
+          "fields": {
+            "formatVersion": "string",
+            "document": "TerraformDocument",
+            "workloads": "Workload[]",
+            "referencedByConfiguration": "ConfigurationReference[]",
+            "routes": "WorkerRoute[]",
+            "requestPaths": "RequestPath[]",
+            "tunnels": "string[]",
+            "ingress": "IngressRule[]",
+            "privateServices": "PrivateService[]",
+            "accessApplications": "AccessApplication[]",
+            "storage": "Storage[]",
+            "sections": "ReportSection[]",
+            "dns": "DnsRecord[]",
+            "declaredWires": "WireRef[]",
+            "declaredConnections": "ConnectionRef[]",
+            "unlisted": "UnlistedResource[]",
+            "findings": "Finding[]",
+            "skipped": "SkippedType[]"
+          }
+        },
+        "PrivateService": {
+          "fields": {
+            "name": "string",
+            "type": "string",
+            "httpPort": "integer",
+            "httpsPort": "integer"
+          }
+        },
+        "ReportResource": {
+          "fields": {
+            "name": "string",
+            "attributes": "Attribute[]",
+            "identity": "string",
+            "access": "AccessRow[]",
+            "accessLabels": "string[]",
+            "withheld": "string[]",
+            "dials": "DialRef[]"
+          }
+        },
+        "ReportSection": {
+          "fields": {
+            "title": "string",
+            "resources": "ReportResource[]"
+          }
+        },
+        "RequestPath": {
+          "fields": {
+            "host": "string",
+            "script": "string",
+            "tunnel": "string",
+            "service": "string"
+          }
+        },
+        "SecretRef": {
+          "fields": {
+            "secret": "string",
+            "variable": "string"
+          }
+        },
+        "SkippedType": {
+          "fields": {
+            "type": "string",
+            "count": "integer"
+          }
+        },
+        "Storage": {
+          "fields": {
+            "kind": "StorageKind",
+            "name": "string"
+          }
+        },
+        "StorageKind": {
+          "enum": [
+            "d1",
+            "kv",
+            "r2"
+          ]
+        },
+        "TerraformDocument": {
+          "fields": {
+            "kind": "string",
+            "terraformFormatVersion": "string"
+          }
+        },
+        "UnlistedResource": {
+          "fields": {
+            "name": "string",
+            "section": "string"
+          }
+        },
+        "WireRef": {
+          "fields": {
+            "from": "string",
+            "to": "string",
+            "binding": "string"
+          }
+        },
+        "WorkerBinding": {
+          "fields": {
+            "name": "string",
+            "type": "string",
+            "target": "string",
+            "workload": "boolean"
+          }
+        },
+        "WorkerRoute": {
+          "fields": {
+            "pattern": "string",
+            "script": "string",
+            "resolved": "boolean"
+          }
+        },
+        "Workload": {
+          "fields": {
+            "name": "string",
+            "bundle": "string",
+            "source": "BindingSource",
+            "bindingsWithheld": "boolean",
+            "bindings": "WorkerBinding[]"
+          }
+        }
+      }
     }
   }
 }
