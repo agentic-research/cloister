@@ -97,7 +97,6 @@ export const LAYERS = Object.freeze({
   "src/vault-store.ts": "core/credentials",
   "src/routes/vault-proxy.ts": "core/credentials",
   "src/routes/vault-proxy-credential-store.ts": "core/credentials",
-  "src/manifest/vault-proxy-services.ts": "core/credentials",
 
   // ── core: audit ────────────────────────────────────────────────────────
   "src/routes/receipt-emitter.ts": "core/audit",
@@ -177,6 +176,10 @@ export const LAYERS = Object.freeze({
   "src/wire/manifest.ts": "feature/mcp-gateway",
   "wire/": "feature/mcp-gateway",
   "src/routes/vault-proxy-route.ts": "feature/mcp-gateway",
+  // Turns the gateway manifest's vaultProxyServices rows into the vault
+  // proxy's registry, at build time and at boot: the gateway's reading of its
+  // own declaration. The proxy it feeds (vault-proxy.ts) is core.
+  "src/manifest/vault-proxy-services.ts": "feature/mcp-gateway",
   "src/routes/ca-bundle.ts": "feature/mcp-gateway",
   "src/routes/roots-state.ts": "feature/mcp-gateway",
   "src/routes/health.ts": "feature/mcp-gateway",
@@ -309,9 +312,6 @@ export const OUTWARD = Object.freeze([
   // The OCI registry feature's state, kept in core's trust store.
   "src/trust-store.ts -> src/storage/registry-membership.ts",
   "src/trust-store.ts -> src/storage/registry-tags.ts",
-  // Core reading the MCP gateway's manifest types.
-  "src/manifest/vault-proxy-services.ts -> src/manifest/types.ts",
-  "src/routes/actor-fingerprint.ts -> src/manifest/types.ts",
   // Core's lock writer carrying the microVM driver's rootfs rows.
   "cli/lib/cluster/lockfile.mjs -> cli/lib/runtime/rootfs-lock.mjs",
 ]);

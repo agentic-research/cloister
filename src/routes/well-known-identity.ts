@@ -136,7 +136,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     // INTERLACE_ACTOR_FP binding, else genuinely disabled. Before this, an
     // operator with a live identity who had not restated its digest in the
     // manifest got the same bare 404 as one who had opted out.
-    const fingerprint = resolveActorFingerprint(this.manifest, env);
+    const fingerprint = resolveActorFingerprint(this.manifest.actor.fingerprint, env);
     if (!fingerprint) {
       return new Response("identity bridge disabled", { status: 404 });
     }
@@ -180,7 +180,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     // Resolved, not raw: when the fallback supplied the fingerprint the raw
     // manifest value is "", and a JWK published under an empty `kid` matches
     // nothing a verifier looks up.
-    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
+    const fingerprint = resolveActorFingerprint(this.manifest.actor.fingerprint, env) ?? "";
 
     // ── Ask the signer for its own key ───────────────────────────────────
     //
@@ -359,7 +359,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     const ttlSec = 300;  // matches manifest.policy.maxCertLifetimeSeconds default
     // Same resolver as the gate above; `handle()` already refused the request
     // if this is null, so the ?? "" is unreachable rather than a default.
-    const fingerprint = resolveActorFingerprint(this.manifest, env) ?? "";
+    const fingerprint = resolveActorFingerprint(this.manifest.actor.fingerprint, env) ?? "";
     const header = {
       alg: "EdDSA",
       typ: "JWT",

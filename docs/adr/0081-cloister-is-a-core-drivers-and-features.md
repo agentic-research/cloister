@@ -6,7 +6,7 @@ tags: [architecture, core, drivers, features, layering, tcb, budget]
 tracking-bead: cloister-ca2582
 # Core's size in lines, read by lint/layers.mjs (§4). Raising it is an
 # amendment to this ADR; the change that raises it says why.
-core-budget: 21351
+core-budget: 21164
 relates_to:
   - 0002-edge-router-protocol-agnostic-backends.md
   - 0011-hypervisor-bundle-boundary.md

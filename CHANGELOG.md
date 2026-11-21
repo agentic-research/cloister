@@ -8,6 +8,17 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — core no longer reads the gateway's manifest types (ADR-0081)
+
+- The actor-fingerprint resolver takes the declared fingerprint, which the
+  gateway's routes pass it, instead of the whole gateway manifest.
+- `src/manifest/vault-proxy-services.ts` is classified as the MCP gateway
+  feature. It turns the gateway manifest's `vaultProxyServices` rows into the
+  vault proxy's registry, so it is the gateway reading its own declaration.
+  The proxy it feeds stays core.
+- Outward imports went from 10 to 8. Core shrank to 21,164 lines, and its
+  budget was lowered to match.
+
 ### 2026-11 — core declares the environment it reads (ADR-0081)
 
 - `src/core-env.ts` declares `CoreEnv`: the configuration core reads, and the

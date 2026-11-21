@@ -44,7 +44,7 @@ export class WellKnownInterlaceRoute implements EdgeRoute {
   }
 
   async handle(_request: Request, env: Env): Promise<Response> {
-    if (!resolveActorFingerprint(this.manifest, env)) {
+    if (!resolveActorFingerprint(this.manifest.actor.fingerprint, env)) {
       return new Response("interlace discovery disabled", { status: 404 });
     }
 

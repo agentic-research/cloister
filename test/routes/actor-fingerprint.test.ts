@@ -14,27 +14,23 @@ import {
   fingerprintFromPubkey,
   resolveActorFingerprint,
 } from "../../src/routes/actor-fingerprint";
-import type { Env } from "../../src/types";
-import type { Gateway } from "../../src/manifest/types";
+import type { CoreEnv } from "../../src/core-env";
 
 const VALID = `sha256:${"a".repeat(64)}`;
 const OTHER = `sha256:${"b".repeat(64)}`;
 
-const manifestWith = (fingerprint: string) =>
-  ({ actor: { fingerprint } } as unknown as Gateway);
-
-const envWith = (v?: string) => ({ INTERLACE_ACTOR_FP: v } as unknown as Env);
+const envWith = (v?: string) => ({ INTERLACE_ACTOR_FP: v } as unknown as CoreEnv);
 
 describe("precedence", () => {
   it("prefers the manifest value over the env fallback", () => {
     // Deliberate direction: an env var must not be able to silently repoint a
     // committed identity. The fallback covers "the manifest says nothing", not
     // "override what it says".
-    expect(resolveActorFingerprint(manifestWith(VALID), envWith(OTHER))).toBe(VALID);
+    expect(resolveActorFingerprint(VALID, envWith(OTHER))).toBe(VALID);
   });
 
   it("uses the env fallback when the manifest is empty", () => {
-    expect(resolveActorFingerprint(manifestWith(""), envWith(VALID))).toBe(VALID);
+    expect(resolveActorFingerprint("", envWith(VALID))).toBe(VALID);
   });
 
   it("does not validate the manifest value", () => {
@@ -42,7 +38,7 @@ describe("precedence", () => {
     // capnp schema; re-validating it here would be a second opinion about a
     // contract this file does not own.
     const odd = "not-a-fingerprint";
-    expect(resolveActorFingerprint(manifestWith(odd), envWith())).toBe(odd);
+    expect(resolveActorFingerprint(odd, envWith())).toBe(odd);
   });
 });
 
@@ -50,19 +46,19 @@ describe("the opt-out survives", () => {
   it("neither set means disabled", () => {
     // The whole change would be wrong if it removed the ability to publish no
     // identity at all.
-    expect(resolveActorFingerprint(manifestWith(""), envWith())).toBeNull();
+    expect(resolveActorFingerprint("", envWith())).toBeNull();
   });
 
   it("an empty or whitespace env value is still disabled", () => {
     // `.env.local` and wrangler `[vars]` both default these to "", so an empty
     // string is the NORMAL unset representation here, not an edge case.
-    expect(resolveActorFingerprint(manifestWith(""), envWith(""))).toBeNull();
-    expect(resolveActorFingerprint(manifestWith(""), envWith("   "))).toBeNull();
+    expect(resolveActorFingerprint("", envWith(""))).toBeNull();
+    expect(resolveActorFingerprint("", envWith("   "))).toBeNull();
   });
 
   it("a non-string env value is disabled rather than coerced", () => {
-    const env = { INTERLACE_ACTOR_FP: 12345 } as unknown as Env;
-    expect(resolveActorFingerprint(manifestWith(""), env)).toBeNull();
+    const env = { INTERLACE_ACTOR_FP: 12345 } as unknown as CoreEnv;
+    expect(resolveActorFingerprint("", env)).toBeNull();
   });
 });
 
@@ -78,7 +74,7 @@ describe("a malformed env value is loud, not silently disabled", () => {
     ["uppercase hex", `sha256:${"A".repeat(64)}`],
     ["non-hex", `sha256:${"g".repeat(64)}`],
   ])("throws on %s", (_label, value) => {
-    expect(() => resolveActorFingerprint(manifestWith(""), envWith(value)))
+    expect(() => resolveActorFingerprint("", envWith(value)))
       .toThrow(ActorFingerprintError);
   });
 
@@ -86,7 +82,7 @@ describe("a malformed env value is loud, not silently disabled", () => {
     // An operator reading this in a log should not have to guess which variable
     // or what it currently holds.
     try {
-      resolveActorFingerprint(manifestWith(""), envWith("nope"));
+      resolveActorFingerprint("", envWith("nope"));
       expect.unreachable("should have thrown");
     } catch (e) {
       const msg = (e as Error).message;
@@ -98,7 +94,7 @@ describe("a malformed env value is loud, not silently disabled", () => {
   it("trims before validating, so trailing newlines are accepted", () => {
     // A value pasted into .env.local or piped from a command routinely carries
     // one; rejecting that would be a papercut with no security content.
-    expect(resolveActorFingerprint(manifestWith(""), envWith(` ${VALID}\n`))).toBe(VALID);
+    expect(resolveActorFingerprint("", envWith(` ${VALID}\n`))).toBe(VALID);
   });
 });
 
@@ -113,7 +109,7 @@ describe("derivation", () => {
 
     // Round-trip: what the deriver produces, the validator must accept. These
     // are the two halves that `cloister dev bootstrap` sits between.
-    expect(resolveActorFingerprint(manifestWith(""), envWith(derived))).toBe(derived);
+    expect(resolveActorFingerprint("", envWith(derived))).toBe(derived);
   });
 
   it("distinguishes different keys", async () => {
