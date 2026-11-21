@@ -11,6 +11,12 @@
 // Tracking: cloister-8f57f0
 
 import { checkAccess } from "../../vault/src/vault.js";
+import {
+  InjectionRefused,
+  injectCredential,
+  outboundRequest,
+  type Injection,
+} from "../../vault/src/inject.js";
 import type { VerifiedLease } from "../routes/lease-middleware.js";
 import { findForbiddenReceiptField } from "./receipt-guard.js";
 import { logEvent } from "../obs/log.js";
@@ -21,11 +27,9 @@ import { logEvent } from "../obs/log.js";
  * Closed-by-design in v1; adding a strategy requires a spec extension.
  */
 export type InjectionStrategy =
-  | { kind: "authorizationBearer" }
-  | { kind: "authorizationBasic" }
-  | { kind: "headerNamed"; name: string }
-  | { kind: "queryParam"; name: string }
-  | { kind: "bodyField"; path: string }
+  // The five that inject a credential, computed by the one injection
+  // (vault/src/inject.ts, ADR-0082 §1).
+  | Injection
   // Audit passthrough (ADR-0040 amendment): inject NOTHING; forward the
   // caller's own request + auth headers and receipt it. For OAuth-subscription
   // harnesses (Claude Code Max) with no key to vault — audit, not custody.
@@ -426,33 +430,23 @@ function generateNonceHex(): string {
 }
 
 /**
- * Phase 2 — apply the configured injection strategy + forward to
- * upstream. The credential goes UPSTREAM only; the caller-facing
- * response is the upstream's response unmodified (the "client never
- * observes the stored credential" invariant relies on the upstream
- * being trusted not to echo, which is the contract operators sign
- * up for when they declare a service in the manifest).
+ * Phase 2 — inject the credential as the service declares and forward to
+ * upstream, through the one injection (vault/src/inject.ts, ADR-0082 §1)
+ * that the vault's Durable Object applies too. The credential goes UPSTREAM
+ * only; the caller-facing response is the upstream's response unmodified (the
+ * "client never observes the stored credential" invariant relies on the
+ * upstream being trusted not to echo, which is the contract operators sign up
+ * for when they declare a service in the manifest).
  *
- * Header/query strategies preserve streaming pass-through; body-field
- * injection buffers by design because it must edit JSON before forward.
+ * Header and query strategies stream the body through; `bodyField` buffers by
+ * design, because it edits the JSON before it is forwarded. A body that
+ * `bodyField` cannot carry the credential in is a 400.
  */
 async function proxyToUpstream(
   req: VaultProxyRequest,
   credential: string,
   cfg: VaultProxyService,
 ): Promise<Response> {
-  const baseUrl = cfg.upstreamBaseUrl.replace(/\/+$/, "") + req.upstreamPath;
-  const upstreamHeaders = new Headers(req.request.headers);
-  // Strip ALL Interlace lease headers — they're cloister-internal,
-  // never forwarded to a credentialed upstream (separate trust
-  // boundary; the upstream sees a freshly-injected credential, not
-  // the caller's peer identity).
-  for (const key of Array.from(upstreamHeaders.keys())) {
-    if (key.toLowerCase().startsWith("x-interlace-")) {
-      upstreamHeaders.delete(key);
-    }
-  }
-
   const strategy = cfg.injection;
 
   // passthrough is handled at the route level (before credential lookup);
@@ -463,71 +457,26 @@ async function proxyToUpstream(
     );
   }
 
-  const username = req.storedUsername ?? cfg.name;
-
-  // ── header-shaped strategies (Phase 2) ─────────────────────────────
-  if (
-    strategy.kind === "authorizationBearer" ||
-    strategy.kind === "authorizationBasic" ||
-    strategy.kind === "headerNamed"
-  ) {
-    applyHeaderInjection(upstreamHeaders, strategy, credential, username);
-    return req.upstream.fetch(buildUpstreamRequest(baseUrl, req, upstreamHeaders, undefined));
+  let upstreamRequest: Request;
+  try {
+    const out = injectCredential({
+      injection:    strategy,
+      credential,
+      username:     req.storedUsername ?? cfg.name,
+      upstreamBase: cfg.upstreamBaseUrl,
+      request: {
+        method:       req.request.method,
+        upstreamPath: req.upstreamPath,
+        search:       new URL(req.request.url).search,
+        headers:      req.request.headers,
+      },
+    });
+    upstreamRequest = await outboundRequest(out, req.request);
+  } catch (e) {
+    if (!(e instanceof InjectionRefused)) throw e;
+    return errorResponse(400, JSON.stringify({ error: "bad_request", reason: e.message }));
   }
-
-  // ── queryParam (Phase 3) ───────────────────────────────────────────
-  if (strategy.kind === "queryParam") {
-    const url = appendQueryParam(baseUrl, strategy.name, credential);
-    return req.upstream.fetch(buildUpstreamRequest(url, req, upstreamHeaders, undefined));
-  }
-
-  // ── bodyField (Phase 3) ────────────────────────────────────────────
-  if (strategy.kind === "bodyField") {
-    // bodyField is fundamentally incompatible with streaming (need
-    // the whole JSON to deep-set); we buffer. Streaming pass-through
-    // for the other strategies is preserved.
-    const original = await req.request.text();
-    const parsed = original.length === 0 ? {} : JSON.parse(original);
-    const merged = deepSetPath(parsed, strategy.path, credential);
-    upstreamHeaders.set("content-type", "application/json");
-    return req.upstream.fetch(buildUpstreamRequest(baseUrl, req, upstreamHeaders, JSON.stringify(merged)));
-  }
-
-  // Exhaustiveness — TS narrows `strategy` to `never` here when all
-  // arms above are present; if a new InjectionStrategy variant is
-  // added without an arm, this throws at runtime (and tsc errors at
-  // build) so we don't silently drop strategies.
-  const _exhaustive: never = strategy;
-  throw new Error(
-    `cloister/credential-isolation/v1: unknown injection.kind ${JSON.stringify(_exhaustive)}`,
-  );
-}
-
-/**
- * Build the outgoing upstream Request. Threads `req.request.signal`
- * (Phase 4 — client-disconnect propagates to the upstream fetch so
- * we don't keep paying for bytes the client will never read). When
- * `overrideBody` is provided (e.g. `bodyField` deep-set result),
- * use it; otherwise stream-pass-through `req.request.body` for
- * methods that allow a body.
- */
-function buildUpstreamRequest(
-  url: string,
-  req: VaultProxyRequest,
-  headers: Headers,
-  overrideBody: BodyInit | undefined,
-): Request {
-  const init: RequestInit = {
-    method:  req.request.method,
-    headers,
-    signal:  req.request.signal,
-  };
-  if (overrideBody !== undefined) {
-    init.body = overrideBody;
-  } else if (methodCanHaveBody(req.request.method)) {
-    init.body = req.request.body;
-  }
-  return new Request(url, init);
+  return req.upstream.fetch(upstreamRequest);
 }
 
 /**
@@ -576,69 +525,6 @@ export function passthroughToUpstream(
   };
   if (methodCanHaveBody(request.method)) init.body = request.body;
   return upstream.fetch(new Request(baseUrl, init));
-}
-
-function applyHeaderInjection(
-  headers: Headers,
-  strategy: { kind: "authorizationBearer" } | { kind: "authorizationBasic" } | { kind: "headerNamed"; name: string },
-  credential: string,
-  username: string,
-): void {
-  switch (strategy.kind) {
-    case "authorizationBearer":
-      headers.set("Authorization", `Bearer ${credential}`);
-      return;
-    case "authorizationBasic": {
-      // btoa is the workerd-native base64 encoder for ASCII strings.
-      headers.set("Authorization", `Basic ${btoa(`${username}:${credential}`)}`);
-      return;
-    }
-    case "headerNamed":
-      headers.set(strategy.name, credential);
-      return;
-  }
-}
-
-/**
- * Append a query param to a URL string, encoding the value with
- * `encodeURIComponent` (NOT `URLSearchParams` — the latter encodes
- * spaces as `+`, which some upstream servers reject for credential
- * tokens that legitimately contain `+`).
- */
-function appendQueryParam(urlStr: string, name: string, value: string): string {
-  const sep = urlStr.includes("?") ? "&" : "?";
-  return `${urlStr}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
-}
-
-/**
- * Deep-set a credential at a dotted path inside a JSON object,
- * returning a new object (no mutation of the input). Intermediate
- * objects are created when missing. The leaf value is the credential
- * string; pre-existing siblings at every level are preserved.
- *
- * `"client_secret"` → top-level key.
- * `"auth.client_secret"` → nested. Two levels.
- */
-function deepSetPath(obj: unknown, path: string, value: string): Record<string, unknown> {
-  const segments = path.split(".");
-  if (segments.length === 0) throw new Error("bodyField path must be non-empty");
-  const root: Record<string, unknown> =
-    obj !== null && typeof obj === "object" && !Array.isArray(obj)
-      ? { ...(obj as Record<string, unknown>) }
-      : {};
-  let cursor: Record<string, unknown> = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i];
-    const next = cursor[seg];
-    const child: Record<string, unknown> =
-      next !== null && typeof next === "object" && !Array.isArray(next)
-        ? { ...(next as Record<string, unknown>) }
-        : {};
-    cursor[seg] = child;
-    cursor = child;
-  }
-  cursor[segments[segments.length - 1]] = value;
-  return root;
 }
 
 function methodCanHaveBody(method: string): boolean {

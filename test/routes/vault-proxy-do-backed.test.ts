@@ -45,7 +45,7 @@ interface VaultRpc {
   putCredential(
     subjectFp: string,
     service: string,
-    cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
+    cred: { upstream: string; credential: string; username?: string; allowedSubs: string[] },
   ): Promise<void>;
   deleteCredential(subjectFp: string, service: string): Promise<boolean>;
 }
@@ -148,7 +148,7 @@ describe("VaultProxyRoute per-bundle isolation (idFromName-keyed storage)", () =
     // Seed into the WRONG bundle's namespace.
     await vaultStub("notme").putCredential(PEER_A, "openai", {
       upstream:    "https://api.test.example",
-      headers:     { "Authorization": "Bearer sk-notme-only" },
+      credential:  "sk-notme-only",
       allowedSubs: [PEER_A],
     });
 
@@ -179,7 +179,7 @@ describe("VaultProxyRoute per-peer credential scoping (composite-PK seam)", () =
     // Seed under PEER_A.
     await vaultStub(ROUTER_BUNDLE).putCredential(PEER_A, "openai", {
       upstream:    "https://api.test.example",
-      headers:     { "Authorization": "Bearer sk-peer-a" },
+      credential:  "sk-peer-a",
       allowedSubs: [PEER_A],
     });
 
@@ -215,7 +215,7 @@ describe("VaultProxyRoute per-peer credential scoping (composite-PK seam)", () =
     // intentionally collapsed.
     await vaultStub(ROUTER_BUNDLE).putCredential(PEER_A, "openai", {
       upstream:    "https://api.test.example",
-      headers:     { "Authorization": "Bearer sk-router-seeded" },
+      credential:  "sk-router-seeded",
       allowedSubs: [PEER_A],
     });
 
@@ -233,6 +233,56 @@ describe("VaultProxyRoute per-peer credential scoping (composite-PK seam)", () =
     // forwarding. The actual status (502/504/etc.) depends on
     // workerd-test's network behavior for unresolvable hosts.
     expect(res.status).not.toBe(404);
+  });
+
+  // ADR-0082 §2. api.openai.com and api.anthropic.com are hosts the test
+  // worker's outbound network echoes (vitest.config.ts), so the request the
+  // vault sent upstream comes back as the response.
+  it("the route hands the vault the service's declaration: its strategy and the parsed path reach the upstream", async () => {
+    await vaultStub(ROUTER_BUNDLE).putCredential(PEER_A, "openai", {
+      upstream:    "https://api.openai.com",
+      credential:  "sk-declared",
+      allowedSubs: [PEER_A],
+    });
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLeaseFor(PEER_A)),
+      services:      (name) => name === "openai" ? serviceConfigFor("openai", "https://api.openai.com") : null,
+    });
+
+    const res = await route.handle(
+      new Request("http://x/vault/proxy/openai/v1/chat/completions?stream=false", {
+        method:  "POST",
+        headers: { "content-type": "application/json", "x-signet-sig": "lease-signature" },
+        body:    '{"model":"m"}',
+      }),
+      env as unknown as Env,
+    );
+
+    expect(res.status).toBe(200);
+    const sent = await res.json() as { url: string; headers: Array<[string, string]>; body: string };
+    expect(sent.url).toBe("https://api.openai.com/v1/chat/completions?stream=false");
+    const headers = new Map(sent.headers);
+    expect(headers.get("authorization")).toBe("Bearer sk-declared");
+    expect(headers.has("x-signet-sig")).toBe(false);
+    expect(sent.body).toBe('{"model":"m"}');
+  });
+
+  it("a credential is only sent to the upstream it was stored for", async () => {
+    await vaultStub(ROUTER_BUNDLE).putCredential(PEER_A, "openai", {
+      upstream:    "https://api.openai.com",
+      credential:  "sk-pinned",
+      allowedSubs: [PEER_A],
+    });
+    const route = new VaultProxyRoute({
+      leaseVerifier: fakeVerifier(fakeLeaseFor(PEER_A)),
+      // The declaration names another base, as a changed or forged manifest would.
+      services:      (name) => name === "openai" ? serviceConfigFor("openai", "https://api.anthropic.com") : null,
+    });
+
+    const res = await route.handle(new Request("http://x/vault/proxy/openai/v1/models"), env as unknown as Env);
+
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("sk-pinned");
   });
 });
 

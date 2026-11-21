@@ -8,12 +8,18 @@
 // Identity: verified via notme shared SDK (bridge certs or DPoP tokens).
 // Storage: injected interface (DO SQLite in prod, in-memory in tests).
 
-/** A stored credential for a named service. */
+/**
+ * A stored credential for a named service: the secret itself, and the
+ * upstream it may be sent to (ADR-0082 §3). How the secret is presented
+ * upstream is the service's declared injection, applied by vault/src/inject.ts.
+ */
 export interface StoredCredential {
-  /** The upstream URL to proxy to. */
+  /** The upstream base this credential is for. It is only ever sent there. */
   upstream: string;
-  /** Headers to inject (e.g. { "apiKey": "sk-..." }). */
-  headers: Record<string, string>;
+  /** The secret (e.g. an API key). */
+  credential: string;
+  /** For `authorizationBasic`: the username. Absent means the service's name. */
+  username?: string;
   /** Glob patterns for allowed subs (e.g. ["repo:org/venturi:*"]). */
   allowedSubs: string[];
 }
@@ -116,22 +122,20 @@ export function validateUpstreamUrl(url: string): boolean {
 
 // ── Credential-payload size caps (cloister-21b5eb / dos-friend F4) ──────────
 //
-// Tight by design: real credentials carry 1–2 headers totalling well under
-// 1 KiB. These caps catch the DoS-via-large-payload vector at the input
-// boundary — without them, a single `putCredential` with megabyte headers
-// blocks the single-threaded vault DO on encrypt + SQL write while
-// queueing every co-resident call. Validation runs *before* the write
-// touches the DO (cheaper to reject).
+// Tight by design: a real credential is one secret well under 1 KiB. These
+// caps catch the DoS-via-large-payload vector at the input boundary — without
+// them, a single `putCredential` with a megabyte secret blocks the
+// single-threaded vault DO on encrypt + SQL write while queueing every
+// co-resident call. Validation runs *before* the write touches the DO
+// (cheaper to reject).
 //
 // Numbers chosen as 10–100× typical headroom over real upstream APIs.
 // If a legitimate caller ever needs to lift one, do it via a manifest
 // declaration (per-service override) rather than by widening the global.
 
 export const CREDENTIAL_LIMITS = {
-  MAX_HEADER_COUNT:        32,
-  MAX_HEADER_KEY_BYTES:    256,
-  MAX_HEADER_VALUE_BYTES:  8 * 1024,    // 8 KiB
-  MAX_TOTAL_HEADERS_BYTES: 16 * 1024,   // 16 KiB serialized
+  MAX_CREDENTIAL_BYTES:    8 * 1024,    // 8 KiB
+  MAX_USERNAME_BYTES:      256,
   MAX_ALLOWED_SUBS_COUNT:  64,
   MAX_ALLOWED_SUB_BYTES:   512,
 } as const;
@@ -141,34 +145,33 @@ export const CREDENTIAL_LIMITS = {
  * caller decides what to do with the rejection (throw at the substrate
  * boundary, return a typed error to the user, etc.).
  *
- * Cumulative size is measured in UTF-8 bytes (TextEncoder), not code
- * units — matches what the encryption layer will actually serialize.
+ * Sizes are measured in UTF-8 bytes (TextEncoder), not code units —
+ * matches what the encryption layer will actually serialize. A secret or
+ * username holding a CR, LF or NUL is refused: credential-isolation/v1
+ * forbids one in a stored credential, since a header strategy cannot carry it.
  */
 export function validateCredentialPayload(
-  cred: { headers: Record<string, string>; allowedSubs: string[] },
+  cred: { credential: string; username?: string; allowedSubs: string[] },
 ): { ok: true } | { ok: false; reason: string } {
-  const headers = cred.headers ?? {};
   const subs = cred.allowedSubs ?? [];
-  const keys = Object.keys(headers);
   const enc = new TextEncoder();
 
-  if (keys.length > CREDENTIAL_LIMITS.MAX_HEADER_COUNT) {
-    return { ok: false, reason: `too many headers (${keys.length} > ${CREDENTIAL_LIMITS.MAX_HEADER_COUNT})` };
+  if (typeof cred.credential !== "string" || cred.credential.length === 0) {
+    return { ok: false, reason: "credential must be a non-empty string" };
   }
-  let totalBytes = 0;
-  for (const k of keys) {
-    const kBytes = enc.encode(k).byteLength;
-    if (kBytes > CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES) {
-      return { ok: false, reason: `header key too long (${kBytes} > ${CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES} bytes)` };
-    }
-    const vBytes = enc.encode(headers[k] ?? "").byteLength;
-    if (vBytes > CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES) {
-      return { ok: false, reason: `header value too long (${vBytes} > ${CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES} bytes)` };
-    }
-    totalBytes += kBytes + vBytes;
+  const cBytes = enc.encode(cred.credential).byteLength;
+  if (cBytes > CREDENTIAL_LIMITS.MAX_CREDENTIAL_BYTES) {
+    return { ok: false, reason: `credential too long (${cBytes} > ${CREDENTIAL_LIMITS.MAX_CREDENTIAL_BYTES} bytes)` };
   }
-  if (totalBytes > CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES) {
-    return { ok: false, reason: `headers exceed total size (${totalBytes} > ${CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES} bytes)` };
+  if (cred.username !== undefined) {
+    if (typeof cred.username !== "string") return { ok: false, reason: "username must be a string" };
+    const uBytes = enc.encode(cred.username).byteLength;
+    if (uBytes > CREDENTIAL_LIMITS.MAX_USERNAME_BYTES) {
+      return { ok: false, reason: `username too long (${uBytes} > ${CREDENTIAL_LIMITS.MAX_USERNAME_BYTES} bytes)` };
+    }
+  }
+  if (/[\r\n\0]/.test(cred.credential) || (cred.username !== undefined && /[\r\n\0]/.test(cred.username))) {
+    return { ok: false, reason: "credential and username must not contain CR, LF or NUL" };
   }
   if (subs.length > CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT) {
     return { ok: false, reason: `too many allowedSubs (${subs.length} > ${CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT})` };
@@ -274,70 +277,4 @@ export function sanitizeResponse(upstream: Response): Response {
     statusText: upstream.statusText,
     headers,
   });
-}
-
-// ── Proxy ───────────────────────────────────────────────────────────────────
-
-/**
- * Headers that MUST NOT be forwarded from the caller to the upstream.
- * Three categories:
- *   1. Caller auth headers (would leak caller identity to upstream)
- *   2. CF-injected headers (would leak caller IP, location, routing info)
- *   3. Hop-by-hop headers (meaningless after proxy)
- */
-const STRIPPED_HEADERS = [
-  // Caller auth — never forward identity material to upstream
-  "authorization",
-  "x-client-cert",
-  "dpop",
-  "cookie",
-  // CF-injected — caller IP, geo, routing
-  "cf-connecting-ip",
-  "cf-ray",
-  "cf-visitor",
-  "cf-ipcountry",
-  "cf-worker",
-  "x-forwarded-for",
-  "x-forwarded-proto",
-  "x-real-ip",
-  // Hop-by-hop
-  "host",
-  "connection",
-  "keep-alive",
-  "transfer-encoding",
-  "te",
-  "upgrade",
-];
-
-/** Build a proxied request: caller's URL params + credential headers → upstream. */
-export function buildProxyRequest(
-  incoming: Request,
-  cred: StoredCredential,
-): Request {
-  const incomingUrl = new URL(incoming.url);
-  const upstreamUrl = new URL(cred.upstream);
-
-  // Merge query params from incoming request onto upstream URL
-  for (const [key, value] of incomingUrl.searchParams) {
-    upstreamUrl.searchParams.set(key, value);
-  }
-
-  // Build headers: start clean, add safe incoming headers, inject credential headers
-  const headers = new Headers();
-  for (const [key, value] of incoming.headers) {
-    if (!STRIPPED_HEADERS.includes(key.toLowerCase())) {
-      headers.set(key, value);
-    }
-  }
-  for (const [key, value] of Object.entries(cred.headers)) {
-    headers.set(key, value);
-  }
-
-  const hasBody = incoming.method !== "GET" && incoming.method !== "HEAD";
-  return new Request(upstreamUrl.toString(), {
-    method: incoming.method,
-    headers,
-    body: hasBody ? incoming.body : undefined,
-    ...(hasBody ? { duplex: "half" } : {}),
-  } as RequestInit);
 }

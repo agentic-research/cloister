@@ -26,6 +26,7 @@
 // notme-as-bundle (cloister-db99cd) will pass `"notme"` when that lands.
 
 import type { Env } from "../types.js";
+import type { DeclaredService } from "../../vault/src/inject.js";
 import type {
   CredentialLookup,
   CredentialStore,
@@ -39,6 +40,7 @@ interface VaultProxyRpc {
     service: string,
     callerSub: string,
     incomingRequest: Request,
+    declared: DeclaredService,
   ): Promise<Response>;
 }
 
@@ -124,6 +126,7 @@ export class VaultDoCredentialStore implements CredentialStore {
     service:   string,
     callerSub: string,
     request:   Request,
+    declared:  DeclaredService,
   ): Promise<Response> {
     const ns = this.env.VAULT_STORE;
     if (!ns) {
@@ -132,7 +135,7 @@ export class VaultDoCredentialStore implements CredentialStore {
 
     try {
       const stub = ns.get(ns.idFromName(this.bundleIdName)) as DurableObjectStub & VaultProxyRpc;
-      return await stub.proxyRequest(peerFp, service, callerSub, request);
+      return await stub.proxyRequest(peerFp, service, callerSub, request, declared);
     } catch (err) {
       // Obs O-OBS-4 (2026-05-18 cycle): bare catch {} dropped RPC
       // throw context entirely — vault DO outages were invisible to

@@ -60,7 +60,6 @@ import {
   loadHarnessConfig,
   resolveTarget,
   serviceFor,
-  credentialHeaders,
   UsageError,
 } from "./targets.mjs";
 import { LaunchUsageError, PreconditionError } from "./types.mjs";
@@ -116,8 +115,8 @@ const SYMBOLIC_ROOT = "/run/cloister/";
  * NO `credentialSource`, and its absence is the accurate statement (cloister-d2ba07).
  * §5 is "the URL of the vault backend the bundle authenticates against", over a
  * closed set of `nono::keystore` schemes — and a harness authenticates against no
- * keystore. Custody mode vaults the key and the shim injects it as a header
- * (`credentialHeaders` below); the harness never holds it. That is the whole point
+ * keystore. Custody mode vaults the key, and the vault injects it as the service
+ * declares (ADR-0082); the harness never holds it. That is the whole point
  * of ADR-0010/0013, so declaring a credentialSource would claim a binding the
  * process does not have. §5: "A bundle needing no credentials omits the field."
  *
@@ -757,7 +756,9 @@ export function performSetup(plan, deps = {}) {
         peerFp: identity.peerFp,
         service,
         upstream: plan.service.upstreamBaseUrl,
-        headers: credentialHeaders(plan.service, plan.auth.apiKey),
+        // The key itself: the vault presents it as the service declares
+        // (ADR-0082), so the harness no longer formats a header.
+        credential: plan.auth.apiKey,
         allowedSubs: [identity.peerFp],
       }))}`];
   const devVarsPath = resolve(plan.root, ".dev.vars");

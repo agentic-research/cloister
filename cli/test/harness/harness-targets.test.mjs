@@ -22,7 +22,6 @@ import {
   loadHarnessConfig,
   resolveTarget,
   serviceFor,
-  credentialHeaders,
   UsageError,
 } from "../../lib/harness/targets.mjs";
 import {
@@ -141,20 +140,6 @@ test("a target naming an undeclared service is caught", () => {
 });
 
 // ── Credential shape follows the SERVICE's declaration ────────────────────
-
-test("credential headers derive from the service's injection strategy", () => {
-  const anthropic = serviceFor(byName("claude-code"), SERVICES);
-  const openai = serviceFor(byName("codex"), SERVICES);
-  assert.deepEqual(credentialHeaders(anthropic, "sk-test"), { "x-api-key": "sk-test" });
-  assert.deepEqual(credentialHeaders(openai, "sk-test"), { Authorization: "Bearer sk-test" });
-});
-
-test("an unsupported injection strategy is a named refusal", () => {
-  assert.throws(
-    () => credentialHeaders({ name: "weird", injection: "queryParam" }, "k"),
-    /does not support/,
-  );
-});
 
 // ── Auth modes are declared, not assumed ──────────────────────────────────
 
