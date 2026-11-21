@@ -1,29 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// A command's flags, parsed from its declaration (ADR-0077 Part 3).
+// A command's flags, parsed from its declaration in cli/surface.mjs
+// (ADR-0077 Part 3, as amended).
 //
-// A command declared in manifest/cli.capnp is an `$Op` whose input struct is
-// its flags. schema-bridge turns it into an entry of
-// src/generated/cli.tools.json, and this parses argv against that entry and
-// nothing else: a field `fooBar` is the flag `--foo-bar`, a boolean is a
-// switch, a string takes a value, and an absent flag takes its declared
-// default. An undeclared flag, a missing value or a stray argument is refused
-// by name. So the flags a command accepts are exactly the flags it declares,
-// and help, docs and parser cannot disagree about them.
+// cli/surface.mjs is the one declaration of the command line: help, the
+// reference docs, the one-file build's `standalone` set and `--help` are all
+// read from it. This parses argv against a command's declared flags and
+// nothing else: a flag with a `value` takes one, a flag without is a switch, a
+// `repeatable` flag may be given more than once, an absent flag takes its
+// declared `default`, and a `required` one must be given. An undeclared flag,
+// a missing value, a stray argument, a flag given twice and a switch given a
+// value are each refused by name. So the flags a command accepts are exactly
+// the flags its help lists: both are read from the same entry.
 
 import { parseArgs } from "node:util";
 
-import TOOLS from "../../src/generated/cli.tools.json" with { type: "json" };
+import { COMMANDS } from "../surface.mjs";
 
 export class FlagsError extends Error {}
 
-/** The flag for a declared field: `fooBar` → `foo-bar`. */
-export const flagName = (field) => field.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-
-/** The declared commands, by name. */
-export function declaredCommand(name) {
-  return TOOLS.find((tool) => tool.name === name);
-}
+/** The key a flag's value is returned under: `--min-strength` → `minStrength`. */
+export const flagKey = (flag) => flag.replace(/^--/, "").replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
 /**
  * Parse `argv`, the arguments after the command's words, as the flags of the
@@ -31,20 +28,16 @@ export function declaredCommand(name) {
  *
  * @param {string} name e.g. "cluster graph"
  * @param {string[]} argv
- * @returns {Record<string, string | boolean>} each declared field, set or defaulted
+ * @returns {Record<string, string | string[] | boolean | undefined>} each declared flag by its key
  */
 export function parseFlags(name, argv) {
-  const tool = declaredCommand(name);
-  if (!tool) throw new Error(`flags: no command ${JSON.stringify(name)} is declared in manifest/cli.capnp`);
-  const properties = tool.inputSchema.properties ?? {};
+  const command = COMMANDS.find((c) => c.name === name);
+  if (!command) throw new Error(`flags: no command ${JSON.stringify(name)} is declared in cli/surface.mjs`);
+  const declared = command.flags ?? [];
   const options = {};
-  for (const [field, prop] of Object.entries(properties)) {
-    if (prop.type !== "string" && prop.type !== "boolean") {
-      // A declared type this parser does not read is a declaration it cannot
-      // honour; refusing it here is louder than accepting it as a string.
-      throw new Error(`flags: ${name} declares ${field} as ${prop.type}, which cli/lib/flags.mjs does not parse yet`);
-    }
-    options[flagName(field)] = { type: prop.type };
+  for (const f of declared) {
+    if (!f.flag.startsWith("--")) throw new Error(`flags: ${name} declares ${JSON.stringify(f.flag)}, which is not a --long flag`);
+    options[f.flag.slice(2)] = { type: f.value ? "string" : "boolean", multiple: f.repeatable === true };
   }
   let values;
   let tokens;
@@ -54,18 +47,18 @@ export function parseFlags(name, argv) {
     throw new FlagsError(sentence(error, name));
   }
   // parseArgs keeps the last of a repeated flag. Which one was meant is a
-  // guess, so a flag given twice is refused instead.
+  // guess, so a flag given twice is refused unless it is declared repeatable.
   const seen = new Set();
   for (const token of tokens) {
     if (token.kind !== "option") continue;
-    if (seen.has(token.name)) throw new FlagsError(`--${token.name} is given more than once`);
+    if (seen.has(token.name) && !options[token.name].multiple) throw new FlagsError(`--${token.name} is given more than once`);
     seen.add(token.name);
   }
   const out = {};
-  for (const [field, prop] of Object.entries(properties)) {
-    const given = values[flagName(field)];
-    out[field] = given !== undefined ? given : prop.default;
-    if (out[field] === undefined) throw new FlagsError(`--${flagName(field)} is required`);
+  for (const f of declared) {
+    const given = values[f.flag.slice(2)];
+    if (given === undefined && f.required) throw new FlagsError(`${f.flag} is required`);
+    out[flagKey(f.flag)] = given !== undefined ? given : f.default !== undefined ? f.default : f.value ? (f.repeatable ? [] : undefined) : false;
   }
   return out;
 }

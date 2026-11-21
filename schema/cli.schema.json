@@ -425,35 +425,6 @@
       },
       "required": ["formatVersion", "document", "workloads", "referencedByConfiguration", "routes", "requestPaths", "tunnels", "ingress", "privateServices", "accessApplications", "storage", "sections", "dns", "declaredWires", "declaredConnections", "unlisted", "findings", "skipped"],
       "additionalProperties": false
-    },
-    "ClusterGraphFlags": {
-      "type": "object",
-      "description": "Reads cluster.toml and prints one graph: every connection that has a target in --env, and every wire, with what carries it and what holds it.",
-      "properties": {
-        "env": { "type": "string", "description": "environment whose connection targets and placements are read", "default": "local" },
-        "dir": { "type": "string", "description": "cluster directory holding cluster.toml", "default": "." },
-        "json": { "type": "boolean", "description": "print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion", "default": false }
-      },
-      "required": ["env", "dir", "json"],
-      "additionalProperties": false
-    },
-    "ClusterGraph": {
-      "type": "object",
-      "description": "Show every edge, what carries it, and what holds it",
-      "properties": {},
-      "required": [],
-      "additionalProperties": false
-    },
-    "OpInfo": {
-      "type": "object",
-      "properties": {
-        "input": { "type": "string" },
-        "output": { "type": "string" },
-        "errors": { "type": "array", "items": { "type": "string" } },
-        "name": { "type": "string" }
-      },
-      "required": ["input", "output", "errors", "name"],
-      "additionalProperties": false
     }
   }
 }

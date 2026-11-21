@@ -1,5 +1,5 @@
 ---
-title: "ADR-0077: The CLI is declared in capnp; its help, docs, parsers and output formats are generated"
+title: "ADR-0077: The CLI is declared once; its help, docs, parsers and output formats are generated"
 status: Accepted (2026-11-21)
 date: 2026-11-21
 tags: [cli, schema-bridge, generated, output-format, format-version, surface, one-file-build]
@@ -12,14 +12,15 @@ relates_to:
   - 0075-one-graph.md
 ---
 
-# ADR-0077: The CLI is declared in capnp; its help, docs, parsers and output formats are generated
+# ADR-0077: The CLI is declared once; its help, docs, parsers and output formats are generated
 
 ## Status
 
 Accepted (2026-11-21), on the owner's direction that the CLI's contract be
-generated rather than hand-kept. Part 1 (output formats) needs nothing new and
-is built first. Part 2 (the command surface) needs three annotations from LLO
-and waits on them. Part 3 (parsers) follows Part 2, one command at a time.
+generated rather than hand-kept. Part 1 (output formats, in capnp) is built.
+Part 2 was amended the same day: the command surface is declared in
+`cli/surface.mjs`, not capnp, so it needs nothing from LLO. Part 3 (parsers
+generated from that declaration) moves one command at a time.
 
 ## Context
 
@@ -51,7 +52,11 @@ flags with defaults and required-ness, and, for some, a typed output.
 
 ## Decision
 
-`manifest/cli.capnp` declares the CLI. Everything else about it is generated.
+The CLI is declared once, and everything else about it is generated from that
+declaration or checked against it. Its JSON outputs are declared in
+`manifest/cli.capnp`, because they are a published contract other programs
+read. Its commands and flags are declared in `cli/surface.mjs`, because only
+cloister reads them (Part 2, as amended).
 
 ### Part 1: output formats are declared, versioned and checked
 
@@ -81,41 +86,52 @@ flags with defaults and required-ness, and, for some, a typed output.
 
 ### Part 2: the command surface is declared
 
-1. Each command is a struct annotated `$Traits.op(name = "<command words>",
-   input = "<Flags struct>", output = "<Output struct>")`. The input struct's
-   fields are its flags, with type, default (capnp's own `= value`), and
-   `$Traits.optional` for what is not required. `$Traits.doc` on the op is the
-   summary; on the input struct, the detail.
-2. schema-bridge's tool-definitions output generates `src/generated/cli.tools.json`.
-   `cli/surface.mjs` becomes a projection of it: it reads the generated list
-   instead of holding one.
-3. What `_traits.capnp` cannot say today, and is asked of LLO because LLO owns
-   that vocabulary
-   ([agentic-research/ley-line-open#599](https://github.com/agentic-research/ley-line-open/issues/599),
-   with the schema-bridge limits Part 1 met):
-   - a **positional** argument (`runtime plan <bundle>`), with its order;
-   - a flag's **value placeholder** in help (`<file>`, `<name>`);
-   - a free **tag** on an op, so cloister can mark a command `standalone`
-     (runs in the one-file build) without LLO knowing what that means.
-   Until they land, those three stay in a small hand table beside the
-   generated list, and a rail requires every key in it to name a generated
-   command, so the table can only shrink.
+**Amended 2026-11-21, before any of the original Part 2 was built.** The
+declaration of the commands is `cli/surface.mjs`, not capnp.
+
+The original text made each command a `$Op` struct and `cli/surface.mjs` a
+projection of schema-bridge's tool definitions. Building the first command
+that way (`cluster graph`) showed what it costs: three annotations asked of
+LLO for concepts only a command line has (positional arguments, help-text
+placeholders, a free tag for `standalone`), a capnp compile for every flag
+change, and, until the move was finished, the same flags declared twice and
+held equal by a test.
+
+`cli/surface.mjs` already is a declaration: plain data with no imports, read
+by help, `docs/reference/cli.md`, the one-file build's `standalone` set and
+the `--help` rule. The only reader of a command's flags is cloister's own
+JavaScript. mache, the sibling repository, makes the same choice for the same
+kind of surface: its command tree and tool registry are data in its own code,
+and every other artifact is generated from them or tested against them.
+
+So capnp stays where a language-neutral, published contract has readers: the
+JSON outputs (Part 1). The command surface is the one in `cli/surface.mjs`,
+and Part 3 generates its parsers from it. If cloister's commands are one day
+offered as MCP tools, `cli/surface.mjs` gains a projection to `tools/list`
+beside the help and docs ones; the declaration does not move.
+
+agentic-research/ley-line-open#599 is narrowed to the three schema-bridge
+limits Part 1 met; the three annotations are withdrawn.
 
 ### Part 3: parsers are generated
 
-Each command's flags are parsed from the generated input schema instead of by
-hand: `cli/lib/flags.mjs` reads the command's entry in
-`src/generated/cli.tools.json` and parses with Node's `util.parseArgs`, strict.
-A field `fooBar` is `--foo-bar`, a Bool is a switch, a default is capnp's own
-`= value`; an undeclared flag, a missing value, a stray argument or a flag
-given twice is refused by name. This moves one command at a time, starting
-with `cluster graph`. Until Part 2 generates `cli/surface.mjs`, a test holds
-the flags it lists for each declared command equal to the declaration.
+Each command's flags are parsed from its declaration instead of by hand:
+`cli/lib/flags.mjs` reads the command's entry in `cli/surface.mjs` and parses
+with Node's `util.parseArgs`, strict. A flag with a `value` takes one, one
+without is a switch, a `repeatable` flag may repeat, an absent flag takes its
+declared `default`, and a `required` one must be given. An undeclared flag, a
+missing value, a stray argument, a flag given twice and a switch given a value
+are each refused by name. Help renders a declared default from the same
+entry, so help and parser cannot disagree about it. This moves one command at
+a time, starting with `cluster graph`; `cli/test/flags.test.mjs` holds each
+moved command to its declaration.
 
 ## Consequences
 
-- One file says what the CLI is. Help, `docs/reference/cli.md`, the published
-  output schemas, the parsers and the tests all read it.
+- Two declarations, each said once: `cli/surface.mjs` for the commands (help,
+  `docs/reference/cli.md`, the parsers and the one-file build read it) and
+  `manifest/cli.capnp` for the outputs (the published schemas, the run-time
+  output check and the version lock read it).
 - A consumer of `--json`, including the GitHub Action, can check
   `formatVersion` and validate against a published schema.
 - The `inspect --json` report changes shape once, before release: a finding
@@ -132,5 +148,11 @@ the flags it lists for each declared command equal to the declaration.
   it, and a sample only shows the shapes the fixtures happen to reach: the
   sample plans reach a few of the finding shapes the code can build, not all.
 - **A TypeScript CLI framework (commander, yargs, oclif).** Each holds the
-  surface in code, in its own shape. The surface would still not be a schema
-  that another tool, or another language, can read.
+  surface in code, in its own shape, as calls rather than data. Help, docs,
+  the one-file build and the parser would read the framework's objects instead
+  of one plain declaration, and the `standalone` and `--help` rules would be
+  the framework's hooks to keep in step.
+- **The command surface as capnp `$Op` structs (the original Part 2).** See
+  the amendment under Part 2: it put CLI-only concepts into LLO's annotation
+  vocabulary and held the flags in two places during the move, for no reader
+  that needs a language-neutral form.

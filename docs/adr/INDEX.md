@@ -81,4 +81,4 @@ beads + git (see each ADR's tracking bead), never typed here. Reserved-but-unfil
 | [ADR-0074](0074-the-graph-is-derived-cluster-toml-holds-intent.md) | The graph is derived from rendered output; cluster.toml holds intent | Proposed |
 | [ADR-0075](0075-one-graph.md) | One graph: a wire is an edge, and every edge states what holds it | Proposed |
 | [ADR-0076](0076-companion-bridge-credential.md) | The companion's socket bridge starts without a bridge credential; the credential is notme's to settle | Proposed |
-| [ADR-0077](0077-cli-is-declared-in-capnp.md) | The CLI is declared in capnp; its help, docs, parsers and output formats are generated | Accepted · 2026-11-21 |
+| [ADR-0077](0077-cli-is-declared-in-capnp.md) | The CLI is declared once; its help, docs, parsers and output formats are generated | Accepted · 2026-11-21 |

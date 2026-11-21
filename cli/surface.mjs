@@ -381,8 +381,8 @@ export const COMMANDS = [
       "connection with no target in --env is listed, not dropped. Nothing is written or " +
       "started. ADR-0075.",
     flags: [
-      { flag: "--env", value: "<name>", summary: "environment whose connection targets and placements are read (default: local)" },
-      { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory)" },
+      { flag: "--env", value: "<name>", default: "local", summary: "environment whose connection targets and placements are read" },
+      { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory holding cluster.toml" },
       { flag: "--json", summary: "print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion" },
     ],
     seeAlso: "docs/adr/0075-one-graph.md",
@@ -547,7 +547,9 @@ export function renderCommandHelp(name) {
   const required = (c.flags ?? []).filter((f) => f.required);
   const optional = (c.flags ?? []).filter((f) => !f.required);
   const width = Math.max(...(c.flags ?? []).map((f) => `${f.flag} ${f.value ?? ""}`.trim().length), 10) + 2;
-  const row = (f) => `  ${`${f.flag} ${f.value ?? ""}`.trim().padEnd(width)} ${f.summary}`;
+  // A declared default is shown from the declaration, so the text cannot
+  // name one default while the parser applies another (cli/lib/flags.mjs).
+  const row = (f) => `  ${`${f.flag} ${f.value ?? ""}`.trim().padEnd(width)} ${f.summary}${f.default !== undefined ? ` (default: ${f.default})` : ""}`;
   if (required.length) { lines.push("Required:", ...required.map(row), ""); }
   if (optional.length) { lines.push("Options:", ...optional.map(row), ""); }
   lines.push("  --help".padEnd(width + 2) + " this text — mints nothing, writes nothing", "");
