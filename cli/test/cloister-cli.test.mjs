@@ -252,25 +252,13 @@ test("artifacts pull dispatches to the lockfile-backed preview", () => {
   assert.match(r.stdout, /mache.*sha256:/);
 });
 
-test("runtime plan refuses a microvm bundle until its pinned image is imported, naming the command", () => {
-  // The lock pins the bundle's OCI image (sha256) but records no imported
+test("runtime plan refuses Mache until its pinned image is imported, naming the command", () => {
+  // The repo's lock pins Mache's OCI image (sha256) but records no imported
   // rootfs, and a microvm plan never carries the sha256 image — the host
   // runtime cannot run it (cloister-991e65). This used to assert a sha256
   // plan, i.e. that the emitter produced a plan no runtime would accept.
-  // It ran against this repository's mache bundle until mache became a
-  // "process" exemption (cloister-ca2582), so it states its own cluster.
-  const dir = mkdtempSync(resolve(tmpdir(), "cloister-runtime-unimported-"));
-  writeFileSync(resolve(dir, "cluster.toml"), [
-    "[metadata]", 'name = "unimported"', 'version = "0.0.1"', "",
-    "[storage]", 'doStoragePath = "/data/do"', "",
-    "[[bundles]]", 'name = "tool"', 'kind = "external"', 'tier = "cluster"', "",
-    "[bundles.external]", 'entryPoint = "/usr/bin/tool"', 'executionMode = "microvm"', "",
-  ].join("\n"));
-  writeFileSync(resolve(dir, "cluster.lock.toml"), [
-    "[inputs.tool.oci]", 'identifier = "ghcr.io/example/tool"', 'version = "1.0.0"', `digest = "sha256:${"7".repeat(64)}"`, "",
-  ].join("\n"));
-  const r = run(["runtime", "plan", "tool", "--dir", dir, "--workspace", dir]);
-  assert.equal(r.status, 2, r.stderr);
-  assert.match(r.stderr, /bundle "tool" is a microvm bundle with no imported rootfs in cluster\.lock\.toml/);
-  assert.match(r.stderr, /cloister runtime import --bundle tool( --dir \S+)? \[--layout <oci-layout-dir>\]/);
+  const r = run(["runtime", "plan", "mache", "--workspace", REPO_ROOT]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /bundle "mache" is a microvm bundle with no imported rootfs in cluster\.lock\.toml/);
+  assert.match(r.stderr, /cloister runtime import --bundle mache( --dir \S+)? \[--layout <oci-layout-dir>\]/);
 });

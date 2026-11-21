@@ -162,8 +162,23 @@ export const cluster: Cluster = {
         },
         "credentialSource": ""
       },
-      "ports": [],
+      "ports": [
+        {
+          "name": "mcp",
+          "port": 7532,
+          "appProtocol": "art.http",
+          "expose": "cluster"
+        }
+      ],
       "placements": [
+        {
+          "env": "local",
+          "kind": "microvm",
+          "manifest": "",
+          "ports": [],
+          "name": "",
+          "sharesNetworkOf": ""
+        },
         {
           "env": "compose",
           "kind": "compose",
@@ -187,8 +202,8 @@ export const cluster: Cluster = {
           ],
           "env": [],
           "entryPoint": "/usr/local/bin/mache",
-          "executionMode": "process",
-          "executionModeRationale": "CONTINGENT, and this bundle was counted as isolated when it never was. It said microvm, with its listener (127.0.0.1:7532) and its /workspace path declared as confinement grants. The microVM tier applies neither, so the host runtime refused its plan at launch, and no gate said so earlier; cluster.toml now refuses that declaration. The listener can become a [[bundles.ports]] entry. The workspace cannot yet: the microVM tier serves a workspace only through LLO's execution daemon, and cloister's host runtime starts the backend with none. A service is also stopped at the 15-minute wall-clock ceiling until ley-line-open-e6b1bb. Withdraw this when the host runtime serves a workspace and a service run can ask for no ceiling.",
+          "executionMode": "microvm",
+          "executionModeRationale": "",
           "runs": ""
         }
       }

@@ -31,9 +31,9 @@ export function declaredDimensions(confinement) {
 // (Confinement::check_microvm_grants, rs/crates/host-runtime/src/lib.rs).
 const MICROVM_REMEDY = Object.freeze({
   fs:
-    "the microVM tier serves a workspace only through LLO's execution daemon, and " +
-    "cloister's host runtime does not serve one yet; run the bundle as \"process\" and " +
-    "say so in executionModeRationale (ADR-0062)",
+    "a guest has no host path. Its files come from its rootfs, or from the one workspace " +
+    "LLO serves it as /work, which cloister's host runtime does not pass through yet " +
+    "(cloister-dc4a53)",
   network:
     "a guest's outbound reach is its declared connections, which LLO's broker " +
     "(ley-line-open-e2c5ce) will carry; it has no other egress",

@@ -23,10 +23,16 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 - `cloister-host-runtime validate` now refuses the plans `run` refuses. It
   used to answer "valid" for a microvm plan with a raw listener. One check
   (`Confinement::check_microvm_grants`) serves both, and the launch path.
-- mache is now a `process` exemption whose rationale names what it waits for:
-  a workspace served by cloister's host runtime, and a service run with no
-  wall-clock ceiling (ley-line-open-e6b1bb). The isolation count reads 5/5,
-  which is what was true.
+- mache stays a `microvm` bundle, declared the way the tier carries it: its
+  listener is a `[[bundles.ports]]` entry, which lowers to a `bind` grant on
+  guest port 7532, and it declares no confinement grant. Its plan now passes
+  `validate`. Its compose placement, the compose file and the graph are
+  unchanged.
+- Not done yet, and not an exemption: the guest is not given mache's
+  workspace. The host runtime drops a plan's workspace today
+  (`cloister-dc4a53`), and LLO serves one only to a run started with a
+  RunSpec and RunGrant. Next is an ADR for issuing them. A service is also
+  still stopped at the 15-minute wall-clock ceiling (ley-line-open-e6b1bb).
 - Filed ley-line-open#600: a service run in a microVM has nowhere to keep state
   across runs, which the identity authority and the gateway both need.
 

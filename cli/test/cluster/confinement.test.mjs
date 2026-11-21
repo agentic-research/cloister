@@ -38,7 +38,7 @@ ${placement}
 
 // One grant per dimension, with the remedy its refusal must name.
 const GRANTS = {
-  fs: ['[[bundles.confinement.fs.allow]]\npath = "/workspace"\nmode = "rw"', /workspace only through LLO's execution daemon/],
+  fs: ['[[bundles.confinement.fs.allow]]\npath = "/workspace"\nmode = "rw"', /the one workspace LLO serves it as \/work/],
   network: ['[bundles.confinement.network]\nallowHosts = ["api.example.com"]', /LLO's broker \(ley-line-open-e2c5ce\)/],
   port: ["[bundles.confinement.port]\nbind = 7532", /declare the listener as a \[\[bundles\.ports\]\] entry/],
   credentialSource: ['[bundles.confinement]\ncredentialSource = "keychain://cloister/x"', /through a vault slice/],

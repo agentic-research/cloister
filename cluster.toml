@@ -57,14 +57,23 @@ tier = "cluster"
 [bundles.external]
 args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
 entryPoint = "/usr/local/bin/mache"
-executionMode = "process"
-executionModeRationale = "CONTINGENT, and this bundle was counted as isolated when it never was. It said microvm, with its listener (127.0.0.1:7532) and its /workspace path declared as confinement grants. The microVM tier applies neither, so the host runtime refused its plan at launch, and no gate said so earlier; cluster.toml now refuses that declaration. The listener can become a [[bundles.ports]] entry. The workspace cannot yet: the microVM tier serves a workspace only through LLO's execution daemon, and cloister's host runtime starts the backend with none. A service is also stopped at the 15-minute wall-clock ceiling until ley-line-open-e6b1bb. Withdraw this when the host runtime serves a workspace and a service run can ask for no ceiling."
+executionMode = "microvm"
 httpPort = 7532
+
+[[bundles.placements]]
+env = "local"
+kind = "microvm"
 
 [[bundles.placements]]
 env = "compose"
 kind = "compose"
 sharesNetworkOf = "cloister-router"
+
+[[bundles.ports]]
+appProtocol = "art.http"
+expose = "cluster"
+name = "mcp"
+port = 7532
 
 [[bundles]]
 description = "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c)."
