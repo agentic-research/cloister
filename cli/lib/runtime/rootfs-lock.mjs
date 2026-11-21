@@ -44,6 +44,7 @@
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import { isPlatform } from "./platform.mjs";
+import { ociBundleClaims } from "../oci-artifact.mjs";
 
 export const ROOTFS_KEY = "rootfs";
 export const DEFAULT_SYMLINKS = "preserve";
@@ -69,26 +70,40 @@ export function rootfsHex(digest) {
 }
 
 /**
- * `[inputs.<bundle>.oci]` from a parsed lock, or null when the lock pins
- * nothing for `bundle`.
+ * Where `bundle`'s image is pinned in a parsed lock: the row, and how to name
+ * it (`table`) and its imported rootfs rows (`rows`) in a message. Null when
+ * the lock pins nothing for `bundle`.
  *
- * Refuses (throws) when the bundle is pinned only through a multi-image
- * producer's `[[inputs.<input>.ociBundles]]` row: import / plan / up do not
- * support that shape yet, and treating it as "no pin" would send the operator
- * to resolve something that is already resolved.
+ * A multi-image producer's `[[inputs.<input>.ociBundles]]` row naming the
+ * bundle is read first, as `resolveBundleImage` reads it for compose: for
+ * such a producer the input-level `oci` is merely its first artifact.
+ * Otherwise the pin is the same-named input's `[inputs.<bundle>.oci]`. Both
+ * rows have one shape (identifier, version, digest, and the bundle's imported
+ * rootfs rows), so everything that reads or records a pin treats them alike,
+ * and an import records its rows on whichever row this returns.
+ *
+ * @returns {{oci: object, table: string, rows: string} | null}
  */
-export function lockedOci(lock, bundle) {
+export function lockedPin(lock, bundle) {
+  const claim = ociBundleClaims(lock).get(bundle);
+  if (claim) {
+    const of = `(bundle "${bundle}")`;
+    return {
+      oci: claim.row,
+      table: `[[inputs.${claim.input}.ociBundles]] ${of}`,
+      rows: `[[inputs.${claim.input}.ociBundles.${ROOTFS_KEY}]] ${of}`,
+    };
+  }
   const oci = lock?.inputs?.[bundle]?.oci;
-  if (oci && typeof oci === "object") return oci;
-  for (const [input, row] of Object.entries(lock?.inputs ?? {})) {
-    if ((row?.ociBundles ?? []).some((b) => b?.bundle === bundle)) {
-      throw new Error(
-        `bundle "${bundle}" is pinned through [[inputs.${input}.ociBundles]] (a multi-image ` +
-          `producer), which runtime import / runtime plan / cluster up do not support yet`,
-      );
-    }
+  if (oci && typeof oci === "object") {
+    return { oci, table: `[inputs.${bundle}.oci]`, rows: `[[inputs.${bundle}.oci.${ROOTFS_KEY}]]` };
   }
   return null;
+}
+
+/** `bundle`'s pinned image row (see `lockedPin`), or null when the lock pins none. */
+export function lockedOci(lock, bundle) {
+  return lockedPin(lock, bundle)?.oci ?? null;
 }
 
 /** The flat, platform-less keys `oci` carries (`rootfsImage`, `rootfsSymlinks`). */
@@ -103,18 +118,17 @@ function isLegacyShape(oci) {
 }
 
 /**
- * Refuse rows AND flat keys in one `[inputs.<bundle>.oci]`. Neither shape can
- * be trusted over the other (a hand merge, or an old writer touching a new
- * lock), and an import must not collapse them: that would drop other
- * platforms' rows.
+ * Refuse rows AND flat keys in one pin. Neither shape can be trusted over the
+ * other (a hand merge, or an old writer touching a new lock), and an import
+ * must not collapse them: that would drop other platforms' rows.
  */
-function assertNotMixed(oci, bundle) {
-  const stray = legacyKeysIn(oci);
-  if (Array.isArray(oci?.[ROOTFS_KEY]) && stray.length > 0) {
+function assertNotMixed(pin, bundle) {
+  const stray = legacyKeysIn(pin?.oci);
+  if (Array.isArray(pin?.oci?.[ROOTFS_KEY]) && stray.length > 0) {
     throw new Error(
-      `bundle "${bundle}" records BOTH [[inputs.${bundle}.oci.${ROOTFS_KEY}]] rows and the old flat ` +
-        `key(s) ${stray.join(", ")} in [inputs.${bundle}.oci]. A lock holds one shape; the rows are ` +
-        `the current one. Remove ${stray.join(" and ")} from [inputs.${bundle}.oci] by hand, after ` +
+      `bundle "${bundle}" records BOTH ${pin.rows} rows and the old flat ` +
+        `key(s) ${stray.join(", ")} in ${pin.table}. A lock holds one shape; the rows are ` +
+        `the current one. Remove ${stray.join(" and ")} from ${pin.table} by hand, after ` +
         `checking the rows are what you expect.`,
     );
   }
@@ -134,25 +148,26 @@ function assertNotMixed(oci, bundle) {
  * replaces it) and a mix of rows and flat keys.
  */
 export function lockedRootfsRows(lock, bundle, { dir } = {}) {
-  const oci = lockedOci(lock, bundle);
-  assertNotMixed(oci, bundle);
+  const pin = lockedPin(lock, bundle);
+  const oci = pin?.oci;
+  assertNotMixed(pin, bundle);
   if (!oci || oci[ROOTFS_KEY] === undefined && !isLegacyShape(oci)) return [];
   if (isLegacyShape(oci)) {
     const symlinks = SYMLINK_MODES.includes(oci.rootfsSymlinks) ? oci.rootfsSymlinks : DEFAULT_SYMLINKS;
     throw new Error(
-      `bundle "${bundle}" records its rootfs in the old flat shape ([inputs.${bundle}.oci] ` +
+      `bundle "${bundle}" records its rootfs in the old flat shape (${pin.table} ` +
         `${ROOTFS_KEY} = "…" / rootfsImage), which does not say which platform it is for, so it ` +
         `is not migrated. Re-import on each platform you run it on; that replaces it with ` +
-        `[[inputs.${bundle}.oci.${ROOTFS_KEY}]] rows:\n  ${importCommand(bundle, dir, symlinks)}`,
+        `${pin.rows}:\n  ${importCommand(bundle, dir, symlinks)}`,
     );
   }
   const rows = oci[ROOTFS_KEY];
   if (!Array.isArray(rows)) {
-    throw new Error(`bundle "${bundle}"'s [inputs.${bundle}.oci] ${ROOTFS_KEY} must be a list of rows`);
+    throw new Error(`bundle "${bundle}"'s ${pin.table} ${ROOTFS_KEY} must be a list of rows`);
   }
   const seen = new Set();
   return rows.map((row, i) => {
-    const where = `[[inputs.${bundle}.oci.${ROOTFS_KEY}]] row ${i + 1}`;
+    const where = `${pin.rows} row ${i + 1}`;
     if (!isPlatform(row?.platform)) {
       throw new Error(`${where} has platform ${JSON.stringify(row?.platform)}, not os/architecture[/variant]`);
     }
@@ -224,10 +239,14 @@ export function importCommand(bundle, dir, symlinks = DEFAULT_SYMLINKS) {
  */
 export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platform }, admits) {
   const lock = parseToml(lockText);
-  const oci = lockedOci(lock, bundle);
+  const pin = lockedPin(lock, bundle);
+  const oci = pin?.oci;
   if (!oci || typeof oci.digest !== "string" || oci.digest === "") {
+    const where = pin
+      ? `${pin.table} digest`
+      : `[inputs.${bundle}.oci] digest, or an [[inputs.<input>.ociBundles]] row naming it`;
     throw new Error(
-      `cluster.lock.toml pins no image for bundle "${bundle}" ([inputs.${bundle}.oci] digest); ` +
+      `cluster.lock.toml pins no image for bundle "${bundle}" (${where}); ` +
         `resolve or pin it before importing`,
     );
   }
@@ -252,7 +271,7 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
   const row = { platform, digest: rootfs, image };
   if (symlinks !== DEFAULT_SYMLINKS) row.symlinks = symlinks;
 
-  assertNotMixed(oci, bundle);
+  assertNotMixed(pin, bundle);
   if (isLegacyShape(oci)) {
     const previous = typeof oci[ROOTFS_KEY] === "string" ? oci[ROOTFS_KEY] : null;
     for (const key of LEGACY_KEYS) delete oci[key];
@@ -296,7 +315,8 @@ export function recordRootfs(lockText, { bundle, image, rootfs, symlinks, platfo
  * pre-cloister-1c4ef5 record is carried as it is, so plan can refuse it by
  * name rather than report it missing.
  *
- * @param {object} previousOci the old lock's `[inputs.<n>.oci]`, or undefined
+ * @param {object} previousOci the old lock's pin row (`[inputs.<n>.oci]`, or the
+ *   `[[inputs.<input>.ociBundles]]` entry naming the same bundle), or undefined
  * @param {object} nextOci the freshly built row (mutated and returned)
  */
 export function carryRootfs(previousOci, nextOci) {

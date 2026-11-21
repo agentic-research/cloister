@@ -36,7 +36,15 @@ export function carryRootfsFromPreviousLock(lockfilePath, doc) {
     return doc;
   }
   for (const [name, row] of Object.entries(doc.inputs ?? {})) {
-    if (row?.oci) carryRootfs(previous?.inputs?.[name]?.oci, row.oci);
+    const before = previous?.inputs?.[name];
+    if (row?.oci) carryRootfs(before?.oci, row.oci);
+    // A multi-image producer's per-bundle pins hold their bundle's rows (see
+    // lockedPin), and carry the same way. They are matched by the bundle each
+    // names, never by position: a producer may list its bundles in any order.
+    for (const entry of row?.ociBundles ?? []) {
+      const prior = (before?.ociBundles ?? []).find((b) => b?.bundle === entry?.bundle);
+      carryRootfs(prior, entry);
+    }
   }
   return doc;
 }

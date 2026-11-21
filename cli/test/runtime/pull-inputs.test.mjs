@@ -79,6 +79,37 @@ test("collectOciRefs: one row per input; ref null when no oci; pinned only for d
   ]);
 });
 
+test("collectOciRefs: a multi-image producer's bundle images are pulled too, each once", () => {
+  // compose runs notme-proxy from its [[inputs.notme.ociBundles]] row with
+  // pull_policy: never; reading only [inputs.notme.oci] left it unpulled.
+  const doc = {
+    inputs: {
+      notme: {
+        oci: { identifier: "ghcr.io/org/notme", digest: "sha256:aa" },
+        ociBundles: [
+          { bundle: "notme-identity", identifier: "ghcr.io/org/notme", digest: "sha256:aa" },
+          { bundle: "notme-proxy", identifier: "ghcr.io/org/notme-proxy", digest: "sha256:bb" },
+        ],
+      },
+      // A producer whose own oci is absent: no "has no oci image" row for it.
+      split: { ociBundles: [{ bundle: "s", identifier: "ghcr.io/org/s", version: "1.0" }] },
+    },
+  };
+  assert.deepEqual(collectOciRefs(doc), [
+    { name: "notme", ref: "ghcr.io/org/notme@sha256:aa", pinned: true },
+    { name: "notme", bundle: "notme-proxy", ref: "ghcr.io/org/notme-proxy@sha256:bb", pinned: true },
+    { name: "split", bundle: "s", ref: "ghcr.io/org/s:1.0", pinned: false },
+  ]);
+});
+
+test("collectOciRefs: two producers naming one bundle are refused, as compose refuses them", () => {
+  const doc = { inputs: {
+    a: { ociBundles: [{ bundle: "b", identifier: "x/b", digest: "sha256:1" }] },
+    c: { ociBundles: [{ bundle: "b", identifier: "y/b", digest: "sha256:2" }] },
+  } };
+  assert.throws(() => collectOciRefs(doc), /bundle "b" is pinned by two multi-image producers/);
+});
+
 test("collectOciRefs: empty / missing inputs table → []", () => {
   assert.deepEqual(collectOciRefs({}), []);
   assert.deepEqual(collectOciRefs({ inputs: {} }), []);
@@ -147,7 +178,17 @@ test("selectOciRefs scopes acquisition without weakening unrelated mutable refs"
   assert.throws(() => selectOciRefs(rows, ["unknown"]), /unknown input/);
 });
 
-function withPullFixture({ pinned = true }, fn) {
+test("selectOciRefs keeps every image of a selected input", () => {
+  const rows = [
+    { name: "notme", ref: "ghcr.io/art/notme@sha256:aa", pinned: true },
+    { name: "notme", bundle: "notme-proxy", ref: "ghcr.io/art/notme-proxy@sha256:bb", pinned: true },
+    { name: "mache", ref: "ghcr.io/art/mache@sha256:cc", pinned: true },
+  ];
+  assert.deepEqual(selectOciRefs(rows, ["notme"]), rows.slice(0, 2));
+  assert.throws(() => selectOciRefs(rows, ["notme", "nope"]), /unknown input selection: nope$/);
+});
+
+function withPullFixture({ pinned = true, lockText }, fn) {
   const dir = mkdtempSync(resolve(tmpdir(), "cloister-pull-"));
   const lock = resolve(dir, "cluster.lock.toml");
   const runtime = resolve(dir, "fake-runtime");
@@ -155,7 +196,7 @@ function withPullFixture({ pinned = true }, fn) {
   const oci = pinned
     ? 'identifier = "ghcr.io/art/tool"\ndigest = "sha256:abc"'
     : 'identifier = "ghcr.io/art/tool"\nversion = "1.2.3"';
-  writeFileSync(lock, `schema = "cloister/lockfile/v1"\n[inputs.tool.oci]\n${oci}\n`);
+  writeFileSync(lock, lockText ?? `schema = "cloister/lockfile/v1"\n[inputs.tool.oci]\n${oci}\n`);
   writeFileSync(runtime, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PULL_LOG"\n');
   chmodSync(runtime, 0o755);
   try {
@@ -193,6 +234,33 @@ test("--yes materializes the exact digest-pinned reference", () => {
     assert.equal(
       readFileSync(fixture.log, "utf8"),
       "pull ghcr.io/art/tool@sha256:abc\n",
+    );
+  });
+});
+
+test("--yes pulls every image a multi-image producer pins, naming each bundle's", () => {
+  const lockText = [
+    'schema = "cloister/lockfile/v1"',
+    "[inputs.notme.oci]",
+    'identifier = "ghcr.io/art/notme"',
+    'digest = "sha256:aa"',
+    "[[inputs.notme.ociBundles]]",
+    'bundle = "notme-identity"',
+    'identifier = "ghcr.io/art/notme"',
+    'digest = "sha256:aa"',
+    "[[inputs.notme.ociBundles]]",
+    'bundle = "notme-proxy"',
+    'identifier = "ghcr.io/art/notme-proxy"',
+    'digest = "sha256:bb"',
+    "",
+  ].join("\n");
+  withPullFixture({ lockText }, (fixture) => {
+    const r = runPull(["--yes", "notme"], fixture);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /notme \(bundle notme-proxy\) → ghcr\.io\/art\/notme-proxy@sha256:bb/);
+    assert.equal(
+      readFileSync(fixture.log, "utf8"),
+      "pull ghcr.io/art/notme@sha256:aa\npull ghcr.io/art/notme-proxy@sha256:bb\n",
     );
   });
 });

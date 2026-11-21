@@ -1960,6 +1960,37 @@ test("Inv 10 — image-less gateway bundle can derive oci from fallback-colocate
   }
 });
 
+test("Inv 10 — a lockfile it cannot read is a warning that says why, never a failure", () => {
+  // Two producers naming one bundle is refused by the one shared reading of the
+  // lock's pins (ociPins). The lint stays warn-level about it, but says so,
+  // rather than reporting every image as underivable with no reason given.
+  const scenario = makeScenario({
+    clusterTs: clusterTs({
+      bundles: [
+        { name: "cloister-router", tier: "hypervisor", workerdServiceName: "cloister" },
+        { name: "dolt", tier: "cluster", image: "" },
+      ],
+    }),
+    configCapnp: configCapnp(INV10_CONFIG),
+  });
+  try {
+    const lockfile = resolve(scenario.workDir, "cluster.lock.toml");
+    writeFileSync(lockfile,
+      'schema = "cloister/lockfile/v1"\ncluster = "test"\nversion = "0.0.1"\n' +
+      '[[inputs.a.ociBundles]]\nbundle = "dolt"\nidentifier = "x/dolt"\ndigest = "sha256:aa"\n' +
+      '[[inputs.b.ociBundles]]\nbundle = "dolt"\nidentifier = "y/dolt"\ndigest = "sha256:bb"\n',
+    );
+    const r = runLint(scenario.workDir, scenario.clusterTsPath, lockfile);
+    assert.equal(r.status, 0, `a bad lockfile must not fail the lint; got ${r.status}\n${r.stderr}`);
+    assert.match(
+      r.stderr,
+      /cluster\.lock\.toml was not read \(bundle "dolt" is pinned by two multi-image producers, \[\[inputs\.a\.ociBundles\]\] and \[\[inputs\.b\.ociBundles\]\]; which one runs it would be a guess\), so Inv 10 derives no image from it/,
+    );
+  } finally {
+    scenario.cleanup();
+  }
+});
+
 test("Inv 10 — external bundle with an operator image never warns (image wins, no oci needed)", () => {
   const scenario = makeScenario({
     clusterTs: clusterTs({

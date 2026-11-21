@@ -18,9 +18,8 @@ import { parse as parseToml } from "smol-toml";
 import { isCanonicalAbsolutePath } from "../lib/canonical-path.mjs";
 import { isSha256Digest } from "../lib/oci-artifact.mjs";
 import {
-  ROOTFS_KEY,
   importCommand,
-  lockedOci,
+  lockedPin,
   isBlake3Digest,
   lockedRootfsRows,
   rootfsHex,
@@ -144,9 +143,10 @@ export function buildLaunchPlan(cluster, lock, options) {
     );
   }
 
-  // lockedOci refuses, by name, a bundle pinned only through a multi-image
-  // producer's [[inputs.<input>.ociBundles]] (not supported yet).
-  const oci = lockedOci(lock, options.bundle);
+  // The bundle's pin: its multi-image producer's [[inputs.<input>.ociBundles]]
+  // row when one names it, else [inputs.<bundle>.oci] (lockedPin).
+  const pin = lockedPin(lock, options.bundle);
+  const oci = pin?.oci;
   if (!oci || typeof oci.identifier !== "string" || !oci.identifier.trim()) {
     throw new Error(`bundle ${JSON.stringify(options.bundle)} has no locked OCI artifact`);
   }
@@ -161,7 +161,7 @@ export function buildLaunchPlan(cluster, lock, options) {
   // image and recorded beside it; a plan is never emitted without it
   // (cloister-991e65). Process mode is unchanged and keeps the image digest.
   const digest = external.executionMode === "microvm"
-    ? microvmRootfs(lock, oci, options)
+    ? microvmRootfs(lock, pin, options)
     : oci.digest;
 
   // Defense in depth: parseTomlToCluster already refuses this. §6 grants come
@@ -297,15 +297,19 @@ export function lowerEnvironment(bundleName, env, dials = new Map()) {
  * and `options.platformAdmits` (`(platform, candidates) => {admitted, overlapping}`) answers platform admission
  * (LLO's rule, via the host runtime); all are required, so a caller cannot skip either check (cloister-1c4ef5).
  */
-function microvmRootfs(lock, oci, options) {
+function microvmRootfs(lock, pin, options) {
   const bundle = options.bundle;
+  const oci = pin.oci;
   const rows = lockedRootfsRows(lock, bundle, { dir: options.dir });
+  // Where the rows live, for messages: a multi-image bundle's are on its
+  // [[inputs.<input>.ociBundles]] row, not under [inputs.<bundle>.oci].
+  const rowsAt = pin.rows;
   // Nothing recorded: the platform cannot change the answer, so the host
   // runtime is not asked.
   if (rows.length === 0) {
     throw new Error(
       `bundle "${bundle}" is a microvm bundle with no imported rootfs in cluster.lock.toml ` +
-        `([[inputs.${bundle}.oci.${ROOTFS_KEY}]]). Import its pinned image first:\n  ` +
+        `(${rowsAt}). Import its pinned image first:\n  ` +
         importCommand(bundle, options.dir),
     );
   }
@@ -326,7 +330,7 @@ function microvmRootfs(lock, oci, options) {
         rows.map((r) => `${r.platform} used ${r.symlinks}`).join("; ");
     throw new Error(
       `bundle "${bundle}" is a microvm bundle with no imported rootfs for this host's guest ` +
-        `platform ${platform} in cluster.lock.toml ([[inputs.${bundle}.oci.${ROOTFS_KEY}]]) ` +
+        `platform ${platform} in cluster.lock.toml (${rowsAt}) ` +
         `(it records ${rows.map((r) => r.platform).join(", ")}). ` +
         `Import its pinned image on this host:\n  ${remedy}`,
     );
@@ -343,7 +347,7 @@ function microvmRootfs(lock, oci, options) {
   if (recorded.image !== oci.digest) {
     throw new Error(
       `bundle "${bundle}"'s ${recorded.platform} rootfs ${recorded.digest} was imported from ` +
-        `${recorded.image ?? "an unrecorded image"} ([[inputs.${bundle}.oci.${ROOTFS_KEY}]] image), ` +
+        `${recorded.image ?? "an unrecorded image"} (${rowsAt} image), ` +
         `but the lock now pins ${oci.digest}. Re-import the pinned image:\n  ${fix}`,
     );
   }

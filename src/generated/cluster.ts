@@ -100,7 +100,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "It holds the Signet master CA, the strongest case for isolation in the cluster. Its entryPoint is known: notme's image runs /usr/bin/workerd serve /app/config.capnp --experimental. It needs, to run as a guest: runtime import and runtime plan to accept a bundle pinned through a multi-image producer's [[inputs.notme.ociBundles]], as this one is; its listener (8788) as a declared port, reached across placements, with its key fetches and GitHub calls, through the broker (ley-line-open-e2c5ce); Durable Object storage that survives a run (ley-line-open#600); and a service run with no wall-clock ceiling (ley-line-open-e6b1bb). Tracked in cloister-5fe44f.",
+          "executionModeRationale": "It holds the Signet master CA, the strongest case for isolation in the cluster. Its entryPoint is known: notme's image runs /usr/bin/workerd serve /app/config.capnp --experimental. It needs, to run as a guest: its listener (8788) as a declared port, reached across placements, with its key fetches and GitHub calls, through the broker (ley-line-open-e2c5ce); Durable Object storage that survives a run (ley-line-open#600); and a service run with no wall-clock ceiling (ley-line-open-e6b1bb). Tracked in cloister-5fe44f.",
           "runs": "",
           "workspace": ""
         }

@@ -5,7 +5,9 @@ import test from "node:test";
 
 import {
   isSha256Digest,
+  ociBundleClaims,
   ociImageRef,
+  ociPins,
   resolveBundleImage,
 } from "../../lib/oci-artifact.mjs";
 
@@ -82,5 +84,61 @@ test("resolveBundleImage: a per-bundle declaration outranks the input-level pin"
   assert.equal(
     resolveBundleImage("", ["notme"], byInput),
     `ghcr.io/agentic-research/notme@sha256:${"a".repeat(64)}`,
+  );
+});
+
+// ── the one reading of a lock's image pins ───────────────────────────────
+
+const DIGEST = (c) => `sha256:${c.repeat(64)}`;
+
+test("ociBundleClaims maps each bundle a multi-image producer names to its row", () => {
+  const dolt = { bundle: "dolt", identifier: "x/dolt", digest: DIGEST("a") };
+  const orders = { bundle: "orders", identifier: "x/orders", digest: DIGEST("b") };
+  const claims = ociBundleClaims({ inputs: {
+    producer: { oci: { identifier: "x/producer", digest: DIGEST("9") }, ociBundles: [dolt, orders] },
+    single: { oci: { identifier: "x/single", digest: DIGEST("c") } },
+  } });
+  assert.deepEqual([...claims.keys()], ["dolt", "orders"]);
+  // The row itself, not a copy: runtime import records rootfs rows onto it.
+  assert.equal(claims.get("dolt").row, dolt);
+  assert.equal(claims.get("dolt").input, "producer");
+});
+
+test("ociBundleClaims skips rows naming no bundle and reads an absent lock as none", () => {
+  const claims = ociBundleClaims({ inputs: { p: { ociBundles: [null, { identifier: "x" }, { bundle: "" }, { bundle: 7 }] } } });
+  assert.equal(claims.size, 0);
+  for (const lock of [undefined, null, {}, { inputs: {} }]) assert.equal(ociBundleClaims(lock).size, 0);
+});
+
+test("ociBundleClaims refuses two producers naming one bundle, naming both", () => {
+  const lock = { inputs: {
+    a: { ociBundles: [{ bundle: "dolt", identifier: "x/dolt" }] },
+    b: { ociBundles: [{ bundle: "dolt", identifier: "y/dolt" }] },
+  } };
+  assert.throws(
+    () => ociBundleClaims(lock),
+    /bundle "dolt" is pinned by two multi-image producers, \[\[inputs.a.ociBundles\]\] and \[\[inputs.b.ociBundles\]\]; which one runs it would be a guess/,
+  );
+});
+
+test("ociPins gives compose and the lint the maps resolveBundleImage reads", () => {
+  const lock = { inputs: {
+    notme: {
+      oci: { identifier: "ghcr.io/o/notme", digest: DIGEST("a") },
+      ociBundles: [
+        { bundle: "notme-identity", identifier: "ghcr.io/o/notme", digest: DIGEST("a") },
+        { bundle: "notme-proxy", identifier: "ghcr.io/o/notme-proxy", digest: DIGEST("b") },
+        { bundle: "unnamed-image" },
+      ],
+    },
+    mache: { oci: { identifier: "ghcr.io/o/mache", digest: DIGEST("c") } },
+    docs: { sha256: "sha256:1" },
+  } };
+  const { ociByInput, ociByBundle } = ociPins(lock);
+  assert.deepEqual([...ociByInput.keys()], ["notme", "mache"]);
+  assert.deepEqual([...ociByBundle.keys()], ["notme-identity", "notme-proxy"], "a row with no identifier pins nothing");
+  assert.equal(
+    resolveBundleImage("", ["notme"], ociByInput, "notme-proxy", ociByBundle),
+    `ghcr.io/o/notme-proxy@${DIGEST("b")}`,
   );
 });

@@ -38,3 +38,49 @@ export function resolveBundleImage(operatorImage, colocatedInputs, ociByInput, b
   }
   return null;
 }
+
+/**
+ * Which multi-image producer pins which bundle, from a parsed lock:
+ * Map(bundle → {input, row}) over every `[[inputs.<input>.ociBundles]]` row.
+ *
+ * A producer that publishes several images names which bundle runs which
+ * (resolve-inputs records `_meta["art.cloister/v1"].bundles[]` there), and that
+ * mapping is not derivable from the image addresses. This is the one reading
+ * of it: compose and the isolation lint read it through `ociPins`, and the
+ * runtime through `lockedPin` (runtime/rootfs-lock.mjs). Two producers naming
+ * one bundle are refused by name, since which one runs it would be a guess.
+ */
+export function ociBundleClaims(lock) {
+  const claims = new Map();
+  for (const [input, row] of Object.entries(lock?.inputs ?? {})) {
+    for (const entry of row?.ociBundles ?? []) {
+      if (!entry || typeof entry !== "object" || typeof entry.bundle !== "string" || entry.bundle === "") continue;
+      const prior = claims.get(entry.bundle);
+      if (prior) {
+        throw new Error(
+          `bundle "${entry.bundle}" is pinned by two multi-image producers, ` +
+            `[[inputs.${prior.input}.ociBundles]] and [[inputs.${input}.ociBundles]]; ` +
+            `which one runs it would be a guess`,
+        );
+      }
+      claims.set(entry.bundle, { input, row: entry });
+    }
+  }
+  return claims;
+}
+
+/**
+ * Every image pin in a parsed lock, as the two maps `resolveBundleImage`
+ * reads: each input's own `oci`, and each bundle a multi-image producer names.
+ */
+export function ociPins(lock) {
+  const ociByInput = new Map();
+  for (const [name, row] of Object.entries(lock?.inputs ?? {})) {
+    if (row && typeof row === "object" && row.oci && row.oci.identifier) ociByInput.set(name, row.oci);
+  }
+  const ociByBundle = new Map();
+  for (const [bundle, { row }] of ociBundleClaims(lock)) {
+    if (row.identifier) ociByBundle.set(bundle, row);
+  }
+  return { ociByInput, ociByBundle };
+}
