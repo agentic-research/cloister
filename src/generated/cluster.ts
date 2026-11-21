@@ -22,7 +22,7 @@ export const cluster: Cluster = {
   "bundles": [
     {
       "name": "cloister-router",
-      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore). executionMode = \"process\": this IS the workerd host, so it is not itself a microVM payload. Stated rather than left ambient per ADR-0048 (cloister-54b834).",
+      "description": "Gateway + Durable Object state (BeadStore, TrustStore, BlobStore)",
       "tier": "hypervisor",
       "holdsCredential": [
         "VAULT_KEK_SOURCE",
@@ -62,7 +62,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "STRUCTURAL and permanent. This IS the workerd host, and the hypervisor cannot be placed inside its own guest. No future work removes this exemption.",
+          "executionModeRationale": "CONTINGENT, and recorded wrong until now as permanent. It read that this IS the workerd host, and the hypervisor cannot be placed inside its own guest. Those are two hypervisors: the gateway is the V8-isolate one, and a microVM's is libkrun, which ley-line-open runs; the gateway starts no guests. workerd in a microVM keeps its isolates and gains a kernel boundary (ADR-0078). What stops it is engineering. Each wire to a bundle becomes a declared connection, and a connection between two placements needs the broker (ley-line-open-e2c5ce), as do its outbound fetches and its key helper on the host. Its Durable Object storage must survive a run (ley-line-open#600). A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb.",
           "runs": "",
           "workspace": ""
         }
@@ -100,7 +100,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "UNDECIDED, and the only exemption with no known blocker. This bundle holds the Signet master CA and mints lease certs, so it carries the highest-value secret in the cluster and the strongest case for isolation. Unlike notme-proxy and rosary it binds a TCP port rather than a UDS, so the krunvm UDS gap (cloister-66badb) does NOT apply to it. What stops it is only the missing entryPoint, so task runtime:plan cannot emit a plan in either mode (cloister-701b33). That makes it the cheapest exemption to withdraw and the most valuable one to withdraw. Nobody chose no-isolation here; nobody chose anything. Tracked in cloister-5fe44f.",
+          "executionModeRationale": "CONTINGENT. It holds the Signet master CA, so it has the strongest case for isolation in the cluster. This read that only a missing entryPoint stopped it, and there is more. The entryPoint is known: notme's image runs /usr/bin/workerd serve /app/config.capnp --experimental. What remains is engineering. runtime import and runtime plan refuse a bundle pinned through a multi-image producer's [[inputs.notme.ociBundles]], as this one is. Its listener (8788) becomes a declared port, which the gateway reaches across placements through the broker (ley-line-open-e2c5ce), as do its key fetches and GitHub calls. Its Durable Object storage must survive a run (ley-line-open#600). A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb. Tracked in cloister-5fe44f.",
           "runs": "",
           "workspace": ""
         }
@@ -138,7 +138,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "STRUCTURAL today, for a reason I initially got wrong. Holds the bridge cert and private key and mediates every attested egress, so the hypervisorRationale in this same entry says its compromise blast radius is every upstream the cluster reaches. This field first read: same shape as mache, which IS microvm, so no evident structural blocker, only unfinished packaging. That was WRONG. mache binds a TCP port; this bundle is UDS-only, and the krunvm host runtime cannot express that at all: krunvm.rs:769 hard-errors when confinement.port.bind == 0 and the crate has zero UDS support (cloister-66badb). So microvm is not available to it yet, independent of the missing entryPoint (cloister-701b33). Both are prerequisites.",
+          "executionModeRationale": "CONTINGENT, and the blocker this cited is gone. It read that the krunvm backend could not serve a bundle that listens only on a Unix socket. #262 replaced that backend with ley-line-open's execution API, which carries socket channels (confinement/v1 §6) and presents one to a guest as TCP on its loopback, and this proxy already listens on TCP (--listen). What remains is engineering. Its outbound mTLS goes through the broker (ley-line-open-e2c5ce). The bridge credential it holds has no path into a guest until ADR-0076 Part B. Its dial to rosary, a process bundle, crosses placements. A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb. Its entryPoint is undeclared (cloister-701b33).",
           "runs": "",
           "workspace": ""
         }
@@ -214,7 +214,7 @@ export const cluster: Cluster = {
     },
     {
       "name": "rosary",
-      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch. executionMode is deliberately \"process\", not \"microvm\": rosary dispatches host subprocess agents (claude/codex/gemini) and touches git worktrees + Keychain, none of which survive VM isolation. Stated rather than left ambient, per ADR-0048 (cloister-cb735c).",
+      "description": "Bead orchestrator — `rsry_bead_*` MCP tools, agent dispatch",
       "tier": "cluster",
       "holdsCredential": [],
       "workerdServiceName": "",
@@ -248,7 +248,7 @@ export const cluster: Cluster = {
           "env": [],
           "entryPoint": "",
           "executionMode": "process",
-          "executionModeRationale": "STRUCTURAL, and this field previously recorded it wrong. It first said the exemption was CONTINGENT because rosary-56b557 would make cloister a ComputeProvider and remove the host-subprocess requirement. That work shipped (rosary #464, CloisterProvider) and the requirement did not go away. CloisterProvider confines the DISPATCHED AGENT -- each agent now runs under cloister run rather than as a bare host subprocess, which is a real gain for those agents -- but rosary itself is what spawns them, so this bundle still needs host-process capability. Confining what a process spawns is not the same as confining the process. Independently fatal to a flip today: this bundle is UDS-only, and rs/crates/host-runtime/src/krunvm.rs:769 hard-errors when confinement.port.bind == 0, with zero UDS support in the crate (cloister-66badb). Withdraw this only when the long-running MCP bundle no longer needs to spawn, not when its agents are confined.",
+          "executionModeRationale": "CONTINGENT, on engineering. rosary starts each agent by running cloister run as a host process (rosary:src/cloister_provider.rs), so it needs to spawn. That becomes a request to cloister over a declared channel, so cloister starts the agent's run instead of rosary forking it. Its git worktrees are a workspace (ADR-0078), and its Keychain use is a vault slice (ADR-0010). Its cluster transport (rsry mcp --ipc-socket) listens only on a Unix socket, and the microVM tier presents a channel to a guest only as TCP on its loopback, so either rosary listens on TCP or ley-line-open presents a socket inside the guest (ley-line-open#601). The krunvm limit this cited is gone: #262 replaced that backend with ley-line-open's execution API. A service run is stopped at the wall-clock ceiling until ley-line-open-e6b1bb.",
           "runs": "",
           "workspace": ""
         }

@@ -78,7 +78,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 
 ### Substrate-property lint invariants (lint:bundle-isolation)
 
-`lint/bundle-isolation.mjs` runs thirteen invariants per `task lint`:
+`lint/bundle-isolation.mjs` runs fifteen invariants per `task lint`:
 
 | Inv | What | ADR |
 |---|---|---|
@@ -96,6 +96,7 @@ The `lint` is the inner-loop gate. Run it before every commit.
 | 12 | Every `durableObjectNamespace` binding on a bundle's Worker resolves to a declared `durableObjectNamespaces` entry (same-Worker or named cross-worker `serviceName`) | cloister-f9d473 |
 | 13 | Every external bundle declares an `executionMode` the host runtime implements (`microvm` \| `process`), and `process` — an EXEMPTION from isolation, not a peer of it — states why | ADR-0048 / ADR-0062 / cloister-54b834 |
 | 14 | Bundle tier / kind / wire fact agrees with what the producing input declares; WARN-level, operator stays authoritative | cloister-d8e8fb |
+| 15 | A bundle description or rationale that cites a file in this repository names one that exists, at a line it has; another repository's file is cited `<repo>:<path>` | cloister-ca2582 |
 
 Together Inv 6-9 enforce the chain `tenantDispatch row.binding → wire → bundle ← input.workerdId` for multi-tenant deployments (see [`docs/reference/tenancy-model.md`](docs/reference/tenancy-model.md)); Inv 12 enforces the parallel chain `bundle DO binding → durableObjectNamespaces entry` — config.capnp's `durableObjectNamespaces` list (line ~235) is a hardcoded host-side declaration on behalf of every bundle that binds a Durable Object, and until Inv 12 nothing checked that a binding's named class was actually declared there.
 

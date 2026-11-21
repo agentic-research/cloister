@@ -8,6 +8,29 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every isolation exemption says what blocks it now
+
+- Two exemptions cited `krunvm.rs:769` as their structural blocker long after
+  #262 deleted it and replaced it with ley-line-open's execution API, which
+  carries socket channels. Inv 15 (`lint/bundle-isolation.mjs`) now refuses
+  a bundle description or rationale that cites a file this repository does
+  not have, or a line past its end; another repository's file is cited
+  `<repo>:<path>`.
+- The four `process` exemptions are rewritten as CONTINGENT, each naming the
+  engineering that retires it:
+  - the gateway: its record said permanent, on the grounds that a hypervisor
+    cannot run inside its own guest. Those are two hypervisors. The gateway
+    is the V8-isolate one, a microVM's is libkrun, and workerd in a microVM
+    keeps its isolates;
+  - notme-identity: more than the missing entryPoint it named, which is now
+    known;
+  - notme-proxy: it already listens on TCP, which is how the microVM tier
+    presents a channel;
+  - rosary: it spawns agents, which becomes a request to cloister, and its
+    transport listens only on a Unix socket (ley-line-open#601).
+- `lint/lib/tracked-files.mjs` is the one `git ls-files` helper the
+  conflict-marker rail and Inv 15 share.
+
 ### 2026-11 — a bundle declares its needs once, and every placement provides them
 
 - mache was counted as cloister's one isolated bundle, and it could not run as
