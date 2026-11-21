@@ -8,6 +8,28 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a microVM bundle declares only what the microVM tier carries
+
+- mache was counted as cloister's one isolated bundle, and it could not run as
+  one. It said `executionMode = "microvm"` with its listener and its
+  `/workspace` path declared as `confinement` grants. The microVM tier applies
+  neither, so the host runtime refused its plan at launch, and no gate said so
+  earlier: no CI job launches a microVM.
+- `cluster.toml` now refuses a bundle placed `microvm` that declares a
+  confinement grant (`fs.allow`, `network.allowHosts`, `port`,
+  `credentialSource`), naming each and what to declare instead. Which grants a
+  facet declares is defined once (`cli/lib/cluster/confinement.mjs`), read by
+  the round trip too, and held by a test to the generated schema.
+- `cloister-host-runtime validate` now refuses the plans `run` refuses. It
+  used to answer "valid" for a microvm plan with a raw listener. One check
+  (`Confinement::check_microvm_grants`) serves both, and the launch path.
+- mache is now a `process` exemption whose rationale names what it waits for:
+  a workspace served by cloister's host runtime, and a service run with no
+  wall-clock ceiling (ley-line-open-e6b1bb). The isolation count reads 5/5,
+  which is what was true.
+- Filed ley-line-open#600: a service run in a microVM has nowhere to keep state
+  across runs, which the identity authority and the gateway both need.
+
 ### 2026-11 — the docs are held to the CLI
 
 - `lint:doc-invocations` (in `task lint`) reads every shell fence in the

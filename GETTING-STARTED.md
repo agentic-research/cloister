@@ -345,9 +345,13 @@ reports it as the ceiling, not as a workload failure. A worked example from a
 clean checkout is
 [`tools/dolt-grpc-demo/microvm/`](tools/dolt-grpc-demo/microvm/README.md).
 
-A plan carrying `fs.allow`, credentials, or `port.bind` is refused by name
-("authority mapping … is not implemented") rather than run with its grants
-silently dropped. Mapping them onto LLO's confinement manifest is tracked on
+A `microvm` bundle can't declare a `confinement` grant: a path (`fs.allow`),
+egress (`network.allowHosts`), a raw listener (`port`) or a credential source.
+The tier can apply none of them. `cluster.toml` refuses such a declaration when
+it is parsed, and names what to declare instead: a listener becomes a
+`[[bundles.ports]]` entry. The host runtime refuses a plan that carries one, in
+`validate` as well as `run`, rather than run it with the grant silently
+dropped. Mapping them onto LLO's confinement manifest is tracked on
 `cloister-991e65`.
 
 The one grant the tier does map is confinement/v1 §6, `unixSocket.allow`.

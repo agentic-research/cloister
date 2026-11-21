@@ -20,6 +20,13 @@ const ADMITS = tableAdmits({
 // buildLaunchPlan takes a VALIDATED cluster (cloister-991e65: runtime plan
 // parses cluster.toml through parseTomlToCluster first), so the fixture is
 // TOML run through that pipeline rather than a hand-built object.
+//
+// The listener is a declared port, not `[bundles.confinement.port]`: a
+// microvm bundle's only channels are §6 grants derived from its ports and
+// connections, and cluster.toml refuses a hand-declared grant on one
+// (cloister-ca2582). This fixture once declared the port and a /workspace
+// path under confinement, and its first test asserted they reached the plan
+// unchanged: a plan the host runtime then refused at launch.
 const CLUSTER_TOML = `
 [metadata]
 name = "plan-fixture"
@@ -38,13 +45,11 @@ entryPoint = "/usr/bin/mache"
 executionMode = "microvm"
 args = ["serve", "--http", "127.0.0.1:7532", "/workspace"]
 
-[bundles.confinement.port]
-bind = 7532
-address = "127.0.0.1"
-
-[[bundles.confinement.fs.allow]]
-path = "/workspace"
-mode = "rw"
+[[bundles.ports]]
+name = "mcp"
+port = 7532
+appProtocol = "art.http"
+expose = "cluster"
 `;
 const cluster = await parseTomlToCluster(CLUSTER_TOML);
 
@@ -62,7 +67,7 @@ const lock = {
 };
 const inCas = () => ({ present: true, casRoot: "/cas" });
 
-test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () => {
+test("buildLaunchPlan lowers the declared port to a §6 grant, and the locked artifact", () => {
   const plan = buildLaunchPlan(cluster, lock, {
     bundle: "mache",
     workspace: "/Users/operator/src",
@@ -81,7 +86,13 @@ test("buildLaunchPlan lowers the exact manifest policy and locked artifact", () 
       entrypoint: "/usr/bin/mache",
       args: ["serve", "--http", "127.0.0.1:7532", "/workspace"],
     },
-    confinement: cluster.bundles[0].confinement,
+    // The deny-all facet, plus the one channel the port declares: the
+    // workload listens on the guest's 127.0.0.1:7532, and only this socket
+    // reaches it.
+    confinement: {
+      ...cluster.bundles[0].confinement,
+      unixSocket: { allow: [{ path: "/tmp/cloister-host-runtime/ch/mache.mcp.sock", mode: "bind", guestPort: 7532 }] },
+    },
     workspace: "/Users/operator/src",
     controlSocket: "/tmp/cloister/mache.sock",
   });
@@ -236,7 +247,7 @@ test("buildLaunchPlan refuses a malformed environment by bundle and name, never 
 test("planFromToml refuses an env that is not { name, value } rows, never dropping it", async () => {
   const secret = "s3cret-value";
   const withExternal = (line) => CLUSTER_TOML.replace('executionMode = "microvm"', `executionMode = "microvm"\n${line}`);
-  const withTail = (tail) => CLUSTER_TOML.replace("[bundles.confinement.port]", `${tail}\n[bundles.confinement.port]`);
+  const withTail = (tail) => CLUSTER_TOML.replace("[[bundles.ports]]", `${tail}\n[[bundles.ports]]`);
   const cases = [
     ["a KEY = value table", withTail(`[bundles.external.env]\nGREETING = "${secret}"\n`), /env must be a list of \{ name, value \} rows/],
     ["a string", withExternal(`env = "GREETING=${secret}"`), /env must be a list of \{ name, value \} rows/],

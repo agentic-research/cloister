@@ -40,6 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startedAsScript } from "../started-as-script.mjs";
 import { loadClusterSchema } from "./cluster-schema.mjs";
+import { assertMicrovmConfinement } from "./confinement.mjs";
 import { assertEnvBindings, assertPortsAndConnections, checkableBundle,
   assertNamespaces,
 } from "./connections.mjs";
@@ -202,6 +203,13 @@ export async function parseTomlToCluster(tomlString) {
   //        value from exactly one place, and a connection binding names a
   //        connection the bundle declares.
   assertEnvBindings(validated.bundles, validated.connections ?? []);
+  //    4c-1c. A bundle placed "microvm" declares no confinement grant the
+  //        microVM tier cannot apply (a path, egress, a raw listener, a
+  //        credential source). Such a grant used to pass here, reach the
+  //        launch plan, and be refused by the host runtime at launch, so the
+  //        bundle counted as isolated and could not run. The shipped mache
+  //        bundle did exactly that.
+  assertMicrovmConfinement(validated.bundles);
 
   //    4c-2. Gateway collections are unique too (cloister-742e19). Arrays of
   //        tables are the blind spot: smol-toml rejects a duplicate KEY inside

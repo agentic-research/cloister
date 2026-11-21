@@ -54,23 +54,12 @@ kind = "external"
 name = "mache"
 tier = "cluster"
 
-[[bundles.confinement.fs.allow]]
-path = "/workspace"
-mode = "rw"
-
-[bundles.confinement.port]
-address = "127.0.0.1"
-bind = 7532
-
 [bundles.external]
 args = [ "serve", "--http", "127.0.0.1:7532", "--path", "/workspace" ]
 entryPoint = "/usr/local/bin/mache"
-executionMode = "microvm"
+executionMode = "process"
+executionModeRationale = "CONTINGENT, and this bundle was counted as isolated when it never was. It said microvm, with its listener (127.0.0.1:7532) and its /workspace path declared as confinement grants. The microVM tier applies neither, so the host runtime refused its plan at launch, and no gate said so earlier; cluster.toml now refuses that declaration. The listener can become a [[bundles.ports]] entry. The workspace cannot yet: the microVM tier serves a workspace only through LLO's execution daemon, and cloister's host runtime starts the backend with none. A service is also stopped at the 15-minute wall-clock ceiling until ley-line-open-e6b1bb. Withdraw this when the host runtime serves a workspace and a service run can ask for no ceiling."
 httpPort = 7532
-
-[[bundles.placements]]
-env = "local"
-kind = "microvm"
 
 [[bundles.placements]]
 env = "compose"

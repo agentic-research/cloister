@@ -3,6 +3,10 @@ use std::fs;
 use std::process::Command;
 
 fn write_plan(mode: ExecutionMode) -> tempfile::NamedTempFile {
+    write_plan_with(mode, Confinement::default())
+}
+
+fn write_plan_with(mode: ExecutionMode, confinement: Confinement) -> tempfile::NamedTempFile {
     let file = tempfile::NamedTempFile::new().unwrap();
     let plan = LaunchPlan {
         schema: "cloister/host-runtime/v1".into(),
@@ -14,13 +18,7 @@ fn write_plan(mode: ExecutionMode) -> tempfile::NamedTempFile {
             entrypoint: "/usr/bin/leyline".into(),
             args: vec!["serve".into()],
         },
-        confinement: Confinement {
-            port: ConfinementPort {
-                bind: 7532,
-                address: "127.0.0.1".into(),
-            },
-            ..Confinement::default()
-        },
+        confinement,
         workspace: "/workspace".into(),
         control_socket: "/run/cloister/host.sock".into(),
         environment: Vec::new(),
@@ -42,6 +40,35 @@ fn validate_accepts_a_well_formed_plan() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(String::from_utf8_lossy(&out.stdout).contains("valid"));
+}
+
+#[test]
+fn validate_refuses_a_microvm_plan_whose_grant_run_would_refuse() {
+    // `validate` used to answer "valid" for a microvm plan carrying a raw
+    // listener, and `run` then refused it at launch (cloister-ca2582). A
+    // plan `validate` accepts is one the microVM tier can carry.
+    let raw_port = Confinement {
+        port: ConfinementPort {
+            bind: 7532,
+            address: "127.0.0.1".into(),
+        },
+        ..Confinement::default()
+    };
+    let validate = |mode| {
+        let plan = write_plan_with(mode, raw_port.clone());
+        Command::new(env!("CARGO_BIN_EXE_cloister-host-runtime"))
+            .args(["validate", plan.path().to_str().unwrap()])
+            .output()
+            .unwrap()
+    };
+    let microvm = validate(ExecutionMode::Microvm);
+    assert!(!microvm.status.success(), "a microvm plan with a raw port must be refused");
+    let stderr = String::from_utf8_lossy(&microvm.stderr);
+    assert!(stderr.contains("§6 unixSocket grants"), "{stderr}");
+    assert!(stderr.contains("grants port,"), "the refusal names the grant: {stderr}");
+    // The rule is the microVM tier's: a process plan is not held to it.
+    let process = validate(ExecutionMode::Process);
+    assert!(process.status.success(), "{}", String::from_utf8_lossy(&process.stderr));
 }
 
 #[test]

@@ -37,6 +37,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
 import { startedAsScript } from "../started-as-script.mjs";
+import { declaredDimensions } from "./confinement.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../..");
@@ -433,51 +434,32 @@ function pruneBundleScalarDefaults(scalars) {
   }
   // cloister-a34edc: the §1 confinement facet is omitted from TOML when it's
   // the empty deny-all default (no bundle has opted in) — symmetric with the
-  // default applied in toml-to-cluster's normalizeConfinement.
-  if (isEmptyConfinement(flat.confinement)) {
+  // default applied in toml-to-cluster's normalizeConfinement. Which
+  // dimensions are declared is read from the one definition both share.
+  const declared = declaredDimensions(flat.confinement);
+  if (declared.length === 0) {
     delete flat.confinement;
   } else {
-    flat.confinement = pruneConfinementDefaults(flat.confinement);
+    flat.confinement = pruneConfinementDefaults(flat.confinement, declared);
   }
   return flat;
 }
 
-function pruneConfinementDefaults(confinement) {
+function pruneConfinementDefaults(confinement, declared) {
   const pruned = {};
-  if (Array.isArray(confinement.fs?.allow) && confinement.fs.allow.length > 0) {
-    pruned.fs = confinement.fs;
-  }
-  if (
-    Array.isArray(confinement.network?.allowHosts) &&
-    confinement.network.allowHosts.length > 0
-  ) {
-    pruned.network = confinement.network;
-  }
-  if (
-    (confinement.port?.bind ?? 0) !== 0 ||
-    (confinement.port?.address ?? "") !== ""
-  ) {
+  if (declared.includes("fs")) pruned.fs = confinement.fs;
+  if (declared.includes("network")) pruned.network = confinement.network;
+  if (declared.includes("port")) {
     pruned.port = {};
     if ((confinement.port.bind ?? 0) !== 0) pruned.port.bind = confinement.port.bind;
     if ((confinement.port.address ?? "") !== "") {
       pruned.port.address = confinement.port.address;
     }
   }
-  if ((confinement.credentialSource ?? "") !== "") {
+  if (declared.includes("credentialSource")) {
     pruned.credentialSource = confinement.credentialSource;
   }
   return pruned;
-}
-
-// True when a Confinement is the empty deny-all default (every dimension empty).
-function isEmptyConfinement(c) {
-  if (!c || typeof c !== "object") return true;
-  const fsEmpty = !c.fs || !Array.isArray(c.fs.allow) || c.fs.allow.length === 0;
-  const netEmpty =
-    !c.network || !Array.isArray(c.network.allowHosts) || c.network.allowHosts.length === 0;
-  const portEmpty = !c.port || ((c.port.bind ?? 0) === 0 && (c.port.address ?? "") === "");
-  const credEmpty = (c.credentialSource ?? "") === "";
-  return fsEmpty && netEmpty && portEmpty && credEmpty;
 }
 
 function canonicalizeBundleKindPayload(tag, payload) {

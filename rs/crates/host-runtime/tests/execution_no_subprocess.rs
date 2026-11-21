@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 
 use cloister_host_runtime::execution::{AwaitRun, Deployment, LeylineExecutionBackend};
 use cloister_host_runtime::{
-    Artifact, Backend, Confinement, ConfinementNetwork, EnvVar, ExecutionMode, HostRuntime,
-    LaunchPlan, RuntimeError, UnixSocketAllowEntry,
+    Artifact, Backend, Confinement, ConfinementNetwork, ConfinementPort, EnvVar, ExecutionMode,
+    FsAllowEntry, HostRuntime, LaunchPlan, RuntimeError, UnixSocketAllowEntry,
 };
 use leyline_runtime::{
     Backend as LeylineBackendTrait, BackendCapabilities, BackendClass, BackendRun,
@@ -299,12 +299,28 @@ fn unsupported_launch_grants_are_refused_before_the_backend_is_called() {
         Arc::clone(&recorder),
         Deployment::default(),
     ));
-    let mut unsupported = plan();
-    unsupported.confinement.network.allow_hosts = vec!["api.example.com".into()];
-    let err = HostRuntime::new(None, Some(backend))
-        .launch(&unsupported)
-        .expect_err("unsupported authority must fail closed");
-    assert!(format!("{err}").contains("egress grants"));
+    let runtime = HostRuntime::new(None, Some(Arc::clone(&backend) as Arc<dyn Backend>));
+    // Each grant the microVM tier cannot apply, alone, by the name the
+    // refusal gives it.
+    let grants: [(&str, fn(&mut LaunchPlan)); 4] = [
+        ("fs.allow", |p| {
+            p.confinement.fs.allow = vec![FsAllowEntry { path: "/workspace".into(), mode: "rw".into() }]
+        }),
+        ("network.allowHosts", |p| p.confinement.network.allow_hosts = vec!["api.example.com".into()]),
+        ("port", |p| p.confinement.port = ConfinementPort { bind: 7532, address: "127.0.0.1".into() }),
+        ("credentialSource", |p| p.confinement.credential_source = "keychain://cloister/x".into()),
+    ];
+    for (name, grant) in grants {
+        let mut unsupported = plan();
+        grant(&mut unsupported);
+        let err = runtime
+            .launch(&unsupported)
+            .expect_err("unsupported authority must fail closed");
+        assert!(format!("{err}").contains(&format!("also grants {name},")), "{name}: {err}");
+        // The backend's own check is the same rule, for a caller that drives it directly.
+        let direct = backend.launch(&unsupported).expect_err("the backend refuses it too");
+        assert_eq!(format!("{direct}"), format!("{err}"), "{name}");
+    }
     assert_eq!(recorder.starts.load(Ordering::SeqCst), 0);
 }
 

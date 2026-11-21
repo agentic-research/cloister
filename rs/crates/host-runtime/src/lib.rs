@@ -61,6 +61,45 @@ pub struct Confinement {
     pub unix_socket: ConfinementUnixSocket,
 }
 
+impl Confinement {
+    /// Refuse every grant the microVM tier cannot apply, naming each one.
+    ///
+    /// A microVM guest has no network card and no host path. Its only channels
+    /// are the §6 grants in `unix_socket`, which `cloister runtime plan`
+    /// derives from declared ports and connections. LLO folds nothing else
+    /// into a guest: §2 paths would widen what LLO grants itself, §4 needs
+    /// socket hijacking, which is off and not plan-reachable, and §3 egress
+    /// and §5 credentials have no mapping. Each of these, if it were accepted,
+    /// would be a grant the run silently did not have.
+    ///
+    /// `validate` applies this to every microvm plan, so `validate` and `run`
+    /// agree, and cluster.toml refuses the same grants on a microvm bundle
+    /// before a plan is emitted (`cli/lib/cluster/confinement.mjs`).
+    pub fn check_microvm_grants(&self) -> Result<(), RuntimeError> {
+        let mut uncarried = Vec::new();
+        if !self.fs.allow.is_empty() {
+            uncarried.push("fs.allow");
+        }
+        if !self.network.allow_hosts.is_empty() {
+            uncarried.push("network.allowHosts");
+        }
+        if self.port.bind != 0 || !self.port.address.is_empty() {
+            uncarried.push("port");
+        }
+        if !self.credential_source.is_empty() {
+            uncarried.push("credentialSource");
+        }
+        if uncarried.is_empty() {
+            return Ok(());
+        }
+        Err(RuntimeError::InvalidPlan(format!(
+            "a microvm plan carries only confinement/v1 §6 unixSocket grants, derived from declared ports and connections; this one also grants {}, which the microVM tier cannot apply, so it is refused rather than run without {}",
+            uncarried.join(", "),
+            if uncarried.len() == 1 { "it" } else { "them" },
+        )))
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfinementUnixSocket {
@@ -179,6 +218,9 @@ impl LaunchPlan {
             return Err(RuntimeError::InvalidPlan(
                 "controlSocket must be a canonical absolute host path".into(),
             ));
+        }
+        if self.mode == ExecutionMode::Microvm {
+            self.confinement.check_microvm_grants()?;
         }
         for entry in &self.confinement.fs.allow {
             if !is_canonical_absolute_path(Path::new(&entry.path)) {
