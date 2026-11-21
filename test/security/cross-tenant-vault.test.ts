@@ -41,7 +41,8 @@ const SUBJECT_FP =
 interface VaultStub extends DurableObjectStub {
   putCredential(subjectFp: string, service: string, cred: {
     upstream: string;
-    headers: Record<string, string>;
+    credential: string;
+    username?: string;
     allowedSubs: string[];
   }): Promise<void>;
   getCredentialMetadata(subjectFp: string, service: string): Promise<{
@@ -82,7 +83,7 @@ describe("vault DO cross-tenant isolation (storage layer — ADR-0021)", () => {
 
     await aliceStub.putCredential(SUBJECT_FP, "external-api", {
       upstream: "https://api.example/v1",
-      headers: { "x-api-key": "alice-secret-token" },
+      credential: "alice-secret-token",
       allowedSubs: ["did:peer:alice"],
     });
 
@@ -105,12 +106,12 @@ describe("vault DO cross-tenant isolation (storage layer — ADR-0021)", () => {
 
     await aliceStub.putCredential(SUBJECT_FP, "shared-service-name", {
       upstream: "https://api-alice.example/",
-      headers: { token: "alice-token" },
+      credential: "alice-token",
       allowedSubs: ["did:peer:any"],
     });
     await bobStub.putCredential(SUBJECT_FP, "shared-service-name", {
       upstream: "https://api-bob.example/",
-      headers: { token: "bob-token" },
+      credential: "bob-token",
       allowedSubs: ["did:peer:any"],
     });
 

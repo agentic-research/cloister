@@ -111,8 +111,10 @@ through the helper binding. Same pin-on-first-resolve discipline: a slice's
 source is pinned to DO storage and required equal thereafter, closing the same
 swap attack ADR-0014 closed for the KEK.
 
-The resolver returns the `{ upstream, headers, allowedSubs }` shape
-`putCredential` already validates. No new credential format.
+The resolver returns the `{ upstream, credential, username?, allowedSubs }`
+shape `putCredential` validates: the secret itself, which the vault presents as
+the service declares. (Amended by ADR-0082, which replaced stored headers with
+the stored secret.)
 
 ### C. Ingestion stays in-boundary
 

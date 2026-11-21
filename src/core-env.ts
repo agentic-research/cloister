@@ -154,7 +154,9 @@ export interface CoreEnv {
   /// Dev vault seed (JSON) — one credential the vault DO ingests at first
   /// use when `CLOISTER_MODE === "dev"`, via the existing putCredential
   /// (in-boundary, no external write route). Shape:
-  /// `{ "peerFp", "service", "upstream", "headers": {..}, "allowedSubs": [..] }`.
-  /// Dev-only; production uses the designed ingestion surface (future ADR).
+  /// `{ "peerFp", "service", "upstream", "credential", "username"?, "allowedSubs": [..] }`.
+  /// `credential` is the secret itself; the vault presents it as the service
+  /// declares (ADR-0082). Dev-only; production uses the designed ingestion
+  /// surface (ADR-0058).
   DEV_VAULT_SEED?: string;
 }

@@ -10,8 +10,15 @@
 //
 // This file asserts the vendored copies are byte-identical to what LLO
 // published. The behavioural half — feeding the cases through cloister's
-// production path — lives in test/routes/credential-isolation-conformance.test.ts,
-// which runs under workerd where the handler does.
+// production path — runs under workerd, where the handler does:
+//   - the injection vectors, through the vault's Durable Object, in
+//     test/routes/credential-isolation-conformance.test.ts (ADR-0082);
+//   - path parsing in test/routes/vault-proxy-path-vectors.test.ts;
+//   - reserved response headers in test/routes/vault-proxy-reserved-headers.test.ts;
+//   - the credential-leak cases in test/routes/receipt-guard.test.ts.
+// The signing canonicalization, envelope parsing, receipt-commitment and
+// error-response files are checked here and do not yet run through the code
+// (ADR-0082, Consequences).
 //
 // ── Why vendored rather than read from a checkout ────────────────────────────
 //

@@ -52,6 +52,7 @@ import {
   type CredentialStore,
 } from "./vault-proxy-credential-store.js";
 import { VaultDoCredentialStore } from "./vault-do-credential-store.js";
+import type { DeclaredService } from "../../vault/src/inject.js";
 
 const PATH_PREFIX = "/vault/proxy/";
 
@@ -329,7 +330,15 @@ export class VaultProxyRoute implements EdgeRoute {
     // (VaultDoCredentialStore does; InMemoryCredentialStore does not),
     // delegate the full Request to vault DO. Plaintext credential bytes
     // stay inside the DO trust boundary per ADR-0013.
-    if (credentialStore.forward && parsed !== null && serviceConfig !== null) {
+    if (credentialStore.forward && parsed !== null && serviceConfig !== null
+        && serviceConfig.injection.kind !== "passthrough") {
+      // What the declaration says about this service; the vault applies it
+      // to the credential it holds (ADR-0082 §2). Passthrough returned above.
+      const declared: DeclaredService = {
+        injection:       serviceConfig.injection,
+        upstreamBaseUrl: serviceConfig.upstreamBaseUrl,
+        upstreamPath:    parsed.upstreamPath,
+      };
       // Production forward path. Two invariants enforced here:
       //
       //   1. forwardWithReceipt — emits ProxyCallReceipt + vault_proxy_call
@@ -354,6 +363,7 @@ export class VaultProxyRoute implements EdgeRoute {
           service,
           verifiedLease.peerFp,
           request,
+          declared,
         ),
       });
       return collapseWireShape(res);

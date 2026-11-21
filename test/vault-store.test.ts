@@ -30,6 +30,14 @@
 
 import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { DeclaredService } from "../vault/src/inject";
+
+/** The declaration a call carries (ADR-0082 §2). These tests pin denials that come before it is read. */
+const ANY_DECLARED: DeclaredService = {
+  injection: { kind: "authorizationBearer" },
+  upstreamBaseUrl: "https://api.example/",
+  upstreamPath: "",
+};
 
 // A stable fixture cert fingerprint — what `VerifiedLease.peerFp`
 // would look like (sha256-hex of a peer's cert DER). Tests that need
@@ -44,7 +52,8 @@ function vaultStub() {
   return env.VAULT_STORE!.get(env.VAULT_STORE!.idFromName("cluster")) as DurableObjectStub & {
     putCredential(subjectFp: string, service: string, cred: {
       upstream: string;
-      headers: Record<string, string>;
+      credential: string;
+      username?: string;
       allowedSubs: string[];
     }): Promise<void>;
     getCredentialMetadata(subjectFp: string, service: string): Promise<{
@@ -58,6 +67,7 @@ function vaultStub() {
       service: string,
       callerSub: string,
       req: Request,
+      declared: DeclaredService,
     ): Promise<Response>;
   };
 }
@@ -73,7 +83,7 @@ describe("CredentialVault DO — wiring + smoke", () => {
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "test-api-1", {
       upstream: "https://api.test.example/",
-      headers: { "x-api-key": "secret-value-1" },
+      credential: "secret-value-1",
       allowedSubs: ["bundle:test-app:*"],
     });
 
@@ -87,7 +97,7 @@ describe("CredentialVault DO — wiring + smoke", () => {
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "test-api-2", {
       upstream: "https://api.test.example/",
-      headers: { "x-api-key": "SHOULD-NEVER-SURFACE-VIA-METADATA" },
+      credential: "SHOULD-NEVER-SURFACE-VIA-METADATA",
       allowedSubs: ["bundle:probe:*"],
     });
 
@@ -101,7 +111,7 @@ describe("CredentialVault DO — wiring + smoke", () => {
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "test-api-3", {
       upstream: "https://api.test.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
     expect(await stub.deleteCredential(SUBJECT_FP_A, "test-api-3")).toBe(true);
@@ -119,7 +129,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "github-pat", {
       upstream: "https://api.github.com/",
-      headers: { "Authorization": "Bearer GITHUB-PAT-DO-NOT-LEAK" },
+      credential: "GITHUB-PAT-DO-NOT-LEAK",
       allowedSubs: ["bundle:trusted-tool:*"],
     });
 
@@ -130,6 +140,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
       "github-pat",
       "bundle:test-app:malicious",
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);
@@ -153,6 +164,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
       "service-that-was-never-created",
       "bundle:test-app:doesnt-matter",
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);
@@ -169,7 +181,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
     // Seed a row whose allowedSubs do NOT include the probing caller.
     await stub.putCredential(SUBJECT_FP_A, "exists", {
       upstream: "https://api.example/",
-      headers: { "Authorization": "Bearer SHOULD-NOT-LEAK" },
+      credential: "SHOULD-NOT-LEAK",
       allowedSubs: ["bundle:owner:*"],
     });
 
@@ -181,6 +193,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
       "never-existed",
       "bundle:attacker:*",
       probe,
+      ANY_DECLARED,
     );
     // 2. Service exists for this subject, but caller is out of scope.
     const r2 = await stub.proxyRequest(
@@ -188,6 +201,7 @@ describe("CredentialVault DO — proxyRequest identity gate", () => {
       "exists",
       "bundle:attacker:*",
       probe,
+      ANY_DECLARED,
     );
 
     expect(r1.status).toBe(404);
@@ -222,7 +236,7 @@ describe("CredentialVault DO — at-rest encryption pin", () => {
     const stub = vaultStub();
     await stub.putCredential(SUBJECT_FP_A, "sealed-rest-probe", {
       upstream: "https://api.test.example/",
-      headers: { "x-secret-header": "PLAINTEXT-SHOULD-NEVER-LEAVE-DO" },
+      credential: "PLAINTEXT-SHOULD-NEVER-LEAVE-DO",
       allowedSubs: ["bundle:probe:*"],
     });
 
@@ -254,12 +268,12 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
     // A's row; with the composite PK they live side-by-side.
     await stub.putCredential(SUBJECT_FP_A, "shared-service-name", {
       upstream: "https://a.example/",
-      headers: { "x-key": "subject-A-secret" },
+      credential: "subject-A-secret",
       allowedSubs: ["bundle:a:*"],
     });
     await stub.putCredential(SUBJECT_FP_B, "shared-service-name", {
       upstream: "https://b.example/",
-      headers: { "x-key": "subject-B-secret" },
+      credential: "subject-B-secret",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -277,12 +291,12 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
 
     await stub.putCredential(SUBJECT_FP_A, "isolation-svc-a", {
       upstream: "https://a.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
     await stub.putCredential(SUBJECT_FP_B, "isolation-svc-b", {
       upstream: "https://b.example/",
-      headers: {},
+      credential: "unused-in-this-test",
       allowedSubs: ["*"],
     });
 
@@ -300,7 +314,7 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
 
     await stub.putCredential(SUBJECT_FP_B, "delete-target-of-b", {
       upstream: "https://b.example/",
-      headers: { "x-key": "MUST-SURVIVE-FOREIGN-DELETE" },
+      credential: "MUST-SURVIVE-FOREIGN-DELETE",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -319,7 +333,7 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
 
     await stub.putCredential(SUBJECT_FP_B, "clobber-target", {
       upstream: "https://b-original.example/",
-      headers: { "x-key": "B-ORIGINAL-SECRET" },
+      credential: "B-ORIGINAL-SECRET",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -328,7 +342,7 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
     // own row instead.
     await stub.putCredential(SUBJECT_FP_A, "clobber-target", {
       upstream: "https://a-attacker.example/",
-      headers: { "x-key": "A-ATTACKER-OVERRIDE" },
+      credential: "A-ATTACKER-OVERRIDE",
       allowedSubs: ["bundle:a:*"],
     });
 
@@ -344,7 +358,7 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
     // would normally let bundle B's caller through.
     await stub.putCredential(SUBJECT_FP_B, "proxy-isolation-svc", {
       upstream: "https://b.example/",
-      headers: { "Authorization": "Bearer B-PRIVATE-PAT" },
+      credential: "B-PRIVATE-PAT",
       allowedSubs: ["bundle:b:*"],
     });
 
@@ -357,6 +371,7 @@ describe("CredentialVault DO — (subject_fp, service) isolation", () => {
       "proxy-isolation-svc",
       "bundle:b:legitimate", // matches B's allowedSubs but A's subject_fp wins the row lookup
       probe,
+      ANY_DECLARED,
     );
 
     expect(response.status).toBe(404);
@@ -418,12 +433,12 @@ describe("CredentialVault DO — F1 rate budget (Response-shaped paths only)", (
     const fp = fpFor("proxy429");
     await v.putCredential(fp, "test-svc", {
       upstream: "https://example.test/api",
-      headers: { authorization: "Bearer x" },
+      credential: "x",
       allowedSubs: ["*"],
     });
     await seedBucket(fp, 0, Date.now());
     const probe = new Request("https://example.test/proxy/endpoint", { method: "GET" });
-    const resp = await v.proxyRequest(fp, "test-svc", "anybody", probe);
+    const resp = await v.proxyRequest(fp, "test-svc", "anybody", probe, ANY_DECLARED);
     expect(resp.status).toBe(429);
     expect(resp.headers.get("retry-after")).toBeTruthy();
     const body = await resp.json() as { error: string; service: string };
@@ -525,7 +540,8 @@ describe("CredentialVault DO — VAULT_KEK_SOURCE pin (cloister-fbc6eb)", () => 
         service: string,
         cred: {
           upstream: string;
-          headers: Record<string, string>;
+          credential: string;
+          username?: string;
           allowedSubs: string[];
         },
       ): Promise<void>;
@@ -533,7 +549,7 @@ describe("CredentialVault DO — VAULT_KEK_SOURCE pin (cloister-fbc6eb)", () => 
     // Trigger #getKEK() via a write path.
     await stub.putCredential(SUBJECT_FP_A, "pin-test-svc", {
       upstream: "https://example.test/api",
-      headers: { authorization: "Bearer x" },
+      credential: "x",
       allowedSubs: ["*"],
     });
     await runInDurableObject(stub, async (_inst, state) => {
@@ -575,7 +591,8 @@ describe("CredentialVault DO — VAULT_KEK_SOURCE pin (cloister-fbc6eb)", () => 
         service: string,
         cred: {
           upstream: string;
-          headers: Record<string, string>;
+          credential: string;
+          username?: string;
           allowedSubs: string[];
         },
       ): Promise<void>;
@@ -587,7 +604,7 @@ describe("CredentialVault DO — VAULT_KEK_SOURCE pin (cloister-fbc6eb)", () => 
     // First call bootstraps the pin.
     await stub.putCredential(SUBJECT_FP_A, "stable-svc", {
       upstream: "https://example.test/api",
-      headers: { authorization: "Bearer x" },
+      credential: "x",
       allowedSubs: ["*"],
     });
     // Second call: pin must match env (it does) → no throw.

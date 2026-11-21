@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
 import { cloudflarePool, cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
@@ -14,6 +15,36 @@ import { cloudflarePool, cloudflareTest } from "@cloudflare/vitest-pool-workers"
 // VAULT_KEK_SECRET. The keychain:// scheme is the chosen test path
 // because it exercises the helper-mediated resolution that prod uses.
 const VITEST_KEK_BYTES = "vitest-deterministic-kek-32b-not-a-secret";
+
+// The upstream hosts LLO's credential-isolation/v1 injection vectors name.
+// Read from the vectors, so a vector naming a new host is echoed without
+// editing this file.
+const VECTOR_DIR = "./test/fixtures/llo-credential-isolation-v1/test-vectors";
+const ECHO_HOSTS = new Set(
+  ["injection-fixtures.json", "injection-collision.json"].flatMap((file) =>
+    (JSON.parse(readFileSync(`${VECTOR_DIR}/${file}`, "utf8")) as { vectors: Array<{ inputs: { upstream_base: string } }> })
+      .vectors.map((v) => new URL(v.inputs.upstream_base).host)),
+);
+
+/**
+ * The worker's outbound network in tests (ADR-0082 §5). A request to a host
+ * the injection vectors name is echoed back as JSON: its method, URL,
+ * headers and body. That lets the conformance test compare what the vault
+ * actually sent upstream with what a vector pins. Every other outbound
+ * request is answered 502, so no test reaches the real network.
+ */
+async function testOutbound(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (!ECHO_HOSTS.has(url.host)) {
+    return new Response(`no network in tests: ${url.host}`, { status: 502 });
+  }
+  return Response.json({
+    method: request.method,
+    url: request.url,
+    headers: [...request.headers],
+    body: await request.text(),
+  });
+}
 
 const workerConfig = {
   // The symlink points at the real Wrangler config from a test-only directory.
@@ -92,6 +123,7 @@ const workerConfig = {
       INTERLACE_MASTER_PUBKEY: "",
       INTERLACE_DISCLOSURE_HMAC_KEY: "",
     },
+    outboundService: testOutbound,
   },
 } as const;
 

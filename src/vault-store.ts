@@ -122,7 +122,6 @@ import type { Env } from "./types.js";
 import { logEvent } from "./obs/log.js";
 import {
   buildErrorResponse,
-  buildProxyRequest,
   checkAccess,
   sanitizeResponse,
   validateCredentialPayload,
@@ -130,6 +129,13 @@ import {
   type VaultStorage,
 } from "../vault/src/vault.js";
 import { buildDenialAuditEntry } from "../vault/src/handler.js";
+import {
+  InjectionRefused,
+  injectCredential,
+  outboundRequest,
+  sameUpstream,
+  type DeclaredService,
+} from "../vault/src/inject.js";
 import {
   decrypt,
   deriveKEK,
@@ -141,12 +147,16 @@ import { buildKekScopeSource } from "../vault/src/kek-scope.js";
 import { RATE_LIMITS, refillBucket, tryConsume } from "../vault/src/rate-bucket.js";
 import { errorResponse } from "./routes/vault-proxy.js";
 
-/** SQLite row shape — sealed_headers is JSON-serialized SealedCredential. */
+/**
+ * SQLite row shape. `sealed_secret` is the JSON-serialized SealedCredential
+ * of `{ credential, username? }` (ADR-0082 §3).
+ */
 interface StoredRow {
   upstream: string;
-  sealed_headers: string;
+  sealed_secret: string;
   allowed_subs_json: string;
 }
+
 
 /**
  * Public RPC surface for VaultStore.
@@ -165,7 +175,7 @@ export interface VaultStoreRpc {
   putCredential(
     subjectFp: string,
     service: string,
-    cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
+    cred: { upstream: string; credential: string; username?: string; allowedSubs: string[] },
   ): Promise<void>;
 
   getCredentialMetadata(
@@ -185,6 +195,7 @@ export interface VaultStoreRpc {
     service: string,
     callerSub: string,
     incomingRequest: Request,
+    declared: DeclaredService,
   ): Promise<Response>;
 }
 
@@ -246,7 +257,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
         subject_fp TEXT NOT NULL,
         service TEXT NOT NULL,
         upstream TEXT NOT NULL,
-        sealed_headers TEXT NOT NULL,
+        sealed_secret TEXT NOT NULL,
         allowed_subs_json TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
@@ -254,24 +265,28 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       )
     `);
 
-    // Defensive migration: if the table existed previously with the OLD
-    // schema (single PK `service`, no `subject_fp` column), the CREATE
-    // TABLE IF NOT EXISTS above is a no-op and we'd silently retain the
-    // unsafe shape. Detect that case via PRAGMA table_info and recreate
-    // destructively. Pre-1.0; no production data exists. Runs once per
-    // DO lifetime so the cost is negligible.
+    // Defensive migration: if the table existed previously with an OLDER
+    // shape, the CREATE TABLE IF NOT EXISTS above is a no-op and we'd
+    // silently retain it. Two older shapes exist: a single PK `service`
+    // with no `subject_fp` column (unsafe across subjects), and rows of
+    // ready-made headers in `sealed_headers` (ADR-0082: a row now holds the
+    // secret, and the declaration decides how it is presented). Detect either
+    // via PRAGMA table_info and recreate destructively. Pre-1.0; nothing in
+    // production writes credentials yet, and the dev seed writes its one
+    // again on first use. Runs once per DO lifetime so the cost is negligible.
     const cols = ctx.storage.sql
       .exec("PRAGMA table_info(credentials)")
       .toArray() as unknown as Array<{ name: string }>;
     const hasSubjectFp = cols.some((c) => c.name === "subject_fp");
-    if (!hasSubjectFp && cols.length > 0) {
+    const hasSealedSecret = cols.some((c) => c.name === "sealed_secret");
+    if (cols.length > 0 && (!hasSubjectFp || !hasSealedSecret)) {
       ctx.storage.sql.exec("DROP TABLE credentials");
       ctx.storage.sql.exec(`
         CREATE TABLE credentials (
           subject_fp TEXT NOT NULL,
           service TEXT NOT NULL,
           upstream TEXT NOT NULL,
-          sealed_headers TEXT NOT NULL,
+          sealed_secret TEXT NOT NULL,
           allowed_subs_json TEXT NOT NULL,
           created_at TEXT DEFAULT (datetime('now')),
           updated_at TEXT DEFAULT (datetime('now')),
@@ -398,7 +413,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
   async putCredential(
     subjectFp: string,
     service: string,
-    cred: { upstream: string; headers: Record<string, string>; allowedSubs: string[] },
+    cred: { upstream: string; credential: string; username?: string; allowedSubs: string[] },
   ): Promise<void> {
     assertSubjectFp(subjectFp);
     // F1 gate: token-bucket budget. Write cost (3) — encrypt + SQL.
@@ -406,7 +421,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     if (!b.ok) throw new Error(`vault: rate limited — retry after ${b.retryAfterSec}s`);
     // F4 gate: reject oversized payloads before they touch encrypt + SQL write
     // (cloister-21b5eb). Without this gate, a single putCredential with
-    // megabyte headers blocks the single-threaded DO on AES-GCM + SQLite
+    // a megabyte secret blocks the single-threaded DO on AES-GCM + SQLite
     // write while queueing every co-resident call.
     const v = validateCredentialPayload(cred);
     if (!v.ok) throw new Error(`vault: rejected credential — ${v.reason}`);
@@ -464,12 +479,14 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
         peerFp: string;
         service: string;
         upstream: string;
-        headers: Record<string, string>;
+        credential: string;
+        username?: string;
         allowedSubs?: string[];
       };
       await this.putCredential(seed.peerFp, seed.service, {
         upstream: seed.upstream,
-        headers: seed.headers,
+        credential: seed.credential,
+        ...(seed.username !== undefined ? { username: seed.username } : {}),
         allowedSubs: seed.allowedSubs ?? [],
       });
       // eslint-disable-next-line no-console -- operator-facing dev signal
@@ -491,6 +508,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     service: string,
     callerSub: string,
     incomingRequest: Request,
+    declared: DeclaredService,
   ): Promise<Response> {
     assertSubjectFp(subjectFp);
 
@@ -542,7 +560,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
     this.#incInflight(subjectFp);
     try {
-      return await this.#proxyRequestInner(subjectFp, service, callerSub, incomingRequest);
+      return await this.#proxyRequestInner(subjectFp, service, callerSub, incomingRequest, declared);
     } finally {
       this.#decInflight(subjectFp);
     }
@@ -553,9 +571,10 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     service: string,
     callerSub: string,
     incomingRequest: Request,
+    declared: DeclaredService,
   ): Promise<Response> {
     const row = this.ctx.storage.sql.exec(
-      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
+      "SELECT upstream, sealed_secret, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
       subjectFp,
       service,
     ).toArray() as unknown as StoredRow[];
@@ -599,7 +618,7 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       );
     }
 
-    const sealedJson = row[0].sealed_headers;
+    const sealedJson = row[0].sealed_secret;
     const upstream   = row[0].upstream;
     const allowedSubs = JSON.parse(row[0].allowed_subs_json) as string[];
 
@@ -620,12 +639,50 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
       );
     }
 
+    // A credential is only ever sent to the upstream it was stored for
+    // (ADR-0082 §2). A declaration that names another base, from a changed
+    // manifest or a forged one, gets the same constant-shape 404.
+    if (!sameUpstream(upstream, declared.upstreamBaseUrl)) {
+      console.log(JSON.stringify(buildDenialAuditEntry({
+        event: "credential_upstream_mismatch",
+        subjectFp,
+        callerSub,
+        service,
+      })));
+      return errorResponse(
+        404,
+        JSON.stringify(buildErrorResponse("not_found", callerSub, service, null)),
+      );
+    }
+
     const kek = await this.#getKEK();
     const sealed = JSON.parse(sealedJson) as SealedCredential;
-    const headers = await decrypt(sealed, kek);
+    const secret = await decrypt(sealed, kek);
+    if (typeof secret.credential !== "string" || secret.credential === "") {
+      throw new Error("vault: a stored credential holds no secret");
+    }
 
-    const cred: StoredCredential = { upstream, headers, allowedSubs };
-    const proxyReq = buildProxyRequest(incomingRequest, cred);
+    // The one injection (ADR-0082 §1): the declared strategy, the declared
+    // base, the parsed path and the caller's query and headers.
+    let proxyReq: Request;
+    try {
+      const out = injectCredential({
+        injection:    declared.injection,
+        credential:   secret.credential,
+        username:     secret.username ?? service,
+        upstreamBase: upstream,
+        request: {
+          method:       incomingRequest.method,
+          upstreamPath: declared.upstreamPath,
+          search:       new URL(incomingRequest.url).search,
+          headers:      incomingRequest.headers,
+        },
+      });
+      proxyReq = await outboundRequest(out, incomingRequest);
+    } catch (e) {
+      if (!(e instanceof InjectionRefused)) throw e;
+      return errorResponse(400, JSON.stringify({ error: "bad_request", reason: e.message }));
+    }
     const upstreamResponse = await fetch(proxyReq);
     return sanitizeResponse(upstreamResponse);
   }
@@ -837,14 +894,15 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
 
   async #readRow(subjectFp: string, service: string): Promise<StoredCredential | null> {
     const rows = this.ctx.storage.sql.exec(
-      "SELECT upstream, sealed_headers, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
+      "SELECT upstream, sealed_secret, allowed_subs_json FROM credentials WHERE subject_fp = ? AND service = ?",
       subjectFp,
       service,
     ).toArray() as unknown as StoredRow[];
     if (rows.length === 0) return null;
+    // Metadata only: the secret stays sealed, and is opened only to inject it.
     return {
       upstream: rows[0].upstream,
-      headers: {},
+      credential: "",
       allowedSubs: JSON.parse(rows[0].allowed_subs_json),
     };
   }
@@ -855,14 +913,19 @@ export class CredentialVault extends DurableObject implements VaultStoreRpc {
     cred: StoredCredential,
   ): Promise<void> {
     const kek = await this.#getKEK();
-    const sealed = await encrypt(cred.headers, kek);
+    const sealed = await encrypt(
+      cred.username !== undefined
+        ? { credential: cred.credential, username: cred.username }
+        : { credential: cred.credential },
+      kek,
+    );
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO credentials (subject_fp, service, upstream, sealed_headers, allowed_subs_json)
+      `INSERT INTO credentials (subject_fp, service, upstream, sealed_secret, allowed_subs_json)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(subject_fp, service) DO UPDATE SET
          upstream = excluded.upstream,
-         sealed_headers = excluded.sealed_headers,
+         sealed_secret = excluded.sealed_secret,
          allowed_subs_json = excluded.allowed_subs_json,
          updated_at = datetime('now')`,
       subjectFp,

@@ -22,6 +22,8 @@
 // Spec: leyline-schema-spec/credential-isolation/v1/
 // ADR: docs/adr/0024-credential-isolation-capability.md
 
+import type { DeclaredService } from "../../vault/src/inject.js";
+
 /**
  * What the route entry hands to `vaultProxyHandler` for the
  * credential-bearing fields of `VaultProxyRequest`. `null` means
@@ -68,12 +70,17 @@ export interface CredentialStore {
    * invariant (plaintext stays inside the DO trust boundary). Optional
    * because `InMemoryCredentialStore` doesn't have a meaningful
    * upstream-delegation path.
+   *
+   * `declared` is what the declaration says about the service: its
+   * injection, its upstream base and the parsed path. The vault applies it
+   * (ADR-0082 §2).
    */
   forward?(
     peerFp: string,
     service: string,
     callerSub: string,
     request: Request,
+    declared: DeclaredService,
   ): Promise<Response>;
 }
 

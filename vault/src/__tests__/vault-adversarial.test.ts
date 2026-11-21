@@ -20,7 +20,7 @@ async function getVault() {
 const SECRET_KEY = "sk-live-NEVER-SEE-THIS-abc123xyz789";
 const NVD_CRED = {
   upstream: "https://services.nvd.nist.gov/rest/json/cves/2.0",
-  headers: { apiKey: SECRET_KEY },
+  credential: SECRET_KEY,
   allowedSubs: ["repo:org/venturi:*"],
 };
 
@@ -253,30 +253,26 @@ describe("ATTACK: SSRF via upstream URL", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("ATTACK: header injection via stored credential", () => {
-  it("CRLF in credential header values don't inject extra headers", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    // Attacker somehow stores a credential with CRLF-injected header value
-    const maliciousCred = {
-      upstream: "https://api.example.com/data",
-      headers: { "X-Api-Key": "legit-key\r\nX-Injected: evil-value" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/svc");
-
-    // The Headers API should handle this safely (either reject or sanitize)
-    let threw = false;
-    try {
-      const proxied = buildProxyRequest(incoming, maliciousCred);
-      // If it doesn't throw, verify no injection happened
-      expect(proxied.headers.get("X-Injected")).toBeNull();
-    } catch {
-      // Headers constructor rejecting CRLF is also acceptable
-      threw = true;
+  // Was `expect(true).toBe(true)` whichever way it went. Now both places a
+  // line break could get in refuse it.
+  it("a credential holding CR or LF is refused when stored", async () => {
+    const { validateCredentialPayload } = await getVault();
+    for (const credential of ["legit-key\r\nX-Injected: evil-value", "a\nb", "a\rb", "a\u0000b"]) {
+      const v = validateCredentialPayload({ credential, allowedSubs: ["*"] });
+      expect(v.ok).toBe(false);
+      if (!v.ok) expect(v.reason).toMatch(/CR, LF or NUL/);
     }
-    // Either threw or no injection — both are safe outcomes
-    expect(true).toBe(true);
+  });
+
+  it("and refused again if one reaches the injection, instead of ending the header", async () => {
+    const { injectCredential, InjectionRefused } = await import("../inject");
+    expect(() => injectCredential({
+      injection: { kind: "headerNamed", name: "X-Api-Key" },
+      credential: "legit-key\r\nX-Injected: evil-value",
+      username: "svc",
+      upstreamBase: "https://api.example.com",
+      request: { method: "GET", upstreamPath: "", search: "", headers: [] },
+    })).toThrow(InjectionRefused);
   });
 });
 
@@ -308,28 +304,19 @@ describe("ATTACK: ReDoS via crafted glob patterns", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("ATTACK: cross-service credential isolation", () => {
-  it("buildProxyRequest only uses the provided credential", async () => {
-    const { buildProxyRequest } = await getVault();
-
-    const credA = {
-      upstream: "https://api-a.example.com",
-      headers: { "X-Api-Key-A": "secret-A" },
-      allowedSubs: ["*"],
-    };
-
-    const credB = {
-      upstream: "https://api-b.example.com",
-      headers: { "X-Api-Key-B": "secret-B" },
-      allowedSubs: ["*"],
-    };
-
-    const incoming = new Request("https://vault.example.com/a");
-    const proxiedA = buildProxyRequest(incoming, credA);
-
-    expect(proxiedA.headers.get("X-Api-Key-A")).toBe("secret-A");
-    expect(proxiedA.headers.get("X-Api-Key-B")).toBeNull();
-    expect(proxiedA.url).toContain("api-a.example.com");
-    expect(proxiedA.url).not.toContain("api-b.example.com");
+  it("the injection uses only the credential and upstream it is given", async () => {
+    const { injectCredential } = await import("../inject");
+    const out = injectCredential({
+      injection: { kind: "headerNamed", name: "X-Api-Key-A" },
+      credential: "secret-A",
+      username: "a",
+      upstreamBase: "https://api-a.example.com",
+      request: { method: "GET", upstreamPath: "/a", search: "", headers: [["X-Api-Key-B", "secret-B"]] },
+    });
+    expect(out.url).toBe("https://api-a.example.com/a");
+    expect(out.headers).toContainEqual(["x-api-key-a", "secret-A"]);
+    // A header the caller sent is the caller's, not another service's vault entry.
+    expect(out.headers.filter(([, v]) => v === "secret-B")).toEqual([["x-api-key-b", "secret-B"]]);
   });
 });
 
@@ -352,44 +339,38 @@ describe("ATTACK: error message credential extraction", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ATTACK 9: Credential-payload DoS via oversized headers (cloister-21b5eb)
-// Attacker's goal: putCredential with megabyte headers, blocking the
+// ATTACK 9: Credential-payload DoS via an oversized payload (cloister-21b5eb)
+// Attacker's goal: putCredential with a megabyte secret, blocking the
 // single-threaded vault DO on encrypt + SQL write while queueing every
 // co-resident call. Closed by validateCredentialPayload at the input
 // boundary. Per dos-friend pilot finding F4.
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("ATTACK: credential-payload DoS", () => {
-  it("rejects oversized single header value", async () => {
+  it("rejects an oversized secret", async () => {
     const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
-    const oversized = "x".repeat(CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES + 1);
-    const v = validateCredentialPayload({ headers: { apiKey: oversized }, allowedSubs: [] });
+    const oversized = "x".repeat(CREDENTIAL_LIMITS.MAX_CREDENTIAL_BYTES + 1);
+    const v = validateCredentialPayload({ credential: oversized, allowedSubs: [] });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/header value too long/);
+    if (!v.ok) expect(v.reason).toMatch(/credential too long/);
   });
 
-  it("rejects payloads that exceed total bytes via many medium-sized headers", async () => {
+  it("rejects an oversized username", async () => {
     const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
-    // Each value is below the per-value cap; the cumulative total exceeds.
     const v = validateCredentialPayload({
-      headers: Object.fromEntries(
-        Array.from({ length: 4 }, (_, i) => [`h${i}`, "y".repeat(5 * 1024)]),
-      ),
+      credential: "k",
+      username: "u".repeat(CREDENTIAL_LIMITS.MAX_USERNAME_BYTES + 1),
       allowedSubs: [],
     });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/exceed total size/);
-    expect(4 * 5 * 1024).toBeGreaterThan(CREDENTIAL_LIMITS.MAX_TOTAL_HEADERS_BYTES);
+    if (!v.ok) expect(v.reason).toMatch(/username too long/);
   });
 
-  it("rejects too many header entries", async () => {
-    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
-    const headers = Object.fromEntries(
-      Array.from({ length: CREDENTIAL_LIMITS.MAX_HEADER_COUNT + 1 }, (_, i) => [`h${i}`, "v"]),
-    );
-    const v = validateCredentialPayload({ headers, allowedSubs: [] });
+  it("rejects an empty secret", async () => {
+    const { validateCredentialPayload } = await getVault();
+    const v = validateCredentialPayload({ credential: "", allowedSubs: [] });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/too many headers/);
+    if (!v.ok) expect(v.reason).toMatch(/non-empty/);
   });
 
   it("rejects too many allowedSubs", async () => {
@@ -398,7 +379,7 @@ describe("ATTACK: credential-payload DoS", () => {
       { length: CREDENTIAL_LIMITS.MAX_ALLOWED_SUBS_COUNT + 1 },
       (_, i) => `repo:x/y${i}:*`,
     );
-    const v = validateCredentialPayload({ headers: {}, allowedSubs: subs });
+    const v = validateCredentialPayload({ credential: "k", allowedSubs: subs });
     expect(v.ok).toBe(false);
     if (!v.ok) expect(v.reason).toMatch(/too many allowedSubs/);
   });
@@ -409,23 +390,12 @@ describe("ATTACK: credential-payload DoS", () => {
     expect(v.ok).toBe(true);
   });
 
-  it("rejects oversized header key", async () => {
-    const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
-    const longKey = "k".repeat(CREDENTIAL_LIMITS.MAX_HEADER_KEY_BYTES + 1);
-    const v = validateCredentialPayload({ headers: { [longKey]: "v" }, allowedSubs: [] });
-    expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/header key too long/);
-  });
-
   it("counts bytes in UTF-8, not code units", async () => {
     const { validateCredentialPayload, CREDENTIAL_LIMITS } = await getVault();
     // 💀 is 4 bytes in UTF-8. ceil(MAX/4)+1 chars exceeds the cap.
-    const chars = Math.ceil(CREDENTIAL_LIMITS.MAX_HEADER_VALUE_BYTES / 4) + 1;
-    const v = validateCredentialPayload({
-      headers: { apiKey: "💀".repeat(chars) },
-      allowedSubs: [],
-    });
+    const chars = Math.ceil(CREDENTIAL_LIMITS.MAX_CREDENTIAL_BYTES / 4) + 1;
+    const v = validateCredentialPayload({ credential: "💀".repeat(chars), allowedSubs: [] });
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.reason).toMatch(/header value too long/);
+    if (!v.ok) expect(v.reason).toMatch(/credential too long/);
   });
 });
