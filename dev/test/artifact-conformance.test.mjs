@@ -18,14 +18,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 
 import { ARTIFACTS, goldenBytes } from "../artifact-registry.mjs";
 import { validate, UnsupportedSchemaError } from "../../gen/lib/json-schema-subset.mjs";
+import { parseVectors, pinnedTag, vendoredFrom } from "../../gen/vendor-llo-spec.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
@@ -128,44 +128,25 @@ test("the vendored schema matches its pinned digest", () => {
   // The vendored copy is the thing every check above trusts. Pinning it means a
   // silent edit to the local copy — which would weaken every artifact check at
   // once — fails here instead of passing everywhere.
-  const pin = read("test/fixtures/llo-confinement-v1/VECTORS.sha256").trim().split(/\s+/)[0];
+  const rows = parseVectors(read("test/fixtures/llo-confinement-v1/VECTORS.sha256"));
+  const pin = rows.find((r) => r.path === "confinement.schema.json");
+  assert.ok(pin, "VECTORS.sha256 lists confinement.schema.json");
   const actual = createHash("sha256").update(readFileSync(
     resolve(ROOT, "test/fixtures/llo-confinement-v1/confinement.schema.json"))).digest("hex");
-  assert.equal(actual, pin, "vendored schema does not match VECTORS.sha256");
+  assert.equal(actual, pin.sha256, "vendored schema does not match VECTORS.sha256");
 });
 
-test("the vendored schema is the PINNED version's, not a working tree's", { skip: !lloRepo() }, () => {
-  // Resolved by `git show v<pinned>:<path>`, NOT by reading the sibling's
-  // checkout. The first cut read the working tree, and the working tree was on
-  // an in-progress branch — so the vendored copy came from nowhere in
-  // particular, the test compared against that same nowhere, and the two agreed
-  // with each other. A self-consistent loop with no anchor is worse than no
-  // check: it reports clean by construction.
+test("the vendored schema says it is the pinned release's", () => {
+  // gen/vendor-llo-spec.mjs writes it from git at the pinned release's commit
+  // and heads VECTORS.sha256 with that release. Here, without an LLO checkout,
+  // the header is held to the pin, so a bump that did not re-vendor fails.
+  // Whether the bytes ARE that release's is checked against LLO itself, by the
+  // CI job that clones it at the tag and runs `vendor-llo-spec.mjs --check`.
   //
-  // Anchoring on the pinned version also makes the coupling correct — the
-  // vendored schema and the pin move together, so a bump that forgets to
-  // re-vendor fails here rather than validating tomorrow's documents against
-  // yesterday's rules.
-  const pinned = pinnedLloVersion();
-  assert.ok(pinned, "could not read the pinned ley-line-open version");
-  const fromTag = execFileSync(
-    "git",
-    ["show", `v${pinned}:rs/ll-core/schema-spec/confinement/v1/confinement.schema.json`],
-    { cwd: lloRepo(), encoding: "utf8" },
-  );
-  assert.equal(
-    fromTag,
-    read("test/fixtures/llo-confinement-v1/confinement.schema.json"),
-    `vendored confinement schema is not v${pinned}'s — re-vendor from the tag and re-pin`,
-  );
+  // This replaces a test that compared by tag only when an LLO checkout sat
+  // beside cloister. CI never had one, so it never ran there, and the copy it
+  // guarded was v0.21.1's schema while cloister pinned v0.30.0.
+  const from = vendoredFrom(read("test/fixtures/llo-confinement-v1/VECTORS.sha256"));
+  assert.ok(from, "VECTORS.sha256 is headed by the release it was vendored from");
+  assert.equal(from.tag, pinnedTag());
 });
-
-function lloRepo() {
-  const p = process.env.CLOISTER_LLO_ROOT ?? resolve(ROOT, "../ley-line-open");
-  return existsSync(resolve(p, ".git")) ? p : null;
-}
-
-function pinnedLloVersion() {
-  const toml = read("cluster.toml");
-  return /\[inputs\.llo\][\s\S]*?version\s*=\s*"([^"]+)"/.exec(toml)?.[1] ?? null;
-}

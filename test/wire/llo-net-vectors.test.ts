@@ -9,7 +9,8 @@
 // with no arguments, every ToolResult rosary sent) until this ran.
 //
 // The vectors are vendored from the release cloister pins by
-// gen/vendor-llo-net-vectors.mjs, and `task llo:bump` re-vendors them.
+// gen/vendor-llo-net-vectors.mjs, run by gen/vendor-llo-spec.mjs with every
+// other LLO spec fixture, and `task llo:bump` re-vendors them.
 
 import { describe, it, expect } from "vitest";
 

@@ -77,7 +77,7 @@ test("the walk reaches every committed Cargo.toml that pins ley-line-open, not o
   }
 });
 
-test("the shipped tree states ONE ley-line-open version across all four hand-stated channels", () => {
+test("the shipped tree states ONE ley-line-open version across every hand-stated channel", () => {
   // The property the first version of this rail lacked entirely. It compared
   // Cargo pins to EACH OTHER, so three internally-consistent channels reading
   // 0.11.3 / 0.12.0 / 0.12.1 simultaneously produced no complaint — they were
@@ -98,13 +98,21 @@ test("the shipped tree states ONE ley-line-open version across all four hand-sta
   const vectors = JSON.parse(readFileSync(resolve(ROOT, "test/wire/fixtures/llo-net-vectors.json"), "utf8")).version;
   assert.ok(vectors, "the vendored leyline-net vectors must declare a version");
 
+  // Each vendored spec fixture's release: the first line of its VECTORS.sha256
+  // is `# ley-line-open <tag> <commit> <spec path>`.
+  const fixtures = ["llo-confinement-v1", "llo-execution-v1", "llo-credential-isolation-v1"].map((dir) => {
+    const first = readFileSync(resolve(ROOT, `test/fixtures/${dir}/VECTORS.sha256`), "utf8").split("\n")[0].split(" ");
+    assert.equal(first[1], "ley-line-open", `${dir}/VECTORS.sha256 is headed by the release it was vendored from`);
+    return first[2];
+  });
+
   // ADR-0041: the `v` prefix is a per-repo convention, not a mandate, so a
   // Cargo semver field and a release tag legitimately differ by it.
   const strip = (v) => String(v).replace(/^v/, "");
   assert.deepEqual(
-    [...new Set([strip(cargo[0]), strip(input), strip(gen), strip(vectors)])].length,
+    [...new Set([strip(cargo[0]), strip(input), strip(gen), strip(vectors), ...fixtures.map(strip)])].length,
     1,
-    `channels disagree — cargo=${cargo[0]} input=${input} generator=${gen} vectors=${vectors}`,
+    `channels disagree — cargo=${cargo[0]} input=${input} generator=${gen} vectors=${vectors} fixtures=${fixtures}`,
   );
 });
 

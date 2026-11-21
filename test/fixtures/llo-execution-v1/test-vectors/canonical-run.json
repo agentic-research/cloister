@@ -87,7 +87,8 @@
           "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         },
         "expectedGeneration": 7,
-        "operations": ["read", "list", "query", "mutate", "commit"]
+        "operations": ["read", "list", "query", "mutate", "commit"],
+        "writeScope": ["src/main.rs", "docs/"]
       }
     ],
     "allowedEgress": ["api.anthropic.com:443"],

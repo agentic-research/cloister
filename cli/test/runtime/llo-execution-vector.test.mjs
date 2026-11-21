@@ -30,6 +30,7 @@
 // own) and it is also what makes the test survive a schema bump — an LLO field
 // added at a new ordinal is covered the moment the pins move, with no edit here.
 
+import { parseVectors } from "../../../gen/vendor-llo-spec.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -56,18 +57,8 @@ const MANIFEST_URL = new URL(
   import.meta.url,
 );
 
-/** `<64 hex>  <relative path>` per line; `#` comments and blanks skipped. */
-function parseManifest(text) {
-  const rows = [];
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (t.length === 0 || t.startsWith("#")) continue;
-    const m = /^([0-9a-f]{64})\s+(\S.*)$/.exec(t);
-    if (!m) throw new Error(`unparseable VECTORS.sha256 line: ${line}`);
-    rows.push({ sha256: m[1], path: m[2] });
-  }
-  return rows;
-}
+/** The vendored VECTORS.sha256, parsed by the one parser gen/vendor-llo-spec.mjs writes it for. */
+const parseManifest = parseVectors;
 
 const MANIFEST = parseManifest(readFileSync(MANIFEST_URL, "utf8"));
 
