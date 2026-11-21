@@ -8,6 +8,30 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister is a core, drivers and features (ADR-0081)
+
+- ADR-0081 separates cloister into three layers, joined only at composition
+  roots:
+  - **core**: what every deployment guarantees, in five sentences;
+  - **drivers**: one per placement (workerd, compose, microVM, kubernetes);
+  - **features**: built on both.
+
+  The gateway is not core. Its isolate hosting is the workerd driver and its
+  routes are features. Core is not a place either: on Cloudflare Workers
+  there is no host underneath the worker.
+- A measured snapshot of cloister's 52,788 lines of runtime code:
+  - core is 21,972 lines (42%), and 12,349 of them are written as gateway
+    code in `src/`;
+  - drivers are 12,577 lines;
+  - features are 17,723 lines.
+- `lint/layers.mjs` maps every tracked source file to its layer, and
+  `task lint:layers` prints the inventory. `task lint` refuses a source file
+  with no layer, and a map entry that names no file.
+- Still to come:
+  - a rail that keeps imports pointing inward;
+  - a size budget on core, which can grow only with an amendment;
+  - no files moving until each is next changed.
+
 ### 2026-11 — every `cluster` subcommand is parsed from its declaration
 
 - One hand parser served every `cluster` subcommand. It accepted each

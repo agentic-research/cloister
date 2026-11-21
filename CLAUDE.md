@@ -14,6 +14,15 @@ declares routes and backends; outside, the same TypeScript bundle runs
 on `workerd serve config.capnp` locally and on Cloudflare Workers in
 production.
 
+**Core, drivers, features ([ADR-0081](docs/adr/0081-cloister-is-a-core-drivers-and-features.md)).**
+That paragraph describes the workerd gateway, which is one driver plus the MCP
+features, and today the home of most of core. Core is what every deployment
+guarantees: the declaration, authority, credentials, audit, confinement policy
+and content addressing. Drivers are placements (workerd, compose, microVM,
+kubernetes). Features build on both. `lint/layers.mjs` maps every source file
+to its layer, and `task lint` refuses a file with none. Give a new file the
+right layer; a new core file needs a reason.
+
 Read [README.md](README.md) → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) → ADRs in
 order if you're new. The ADRs are the source of truth for *why*; the
 top-level docs describe *what*.
@@ -127,6 +136,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:sibling-bead-refs` | no sibling-repo ADR decides a cloister bead we still hold OPEN | `cloister-4c057a` |
 | `lint:harness-target-literals` | provider literals live only in the `[[gateway.harnessTargets]]` declaration | `cloister-742e19` |
 | `lint:conflict-markers` | no merge/rebase conflict marker line (`<<<<<<<`, `=======`, `>>>>>>>`, or a diff3 base marker) survives in a tracked text file | `cloister-991e65` |
+| `lint:layers` | every tracked source file has a layer (core, driver or feature), by the map in `lint/layers.mjs`, and every map entry names a tracked file | ADR-0081 |
 | compose reach | a compose bundle the gateway's image dials at loopback (`config.capnp`) declares that it joins the gateway's network namespace | ADR-0075 §8 |
 | `mermaid:lint` | every mermaid diagram in a tracked markdown file parses, by mermaid's own parser, and avoids the shapes GitHub draws wrongly | `cloister-ca2582` |
 | `lint:doc-invocations` | every `cloister …` and `task …` line in the docs' shell fences names a declared command, flags it declares, and tasks Task lists (mache's doc-vs-CLI gate) | `cloister-ca2582` |
