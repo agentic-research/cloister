@@ -30,6 +30,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve, isAbsolute, join } from "node:path";
 import { renderCommandHelp } from "../surface.mjs";
+import { FlagsError, parseFlags } from "../lib/flags.mjs";
+
+/** The `cluster` subcommands whose flags are parsed from their declaration. */
+export const DECLARED_PARSE = Object.freeze(["graph"]);
 import { startedAsScript } from "../lib/started-as-script.mjs";
 
 export class ClusterUsageError extends Error {}
@@ -74,6 +78,23 @@ function spawnSyncSafe(bin, args) {
  * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, passthrough:string[]}}
  */
 export function parseArgs(argv) {
+  // A subcommand that has moved has its flags parsed from its declaration in
+  // cli/surface.mjs, and accepts only those (ADR-0077 Part 3). The rest are
+  // parsed below until each moves.
+  if (DECLARED_PARSE.includes(argv[0])) {
+    const sub = argv[0];
+    let flags;
+    try {
+      flags = parseFlags(`cluster ${sub}`, argv.slice(1));
+    } catch (error) {
+      if (error instanceof FlagsError) throw new ClusterUsageError(error.message);
+      throw error;
+    }
+    return {
+      help: false, sub, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
+      env: null, out: null, json: false, ...flags,
+    };
+  }
   const out = {
     help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
     env: null, out: null, json: false,
@@ -307,7 +328,8 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   }
 
   if (args.sub === "graph") {
-    const env = args.env ?? "local";
+    // Its default, "local", is declared in cli/surface.mjs.
+    const env = args.env;
     try {
       const graph = await graphDir({ root: selectedRoot, env });
       if (args.json) {

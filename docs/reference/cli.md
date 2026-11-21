@@ -269,8 +269,8 @@ Reads cluster.toml and prints one graph: every [[connections]] row that has a ta
 
 | Flag | | |
 |---|---|---|
-| `--env` `<name>` |  | environment whose connection targets and placements are read (default: local) |
-| `--dir` `<path>` |  | cluster directory holding cluster.toml (default: the current directory) |
+| `--env` `<name>` |  | environment whose connection targets and placements are read |
+| `--dir` `<path>` |  | cluster directory holding cluster.toml |
 | `--json` |  | print the graph as JSON: the Graph format in schema/cli.schema.json, versioned by formatVersion |
 
 See also: [`docs/adr/0075-one-graph.md`](../adr/0075-one-graph.md)

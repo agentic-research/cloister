@@ -23,6 +23,11 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `minStrength` of no minimum now reads `none` rather than an empty string.
 - `--help` always answers, from the declaration, before any command code
   (`cli/help.mjs`).
+- `cluster graph` is the first command whose flags are parsed from its
+  declaration in `cli/surface.mjs` (`cli/lib/flags.mjs`). It now refuses a
+  flag it does not declare (`cluster graph --destroy` used to be accepted and
+  ignored), a flag given twice, and a switch given a value. A declared
+  default is shown in help from the same entry.
 - `inspect --json` is declared too (`InspectReport`, 1.0), as a projection
   chosen field by field (`cli/lib/facts/report-json.mjs`) rather than the
   internal report: nothing from a provider's document passes through
