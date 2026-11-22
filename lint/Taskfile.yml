@@ -143,6 +143,11 @@ tasks:
       - dev/**/*.mjs
       - src/**/*.ts
 
+  lint:rust-exits:
+    desc: "Cloister keeps no Rust (ADR-0084): every tracked Rust or Cargo file lies in a tree RUST_EXITS lists, and every Cargo.toml is one of theirs; each entry names its exit (a bead, a repo#N issue or an ADR); an entry whose tree is gone is refused, so the list only shrinks; and the Rust stays under ADR-0084's rust-budget."
+    cmds:
+      - node lint/rust-exits.mjs
+
   lint:conflict-markers:
     desc: "No merge-conflict markers (<<<<<<< , ||||||| , =======, >>>>>>> ) at line start in any tracked text file (cloister-991e65). Two diff3 base markers reached CHANGELOG.md, one already on main, because nothing parses markdown."
     cmds:
