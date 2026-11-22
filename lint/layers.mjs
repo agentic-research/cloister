@@ -62,7 +62,6 @@ export const LAYERS = Object.freeze({
   "cli/lib/cluster/cluster-to-toml.mjs": "core/declaration",
   "cli/lib/cluster/capability-matchmaker.mjs": "core/declaration",
   "cli/lib/cluster/connections.mjs": "core/declaration",
-  "cli/lib/cluster/confinement.mjs": "core/declaration",
   "cli/lib/cluster/workspace.mjs": "core/declaration",
   "cli/lib/cluster/lockfile.mjs": "core/declaration",
   // Pinning is core; its fetchers (GitHub, HTTPS, registries) are
@@ -89,7 +88,6 @@ export const LAYERS = Object.freeze({
   "src/wire/signet-verify.ts": "core/authority",
   "src/wire/interlace-capability.ts": "core/authority",
   "src/wire/compromise-notice.ts": "core/authority",
-  "src/wire/run-id.ts": "core/authority",
   "src/storage/bundle-canonical.ts": "core/authority",
 
   // ── core: credentials ──────────────────────────────────────────────────
@@ -112,8 +110,11 @@ export const LAYERS = Object.freeze({
   "src/wire/origin.ts": "core/audit",
 
   // ── core: confinement policy, content addressing ───────────────────────
-  "src/wire/confinement-digest.ts": "core/confinement",
-  "rs/crates/host-runtime/src/mediator/": "core/confinement",
+  // Confinement policy as core applies it: which grants a bundle's facet
+  // declares, and the refusal of one its placement cannot apply. The digest a
+  // run is held to is computed and checked where the run is: the microVM
+  // driver's grant, the harness runner, and LLO.
+  "cli/lib/cluster/confinement.mjs": "core/confinement",
   "src/wire/cas-hash.ts": "core/content-addressing",
   "src/wire/partition.ts": "core/content-addressing",
   "src/storage/canonical.ts": "core/content-addressing",

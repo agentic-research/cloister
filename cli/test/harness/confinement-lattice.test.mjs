@@ -348,9 +348,8 @@ test("meeting across contract versions is refused, not silently reconciled", () 
 });
 
 test("canonicalJson sorts keys, indents by two, and adds no trailing newline", () => {
-  // §7's contract. The digest itself is pinned against LLO's vector by
-  // test/wire/confinement-digest.test.ts; this only pins that the lattice's
-  // comparison uses the same shape, so `leq` cannot disagree with a digest.
+  // §7's contract. test/wire/confinement-digest.test.ts hashes this same
+  // function's output and pins LLO's digest; this pins the shape it emits.
   const out = canonicalJson({ version: V, port: { bind: 8443 }, fs: { allow: ["/a/"] } });
   assert.equal(out, [
     "{",

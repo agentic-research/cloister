@@ -8,6 +8,25 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — dead code removed, with its functionality accounted for
+
+- `src/wire/run-id.ts` is deleted, with its test and the vendored
+  `run-id.json` vector. It derived an execution/v1 run ID that cloister never
+  computes. LLO's runtime derives it (`leyline-runtime` `authorization.rs`,
+  against the same vector), and cloister's `runtime` commands use the ID LLO
+  returns.
+- `src/wire/confinement-digest.ts` is deleted. Nothing called it, and its
+  header claimed lease-verify compares the digest, which it does not. Its
+  check moves to the copy cloister keeps: `test/wire/confinement-digest.test.ts`
+  now hashes the CLI's `canonicalJson`, the confinement lattice's canonical
+  form, with the substrate BLAKE3, and pins LLO's digest. The digest a run is
+  held to is still checked by the harness runner before `Sandbox::apply`.
+- `rs/crates/host-runtime/src/mediator/` (428 lines) is deleted, along with
+  the `leyline-fs` dependency only it used. Nothing constructed it. It was the
+  filesystem half of ADR-0049's runtime, from before that runtime moved to
+  LLO. ADR-0050 makes per-operation mediation an escalation, which would live
+  with LLO's runtime.
+
 ### 2026-11 — `cluster up` resolves each compose image when it starts it (ADR-0083 §4)
 
 - `cloister cluster up` (without `--env`) now resolves every image before it

@@ -1,20 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Conformance: cloister's TS §6 canonicalizer + confinementDigest MUST reproduce
-// LLO's pinned digest for the confinement/v1 canonical vector (CONFINEMENT_DIGESTS.blake3
-// @ v0.7.3). This is the TS twin of rs/crates/cas/tests/confinement_digest.rs —
-// both compute the SAME value via the substrate BLAKE3, so the runtime verify
-// (cloister-c80953) agrees with the Rust minter + LLO's blake3 crate.
+// Conformance: cloister's §7 canonical JSON for confinement/v1, hashed by the
+// substrate BLAKE3, MUST reach LLO's pinned confinementDigest for the canonical
+// vector (CONFINEMENT_DIGESTS.blake3 @ v0.7.3).
+//
+// The canonical JSON is the CLI's `canonicalJson`
+// (cli/lib/harness/confinement-lattice.mjs), the one copy cloister keeps. The
+// confinement lattice compares manifests by it, so this pins that two manifests
+// the lattice calls equal are two a certificate's digest calls equal. The
+// BLAKE3 is LLO's own, through the wasm bridge (src/wire/cas-hash.ts).
+//
+// The digest a run is held to is computed and checked in Rust:
+// rs/crates/cas/tests/confinement_digest.rs pins the same value, and the
+// harness runner (tools/harness-sandbox) verifies it against the identity
+// certificate before Sandbox::apply (cloister-c80953).
 
 import { describe, expect, it } from "vitest";
-import { canonicalizeConfinement, confinementDigest } from "../../src/wire/confinement-digest.js";
+import { canonicalJson } from "../../cli/lib/harness/confinement-lattice.mjs";
+import { blake3Hex } from "../../src/wire/cas-hash.js";
 
 // LLO confinement/v1 @ v0.7.3 CONFINEMENT_DIGESTS.blake3 pin for manifest-canonical.json.
 const LLO_PIN = "d9b5b7270bb6e5ec068aec92798dd76b0f71d1fe2640b3a09833b7742d51c617";
 
 // The canonical example manifest (§1-5). Array element order matches the vector
-// (§6 does not sort arrays); object key order is irrelevant here — the
-// canonicalizer sorts.
+// (§7 does not sort arrays); object key order is irrelevant here, since the
+// canonical form sorts it.
 const MANIFEST = {
   credentialSource: "keychain://bundle-X-credentials",
   fs: { allow: ["/etc/hosts", { path: "/var/lib/bundle-X/", mode: "rw" }] },
@@ -23,13 +33,14 @@ const MANIFEST = {
   version: "cloister/confinement/v1",
 };
 
-describe("confinement-digest — §6 canonicalizer + BLAKE3 (TS)", () => {
+const digest = (manifest: unknown): string => blake3Hex(new TextEncoder().encode(canonicalJson(manifest)));
+
+describe("confinement/v1 §7 canonical JSON, hashed by the substrate BLAKE3", () => {
   it("reproduces LLO's v0.7.3 confinementDigest pin", () => {
-    expect(confinementDigest(MANIFEST)).toBe(LLO_PIN);
+    expect(digest(MANIFEST)).toBe(LLO_PIN);
   });
 
-  it("canonicalization is key-order and whitespace invariant (§6)", () => {
-    // Same manifest, keys shuffled at every level — must reach the same digest.
+  it("is key-order invariant at every level", () => {
     const shuffled = {
       version: "cloister/confinement/v1",
       port: { address: "127.0.0.1", bind: 8443 },
@@ -37,14 +48,16 @@ describe("confinement-digest — §6 canonicalizer + BLAKE3 (TS)", () => {
       credentialSource: "keychain://bundle-X-credentials",
       fs: { allow: ["/etc/hosts", { mode: "rw", path: "/var/lib/bundle-X/" }] },
     };
-    expect(confinementDigest(shuffled)).toBe(LLO_PIN);
+    expect(digest(shuffled)).toBe(LLO_PIN);
   });
 
-  it("emits §6-canonical bytes (sorted keys, 2-space, no trailing newline)", () => {
-    const bytes = canonicalizeConfinement(MANIFEST);
-    const text = new TextDecoder().decode(bytes);
-    expect(text.startsWith('{\n  "credentialSource"')).toBe(true); // sorted: credentialSource first
-    expect(text.endsWith("}")).toBe(true); // no trailing newline
-    expect(text).not.toContain("\n}\n"); // last byte is `}`
+  it("omits null and undefined fields, as §7 says", () => {
+    expect(digest({ ...MANIFEST, workspace: null, scratch: undefined })).toBe(LLO_PIN);
+  });
+
+  it("emits sorted keys, a two-space indent, and no trailing newline", () => {
+    const text = canonicalJson(MANIFEST);
+    expect(text.startsWith('{\n  "credentialSource"')).toBe(true);
+    expect(text.endsWith("}")).toBe(true);
   });
 });

@@ -62,7 +62,6 @@ export const LLO_SPECS = Object.freeze([
       "test-vectors/canonical-run.json",
       "test-vectors/oci-resources.json",
       "test-vectors/rootfs-manifest.json",
-      "test-vectors/run-id.json",
     ],
   },
   {

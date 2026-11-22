@@ -390,12 +390,11 @@ export function leq(a, b) {
  * §7 canonical JSON: keys ASCII-sorted at every level, 2-space indent, no
  * trailing newline, null/undefined omitted.
  *
- * A local, deliberate re-spelling of `src/wire/confinement-digest.ts`'s
- * canonicalizer: that one is TypeScript on the Worker side and reaches BLAKE3
- * through wasm, which this layer must not require to compare two objects. The
- * digest remains that file's to own — nothing here hashes anything, so the two
- * cannot disagree about a digest, only about key order, which
- * `cli/test/harness/confinement-lattice.test.mjs` pins against it.
+ * Cloister's one copy of §7's canonical form. Nothing here hashes, so this
+ * layer needs no BLAKE3 to compare two objects.
+ * `test/wire/confinement-digest.test.ts` hashes this output with the substrate
+ * BLAKE3 and pins LLO's confinementDigest, so two manifests this lattice calls
+ * equal are two a certificate's digest calls equal.
  *
  * @param {unknown} value
  * @returns {string}
