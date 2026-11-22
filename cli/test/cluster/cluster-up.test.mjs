@@ -26,7 +26,7 @@ import {
 import { main as importMain, parseImportArgs, registryReference } from "../../commands/runtime-import.mjs";
 import { planFromToml } from "../../commands/runtime-plan.mjs";
 import { carryRootfsFromPreviousLock } from "../../lib/cluster/resolve-inputs.mjs";
-import { carryDerived } from "../../lib/cluster/lockfile.mjs";
+import { carryDerived, LEGACY_ROOTFS_KEYS, ROOTFS_KEY } from "../../lib/cluster/lockfile.mjs";
 import { tableAdmits } from "../fixtures/platform-admits-table.mjs";
 
 // What the host runtime's `platform-admits` would answer for the platforms
@@ -245,6 +245,67 @@ test("carryDerived keeps EVERY platform's rootfs row while the pin is unchanged,
   // The old flat record rides along unchanged, so plan refuses it by name.
   const legacy = { digest: IMG("a"), rootfs: RFS("b"), rootfsImage: IMG("a") };
   assert.deepEqual(carryDerived(legacy, { identifier: "x", digest: IMG("a") }), { identifier: "x", ...legacy });
+});
+
+test("carryDerived loses nothing either row holds, and a regenerated row's own record wins", () => {
+  // #366 moved this rule out of the microVM driver and changed its guard: a
+  // regenerated row holding only a flat (pre-cloister-1c4ef5) record lost the
+  // old row's rootfs rows. Nothing writes that row today, so no example test
+  // reached it. This one checks the rule over every combination of derived
+  // records on either side, with every digest relation.
+  const KEYS = [ROOTFS_KEY, ...LEGACY_ROOTFS_KEYS];
+  const value = {
+    old: { [ROOTFS_KEY]: [{ platform: ARM, digest: RFS("b"), image: IMG("a") }], rootfsImage: IMG("c"), rootfsSymlinks: "preserve" },
+    new: { [ROOTFS_KEY]: [{ platform: AMD, digest: RFS("d"), image: IMG("a") }], rootfsImage: IMG("f"), rootfsSymlinks: "refuse" },
+  };
+  // Every derived key has a value on both sides, so a key added later cannot pass unchecked.
+  assert.deepEqual(Object.keys(value.old).sort(), [...KEYS].sort());
+  assert.deepEqual(Object.keys(value.new).sort(), [...KEYS].sort());
+
+  // The case #366 lost: the old row's rootfs rows survive beside the new row's flat record.
+  assert.deepEqual(
+    carryDerived({ digest: IMG("a"), rootfs: value.old.rootfs }, { identifier: "x", digest: IMG("a"), rootfsImage: IMG("f") }),
+    { identifier: "x", digest: IMG("a"), rootfsImage: IMG("f"), rootfs: value.old.rootfs },
+  );
+
+  const subsets = KEYS.reduce((all, key) => all.concat(all.map((set) => [...set, key])), [[]]);
+  const row = (side, keys, digest) => ({
+    identifier: "x",
+    ...(digest && { digest }),
+    ...Object.fromEntries(keys.map((key) => [key, structuredClone(value[side][key])])),
+  });
+  // [old digest, new digest]: unchanged, moved, the new row has none, the old row has none.
+  const relations = [[IMG("a"), IMG("a")], [IMG("a"), IMG("e")], [IMG("a"), undefined], [undefined, IMG("a")]];
+  let checked = 0;
+  for (const [before, after] of relations) {
+    for (const oldKeys of [null, ...subsets]) {
+      for (const newKeys of subsets) {
+        const previous = oldKeys && row("old", oldKeys, before);
+        const next = row("new", newKeys, after);
+        const result = carryDerived(previous, structuredClone(next));
+        const at = JSON.stringify({ before, after, oldKeys, newKeys });
+        for (const key of Object.keys(next)) {
+          assert.deepEqual(result[key], next[key], `the regenerated row's own ${key} is never changed: ${at}`);
+        }
+        for (const key of Object.keys(result)) {
+          assert.ok(key in next || oldKeys?.includes(key), `${key} is in neither row: ${at}`);
+        }
+        const fresh = next[ROOTFS_KEY] !== undefined;
+        const samePin = Boolean(previous) && Boolean(next.digest) && previous.digest === next.digest;
+        if (fresh || !samePin) {
+          assert.deepEqual(result, next, `a fresh import, or a moved or unknown pin, takes nothing from the old row: ${at}`);
+        } else {
+          for (const key of oldKeys) {
+            if (key in next) continue;
+            assert.deepEqual(result[key], previous[key], `the old row's ${key} is carried: ${at}`);
+            if (typeof previous[key] === "object") assert.notEqual(result[key], previous[key], `${key} is carried as a copy: ${at}`);
+          }
+        }
+        checked += 1;
+      }
+    }
+  }
+  assert.equal(checked, relations.length * (subsets.length + 1) * subsets.length);
 });
 
 test("cluster resolve's lock rewrite carries a recorded rootfs forward (carryRootfsFromPreviousLock)", () => {

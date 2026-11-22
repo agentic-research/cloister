@@ -31,13 +31,22 @@ const DERIVED_KEYS = Object.freeze([ROOTFS_KEY, ...LEGACY_ROOTFS_KEYS]);
 
 /**
  * Carry the records derived from a pinned image across a lock regeneration
- * (`cluster resolve`, `cloister add`, a demo re-pin): EVERY one while the
- * image pin is unchanged, NONE when it moved. Each is a derivation of the
- * pinned image, so a moved pin makes it stale, and the driver that made it
- * then asks for a fresh one by name (`runtime plan` does). A row that already
- * carries one (a fresh import) is never overwritten. A flat pre-cloister-1c4ef5
- * record is carried as it is, so plan can refuse it by name rather than report
- * it missing.
+ * (`cluster resolve`, `cloister add`, a demo re-pin):
+ *   - a row that carries its own rootfs rows (a fresh import) keeps them, and
+ *     takes nothing from the old row;
+ *   - a pin that moved, or that either row lacks, carries nothing, because
+ *     each record is a derivation of the pinned image. The driver that made
+ *     it then asks for a fresh one by name (`runtime plan` does);
+ *   - otherwise every record the old row holds is carried, and a record the
+ *     new row holds wins over the old row's.
+ * Nothing else is dropped. A flat pre-cloister-1c4ef5 record is carried as it
+ * is, so plan can refuse it by name rather than report it missing.
+ *
+ * #366 moved this from the microVM driver (`carryRootfs`) and changed its
+ * guard to skip the carry when the new row held any derived record, so a row
+ * holding only a flat record lost the old row's rootfs rows. The guard is the
+ * driver's again. Unlike the driver's version, a record the new row holds is
+ * never overwritten; the driver overwrote a flat one.
  *
  * @param {object} previousPin the old lock's pin row (`[inputs.<n>.oci]`, or the
  *   `[[inputs.<input>.ociBundles]]` entry naming the same bundle), or undefined
@@ -45,10 +54,10 @@ const DERIVED_KEYS = Object.freeze([ROOTFS_KEY, ...LEGACY_ROOTFS_KEYS]);
  */
 export function carryDerived(previousPin, nextPin) {
   if (!previousPin || !nextPin) return nextPin;
-  if (DERIVED_KEYS.some((key) => nextPin[key] !== undefined)) return nextPin;
+  if (nextPin[ROOTFS_KEY] !== undefined) return nextPin;
   if (!nextPin.digest || previousPin.digest !== nextPin.digest) return nextPin;
   for (const key of DERIVED_KEYS) {
-    if (previousPin[key] !== undefined) nextPin[key] = structuredClone(previousPin[key]);
+    if (previousPin[key] !== undefined && nextPin[key] === undefined) nextPin[key] = structuredClone(previousPin[key]);
   }
   return nextPin;
 }
