@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister keeps no Rust; each tree it still has names its exit (ADR-0084)
+
+- ADR-0084 makes no Rust cloister's target. Cloister keeps its own policy,
+  authorization, audit and CLI, and none of that needs Rust. Each of the four
+  remaining Rust trees names the work that ends it:
+  - `rs/crates/cas`: LLO publishes its wasm32 build (ley-line-open#605),
+    pinned by digest;
+  - `rs/crates/host-runtime`: runs go through LLO's daemon, and LLO gives a
+    caller that is not Rust a way to build a run (ley-line-open#606);
+  - `tools/harness-sandbox`: LLO's port of its kernel-level confinement
+    assertions;
+  - `tools/edge-probe`: becomes a script in a pinned image, once a microVM
+    boots in CI.
+- `lint:rust-exits` holds it:
+  - every tracked Rust or Cargo file lies in a listed tree;
+  - a new crate is refused, even inside the listed workspace;
+  - each entry names its exit;
+  - an entry whose tree is gone is refused;
+  - the Rust stays under ADR-0084's `rust-budget` of 6,000 lines, against
+    5,943 today.
+
 ### 2026-11 — dead code removed, with its functionality accounted for
 
 - `src/wire/run-id.ts` is deleted, with its test and the vendored
