@@ -343,6 +343,70 @@ are not available to CI. Deciding the direction, addresses from the wires or
 one namespace for the gateway's backends, should follow that run, not
 precede it.
 
+### 9. Amendment (2026-11-22): a wire is a connection whose source sits above its target
+
+§4.2 left open whether to write a wire as a connection. §1 already says the
+two are one statement, so there is one primitive: the connection (ADR-0069).
+What the word "wire" carried is not a second kind of edge. It is where the two
+ends sit.
+
+**Every wire declared today starts in the hypervisor tier.** In `cluster.toml`
+and every recipe, each `[[wires]]` row starts at the gateway or the companion.
+Most end at a cluster-tier bundle. Two, the gateway's to `notme-identity` and
+to `notme-proxy`, end inside the hypervisor tier. No `[[connections]]` row is
+declared anywhere.
+
+**So the role is derived, never declared.** A connection whose source sits
+above its target is what a wire was:
+
+- a `hypervisor`-tier source and a `cluster`-tier target: the hypervisor
+  reaching what it mediates (ADR-0011);
+- a bundle and its own instances, such as a run's guest. Nothing declares one
+  as an edge end today; when something does, the same rule applies.
+
+Two ends in the same tier make a peer connection. `cluster graph` shows which,
+from the two `tier` fields. `tier` stays a build-time fact: the graph and the
+rails read it, and nothing at run time does.
+
+**What a wire declares, as a connection:**
+
+| A wire declares | As a connection |
+|---|---|
+| `binding`, the name the source reads | An env row on the source bound to the connection, `{ connection = "<name>" }` (ADR-0069 §1). Under workerd it lowers to a service binding of that name (ADR-0070 §4). |
+| `transport` (`uds`, `leylineNet`) | Derived from where the two ends run, as every connection's carrier is (ADR-0070 §4, and §2 above). |
+| A socket as the target | A port served on a unix socket (below). |
+
+Every connection has an `appProtocol` and may ask for a `minStrength`, so the
+gateway's own edges get both, which is what §4.2 wanted.
+
+**A port may be a socket.** A `[[bundles.ports]]` row names a TCP number today.
+It may instead name the unix socket the bundle listens on: exactly one of
+`port` and `socket`. A bundle's `ipcSocket` and `httpPort` state the same facts,
+a socket listener and a TCP one. To keep one source per listener, each is read
+as a port row, unless the bundle already declares a row for the same listener
+(the same number, or the same socket), which is then that listener. A
+connection's `appProtocol` must equal its target port's (ADR-0069 §2), so the
+migration declares what each socket speaks; ADR-0030 §A4's `x-<vendor>-*` form
+covers a protocol that is not blessed.
+
+**The rails read connections.** Inv 4 (a cluster-tier service binding resolves
+to a wire or an external service), Inv 5 (a hypervisor-to-hypervisor binding
+appears in `wires[]`), and Inv 7 and Inv 9 (a tenant dispatch binding resolves
+to a wire to the tenant's bundle) check the same facts against connections and
+the env rows bound to them.
+
+**One path, not two.** The change that lands this rewrites `cluster.toml` and
+every recipe. The parser then refuses a `[[wires]]` row, naming the
+connection to write instead. Two declarations of one edge would be two places
+for it to drift.
+
+**Not decided here:**
+
+- Carrying a protocol per request, which is LLO's broker (LLO ADR-0046 D3).
+- §8's open question, how the gateway finds its other backends under compose.
+  Some of the gateway's wire bindings are read by nothing in the Worker today
+  (§8), and rewriting them as connections does not answer it.
+
 ## Consequences
 
 - The system cloister runs as appears in its own graph. When this was
@@ -368,5 +432,6 @@ precede it.
 | How the gateway finds its other backends under compose | not settled: needs a run of the real images (§8) |
 | Keeping tenant instances out of each other's sockets | implemented (§5), checked against running containers in CI |
 | A connection between two compose bundles | implemented (§7), checked against running containers in CI |
-| The gateway's own wires written as connections | not done (§7) |
+| The gateway's own wires written as connections | decided (§9), not done |
+| A port served on a unix socket | decided (§9), not done |
 | A strength for workerd | not decided (§4.3) |
