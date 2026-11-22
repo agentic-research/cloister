@@ -81,11 +81,11 @@ function spawnSyncSafe(bin, args) {
  * compose path, as it always was.
  *
  * @param {string[]} argv
- * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, passthrough:string[], env:string|null, out:string|null, json:boolean}}
+ * @returns {{help:boolean, sub:string|null, dir:string, check:boolean, detach:boolean, destroy:boolean, locked:boolean, passthrough:string[], env:string|null, out:string|null, json:boolean}}
  */
 export function parseArgs(argv) {
   const base = {
-    help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, passthrough: [],
+    help: false, sub: null, dir: ".", check: false, detach: false, destroy: false, locked: false, passthrough: [],
     env: null, out: null, json: false,
   };
   const [sub, ...rest] = argv;
@@ -188,16 +188,35 @@ export async function graphDir({ root, env }) {
   return clusterGraph(await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8")), env);
 }
 
-export async function emitK8sDir({ root, env, out }) {
+/** `--locked` refused these (ADR-0083 §5); nothing was written or started. */
+export class LockedRefusal extends Error {
+  constructor(problems) {
+    super(problems.join("\n"));
+    this.problems = problems;
+  }
+}
+
+export async function emitK8sDir({ root, env, out, locked = false }) {
   const { parseTomlToCluster, checkableBundle } = await import("../lib/cluster/toml-to-cluster.mjs");
   const { lowerK8s } = await import("../lib/cluster/emit-k8s.mjs");
   const cluster = await parseTomlToCluster(readFileSync(resolve(root, "cluster.toml"), "utf8"));
-  const { files, applies, checked, references, unreferenced, unread } = lowerK8s({
+  const { files, applies, checked, references, unreferenced, unread, images: manifests } = lowerK8s({
     bundles: cluster.bundles.map(checkableBundle),
     connections: cluster.connections ?? [],
     env,
     readManifest: (path) => readFileSync(resolve(root, path), "utf8"),
   });
+  if (locked) {
+    // Before anything is written: a locked lowering applies only pinned images (ADR-0083 §5).
+    const { lockedManifestProblems } = await import("../lib/cluster/emit-k8s.mjs");
+    const { lockedImages } = await import("../lib/oci-artifact.mjs");
+    const { parse: parseToml } = await import("smol-toml");
+    const lockPath = resolve(root, "cluster.lock.toml");
+    const images = existsSync(lockPath) ? lockedImages(parseToml(readFileSync(lockPath, "utf8"))) : new Map();
+    const declared = new Map(cluster.bundles.map((b) => [b.name, b.kind?.external?.image ?? ""]));
+    const problems = lockedManifestProblems({ manifests, declared, images });
+    if (problems.length > 0) throw new LockedRefusal(problems);
+  }
   if (files.length === 0 && checked.length === 0) {
     throw new ClusterUsageError(`no bundle is placed "kubernetes" or "knative" for env "${env}"`);
   }
@@ -343,7 +362,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     try {
       // --out is required and --env defaults to local, both by the declaration.
       const outDir = args.out;
-      const written = await emitK8sDir({ root: selectedRoot, env: args.env, out: resolve(process.cwd(), outDir) });
+      const written = await emitK8sDir({ root: selectedRoot, env: args.env, out: resolve(process.cwd(), outDir), locked: args.locked });
       for (const f of written.files) log(`cloister cluster k8s: wrote ${join(outDir, f)}`);
       for (const a of written.applies) log(`  kubectl apply ${a.namespace ? `-n ${a.namespace} ` : ""}-f ${join(outDir, a.bundle)}`);
       for (const k of written.checked) {
@@ -372,6 +391,11 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       }
       return 0;
     } catch (error) {
+      if (error instanceof LockedRefusal) {
+        for (const problem of error.problems) errLog(`cloister cluster k8s: ${problem}`);
+        errLog("cloister cluster k8s: nothing was written");
+        return 1;
+      }
       errLog(`cloister cluster k8s: ${error.message}`);
       return error instanceof ClusterUsageError ? 2 : 1;
     }
@@ -385,6 +409,9 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       errLog("cloister cluster up: --detach is a compose option; `up --env` runs in the foreground (no daemon)");
       return 2;
     }
+    // The microVM placement runs only the rootfs the lock records, by digest,
+    // so `--locked` changes nothing here (ADR-0083 §5).
+    if (args.locked) log("cloister cluster up: --locked: the microVM placement runs only the rootfs cluster.lock.toml records, by digest");
     try {
       const up = deps.clusterUp ?? (await import("../lib/cluster/up.mjs")).clusterUp;
       return await up({ root: selectedRoot, env: args.env, deps: { log, errLog, env: deps.env ?? process.env } });
@@ -408,7 +435,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
   if (args.sub === "up") {
     const { composeUp } = await import("../lib/cluster/compose-up.mjs");
     return await composeUp(
-      { root, file, compose, detach: args.detach },
+      { root, file, compose, detach: args.detach, locked: args.locked },
       { log, errLog, spawn: spawnImpl, env: deps.env ?? process.env, ...(deps.exec ? { exec: deps.exec } : {}) },
     );
   }

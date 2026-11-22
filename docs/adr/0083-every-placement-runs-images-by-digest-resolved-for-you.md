@@ -144,11 +144,31 @@ For compose, it works like this (`cli/lib/cluster/compose-up.mjs`):
 
 ### 5. `--locked` makes the lock authoritative
 
-With `--locked`, a run accepts only a written digest or the lock's pin. An
-unpinned image, or a tag that now resolves to a different digest than the lock
-records, is refused by name. CI uses it. This is the split Cargo (`--locked`),
-npm (`ci`) and Nix flakes draw between a development loop that updates the
-lock and a build that must not.
+With `--locked`, a run starts only a digest the declaration writes or the lock
+pins, and refuses the rest by name before anything starts or is written:
+
+- **compose** (`cluster up --locked`): an image with no digest, and a committed
+  `cluster.compose.yaml` whose images are not what cluster.toml and
+  cluster.lock.toml render. The second is the lock out of date with the
+  declaration.
+- **Kubernetes** (`cluster k8s --locked`): a container whose image has no
+  digest, or runs a digest other than the lock's pin for its bundle. Lowering
+  never overwrites a manifest, so one lowered before its image was pinned is
+  caught here.
+- **microVM**: it already runs only the rootfs the lock records, by digest.
+
+CI uses it. The kind jobs run `cluster resolve`, then `cluster lower`, then
+`cluster k8s --locked`, and the compose e2e checks both a refusal and a locked
+start. This is the split Cargo (`--locked`), npm (`ci`) and Nix flakes draw
+between a development loop that updates the lock and a build that must not.
+
+> **Amended 2026-11-22.** As accepted, §5 also refused "a tag that now resolves
+> to a different digest than the lock records". None of the prior art it cites
+> does that. Each refuses only a lock that would have to change to cover the
+> declaration, and none asks the registry what a tag names today. A locked run
+> that did would depend on the registry's current state, which is what pinning
+> removes. Whether a pinned tag has moved is `cluster resolve`'s question, and
+> the lock it rewrites is a reviewed change.
 
 ## Consequences
 
@@ -166,6 +186,7 @@ lock and a build that must not.
     drift check cover them;
   - §4 next, since it needs a daemon, which CI's compose job has;
   - §5 last, once CI can run `--locked` against a fully pinned configuration.
+  All five have landed.
 - A Kubernetes cluster pulls from a registry, so §4's local resolution covers
   compose first.
 - Two things are open:

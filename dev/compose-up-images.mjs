@@ -15,7 +15,9 @@
 //      the move, and removes the tag the old build ran under;
 //   4. an `up` with nothing rebuilt leaves every container as it was;
 //   5. a bare name the engine does not hold is refused by name, nothing new
-//      starts, and the running containers are left alone.
+//      starts, and the running containers are left alone;
+//   6. `--locked` refuses a local build by name, since nothing pins it, and
+//      starts a cluster whose every image is pinned by digest (ADR-0083 §5).
 //
 // Needs docker with the compose plugin. Run from the repository root:
 // `task smoke:compose-up-images`. KEEP_CLUSTER=1 leaves the containers up.
@@ -65,7 +67,8 @@ function declare(appImage) {
   writeFileSync(join(work, "cluster.toml"), [
     "[metadata]", `name = "${PROJECT}"`, 'version = "0.1.0"', "", "[storage]", "",
     "[[bundles]]", 'name = "app"', 'kind = "external"', 'tier = "cluster"', "",
-    "[bundles.external]", `image = "${appImage}"`, "",
+    // Its own command too: the base image's default exits at once, and app runs it once it is pinned.
+    "[bundles.external]", `image = "${appImage}"`, `args = ${JSON.stringify(["python3", "-c", SLEEP])}`, "",
     "[[bundles]]", 'name = "pinned"', 'kind = "external"', 'tier = "cluster"', "",
     "[bundles.external]", `image = "${PINNED}"`, `args = ${JSON.stringify(["python3", "-c", SLEEP])}`, "",
   ].join("\n"));
@@ -133,6 +136,19 @@ try {
   check(tryDocker("image", "inspect", ABSENT).status !== 0, "and nothing was pulled for it");
   const left = running("app");
   check(left?.up && left.id === before.app, "the running containers are left alone");
+
+  // 6: --locked starts only what a digest pins.
+  declare(LOCAL);
+  r = cluster("up", "-d", "--locked");
+  check(r.status === 1 && r.stderr.includes(`image ${LOCAL} (service app) is not pinned by digest`) && r.stderr.includes("nothing was started"),
+    `up --locked refuses a local build by name (exit ${r.status})`);
+  const still = running("app");
+  check(still?.up && still.id === before.app, "and leaves the running containers alone");
+  declare(PINNED);
+  r = cluster("up", "-d", "--locked");
+  check(r.status === 0, `up --locked starts a cluster whose every image is pinned by digest (exit ${r.status})`);
+  app = running("app");
+  check(app?.up && app.image === baseId && app.labels["cloister.image.by"] === "pinned", "and app runs the pinned digest");
 } catch (error) {
   fail(error.message);
 } finally {

@@ -8,6 +8,31 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `--locked` runs only what the lock pins (ADR-0083 §5)
+
+- `cluster up --locked` starts only a digest cluster.toml writes or
+  cluster.lock.toml pins. Before anything starts, it refuses by name:
+  - an image with no digest, such as a local build, which nothing pins;
+  - a committed `cluster.compose.yaml` whose images are not what cluster.toml
+    and cluster.lock.toml render, which is the lock out of date with the
+    declaration.
+- `cluster k8s --locked` refuses, before anything is written, a container
+  whose image has no digest, or runs a digest other than the lock's pin for
+  its bundle. Lowering never overwrites a manifest, so one lowered before its
+  image was pinned is caught here.
+- The microVM placement already ran only the lock's rootfs, so `--locked`
+  changes nothing there.
+- `--locked` asks no registry what a tag names today. ADR-0083 §5 is amended
+  to drop that clause: Cargo, npm and Nix refuse only a lock that would have
+  to change, and a locked run must not depend on the registry's state.
+- CI uses it. The kind jobs now run `cluster resolve`, then lower, then
+  `cluster k8s --locked`. The compose e2e checks a locked refusal and a locked
+  start.
+- The digest probe now re-asks the host that challenged after a token
+  exchange. A registry that redirects to another host, as registry.k8s.io
+  does, would otherwise get the token back without it, because fetch drops
+  Authorization on a cross-origin redirect.
+
 ### 2026-11 — cloister keeps no Rust; each tree it still has names its exit (ADR-0084)
 
 - ADR-0084 makes no Rust cloister's target. Cloister keeps its own policy,

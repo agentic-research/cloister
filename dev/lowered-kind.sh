@@ -6,8 +6,10 @@
 #
 # Every other test of lowering stops at the YAML. This one runs it:
 #
-#   1. `cluster lower` writes the manifests from a hand-written cluster.toml
-#   2. `cluster k8s` checks them and writes the NetworkPolicies
+#   1. `cluster resolve` pins each image by its registry digest, and
+#      `cluster lower` writes the manifests from a hand-written cluster.toml
+#   2. `cluster k8s --locked` checks them, each image pinned by digest, and
+#      writes the NetworkPolicies
 #   3. `kubectl apply` puts all of it on a kind cluster
 #   4. then the graph is observed, not assumed
 #
@@ -154,11 +156,17 @@ else
   cp "$ROOT/$INPUT" "$WORK/cluster.toml"
 fi
 
+say "pin each image cluster.toml names by its registry digest"
+# What an operator does before a locked apply (ADR-0083 §2, §5): the lock
+# records each image's digest, the lowered manifests run it, and
+# `cluster k8s --locked` refuses one that does not.
+node "$ROOT/bin/cloister.mjs" cluster resolve --dir "$WORK"
+
 say "lower cluster.toml to manifests ($SCENARIO)"
 node "$ROOT/bin/cloister.mjs" cluster lower --dir "$WORK" --env "$ENV_NAME"
 
-say "check the manifests and write the NetworkPolicies"
-node "$ROOT/bin/cloister.mjs" cluster k8s --dir "$WORK" --env "$ENV_NAME" --out "$WORK/k8s"
+say "check the manifests, every image pinned by digest, and write the NetworkPolicies"
+node "$ROOT/bin/cloister.mjs" cluster k8s --dir "$WORK" --env "$ENV_NAME" --out "$WORK/k8s" --locked
 
 say "create kind cluster \"$CLUSTER_NAME\""
 kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true
