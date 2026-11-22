@@ -67,7 +67,8 @@ function declare(appImage) {
   writeFileSync(join(work, "cluster.toml"), [
     "[metadata]", `name = "${PROJECT}"`, 'version = "0.1.0"', "", "[storage]", "",
     "[[bundles]]", 'name = "app"', 'kind = "external"', 'tier = "cluster"', "",
-    "[bundles.external]", `image = "${appImage}"`, "",
+    // Its own command too: the base image's default exits at once, and app runs it once it is pinned.
+    "[bundles.external]", `image = "${appImage}"`, `args = ${JSON.stringify(["python3", "-c", SLEEP])}`, "",
     "[[bundles]]", 'name = "pinned"', 'kind = "external"', 'tier = "cluster"', "",
     "[bundles.external]", `image = "${PINNED}"`, `args = ${JSON.stringify(["python3", "-c", SLEEP])}`, "",
   ].join("\n"));
