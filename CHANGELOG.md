@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — the lock writer's carry rule keeps the records #366 could drop
+
+- #366 said it moved the rule that carries rootfs records across a lock
+  regeneration from the microVM driver into `cli/lib/cluster/lockfile.mjs`.
+  It also changed the rule's guard. The driver skipped the carry only when the
+  regenerated row held its own rootfs rows. #366 skipped it when that row held
+  any rootfs record, so a row holding only a flat (pre-cloister-1c4ef5) record
+  lost the recorded rootfs rows. Nothing writes such a row today, and no test
+  covered it.
+- The guard is the driver's again, with one deliberate difference: a record
+  the regenerated row holds is never overwritten. The driver's version
+  overwrote the new row's flat record with the old row's.
+- The test now checks the rule over every combination of records on either
+  side and every digest relation, 288 cases, instead of examples. It fails on
+  both earlier versions.
+
 ### 2026-11 — every lease refusal is recorded (ADR-0085)
 
 - `gateAndVerify`, the one gate every lease-gated route uses, records each
