@@ -66,11 +66,12 @@ used to be vendored at `src/vendor/notme-dpop.ts`; it is now a real dependency
 
 LLO crates are pinned by **git rev AND version, and both must match** — cargo
 resolves on the pair, so bumping the rev alone fails with a bare "location
-searched" error that does not mention the version. All five crates
-(`leyline-core`, `-cas-ffi`, `-fs`, `-sign`, `-schema-bridge`) should move
-together: they once drifted to five different revs with `leyline-core`
-resolving three times in one lockfile, which is what `cargo update -p
-leyline-core` refusing as *ambiguous* looks like.
+searched" error that does not mention the version. Every LLO crate cloister
+pins moves together. `lint:upstream-pins` reads every Cargo manifest, so it
+holds them all; don't list them here, because a hand list drifts. They once
+drifted to five different revs with `leyline-core` resolving three times in
+one lockfile, which is what `cargo update -p leyline-core` refusing as
+*ambiguous* looks like.
 
 The release tag is **not** the delivery path for the schema-bridge generator —
 `task cluster:zod` builds it from the pinned git rev, so a stale pin silently

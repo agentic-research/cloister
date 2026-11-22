@@ -83,8 +83,9 @@ fn jstr(s: &str) -> String {
 /// The digest is BLAKE3-256 of the §7-CANONICAL manifest bytes (ASCII-sorted
 /// keys at every level, 2-space indent, no trailing newline), computed via
 /// cloister's substrate hash — the SAME algorithm `examples/confinement-digest.rs`
-/// and `src/wire/confinement-digest.ts` use, so the runner (which recomputes
-/// over the manifest it is about to enforce) reaches a byte-identical value.
+/// and the CLI's `canonicalJson` (pinned in test/wire/confinement-digest.test.ts)
+/// use, so the runner (which recomputes over the manifest it is about to
+/// enforce) reaches a byte-identical value.
 fn confinement_digest_from_env() -> Option<[u8; 32]> {
     let path = std::env::var("CLOISTER_CONFINEMENT_MANIFEST").ok()?;
     let raw = std::fs::read_to_string(&path)

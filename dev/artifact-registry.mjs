@@ -75,9 +75,9 @@ export const ARTIFACTS = [
  *
  * Two-space JSON with a trailing newline — a readable diff, which is the point
  * of a golden. This is NOT the confinement/v1 §7 canonical form (that has no
- * trailing newline and is what the digest is taken over); `src/wire/
- * confinement-digest.ts` owns that, and conflating the two would make this file
- * a second opinion on canonicalization.
+ * trailing newline and is what the digest is taken over);
+ * `canonicalJson` in cli/lib/harness/confinement-lattice.mjs owns that, and
+ * conflating the two would make this file a second opinion on canonicalization.
  */
 export function goldenBytes(value) {
   return `${JSON.stringify(value, null, 2)}\n`;

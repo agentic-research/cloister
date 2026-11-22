@@ -4,7 +4,6 @@
 pub mod execution;
 #[cfg(feature = "llo-execution")]
 pub mod issue;
-pub mod mediator;
 
 use std::fmt;
 use std::path::{Path, PathBuf};

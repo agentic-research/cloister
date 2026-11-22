@@ -39,8 +39,15 @@ relates_to:
 > only live kernel-level confinement assertions in either repo, and LLO is
 > porting them under `ley-line-open-704853`, whose own contract is that
 > "until it closes, deletion trades proof for convention." **`rs/crates/host-runtime`**
-> keeps `krunvm.rs` until `execution/v1` is consumable (`ley-line-open-6d811a`).
+> no longer has `krunvm.rs`. It consumes `execution/v1` (`execution.rs`) and
+> issues what a signed run needs (`issue.rs`, ADR-0079).
 > `tools/mediator` is untracked local scratch, not repo content.
+>
+> **2026-11-22 retirement note:** the `ConfinementGraph` mediator, which had
+> been folded into `rs/crates/host-runtime/src/mediator/`, is deleted, along with
+> its `leyline-fs` dependency. Nothing constructed it. ADR-0050 makes
+> per-operation fs mediation an escalation rather than the default, and if it
+> is built, it belongs with the runtime in LLO.
 
 The host-side substrate that ADRs 0040/0043/0044/0046 describe currently exists
 as **four separate binaries under `tools/`**, each script/spike-shaped:
