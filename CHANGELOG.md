@@ -8,6 +8,23 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a wire is a connection whose source sits above its target (ADR-0075 §9)
+
+- Design only; no code changes yet. ADR-0075 §9 settles the question §4.2
+  left open:
+  - one primitive, the connection;
+  - whether an edge is a "wire" is derived from its two ends' tiers, never
+    declared.
+- The amendment maps each wire field to its connection form: `binding`
+  becomes an env row bound to the connection, `transport` becomes derived
+  from where the two ends run, and a socket target becomes a port served on
+  a unix socket.
+- A bundle's `ipcSocket` and `httpPort` are read as port rows, so each
+  listener has one source.
+- The change that lands it rewrites `cluster.toml` and the recipes. After
+  it, the parser refuses `[[wires]]`, naming the connection to write
+  instead.
+
 ### 2026-11 — a token is minted only for a lease holder, in that holder's name (ADR-0086)
 
 - `POST /oauth/token` requires a lease, always, dev mode included. Its tenant
