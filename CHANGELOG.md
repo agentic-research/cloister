@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a token is minted only for a lease holder, in that holder's name (ADR-0086)
+
+- `POST /oauth/token` requires a lease, always, dev mode included. Its tenant
+  doc said it did. The code checked no client and named the cluster as every
+  token's subject.
+- The token's subject is now the caller's lease fingerprint. The request names
+  exactly one scope, the gate checks the lease covers it, and the token carries
+  that scope only.
+- Refusals are `401 invalid_client`, `503 temporarily_unavailable` when the CA
+  bundle is unavailable, and `400 invalid_scope` without exactly one scope.
+- Two comments about which key `/.well-known/jwks.json` publishes predated the
+  change that makes it ask notme for the signing key, and are corrected.
+- The threat model gains §6.6. The token is still a bearer token, because
+  notme's delegated signer refuses to bind a key; that is recorded as residual.
+- `url` 2.5.9 in both Rust lockfiles, for RUSTSEC-2026-0592.
+
 ### 2026-11 — the lock writer's carry rule keeps the records #366 could drop
 
 - #366 said it moved the rule that carries rootfs records across a lock

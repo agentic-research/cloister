@@ -150,30 +150,19 @@ struct Actor {
   # discovery doc resolves this at runtime to publish the pubkey;
   # the key bytes themselves never appear in the manifest.
   #
-  # ⚠ THIS BINDING IS CURRENTLY WRONG FOR /oauth/token, ON PURPOSE, AND THE
-  # OPERATOR MUST FIX IT. notme PR #62 merged: JWT signing now uses a
-  # DELEGATED key via the `NOTME_JWT` RPC entrypoint, and cloister's side of
-  # that migration landed. But this binding still names the MASTER pubkey,
-  # so `/.well-known/jwks.json` publishes a key nothing signs with and every
-  # token issued fails verification. That is the correct failure direction —
-  # loud, immediate, and fail-closed — which is why the migration was safe to
-  # land ahead of the key swap. It is not a resting state.
+  # The identity bridge publishes this key in `nostr.json`. Its JWKS
+  # publishes it only when no delegated signer is bound: with `NOTME_JWT`
+  # bound, JWKS asks notme for the key `/oauth/token` is signed with
+  # (`JwtSigner.issuerPublicKey`) and publishes that instead.
   #
-  # To finish: point this at notme's `JwtSigner.issuerPublicKey(issuer)` for
-  # the issuer cloister publishes as `iss`, where `issuer` must also appear
-  # in notme's operator-set `DELEGATED_JWT_ISSUERS` allowlist. Ordering
-  # matters only in that both wrong orders fail closed rather than silently.
-  #
-  # ⚠ AND A DELEGATED JWT SIGNER MUST NOT SHARE THE MASTER KEY. If this ever
+  # ⚠ A DELEGATED JWT SIGNER MUST NOT SHARE THE MASTER KEY. If this ever
   # points at a key some other party can be asked to sign arbitrary bytes
   # with, that is an authentication bypass rather than a forgery oracle:
   # notme's own access tokens (typ "at+jwt", iss "https://auth.notme.bot")
   # are signed with the master, and `verifyAccessToken`'s issuer check is
   # optional and unchecked by default — deliberately, so the SDK works
   # against self-hosted deployments — so most verifiers never notice an
-  # impersonated issuer. Point this at a SEPARATE delegated-issuer key
-  # (notme's `JwtSigner.issuerPublicKey()`), never at the master.
-  # Per notme PR #62 / cloister-5f7e5c.
+  # impersonated issuer. Per notme PR #62 / cloister-5f7e5c.
   #
   # Key separation is the load-bearing control, not the claim checks: the
   # delegated signature must not verify under the master public key, and
@@ -187,8 +176,6 @@ struct Actor {
   #
   # Cloister is indifferent to WHICH key this names — the discovery doc
   # publishes whatever the binding holds and takes `kid` from the manifest.
-  # That indifference is the freedom receipts did not have, and it is why a
-  # wrong value fails every verification instead of silently working.
   pubkeyBinding   @2 :Text;
 
   # Where this actor publishes its bilateral attestation chains. Empty

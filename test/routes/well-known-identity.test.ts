@@ -21,6 +21,13 @@ import {
 } from "../../src/routes/well-known-identity.js";
 import type { Env } from "../../src/types.js";
 import type { Gateway } from "../../src/manifest/types.js";
+import type { TokenGate } from "../../src/routes/well-known-identity.js";
+import {
+  ERR_CA_UNAVAILABLE,
+  ERR_SCOPE_DENIED,
+  type LeaseErrorCode,
+  type VerifiedLease,
+} from "../../src/routes/lease-middleware.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -341,6 +348,39 @@ describe("WellKnownIdentityBridgeRoute — Nostr NIP-05", () => {
 
 // ── /oauth/token ──────────────────────────────────────────────────────────
 
+// The caller a passing gate verified. Distinct from FINGERPRINT (the
+// cluster's), so a token in the cluster's name cannot pass for one in the
+// caller's (ADR-0086).
+const CALLER_FP = "sha256:caller-lease-fingerprint";
+
+type GateAsk = Parameters<TokenGate>[2] & { denyWhenOff?: boolean };
+
+/** A gate that verifies every request as CALLER_FP, recording what it was asked. */
+function passingGate(asks: GateAsk[]): TokenGate {
+  return async (_env, _now, verify, opts = {}) => {
+    asks.push({ ...verify, denyWhenOff: opts.denyWhenOff });
+    const lease = { peerFp: CALLER_FP, scope: "read:*" } as unknown as VerifiedLease;
+    return { kind: "pass", lease };
+  };
+}
+
+/** A gate that refuses every request with `code`, recording what it was asked. */
+function refusingGate(code: LeaseErrorCode, asks: GateAsk[] = []): TokenGate {
+  return async (_env, _now, verify, opts = {}) => {
+    asks.push({ ...verify, denyWhenOff: opts.denyWhenOff });
+    return { kind: "reject", code, message: "refused" };
+  };
+}
+
+function tokenRequest(body: string): Request {
+  return makeReq(PATH_OAUTH_TOKEN, {
+    method:  "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+}
+
+
 describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
   it("end-to-end: POST client_credentials → JWT → JWKS-verifiable signature", async () => {
     // Build a real keypair so the JWKS publishes a key whose private
@@ -378,16 +418,20 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
       },
     };
 
-    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const asks: GateAsk[] = [];
+    const route = new WellKnownIdentityBridgeRoute(makeManifest(), passingGate(asks));
+    const form = "grant_type=client_credentials&scope=read%3A%2A&audience=https%3A%2F%2Frp.example";
     const tokenRes = await route.handle(
-      makeReq(PATH_OAUTH_TOKEN, {
-        method:  "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body:    "grant_type=client_credentials&scope=read%3A%2A&audience=https%3A%2F%2Frp.example",
-      }),
+      tokenRequest(form),
       envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, undefined, jwtSigner),
     );
     expect(tokenRes.status).toBe(200);
+    // The gate checked the caller's lease for exactly the scope the token
+    // carries, over the exact bytes sent, and an off gate would have denied.
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.requestedScope).toBe("read:*");
+    expect(asks[0]!.body).toBe(form);
+    expect(asks[0]!.denyWhenOff).toBe(true);
     expect(tokenRes.headers.get("cache-control")).toBe("no-store");
     const token = await tokenRes.json() as {
       access_token: string;
@@ -427,7 +471,9 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
     const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(pB64))) as Record<string, unknown>;
     expect(payload.iss).toBe(BASE_URL);
     expect(payload.aud).toBe("https://rp.example");
-    expect(payload.sub).toBe(FINGERPRINT);
+    // The token is the caller's, never the cluster's (ADR-0086).
+    expect(payload.sub).toBe(CALLER_FP);
+    expect(payload.sub).not.toBe(FINGERPRINT);
     expect(payload.scope).toBe("read:*");
     expect(typeof payload.iat).toBe("number");
     expect(typeof payload.exp).toBe("number");
@@ -472,18 +518,62 @@ describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
 
   it("returns 503 temporarily_unavailable when notme can't sign", async () => {
     const notme: FetchResponder = async () => new Response("nope", { status: 404 });
-    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const route = new WellKnownIdentityBridgeRoute(makeManifest(), passingGate([]));
     const res = await route.handle(
-      makeReq(PATH_OAUTH_TOKEN, {
-        method:  "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body:    "grant_type=client_credentials",
-      }),
+      tokenRequest("grant_type=client_credentials&scope=read%3A%2A"),
       envWith({}, notme),
     );
     expect(res.status).toBe(503);
     const body = await res.json() as Record<string, unknown>;
     expect(body.error).toBe("temporarily_unavailable");
+  });
+
+  it("refuses a caller without a lease, and signs nothing", async () => {
+    // The real gate. The test env runs CLOISTER_MODE=dev with no authority, so
+    // the gate is off; an off gate still refuses this endpoint (denyWhenOff),
+    // because the token would have no caller to name.
+    let signed = false;
+    const jwtSigner: Env["NOTME_JWT"] = {
+      async signJwt() { signed = true; return { ok: false, code: "unused", message: "unused" }; },
+      async issuerPublicKey() { return { ok: false, code: "unused", message: "unused" }; },
+    };
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(
+      tokenRequest("grant_type=client_credentials&scope=read%3A%2A"),
+      envWith({}, undefined, jwtSigner),
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe("Signet");
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("invalid_client");
+    expect(signed).toBe(false);
+  });
+
+  it("a lease the gate refuses is invalid_client; a CA outage is temporarily_unavailable", async () => {
+    const denied = await new WellKnownIdentityBridgeRoute(makeManifest(), refusingGate(ERR_SCOPE_DENIED))
+      .handle(tokenRequest("grant_type=client_credentials&scope=admin%3A%2A"), envWith());
+    expect(denied.status).toBe(401);
+    expect((await denied.json() as Record<string, unknown>).error).toBe("invalid_client");
+
+    const outage = await new WellKnownIdentityBridgeRoute(makeManifest(), refusingGate(ERR_CA_UNAVAILABLE))
+      .handle(tokenRequest("grant_type=client_credentials&scope=read%3A%2A"), envWith());
+    expect(outage.status).toBe(503);
+    expect((await outage.json() as Record<string, unknown>).error).toBe("temporarily_unavailable");
+  });
+
+  it("a request must name exactly one scope, and is refused before any gate work", async () => {
+    for (const form of [
+      "grant_type=client_credentials",
+      "grant_type=client_credentials&scope=",
+      "grant_type=client_credentials&scope=read%3A%2A+write%3A%2A",
+    ]) {
+      const asks: GateAsk[] = [];
+      const res = await new WellKnownIdentityBridgeRoute(makeManifest(), passingGate(asks))
+        .handle(tokenRequest(form), envWith());
+      expect(res.status, form).toBe(400);
+      expect((await res.json() as Record<string, unknown>).error, form).toBe("invalid_scope");
+      expect(asks, form).toHaveLength(0);
+    }
   });
 });
 

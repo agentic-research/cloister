@@ -15,9 +15,11 @@
 //   GET  /.well-known/webfinger              JRD (RFC 7033) keyed off
 //                                            ?resource=acct:cluster@host
 //   GET  /.well-known/nostr.json             NIP-05 names+relays mapping
-//   POST /oauth/token                        client_credentials grant
-//                                            issuing a JWT signed by the
-//                                            cluster master
+//   POST /oauth/token                        client_credentials grant:
+//                                            a caller holding a lease gets
+//                                            a JWT in its own name, for one
+//                                            scope its lease covers
+//                                            (ADR-0086)
 //
 // All five concrete paths share one EdgeRoute because they all project
 // the same underlying identity surface: `manifest.actor.fingerprint`,
@@ -73,18 +75,26 @@
 // one disables the whole identity bridge, so all five paths 404 before signing
 // is reached), and notme's `DELEGATED_JWT_ISSUERS` must list cloister's issuer.
 //
-// CONSEQUENCE STILL OUTSTANDING: `manifest.actor.pubkeyBinding` must be
-// repointed at the DELEGATED public key (notme's
-// `JwtSigner.issuerPublicKey(issuer)`) before tokens verify. While it names
-// the master, /.well-known/jwks.json publishes a key nothing signs with and
-// every issued token fails verification — the correct failure direction, and
-// why this migration is safe to land ahead of the operator's key swap.
+// WHICH KEY JWKS PUBLISHES. With `NOTME_JWT` bound, /.well-known/jwks.json
+// asks notme for the delegated key (`JwtSigner.issuerPublicKey(issuer)`) and
+// publishes that, so it always names the key tokens are signed with; it fails
+// closed (503) rather than fall back when the signer refuses or is
+// unreachable. `manifest.actor.pubkeyBinding` is published only when no
+// signer is bound, and then no token can be signed either.
+//
+// WHO GETS A TOKEN (ADR-0086). Only a caller holding a lease, checked by the
+// lease gate for the one scope it asks for, even with the gate off. The
+// token's subject is that caller, never the cluster.
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
 import type { Backend, Gateway, McpToolSpec, Route } from "../manifest/types.js";
 import { resolveActorFingerprint } from "./actor-fingerprint.js";
+import { ERR_CA_UNAVAILABLE, gateAndVerify } from "./lease-middleware.js";
 import { logEvent } from "../obs/log.js";
+
+/** The lease gate, injectable for tests. Production uses `gateAndVerify`. */
+export type TokenGate = typeof gateAndVerify;
 
 // ── Path constants ────────────────────────────────────────────────────────
 
@@ -118,7 +128,10 @@ const ALL_PATHS = new Set<string>([
 // ── Route ────────────────────────────────────────────────────────────────
 
 export class WellKnownIdentityBridgeRoute implements EdgeRoute {
-  constructor(private readonly manifest: Gateway) {}
+  constructor(
+    private readonly manifest: Gateway,
+    private readonly gate:     TokenGate = gateAndVerify,
+  ) {}
 
   match(request: Request): boolean {
     const url = new URL(request.url);
@@ -335,9 +348,12 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     if (!contentType.startsWith("application/x-www-form-urlencoded")) {
       return oauthError("invalid_request", "content-type must be application/x-www-form-urlencoded", 400);
     }
+    // Kept as read: the lease gate verifies the caller's signature over these
+    // exact bytes.
+    const bodyText = await request.text();
     let form: URLSearchParams;
     try {
-      form = new URLSearchParams(await request.text());
+      form = new URLSearchParams(bodyText);
     } catch {
       return oauthError("invalid_request", "could not parse form body", 400);
     }
@@ -346,10 +362,34 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       // RFC 6749 §5.2 — `unsupported_grant_type` is the canonical code.
       return oauthError("unsupported_grant_type", `grant_type "${grantType ?? ""}" not supported`, 400);
     }
-    // `scope` is optional per §4.4.2 — pass it through to the JWT
-    // claims so downstream resources can enforce it. `audience` is an
-    // OIDC core extension; default to the issuer if unset.
-    const requestedScope = form.get("scope") ?? "";
+    // ONE scope per token (ADR-0086). RFC 6749 §3.3 lets a server refuse a
+    // request without one, and one scope is what the lease gate can check:
+    // the token may only carry authority the caller's lease already covers.
+    const requestedScope = (form.get("scope") ?? "").trim();
+    if (requestedScope === "" || /\s/.test(requestedScope)) {
+      return oauthError("invalid_scope", "request exactly one scope", 400);
+    }
+
+    // Client authentication is the caller's lease (ADR-0086): a notme-issued
+    // certificate and a signature over this request, checked by the same gate
+    // as every lease-gated route (ADR-0053), for the scope asked for. RFC 6749
+    // §4.4 requires the client credentials grant to authenticate its client.
+    // `denyWhenOff`: the token names its caller, so even the dev opt-out
+    // (gate off, no lease) is refused rather than minting a nameless token.
+    const verdict = await this.gate(env, Date.now(), {
+      req: request, body: bodyText, id: null, method: "oauth-token", params: undefined,
+      requestedScope,
+    }, { denyWhenOff: true });
+    if (verdict.kind === "reject" && verdict.code === ERR_CA_UNAVAILABLE) {
+      return oauthError("temporarily_unavailable", "token issuance unavailable", 503);
+    }
+    if (verdict.kind !== "pass") {
+      // RFC 6749 §5.2: invalid_client is 401, with the scheme the client used.
+      return oauthError("invalid_client", "client authentication failed", 401, { "www-authenticate": "Signet" });
+    }
+    const lease = verdict.lease;
+
+    // `audience` is an OIDC core extension; default to the issuer if unset.
     const base = baseUrl(request);
     const audience = form.get("audience") ?? base;
 
@@ -365,14 +405,17 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       typ: "JWT",
       kid: fingerprint,
     };
+    // The subject is the caller, never the cluster (ADR-0086): a token in the
+    // cluster's own name would let any lease holder speak as the cluster.
+    // `kid` stays the cluster's fingerprint, because it names the issuer's key.
     const payload: Record<string, unknown> = {
       iss:   base,
       aud:   audience,
-      sub:   fingerprint,
+      sub:   lease.peerFp,
       iat:   nowSec,
       exp:   nowSec + ttlSec,
+      scope: requestedScope,
     };
-    if (requestedScope) payload.scope = requestedScope;
 
     const headerB64u   = base64UrlEncodeUtf8(JSON.stringify(header));
     const payloadB64u  = base64UrlEncodeUtf8(JSON.stringify(payload));
@@ -415,7 +458,7 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       access_token: jwt,
       token_type:   "Bearer",
       expires_in:   ttlSec,
-      ...(requestedScope ? { scope: requestedScope } : {}),
+      scope:        requestedScope,
     };
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -555,7 +598,12 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-function oauthError(code: string, description: string, status: number): Response {
+function oauthError(
+  code:        string,
+  description: string,
+  status:      number,
+  extra:       Record<string, string> = {},
+): Response {
   // RFC 6749 §5.2 — error response is a JSON object with `error` (and
   // optional `error_description`). Status is 400/401/503 depending on
   // case; `temporarily_unavailable` is 503.
@@ -566,6 +614,7 @@ function oauthError(code: string, description: string, status: number): Response
       headers: {
         "content-type":  "application/json; charset=utf-8",
         "cache-control": "no-store",
+        ...extra,
       },
     },
   );

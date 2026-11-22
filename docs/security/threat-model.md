@@ -233,6 +233,22 @@ asked for.
 | 6.5.3 | Learn more from the response because refusals are recorded | The verdict, and so the constant-shape response, is unchanged | By construction: the record is a side effect of the reject |
 | 6.5.4 | Flood the log with refused requests | One event per refusal; the pre-auth budget bounds the verify path, and the platform's log pipeline samples volume | **Residual** |
 
+### 6.6 A token is minted only for a lease holder (ADR-0086)
+
+`POST /oauth/token` issues a JWT that notme signs on cloister's delegated key
+(notme ADR-015). That key confines the token to cloister's trust domain; who
+inside it receives a token is cloister's to decide. Until ADR-0086 this seam was
+not in this model, and the endpoint checked no client, although its tenant doc
+said it required a lease.
+
+| # | Adversary capability | Defensive invariant | Status |
+|---|---|---|---|
+| 6.6.1 | Mint a token with no credential | The lease gate runs with `denyWhenOff`: a caller without a lease is refused, dev mode included, and nothing is signed | Shipped; `test/routes/well-known-identity.test.ts` |
+| 6.6.2 | Mint a token in someone else's name, or the cluster's | `sub` is the verified lease's peer fingerprint; the cluster's fingerprint is only the key id | Shipped; same test |
+| 6.6.3 | Widen authority through the token | One scope per request, and the gate checks the lease covers it; the token carries that scope only | Shipped; same test |
+| 6.6.4 | Replay a token request | The gate's nonce and counter checks (§6.2) apply as on every lease-gated route | By construction |
+| 6.6.5 | Use a stolen token | The token is a bearer token for 300 s: notme's delegated signer refuses `cnf`, so cloister cannot bind it to the lease's key | **Residual**: binding needs notme to accept a key binding the delegated issuer verified |
+
 ## 7. Seam: counter writes (TrustStore.applyLeaseCounter)
 
 This is where §13.2 lives. Every authenticated request mutates the chain.

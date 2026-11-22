@@ -29,7 +29,7 @@ The `path` is a **sentinel** — the actual served paths are:
 | `GET /.well-known/jwks.json` | JWK Set (Ed25519 / EdDSA) — the master public key |
 | `GET /.well-known/webfinger` | JRD; query `?resource=acct:cluster@host` |
 | `GET /.well-known/nostr.json` | NIP-05 names + relays |
-| `POST /oauth/token` | minimal `client_credentials` grant |
+| `POST /oauth/token` | `client_credentials` grant: a lease holder gets a token in its own name, for one scope its lease covers ([ADR-0086](../adr/0086-a-token-is-minted-only-for-a-lease-holder.md)) |
 
 The upstream identity authority that **mints** the master key
 (`SigningAuthority` DO) is `notme-bot` — reachable through the
@@ -44,7 +44,7 @@ manifest, not from worker bindings directly:
 | Binding | Where declared | Purpose |
 |---|---|---|
 | `INTERLACE_MASTER_PUBKEY` | env var, referenced by `actor.pubkeyBinding` in [`cloister.capnp`](../../cloister.capnp) | master public key bytes (SPKI / raw). Empty disables Interlace discovery entirely (per ADR-0007). |
-| `INTERLACE_ROOT_PUBKEY` | env var | when set, lease-gates writes (e.g. `/oauth/token`). Unset = open posture (dev/test). |
+| `INTERLACE_ROOT_PUBKEY` | env var | the lease gate's trust anchor (ADR-0053). `/oauth/token` needs a lease whatever it holds: with no authority at all the gate is off, and this endpoint still refuses. |
 | `NOTME` | `service = "notme-bot"` in [`config.capnp`](../../config.capnp) | the upstream Signet master CA that **mints** the material the bridge **publishes**. Reachable via `/identity/*`. |
 
 The bridge does NOT read a vault slice — public-key material is
@@ -69,8 +69,13 @@ Identity material originates in `notme-bot` (cluster bundle
 - The well-known **read** paths (`openid-configuration`, `jwks.json`,
   `webfinger`, `nostr.json`) are unauthenticated. They publish only
   what the manifest declares public.
-- The `POST /oauth/token` write path is lease-gated when
-  `INTERLACE_ROOT_PUBKEY` is set.
+- `POST /oauth/token` requires a lease, always, including in dev mode with
+  the gate off (ADR-0086). The lease is the client's authentication
+  (RFC 6749 §4.4). The request names exactly one scope; the gate checks the
+  lease covers it, and the token carries that scope only. The token's
+  subject is the caller's lease fingerprint, never the cluster's. Refusals
+  are `401 invalid_client`, or `503 temporarily_unavailable` when the CA
+  bundle is unavailable.
 - Auth failures on the bridge follow the constant-time-404 convention
   used by the disclosure endpoint (threat model §9), to avoid existence
   + validity oracles.
