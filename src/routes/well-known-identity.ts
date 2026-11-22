@@ -1,119 +1,51 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Multi-format identity discovery bridge (cloister-c9922f).
+// Identity discovery bridge (cloister-c9922f).
 //
 // First non-MCP tenant of the cloister edge router (ADR-0002). Publishes
-// the cluster's existing Interlace identity (master pubkey + manifest-
-// declared capabilities) under three additional standard wire formats,
-// plus a minimal OAuth2 token endpoint so cloister is a working OIDC
-// IdP — not just discoverable.
+// the cluster's Interlace identity under two more standard formats:
 //
-//   GET  /.well-known/openid-configuration   OIDC discovery (RFC 8414 +
-//                                            OIDC core 1.0)
-//   GET  /.well-known/jwks.json              JWK Set (RFC 7517 + RFC 8037
-//                                            for EdDSA / Ed25519)
 //   GET  /.well-known/webfinger              JRD (RFC 7033) keyed off
 //                                            ?resource=acct:cluster@host
 //   GET  /.well-known/nostr.json             NIP-05 names+relays mapping
-//   POST /oauth/token                        client_credentials grant
-//                                            issuing a JWT signed by the
-//                                            cluster master
 //
-// All five concrete paths share one EdgeRoute because they all project
-// the same underlying identity surface: `manifest.actor.fingerprint`,
-// the master pubkey at `env[actor.pubkeyBinding]`, and the capabilities
-// aggregated across the manifest's mcp routes. Splitting into five
-// EdgeRoute classes would multiply boilerplate (constructor, match,
-// readEnv, JSON envelope) with no semantic gain.
+// Both paths share one EdgeRoute because they project the same identity:
+// `manifest.actor.fingerprint` and the master public key at
+// `env[actor.pubkeyBinding]`.
+//
+// ## Cloister issues no tokens (ADR-0086)
+//
+// This route also served `POST /oauth/token`, a client_credentials grant
+// whose JWT notme signed on a delegated key, with
+// `/.well-known/openid-configuration` and `/.well-known/jwks.json` to
+// describe and verify it. All three are gone. notme is the token authority:
+// its `POST /token` issues sender-constrained tokens to a caller that has
+// proved who it is, and it is deliberately not an OpenID provider. A second
+// issuer here would be a weaker copy of that, and notme's ADR-020 asks the
+// stack to compose its credentials rather than mint new ones.
 //
 // ## What this is NOT
 //
-//   - No login UI / authorization-code flow. client_credentials only;
-//     adding interactive auth needs its own ADR + bead.
 //   - No ActivityPub inbox/outbox. WebFinger only handles identity
 //     discovery, not message delivery.
 //   - No relay implementation. NIP-05 is just identity mapping.
-//   - No placeholder identity. The fingerprint, pubkey, and capabilities
-//     all derive from the manifest's real `actor` block + the master
-//     pubkey bytes pinned at deploy time. If `actor.fingerprint` is
-//     empty (Interlace discovery disabled), the bridge returns 404
-//     across all formats — symmetric with WellKnownInterlaceRoute.
-//
-// ## Token signing
-//
-// Cloister holds no signing private key. Signing is delegated to notme
-// over the `NOTME_JWT` RPC entrypoint (notme ADR-015 / PR #62), on a
-// key that is DELEGATED rather than the Interlace/CA master.
-//
-// Both halves of that sentence are corrections to what this file used to
-// say, and both came from notme refusing what cloister asked for:
-//
-//   TRANSPORT. This forwarded to `POST /internal/sign-jwt`. notme replaced
-//   that with a 404, for the reason it had already given when declining
-//   `/internal/sign-receipt`: an `/internal/` prefix is publicly routable,
-//   so it is not an access control. Second instance, same refusal — see
-//   src/types.ts on RECEIPT_SIGNING_KEY for the first.
-//
-//   KEY. This asked notme to sign with the cluster master. notme's own
-//   access tokens are signed with that key and its issuer check is optional
-//   by default, so a general-purpose "sign these bytes" oracle over it is an
-//   AUTHENTICATION BYPASS — it emits a credential that already verifies.
-//   ADR-014's receipt fix does not transfer: receipts are safe on a shared
-//   key because the Interlace spec pins their eight fields, so validate →
-//   re-encode → compare closes the signable set. A JWT payload has no
-//   schema; arbitrary claims ARE the useful surface. Key separation is the
-//   only control that holds, and it holds even if every claim check is
-//   deleted.
-//
-// LOCAL DEV REACHES THIS. `task dev` + `wrangler dev` in ../notme/worker/ is
-// enough — the dev registry wires `notme-bot#JwtSigner`. Only `task
-// serve:local` (raw workerd) cannot, since config.capnp declares notme-bot as
-// a network service. Two further things gate a working local token, and both
-// are config rather than code: `actor.fingerprint` must be non-empty (an empty
-// one disables the whole identity bridge, so all five paths 404 before signing
-// is reached), and notme's `DELEGATED_JWT_ISSUERS` must list cloister's issuer.
-//
-// CONSEQUENCE STILL OUTSTANDING: `manifest.actor.pubkeyBinding` must be
-// repointed at the DELEGATED public key (notme's
-// `JwtSigner.issuerPublicKey(issuer)`) before tokens verify. While it names
-// the master, /.well-known/jwks.json publishes a key nothing signs with and
-// every issued token fails verification — the correct failure direction, and
-// why this migration is safe to land ahead of the operator's key swap.
+//   - No placeholder identity. The fingerprint and pubkey derive from the
+//     manifest's real `actor` block + the master pubkey bytes pinned at
+//     deploy time. If `actor.fingerprint` is empty (Interlace discovery
+//     disabled), the bridge returns 404 for both formats — symmetric with
+//     WellKnownInterlaceRoute.
 
 import type { EdgeRoute } from "../router.js";
 import type { Env } from "../types.js";
-import type { Backend, Gateway, McpToolSpec, Route } from "../manifest/types.js";
+import type { Gateway } from "../manifest/types.js";
 import { resolveActorFingerprint } from "./actor-fingerprint.js";
-import { logEvent } from "../obs/log.js";
 
 // ── Path constants ────────────────────────────────────────────────────────
 
-export const PATH_OIDC_DISCOVERY = "/.well-known/openid-configuration";
-export const PATH_JWKS           = "/.well-known/jwks.json";
 export const PATH_WEBFINGER      = "/.well-known/webfinger";
 export const PATH_NOSTR_NIP05    = "/.well-known/nostr.json";
-export const PATH_OAUTH_TOKEN    = "/oauth/token";
 
-/**
- * RETIRED. notme replaced `POST /internal/sign-jwt` with a 404 whose body
- * names the replacement, for the reason it had already given when declining
- * `/internal/sign-receipt`: an `/internal/` prefix is publicly routable and is
- * therefore not an access control (notme ADR-015 / PR #62). Signing is now the
- * `NOTME_JWT` RPC entrypoint, on a DELEGATED key rather than the CA master.
- *
- * Kept as a name so the retired path stays greppable — this was the second
- * `/internal/` signing path notme refused, and the one cloister had not
- * migrated. Nothing may fetch it.
- */
-export const RETIRED_NOTME_SIGN_JWT_PATH = "/internal/sign-jwt";
-
-const ALL_PATHS = new Set<string>([
-  PATH_OIDC_DISCOVERY,
-  PATH_JWKS,
-  PATH_WEBFINGER,
-  PATH_NOSTR_NIP05,
-  PATH_OAUTH_TOKEN,
-]);
+const ALL_PATHS = new Set<string>([PATH_WEBFINGER, PATH_NOSTR_NIP05]);
 
 // ── Route ────────────────────────────────────────────────────────────────
 
@@ -123,10 +55,8 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
   match(request: Request): boolean {
     const url = new URL(request.url);
     if (!ALL_PATHS.has(url.pathname)) return false;
-    // /oauth/token is POST per RFC 6749 §4.4; the four discovery
-    // endpoints are GET. Reject other methods with 404 at the router
-    // level so the response is indistinguishable from "no such route."
-    if (url.pathname === PATH_OAUTH_TOKEN) return request.method === "POST";
+    // Both are GET (RFC 7033, NIP-05). Other methods 404 at the router, so
+    // the response is indistinguishable from "no such route."
     return request.method === "GET";
   }
 
@@ -143,96 +73,11 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
 
     const url = new URL(request.url);
     switch (url.pathname) {
-      case PATH_OIDC_DISCOVERY: return this.handleOidcDiscovery(request, env);
-      case PATH_JWKS:           return this.handleJwks(request, env);
-      case PATH_WEBFINGER:      return this.handleWebFinger(request, env);
-      case PATH_NOSTR_NIP05:    return this.handleNostrNip05(request, env);
-      case PATH_OAUTH_TOKEN:    return this.handleOauthToken(request, env);
+      case PATH_WEBFINGER:   return this.handleWebFinger(request, env);
+      case PATH_NOSTR_NIP05: return this.handleNostrNip05(request, env);
     }
-    // Unreachable — match() filters to the five paths above.
+    // Unreachable — match() filters to the two paths above.
     return new Response("not found", { status: 404 });
-  }
-
-  // ── /.well-known/openid-configuration ───────────────────────────────────
-
-  private handleOidcDiscovery(request: Request, _env: Env): Response {
-    const base = baseUrl(request);
-    const doc = {
-      issuer:                                base,
-      jwks_uri:                              `${base}${PATH_JWKS}`,
-      token_endpoint:                        `${base}${PATH_OAUTH_TOKEN}`,
-      // The cluster master is Ed25519. RFC 8037 registers `EdDSA` as the
-      // JWS `alg` value for Ed25519/Ed448 signatures.
-      id_token_signing_alg_values_supported: ["EdDSA"],
-      subject_types_supported:               ["public"],
-      // Phase 1 has no authorization-code flow; clients receive an
-      // id_token directly via client_credentials. Adding `code` is its
-      // own ADR + bead.
-      response_types_supported:              ["id_token"],
-      grant_types_supported:                 ["client_credentials"],
-    };
-    return jsonResponse(doc);
-  }
-
-  // ── /.well-known/jwks.json ─────────────────────────────────────────────
-
-  private async handleJwks(request: Request, env: Env): Promise<Response> {
-    // Resolved, not raw: when the fallback supplied the fingerprint the raw
-    // manifest value is "", and a JWK published under an empty `kid` matches
-    // nothing a verifier looks up.
-    const fingerprint = resolveActorFingerprint(this.manifest.actor.fingerprint, env) ?? "";
-
-    // ── Ask the signer for its own key ───────────────────────────────────
-    //
-    // The key published here MUST be the key /oauth/token is signed with, or
-    // every token this IdP issues fails verification. Those are two different
-    // values in two different repos, and the previous arrangement kept them
-    // aligned by asking an operator to copy one into the other by hand —
-    // notme's migration note says "point pubkeyBinding at the delegated key".
-    //
-    // A hand-copied derived value is the drift class this whole surface exists
-    // to remove. It is also unnecessary: notme SERVES the key, and its own
-    // design doc observes that cloister "is already indifferent to which key it
-    // publishes" because `kid` comes from the manifest rather than the key. The
-    // indifference that made copying safe is exactly what makes asking safe.
-    //
-    // FAIL CLOSED rather than falling back. If the binding exists but the call
-    // fails, publishing `pubkeyBinding` would publish the MASTER while notme
-    // signs with the delegated key — the precise mismatch this removes, and it
-    // would look healthy. A 503 says "not operational", which is true.
-    const signer = env.NOTME_JWT;
-    if (signer && typeof signer.issuerPublicKey === "function") {
-      const issuer = baseUrl(request);
-      let delegated;
-      try {
-        delegated = await signer.issuerPublicKey(issuer);
-      } catch (error) {
-        logEvent("warn", {
-          target: "jwks", op: "issuer_public_key", outcome: "signer_unreachable",
-          detail: error instanceof Error ? error.message : String(error),
-        });
-        return new Response("jwks: signer unreachable", { status: 503 });
-      }
-      if (!delegated?.ok) {
-        logEvent("warn", {
-          target: "jwks", op: "issuer_public_key", outcome: "signer_refused",
-          code: delegated?.code ?? "unknown", issuer,
-        });
-        return new Response("jwks: issuer not delegated", { status: 503 });
-      }
-      return jsonResponse({ keys: [jwkFor(delegated.publicRawB64, fingerprint)] });
-    }
-
-    // No delegated signer bound — the pre-delegation path, where cloister
-    // publishes whatever key the manifest names.
-    const masterB64 = readEnvString(env, this.manifest.actor.pubkeyBinding);
-    if (!masterB64) {
-      // The pubkey binding is unset — without it we can't publish a
-      // verification key, so the IdP isn't operational. 503 matches the
-      // ca-bundle-cache `CaUnavailableError` convention.
-      return new Response("jwks: master pubkey binding unset", { status: 503 });
-    }
-    return jsonResponse({ keys: [jwkFor(masterB64, fingerprint)] });
   }
 
   // ── /.well-known/webfinger ─────────────────────────────────────────────
@@ -257,16 +102,6 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
     const jrd = {
       subject: expected,
       links: [
-        {
-          // OIDC discovery link relation, RFC + OpenID Connect Discovery
-          // 1.0 §2. Mastodon-flavored verification typically uses
-          // `http://webfinger.net/rel/profile-page`, which isn't
-          // applicable for a cluster; we surface the OIDC issuer
-          // instead so clients can chain to /.well-known/openid-
-          // configuration.
-          rel:  "http://openid.net/specs/connect/1.0/issuer",
-          href: base,
-        },
         {
           // Self-link per RFC 7033 §8.4.
           rel:  "self",
@@ -325,216 +160,13 @@ export class WellKnownIdentityBridgeRoute implements EdgeRoute {
       },
     });
   }
-
-  // ── /oauth/token ───────────────────────────────────────────────────────
-
-  private async handleOauthToken(request: Request, env: Env): Promise<Response> {
-    // RFC 6749 §4.4.2 — client_credentials request body is
-    // application/x-www-form-urlencoded.
-    const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
-    if (!contentType.startsWith("application/x-www-form-urlencoded")) {
-      return oauthError("invalid_request", "content-type must be application/x-www-form-urlencoded", 400);
-    }
-    let form: URLSearchParams;
-    try {
-      form = new URLSearchParams(await request.text());
-    } catch {
-      return oauthError("invalid_request", "could not parse form body", 400);
-    }
-    const grantType = form.get("grant_type");
-    if (grantType !== "client_credentials") {
-      // RFC 6749 §5.2 — `unsupported_grant_type` is the canonical code.
-      return oauthError("unsupported_grant_type", `grant_type "${grantType ?? ""}" not supported`, 400);
-    }
-    // `scope` is optional per §4.4.2 — pass it through to the JWT
-    // claims so downstream resources can enforce it. `audience` is an
-    // OIDC core extension; default to the issuer if unset.
-    const requestedScope = form.get("scope") ?? "";
-    const base = baseUrl(request);
-    const audience = form.get("audience") ?? base;
-
-    // Build JWT header + payload. JWS compact (RFC 7515 §3.1) is
-    // `b64url(header).b64url(payload).b64url(sig)`.
-    const nowSec = Math.floor(Date.now() / 1000);
-    const ttlSec = 300;  // matches manifest.policy.maxCertLifetimeSeconds default
-    // Same resolver as the gate above; `handle()` already refused the request
-    // if this is null, so the ?? "" is unreachable rather than a default.
-    const fingerprint = resolveActorFingerprint(this.manifest.actor.fingerprint, env) ?? "";
-    const header = {
-      alg: "EdDSA",
-      typ: "JWT",
-      kid: fingerprint,
-    };
-    const payload: Record<string, unknown> = {
-      iss:   base,
-      aud:   audience,
-      sub:   fingerprint,
-      iat:   nowSec,
-      exp:   nowSec + ttlSec,
-    };
-    if (requestedScope) payload.scope = requestedScope;
-
-    const headerB64u   = base64UrlEncodeUtf8(JSON.stringify(header));
-    const payloadB64u  = base64UrlEncodeUtf8(JSON.stringify(payload));
-    const signingInput = `${headerB64u}.${payloadB64u}`;
-
-    // Delegate the Ed25519 sign to notme over the `NOTME_JWT` RPC entrypoint
-    // (notme ADR-015 / PR #62). cloister assembles the JWS compact form
-    // locally; the private key is born in CF and never leaves notme.
-    //
-    // The key is DELEGATED, NOT the CA master. notme refused the master-key
-    // version of this because its own access tokens (typ "at+jwt", iss
-    // "https://auth.notme.bot") are signed with the master and
-    // `verifyAccessToken`'s issuer check is optional by default — so signing
-    // arbitrary `header.payload` bytes with it is an AUTHENTICATION BYPASS,
-    // not merely a forgery oracle. It hands back a credential that already
-    // verifies, rather than one someone still has to get accepted.
-    //
-    // `issuer` is the `iss` claim, and is what notme's DELEGATED_JWT_ISSUERS
-    // allowlist is keyed on. Passing the two segments separately rather than
-    // the joined `signingInput` is notme's contract: the signer re-derives
-    // what it signs from the parts it was given, so cloister cannot hand it a
-    // joined string whose halves differ from what cloister built.
-    const signature = await fetchJwtSignature(env, {
-      issuer:     base,
-      headerB64:  headerB64u,
-      payloadB64: payloadB64u,
-    });
-    if (signature === null) {
-      // Notme unreachable, returned non-200, or returned a malformed
-      // response. 503 with `temporarily_unavailable` per RFC 6749 §5.2.
-      return oauthError(
-        "temporarily_unavailable",
-        "token signing service unavailable",
-        503,
-      );
-    }
-
-    const jwt = `${signingInput}.${signature}`;
-    const body = {
-      access_token: jwt,
-      token_type:   "Bearer",
-      expires_in:   ttlSec,
-      ...(requestedScope ? { scope: requestedScope } : {}),
-    };
-    return new Response(JSON.stringify(body), {
-      status: 200,
-      headers: {
-        "content-type":  "application/json; charset=utf-8",
-        // RFC 6749 §5.1 — token responses MUST NOT be cached.
-        "cache-control": "no-store",
-        "pragma":        "no-cache",
-      },
-    });
-  }
-}
-
-// ── Capability synthesis (currently unused publicly but kept for parity) ──
-
-/**
- * Aggregate capability names across the manifest's mcp routes. Mirrors
- * the projection in `src/routes/well-known.ts:synthesize` so the
- * identity bridge can expose the same set if/when an OIDC `scope_values`
- * field needs to be advertised; not surfaced today.
- */
-export function capabilityNames(manifest: Gateway): readonly string[] {
-  return manifest.routes.flatMap(routeCapabilityNames);
-}
-
-function routeCapabilityNames(route: Route): readonly string[] {
-  if (!("mcp" in route.kind)) return [];
-  return route.kind.mcp.backends.flatMap(backendCapabilityNames);
-}
-
-function backendCapabilityNames(backend: Backend): readonly string[] {
-  const tools: readonly McpToolSpec[] = pickTools(backend);
-  return tools.map((t) => t.name);
-}
-
-function pickTools(backend: Backend): readonly McpToolSpec[] {
-  const k = backend.kind;
-  if ("durableObject"  in k) return k.durableObject.tools;
-  if ("mcpProxy"       in k) return k.mcpProxy.tools;
-  if ("serviceBinding" in k) return k.serviceBinding.tools;
-  if ("udsForward"     in k) return k.udsForward.tools;
-  if ("leylineNet"     in k) return k.leylineNet.tools;
-  return [];
-}
-
-// ── Notme delegation ─────────────────────────────────────────────────────
-
-/**
- * POST the signing-input bytes to notme's `/internal/sign-jwt` endpoint
- * and return the base64url signature. Returns `null` on any failure;
- * caller maps null → 503 so the OAuth error stays out of the failure
- * detail (no signing-key oracle).
- *
- * Exported for testability — tests can stub the env.NOTME service
- * binding directly, but exposing the helper also lets unit tests
- * assert the contract independently.
- */
-export async function fetchJwtSignature(
-  env: Env,
-  params: { issuer: string; headerB64: string; payloadB64: string },
-): Promise<string | null> {
-  const signer = env.NOTME_JWT;
-  // Absent binding is the `task serve:local` case, not an error: notme-bot is a
-  // NETWORK service under raw workerd and an RPC entrypoint cannot bind to one.
-  // Returning null yields the same 503 the caller already produced.
-  if (!signer || typeof signer.signJwt !== "function") {
-    logEvent("warn", {
-      target: "oauth_token", op: "sign_jwt",
-      outcome: "no_signer_binding",
-    });
-    return null;
-  }
-
-  try {
-    const result = await signer.signJwt(params);
-    if (!result?.ok) {
-      // The RESPONSE stays a constant 503 — telling a caller apart "notme is
-      // down" from "your issuer is not delegated" would leak operator
-      // configuration. The OPERATOR is a different audience, and withholding
-      // the reason from them buys nothing: without this line, the single most
-      // likely local-dev failure (notme's DELEGATED_JWT_ISSUERS not listing
-      // cloister's issuer, which is unset by default) presents as a bare 503
-      // with no way to tell it from an unreachable notme.
-      logEvent("warn", {
-        target: "oauth_token", op: "sign_jwt",
-        outcome: "signer_refused",
-        code: result?.code ?? "unknown",
-        issuer: params.issuer,
-      });
-      return null;
-    }
-
-    const sig = result.signature;
-    // Ed25519 is 64 bytes (RFC 8032 §5.1.6). Checking the length rather than
-    // trusting the shape keeps a truncated or wrong-curve signature from being
-    // assembled into a JWS that then fails verification somewhere less
-    // diagnosable than here.
-    if (!(sig instanceof Uint8Array) || sig.length !== 64) return null;
-
-    let bin = "";
-    for (let i = 0; i < sig.length; i++) bin += String.fromCharCode(sig[i]!);
-    return base64StdToBase64Url(btoa(bin));
-  } catch (error) {
-    // Surfaced to the operator, constant to the caller — see the note above.
-    logEvent("warn", {
-      target: "oauth_token", op: "sign_jwt",
-      outcome: "signer_unreachable",
-      detail: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
 function baseUrl(request: Request): string {
-  // Compute the issuer URL from the inbound Request — workerd /
-  // Cloudflare Workers populate request.url with the public-facing
-  // origin, so this is the canonical issuer for the deployment.
+  // The deployment's public origin, from the inbound Request — workerd /
+  // Cloudflare Workers populate request.url with the public-facing origin.
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;
 }
@@ -543,57 +175,6 @@ function readEnvString(env: Env, binding: string): string | undefined {
   if (!binding) return undefined;
   const v = (env as unknown as Record<string, unknown>)[binding];
   return typeof v === "string" && v.length > 0 ? v : undefined;
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body, null, 2), {
-    status: 200,
-    headers: {
-      "content-type":  "application/json; charset=utf-8",
-      "cache-control": "public, max-age=300, must-revalidate",
-    },
-  });
-}
-
-function oauthError(code: string, description: string, status: number): Response {
-  // RFC 6749 §5.2 — error response is a JSON object with `error` (and
-  // optional `error_description`). Status is 400/401/503 depending on
-  // case; `temporarily_unavailable` is 503.
-  return new Response(
-    JSON.stringify({ error: code, error_description: description }),
-    {
-      status,
-      headers: {
-        "content-type":  "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    },
-  );
-}
-
-/**
- * RFC 8037 §2 EdDSA JWK. `x` is base64url-no-pad over the raw public key; the
- * stored/served value may be base64-standard (mirroring CABundle.keys per
- * cloister-c614ae), so it is converted here.
- *
- * `kid` is the cluster's actor fingerprint, NOT derived from the key — which is
- * what lets the published key change (master → delegated) without every
- * verifier's pinned identifier moving.
- */
-function jwkFor(pubkeyB64: string, kid: string) {
-  return {
-    kty: "OKP",
-    crv: "Ed25519",
-    x: base64StdToBase64Url(pubkeyB64),
-    kid,
-    alg: "EdDSA",
-    use: "sig",
-  };
-}
-
-/** Convert base64-standard (with `+`, `/`, `=`) to base64url (no pad). */
-function base64StdToBase64Url(s: string): string {
-  return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /** base64-standard → lowercase hex. */
@@ -606,13 +187,3 @@ function base64StdToHex(s: string): string {
   return out;
 }
 
-/** UTF-8 encode a string, then base64url (no pad). */
-function base64UrlEncodeUtf8(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
-  return btoa(bin)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}

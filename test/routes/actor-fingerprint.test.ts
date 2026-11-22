@@ -3,7 +3,8 @@
 // The one resolver for the Interlace actor fingerprint (cloister-5f7e5c).
 //
 // What it exists to prevent, measured rather than imagined: with notme running
-// and every binding connected, `POST /oauth/token` answered
+// and every binding connected, the identity bridge (then also a token endpoint,
+// retired by ADR-0086) answered
 // `404 identity bridge disabled` — because `actor.fingerprint` was "" and that
 // state is indistinguishable from a deliberate opt-out.
 

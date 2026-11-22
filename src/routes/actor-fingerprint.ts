@@ -7,7 +7,7 @@
 //
 // `actor.fingerprint` gates two published surfaces: the Interlace discovery doc
 // (src/routes/well-known.ts) and the multi-format identity bridge
-// (src/routes/well-known-identity.ts, five paths including /oauth/token). Empty
+// (src/routes/well-known-identity.ts). Empty
 // means "disabled", and every path 404s.
 //
 // That is a fine opt-out and a terrible default, because it is also what a
@@ -15,7 +15,8 @@
 // the root cluster.toml and `recipes/agent-cluster` — a recipe whose README
 // calls it "the full identity-on cloister deployment... with the well-known
 // discovery surface enabled" — declare the route and leave the fingerprint
-// empty. Measured against a live local pair, `POST /oauth/token` answers:
+// empty. Measured against a live local pair, the bridge's token path (since
+// retired, ADR-0086) answered:
 //
 //     404  identity bridge disabled
 //

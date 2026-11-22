@@ -636,7 +636,7 @@ section names the groups and what each is for, not every entry.
 | Group | Bindings | Used for |
 | --- | --- | --- |
 | Durable Objects | `BEAD_STORE`, `TRUST_STORE`, `BLOB_STORE`, `VAULT_STORE` | beads, lease counters and attestations, content-addressed blobs, per-bundle credentials |
-| Service bindings | `NOTME`, `NOTME_JWT`, `NOTME_RECEIPTS`, `LSP_MCP`, `MACHE_MCP`, `KEK_HELPER` | identity, token verification, receipt signing, tool upstreams, key-encryption-key resolution. A service binding is an unforgeable in-process reference, not a URL |
+| Service bindings | `NOTME`, `NOTME_RECEIPTS`, `LSP_MCP`, `MACHE_MCP`, `KEK_HELPER` | identity, receipt signing, tool upstreams, key-encryption-key resolution. A service binding is an unforgeable in-process reference, not a URL |
 | Upstream URLs | `LLO_MCP_URL`, `MACHE_MCP_URL`, `ROSARY_MCP_URL`, `COMPANION_URL`, `SIGNET_URL` | where an `mcpProxy` backend or the companion is reached when there is no service binding |
 | Trust anchors | `INTERLACE_ROOT_PUBKEY`, `INTERLACE_MASTER_PUBKEY`, `INTERLACE_DISCLOSURE_HMAC_KEY` | the lease gate's authority, cert-chain root, disclosure cursor signing |
 | Receipts | `RECEIPT_SIGNING_KEY`, `RECEIPT_EPOCH`, `RECEIPT_ACTOR_FP`, `INTERLACE_ACTOR_FP` | signed response receipts |

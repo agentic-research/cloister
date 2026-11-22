@@ -57,20 +57,10 @@ const workerConfig = {
     serviceBindings: {
       // notme isn't running in unit tests.
       NOTME: async () => new Response("notme not available in test", { status: 503 }),
-      // NOTME_JWT is an RPC entrypoint (notme's JwtSigner, ADR-015), not a
-      // fetch service — but wrangler.toml declares it, so workerd refuses to
-      // start unless the name resolves to something. A fetch stub satisfies
-      // that without pretending to be a signer: it has no `signJwt` method, so
-      // `fetchJwtSignature`'s capability check treats it as absent and returns
-      // null, which is the same 503 an unreachable signer produces.
-      //
-      // Tests that need real signing inject their own `NOTME_JWT` into the env
-      // object they build, which shadows this. Deliberately NOT stubbing a
-      // working signer here: a default that silently signs would let a test
-      // pass without ever declaring it wanted a signer.
-      NOTME_JWT: async () => new Response("notme JwtSigner is RPC-only", { status: 503 }),
-      // Same reasoning as NOTME_JWT: resolves the wrangler-declared name so
-      // workerd starts, without presenting `signReceipt`/`receiptFacts`. The
+      // NOTME_RECEIPTS is an RPC entrypoint (notme's ReceiptSigner, ADR-014),
+      // not a fetch service, but wrangler.toml declares it, so workerd refuses
+      // to start unless the name resolves. This stub resolves it without
+      // presenting `signReceipt`/`receiptFacts`. The
       // shape check in delegatedReceiptSignerFrom() therefore treats it as
       // absent and the emitter falls back to the env path — which is what an
       // unbound deployment does, so tests exercise the real fallback.

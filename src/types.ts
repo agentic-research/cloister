@@ -94,51 +94,6 @@ export interface Env extends CoreEnv {
   // src/vault-store.ts header comment for the open options.
   VAULT_STORE?: DurableObjectNamespace;
 
-  // Service bindings (workerd-native)
-  /// Delegated OAuth JWT signing (notme ADR-015 / notme PR #62,
-  /// cloister-5f7e5c). An RPC entrypoint on notme-bot, NOT a Fetcher, and
-  /// NOT the `NOTME` binding (CoreEnv) — that is the `/identity/*` fetch path.
-  ///
-  /// Optional because it is declared on the wrangler path only. `task
-  /// serve:local` (raw workerd) cannot have it — config.capnp declares
-  /// notme-bot as a network service and an RPC entrypoint cannot bind to one.
-  /// `task dev` CAN: wrangler's dev registry wires named entrypoints between
-  /// separately-running `wrangler dev` sessions, so with notme's worker up the
-  /// binding resolves locally (verified: `env.NOTME_JWT (notme-bot#JwtSigner)
-  /// Worker local [connected]`). See DECLARED_ASYMMETRY in
-  /// lint/binding-parity.mjs. Absent binding means `/oauth/token`
-  /// returns 503 — the correct fail-closed answer for "no signer reachable".
-  ///
-  /// The key is DELEGATED, deliberately not the Interlace/CA master. notme
-  /// refused the master-key version because its own access tokens are signed
-  /// with that key, making arbitrary `header.payload` signing an
-  /// AUTHENTICATION BYPASS rather than a forgery oracle. Note the contrast
-  /// with `RECEIPT_SIGNING_KEY` (CoreEnv): receipts are safe on a shared key
-  /// because the Interlace spec pins their eight fields, so validate →
-  /// re-encode → compare closes the signable set. A JWT payload has no
-  /// schema; arbitrary claims ARE the useful surface, so there is nothing to
-  /// canonicalize and key separation is the only load-bearing control.
-  NOTME_JWT?: {
-    /// Sign `headerB64.payloadB64` with the delegated key for `issuer`.
-    /// `issuer` must appear in notme's operator-configured
-    /// `DELEGATED_JWT_ISSUERS` allowlist — an allowlist rather than
-    /// caller-supplied, because a caller who could register an issuer could
-    /// register notme's own.
-    signJwt(params: { issuer: string; headerB64: string; payloadB64: string }):
-      Promise<
-        | { ok: true; signature: Uint8Array; kid: string }
-        | { ok: false; code: string; message: string }
-      >;
-    /// The delegated public key + kid, for cloister to publish in its JWKS.
-    /// `manifest.actor.pubkeyBinding` must hold THIS key, not the master —
-    /// publishing the master while signing delegated makes every token fail
-    /// verification (the right failure direction, but worth ordering).
-    issuerPublicKey(issuer: string): Promise<
-      | { ok: true; publicRawB64: string; kid: string }
-      | { ok: false; code: string; message: string }
-    >;
-  };
-
   // Vars (local dev: process addresses for non-workerd backends)
   ROSARY_MCP_URL: string;  // rosary MCP HTTP endpoint
   SIGNET_URL:     string;  // signet key exchange (empty until deployed)

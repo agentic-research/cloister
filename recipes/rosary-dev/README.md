@@ -19,7 +19,7 @@ hand-edited `cloister.capnp` once `[gateway]` lands in `cluster.toml`.
 
 This recipe declares `wellKnownInterlace`, `wellKnownIdentityBridge`, and
 `disclosure`. All of them are gated on the actor fingerprint, and **every one
-returns 404 until it resolves** — including `POST /oauth/token`.
+returns 404 until it resolves**.
 
 The fingerprint is `sha256:<hex>` over the cluster's master public key, so it
 is derived rather than invented. Two ways to supply it:

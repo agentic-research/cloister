@@ -8,6 +8,23 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — cloister issues no tokens; notme does (ADR-0086)
+
+- The identity bridge no longer serves `POST /oauth/token`,
+  `/.well-known/openid-configuration` or `/.well-known/jwks.json`. Each now
+  answers 404. A client gets its token from notme's `POST /token`, which
+  issues sender-constrained tokens to a caller that has proved who it is.
+- The endpoint authenticated no client, although its tenant doc said it
+  required a lease. A second token issuer beside notme's was the problem
+  underneath, so it is removed rather than gated.
+- The `NOTME_JWT` binding is gone from `wrangler.toml`, the test config and
+  the binding-parity rail's declared asymmetries.
+- WebFinger and NIP-05 stay. WebFinger no longer names cloister as an OIDC
+  issuer.
+- Operators: the gateway's origin can come off notme's
+  `DELEGATED_JWT_ISSUERS`. A deployment still running the earlier gateway
+  should remove it now.
+
 ### 2026-11 — the lock writer's carry rule keeps the records #366 could drop
 
 - #366 said it moved the rule that carries rootfs records across a lock
