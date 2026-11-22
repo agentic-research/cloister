@@ -38,12 +38,14 @@
 // the tag the previous local build ran under.
 
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 import { isSha256Digest, parseImageRef } from "../oci-artifact.mjs";
+import { emitCompose, parseOciPins } from "./emit-compose.mjs";
+import { parseTomlToCluster } from "./toml-to-cluster.mjs";
 
 /** The labels a run records on each container. */
 export const IMAGE_LABELS = Object.freeze({
@@ -280,12 +282,62 @@ export function staleTags(resolved, previous) {
 }
 
 /**
+ * What `--locked` refuses before anything starts (ADR-0083 §5), one sentence
+ * each. A locked run starts only a digest cluster.toml writes or
+ * cluster.lock.toml pins, so it refuses:
+ *   - a service whose image carries no digest;
+ *   - a committed compose file whose images are not what cluster.toml and
+ *     cluster.lock.toml render, which is the lock out of date with the
+ *     declaration (Cargo's `--locked`, `npm ci`).
+ * It asks no registry what a tag names today. A locked run must not depend on
+ * that, and whether a pinned tag has moved is `cluster resolve`'s question.
+ *
+ * @param {{root: string, committed: Array<{service: string, image: string}>}} run
+ * @returns {Promise<string[]>}
+ */
+export async function lockedProblems({ root, committed }) {
+  const tomlPath = join(root, "cluster.toml");
+  if (!existsSync(tomlPath)) {
+    return [`--locked checks cluster.compose.yaml against cluster.toml and cluster.lock.toml, and ${root} has no cluster.toml`];
+  }
+  const cluster = await parseTomlToCluster(readFileSync(tomlPath, "utf8"));
+  const lockPath = join(root, "cluster.lock.toml");
+  const pins = existsSync(lockPath)
+    ? parseOciPins(readFileSync(lockPath, "utf8"))
+    : { ociByInput: new Map(), ociByBundle: new Map(), images: new Map() };
+  // Every pin, as one object (see generate.mjs).
+  const rendered = new Map(
+    composeServices(emitCompose(cluster, pins.ociByInput, { ...pins, warn: () => {} })).services.map((s) => [s.service, s.image]),
+  );
+  const named = new Map(committed.map((s) => [s.service, s.image]));
+  const regenerate = "Run `cloister cluster generate` (ADR-0083 §5)";
+  const problems = [];
+  for (const { service, image } of committed) {
+    if (!parseImageRef(image).digest) {
+      problems.push(
+        `image ${image} (service ${service}) is not pinned by digest. --locked starts only a digest ` +
+        `cluster.toml writes or cluster.lock.toml pins: \`cloister cluster resolve\` pins one that names a ` +
+        `registry, and a local build has no pin (ADR-0083 §5)`,
+      );
+    } else if (rendered.has(service) && rendered.get(service) !== image) {
+      problems.push(`service ${service} runs ${image}, but cluster.toml and cluster.lock.toml render ${rendered.get(service)}. ${regenerate}`);
+    } else if (!rendered.has(service)) {
+      problems.push(`service ${service} is in cluster.compose.yaml, and cluster.toml renders no such service. ${regenerate}`);
+    }
+  }
+  for (const service of rendered.keys()) {
+    if (!named.has(service)) problems.push(`cluster.toml renders service ${service}, and cluster.compose.yaml has none. ${regenerate}`);
+  }
+  return problems;
+}
+
+/**
  * `cloister cluster up` without --env: resolve, record and start.
  *
- * @param {{root: string, file: string, compose: string[], detach: boolean}} run
+ * @param {{root: string, file: string, compose: string[], detach: boolean, locked?: boolean}} run
  * @returns {Promise<number>} compose's exit status, or 1 when an image cannot be resolved
  */
-export async function composeUp({ root, file, compose, detach }, deps = {}) {
+export async function composeUp({ root, file, compose, detach, locked = false }, deps = {}) {
   const log = deps.log ?? console.log;
   const errLog = deps.errLog ?? console.error;
   const exec = deps.exec ?? execCollect;
@@ -293,6 +345,14 @@ export async function composeUp({ root, file, compose, detach }, deps = {}) {
   const engine = engineFor(compose, deps.env ?? process.env);
 
   const { project, services } = composeServices(readFileSync(file, "utf8"));
+  if (locked) {
+    const problems = await lockedProblems({ root, committed: services });
+    if (problems.length > 0) {
+      for (const problem of problems) errLog(`cloister cluster up: ${problem}`);
+      errLog("cloister cluster up: nothing was started");
+      return 1;
+    }
+  }
   const previous = previousRecords({ exec, engine, project });
   const { resolved, failures } = resolveRunImages(services, { exec, engine });
   if (failures.length > 0) {

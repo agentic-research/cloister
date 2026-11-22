@@ -291,7 +291,7 @@ export const COMMANDS = [
   },
   {
     name: "cluster up",
-    usage: "cloister cluster up [--dir <path>] [--detach] | cloister cluster up --env <name> [--dir <path>]",
+    usage: "cloister cluster up [--dir <path>] [--detach] [--locked] | cloister cluster up --env <name> [--dir <path>] [--locked]",
     summary: "Bring a declared cluster up (compose, or microVMs with --env)",
     detail:
       "With --env, starts every bundle placed \"microvm\" in that env from cluster.toml and " +
@@ -321,7 +321,11 @@ export const COMMANDS = [
       "engine's credentials. A bare name the engine does not hold " +
       "is refused by name and never pulled, and then nothing starts. Each container " +
       "records what it runs in its cloister.image labels, and `up` prints each " +
-      "digest that moved since the last run.\n\n" +
+      "digest that moved since the last run. With --locked, `up` starts only a " +
+      "digest cluster.toml writes or cluster.lock.toml pins, and refuses, before " +
+      "anything starts, an image with no digest or a cluster.compose.yaml whose " +
+      "images are not what cluster.toml and cluster.lock.toml render. It asks no " +
+      "registry what a tag names today.\n\n" +
       "A scaffolded cluster includes a small Taskfile, and its `task up` command " +
       "delegates to this CLI command. Both paths therefore use one implementation " +
       "of starting a cluster.",
@@ -329,6 +333,7 @@ export const COMMANDS = [
       { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory. Present from the start because the next shape is many cloisters, and a cwd-only verb would foreclose it" },
       { flag: "--detach", short: "-d", summary: "run in the background (compose -d); not with --env" },
       { flag: "--env", value: "<name>", summary: "start the microVM-placed bundles of this env instead of compose" },
+      { flag: "--locked", summary: "start only images pinned by digest, in cluster.toml or cluster.lock.toml (ADR-0083 §5). The microVM placement always runs this way" },
     ],
   },
   {
@@ -347,7 +352,7 @@ export const COMMANDS = [
   {
     name: "cluster k8s",
     standalone: true,
-    usage: "cloister cluster k8s --out <dir> [--env <name>] [--dir <path>]",
+    usage: "cloister cluster k8s --out <dir> [--env <name>] [--dir <path>] [--locked]",
     summary: "Lower kubernetes placements to manifests + NetworkPolicy; check knative ones",
     detail:
       "For each bundle placed \"kubernetes\" in --env, checks its rendered " +
@@ -377,11 +382,14 @@ export const COMMANDS = [
       "address naming another bundle with no declared connection, or on a " +
       "port no declared connection reaches, fails the build. An address is " +
       "any host, in a URL, a DSN or a bare host:port; values are never " +
-      "printed. ADR-0070 §2-4.",
+      "printed. ADR-0070 §2-4. With --locked, a container whose image has no digest, " +
+      "or runs a digest other than the lock's pin for its bundle, is refused before " +
+      "anything is written (ADR-0083 §5).",
     flags: [
       { flag: "--out", value: "<dir>", required: true, summary: "output directory (may exist, but only with files this run writes)" },
       { flag: "--env", value: "<name>", default: "local", summary: "environment whose placements and targets are lowered" },
       { flag: "--dir", value: "<path>", default: ".", summary: "cluster directory holding cluster.toml" },
+      { flag: "--locked", summary: "refuse a container image that is not pinned by digest, or is not the lock's pin for its bundle (ADR-0083 §5)" },
     ],
     seeAlso: "docs/adr/0070-placements-and-channel-strength.md",
   },

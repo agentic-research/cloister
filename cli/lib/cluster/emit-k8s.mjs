@@ -31,7 +31,8 @@
 import { basename } from "node:path";
 import { parseAllDocuments, stringify } from "yaml";
 
-import { addressesIn, clusterService, containerStrings, isObject } from "./manifest-addresses.mjs";
+import { addressesIn, clusterService, containerImages, containerStrings, isObject } from "./manifest-addresses.mjs";
+import { parseImageRef, pinnedImage } from "../oci-artifact.mjs";
 import {
   isExposed,
   placementFor,
@@ -596,7 +597,47 @@ export function lowerK8s({ bundles: declared, connections, env, readManifest }) 
     ...placed.map((b) => ({ bundle: b.name, namespace: b.name })),
     ...knative.map((b) => ({ bundle: b.name, namespace: checked.find((k) => k.bundle === b.name).namespace })),
   ];
-  return { files, applies, checked, references, unreferenced, unread };
+  // Each manifest's container images, for `--locked` (ADR-0083 §5).
+  const images = [...manifests].map(([bundle, m]) => ({ bundle, path: m.path, images: containerImages(m.objects) }));
+  return { files, applies, checked, references, unreferenced, unread, images };
+}
+
+/**
+ * What `cluster k8s --locked` refuses (ADR-0083 §5), one sentence each: a
+ * container whose image carries no digest, and one that runs a digest other
+ * than the lock's pin for its bundle's declared image. A lowered manifest is
+ * the operator's file, and lowering never overwrites one, so a manifest
+ * lowered before its image was pinned is caught here.
+ *
+ * @param {{manifests: Array<{bundle: string, path: string, images: Array<{workload: string, container: string, image: string}>}>,
+ *          declared: Map<string, string>, images: Map<string, string>}} input
+ *   the manifests' images (from `lowerK8s`), each bundle's declared image, and
+ *   the lock's pins (`lockedImages`)
+ * @returns {string[]}
+ */
+export function lockedManifestProblems({ manifests, declared, images }) {
+  const problems = [];
+  const repository = (ref) => `${ref.registry ?? ""}/${ref.repository}`;
+  for (const { bundle, path, images: running } of manifests) {
+    const pin = pinnedImage(declared.get(bundle) ?? "", images);
+    const pinned = pin ? parseImageRef(pin) : null;
+    for (const { workload, container, image } of running) {
+      const ref = parseImageRef(image);
+      const where = `${path}: ${workload} container ${JSON.stringify(container)}`;
+      if (!ref.digest) {
+        problems.push(
+          `${where} runs ${image || "no image"}, which is not pinned by digest. --locked applies only a digest ` +
+          `cluster.toml writes or cluster.lock.toml pins (ADR-0083 §5)`,
+        );
+      } else if (pinned && repository(ref) === repository(pinned) && ref.digest !== pinned.digest) {
+        problems.push(
+          `${where} runs ${image}, but cluster.lock.toml pins ${pin} for bundle "${bundle}". Lower it again, or ` +
+          `update the manifest (ADR-0083 §5)`,
+        );
+      }
+    }
+  }
+  return problems;
 }
 
 /** The files `lowerK8s` writes, for callers that want only those. */

@@ -47,6 +47,27 @@ export const WORKLOADS = Object.freeze([
 const at = (obj, path) => path.reduce((o, key) => (o && typeof o === "object" ? o[key] : undefined), obj);
 const list = (v) => (Array.isArray(v) ? v : []);
 
+/**
+ * Every image a manifest's workloads run: each init and app container's, by
+ * workload and container name (ADR-0083 §5).
+ *
+ * @returns {Array<{workload: string, container: string, image: string}>}
+ */
+export function containerImages(objects) {
+  const images = [];
+  for (const obj of objects) {
+    const workload = WORKLOADS.find((id) => isObject(obj, id));
+    if (!workload) continue;
+    const pod = at(obj, workload.path);
+    const name = `${obj.kind} "${obj.metadata?.name ?? "<unnamed>"}"`;
+    for (const c of [...list(pod?.initContainers), ...list(pod?.containers)]) {
+      if (!isTable(c)) continue;
+      images.push({ workload: name, container: typeof c.name === "string" ? c.name : "", image: typeof c.image === "string" ? c.image : "" });
+    }
+  }
+  return images;
+}
+
 const CONFIG_MAP = Object.freeze({ group: "", kind: "ConfigMap" });
 const SECRET = Object.freeze({ group: "", kind: "Secret" });
 const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);

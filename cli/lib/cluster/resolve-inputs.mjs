@@ -892,7 +892,11 @@ export async function probeOciDigest(ref, version, fetchImpl = fetch) {
         .catch(() => null);
       const bearer = tok && (tok.token || tok.access_token);
       if (!bearer) return { state: "unauthorized", detail: "anonymous token exchange refused" };
-      res = await fetchImpl(manifestUrl, {
+      // Ask the host that challenged. A registry such as registry.k8s.io
+      // redirects to another host, and fetch drops Authorization on a
+      // cross-origin redirect, so asking the first URL again would arrive
+      // without the token. `res.url` is where the redirects ended.
+      res = await fetchImpl(res.url || manifestUrl, {
         method: "HEAD",
         headers: { Accept: accept, Authorization: `Bearer ${bearer}` },
       });

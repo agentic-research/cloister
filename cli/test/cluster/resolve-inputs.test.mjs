@@ -1453,6 +1453,30 @@ test("probe: a resolved digest is present", async () => {
   assert.deepEqual(r, { state: "present", digest: "sha256:abc" });
 });
 
+test("probe: after a token exchange it asks the host that challenged, which a redirect may have changed", async () => {
+  // registry.k8s.io redirects a manifest request to another host, and fetch
+  // drops Authorization on a cross-origin redirect. Asking the first URL again
+  // with the token would arrive at the challenging host without it.
+  const BACKEND = "https://backend.example/v2/e2e/agnhost/manifests/2.53";
+  const asked = [];
+  const fetchImpl = async (url, init = {}) => {
+    asked.push(`${init.method ?? "GET"} ${url}${init.headers?.Authorization ? " (token)" : ""}`);
+    if (String(url).startsWith("https://registry.k8s.io/")) {
+      // As fetch reports a followed redirect: the response is the backend's.
+      return { ...fakeRes(401, { "www-authenticate": 'Bearer realm="https://backend.example/token",service="backend.example"' }), url: BACKEND };
+    }
+    if (String(url).startsWith("https://backend.example/token")) return { ok: true, json: async () => ({ token: "anonymous" }) };
+    if (url === BACKEND && init.headers?.Authorization) return { ...fakeRes(200, { "docker-content-digest": "sha256:abc" }), url: BACKEND };
+    return fakeRes(401);
+  };
+  assert.deepEqual(await probeOciDigest("registry.k8s.io/e2e/agnhost", "2.53", fetchImpl), { state: "present", digest: "sha256:abc" });
+  assert.deepEqual(asked, [
+    "HEAD https://registry.k8s.io/v2/e2e/agnhost/manifests/2.53",
+    "GET https://backend.example/token?service=backend.example",
+    `HEAD ${BACKEND} (token)`,
+  ]);
+});
+
 test("probe: 404 is the ONLY status that means absent", async () => {
   assert.equal((await probeOciDigest("ghcr.io/x/y", "v1", async () => fakeRes(404))).state, "absent");
 });
